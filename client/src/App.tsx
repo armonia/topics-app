@@ -4,7 +4,6 @@ import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Rad
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -20,6 +19,7 @@ import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
+import { useSettingsSync } from './hooks/useSettingsSync';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
@@ -32,7 +32,7 @@ import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapPr
 import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
-import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
+import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
 
@@ -158,6 +158,11 @@ function App() {
     };
   }), []);
   useEffect(() => registerHeapOwner('pane.residency', residencyHeapReport), []);
+
+  // Click su una web-push (app aperta ma in secondo piano): il service worker
+  // mette a fuoco questa finestra e ci passa la destinazione, perché non può
+  // navigarla senza ricaricare la SPA. Stessa via dei deep-link `/task/<id>`.
+  useEffect(() => subscribeServiceWorkerTaskOpen(), []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
@@ -421,9 +426,11 @@ function App() {
   // "Board generale" sidebar row and shows its badge.
   const boardTaskCount = useGlobalBoardCount(onWSMessage);
 
-  // topicId → taskId index for dispatched tasks: lets a completion banner carry
-  // the taskId so clicking it opens that task's drawer (useCompletionNotifier).
-  const taskIdForTopic = useTaskTopicIndex(onWSMessage);
+  // topicId → task index for dispatched tasks. Due consumatori: il banner di
+  // completamento ci mette dentro il taskId (un click apre il drawer del task)
+  // e i due notificatori lo usano per NON bannerizzare la fine turno di un
+  // agente di board al lavoro — quella la annuncia `task:review-ready`.
+  const taskForTopic = useTaskTopicIndex(onWSMessage);
 
   // A stable global the native (Tauri) notification delegate can call on click to
   // open a task — the web/Electron path opens it directly via notifyNative.onclick.
@@ -432,10 +439,6 @@ function App() {
       (id: string) => { if (id) openTaskInApp({ taskId: id }); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
   }, []);
-
-  // Native desktop banner for P0/P1 Claude session events (replaces the
-  // stop-hook's osascript banner — no more Apple Events / iTunes prompt).
-  useClaudeEventNotifications(onWSMessage);
 
   // Task-owned browser fork → per-task tab store. Consumes the server's
   // `browser:open-task-tab` frame (feature-flagged) so an agent's browser lands
@@ -494,6 +497,12 @@ function App() {
   const sidebar = useSidebarState(onWSMessage);
   const isPinnedRef = useRefMirror(sidebar.isPinned);
 
+  // Verso di LETTURA delle preferenze: `saveSettings` faceva il PUT da sempre,
+  // ma nessuno leggeva mai indietro. Senza questo, un secondo dispositivo o la
+  // WebView del guscio desktop (storage suo) ripartono dai default con il
+  // valore giusto fermo sul server.
+  useSettingsSync(onWSMessage);
+
   // Phase 3 hook 3 — full panel-state cluster (state, store-sync,
   // validation, per-cluster WS subs, handlers). See usePanelLifecycle.ts
   // for the full effect-declaration-order contract.
@@ -512,6 +521,7 @@ function App() {
     },
     setSidebarCollapsed,
     removeClosedTab, closedTabs,
+    taskForTopic,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
@@ -816,6 +826,7 @@ function App() {
     setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
+    setShowSettings,
     setShowFileSearch,
     isSessionStreaming,
     stopSession,
@@ -837,7 +848,7 @@ function App() {
       topics={topics}
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
-      taskIdForTopic={taskIdForTopic}
+      taskForTopic={taskForTopic}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original

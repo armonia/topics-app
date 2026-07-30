@@ -18,6 +18,7 @@ import {
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
   getSessionKeyFromViewerPaneId,
+  sessionKeyForPaneId,
   pinKeyForPane,
 } from "./paneConfig";
 
@@ -113,6 +114,29 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
     expect(isSessionViewerPaneId(id)).toBe(true);
     expect(getSessionKeyFromViewerPaneId(id)).toBe("sk-99");
     expect(getSessionKeyFromViewerPaneId("chat:foo")).toBeNull();
+  });
+
+  test("sessionKeyForPaneId: la chat NON ha la sessionKey nell'id — va presa dal topic", () => {
+    const topicId = "7b1e2a1f-2cf2-453c-a77b-5dc95d66e890";
+    const topics = { [topicId]: { sessionKey: "topic:7b1e2a1f" } };
+    // Pane di primo livello: l'id è il topic nudo.
+    expect(sessionKeyForPaneId(topicId, topics)).toBe("topic:7b1e2a1f");
+    // Dentro una finestra di progetto: `chat:<topicId>`.
+    expect(sessionKeyForPaneId(createPaneId("chat", topicId), topics)).toBe("topic:7b1e2a1f");
+    // Il caso che funzionava già: la chiave sta NELL'id.
+    expect(sessionKeyForPaneId("session-viewer:topic:abcd1234", topics)).toBe("topic:abcd1234");
+  });
+
+  test("sessionKeyForPaneId: niente sessione per i pane che non sono chat", () => {
+    const topics = { t1: { sessionKey: "topic:t1" } };
+    for (const id of ["terminal:s1", "browser:c1", "project:%2Ftmp", "draft:d1", "process-log:p1"]) {
+      expect(sessionKeyForPaneId(id, topics)).toBeNull();
+    }
+    // Topic sconosciuto (chiuso, non ancora caricato): null, non l'id nudo —
+    // era proprio l'id nudo a farsi passare per sessionKey.
+    expect(sessionKeyForPaneId("ignoto", topics)).toBeNull();
+    expect(sessionKeyForPaneId(null, topics)).toBeNull();
+    expect(sessionKeyForPaneId(undefined, topics)).toBeNull();
   });
 
   test("isKnownPanePrefix recognises every documented prefix and rejects an unknown one", () => {

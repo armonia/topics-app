@@ -23,7 +23,7 @@ import { useCallback, useEffect, useRef, useState, startTransition, type Dispatc
 import type { AppSettings } from '../types';
 import { useMobile } from './useMobile';
 import { useStorageSync } from './useStorageSync';
-import { loadSettings, saveSettings } from '../lib/settings';
+import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '../lib/settings';
 import { generateUUID } from '../utils/uuid';
 import { DRAG_SLOP_PX } from './useGridResize';
 import { isDesktop } from '../lib/shell';
@@ -154,6 +154,14 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   useStorageSync('app-settings', useCallback((newSettings: AppSettings) => {
     if (newSettings) setAppSettings(newSettings);
   }, []));
+  // Stessa tab: l'idratazione dal server (useSettingsSync) scrive localStorage,
+  // che NON emette un evento `storage` a chi l'ha scritto. Senza questo, il
+  // valore arrivato dal server restava invisibile fino al reload successivo.
+  useEffect(() => {
+    const reload = () => setAppSettings(loadSettings());
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
+  }, []);
 
   // Sidebar width / collapsed — collapsed by default in detached + mobile
   const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);

@@ -40,11 +40,23 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 SHARDS="${SHARDS:-4}"
-BASE_PORT="${E2E_BASE_PORT:-13334}"
+# La porta di partenza segue la stessa regola del default di `E2E_PORT`
+# (tests/e2e/helpers/worktree-port.ts): 13334 dal checkout principale, una porta
+# derivata dal path se questo è un worktree di dispatch. Cablare 13334 qui
+# significherebbe che lo shard 0 di un agente si riprende esattamente la porta
+# che il resto del fix tiene libera — e il suo global-setup ammazzerebbe il
+# server della run vera.
+BASE_PORT="${E2E_BASE_PORT:-$(bun -e 'import {defaultE2EPort} from "./tests/e2e/helpers/worktree-port"; import {homedir} from "os"; console.log(defaultE2EPort(process.cwd(), homedir()))' 2>/dev/null)}"
 STAGGER="${STAGGER:-5}"
 
 if ! [[ "$SHARDS" =~ ^[0-9]+$ ]] || [ "$SHARDS" -lt 1 ]; then
   echo "SHARDS deve essere un intero >= 1 (ricevuto: $SHARDS)" >&2
+  exit 2
+fi
+# Una derivazione fallita non deve degradare in silenzio su una porta a caso (o
+# vuota): meglio fermarsi e dirlo.
+if ! [[ "$BASE_PORT" =~ ^[0-9]+$ ]] || [ "$BASE_PORT" -lt 1024 ]; then
+  echo "BASE_PORT non valida (ricevuto: '${BASE_PORT}'). Passa E2E_BASE_PORT=<porta> a mano." >&2
   exit 2
 fi
 if ! [[ "$STAGGER" =~ ^[0-9]+$ ]]; then

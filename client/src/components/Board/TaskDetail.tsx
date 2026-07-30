@@ -10,7 +10,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, type TaskSurface } from './constants';
@@ -67,8 +67,8 @@ function ChecksSection({ task }: { task: BoardTask }) {
 
   if (task.checksState === 'running') {
     return (
-      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-neutral-300">
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-neutral-400" />
+      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-app-text-heading">
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-app-text-secondary" />
         Checks pre-review in corso…
       </div>
     );
@@ -109,13 +109,13 @@ function ChecksSection({ task }: { task: BoardTask }) {
                 {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : ` — ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
-                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-neutral-300">
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-app-text-heading">
                   {r.spawnError ?? r.tail}
                 </pre>
               )}
             </div>
           ))}
-          <p className="text-neutral-400">
+          <p className="text-app-text-secondary">
             La strada normale è <b>Rifiuta</b>: l'agent riparte con questo output. Approvare qui significa accettarlo rosso.
           </p>
         </div>
@@ -200,10 +200,10 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
   // worktree, or a zero-file diff.
   if (!bundle || bundle.code === 'no_worktree' || fileCount === 0) return null;
   return (
-    <div className="shrink-0 border-b border-white/10 px-3 py-2">
-      <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300">
+    <div className="shrink-0 border-b border-app-border px-3 py-2">
+      <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        Modifiche <span className="normal-case tracking-normal text-neutral-600">· {fileCount} file</span>
+        Modifiche <span className="normal-case tracking-normal text-app-text-faint">· {fileCount} file</span>
         {notes.length > 0 && (
           <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
             {notes.length} in sospeso
@@ -217,7 +217,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
           </div>
           {notes.length > 0 && (
             <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
-              <span className="min-w-0 flex-1 text-[11px] text-neutral-300">
+              <span className="min-w-0 flex-1 text-[11px] text-app-text-heading">
                 {notesError
                   ? <span className="text-rose-300">Invio fallito: {notesError} — le note sono ancora qui, riprova.</span>
                   : <>{notes.length} {notes.length === 1 ? 'commento' : 'commenti'} sul diff, non ancora inviati</>}
@@ -225,7 +225,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
               <button
                 onClick={() => setNotes([])}
                 disabled={sendingNotes}
-                className="rounded px-2 py-0.5 text-[11px] text-neutral-400 hover:text-neutral-200 disabled:opacity-40"
+                className="rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:text-app-text disabled:opacity-40"
               >
                 Scarta
               </button>
@@ -294,9 +294,9 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
   const running = attempts.filter((a) => a.state === 'running').length;
 
   return (
-    <div className="shrink-0 border-b border-white/10 px-3 py-2">
-      <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
-        Tentativi <span className="normal-case tracking-normal text-neutral-600">· {attempts.length} in parallelo</span>
+    <div className="shrink-0 border-b border-app-border px-3 py-2">
+      <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
+        Tentativi <span className="normal-case tracking-normal text-app-text-faint">· {attempts.length} in parallelo</span>
         {running > 0 && (
           <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-300">
             <Loader2 className="h-2.5 w-2.5 animate-spin" /> {running} in corso
@@ -304,7 +304,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
         )}
       </div>
       {!decided && running === 0 && (
-        <p className="mt-1 text-[11px] text-neutral-400">
+        <p className="mt-1 text-[11px] text-app-text-secondary">
           Scegline uno: il task prende il suo branch, gli altri (worktree e chat) vengono buttati.
         </p>
       )}
@@ -319,30 +319,30 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               key={a.id}
               data-testid={`task-attempt-${a.idx}`}
               className={`rounded border px-2 py-1.5 ${
-                won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-white/5 bg-white/[0.02] opacity-50' : 'border-white/10 bg-white/[0.03]'
+                won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-app-border-subtle bg-white/[0.02] opacity-50' : 'border-app-border bg-white/[0.03]'
               }`}
             >
               <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="font-medium text-neutral-200">Tentativo {a.idx}</span>
+                <span className="font-medium text-app-text">Tentativo {a.idx}</span>
                 {won && <span className="rounded bg-emerald-500/25 px-1 text-[9px] text-emerald-200">scelto</span>}
-                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-neutral-400">scartato</span>}
-                <span className="text-neutral-500">{formatAttemptStat(a)}</span>
-                {a.branch && <span className="truncate font-mono text-[10px] text-neutral-600">{a.branch}</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-app-text-secondary">scartato</span>}
+                <span className="text-app-text-muted">{formatAttemptStat(a)}</span>
+                {a.branch && <span className="truncate font-mono text-[10px] text-app-text-faint">{a.branch}</span>}
               </div>
               {a.summary && (
-                <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-[11px] leading-snug text-neutral-300">{a.summary}</p>
+                <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-[11px] leading-snug text-app-text-heading">{a.summary}</p>
               )}
               <div className="mt-1 flex items-center gap-1.5">
                 {work && (
                   <button
                     onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
                   >{openDiff === a.id ? 'Chiudi il diff' : 'Vedi il diff'}</button>
                 )}
                 {a.topicId && onOpenTopic && !dead && (
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
                   >Apri la chat</button>
                 )}
                 {!decided && running === 0 && a.topicId && (
@@ -382,9 +382,9 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [projectId, taskId, attemptId]);
-  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-neutral-500"><Loader2 className="h-3 w-3 animate-spin" /> carico il diff…</div>;
+  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Loader2 className="h-3 w-3 animate-spin" /> carico il diff…</div>;
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">Diff non leggibile.</p>;
-  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-neutral-500">Nessuna modifica da mostrare.</p>;
+  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">Nessuna modifica da mostrare.</p>;
   return (
     <div className="mt-1.5 max-h-[38vh] overflow-y-auto">
       <UnifiedDiff bundle={state} defaultOpenFirst />
@@ -744,7 +744,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     : currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
-    : task.assignedTopicId || ['queued', 'starting', 'working'].includes(task.dispatchState ?? '')
+    : task.assignedTopicId || isAgentWorking(task.dispatchState)
       ? "C'è un agent attivo sul task: chiudi prima il giro."
       : null;
 
@@ -904,7 +904,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
 
   // Live agent state (needed below): typing indicator + stream preview + stop.
-  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  const agentBusy = !!task && isAgentWorking(task.dispatchState);
 
   // While a turn runs, poll the history (it overlays the LIVE stream content)
   // so the drawer shows what the agent is thinking/writing right now.
@@ -943,7 +943,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     if (!task) return null;
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
+        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">Nessun commento.</p>}
         {comments.map((c, i) => (
           <div key={c.id} className="space-y-2">
             {task.assignedTopicId && (
@@ -966,10 +966,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {[0, 150, 300].map((d) => (
                   <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
                 ))}
-                <span className="ml-1.5 text-[11px] text-neutral-400">
+                <span className="ml-1.5 text-[11px] text-app-text-secondary">
                   {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
                   {task.inProgressAt && task.dispatchState === 'working' && (
-                    <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
+                    <span className="text-app-text-muted"> <Ticker since={task.inProgressAt} /></span>
                   )}
                 </span>
               </div>
@@ -1028,11 +1028,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       // shrink-0) so the columns viewport shrinks beside it and the board stays
       // scrollable; wide just grows the review surface (72%/64rem caps keep a
       // strip of board visible).
-      className={`glass-surface flex flex-col border-white/10 ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`glass-surface flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-app-border px-3 py-2.5">
         {/* Topbar = slim window-chrome row: the status selector on the left,
             window actions on the right. Everything else — project eyebrow,
             title + dispatch state, and the attribute chips — lives in the
@@ -1043,14 +1043,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           onClick={() => task && setStatusMenuOpen(true)}
           data-testid="task-status-chip"
           title="Cambia lo stato del task"
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-neutral-300 hover:bg-white/10"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
         >
           {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {task ? STATUS_LABEL[task.status] : 'Carico…'}
-          <ChevronDown className="h-3 w-3 text-neutral-600" />
+          <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Sposta in…</p>
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Sposta in…</p>
           {TASK_STATUSES.map((s) => (
             <button
               key={s} role="option" aria-selected={s === task?.status}
@@ -1072,18 +1072,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => setOptionsMenuOpen((o) => !o)}
               data-testid="task-options-menu"
               title="Altre opzioni: piano prima, bloccato da, sottotask…"
-              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><MoreHorizontal className="h-4 w-4" /></button>
           )}
           {task && (
             <Menu open={optionsMenuOpen} anchorRef={optionsBtnRef} onClose={() => setOptionsMenuOpen(false)} align="right" minWidth={240}>
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Opzioni task</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Opzioni task</p>
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
                 title="L'agent consegna un piano da approvare PRIMA di implementare"
                 className={`${POPOVER_ITEM} disabled:opacity-40`}
               >
-                <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
                 <span className="min-w-0 flex-1">Piano prima</span>
                 {task.planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
@@ -1091,9 +1091,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); openBlockerMenu(); }}
                 className={POPOVER_ITEM}
               >
-                <Lock className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <Lock className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
                 <span className="min-w-0 flex-1 truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span>
-                <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />
+                <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />
               </button>
               {task.blockedByTaskId && (
                 <button
@@ -1101,7 +1101,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
-                  <Bot className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                  <Bot className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
                   <span className="min-w-0 flex-1">Riusa il contesto del bloccante</span>
                   {task.reuseBlockerContext && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
@@ -1110,7 +1110,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
                 className={POPOVER_ITEM}
-              ><Plus className="h-3.5 w-3.5 shrink-0 text-neutral-400" /> Aggiungi sottotask</button>
+              ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> Aggiungi sottotask</button>
             </Menu>
           )}
           {task && (
@@ -1118,7 +1118,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={copyLink}
               data-testid="task-copy-link"
               title={copied ? 'Link copiato' : 'Copia il link al task (deep-link apribile, per debug/condivisione)'}
-              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             >{copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
           )}
           {task?.assignedTopicId && onOpenTopic && (
@@ -1126,7 +1126,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => onOpenTopic(task.assignedTopicId!)}
               data-testid="task-open-session-tab"
               title="Apri la tab dell'agent (chiuderla NON ferma la sessione)"
-              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><ArrowUpRight className="h-4 w-4" /></button>
           )}
           {task?.outputUrl && (
@@ -1134,7 +1134,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={openInWorkspace}
               data-testid="task-open-in-workspace"
               title="Apri il risultato come tab nel workspace del progetto"
-              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"
             ><Globe className="h-4 w-4" /></button>
           )}
           {/* Espandi/riduci ha senso solo sul side-panel desktop: su mobile il
@@ -1142,9 +1142,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button
             onClick={toggleWide}
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
-            className="hidden rounded p-1.5 text-neutral-400 hover:bg-white/10 lg:block"
+            className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {error && (
@@ -1166,7 +1166,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       )}
       {!task ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
+          <Loader2 className="h-5 w-5 animate-spin text-app-text-muted" />
         </div>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -1178,7 +1178,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             thread's `overflow-y-auto` never get a bounded height → nothing
             scrolls. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="border-b border-white/10 px-3 py-3">
+          <div className="border-b border-app-border px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
                 onClick={() => onOpenTask(task.parentTaskId!)}
@@ -1195,11 +1195,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={openProjMenu}
                   data-testid="task-project-chip"
                   title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+                  className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary hover:text-app-text"
                 >
                   <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
                   <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
                 </button>
                 {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
                   <DispatchChip state={task.dispatchState} error={task.dispatchError} />
@@ -1241,13 +1241,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
                 onBlur={saveTitle}
                 onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
+                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-app-text outline-none"
               />
             ) : (
               <p
                 onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
                 title="Clicca per modificare il titolo"
-                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
+                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
               >{task?.text}</p>
             )}
             {/* Meta row — compact chips that wrap, card-style: priorità,
@@ -1256,7 +1256,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {task && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span
-                  className="flex items-center gap-1 text-[11px] text-neutral-500"
+                  className="flex items-center gap-1 text-[11px] text-app-text-muted"
                   title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
                 ><Clock className="h-3 w-3 shrink-0" /> {fmtUpdatedAt(task.updatedAt)}</span>
                 <button
@@ -1267,15 +1267,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ? "Priorità automatica: la valuta l'agent appena inquadra il task"
                     : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
                   className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
-                    !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                    !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
                   }`}
                 >
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
                   {task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media'}
-                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
                 </button>
                 <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
                   {PRIORITY_ORDER.map((p) => (
                     <button
                       key={p} role="option" aria-selected={p === task?.priority}
@@ -1296,21 +1296,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   title={(task.agentMs > 0 || task.agentTokens > 0)
                     ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'} · effort ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
                     : "Modello dell'agent — Auto = il classificatore opus-first sceglie per task"}
-                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-white/20"
+                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
                 >
-                  <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
+                  <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
                   <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
                 </button>
                 <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello agent</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello agent</p>
                   <button
                     role="option" aria-selected={!task?.model} disabled={busy}
                     onClick={() => changeModel(null)}
                     className={`${POPOVER_ITEM} disabled:opacity-40`}
                   >
-                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
-                    <span className="min-w-0 flex-1">Auto <span className="text-neutral-500">(opus-first)</span></span>
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+                    <span className="min-w-0 flex-1">Auto <span className="text-app-text-muted">(opus-first)</span></span>
                     {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                   </button>
                   {models.map((m) => (
@@ -1328,7 +1328,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     Only the blocker PICKER stays here — portaled, anchored to the
                     ⋯ button, opened from that menu. */}
                 <Menu open={blockerMenuOpen} anchorRef={optionsBtnRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus>
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Bloccato da…</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Bloccato da…</p>
                   <button
                     role="option" aria-selected={!task.blockedByTaskId}
                     onClick={() => pickBlocker(null)}
@@ -1339,9 +1339,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   </button>
                   <div className="max-h-52 overflow-y-auto">
                     {boardTasks === null ? (
-                      <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+                      <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-app-text-muted" /></div>
                     ) : blockerCandidates.length === 0 ? (
-                      <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun altro task su questa board.</p>
+                      <p className="px-2.5 py-2 text-xs text-app-text-muted">Nessun altro task su questa board.</p>
                     ) : blockerCandidates.map((t) => (
                       <button
                         key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
@@ -1360,7 +1360,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {/* Descrizione — accordion coerente con Sottotask/Modifiche: stesso
               container (px-3 py-2), stessa label (chevron + uppercase), corpo a
               mt-1.5. Spazio sopra/sotto la label uguale (il py-2 del contenitore). */}
-          <div className="shrink-0 border-b border-white/10 px-3 py-2">
+          <div className="shrink-0 border-b border-app-border px-3 py-2">
             {editingDesc ? (
               <textarea
                 autoFocus value={descDraft} rows={1} ref={autoGrow}
@@ -1368,13 +1368,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onBlur={saveDesc}
                 onKeyDown={cancelKey}
                 placeholder="Descrizione…"
-                className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-neutral-300 outline-none"
+                className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-app-text-heading outline-none"
               />
             ) : task?.description ? (
               <>
                 <button
                   onClick={toggleDescOpen}
-                  className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                  className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
                 >
                   {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} Descrizione
                 </button>
@@ -1382,14 +1382,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <div
                     onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                     title="Clicca per modificare la descrizione"
-                    className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                    className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
                   ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
                 )}
               </>
             ) : (
               <button
                 onClick={() => { setDescDraft(''); setEditingDesc(true); }}
-                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600 hover:text-neutral-400"
+                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
               >+ descrizione…</button>
             )}
             {/* Anteprima della consegna anche nel drawer (non solo sulla card):
@@ -1402,7 +1402,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 loading="lazy"
                 title="Apri lo screenshot a grandezza piena"
                 onClick={() => openExternalOnce(getMediaUrl(task.previewImage!))}
-                className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-white/10 bg-black/20 object-contain"
+                className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-app-border bg-black/20 object-contain"
               />
             )}
             {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
@@ -1411,13 +1411,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 il risultato è tab + lista scaricabili. */}
             {mediaPaths.length > 0 && (
               <div className="mt-3" data-testid="task-downloads">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">File consegnati</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">File consegnati</div>
                 <ul className="flex flex-col gap-1">
                   {mediaPaths.map((p) => {
                     const name = p.split('/').pop() || p;
                     return (
-                      <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-neutral-300">
-                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+                      <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
                         <button
                           type="button"
                           onClick={() => browser.focusPane(`media:${p}`)}
@@ -1428,7 +1428,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                           href={getMediaUrl(p)}
                           download={name}
                           title="Scarica il file"
-                          className="shrink-0 rounded p-1 text-neutral-400 hover:bg-white/10 hover:text-white"
+                          className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
                         ><Download className="h-3.5 w-3.5" /></a>
                       </li>
                     );
@@ -1442,13 +1442,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ("quando chiuso"). Live tabs (and the "+" to add one) belong to the
               GroupLayout's own PaneTabBar below — the single tab system. */}
           {browser.parkedTabs.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
+            <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-app-border px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
               {browser.parkedTabs.map((t) => {
                 const label = t.title || hostLabel(t.url) || 'Nuova scheda';
                 return (
                   <div
                     key={t.contextId}
-                    className="group/prev flex shrink-0 items-center rounded-md border border-white/10 bg-white/[0.02] text-xs text-neutral-500"
+                    className="group/prev flex shrink-0 items-center rounded-md border border-app-border bg-white/[0.02] text-xs text-app-text-muted"
                   >
                     <button
                       onClick={() => browser.reopenTab(t.contextId)}
@@ -1457,12 +1457,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     >
                       <Globe className="h-3 w-3 shrink-0" />
                       <span className="max-w-[10rem] truncate">{label}</span>
-                      <span className="text-[9px] uppercase tracking-wide text-neutral-600">chiusa</span>
+                      <span className="text-[9px] uppercase tracking-wide text-app-text-faint">chiusa</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); browser.removeTab(t.contextId); }}
                       title="Rimuovi la scheda"
-                      className="mr-1 rounded p-0.5 text-neutral-500 opacity-0 hover:bg-white/10 hover:text-neutral-200 group-hover/prev:opacity-100"
+                      className="mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100"
                     ><X className="h-3 w-3" /></button>
                   </div>
                 );
@@ -1474,10 +1474,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               Hidden entirely when there are no subtasks ("non mostrare se non ci
               sono") — added on demand from the ⋯ menu (subtaskComposerOpen). */}
           {(children.length > 0 || subtaskComposerOpen) && (
-          <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
+          <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-app-border px-3 py-2" data-testid="task-detail-subtasks">
             <button
               onClick={toggleSubtasksOpen}
-              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
             >
               {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               Sottotask{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
@@ -1494,9 +1494,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     onChange={(e) => setSubDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                     placeholder="+ sottotask…"
-                    className="w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 disabled:opacity-60"
+                    className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
                   />
-                  {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
+                  {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-app-text-secondary" />}
                 </div>
               </div>
             )}
@@ -1519,7 +1519,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <div className={`flex min-w-0 flex-col ${workspaceOpen ? 'min-h-0 flex-1' : 'shrink-0'}`}>
             <button
               onClick={toggleWorkspaceOpen}
-              className="flex w-full shrink-0 items-center gap-1 border-b border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+              className="flex w-full shrink-0 items-center gap-1 border-b border-app-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading"
             >
               {workspaceOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               Spazio di lavoro
@@ -1531,7 +1531,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
           {!workspaceOpen && <div className="flex-1" />}
-          <div className="border-t border-white/10 p-2">
+          <div className="border-t border-app-border p-2">
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
                 up above the body, out of this composer area.) */}
@@ -1543,7 +1543,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       <button
                         key={i} disabled={sending}
                         onClick={() => answerOption(opt)}
-                        className="rounded bg-white/10 px-2 py-1 text-xs text-neutral-100 hover:bg-white/20 disabled:opacity-50"
+                        className="rounded bg-white/10 px-2 py-1 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
                       >{opt}</button>
                     ))}
                   </div>
@@ -1568,7 +1568,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <button
                     disabled={busy} onClick={() => decide('reject')}
                     title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
-                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
                   ><ShieldX className="h-3.5 w-3.5" /> Rifiuta</button>
                 </div>
                 {/* Explicit landing — accept + merge the branch on main (local, no
@@ -1590,14 +1590,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     {a.isImage ? (
                       <img src={getMediaUrl(a.path)} alt={a.name} title={a.name} className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-neutral-300">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
                     <button
                       onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
                       title="Rimuovi allegato"
-                      className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-neutral-200 group-hover/att:block"
+                      className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-elevated p-0.5 text-app-text group-hover/att:block"
                     ><X className="h-2.5 w-2.5" /></button>
                   </span>
                 ))}
@@ -1611,7 +1611,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= 8}
                 title="Allega file (o incolla un'immagine nel campo)"
-                className="rounded p-1.5 text-neutral-400 hover:bg-white/10 disabled:opacity-40"
+                className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
               >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
                 ref={commentRef}
@@ -1626,7 +1626,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     .map((i) => i.getAsFile()).filter((f): f is File => !!f);
                   if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
                 }}
-                className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
+                className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"
               />
               <button
                 onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
@@ -1668,7 +1668,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
     <div>
       <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: depth * 10 }}>
         {hasKids ? (
-          <button onClick={toggle} className="shrink-0 text-neutral-500 hover:text-neutral-300" title={open ? 'Chiudi' : 'Espandi'}>
+          <button onClick={toggle} className="shrink-0 text-app-text-muted hover:text-app-text-heading" title={open ? 'Chiudi' : 'Espandi'}>
             <ChevronRight className={`h-2.5 w-2.5 transition-transform ${open ? 'rotate-90' : ''}`} />
           </button>
         ) : null}
@@ -1679,12 +1679,12 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
           <button
             onClick={() => onOpenTask?.(node.id)}
             title="Apri il sottotask"
-            className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}
+            className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
           >{node.text}</button>
         ) : (
-          <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-400'}`}>{node.text}</span>
+          <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
         )}
-        {hasKids && <span className="shrink-0 text-[10px] text-neutral-500">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span className="shrink-0 text-[10px] text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
@@ -1708,7 +1708,7 @@ export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; task
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
         <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
-        <div className={`text-sm text-neutral-200 ${PLAN_MD_CLS}`}>
+        <div className={`text-sm text-app-text ${PLAN_MD_CLS}`}>
           <ChatMarkdown components={{}}>{surface.content}</ChatMarkdown>
         </div>
       </div>
@@ -1736,7 +1736,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
   const isPdf = /\.pdf$/i.test(path);
   if (isImg) {
     return (
-      <div className="min-h-0 flex-1 overflow-auto bg-neutral-950/60 p-3">
+      <div className="min-h-0 flex-1 overflow-auto bg-app-inset p-3">
         <img src={url} alt="" className="mx-auto max-w-full rounded" />
       </div>
     );
@@ -1746,10 +1746,10 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
   }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <p className="text-sm text-neutral-400">Nessuna anteprima per questo tipo di file.</p>
+      <p className="text-sm text-app-text-secondary">Nessuna anteprima per questo tipo di file.</p>
       <button
         onClick={() => openExternalOnce(url)}
-        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
     </div>
   );
@@ -1785,21 +1785,21 @@ export function OutputFrame({ url }: { url: string }) {
 
   if (state === 'unreachable') {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-neutral-950/40 p-6 text-center">
-        <Unplug className="h-7 w-7 text-neutral-500" />
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-app-inset p-6 text-center">
+        <Unplug className="h-7 w-7 text-app-text-muted" />
         <div className="space-y-1">
-          <p className="text-sm font-medium text-neutral-200">Output non raggiungibile</p>
-          <p className="mx-auto max-w-[26rem] truncate font-mono text-[11px] text-neutral-500" title={url}>{url}</p>
-          <p className="text-[11px] text-neutral-500">Il server potrebbe essere spento, o la pagina non è incorporabile.</p>
+          <p className="text-sm font-medium text-app-text">Output non raggiungibile</p>
+          <p className="mx-auto max-w-[26rem] truncate font-mono text-[11px] text-app-text-muted" title={url}>{url}</p>
+          <p className="text-[11px] text-app-text-muted">Il server potrebbe essere spento, o la pagina non è incorporabile.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={retry}
-            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
           ><RotateCw className="h-3.5 w-3.5" /> Riprova</button>
           <button
             onClick={() => openExternalOnce(url)}
-            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
           ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
         </div>
       </div>
@@ -1808,8 +1808,8 @@ export function OutputFrame({ url }: { url: string }) {
   return (
     <div className="relative min-h-0 flex-1">
       {state === 'loading' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-neutral-950/40">
-          <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-app-inset">
+          <Loader2 className="h-5 w-5 animate-spin text-app-text-secondary" />
         </div>
       )}
       <iframe
@@ -1850,7 +1850,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? 'Anteprima nel pannello di review' : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-xs text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
@@ -1878,15 +1878,15 @@ export function StatusEventRow({ comment }: { comment: TaskComment }) {
   const at = new Date(comment.createdAt);
   return (
     <div
-      className="flex items-center gap-1.5 px-1 text-[11px] text-neutral-500"
+      className="flex items-center gap-1.5 px-1 text-[11px] text-app-text-muted"
       title={`${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
-      {valid ? <StatusIcon status={to} className="h-3 w-3" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-neutral-600" />}
+      {valid ? <StatusIcon status={to} className="h-3 w-3" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       <span className="min-w-0 truncate">
-        <span className="text-neutral-400">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
+        <span className="text-app-text-secondary">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
       </span>
-      <span className="ml-auto shrink-0 text-neutral-600">{at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+      <span className="ml-auto shrink-0 text-app-text-faint">{at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
     </div>
   );
 }
@@ -1924,25 +1924,25 @@ export function SessionSlice({ msgs, label, preview }: {
   const steps = msgs.filter((m) => m.role !== 'user');
   if (steps.length === 0 && !preview) return null;
   return (
-    <div className="rounded-md border border-white/5 bg-white/[0.02]">
+    <div className="rounded-md border border-app-border-subtle bg-white/[0.02]">
       <button
         onClick={() => setOpen((o) => !o)}
         title={open ? 'Comprimi' : 'Mostra i passaggi che la sessione ha fatto qui'}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-500 hover:text-neutral-300"
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-app-text-muted hover:text-app-text-heading"
       >
         <Footprints className="h-3 w-3 shrink-0" />
-        <span>{label ?? 'Passaggi'}{steps.length > 0 && <span className="text-neutral-600"> · {steps.length}</span>}</span>
+        <span>{label ?? 'Passaggi'}{steps.length > 0 && <span className="text-app-text-faint"> · {steps.length}</span>}</span>
         <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {!open && preview && (
         <p
           data-testid="task-stream-preview"
           title="Anteprima live di ciò che sta streammando ora"
-          className="line-clamp-2 border-t border-white/5 px-2.5 py-1.5 text-[11px] italic leading-snug text-neutral-500"
+          className="line-clamp-2 border-t border-app-border-subtle px-2.5 py-1.5 text-[11px] italic leading-snug text-app-text-muted"
         >…{preview}</p>
       )}
       {open && (
-        <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/5 bg-black/20 px-2.5 py-2">
+        <div className="max-h-72 space-y-2 overflow-y-auto border-t border-app-border-subtle bg-black/20 px-2.5 py-2">
           {steps.map((m, i) => (
             <div key={i} className="space-y-1">
               {/* Coherent with the real chat: assistant thinking renders through
@@ -1952,8 +1952,8 @@ export function SessionSlice({ msgs, label, preview }: {
               )}
               {m.content.trim() && (
                 <div className="flex gap-1.5 text-xs leading-relaxed">
-                  <span className="shrink-0 font-semibold text-neutral-500">⏺</span>
-                  <div className={`min-w-0 flex-1 text-neutral-300 ${COMPACT_MD_CLS}`}>
+                  <span className="shrink-0 font-semibold text-app-text-muted">⏺</span>
+                  <div className={`min-w-0 flex-1 text-app-text-heading ${COMPACT_MD_CLS}`}>
                     <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
                   </div>
                 </div>
@@ -1976,9 +1976,9 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
           <p className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
             <Camera size={11} /> Anteprima
           </p>
-          <div className="text-sm text-neutral-200"><CommentBody content={comment.content} /></div>
+          <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
           <MediaStrip media={comment.media} onPreview={onPreview} />
-          <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
+          <p className="mt-0.5 text-[9px] text-app-text-faint">{commentTime(comment.createdAt)}</p>
         </div>
       </div>
     );
@@ -1987,11 +1987,11 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
     const system = comment.author === 'system';
     return (
       <div className="pr-8" title={comment.author}>
-        <div className={`text-sm ${system ? 'text-neutral-500' : 'text-neutral-200'}`}>
+        <div className={`text-sm ${system ? 'text-app-text-muted' : 'text-app-text'}`}>
           <CommentBody content={comment.content} />
         </div>
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
+        <p className="mt-0.5 text-[9px] text-app-text-faint">{commentTime(comment.createdAt)}</p>
       </div>
     );
   }
@@ -2000,7 +2000,7 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
       <div className="max-w-[88%] rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-sm">
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-right text-[9px] text-neutral-500">{commentTime(comment.createdAt)}</p>
+        <p className="mt-0.5 text-right text-[9px] text-app-text-muted">{commentTime(comment.createdAt)}</p>
       </div>
     </div>
   );
@@ -2014,17 +2014,17 @@ export function CommentBubble({ comment, onPreview }: { comment: TaskComment; on
  */
 export function CommentBody({ content }: { content: string }) {
   const q = parseQuestionBlock(content);
-  if (!q) return <div className={`mt-0.5 text-neutral-100 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{content}</ChatMarkdown></div>;
+  if (!q) return <div className={`mt-0.5 text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{content}</ChatMarkdown></div>;
   const outside = content.replace(/```question[\s\S]*?```/, '').trim();
   return (
     <div className="mt-0.5 space-y-1">
-      {outside && <div className={`text-neutral-100 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
+      {outside && <div className={`text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
       <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
-        <p className="text-[13px] leading-snug text-neutral-100">{q.question}</p>
+        <p className="text-[13px] leading-snug text-app-text">{q.question}</p>
         {q.options.length > 0 && (
           <ul className="mt-1 space-y-0.5">
             {q.options.map((opt, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[12px] text-neutral-200">
+              <li key={i} className="flex items-start gap-1.5 text-[12px] text-app-text">
                 <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-300/70" />{opt}
               </li>
             ))}
@@ -2054,10 +2054,10 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   };
   if (!s) return null;
   return (
-    <div className="shrink-0 space-y-2 border-b border-white/10 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-300">
+    <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-neutral-200">Auto-dispatch</span>
-        <button onClick={onClose} className="rounded p-0.5 text-neutral-400 hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
+        <span className="font-semibold text-app-text">Auto-dispatch</span>
+        <button onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
       <label
@@ -2074,7 +2074,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           {EFFORTS.map((ef) => (
             <button
               key={ef} onClick={() => patch({ dispatchEffort: ef })}
-              className={`rounded px-1.5 py-0.5 ${s.dispatchEffort === ef ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
+              className={`rounded px-1.5 py-0.5 ${s.dispatchEffort === ef ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
             >{ef}</button>
           ))}
         </div>
@@ -2085,7 +2085,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <select
           value={s.dispatchModel || 'auto'}
           onChange={(e) => patch({ dispatchModel: e.target.value })}
-          className="max-w-[55%] rounded bg-white/5 px-1.5 py-0.5 text-neutral-100 outline-none"
+          className="max-w-[55%] rounded bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
         >
           <option value="auto">Auto (sceglie il classificatore)</option>
           {models.map((m) => (
@@ -2103,7 +2103,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         className="flex items-center justify-between gap-2"
         title="Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo."
       >
-        <span>Tentativi in parallelo <span className="text-neutral-500">(fan-out)</span></span>
+        <span>Tentativi in parallelo <span className="text-app-text-muted">(fan-out)</span></span>
         <div className="flex gap-0.5">
           {FANOUT_CHOICES.map((n) => (
             <button
@@ -2111,7 +2111,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
               disabled={!s.dispatchUseWorktree}
               onClick={() => patch({ dispatchFanOut: n })}
               className={`rounded px-1.5 py-0.5 disabled:opacity-40 ${
-                (s.dispatchFanOut || 1) === n ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-neutral-400 enabled:hover:bg-white/10'
+                (s.dispatchFanOut || 1) === n ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary enabled:hover:bg-white/10'
               }`}
             >{n}</button>
           ))}
@@ -2176,8 +2176,8 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         className="flex items-center justify-between gap-2"
         title="Eseguiti dal server nel worktree del task quando l'agent consegna. Uno rosso = review rifiutata, con l'output rimandato all'agent. Vuoto = nessun controllo. Tienili veloci: un gate da venti minuti lo spegni il primo giorno."
       >
-        <span>Checks pre-review <span className="text-neutral-500">(un comando per riga)</span></span>
-        {checks.length > 0 && <span className="text-[10px] text-neutral-500">{checks.length}/5</span>}
+        <span>Checks pre-review <span className="text-app-text-muted">(un comando per riga)</span></span>
+        {checks.length > 0 && <span className="text-[10px] text-app-text-muted">{checks.length}/5</span>}
       </label>
       <textarea
         value={text}
@@ -2187,9 +2187,9 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         rows={Math.min(5, Math.max(2, text.split('\n').length))}
         spellCheck={false}
         placeholder={'bun run typecheck\nbun test'}
-        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
+        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
-      {dirty && <p className="text-[10px] text-neutral-500">Salva uscendo dal campo (o ⌘↵).</p>}
+      {dirty && <p className="text-[10px] text-app-text-muted">Salva uscendo dal campo (o ⌘↵).</p>}
     </div>
   );
 }

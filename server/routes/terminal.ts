@@ -60,6 +60,42 @@ interface TerminalSession {
   spawnPromptSnippet?: string;
 }
 
+/** Un id di sessione Claude finisce dritto in un argv (`--resume <id>`): passa
+ *  solo se ha la forma di un uuid, mai una stringa arbitraria dal body. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * L'id da riprendere quando si apre un NUOVO pane terminale, o `undefined` per
+ * partire da una sessione nuova.
+ *
+ * `createSession` sa già fare le due cose (`--resume <id>` se l'id c'è,
+ * `--session-id <nuovo>` altrimenti), ma l'handler POST passava `undefined` e
+ * basta: il client l'id lo mandava (`closedTabRecord.ts`) e il server lo
+ * buttava. Riaprire una tab Claude Code chiusa faceva così ripartire una
+ * sessione VUOTA con lo stesso aspetto — e non c'era modo di dire "apri QUESTA
+ * sessione come pane terminale", pur avendone l'id.
+ *
+ * Due condizioni, nessuna delle due cosmetica:
+ *  • solo per i tipi claude — su una shell un id di sessione non significa
+ *    niente, e passarlo avvierebbe un `--resume` a un binario che non lo sa
+ *    leggere;
+ *  • solo se è un uuid — questo valore arriva da un body HTTP e finisce in un
+ *    argv.
+ */
+export function resumeIdForNewSession(
+  raw: unknown,
+  sessionType: TerminalSessionType,
+): string | undefined {
+  if (sessionType !== 'claude-code' && sessionType !== 'claude-code-team') return undefined;
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  if (!id) return undefined;
+  if (!UUID_RE.test(id)) {
+    console.warn(`[Terminal] claudeSessionId ignorato: non è un uuid`);
+    return undefined;
+  }
+  return id;
+}
+
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
 // Ids with an in-flight POST /reload, to reject a concurrent second reload of the
@@ -1914,6 +1950,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         body.type === 'codex' ? 'codex' :
         body.type === 'opencode' ? 'opencode' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
+      const claudeSessionId = resumeIdForNewSession(body.claudeSessionId, sessionType);
 
       try {
         await ensureBridge();
@@ -1921,7 +1958,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // Codex, see client terminalAgents.ts) or "Terminal N" — never a
         // user-typed name — so a fresh session is born 'default' (createSession's
         // default) and auto-naming may relabel it. Only a PATCH rename → 'user'.
-        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined);
+        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, claudeSessionId);
         if (idemKey) idempotencyCache.remember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });

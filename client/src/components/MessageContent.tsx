@@ -19,6 +19,7 @@ import { ReasoningRow } from './Chat/ReasoningRow';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
 import { releaseAudio } from '../lib/releaseAudio';
+import { useModalDialog } from '../hooks/useModalDialog';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
@@ -138,6 +139,13 @@ function extractMediaPaths(text: string): { cleanText: string; mediaPaths: strin
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  // Escape chiude. Non lo faceva: si usciva solo con la × o cliccando il velo —
+  // e peggio, Escape cadeva sul gestore globale e INTERROMPEVA il turno dell'AI
+  // dietro l'immagine (il lightbox non portava nessun marcatore di modale, così
+  // `hasOpenModalSurface` non lo vedeva). `role="dialog"` qui sotto lo rende
+  // visibile a quel gate.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose, panelRef });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const lastTouchDist = useRef<number | null>(null);
@@ -191,6 +199,10 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
 
   return createPortal(
     <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt || 'Immagine'}
       data-testid="image-lightbox"
       className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center overflow-hidden"
       style={{ touchAction: 'none' }}

@@ -2,16 +2,46 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.0 — 2026-07-26
+## 2.2.1 — 2026-07-31
 
 ### Novità
 - **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
 - **ux** · presenza finestre in sidebar + "Stacca il gruppo in una nuova finestra"
 - **ux** · i gruppi di questa finestra in sidebar, con "Stacca" per gruppo
 - **ux** · il gruppo E' la finestra — sezione "Finestre" unica in sidebar
+- **ux** · pannello di configurazione della chat nel composer (effort + autonomia)
+- **board** · badge di sovraccarico visibile nell'header quando load supera i core
+- **sessioni** · Topics vede le sessioni Claude esterne — scanner ~/.claude/projects, badge sidebar, guardia dispatcher
+- **sessions** · censimento delle sessioni Claude ESTERNE (badge board + guardia dispatcher)
+- **dispatch** · agente in attesa dichiara l'attesa e rilascia lo slot
+- **dispatch** · guardia repo-occupato in HOLD + auto-resume invece di bloccare
+- **contesto** · il ring mostra il contesto VERO, e avvisa prima della compaction
+- **effort** · una sola superficie, e uno slider al posto delle cinque pill
+- **0.4** · il turno dice PERCHÉ è finito — vocabolario ACP al posto di done/error/aborted
+- **board** · commenti riga per riga sul diff, in un commento solo
+- **board** · checks pre-review — niente review senza i comandi verdi
+- **board** · timbra chi ha portato il task in review
+- **contesto** · standardizza stream:context sul blocco ACP usage_update
+- **provider** · parla Agent Client Protocol — un agente nuovo costa una riga
+- **ws** · modella i 16 messaggi che il server mandava senza contratto
+- **ws** · il tipo di un broadcast ora lo decide il registro, non la stringa
+- **processi** · le shell in background dell'agente diventano stato vivo
+- **click-to-edit** · manda HTML potato + CSS calcolato + ritaglio dell'elemento
+- **fan-out** · manda lo stesso task a N agenti in parallelo e falli scegliere
+- **shell** · `browser_list` — sapere quante WKWebView sono davvero vive
+- **diagnostica** · una sonda che dice CHI tiene la heap, invece di farlo indovinare
+- **usage** · un monitor che mette la bolletta accanto al serbatoio
+- **contesto** · avvisa quando ogni chiamata rilegge troppo, non solo quando la finestra finisce
+- **pairing** · il client presenta il token, e un peer remoto autenticato non e' piu' CSRF
+- **sidebar** · una vista che raggruppa per STATO, non per tipo di pane
+- **token** · quanto di un messaggio era CACHE — il dato c'era e veniva buttato
+- **token** · il consumo del turno si vede CRESCERE, invece di apparire alla fine
+- **chat** · l'effort sta sul controllo che lo cambia, e 1M si legge
+- **chat** · l'effort sul controllo che lo cambia, la finestra su OGNI modello
+- **notifiche** · un task che si arrende ora te lo dice
+- **settings** · le preferenze salivano al server e non tornavano MAI giu'
 
 ### Correzioni
-- perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
 - **ux** · ContextMenu topic in IT + verbo unico "Archivia" + via console.log diagnostici
 - **ux** · toast d'errore sul fallimento-commit di archive/close (PendingAction)
 - **security** · scheme-guard su TUTTI i navigate del browser (LFI/SSRF)
@@ -19,12 +49,145 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **security** · gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)
 - **ux** · "Sposta nello Spazio" riabilita "Principale" + barra Spazi segue il floating
 - **ux** · raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato
+- **dev** · il loop del banner "nuova versione" + coerenza sidebar/status/spazi/board
+- **ux** · i popover della chrome sidebar non escono piu' dal viewport
+- **ux** · status bar su UNA riga — l'affollamento tolto alla fonte, non con altezza
+- **auth** · il controllo delle sessioni non dipende più da un token OpenClaw
+- **auth** · il controllo sessioni accetta il token agent nativo, non solo il gateway OpenClaw
+- **chat** · la compaction non "gonfia" più il contesto, un solo divider, niente vocali vuoti
+- **moondream** · il sorgente era invisibile a grep — 2 byte NUL grezzi
+- **bridge** · i daemon staccati non tengono più aperto il nostro stderr
+- **client** · il manifest dichiara ciò che usa davvero
+- **sync** · una tab addormentata non riporta più indietro gli altri device
+- **e2e** · anche il teardown normale uccideva i Chromium degli ALTRI
+- **browser** · la pane in modalità DOM mostrava un VUOTO bianco, non uno stato
+- **panes** · archiviare un topic lasciava il tab VIVO sui client aperti
+- **webrtc** · chiudi le quattro strade per cui il sidecar restava vivo a vuoto
+- **webrtc** · mieta l'orfano stantìo all'avvio, non al primo offer
+- **webrtc** · il retry CDP si arrende invece di ritentare per settimane
+- **audio** · garantisci la chiusura dell'AudioContext del ding di completamento
+- **shell** · timbra il rev sull'index servito da disco e avvisa invece di ricaricare
+- **gc** · verifica prima di distruggere — un branch si reapa solo se il contenuto è davvero su main
+- **coda** · i messaggi in uscita non evaporano più
+- **checkpoint** · il rollback taglia il ramo, non l'albero
+- **dispatch** · un turno la cui sessione è morta non resta appeso su "lavora"
+- **gc** · un task piantato in "lavora" da giorni restituisce il checkout, non i commit
+- **landing-audit** · risolvi il repo dall'id di board, non dal ProjectStore
+- **status** · il contatore smette di annunciare sessioni che nessuno vede
+- **sidebar** · la riga legge lo stesso conteggio del suo tab, non uno zero cablato
+- **guardia** · i NUL del test diventano escape, il file torna greppabile
+- **memoria** · chiudi le WKWebView che il reload lascia senza proprietario
+- **bundle** · non accusare di crescita chi ha solo il watcher acceso
+- **guardia** · il separatore di chiave torna un escape, non un byte NUL
+- **chat** · il turno arriva in fondo anche se il flusso si stacca sotto
+- **build** · il rebuild in watch non lascia piu /public senza index.html
+- **usage** · la finestra da 1M si vede, e la cache non si paga come input fresco
+- **memoria** · una superficie nascosta non ha pane visibili, quindi non ha pavimenti
+- **terminale** · smetti di credere che l'app sia in secondo piano quando non lo è
+- **perf** · dai al contatore una finestra deterministica, invece di quella che capita
+- **memoria** · non sfrattare mai una pane che possiede una WKWebView
+- **memoria** · togli il reaper — ricaricare tornava gratis, e l'avevo reso caro io
+- **chat** · la cache dei messaggi stava mangiando la quota, e con lei i messaggi da inviare
+- **chat** · libera la quota all'avvio, invece di aspettare la prossima scrittura
+- **perf** · calcola la CPU dal tempo di CPU, invece di curare il numero di sysinfo
+- **voce** · rilascia gli elementi audio, invece di limitarti a metterli in pausa
+- **contesto** · manda solo cio' che e' cambiato, invece di ripetere il progetto a ogni messaggio
+- **chat** · quattro buchi trovati mettendo alla prova la dedup del preambolo
+- **perf** · la CPU della status bar era 41,67 volte troppo bassa
+- **edit** · Rigenera passa dall'envelope canonico, invece di rifarsi il contesto a mano
+- **contesto** · un milione e' la finestra DI SERIE, non una variante
+- **memoria** · svuota il documento di una pane browser prima di chiuderla
+- **effort** · il selettore per-topic era morto sul terminale
+- **costi** · la cache a un'ora costa il doppio, e il TTL sta scritto nell'usage
+- **chat** · sette buchi trovati mettendo alla prova il lavoro di oggi
+- **terminale** · un roster vuoto non prova che la sessione sia morta
+- **editor** · l'errore di caricamento non e' piu' un buffer scrivibile — ⌘S sovrascriveva il file
+- **chat** · un messaggio accodato non perde piu' Plan Mode (ne' Fast Mode, ne' il modello scelto)
+- **voce** · un vocale che non parte adesso lo dice
+- **chat** · il silenzio non e' morte — il watchdog chiede al server invece di sentenziare
+- **contesto** · una sola verita' su finestra e soglie, invece di cinque copie
+- **terminale** · le pane opencode non venivano MAI persistite
+- **dashboard** · meta' dei KPI leggeva tabelle che nessuno scrive
+- **contesto** · il Context Inspector era spento su ogni provider tranne openclaw
+- **provider** · la scelta del default viveva solo in memoria
+- **board** · le approvazioni restavano appese se il task usciva da review
+- **chat** · i token per file erano raschiati da una frase, o inventati
+- **chat** · la lentezza dello stream si DICE, non si scrive nel messaggio
+- **agents** · il roster non si aggiornava, e un evento era rifiutato dal suo schema
+- **topic** · via il selettore di autonomia, che mostrava "Chiedi" e non chiedeva
+- **board** · il cap globale cambiava solo nella finestra che lo toccava
+- **pairing** · il token mancava sui 46 percorsi che non passano da api.ts
+- **perf** · il contatore CPU distingue "non misurato" da "misurato quasi zero"
+- **perf** · la RAM del lato server non e' il solo processo Bun — 27 MB contro 2166
+- **tab** · una tab resta blu finche' non la GUARDI, non finche' non la sfiori
+- **unread** · "letto" aspetta la soglia, non l'istante del focus
+- **tab** · lo stato si dice a parole, e il blu del tier e' UN colore
+- **chat** · la chat non lampeggia piu' mentre scrivi
+- **chat** · il composer non ruba piu' il fuoco al picker
+- **chat** · niente fantasmi sotto il composer, niente bottoni schiacciati
+- **chat** · lo stop su un turno MUTO non lascia piu' una bolla vuota
+- **db** · le 170 bolle vuote gia' in DB se ne vanno, e cancellare un messaggio non lascia piu' pin appesi
+- **provider** · due turni utente di fila non fanno piu' 400 sull'API Anthropic
+- **chat** · «ferma» non fa piu' PARTIRE il messaggio in coda
+- **notifiche** · il nome della topic non si spacca piu' a meta' nel banner
+- **notifiche** · una consegna sola faceva TRE banner
+- **push** · la notifica ti svegliava e poi ti lasciava a cercare da solo
+- **notifiche** · Impostazioni prometteva banner che non arrivano MAI
+- **tastiera** · Escape con Impostazioni aperto AMMAZZAVA il turno dell'AI
+- **lint** · due errori rossi ereditati dal lavoro sui token
+- **tastiera** · Escape non interrompeva NIENTE, e ⌘⇧R ricaricava la finestra
+- **modali** · Escape su un lightbox ammazzava la risposta dell'AI dietro
+- **chat** · /clear svuotava lo schermo, non la memoria del modello
+- **sessioni** · due spawn nello stesso millisecondo e una sessione ripresa ripartiva vuota
+- **pane** · una pane che si rompe non porta giu' le altre
+- **chat** · il turno respinto torna in coda invece di corrompere lo stream
+- **board** · la Board era illeggibile in tema chiaro — ora segue i token
+- **a11y** · tolgo le tre schermate che parlano due lingue insieme
+- **chat** · via i 4 alert() che CONGELANO l'app invece di dire una cosa
+- **audit** · chiudo i rilievi dell'audit pre-merge sui contratti e sulla cache
+- **coda** · un messaggio in coda non sparisce piu' se l'invio va storto
+- **board** · una causa sola non manda piu' N notifiche identiche
+- **guscio** · la diagnosi delle notifiche si aggiorna, e Cmd+Shift+R detta
 
 ### Prestazioni
 - **client** · hljs highlight deferito in streaming + split chunk dnd-kit
+- **e2e** · la suite era per metà sleep — 14,5 → 6,8 min a parità di esiti
+- **e2e** · via 12 attese morte su /api/ui-state/panels (10s a vuoto l'una)
+- **e2e** · panels 65s -> 12s, e un test che non verificava il progetto
+- **e2e** · via 15s di pause dal gate PR — e una che NON va tolta, documentata
+- la status bar mostrava 59 MB su 6937 reali, e le pane nascoste non erano nascoste
+- congela le pane nascoste, lo switch di tab cala del 23-28%
+- **client** · taglia i render globali e le richieste ridondanti allo switch di tab
+- **terminal** · coalescia le scritture xterm quando nessuno guarda
+- **aura** · non disegnare le aure senza box di layout
+- **chat** · instrada anche i due lettori SSE nel coalescer rAF
+- **browser** · niente reflow per una pane nascosta, niente eval a schermo spento
+- il rAF dell'aura si parcheggia, il terminale contiene il proprio layout
+- **chat** · contieni il layout della lista messaggi + guardia sui frame a riposo
+- **fps** · dimezza il duty cycle del contatore e togli il +1 dalla misura
+- **cobrowse** · il replayer rrweb si parcheggia quando nessuno lo guarda
+- **aura** · il ticker dell'onda va a 30fps, non al refresh del display
+- **cobrowse** · il timer live segue il flusso, non solo la visibilità
+- **terminale** · niente redraw per una pane senza layout — la cache di xterm non si popola
+- **terminale** · coalesce i fit anche durante il resize della FINESTRA nativa
+- **layout** · confine di layout sul guscio delle pane — il caret non rilayouta più tutta l'app
+- **frame** · spegni i guardiani che restavano accesi senza pubblico
+- **render** · il chip degli agenti si sottoscrive da solo, App non rilegge più tutto
+- **memoria** · metti un tetto alle pane montate, invece di tenerle tutte per sempre
+- **frame** · spegni i cicli per-pane che girano quando non li guarda nessuno
+- **frame** · dichiara le zone di trascinamento al render, non con un observer su body
+- **chat** · smetti di ricostruire a ogni token quello che non è cambiato
+- **chat** · un token non ri-renderizza piu' tutta l'app
+- **mcp** · fuori dalle chat i server che si riavviano a ogni spawn
+- **history** · non spedire il duplicato che il client scarta comunque
+- **chat** · i mutatori dei tool non ri-idratano la timeline intera
+- **processi** · la rilevazione pollava a 4s per sempre, anche a riposo
+- **chat** · gli eventi dei tool andavano a OGNI finestra, anche a chi non guarda
+- **sub-agent** · la lista delle azioni era quadratica, e sette schemi WS erano morti
+- **processi** · il log si legge quando c'e' qualcosa, non ogni due secondi
+- **memoria** · i trascritti delle chat che nessuno guarda tornano indietro
 
 ### Sotto il cofano
-- test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori
 - **changelog** · includi i fix 2.2 post-bump (ux + sicurezza) con EN
 - test/fix(suite): unit-suite deterministica e verde (2804/0), niente hang
 - **lint** · azzera i 17 warning eslint del client (0 warning, 0 errori)
@@ -40,6 +203,96 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · SIDEBAR-WINDOWS verifica il render della sezione presenza finestre (#4a)
 - **ux** · elimina il double-fire di topics:open-topic + dedup finestre-staccate
 - **changelog** · rigenera con i gruppi in sidebar (IT + EN)
+- **changelog** · rigenera con la sezione Finestre (IT + EN)
+- **e2e** · BOARD-06 usa il toggle dispatch attuale, non la pill rimossa
+- **ux** · righe di menu del board sui token condivisi + ultimi 3 popover senza clamp
+- **e2e** · scroll-to-bottom ancorato al pane del SUO topic (era ordine-dipendente)
+- **e2e** · grid-split rende AUTORITATIVO il pane-store (era ereditato)
+- **e2e** · reopen-closed-tab — il seed deve OUT-RANKARE lo stato gia' salvato
+- **e2e** · board.spec ermetica — reset del workspace in beforeEach + probe del "+" robusto
+- **e2e** · tool-call-ui semina il workspace (aveva dipendenza INVERSA)
+- **e2e** · resetPaneStore azzera davvero — mancavano tombstones e spaces
+- Revert "test(e2e): resetPaneStore azzera davvero — mancavano tombstones e spaces"
+- **pulizia** · rimuove 4 file morti del client
+- **pulizia** · rimuove gli export morti (occorrenza unica nel repo)
+- **deadcode** · knip era un config orfano, ora è un check che si può lanciare
+- **demo** · il mock di useWebSocket non esporta più un default fantasma
+- **e2e** · il seeding del pane-store passa da una primitiva sola, con retry
+- **e2e** · il cleanup d'emergenza non ammazza più i browser di altri repo
+- **tracker** · CCS-07 azzerava il buffer con un broadcast ancora in canna
+- **e2e** · panels cercava etichette inglesi che non esistono più
+- **server** · via 5 simboli morti — knip li segnalava, il grep li conferma
+- **shared** · projectHash aveva 3 copie della stessa djb2, ora una sola
+- **client** · via il codice morto che knip segnalava, confermato a grep
+- **e2e** · la suite non era ermetica — i test si sporcavano a vicenda
+- **e2e** · via 392 righe di test per funzionalità che non esistono più
+- **e2e** · due guardie che non potevano fallire, più una soppressione morta
+- Elimina il leak di processi zombie della shell Tauri
+- Ripara l'orphan monitor dell'ai-bridge, rotto sotto Bun
+- **e2e** · il seed del pane-store non poteva fallire, e seminava topic chiuse
+- **e2e** · sostituisci le attese a tempo con la condizione che stavano aspettando
+- **layout** · estrai l'algebra dei gruppi e testa quella, non la sua fotocopia
+- **e2e** · togli gli ultimi sleep e le asserzioni che non asserivano
+- **e2e** · le PERF non misuravano niente — tre metriche rotte su tre
+- **e2e** · il layout interno del progetto sopravviveva al reset delle pane
+- Sposta l'indirizzo del server di test in un posto solo, e con esso la suite in parallelo
+- Spegni le pane di una finestra progetto in secondo piano
+- Pota il test doppione e i getter che nessuno chiamava
+- mai fallire quando il checkout condiviso è su un ramo dev
+- **e2e** · fermati subito se il bundle del client non c'è, invece di 500 rossi finti
+- **e2e** · riporta la riga del progetto nella sidebar dei test terminale
+- **e2e** · rimetti verdi CHK4-01, CHK10-01 e la cattura frame cloud-session
+- **mcp** · tools/list attendeva una lista senza wait_for_condition
+- **sonda** · registra QUALI token di class si accendono e spengono, e su chi
+- **sonda** · intercetta chi SCRIVE le classi, non chi le ha già scritte
+- **landing** · "done" deve voler dire "è su main", non "è in una colonna"
+- **guardia** · niente byte NUL nei sorgenti
+- **e2e** · confine ermetico per file — ogni spec riparte dalla baseline
+- aggiorna i lock del protocollo WS per stream:context e rimetti il (+) dove esiste
+- **chat** · una sola autorità sullo scroll, non tre ref che si riparano
+- **cli** · TOPICS_NO_OPEN, così il test non dirotta il browser dell'umano
+- **chat** · misura il layout della chat invece di guardarlo
+- **e2e** · congela il bundle e campiona finché basta, invece di sperarci
+- **openspec** · proposta autonomous-credential-store — login/registrazione autonomi
+- **openspec** · review — origin binding, entitlement self-signed, chat.db WAL
+- **e2e** · rifiuta di girare su un bundle vecchio o a metà
+- contratto WS: un registro solo in shared/, il mirror del client sparisce
+- 3.3: colleghi il contratto server↔client a UNA dichiarazione, non due specchi
+- 3.3: chiudi gli ultimi specchi e metti un cricchetto che ne impedisca di nuovi
+- 3.4: dai alla chat un obiettivo che sopravvive alla compattazione
+- **e2e** · l'obiettivo entra nell'envelope e sopravvive al reload
+- **cancelli** · accendi strict sul server e fai girare le verifiche già scritte
+- Leggi i modelli dal CLI installato invece che da una lista scritta a mano
+- Sblocca le chat che restavano appese a caricare
+- **bundle** · metti un cricchetto sotto la dimensione del bundle
+- **disco** · report di cosa è sicuro cancellare, come script e non come documento
+- **knip** · togli l'amnistia su scripts/ e dichiara chi chiama cosa
+- **residenza** · reggi anche in mezzo agli altri, non solo da solo
+- **acp** · i due test di abort aspettano il turno, non 150 millisecondi
+- **openspec** · registra il giro delle misure e le leve chiuse
+- **contesto** · E2E sul preavviso di COSTO e sul latch separato per motivo
+- **e2e** · fail-fast in locale, cosi' un server morto non si traveste da 88 regressioni
+- **legacy** · via tre isole senza consumatori, tenendo cio' che le circonda
+- **stream** · la replica del timer non modella piu' un'annotazione che non esiste
+- **tipi** · via i re-export che nessuno importava, e un tipo dichiarato due volte
+- **e2e** · uno shard che non esegue test e' un FALLIMENTO, non una nota a pie' di pagina
+- **openspec** · archivia le 5 change che sono davvero chiuse, e riversa i loro requisiti
+- **sidebar** · AC-2 percorre l'anello delle TRE viste, non il ping-pong fra due
+- **token** · chiudo il buco che avevo dichiarato sul numero live
+- **notifiche** · cancello la pipeline `claude-event`, nata morta e mai cablata
+- **openspec** · la sezione S dice cosa e' stato fatto DAVVERO
+- **e2e** · 8 rossi accusavano il codice, il server era stato ammazzato da fuori
+- **e2e** · un worktree di dispatch non puo' piu' rubare la porta del checkout vero
+- **e2e** · l'allarme sulla morte del server accusava un riavvio VOLUTO
+- **versione** · 2.2.1 in lockstep
+
+## 2.2.0 — 2026-07-23
+
+### Correzioni
+- perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
+
+### Sotto il cofano
+- test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori
 
 ## 2.1.129 — 2026-07-23
 
@@ -88,6 +341,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · pulizia al boot dei tool 'running' orfani (spinner infinito)
 - **chat** · finalizza anche i tool 'pending' orfani (oltre a 'running')
 - **chat** · finalizza i tool orfani anche nella colonna blocks (spinner infinito)
+- **chat** · spiegazione sui turni interrotti + verifica sessione finita
+- **layout** · split, drag e focus piu' solidi e consistenti
 - **browser** · cattura input nel frame principale per il co-browse DOM (WKWebView-safe)
 - **pwa** · self-heal dei bundle stantii (fine di "index non trovato")
 - **chat** · il watchdog non uccide più un turno vivo (parità CLI)
@@ -134,10 +389,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · allinea BOARD-11 al link path-based e rendi BOARD-14 robusto all'ordine
 - **board** · E2E 'Apri nel workspace' + allinea BOARD-11 al deep-link path-based
 - **openspec** · proposta chat-claude-code-parity — la chat come rimpiazzo pieno di Claude Code CLI
+- **layout** · rimuove il dead code dropZone/DropZone/DropEdge
 - **openspec** · aggiunge CHAT-PERF-01 (perf streaming) ed estende le card tipizzate ai tool oggi unknown
 - **browser** · proposta openspec host-nativo + co-browse cross-device, con spike motore
 - **browser** · Fase 1 — decisione substrato host nativo + piano esecutivo file-level
 - **browser** · registra il flip default nativo anticipato in Fase 1
+- **chat** · ricerca competitor generative-UI in chat + proposta approccio (Fase 1)
 - **e2e** · harness due-device + regressione chiusura browser cross-device
 - **chat** · rimuove la preview dei comandi sotto il wrap azioni
 - **e2e** · regressione finestra history — topic >100 msg carica la testa
@@ -502,6 +759,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **scripts** · watch-board-tasks — watcher dei task board per sessioni Claude Code
 - **tauri** · global right-⌘ tap focuses the task composer
 - **dispatch** · radici della consegna — gate commit su review, reap worktree post-merge, landing area-aware
+
+### Sotto il cofano
+- Add 'watching' phase for Monitor-armed sessions + muted aura
+- monitorArmed flag survives Stop + hook/repo wiring
 
 ## 2.1.92 — 2026-07-17
 

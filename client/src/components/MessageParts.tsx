@@ -83,7 +83,16 @@ export function TurnActivityIndicator({
 
   // Il turno cambia ⇒ il conto riparte. Senza, un secondo turno erediterebbe i
   // numeri del primo finché non arriva la sua prima chiamata al modello.
-  useEffect(() => { setUsage(null); }, [since]);
+  //
+  // Azzerato in RENDER, non in un effect: un effect ridisegnerebbe una volta coi
+  // numeri del turno vecchio prima di correggersi — un lampeggio del conteggio a
+  // ogni turno nuovo. È il pattern React per "aggiustare lo stato quando cambia
+  // una prop": si confronta con l'ultimo valore visto e si riparte subito.
+  const [usageTurn, setUsageTurn] = useState(since);
+  if (usageTurn !== since) {
+    setUsageTurn(since);
+    setUsage(null);
+  }
 
   const base = since != null && Number.isFinite(since) ? since : now;
   const elapsed = Math.max(0, now - base);

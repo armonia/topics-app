@@ -11,8 +11,9 @@ import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
-import { MODAL_PANEL } from '@/lib/modalStyles';
+import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface GitChangesProps {
   projectPath: string;
@@ -501,7 +502,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       return (
         <div className="flex items-center justify-center py-4">
           <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
-            <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+            <Spinner size="sm" />
             Loading...
           </div>
         </div>
@@ -695,7 +696,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       title="AI-generate commit message"
                     >
                       {generatingMsg ? (
-                        <div className="w-3 h-3 border border-app-spinner border-t-primary rounded-full animate-spin" />
+                        <Spinner size="sm" />
                       ) : (
                         <Sparkles size={12} />
                       )}
@@ -912,7 +913,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Pull"
               >
                 {pulling ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <ArrowDown size={14} />
                 )}
@@ -924,7 +925,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Push"
               >
                 {pushing ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <ArrowUp size={14} />
                 )}
@@ -986,7 +987,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Auto-generate message"
               >
                 {generatingMsg ? (
-                  <div className="w-3 h-3 border border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Sparkles size={14} />
                 )}
@@ -1059,7 +1060,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
                       title="Stage all"
                     >
-                      {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
+                      {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
                     </button>
                   </div>
                   {unstagedExpanded && fullUnstagedFiles.map(file => renderFullModeFileRow(file, 'unstaged'))}
@@ -1101,7 +1102,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="flex-1 overflow-hidden">
               {loadingDiff ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="md" />
                 </div>
               ) : (
                 <DiffViewer
@@ -1171,61 +1172,31 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 // ── Discard confirmation dialog ──────────────────────────────────────
 
 function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[]; onConfirm: () => void; onCancel: () => void }) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
-
   const fileNames = files.map(f => {
     const parts = f.split('/');
     return parts[parts.length - 1];
   });
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
-      onClick={onCancel}
+    <ConfirmDialog
+      title="Discard Changes"
+      confirmLabel="Discard"
+      onConfirm={onConfirm}
+      onCancel={onCancel}
     >
-      <div
-        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
-          Discard Changes
-        </h3>
-        <p className="text-xs text-app-text-body mb-3">
-          This will permanently discard uncommitted changes.
-        </p>
-        <div className="bg-app-hover rounded px-3 py-2 mb-4 max-h-[120px] overflow-y-auto">
-          {files.length === 1 ? (
-            <span className="text-xs text-app-text-body font-mono">{fileNames[0]}</span>
-          ) : (
-            <ul className="space-y-0.5">
-              {fileNames.map((name, i) => (
-                <li key={i} className="text-xs text-app-text-body font-mono">{name}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            Discard
-          </button>
-        </div>
+      <p className="mb-3">This will permanently discard uncommitted changes.</p>
+      <div className="bg-app-hover rounded px-3 py-2 max-h-[120px] overflow-y-auto">
+        {files.length === 1 ? (
+          <span className="font-mono">{fileNames[0]}</span>
+        ) : (
+          <ul className="space-y-0.5">
+            {fileNames.map((name, i) => (
+              <li key={i} className="font-mono">{name}</li>
+            ))}
+          </ul>
+        )}
       </div>
-    </div>
+    </ConfirmDialog>
   );
 }
 
@@ -1359,7 +1330,7 @@ function CompactFileList({
                 className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
                 title="Stage all"
               >
-                {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
+                {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
               </button>
             </div>
           </div>

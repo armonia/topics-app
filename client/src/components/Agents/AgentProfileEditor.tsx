@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface AgentProfileEditorProps {
   profile?: AgentProfile | null;
@@ -28,6 +29,10 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
   const [error, setError] = useState<string | null>(null);
 
   const isEdit = !!profile;
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Prima si usciva SOLO dalla X: né Escape né il click sul velo chiudevano.
+  useModalDialog({ onClose, panelRef });
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -61,8 +66,15 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
   };
 
   return (
-    <div className={MODAL_OVERLAY}>
-      <div className={`w-[380px] max-h-[80vh] flex flex-col ${MODAL_PANEL}`}>
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEdit ? 'Edit Agent Profile' : 'Create Agent Profile'}
+        onClick={(e) => e.stopPropagation()}
+        className={`w-[380px] max-h-[80vh] flex flex-col ${MODAL_PANEL}`}
+      >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
           <span className="text-[13px] font-semibold text-app-text flex-1">

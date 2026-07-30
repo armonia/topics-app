@@ -1,0 +1,150 @@
+import { test, expect } from "@playwright/test";
+import { createTopic, deleteTopic, seedPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
+import { goToApp } from "./helpers";
+import { hermetic } from "./fixtures/hermetic";
+
+hermetic(test);
+
+/**
+ * UNA PANE CHE SI ROMPE NON PORTA GIÙ LE ALTRE.
+ *
+ * Il guasto. C'era UN SOLO ErrorBoundary, in App.tsx, attorno all'INTERA
+ * griglia ("Panel error"). Qualunque errore di render dentro una pane
+ * qualsiasi — il caso più comune è un chunk lazy che non esiste più dopo che
+ * il bundle è stato ricostruito sotto una finestra aperta — sostituiva tutto
+ * il pannello con la schermata di errore. Insieme alla pane rotta sparivano
+ * quelle sane: terminali attaccati, chat in streaming, browser. Un pannello
+ * secondario che non caricava si portava via la sessione di lavoro.
+ *
+ * Il taglio. Il boundary sta ora dentro `PaneKeepAlive`, il guscio da cui
+ * passa OGNI pane di OGNI layout (GroupLayout ×2, StandaloneChatGroup): un
+ * confine di guasto sullo stesso bordo del confine di layout che quel guscio
+ * già stabiliva con `contain: layout`.
+ *
+ * Come si provoca il guasto senza codice di test in produzione: si blocca il
+ * chunk della pane Journal, che è `lazy()`. È il guasto VERO, non una finta —
+ * `import()` rifiuta, React rilancia in render, e il boundary più vicino
+ * raccoglie.
+ *
+ * La prova NON è un conteggio di gusci montati: quanti ne restano lo decide il
+ * tetto di residenza, che è un'altra cosa e ha la sua spec. La prova è che
+ * dopo il guasto la barra delle tab — che sta dentro la griglia, cioè dentro
+ * il vecchio boundary — è ancora lì, e che tornando sulla chat la chat
+ * funziona. Prima non c'era nessuna tab su cui tornare.
+ *
+ * Video acceso: è un comportamento (una pane muore, l'altra continua a
+ * funzionare), e uno screenshot non prova un comportamento.
+ */
+test.use({ video: "on" });
+
+const JOURNAL_PANE = "__journal__";
+
+test.describe("Isolamento dei guasti fra pane", () => {
+  let topicId: string;
+  let topicName: string;
+
+  test.beforeAll(async ({ request }) => {
+    topicName = `pane-isolation-${Date.now()}`;
+    const topic = await createTopic(request, topicName);
+    topicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    // Due tab nello stesso gruppo: la chat del topic e il Journal (lazy).
+    // Si parte dalla CHAT attiva — una pane resta montata solo se è stata
+    // visitata (tetto di residenza, vedi pane-residency-cap.spec.ts), quindi
+    // il test deve percorrere la strada dell'utente: guardo la chat, apro il
+    // Journal, quello si rompe, torno alla chat.
+    await seedPaneStore(request, () => ({
+      panes: {
+        [topicId]: { id: topicId, type: "chat", title: topicName, topicId },
+        [JOURNAL_PANE]: { id: JOURNAL_PANE, type: "journal", title: "Journal" },
+      },
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: [topicId, JOURNAL_PANE],
+          activePaneId: topicId,
+          splitRatio: 1,
+          splitAxis: "horizontal",
+        },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await request
+      .put(`${E2E_BASE}/api/ui-state/panels`, {
+        data: { openPanels: [topicId, JOURNAL_PANE] },
+        ignoreHTTPSErrors: true,
+      })
+      .catch(() => {});
+  });
+
+  test("il chunk del Journal non carica: la pane mostra l'errore, la chat accanto resta viva", async ({
+    page,
+  }) => {
+    // Il guasto: il chunk della pane non c'è più. `abort()` fa rifiutare
+    // l'`import()` esattamente come un 404 su un bundle ricostruito.
+    await page.route("**/assets/JournalPanel-*.js", (route) => route.abort());
+
+    await goToApp(page);
+
+    // Si parte dalla chat, che carica normalmente.
+    const input = page.locator('[data-testid="chat-message-input"]');
+    await expect(input).toBeVisible({ timeout: 30_000 });
+
+    // Si apre il Journal: il suo chunk non arriva, la pane muore in render.
+    await page.locator(`[data-testid="pane-tab-${JOURNAL_PANE}"]`).click();
+
+    // La pane rotta lo dice DENTRO il suo riquadro.
+    const journalShell = page.locator(`[data-pane-shell="${JOURNAL_PANE}"]`);
+    await expect(
+      journalShell.getByRole("button", { name: /ricarica|try again/i }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    // L'errore si è fermato al bordo della pane: la barra delle tab — che sta
+    // dentro la griglia, cioè DENTRO il vecchio boundary — è ancora lì. Con il
+    // boundary solo in App.tsx a questo punto non ci sarebbe più niente da
+    // cliccare: tutta l'area sostituita dalla schermata di errore.
+    await expect(page.locator('[data-testid="panel-tab-bar"]')).toBeVisible();
+    await expect(page.locator(`[data-testid="pane-tab-${topicId}"]`)).toBeVisible();
+
+    // E la prova che conta: si torna alla chat e FUNZIONA. Prima era
+    // irraggiungibile — nessuna tab su cui tornare.
+    await page.locator(`[data-testid="pane-tab-${topicId}"]`).click();
+    await expect(input).toBeVisible({ timeout: 20_000 });
+    await input.click();
+    await input.fill("la pane accanto è morta, io no");
+    await expect(input).toHaveValue("la pane accanto è morta, io no");
+
+    // …e la pane rotta non ha lasciato la sua schermata di errore addosso a
+    // quella sana: l'errore vive nel riquadro del Journal, non nella griglia.
+    await expect(
+      page.locator(`[data-pane-shell="${topicId}"]`).getByRole("button", { name: /ricarica|try again/i }),
+    ).toHaveCount(0);
+  });
+
+  test("senza guasti nessuna pane mostra un errore (controprova)", async ({ page }) => {
+    await goToApp(page);
+    await expect(page.locator('[data-testid="chat-message-input"]')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.locator(`[data-testid="pane-tab-${JOURNAL_PANE}"]`).click();
+    await expect(page.locator(`[data-pane-shell="${JOURNAL_PANE}"]`)).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Il boundary non deve inventarsi errori quando non ce ne sono: se questa
+    // fallisse, l'asserzione dell'altro test non proverebbe niente.
+    await expect(
+      page.locator("[data-pane-shell]").getByRole("button", { name: /ricarica|try again/i }),
+    ).toHaveCount(0);
+  });
+});

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { isOwnFrame } from '@/state/wsIdentity';
+import { adoptLegacyQueue, clearQueue, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -90,42 +91,6 @@ export interface ChatPaneProps {
  *  ogni render passerebbe un array nuovo a `PinnedMessages`. */
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
-/**
- * Un messaggio accodato mentre l'agente sta ancora rispondendo, con le opzioni con
- * cui è stato scritto (Plan Mode, Fast Mode, override di provider/modello).
- */
-interface QueuedMessage {
-  content: string;
-  options?: SendMessageOptions;
-}
-
-/**
- * Legge la coda da localStorage tollerando il formato VECCHIO.
- *
- * Fino a oggi era `string[]`. Chi ha una coda salvata in quel formato non deve
- * perderla al primo caricamento del nuovo codice: una stringa diventa un messaggio
- * senza opzioni, che è esattamente come si comportava prima.
- */
-function readQueue(key: string): QueuedMessage[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item): QueuedMessage | null => {
-        if (typeof item === 'string') return { content: item };
-        if (item && typeof item === 'object' && typeof (item as QueuedMessage).content === 'string') {
-          return item as QueuedMessage;
-        }
-        return null;
-      })
-      .filter((x): x is QueuedMessage => x !== null);
-  } catch {
-    return [];
-  }
-}
-
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
@@ -139,7 +104,6 @@ function ChatPaneComponent({
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   const draftKey = `draft:${topic.id}`;
-  const queueKey = `msgQueue:${topic.id}`;
 
   const [message, setMessage] = useState(() => {
     try { return localStorage.getItem(draftKey) || ''; } catch { return ''; }
@@ -168,39 +132,26 @@ function ChatPaneComponent({
   const [, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   /**
-   * Un messaggio in coda porta con sé le opzioni con cui è stato SCRITTO.
+   * La coda del turno NON vive più qui.
    *
-   * Prima la coda era `string[]` e il drain chiamava `sendMessage(sessionKey, next)`
-   * senza opzioni: si perdevano Plan Mode, Fast Mode e l'override di
-   * provider/modello. Il caso che fa male è il primo — si accende Plan Mode
-   * («proponi, non toccare i file»), si accoda un messaggio mentre l'agente
-   * streamma, e quel messaggio parte SENZA plan mode mentre il badge resta
-   * accesso: l'agente scrive sui file e l'interfaccia dice che non lo farà.
-   *
-   * Le opzioni sono quelle del momento dell'accodamento, non del drain: è quello
-   * che l'utente vedeva quando ha premuto invio.
+   * Stava in uno stato di questo componente, con chiave per-topic e un effetto
+   * che la drenava: quindi funzionava solo a pane montata, scattava al mount,
+   * due finestre sullo stesso topic spedivano lo stesso messaggio due volte, e
+   * soprattutto lo stop — che è pur sempre «lo streaming è finito» — la faceva
+   * PARTIRE. Adesso è un modulo solo (`state/chatQueue.ts`), la sessione è la
+   * chiave, e chi drena è `useChat`. Qui resta la vista: badge, correzione,
+   * cestino.
    */
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>(() => readQueue(queueKey));
-  // Restore queue on topic switch
-  useEffect(() => {
-    setMessageQueue(readQueue(`msgQueue:${topic.id}`));
-  }, [topic.id]);
-  // Persist queue to localStorage
-  useEffect(() => {
-    try { if (messageQueue.length) localStorage.setItem(queueKey, JSON.stringify(messageQueue)); else localStorage.removeItem(queueKey); } catch {}
-  }, [messageQueue, queueKey]);
-  // Cross-tab sync: listen for storage changes from other tabs
+  const messageQueue = useChatQueue(topic.sessionKey);
+  useEffect(() => { adoptLegacyQueue(topic.sessionKey, topic.id); }, [topic.sessionKey, topic.id]);
+  // Cross-tab sync della bozza (la coda si sincronizza da sé, nel suo modulo).
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === draftKey) setMessage(e.newValue || '');
-      // Stesso lettore tollerante degli altri due punti: una finestra che gira
-      // ancora il codice vecchio scrive `string[]`, e non deve poter iniettare qui
-      // una coda che il drain non sa leggere.
-      if (e.key === queueKey) setMessageQueue(readQueue(queueKey));
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
-  }, [draftKey, queueKey]);
+  }, [draftKey]);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   // Niente sfratto mentre c'è roba non ancora salvata da nessuna parte. Bozza,
   // coda, planMode e scroll sono già persistiti e sopravvivono da soli; questi
@@ -499,12 +450,11 @@ function ChatPaneComponent({
 
   const defaultProviderLabel = topic.provider ?? undefined;
 
-  const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(`Invio del vocale fallito: ${m}`), [toast]));
+  const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(m), [toast]));
   const isUploading = uploading || voiceUploading;
 
   // Scroll management is handled entirely by Virtuoso in MessageList
   // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
-  useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]!; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next.content, next.options); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   // `preventScroll` perché il composer è ancorato in fondo alla pane ed è già
   // in vista: lo scroll-into-view implicito di `focus()` non lo sposta di un
@@ -864,9 +814,19 @@ function ChatPaneComponent({
       return;
     }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
-    if (currentStreaming) { if (message.trim()) { setMessageQueue(prev => [...prev, { content: message.trim(), options: currentSendOptions() }]); setMessage(''); } return; }
     let finalMessage = message.trim();
+    // I comandi col cancelletto NON si accodano: `/model`, `/effort`, `/goal`,
+    // `/clear` agiscono sulla sessione, non sono un turno da spedire. Il ramo
+    // dell'accodamento stava PRIMA di questo controllo, quindi uno slash scritto
+    // mentre l'agente rispondeva finiva in coda e poi partiva come testo — il
+    // modello si vedeva arrivare «/model opus» come domanda.
     if (finalMessage.startsWith('/')) { if (await handleSlashCommand(finalMessage)) { setMessage(''); return; } }
+    // Da qui in giù si COMPONE, sempre: allegati, immagini, file citati con @ e
+    // la citazione della risposta. Prima questa parte stava dopo il `return`
+    // dell'accodamento, quindi un messaggio scritto mentre l'agente rispondeva
+    // partiva nudo — e uno di sole immagini non partiva affatto. Chi decide se
+    // spedire adesso o mettere in coda è `sendMessage` (`state/chatQueue.ts`),
+    // che riceve il messaggio già completo.
     const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = replyingTo, curMentioned = [...mentionedFiles];
     setMessage(''); setPendingFiles([]); setPendingImages([]); setMentionedFiles([]); setReplyingTo(null);
     if (curFiles.length > 0 || curImages.length > 0) {
@@ -934,6 +894,18 @@ function ChatPaneComponent({
   const handleCopyMessage = useCallback((msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); }, []);
   const handleTogglePin = useCallback(async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); }, [topic.pinnedMessages, topic.id, onUpdateTopic]);
   const isImageFile = (f: File) => f.type.startsWith('image/');
+  // Il badge del composer ragiona per posizione; la coda per id (correggere il
+  // secondo mentre il primo parte non deve toccare il messaggio sbagliato).
+  const queueContents = useMemo(() => messageQueue.map(q => q.content), [messageQueue]);
+  const handleUpdateQueueItem = useCallback((idx: number, content: string) => {
+    const item = messageQueue[idx];
+    if (item) updateTurn(topic.sessionKey, item.id, content);
+  }, [messageQueue, topic.sessionKey]);
+  const handleRemoveQueueItem = useCallback((idx: number) => {
+    const item = messageQueue[idx];
+    if (item) removeTurn(topic.sessionKey, item.id);
+  }, [messageQueue, topic.sessionKey]);
+  const handleClearQueue = useCallback(() => clearQueue(topic.sessionKey), [topic.sessionKey]);
   // Terza scansione dell'intera cronologia a ogni flush dello streaming, per un
   // pannello che quasi sempre è chiuso e quasi sempre dà lo stesso risultato:
   // l'insieme dei messaggi appuntati cambia solo quando qualcuno clicca la
@@ -973,7 +945,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue.map(q => q.content)} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? { ...m, content } : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );

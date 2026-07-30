@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, UserPlus, UserMinus } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface AgentAssignPanelProps {
   topicId: string;
@@ -13,6 +14,10 @@ export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPan
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Prima si usciva SOLO dalla X: né Escape né il click sul velo chiudevano.
+  useModalDialog({ onClose, panelRef });
 
   useEffect(() => {
     agentProfilesApi.list()
@@ -55,8 +60,15 @@ export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPan
   };
 
   return (
-    <div className={MODAL_OVERLAY}>
-      <div className={`w-[360px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}>
+    <div className={MODAL_OVERLAY} onClick={onClose}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Assign Agents"
+        onClick={(e) => e.stopPropagation()}
+        className={`w-[360px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}
+      >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
           <UserPlus size={14} className="text-primary" />

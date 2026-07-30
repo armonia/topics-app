@@ -181,6 +181,36 @@ export function getSessionKeyFromViewerPaneId(id: string): string | null {
   return id.slice('session-viewer:'.length);
 }
 
+/**
+ * La CHIAVE DI SESSIONE della chat mostrata in un pane, o `null` se quel pane
+ * non è una chat.
+ *
+ * Serviva, e non esisteva: chi aveva in mano un paneId lo usava DIRETTAMENTE
+ * come sessionKey. Per una chat non lo è mai — il pane è il TOPIC
+ * (`<uuid>` in alto, `chat:<uuid>` dentro una finestra di progetto), la sessione
+ * è `topic:<uuid8>`. Ogni lookup per sessionKey partito da un paneId cadeva
+ * quindi a vuoto in SILENZIO: nessun errore, solo una funzione che non fa
+ * niente. È così che Escape "interrompi il turno" non ha mai interrotto un bel
+ * niente fuori dai pane `session-viewer:` (gli unici il cui id CONTIENE la
+ * sessionKey), pur essendo scritto nel pannello delle scorciatoie.
+ *
+ * `topics` è la mappa per id del client: la sessionKey è un dato del topic, non
+ * si ricava dall'id (`topic:` + i primi 8 caratteri è una convenzione del
+ * server, non un contratto del client).
+ */
+export function sessionKeyForPaneId(
+  paneId: string | null | undefined,
+  topics: Record<string, { sessionKey?: string }>,
+): string | null {
+  if (!paneId) return null;
+  const viewerKey = getSessionKeyFromViewerPaneId(paneId);
+  if (viewerKey) return viewerKey;
+  const topicId = paneId.startsWith('chat:') ? paneId.slice('chat:'.length) : paneId;
+  // Terminale, browser, progetto, bozza, log: non sono chat, non hanno sessione.
+  if (isKnownPanePrefix(topicId)) return null;
+  return topics[topicId]?.sessionKey ?? null;
+}
+
 export function isDraftPaneId(id: string): boolean {
   return id.startsWith('draft:');
 }

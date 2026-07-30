@@ -32,6 +32,36 @@ export const MAX_FANOUT = 5;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/**
+ * Gli stati di `dispatch_state` in cui un agente sta LAVORANDO il task adesso:
+ * è in coda per partire, sta partendo, o è dentro un turno. Fuori da questi tre
+ * il task è fermo (`null`, `waiting`, `delivered`, `needs_input`, `exhausted`).
+ *
+ * Era una lista scritta a mano in cinque posti — due gate del server
+ * (`services/tasks.ts`, review e spostamento di progetto) e tre della UI
+ * (`TaskDetail` due volte, `Card`) — e ora anche il silenziatore delle notifiche
+ * ne ha bisogno: "l'agente sta lavorando" è la stessa domanda, e va fatta una
+ * volta sola. Il tipo DERIVA dal valore, così aggiungere uno stato senza
+ * decidere da che parte sta non compila.
+ */
+export const ACTIVE_DISPATCH_STATES = ['queued', 'starting', 'working'] as const;
+
+export type ActiveDispatchState = (typeof ACTIVE_DISPATCH_STATES)[number];
+
+/**
+ * True se su questo task c'è un agente al lavoro ADESSO (vedi ACTIVE_DISPATCH_STATES).
+ *
+ * È un type guard, non un `boolean`: così `ActiveDispatchState` ha un
+ * consumatore vero invece di essere un export dichiarativo che nessuno annota,
+ * e nel ramo `true` il chiamante ha in mano uno dei tre stati — non una stringa
+ * qualunque. È questo che rende reale la garanzia promessa qui sopra.
+ */
+export function isAgentWorking(
+  dispatchState: string | null | undefined,
+): dispatchState is ActiveDispatchState {
+  return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
+}
+
 export interface TaskComment {
   id: string;
   taskId: string;

@@ -7,7 +7,12 @@
 // by itself" behaviour. The new SW now stays in `waiting` state until
 // the user explicitly clicks the sidebar Reload button (which posts a
 // SKIP_WAITING message — handler at the bottom of this file).
-const CACHE_VERSION = 9;
+// v10 (2026-07-31): le navigazioni si cachano sotto UNA chiave canonica. Da
+// quando la push punta a `/task/<uuid>` invece che a `/` (server/push-triggers.ts)
+// ogni deep-link aperto da una notifica diventava una voce di cache distinta
+// con dentro una copia intera della app shell, mai invalidata. Il bump serve
+// anche a buttare via la `topics-v9`, che quelle copie le ha già accumulate.
+const CACHE_VERSION = 10;
 const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 
 // Install: register the SW. We DO NOT call self.skipWaiting() — the
@@ -46,16 +51,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Ogni navigazione della SPA riceve la STESSA shell: `/`, `/task/<uuid>` e
+  // `/topic/<id>` sono lo stesso index.html, il routing è tutto lato client.
+  // Cacharle per URL faceva crescere la cache di una copia intera della shell
+  // per ogni deep-link aperto da una notifica, e nessuna di quelle chiavi
+  // veniva mai invalidata (CACHE_NAME è costante). Una chiave canonica sola:
+  // si riscrive a ogni navigazione e vale da fallback offline per ogni rotta.
+  const cacheKey = event.request.mode === 'navigate'
+    ? new Request(new URL('/', self.location.origin).href)
+    : event.request;
+
   event.respondWith(
     fetch(event.request).then((response) => {
       if (response.ok) {
         const clone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, clone);
+          cache.put(cacheKey, clone);
         });
       }
       return response;
-    }).catch(() => caches.match(event.request))
+    }).catch(() => caches.match(cacheKey))
   );
 });
 
@@ -81,7 +96,14 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Handle notification click
+// Click su una notifica → porta l'utente DOVE dice la notifica.
+//
+// Con una finestra già aperta questo handler faceva `client.focus()` e buttava
+// via `targetUrl`: la push ti svegliava e ti lasciava dove eri, a cercare da
+// solo il task di cui ti aveva appena parlato. Il fix NON è `client.navigate()`
+// — ricaricherebbe la SPA da zero (stato, pane, stream in corso) per un
+// deep-link che l'app sa già aprire in-app. Passiamo la destinazione con un
+// postMessage: `client/src/lib/openTaskLink.ts` la ascolta e apre il drawer.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
@@ -90,7 +112,14 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
-          return client.focus();
+          return Promise.resolve(client.focus())
+            .then((focused) => focused || client)
+            .catch(() => client)
+            .then((target) => {
+              // best-effort: su un client non controllato il postMessage può
+              // fallire, ma la finestra resta comunque a fuoco.
+              try { target.postMessage({ type: 'topics:open-url', url: targetUrl }); } catch { /* ignore */ }
+            });
         }
       }
       return clients.openWindow(targetUrl);

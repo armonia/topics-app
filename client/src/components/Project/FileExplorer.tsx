@@ -8,9 +8,10 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
 import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
-import { MODAL_PANEL } from '@/lib/modalStyles';
+import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
+import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
@@ -1152,7 +1153,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex items-center gap-2 text-app-text-tertiary text-[13px]">
-          <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+          <Spinner size="md" />
           Loading files...
         </div>
       </div>
@@ -1427,7 +1428,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
         {/* Editor tabs */}
         <div className="flex-1 min-w-0 min-h-[300px] flex flex-col overflow-hidden">
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback />}>
             <EditorTabs ref={editorTabsRef} projectPath={projectPath} />
           </Suspense>
         </div>
@@ -1439,46 +1440,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 });
 
 function DeleteConfirmDialog({ paths, onConfirm, onCancel }: { paths: string[]; onConfirm: () => void; onCancel: () => void }) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
-
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
-      onClick={onCancel}
+    <ConfirmDialog
+      title={paths.length === 1 ? 'Delete Item' : 'Delete Items'}
+      confirmLabel="Delete"
+      onConfirm={onConfirm}
+      onCancel={onCancel}
     >
-      <div
-        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
-          {paths.length === 1 ? 'Delete Item' : 'Delete Items'}
-        </h3>
-        <p className="text-xs text-app-text-body mb-3">
-          {paths.length === 1
-            ? <>Delete <span className="font-mono">{basename(paths[0])}</span>? This cannot be undone.</>
-            : <>Delete {paths.length} items? This cannot be undone.</>}
-        </p>
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+      {paths.length === 1
+        ? <>Delete <span className="font-mono">{basename(paths[0])}</span>? This cannot be undone.</>
+        : <>Delete {paths.length} items? This cannot be undone.</>}
+    </ConfirmDialog>
   );
 }

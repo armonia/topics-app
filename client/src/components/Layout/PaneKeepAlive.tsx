@@ -1,6 +1,7 @@
 import { useContext, useRef, type ReactNode } from 'react';
 import { PaneKeyContext } from '../../state/pane/residency/holds';
 import { PaneAliveContext } from '../../state/paneLiveness';
+import { ErrorBoundary } from '../Shared/ErrorBoundary';
 
 /**
  * Il guscio keep-alive di una pane: visibile con `display:flex`, nascosta con
@@ -110,7 +111,28 @@ export function PaneKeepAlive({
       data-pane-visible={isVisible ? '1' : '0'}
     >
       <PaneAliveContext.Provider value={alive}>
-        <PaneKeyContext.Provider value={paneKey}>{frozen.current}</PaneKeyContext.Provider>
+        <PaneKeyContext.Provider value={paneKey}>
+          {/*
+            CONFINE DI GUASTO della pane, sullo stesso bordo del confine di
+            layout qui sopra. Prima l'unico ErrorBoundary stava attorno
+            all'INTERA griglia (App.tsx, "Panel error"): un errore di render in
+            una pane qualsiasi — un chunk lazy che non c'è più dopo un
+            aggiornamento, un dato malformato che arriva dal server — sostituiva
+            tutto il pannello con una schermata di errore, smontando insieme a
+            quella rotta anche le pane sane accanto: terminali attaccati, chat
+            in streaming, browser.
+
+            Il boundary sta QUI, e non nei tre punti che montano una pane
+            (GroupLayout ×2, StandaloneChatGroup), perché questo guscio è il
+            passaggio obbligato: qualunque pane futura lo eredita senza doverci
+            pensare.
+
+            Non intacca il congelamento descritto sopra: `frozen.current` resta
+            lo stesso riferimento fra un render e l'altro, quindi il bailout di
+            React scatta identico un livello più giù.
+          */}
+          <ErrorBoundary fallbackMessage="Questa pane si è rotta">{frozen.current}</ErrorBoundary>
+        </PaneKeyContext.Provider>
       </PaneAliveContext.Provider>
     </div>
   );

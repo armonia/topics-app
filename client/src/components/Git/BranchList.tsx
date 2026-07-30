@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2, Link } from 'lucide-react';
 import { gitApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
-import { MODAL_PANEL } from '../../lib/modalStyles';
+import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface Branch {
   name: string;
@@ -165,7 +166,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-app-text-tertiary">
-        <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+        <Spinner size="sm" />
         Loading branches...
       </div>
     );
@@ -236,7 +237,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           {branch.current ? (
             <Check size={12} className="flex-shrink-0 text-primary" />
           ) : switching === branch.name ? (
-            <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
+            <Spinner size="sm" className="flex-shrink-0" />
           ) : (
             <GitBranch size={12} className="flex-shrink-0 opacity-40" />
           )}
@@ -284,7 +285,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                 onClick={() => handleCheckout(localName)}
               >
                 {switching === localName ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
+                  <Spinner size="sm" className="flex-shrink-0" />
                 ) : (
                   <Globe size={12} className="flex-shrink-0 opacity-30" />
                 )}
@@ -397,46 +398,16 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
 }
 
 function DeleteBranchConfirmDialog({ branchName, force, onConfirm, onCancel }: { branchName: string; force: boolean; onConfirm: () => void; onCancel: () => void }) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
-
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
-      onClick={onCancel}
+    <ConfirmDialog
+      title={force ? 'Force Delete Branch' : 'Delete Branch'}
+      confirmLabel={force ? 'Force Delete' : 'Delete'}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
     >
-      <div
-        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
-          {force ? 'Force Delete Branch' : 'Delete Branch'}
-        </h3>
-        <p className="text-xs text-app-text-body mb-3">
-          {force
-            ? <>The branch <span className="font-mono">{branchName}</span> has unmerged commits. Force delete anyway? This will permanently discard those commits.</>
-            : <>Delete branch <span className="font-mono">{branchName}</span>? This cannot be undone.</>}
-        </p>
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            {force ? 'Force Delete' : 'Delete'}
-          </button>
-        </div>
-      </div>
-    </div>
+      {force
+        ? <>The branch <span className="font-mono">{branchName}</span> has unmerged commits. Force delete anyway? This will permanently discard those commits.</>
+        : <>Delete branch <span className="font-mono">{branchName}</span>? This cannot be undone.</>}
+    </ConfirmDialog>
   );
 }

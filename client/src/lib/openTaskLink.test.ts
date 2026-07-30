@@ -9,6 +9,7 @@ import {
   subscribePopstateTask,
   openTaskInApp,
   openTaskFromUrl,
+  subscribeServiceWorkerTaskOpen,
 } from './openTaskLink';
 
 // jsdom-less: a minimal, typed view of the global surface the module touches,
@@ -258,5 +259,75 @@ describe('openTaskInApp / openTaskFromUrl', () => {
     const { events } = stubWindow(`${origin}/?keep=1`);
     openTaskFromUrl();
     expect(events.length).toBe(0);
+  });
+});
+
+// Il click su una web-push con la finestra già aperta: il service worker non
+// può navigarla (ricaricherebbe la SPA), quindi manda la destinazione qui.
+// Questo canale è l'ULTIMO pezzo del deep-link: se salta, la push ti sveglia e
+// ti lascia dove eri.
+describe('subscribeServiceWorkerTaskOpen (click su una web-push)', () => {
+  type SWListener = (e: { data: unknown }) => void;
+  function stubServiceWorker() {
+    const listeners: SWListener[] = [];
+    (globalThis as unknown as { navigator: unknown }).navigator = {
+      serviceWorker: {
+        addEventListener: (type: string, cb: SWListener) => { if (type === 'message') listeners.push(cb); },
+        removeEventListener: (type: string, cb: SWListener) => {
+          if (type !== 'message') return;
+          const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1);
+        },
+      },
+    };
+    return { post: (data: unknown) => listeners.forEach((cb) => cb({ data })), listeners };
+  }
+
+  test('un /task/<id> dal SW apre il drawer', () => {
+    const { events } = stubWindow(`${origin}/`);
+    const { post } = stubServiceWorker();
+    const off = subscribeServiceWorkerTaskOpen();
+    post({ type: 'topics:open-url', url: '/task/t7' });
+    expect(events.map((e) => e.type)).toEqual(['topics:open-utility', 'topics:open-task']);
+    expect(events[1].detail).toEqual({ taskId: 't7' });
+    off();
+  });
+
+  test('accetta anche la URL assoluta della push e la forma legacy', () => {
+    const { events } = stubWindow(`${origin}/`);
+    const { post } = stubServiceWorker();
+    const off = subscribeServiceWorkerTaskOpen();
+    post({ type: 'topics:open-url', url: `${origin}/task/t8` });
+    post({ type: 'topics:open-url', url: '/?task=proj~t9' });
+    expect(events.filter((e) => e.type === 'topics:open-task').map((e) => e.detail))
+      .toEqual([{ taskId: 't8' }, { taskId: 't9' }]);
+    off();
+  });
+
+  test('muto su tutto ciò che non è un deep-link (la finestra è già a fuoco)', () => {
+    const { events } = stubWindow(`${origin}/`);
+    const { post } = stubServiceWorker();
+    const off = subscribeServiceWorkerTaskOpen();
+    post({ type: 'topics:open-url', url: '/' });           // push senza task
+    post({ type: 'SKIP_WAITING' });                        // altro traffico del SW
+    post({ type: 'topics:open-url' });                     // url mancante
+    post(null);
+    post({ type: 'topics:open-url', url: 'https://altro.example/task/t1' }); // altra origin
+    expect(events.length).toBe(0);
+    off();
+  });
+
+  test('l’unsubscribe stacca davvero il listener', () => {
+    const { events } = stubWindow(`${origin}/`);
+    const { post, listeners } = stubServiceWorker();
+    subscribeServiceWorkerTaskOpen()();
+    expect(listeners.length).toBe(0);
+    post({ type: 'topics:open-url', url: '/task/t1' });
+    expect(events.length).toBe(0);
+  });
+
+  test('senza service worker (guscio desktop / test) è un no-op, non un crash', () => {
+    stubWindow(`${origin}/`);
+    (globalThis as unknown as { navigator: unknown }).navigator = {};
+    expect(() => subscribeServiceWorkerTaskOpen()()).not.toThrow();
   });
 });

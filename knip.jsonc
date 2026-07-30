@@ -16,7 +16,6 @@
         // was invisible by construction, which is how watch-board-tasks.ts sat
         // orphaned for months. List the three families that really are
         // entrypoints and let everything else in `scripts/` be checked.
-        "scripts/hooks/**/*.ts!",         // invoked by Claude Code from its settings
         "scripts/check-*.ts!",            // wired to package.json / CI
         "scripts/typecheck-*.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88

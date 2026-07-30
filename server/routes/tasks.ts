@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import { isAgentWorking } from "../../shared/board";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -984,7 +985,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
           const t = got.task;
-          const live = t.assignedTopicId || ["queued", "starting", "working"].includes(t.dispatchState ?? "");
+          const live = t.assignedTopicId || isAgentWorking(t.dispatchState);
           if (!live) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           const sessionKey = t.assignedTopicId ? "topic:" + t.assignedTopicId.slice(0, 8) : null;
           dispatcher?.onLeaveTodo(t.id); // clears a pending grace timer (queued)

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
+import { useModalDialog } from '@/hooks/useModalDialog';
 
 interface Entry {
   it: string;
@@ -42,12 +43,12 @@ export function ChangelogModal({
   const [showInternal, setShowInternal] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Escape closes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Escape chiude, il Tab resta dentro, il focus torna da dove è partito:
+  // il contratto comune dei dialoghi (hooks/useModalDialog). Prima l'Escape era
+  // scritto a mano qui e in bolla, quindi con due dialoghi aperti rispondevano
+  // entrambi.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose, panelRef });
 
   // Lazy-load the generated changelog.
   useEffect(() => {
@@ -77,6 +78,7 @@ export function ChangelogModal({
   return createPortal(
     <div className={MODAL_OVERLAY} onClick={onClose}>
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Novità"

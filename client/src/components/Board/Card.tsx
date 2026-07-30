@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSqu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
@@ -42,17 +42,17 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // Review is the approval surface — give it more room than the working columns
   // on every viewport (wider slide on mobile, 32rem on desktop).
   const widthCls = isReview ? 'w-[22rem] lg:w-[32rem]' : 'w-72';
-  const borderCls = isOver ? 'border-emerald-400/60' : 'border-white/10';
+  const borderCls = isOver ? 'border-emerald-400/60' : 'border-app-border';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
   return (
     <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex ${widthCls} shrink-0 flex-col rounded-lg border ${snapCls} ${borderCls} ${bgCls}`}>
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-app-text-heading">
           <StatusIcon status={status} />
           {STATUS_LABEL[status]}
         </span>
-        <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
+        <span className="rounded bg-white/10 px-1.5 text-xs text-app-text-secondary">{tasks.length}</span>
       </div>
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
           so the column FRAME reaches the bottom of the pane, while a full column's
@@ -71,19 +71,19 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           ))}
         </SortableContext>
         {!canCreate ? null : adding ? (
-          <div className="rounded-md border border-white/10 bg-white/5 p-2">
+          <div className="rounded-md border border-app-border bg-white/5 p-2">
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') { setText(''); setAdding(false); } }}
-              className="w-full resize-none bg-transparent text-sm text-neutral-100 outline-none" rows={2} placeholder="Task…"
+              className="w-full resize-none bg-transparent text-sm text-app-text outline-none" rows={2} placeholder="Task…"
             />
             <div className="mt-1 flex justify-end gap-1">
-              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-xs text-neutral-400 hover:bg-white/10">Annulla</button>
+              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-xs text-app-text-secondary hover:bg-white/10">Annulla</button>
               <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-xs text-white hover:bg-emerald-500">Aggiungi</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs text-neutral-400 hover:bg-white/5">
+          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs text-app-text-secondary hover:bg-white/5">
             <Plus className="h-3.5 w-3.5" /> Aggiungi
           </button>
         )}
@@ -186,7 +186,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // surface — so it's never busy here even if a stale dispatch_state='working'
   // lingers. Without this gate a review task with dispatch_state='working'
   // renders BOTH the steer input and the review feedback input (two boxes).
-  const agentBusy = task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  const agentBusy = task.status !== 'review' && isAgentWorking(task.dispatchState);
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
   // "apri tab" all live up there — the body below stays pure content.
   const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
@@ -215,7 +215,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''}`}
     >
       {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
           cluster in the top-right SLOT — dispatch state, model/effort, "apri
@@ -225,7 +225,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           crushing the eyebrow. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary">
             {showProject && !unassigned && (
               <>
                 {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
@@ -252,13 +252,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={(task.agentMs > 0 || task.agentTokens > 0)
                 ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
                 : `Modello: ${fmtModel(task.model)}`}
-              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
+              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary"
             >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)}` : ''}`}</span>
           ) : null}
           {hasOpenTab && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
-              className="shrink-0 rounded bg-white/10 p-1 text-neutral-200 hover:bg-white/20"
+              className="shrink-0 rounded bg-white/10 p-1 text-app-text hover:bg-white/20"
               title="Apri la tab dell'agent"
             ><ArrowUpRight className="h-3 w-3" /></button>
           )}
@@ -279,7 +279,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           <span
             title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
             className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-[10px] ${
-              task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-neutral-400'
+              task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
             }`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -302,13 +302,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
               <StatusIcon status={s.status} className="h-3 w-3" />
-              <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-300'}`}>{s.text}</span>
+              <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
             </button>
           ))}
           {checklist.length > 5 && (
             <button
               onClick={() => onOpen(task.id)}
-              className="px-0.5 text-[11px] text-neutral-400 hover:text-neutral-200"
+              className="px-0.5 text-[11px] text-app-text-secondary hover:text-app-text"
             >+{checklist.length - 5}… Vedi tutti</button>
           )}
         </div>
@@ -316,7 +316,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
         <div className="mt-1">
           <span
             title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -325,11 +325,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           card the agent's LAST COMMENT is the true tail, so the date renders
           after that (inside the review block) instead of here. */}
       {task.description && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-neutral-400">{stripMarkdown(task.description)}</p>
+        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(task.description)}</p>
       )}
       {!isAgentReview && (
         <div
-          className="mt-1 text-[10px] text-neutral-500"
+          className="mt-1 text-[10px] text-app-text-muted"
           title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
         >{fmtUpdatedAt(task.updatedAt)}</div>
       )}
@@ -353,7 +353,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {task.userCommentCount > 0 && (
             <span
               title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {systemDelivered && (
@@ -380,7 +380,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
             >piano</span>
           )}
-          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
+          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
         </div>
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
@@ -392,7 +392,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             onChange={(e) => setFreeText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
             placeholder="Scrivi all'agent…"
-            className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
+            className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
           />
           <button
             disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
@@ -407,13 +407,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
           {pending ? (
-            <p className="break-words text-xs leading-snug text-neutral-200">{stripMarkdown(pending.question)}</p>
+            <p className="break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
             // no fade. Tooltip = plain text.
             <div
-              className={`text-xs leading-relaxed text-neutral-300 ${COMPACT_MD_CLS}`}
+              className={`text-xs leading-relaxed text-app-text-heading ${COMPACT_MD_CLS}`}
               title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
             >
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
@@ -421,7 +421,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ) : null}
           {/* Update time trails the agent's last word (the card body's true tail). */}
           <div
-            className="text-[10px] text-neutral-500"
+            className="text-[10px] text-app-text-muted"
             title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
           >{fmtUpdatedAt(task.updatedAt)}</div>
           {pending && pending.options.length > 0 && (
@@ -430,7 +430,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
-                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-100 hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
                 >{opt}</button>
               ))}
             </div>
@@ -441,7 +441,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); answer(freeText.trim()); } }}
               placeholder="Rispondi…"
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-app-text outline-none placeholder:text-app-placeholder"
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => answer(freeText.trim())}
@@ -456,7 +456,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             <button
               disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
               title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
-              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
             ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
         </div>
@@ -466,7 +466,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50">
             <ShieldCheck className="h-3.5 w-3.5" /> Approva
           </button>
-          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50">
+          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50">
             <ShieldX className="h-3.5 w-3.5" /> Rifiuta
           </button>
         </div>
@@ -477,13 +477,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}
             className={POPOVER_ITEM}
-          ><ClipboardList className="h-3.5 w-3.5 text-neutral-400" /> Apri</button>
+          ><ClipboardList className="h-3.5 w-3.5 text-app-text-secondary" /> Apri</button>
           {task.assignedTopicId && onOpenTopic && (
             <button
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
               className={POPOVER_ITEM}
-            ><ArrowUpRight className="h-3.5 w-3.5 text-neutral-400" /> Apri tab agent</button>
+            ><ArrowUpRight className="h-3.5 w-3.5 text-app-text-secondary" /> Apri tab agent</button>
           )}
           <div className={POPOVER_DIVIDER} />
           <button

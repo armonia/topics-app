@@ -7,6 +7,7 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { markdownComponents } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
+import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -279,7 +280,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       <div className="flex-1 overflow-hidden">
         {activeTab?.loading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+            <Spinner size="md" />
           </div>
         ) : activeTab && activeIsHtml && activeHtmlPreview ? (
           <HtmlPreview filePath={activeTab.path} filename={activeTab.name} />
@@ -310,7 +311,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
             </div>
           </div>
         ) : activeTab ? (
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback />}>
             <CodeEditor
               key={activeTab.path}
               content={activeTab.content}
