@@ -1,7 +1,7 @@
 [
   {
-    "version": "2.2.0",
-    "date": "2026-07-26",
+    "version": "2.2.1",
+    "date": "2026-07-31",
     "sections": {
       "new": [
         {
@@ -27,15 +27,195 @@
           "en": "a group IS a window — one unified \"Windows\" section in the sidebar",
           "scope": "ux",
           "breaking": false
+        },
+        {
+          "it": "pannello di configurazione della chat nel composer (effort + autonomia)",
+          "en": "",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "badge di sovraccarico visibile nell'header quando load supera i core",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Topics vede le sessioni Claude esterne — scanner ~/.claude/projects, badge sidebar, guardia dispatcher",
+          "en": "",
+          "scope": "sessioni",
+          "breaking": false
+        },
+        {
+          "it": "censimento delle sessioni Claude ESTERNE (badge board + guardia dispatcher)",
+          "en": "",
+          "scope": "sessions",
+          "breaking": false
+        },
+        {
+          "it": "agente in attesa dichiara l'attesa e rilascia lo slot",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "guardia repo-occupato in HOLD + auto-resume invece di bloccare",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il ring mostra il contesto VERO, e avvisa prima della compaction",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "una sola superficie, e uno slider al posto delle cinque pill",
+          "en": "",
+          "scope": "effort",
+          "breaking": false
+        },
+        {
+          "it": "il turno dice PERCHÉ è finito — vocabolario ACP al posto di done/error/aborted",
+          "en": "",
+          "scope": "0.4",
+          "breaking": false
+        },
+        {
+          "it": "commenti riga per riga sul diff, in un commento solo",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "checks pre-review — niente review senza i comandi verdi",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "timbra chi ha portato il task in review",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "standardizza stream:context sul blocco ACP usage_update",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "parla Agent Client Protocol — un agente nuovo costa una riga",
+          "en": "",
+          "scope": "provider",
+          "breaking": false
+        },
+        {
+          "it": "modella i 16 messaggi che il server mandava senza contratto",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "il tipo di un broadcast ora lo decide il registro, non la stringa",
+          "en": "",
+          "scope": "ws",
+          "breaking": false
+        },
+        {
+          "it": "le shell in background dell'agente diventano stato vivo",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "manda HTML potato + CSS calcolato + ritaglio dell'elemento",
+          "en": "",
+          "scope": "click-to-edit",
+          "breaking": false
+        },
+        {
+          "it": "manda lo stesso task a N agenti in parallelo e falli scegliere",
+          "en": "",
+          "scope": "fan-out",
+          "breaking": false
+        },
+        {
+          "it": "`browser_list` — sapere quante WKWebView sono davvero vive",
+          "en": "",
+          "scope": "shell",
+          "breaking": false
+        },
+        {
+          "it": "una sonda che dice CHI tiene la heap, invece di farlo indovinare",
+          "en": "",
+          "scope": "diagnostica",
+          "breaking": false
+        },
+        {
+          "it": "un monitor che mette la bolletta accanto al serbatoio",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "avvisa quando ogni chiamata rilegge troppo, non solo quando la finestra finisce",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "il client presenta il token, e un peer remoto autenticato non e' piu' CSRF",
+          "en": "",
+          "scope": "pairing",
+          "breaking": false
+        },
+        {
+          "it": "una vista che raggruppa per STATO, non per tipo di pane",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        },
+        {
+          "it": "quanto di un messaggio era CACHE — il dato c'era e veniva buttato",
+          "en": "",
+          "scope": "token",
+          "breaking": false
+        },
+        {
+          "it": "il consumo del turno si vede CRESCERE, invece di apparire alla fine",
+          "en": "",
+          "scope": "token",
+          "breaking": false
+        },
+        {
+          "it": "l'effort sta sul controllo che lo cambia, e 1M si legge",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "l'effort sul controllo che lo cambia, la finestra su OGNI modello",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un task che si arrende ora te lo dice",
+          "en": "a task that gives up now tells you",
+          "scope": "notifiche",
+          "breaking": false
+        },
+        {
+          "it": "le preferenze salivano al server e non tornavano MAI giu'",
+          "en": "preferences went up to the server and NEVER came back down",
+          "scope": "settings",
+          "breaking": false
         }
       ],
       "fixes": [
-        {
-          "it": "perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri",
-          "en": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
-          "scope": null,
-          "breaking": false
-        },
         {
           "it": "ContextMenu topic in IT + verbo unico \"Archivia\" + via console.log diagnostici",
           "en": "topic context menu localized + single \"Archive\" verb + diagnostic console.logs removed",
@@ -77,6 +257,600 @@
           "en": "group from the sidebar — restore the drag + open/register the dropped topic",
           "scope": "ux",
           "breaking": false
+        },
+        {
+          "it": "il loop del banner \"nuova versione\" + coerenza sidebar/status/spazi/board",
+          "en": "",
+          "scope": "dev",
+          "breaking": false
+        },
+        {
+          "it": "i popover della chrome sidebar non escono piu' dal viewport",
+          "en": "",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "status bar su UNA riga — l'affollamento tolto alla fonte, non con altezza",
+          "en": "",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "il controllo delle sessioni non dipende più da un token OpenClaw",
+          "en": "",
+          "scope": "auth",
+          "breaking": false
+        },
+        {
+          "it": "il controllo sessioni accetta il token agent nativo, non solo il gateway OpenClaw",
+          "en": "",
+          "scope": "auth",
+          "breaking": false
+        },
+        {
+          "it": "la compaction non \"gonfia\" più il contesto, un solo divider, niente vocali vuoti",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il sorgente era invisibile a grep — 2 byte NUL grezzi",
+          "en": "",
+          "scope": "moondream",
+          "breaking": false
+        },
+        {
+          "it": "i daemon staccati non tengono più aperto il nostro stderr",
+          "en": "",
+          "scope": "bridge",
+          "breaking": false
+        },
+        {
+          "it": "il manifest dichiara ciò che usa davvero",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "una tab addormentata non riporta più indietro gli altri device",
+          "en": "",
+          "scope": "sync",
+          "breaking": false
+        },
+        {
+          "it": "anche il teardown normale uccideva i Chromium degli ALTRI",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la pane in modalità DOM mostrava un VUOTO bianco, non uno stato",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "archiviare un topic lasciava il tab VIVO sui client aperti",
+          "en": "",
+          "scope": "panes",
+          "breaking": false
+        },
+        {
+          "it": "chiudi le quattro strade per cui il sidecar restava vivo a vuoto",
+          "en": "",
+          "scope": "webrtc",
+          "breaking": false
+        },
+        {
+          "it": "mieta l'orfano stantìo all'avvio, non al primo offer",
+          "en": "",
+          "scope": "webrtc",
+          "breaking": false
+        },
+        {
+          "it": "il retry CDP si arrende invece di ritentare per settimane",
+          "en": "",
+          "scope": "webrtc",
+          "breaking": false
+        },
+        {
+          "it": "garantisci la chiusura dell'AudioContext del ding di completamento",
+          "en": "",
+          "scope": "audio",
+          "breaking": false
+        },
+        {
+          "it": "timbra il rev sull'index servito da disco e avvisa invece di ricaricare",
+          "en": "",
+          "scope": "shell",
+          "breaking": false
+        },
+        {
+          "it": "verifica prima di distruggere — un branch si reapa solo se il contenuto è davvero su main",
+          "en": "",
+          "scope": "gc",
+          "breaking": false
+        },
+        {
+          "it": "i messaggi in uscita non evaporano più",
+          "en": "",
+          "scope": "coda",
+          "breaking": false
+        },
+        {
+          "it": "il rollback taglia il ramo, non l'albero",
+          "en": "",
+          "scope": "checkpoint",
+          "breaking": false
+        },
+        {
+          "it": "un turno la cui sessione è morta non resta appeso su \"lavora\"",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "un task piantato in \"lavora\" da giorni restituisce il checkout, non i commit",
+          "en": "",
+          "scope": "gc",
+          "breaking": false
+        },
+        {
+          "it": "risolvi il repo dall'id di board, non dal ProjectStore",
+          "en": "",
+          "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "il contatore smette di annunciare sessioni che nessuno vede",
+          "en": "",
+          "scope": "status",
+          "breaking": false
+        },
+        {
+          "it": "la riga legge lo stesso conteggio del suo tab, non uno zero cablato",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        },
+        {
+          "it": "i NUL del test diventano escape, il file torna greppabile",
+          "en": "",
+          "scope": "guardia",
+          "breaking": false
+        },
+        {
+          "it": "chiudi le WKWebView che il reload lascia senza proprietario",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "non accusare di crescita chi ha solo il watcher acceso",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        },
+        {
+          "it": "il separatore di chiave torna un escape, non un byte NUL",
+          "en": "",
+          "scope": "guardia",
+          "breaking": false
+        },
+        {
+          "it": "il turno arriva in fondo anche se il flusso si stacca sotto",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il rebuild in watch non lascia piu /public senza index.html",
+          "en": "",
+          "scope": "build",
+          "breaking": false
+        },
+        {
+          "it": "la finestra da 1M si vede, e la cache non si paga come input fresco",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "una superficie nascosta non ha pane visibili, quindi non ha pavimenti",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "smetti di credere che l'app sia in secondo piano quando non lo è",
+          "en": "",
+          "scope": "terminale",
+          "breaking": false
+        },
+        {
+          "it": "dai al contatore una finestra deterministica, invece di quella che capita",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "non sfrattare mai una pane che possiede una WKWebView",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "togli il reaper — ricaricare tornava gratis, e l'avevo reso caro io",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "la cache dei messaggi stava mangiando la quota, e con lei i messaggi da inviare",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "libera la quota all'avvio, invece di aspettare la prossima scrittura",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "calcola la CPU dal tempo di CPU, invece di curare il numero di sysinfo",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "rilascia gli elementi audio, invece di limitarti a metterli in pausa",
+          "en": "",
+          "scope": "voce",
+          "breaking": false
+        },
+        {
+          "it": "manda solo cio' che e' cambiato, invece di ripetere il progetto a ogni messaggio",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "quattro buchi trovati mettendo alla prova la dedup del preambolo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la CPU della status bar era 41,67 volte troppo bassa",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "Rigenera passa dall'envelope canonico, invece di rifarsi il contesto a mano",
+          "en": "",
+          "scope": "edit",
+          "breaking": false
+        },
+        {
+          "it": "un milione e' la finestra DI SERIE, non una variante",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "svuota il documento di una pane browser prima di chiuderla",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "il selettore per-topic era morto sul terminale",
+          "en": "",
+          "scope": "effort",
+          "breaking": false
+        },
+        {
+          "it": "la cache a un'ora costa il doppio, e il TTL sta scritto nell'usage",
+          "en": "",
+          "scope": "costi",
+          "breaking": false
+        },
+        {
+          "it": "sette buchi trovati mettendo alla prova il lavoro di oggi",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un roster vuoto non prova che la sessione sia morta",
+          "en": "",
+          "scope": "terminale",
+          "breaking": false
+        },
+        {
+          "it": "l'errore di caricamento non e' piu' un buffer scrivibile — ⌘S sovrascriveva il file",
+          "en": "",
+          "scope": "editor",
+          "breaking": false
+        },
+        {
+          "it": "un messaggio accodato non perde piu' Plan Mode (ne' Fast Mode, ne' il modello scelto)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un vocale che non parte adesso lo dice",
+          "en": "",
+          "scope": "voce",
+          "breaking": false
+        },
+        {
+          "it": "il silenzio non e' morte — il watchdog chiede al server invece di sentenziare",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "una sola verita' su finestra e soglie, invece di cinque copie",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "le pane opencode non venivano MAI persistite",
+          "en": "",
+          "scope": "terminale",
+          "breaking": false
+        },
+        {
+          "it": "meta' dei KPI leggeva tabelle che nessuno scrive",
+          "en": "",
+          "scope": "dashboard",
+          "breaking": false
+        },
+        {
+          "it": "il Context Inspector era spento su ogni provider tranne openclaw",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "la scelta del default viveva solo in memoria",
+          "en": "",
+          "scope": "provider",
+          "breaking": false
+        },
+        {
+          "it": "le approvazioni restavano appese se il task usciva da review",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "i token per file erano raschiati da una frase, o inventati",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la lentezza dello stream si DICE, non si scrive nel messaggio",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il roster non si aggiornava, e un evento era rifiutato dal suo schema",
+          "en": "",
+          "scope": "agents",
+          "breaking": false
+        },
+        {
+          "it": "via il selettore di autonomia, che mostrava \"Chiedi\" e non chiedeva",
+          "en": "",
+          "scope": "topic",
+          "breaking": false
+        },
+        {
+          "it": "il cap globale cambiava solo nella finestra che lo toccava",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il token mancava sui 46 percorsi che non passano da api.ts",
+          "en": "",
+          "scope": "pairing",
+          "breaking": false
+        },
+        {
+          "it": "il contatore CPU distingue \"non misurato\" da \"misurato quasi zero\"",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "la RAM del lato server non e' il solo processo Bun — 27 MB contro 2166",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "una tab resta blu finche' non la GUARDI, non finche' non la sfiori",
+          "en": "",
+          "scope": "tab",
+          "breaking": false
+        },
+        {
+          "it": "\"letto\" aspetta la soglia, non l'istante del focus",
+          "en": "",
+          "scope": "unread",
+          "breaking": false
+        },
+        {
+          "it": "lo stato si dice a parole, e il blu del tier e' UN colore",
+          "en": "",
+          "scope": "tab",
+          "breaking": false
+        },
+        {
+          "it": "la chat non lampeggia piu' mentre scrivi",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il composer non ruba piu' il fuoco al picker",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "niente fantasmi sotto il composer, niente bottoni schiacciati",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "lo stop su un turno MUTO non lascia piu' una bolla vuota",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "le 170 bolle vuote gia' in DB se ne vanno, e cancellare un messaggio non lascia piu' pin appesi",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "due turni utente di fila non fanno piu' 400 sull'API Anthropic",
+          "en": "",
+          "scope": "provider",
+          "breaking": false
+        },
+        {
+          "it": "«ferma» non fa piu' PARTIRE il messaggio in coda",
+          "en": "'stop' no longer SENDS the queued message",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "il nome della topic non si spacca piu' a meta' nel banner",
+          "en": "the topic name is no longer cut in half in the banner",
+          "scope": "notifiche",
+          "breaking": false
+        },
+        {
+          "it": "una consegna sola faceva TRE banner",
+          "en": "a single delivery fired THREE banners",
+          "scope": "notifiche",
+          "breaking": false
+        },
+        {
+          "it": "la notifica ti svegliava e poi ti lasciava a cercare da solo",
+          "en": "the notification woke you up and then left you to hunt for it",
+          "scope": "push",
+          "breaking": false
+        },
+        {
+          "it": "Impostazioni prometteva banner che non arrivano MAI",
+          "en": "Settings promised banners that NEVER arrive",
+          "scope": "notifiche",
+          "breaking": false
+        },
+        {
+          "it": "Escape con Impostazioni aperto AMMAZZAVA il turno dell'AI",
+          "en": "Escape with Settings open KILLED the AI turn",
+          "scope": "tastiera",
+          "breaking": false
+        },
+        {
+          "it": "due errori rossi ereditati dal lavoro sui token",
+          "en": "two red errors inherited from the token work",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
+          "it": "Escape non interrompeva NIENTE, e ⌘⇧R ricaricava la finestra",
+          "en": "Escape interrupted NOTHING, and ⌘⇧R reloaded the window",
+          "scope": "tastiera",
+          "breaking": false
+        },
+        {
+          "it": "Escape su un lightbox ammazzava la risposta dell'AI dietro",
+          "en": "Escape on a lightbox killed the AI reply behind it",
+          "scope": "modali",
+          "breaking": false
+        },
+        {
+          "it": "/clear svuotava lo schermo, non la memoria del modello",
+          "en": "/clear emptied the screen, not the model's memory",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "due spawn nello stesso millisecondo e una sessione ripresa ripartiva vuota",
+          "en": "two spawns in the same millisecond and a resumed session restarted empty",
+          "scope": "sessioni",
+          "breaking": false
+        },
+        {
+          "it": "una pane che si rompe non porta giu' le altre",
+          "en": "a pane that breaks no longer takes the others down",
+          "scope": "pane",
+          "breaking": false
+        },
+        {
+          "it": "il turno respinto torna in coda invece di corrompere lo stream",
+          "en": "a rejected turn goes back to the queue instead of corrupting the stream",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la Board era illeggibile in tema chiaro — ora segue i token",
+          "en": "the Board was unreadable in light theme — it now follows the tokens",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "tolgo le tre schermate che parlano due lingue insieme",
+          "en": "removed the three screens that speak two languages at once",
+          "scope": "a11y",
+          "breaking": false
+        },
+        {
+          "it": "via i 4 alert() che CONGELANO l'app invece di dire una cosa",
+          "en": "gone: the 4 alert() calls that FREEZE the app instead of just saying something",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "chiudo i rilievi dell'audit pre-merge sui contratti e sulla cache",
+          "en": "closed the pre-merge audit findings on contracts and cache",
+          "scope": "audit",
+          "breaking": false
+        },
+        {
+          "it": "un messaggio in coda non sparisce piu' se l'invio va storto",
+          "en": "a queued message no longer disappears if the send goes wrong",
+          "scope": "coda",
+          "breaking": false
+        },
+        {
+          "it": "una causa sola non manda piu' N notifiche identiche",
+          "en": "a single cause no longer sends N identical notifications",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la diagnosi delle notifiche si aggiorna, e Cmd+Shift+R detta",
+          "en": "the notification diagnosis refreshes, and Cmd+Shift+R dictates",
+          "scope": "guscio",
+          "breaking": false
         }
       ],
       "perf": [
@@ -85,14 +859,219 @@
           "en": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
           "scope": "client",
           "breaking": false
+        },
+        {
+          "it": "la suite era per metà sleep — 14,5 → 6,8 min a parità di esiti",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via 12 attese morte su /api/ui-state/panels (10s a vuoto l'una)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "panels 65s -> 12s, e un test che non verificava il progetto",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via 15s di pause dal gate PR — e una che NON va tolta, documentata",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la status bar mostrava 59 MB su 6937 reali, e le pane nascoste non erano nascoste",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "congela le pane nascoste, lo switch di tab cala del 23-28%",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "taglia i render globali e le richieste ridondanti allo switch di tab",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "coalescia le scritture xterm quando nessuno guarda",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "non disegnare le aure senza box di layout",
+          "en": "",
+          "scope": "aura",
+          "breaking": false
+        },
+        {
+          "it": "instrada anche i due lettori SSE nel coalescer rAF",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "niente reflow per una pane nascosta, niente eval a schermo spento",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "il rAF dell'aura si parcheggia, il terminale contiene il proprio layout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "contieni il layout della lista messaggi + guardia sui frame a riposo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "dimezza il duty cycle del contatore e togli il +1 dalla misura",
+          "en": "",
+          "scope": "fps",
+          "breaking": false
+        },
+        {
+          "it": "il replayer rrweb si parcheggia quando nessuno lo guarda",
+          "en": "",
+          "scope": "cobrowse",
+          "breaking": false
+        },
+        {
+          "it": "il ticker dell'onda va a 30fps, non al refresh del display",
+          "en": "",
+          "scope": "aura",
+          "breaking": false
+        },
+        {
+          "it": "il timer live segue il flusso, non solo la visibilità",
+          "en": "",
+          "scope": "cobrowse",
+          "breaking": false
+        },
+        {
+          "it": "niente redraw per una pane senza layout — la cache di xterm non si popola",
+          "en": "",
+          "scope": "terminale",
+          "breaking": false
+        },
+        {
+          "it": "coalesce i fit anche durante il resize della FINESTRA nativa",
+          "en": "",
+          "scope": "terminale",
+          "breaking": false
+        },
+        {
+          "it": "confine di layout sul guscio delle pane — il caret non rilayouta più tutta l'app",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "spegni i guardiani che restavano accesi senza pubblico",
+          "en": "",
+          "scope": "frame",
+          "breaking": false
+        },
+        {
+          "it": "il chip degli agenti si sottoscrive da solo, App non rilegge più tutto",
+          "en": "",
+          "scope": "render",
+          "breaking": false
+        },
+        {
+          "it": "metti un tetto alle pane montate, invece di tenerle tutte per sempre",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
+        },
+        {
+          "it": "spegni i cicli per-pane che girano quando non li guarda nessuno",
+          "en": "",
+          "scope": "frame",
+          "breaking": false
+        },
+        {
+          "it": "dichiara le zone di trascinamento al render, non con un observer su body",
+          "en": "",
+          "scope": "frame",
+          "breaking": false
+        },
+        {
+          "it": "smetti di ricostruire a ogni token quello che non è cambiato",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "un token non ri-renderizza piu' tutta l'app",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "fuori dalle chat i server che si riavviano a ogni spawn",
+          "en": "",
+          "scope": "mcp",
+          "breaking": false
+        },
+        {
+          "it": "non spedire il duplicato che il client scarta comunque",
+          "en": "",
+          "scope": "history",
+          "breaking": false
+        },
+        {
+          "it": "i mutatori dei tool non ri-idratano la timeline intera",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la rilevazione pollava a 4s per sempre, anche a riposo",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "gli eventi dei tool andavano a OGNI finestra, anche a chi non guarda",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "la lista delle azioni era quadratica, e sette schemi WS erano morti",
+          "en": "",
+          "scope": "sub-agent",
+          "breaking": false
+        },
+        {
+          "it": "il log si legge quando c'e' qualcosa, non ogni due secondi",
+          "en": "",
+          "scope": "processi",
+          "breaking": false
+        },
+        {
+          "it": "i trascritti delle chat che nessuno guarda tornano indietro",
+          "en": "",
+          "scope": "memoria",
+          "breaking": false
         }
       ],
       "internal": [
-        {
-          "it": "test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori",
-          "en": "",
-          "scope": null
-        },
         {
           "it": "includi i fix 2.2 post-bump (ux + sicurezza) con EN",
           "en": "",
@@ -181,6 +1160,509 @@
           "en": "",
           "scope": "changelog",
           "breaking": false
+        },
+        {
+          "it": "rigenera con la sezione Finestre (IT + EN)",
+          "en": "",
+          "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "BOARD-06 usa il toggle dispatch attuale, non la pill rimossa",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "righe di menu del board sui token condivisi + ultimi 3 popover senza clamp",
+          "en": "",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "scroll-to-bottom ancorato al pane del SUO topic (era ordine-dipendente)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "grid-split rende AUTORITATIVO il pane-store (era ereditato)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "reopen-closed-tab — il seed deve OUT-RANKARE lo stato gia' salvato",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "board.spec ermetica — reset del workspace in beforeEach + probe del \"+\" robusto",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "tool-call-ui semina il workspace (aveva dipendenza INVERSA)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "resetPaneStore azzera davvero — mancavano tombstones e spaces",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"test(e2e): resetPaneStore azzera davvero — mancavano tombstones e spaces\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rimuove 4 file morti del client",
+          "en": "",
+          "scope": "pulizia",
+          "breaking": false
+        },
+        {
+          "it": "rimuove gli export morti (occorrenza unica nel repo)",
+          "en": "",
+          "scope": "pulizia",
+          "breaking": false
+        },
+        {
+          "it": "knip era un config orfano, ora è un check che si può lanciare",
+          "en": "",
+          "scope": "deadcode",
+          "breaking": false
+        },
+        {
+          "it": "il mock di useWebSocket non esporta più un default fantasma",
+          "en": "",
+          "scope": "demo",
+          "breaking": false
+        },
+        {
+          "it": "il seeding del pane-store passa da una primitiva sola, con retry",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "il cleanup d'emergenza non ammazza più i browser di altri repo",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "CCS-07 azzerava il buffer con un broadcast ancora in canna",
+          "en": "",
+          "scope": "tracker",
+          "breaking": false
+        },
+        {
+          "it": "panels cercava etichette inglesi che non esistono più",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via 5 simboli morti — knip li segnalava, il grep li conferma",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "projectHash aveva 3 copie della stessa djb2, ora una sola",
+          "en": "",
+          "scope": "shared",
+          "breaking": false
+        },
+        {
+          "it": "via il codice morto che knip segnalava, confermato a grep",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "la suite non era ermetica — i test si sporcavano a vicenda",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via 392 righe di test per funzionalità che non esistono più",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "due guardie che non potevano fallire, più una soppressione morta",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Elimina il leak di processi zombie della shell Tauri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ripara l'orphan monitor dell'ai-bridge, rotto sotto Bun",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il seed del pane-store non poteva fallire, e seminava topic chiuse",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "sostituisci le attese a tempo con la condizione che stavano aspettando",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "estrai l'algebra dei gruppi e testa quella, non la sua fotocopia",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "togli gli ultimi sleep e le asserzioni che non asserivano",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "le PERF non misuravano niente — tre metriche rotte su tre",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "il layout interno del progetto sopravviveva al reset delle pane",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Sposta l'indirizzo del server di test in un posto solo, e con esso la suite in parallelo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spegni le pane di una finestra progetto in secondo piano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pota il test doppione e i getter che nessuno chiamava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "mai fallire quando il checkout condiviso è su un ramo dev",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fermati subito se il bundle del client non c'è, invece di 500 rossi finti",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "riporta la riga del progetto nella sidebar dei test terminale",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "rimetti verdi CHK4-01, CHK10-01 e la cattura frame cloud-session",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "tools/list attendeva una lista senza wait_for_condition",
+          "en": "",
+          "scope": "mcp",
+          "breaking": false
+        },
+        {
+          "it": "registra QUALI token di class si accendono e spengono, e su chi",
+          "en": "",
+          "scope": "sonda",
+          "breaking": false
+        },
+        {
+          "it": "intercetta chi SCRIVE le classi, non chi le ha già scritte",
+          "en": "",
+          "scope": "sonda",
+          "breaking": false
+        },
+        {
+          "it": "\"done\" deve voler dire \"è su main\", non \"è in una colonna\"",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        },
+        {
+          "it": "niente byte NUL nei sorgenti",
+          "en": "",
+          "scope": "guardia",
+          "breaking": false
+        },
+        {
+          "it": "confine ermetico per file — ogni spec riparte dalla baseline",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna i lock del protocollo WS per stream:context e rimetti il (+) dove esiste",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "una sola autorità sullo scroll, non tre ref che si riparano",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "TOPICS_NO_OPEN, così il test non dirotta il browser dell'umano",
+          "en": "",
+          "scope": "cli",
+          "breaking": false
+        },
+        {
+          "it": "misura il layout della chat invece di guardarlo",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "congela il bundle e campiona finché basta, invece di sperarci",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "proposta autonomous-credential-store — login/registrazione autonomi",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "review — origin binding, entitlement self-signed, chat.db WAL",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "rifiuta di girare su un bundle vecchio o a metà",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "contratto WS: un registro solo in shared/, il mirror del client sparisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "3.3: colleghi il contratto server↔client a UNA dichiarazione, non due specchi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "3.3: chiudi gli ultimi specchi e metti un cricchetto che ne impedisca di nuovi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "3.4: dai alla chat un obiettivo che sopravvive alla compattazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "l'obiettivo entra nell'envelope e sopravvive al reload",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "accendi strict sul server e fai girare le verifiche già scritte",
+          "en": "",
+          "scope": "cancelli",
+          "breaking": false
+        },
+        {
+          "it": "Leggi i modelli dal CLI installato invece che da una lista scritta a mano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sblocca le chat che restavano appese a caricare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "metti un cricchetto sotto la dimensione del bundle",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        },
+        {
+          "it": "report di cosa è sicuro cancellare, come script e non come documento",
+          "en": "",
+          "scope": "disco",
+          "breaking": false
+        },
+        {
+          "it": "togli l'amnistia su scripts/ e dichiara chi chiama cosa",
+          "en": "",
+          "scope": "knip",
+          "breaking": false
+        },
+        {
+          "it": "reggi anche in mezzo agli altri, non solo da solo",
+          "en": "",
+          "scope": "residenza",
+          "breaking": false
+        },
+        {
+          "it": "i due test di abort aspettano il turno, non 150 millisecondi",
+          "en": "",
+          "scope": "acp",
+          "breaking": false
+        },
+        {
+          "it": "registra il giro delle misure e le leve chiuse",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "E2E sul preavviso di COSTO e sul latch separato per motivo",
+          "en": "",
+          "scope": "contesto",
+          "breaking": false
+        },
+        {
+          "it": "fail-fast in locale, cosi' un server morto non si traveste da 88 regressioni",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via tre isole senza consumatori, tenendo cio' che le circonda",
+          "en": "",
+          "scope": "legacy",
+          "breaking": false
+        },
+        {
+          "it": "la replica del timer non modella piu' un'annotazione che non esiste",
+          "en": "",
+          "scope": "stream",
+          "breaking": false
+        },
+        {
+          "it": "via i re-export che nessuno importava, e un tipo dichiarato due volte",
+          "en": "",
+          "scope": "tipi",
+          "breaking": false
+        },
+        {
+          "it": "uno shard che non esegue test e' un FALLIMENTO, non una nota a pie' di pagina",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "archivia le 5 change che sono davvero chiuse, e riversa i loro requisiti",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "AC-2 percorre l'anello delle TRE viste, non il ping-pong fra due",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        },
+        {
+          "it": "chiudo il buco che avevo dichiarato sul numero live",
+          "en": "",
+          "scope": "token",
+          "breaking": false
+        },
+        {
+          "it": "cancello la pipeline `claude-event`, nata morta e mai cablata",
+          "en": "",
+          "scope": "notifiche",
+          "breaking": false
+        },
+        {
+          "it": "la sezione S dice cosa e' stato fatto DAVVERO",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "8 rossi accusavano il codice, il server era stato ammazzato da fuori",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "un worktree di dispatch non puo' piu' rubare la porta del checkout vero",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "l'allarme sulla morte del server accusava un riavvio VOLUTO",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "2.2.1 in lockstep",
+          "en": "",
+          "scope": "versione",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.0",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri",
+          "en": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -429,6 +1911,18 @@
           "it": "finalizza i tool orfani anche nella colonna blocks (spinner infinito)",
           "en": "finalize orphaned tools in the blocks column too (infinite spinner)",
           "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "spiegazione sui turni interrotti + verifica sessione finita",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "split, drag e focus piu' solidi e consistenti",
+          "en": "",
+          "scope": "layout",
           "breaking": false
         },
         {
@@ -688,6 +2182,12 @@
           "breaking": false
         },
         {
+          "it": "rimuove il dead code dropZone/DropZone/DropEdge",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
           "it": "aggiunge CHAT-PERF-01 (perf streaming) ed estende le card tipizzate ai tool oggi unknown",
           "en": "",
           "scope": "openspec",
@@ -709,6 +2209,12 @@
           "it": "registra il flip default nativo anticipato in Fase 1",
           "en": "",
           "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "ricerca competitor generative-UI in chat + proposta approccio (Fase 1)",
+          "en": "",
+          "scope": "chat",
           "breaking": false
         },
         {
@@ -2174,7 +3680,19 @@
       ],
       "fixes": [],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Add 'watching' phase for Monitor-armed sessions + muted aura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "monitorArmed flag survives Stop + hook/repo wiring",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
     }
   },
   {

@@ -16,17 +16,20 @@ import { join, resolve } from "path";
 import {
   E2E_BASE,
   E2E_PORT,
+  E2E_PORT_ORIGIN,
   dataDirForPort,
   descendantsOf,
   publicDirForPort,
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
-// Port 13334 is the default, chosen to avoid conflicts with production services
-// (port 3334 is used by the openclaw-gateway voice-call webhook); ogni shard
-// ne usa una diversa via E2E_PORT.
+// Port 13334 is the default per il checkout principale, chosen to avoid
+// conflicts with production services (port 3334 is used by the openclaw-gateway
+// voice-call webhook). Ogni shard ne usa una diversa via E2E_PORT, e un worktree
+// di dispatch ne riceve una derivata dal path (helpers/worktree-port.ts).
 const BASE = E2E_BASE;
 const TEST_SERVER_PORT = E2E_PORT;
 const TEST_DATA_DIR = dataDirForPort(E2E_PORT);
@@ -332,6 +335,52 @@ async function startTestServer(): Promise<void> {
     console.error("[test-server] Failed to start:", err.message);
   });
 
+  // La morte del server, NOMINATA nell'istante in cui succede.
+  //
+  // Senza questo, un server ucciso a metà run lascia solo una scia di test che
+  // falliscono con ECONNREFUSED: otto rossi che parlano di HTTP mentre il
+  // difetto è che non c'è più nessuno dall'altra parte, e il primo sospettato
+  // diventa l'ultimo commit. Qui la riga esce nello stdout della run nel punto
+  // ESATTO del buco, con il segnale che l'ha ucciso — `SIGTERM` = qualcuno da
+  // fuori (tipicamente il globalSetup di un altro checkout che ammazza chi
+  // tiene la porta), uscita con codice = è crashato da solo.
+  serverProcess.on("exit", (code, signal) => {
+    // Morte ATTESA (global-teardown / emergencyCleanup l'hanno appena ucciso):
+    // silenzio. Il flag passa da env perché global-teardown.ts è un modulo a
+    // parte nello stesso processo — come già fa __TEST_SERVER_PID.
+    if (process.env.__E2E_TEARDOWN_STARTED === "1") return;
+
+    // NON gridare subito. `terminal-session-resume.spec.ts` (AC-2, «server
+    // restart restores sessions») ammazza il server e ne riavvia un altro sulla
+    // stessa porta, DI PROPOSITO. Visto da qui quell'uscita è indistinguibile da
+    // un omicidio: il SIGTERM viene gestito con uno shutdown pulito, quindi
+    // arriva come `codice 0`, esattamente come un kill da un altro checkout. La
+    // prima versione di questo banner infatti accusava quel riavvio di essere un
+    // crash — a ogni run, in mezzo a una suite verde. Un allarme che suona
+    // sempre non è un allarme: è rumore che insegna a ignorare l'allarme vero.
+    //
+    // Ciò che distingue i due casi non è la MORTE, è cosa succede DOPO: un
+    // riavvio voluto riapre la porta in pochi secondi, un omicidio la lascia
+    // vuota (o in mano a un altro). Quindi si aspetta, si guarda, e si parla solo
+    // se non è tornato nessuno. `unref()` perché questo timer non deve tenere in
+    // vita il runner: se la suite finisce prima, il banner semplicemente non
+    // serve più.
+    const timer = setTimeout(() => {
+      if (process.env.__E2E_TEARDOWN_STARTED === "1") return;
+      if (portHolders(TEST_SERVER_PORT).length > 0) return; // riavviato: tutto a posto
+      console.error(
+        `\n[test-server] ═══ IL SERVER DI TEST È MORTO A METÀ RUN ` +
+          `(${signal ? `segnale ${signal}` : `codice ${code}`}), E NESSUNO L'HA RIAVVIATO ═══\n` +
+          `[test-server] Da qui in poi ogni test fallisce con ECONNREFUSED: sono rossi FINTI.\n` +
+          `[test-server] Quasi sempre è un'altra run E2E sulla stessa porta (${TEST_SERVER_PORT}): il suo\n` +
+          `[test-server] globalSetup ammazza chi la tiene. Un worktree di dispatch ormai ha una porta sua\n` +
+          `[test-server] (helpers/worktree-port.ts), ma i checkout nati prima del 2026-07-28 non hanno nemmeno\n` +
+          `[test-server] il run-lock. Rimedio immediato: E2E_PORT=13400 npx playwright test\n`,
+      );
+    }, SERVER_DEATH_GRACE_MS);
+    timer.unref();
+  });
+
   // Store PID for teardown
   if (serverProcess.pid) {
     process.env.__TEST_SERVER_PID = String(serverProcess.pid);
@@ -376,8 +425,20 @@ async function globalSetup() {
   // run non muore: resta in piedi con il file SQLite sfilato da sotto e fallisce
   // ogni test con `SQLITE_IOERR_VNODE`. Meglio fermarsi qui con un messaggio che
   // dice chi c'è e come girare in parallelo (vedi helpers/run-lock.ts).
+  if (E2E_PORT_ORIGIN === "worktree") {
+    console.log(
+      `[global-setup] Questo è un worktree di dispatch: porta ${TEST_SERVER_PORT} ` +
+        `(derivata dal path), non la 13334 del checkout principale. ` +
+        `DATA_DIR ${TEST_DATA_DIR}. Forzala con E2E_PORT=<porta> se serve.`,
+    );
+  }
   acquireRunLock(TEST_SERVER_PORT);
   runLockHeld = true;
+  // Il PID scritto nel lock, passato ai worker via env (come __TEST_SERVER_PID).
+  // Serve alla diagnosi di helpers/server-death.ts: se a metà run il lock non è
+  // più questo, qualcuno si è preso la porta — ed è lui che ci ha ammazzato il
+  // server, non l'ultimo commit.
+  process.env.__E2E_RUN_LOCK_PID = String(process.pid);
 
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -655,6 +716,8 @@ async function seedBaselineData() {
 
 // Cleanup on crash/interrupt — kill test server + Chromium processes
 function emergencyCleanup() {
+  // Da qui la morte del server è ATTESA: zittisce il banner "morto a metà run".
+  process.env.__E2E_TEARDOWN_STARTED = "1";
   // Per primo il lock: se Ctrl-C arriva a metà run, la porta deve tornare
   // libera subito. `releaseRunLock` toglie solo il lock NOSTRO, quindi
   // chiamarlo qui non può mai scoprire la porta a un'altra run.

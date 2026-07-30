@@ -4,6 +4,7 @@ import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
 import { POPOVER_PANEL } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { Spinner } from '../Shared/Spinner';
 
 export interface MentionedFile {
   path: string;
@@ -150,7 +151,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
       <div role="listbox" className="overflow-y-auto flex-1">
         {loading ? (
           <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
-            <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin mx-auto mb-2" />
+            <Spinner size="md" className="mx-auto mb-2" />
             Loading files...
           </div>
         ) : filtered.length === 0 ? (

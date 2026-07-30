@@ -323,6 +323,35 @@ export function describeIntruders(intruders: Array<{ cwd: string; branch: string
   return `ci sono ${n} sessioni Claude esterne vive su questo repo (la più recente su ${where})`;
 }
 
+/**
+ * Il fronte terminale di FALLIMENTO, gemello di `emitReviewReadyEdge`.
+ *
+ * Il taglio è `requeue === false`: solo lì il task si ferma e resta fermo. Un
+ * requeue NON si annuncia — il task riparte da solo e un banner sarebbe rumore
+ * su un ritentativo che si auto-guarisce; i siti che passano `requeue:
+ * !exhausted` diventano terminali quando i tentativi finiscono, e allora il
+ * fronte parte da sé senza che nessuno debba ricordarsene.
+ *
+ * Pura ed esportata per il test dell'edge: la decisione è una sola riga, ma è
+ * la differenza fra "ti avviso quando serve" e "ti avviso a ogni ritentativo".
+ */
+export function parkedEdgeEvent(
+  task: { id: string; projectId: string; text?: string | null },
+  args: { requeue: boolean; reason?: string; parkState?: string | null },
+): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked"; reason?: string } | null {
+  if (args.requeue !== false) return null;
+  return {
+    type: "task:parked",
+    projectId: task.projectId,
+    taskId: task.id,
+    taskTitle: task.text || "Task",
+    // 'blocked' = configurazione da sistemare, 'failed' = l'agent non ha
+    // prodotto niente. Sono due domande diverse per l'umano.
+    state: args.parkState === CHIP_BLOCKED ? "blocked" : "failed",
+    ...(args.reason ? { reason: args.reason } : {}),
+  };
+}
+
 /** Persistent role for the task-scoped topic (the per-turn task rides in the user message). */
 const ROLE_PROMPT =
   "Sei un agent che lavora UN SOLO task di un board Kanban, nella working directory corrente, " +
@@ -420,6 +449,41 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
     try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task }); } catch { /* best-effort */ }
+  }
+
+  /**
+   * Rilascia un task e annuncia il fronte, se ce n'è uno.
+   *
+   * `release()` scrive stato + commento di sistema, e il dispatcher lo
+   * specchiava con il solo `task:updated` — che nessun layer di notifica
+   * ascolta (è un refresh di dati: board, contatori, indice topic→task). Il
+   * risultato era un'asimmetria strutturale: il fronte terminale di SUCCESSO
+   * (`task:review-ready`) alza banner e web-push da mesi, quello di FALLIMENTO
+   * non esisteva. Un task parcheggiato moriva in silenzio, visibile solo a chi
+   * per caso guardava la board.
+   *
+   * La decisione sta in `parkedEdgeEvent`, in un punto solo e non nei nove siti
+   * che rilasciano.
+   */
+  /**
+   * `announce: false` parcheggia il task e aggiorna la board (il chip compare
+   * su OGNI task, che è la verità), ma non emette il fronte `task:parked` —
+   * cioè non fa scattare la push. Serve quando una causa SOLA parcheggia N
+   * task in un colpo: la deduplica delle push è per-task (`task-park-<id>`),
+   * quindi senza questo una board che non mappa a una directory produceva N
+   * notifiche identiche, una per task in coda. L'annuncio lo fa il primo.
+   */
+  function releaseAndEmit(
+    args: Parameters<TaskService["release"]>[0],
+    opts?: { announce?: boolean },
+  ): Task {
+    const task = deps.svc.release(args);
+    emit(task);
+    const parked = opts?.announce === false ? null : parkedEdgeEvent(task, args);
+    if (parked) {
+      try { deps.broadcast(parked); } catch { /* best-effort */ }
+    }
+    return task;
   }
 
   function clearGrace(taskId: string): void {
@@ -588,14 +652,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (!deps.createWorktree || !resolved.projectStoreId) {
           // Worktree required but impossible → park with a clear, actionable error
           // rather than run the agent in the live repo alongside the human's WIP.
-          emit(deps.svc.release({
+          releaseAndEmit({
             taskId,
             requeue: false,
             parkState: CHIP_BLOCKED,
             reason:
               "Auto-dispatch fermato: worktree richiesto ma il progetto non è un repo git registrato. " +
               "Disattiva 'worktree isolato' nelle impostazioni del board per eseguire in-place.",
-          }));
+          });
           return;
         }
         worktreeId = await deps.createWorktree(resolved.projectStoreId);
@@ -703,14 +767,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const failTask = deps.svc.get(taskId)?.task;
         const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
         const exhausted = (failTask?.dispatchAttempts ?? cap) >= cap;
-        emit(deps.svc.release({
+        releaseAndEmit({
           taskId,
           requeue: !exhausted,
           parkState: CHIP_FAILED,
           reason: exhausted
             ? "Avvio agent fallito ripetutamente. Parcheggiato in backlog."
             : "Avvio agent fallito, rimesso in coda.",
-        }));
+        });
       } catch { /* best-effort */ }
       if (worktreeId) await cleanupWorktree(worktreeId);
     } finally {
@@ -879,7 +943,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // (stessa regola del recupero orfani del lancio singolo).
       const exhausted = !opts?.orphaned && (cur?.dispatchAttempts ?? cap) >= cap;
       try {
-        emit(deps.svc.release({
+        releaseAndEmit({
           taskId,
           requeue: !exhausted,
           rollbackAttempt: opts?.orphaned,
@@ -888,7 +952,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ? `Il server è ripartito mentre il fan-out girava e nessuno dei ${n} tentativi aveva committato: rimesso in coda (il riavvio non consuma un tentativo).`
             : `Fan-out chiuso: ${n} ${n === 1 ? "tentativo" : "tentativi"}, nessuno ha prodotto modifiche committate. ` +
               (exhausted ? "Parcheggiato in backlog." : "Rimesso in coda."),
-        }));
+        });
       } catch (err) { log(`fan-out: park fallito per ${taskId}`, err); }
       return;
     }
@@ -1024,14 +1088,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const failTask = deps.svc.get(taskId)?.task;
         const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
         const exhausted = (failTask?.dispatchAttempts ?? cap) >= cap;
-        emit(deps.svc.release({
+        releaseAndEmit({
           taskId,
           requeue: !exhausted,
           parkState: CHIP_FAILED,
           reason: exhausted
             ? "Avvio del fan-out fallito ripetutamente. Parcheggiato in backlog."
             : "Avvio del fan-out fallito, task rimesso in coda.",
-        }));
+        });
       } catch { /* best-effort */ }
       await reapAttempts(taskId, { keepSelected: false });
     } finally {
@@ -1220,12 +1284,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }
-      emit(deps.svc.release({
+      releaseAndEmit({
         taskId,
         requeue: false,
         parkState: CHIP_FAILED,
         reason: `${describeTurnEnd(end)}. Nessun output dopo ${cur.dispatchAttempts} tentativi: parcheggiato in backlog.`,
-      }));
+      });
       return;
     }
     // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
@@ -1366,11 +1430,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { exists = deps.topicExists(t.assignedTopicId); } catch { exists = true; /* trust binding on probe failure */ }
         if (exists) continue;
         try {
-          emit(deps.svc.release({
+          releaseAndEmit({
             taskId: t.id,
             requeue: true,
             reason: "Il topic dell'agent precedente non esiste più (ripulito): binding morto azzerato, il task riparte.",
-          }));
+          });
           healed = true;
         } catch (err) { log(`heal dead binding failed for ${t.id}`, err); }
       }
@@ -1398,17 +1462,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // directory. Park the eligible todos with a visible reason instead of
       // stranding them (chip "queued" forever) with only a server log.
       log(`cannot resolve project path for board ${projectId}`);
+      // La causa è UNA (la board non mappa a una directory) e vale per tutti i
+      // todo idonei: li parcheggia tutti — il chip è la verità, task per task —
+      // ma annuncia solo il primo. Le push si deduplicano per `task-park-<id>`,
+      // quindi senza questo una board scollegata sparava N notifiche identiche
+      // in fila, una per task in coda.
+      let announced = false;
       for (const t of todos) {
         if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
         try {
-          emit(deps.svc.release({
+          releaseAndEmit({
             taskId: t.id,
             requeue: false,
             parkState: CHIP_BLOCKED,
             reason:
               "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
               "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
-          }));
+          }, { announce: !announced });
+          announced = true;
         } catch { /* task may have moved */ }
       }
       return;
@@ -1572,7 +1643,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // skips it and the chip would strand on "queued" forever.
     try {
       const t = deps.svc.get(taskId)?.task;
-      if (t?.assignedTopicId) emit(deps.svc.release({ taskId, requeue: true }));
+      if (t?.assignedTopicId) releaseAndEmit({ taskId, requeue: true });
       else emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED }));
     } catch { /* task may have moved */ }
     const timer = setTimeout(() => {
@@ -1783,12 +1854,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // park a healthy task in backlog "per errore". Genuine failures still
       // park via onTurnEnd.
       try {
-        emit(deps.svc.release({
+        releaseAndEmit({
           taskId: t.id,
           requeue: true,
           rollbackAttempt: true,
           reason: "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
-        }));
+        });
         // On a board that never dispatches the requeue's `queued` chip would
         // strand forever (tick no-ops with the switch off) — clear it.
         if (!autoOn) emit(deps.svc.setDispatchState({ taskId: t.id, state: null }));

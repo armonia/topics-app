@@ -76,6 +76,39 @@ export function notifyNative(
   }
 }
 
+/** Stato REALE della catena dei banner nativi (solo Tauri). */
+export interface NativeNotificationStatus {
+  platform: 'macos' | 'windows' | 'linux';
+  /** Gira da un vero .app: fuori dal bundle non si posta nulla. */
+  bundled: boolean;
+  /** Il sistema ci autorizza a postare a NOSTRO nome. */
+  authorized: boolean;
+  authState: 'pending' | 'granted' | 'denied' | 'unknown';
+  /** Carrier di ripiego risolto (terminal-notifier), o null: null + non
+   *  autorizzati = nessun banner nativo, punto. */
+  helper: string | null;
+  logPath: string | null;
+}
+
+/**
+ * Interroga la catena delle notifiche native. `null` fuori da Tauri (dove non
+ * c'è catena nativa: web e PWA usano l'API `Notification` del browser, il cui
+ * stato si legge da `Notification.permission`).
+ *
+ * Serve perché `notifyNative` è fire-and-forget per contratto — giusto per il
+ * chiamante, pessimo per l'utente: su macOS un banner può cadere in tre punti
+ * diversi senza che nessuno lo dica, e il pannello Impostazioni continua a
+ * promettere notifiche che non arriveranno mai. Sola lettura, non cambia nulla.
+ */
+export async function notificationStatus(): Promise<NativeNotificationStatus | null> {
+  if (shellKind !== 'tauri') return null;
+  try {
+    return await tauriInvoke<NativeNotificationStatus>('notification_status');
+  } catch {
+    return null;
+  }
+}
+
 /** Hard-restart the desktop app (bypasses the service worker). No-op on web. */
 export async function relaunch(): Promise<void> {
   switch (shellKind) {

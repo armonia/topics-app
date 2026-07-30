@@ -846,6 +846,12 @@ async function postChatReadSSE(
   });
   if (!resp.ok || !resp.body) {
     const t = await resp.text().catch(() => "");
+    // 409 non è un guasto: la topic sta già rispondendo a qualcun altro. Detto
+    // com'è, invece che come un errore HTTP crudo, perché è azionabile — si
+    // riprova quando ha finito (la chat dell'UI invece accoda da sola).
+    if (resp.status === 409) {
+      throw new Error("send_chat_message: c'è già un turno in volo su questa topic — riprova quando ha finito");
+    }
     throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}`);
   }
   const reader = resp.body.getReader();

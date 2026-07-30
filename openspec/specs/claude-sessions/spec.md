@@ -4,13 +4,29 @@ Canonical tracking of Claude Code CLI session state (phase machine fed by hooks,
 
 ### Requirement: CCS-01 — Canonical Claude Code session state
 
-The system SHALL maintain a single canonical `ClaudeSession` record per Claude Code CLI session, with a deterministic `phase` enum and a monotonic revision counter, persisted across server restarts.
+The system SHALL maintain a single canonical `ClaudeSession` record per Claude Code CLI session, with a deterministic `phase` enum and a monotonic revision counter. A session bound to a Topics `session_key` is persisted in `claude_code_sessions` and survives server restarts; one without a `session_key` is held in the tracker's in-memory store for the life of the process and re-registered when its pane reattaches.
 
-#### Scenario: New session inserted on first observation
-- **GIVEN** no `claude_code_sessions` row exists for `claude_session_id = X`
-- **WHEN** the server observes either a `SessionStart` hook or a JSONL file at the canonical path
-- **THEN** a row is inserted with `phase = 'starting'`, `rev = 0`, `jsonl_offset = 0`
-- **AND** the row is associated to a Topics `session_key` if the spawning pane had one
+> The record is created by whoever SPAWNS the session, never by observing it. The tracker reads hooks and transcripts for sessions it already knows — it does not adopt strangers (see the `unknown-session` scenario below and `server/lib/claude-session-tracker.ts`).
+
+#### Scenario: The spawner creates the record, and the same call decides the argv
+- **GIVEN** no `claude_code_sessions` row exists for `session_key = K`
+- **WHEN** Topics spawns a chat turn for that topic (`getOrCreateClaudeSessionId`, `server/providers/claude-code.ts`)
+- **THEN** one row is inserted binding `session_key = K` to a freshly minted `claude_session_id`, with the schema default `phase = 'dormant'`, `rev = 0`, `jsonl_offset = 0`
+- **AND** the call reports `isNew = true`, which is what puts `--session-id <id>` in the argv; every later call on the same `session_key` returns the SAME id with `isNew = false`, i.e. `--resume <id>`
+- **AND** `isNew` is decided by which side of the upsert won (the id that comes back), never by comparing timestamps — two spawns in the same millisecond must not both look new
+
+#### Scenario: A hook for a session Topics never started creates nothing
+- **GIVEN** neither a `claude_code_sessions` row nor an in-memory terminal state exists for `claude_session_id = X`
+- **WHEN** an authenticated, non-duplicate hook for X arrives
+- **THEN** the tracker returns `{kind: 'unknown-session'}` — answered 200 per CCS-02 — and inserts NO row
+- **AND** no state is created or mutated: an unknown session stays unknown until something in Topics spawns or registers it
+
+#### Scenario: A terminal pane without a topic is tracked in memory, not in the table
+- **GIVEN** a Claude Code terminal pane spawned with no Topics `session_key`
+- **WHEN** `registerTerminalSession(claude_session_id, {cwd})` runs at spawn or at reattach
+- **THEN** the session enters the tracker's in-memory store with `phase = 'starting'`, `rev = 0` and its canonical transcript path, so its hooks and its JSONL tail resolve
+- **AND** no `claude_code_sessions` row is written — that table is keyed by `session_key`, which this session does not have
+- **AND** the call is a no-op when a DB row already owns that id (topic-bound panes keep the persisted record as the single source of truth)
 
 #### Scenario: Phase transitions bump rev monotonically
 - **GIVEN** a `ClaudeSession` with `rev = N` and `phase = 'running'`

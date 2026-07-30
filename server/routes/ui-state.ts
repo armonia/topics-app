@@ -36,6 +36,13 @@ type UiStateEnvelope = { data: Record<string, unknown>; meta: Record<string, UiS
  */
 export const MAX_UI_STATE_BYTES = 256 * 1024;
 
+/** La chiave `ui_state` delle preferenze applicative (client: `SETTINGS_SERVER_KEY`). */
+export const SETTINGS_KEY = "settings";
+
+/** I campi di `AppSettings` che restano su QUESTO dispositivo — gemelli di
+ *  `DEVICE_LOCAL_SETTING_KEYS` in `client/src/lib/settings.ts`. */
+export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"] as const;
+
 /**
  * Recursively strip device-local fields from a payload before persistence.
  *
@@ -55,12 +62,24 @@ export const MAX_UI_STATE_BYTES = 256 * 1024;
  * every key named `scrollOffset` everywhere — that would break unrelated
  * consumer state that happens to use the same field name.
  */
-export function stripDeviceLocalFields(payload: unknown): unknown {
+export function stripDeviceLocalFields(payload: unknown, key?: string): unknown {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return payload;
   }
   // Shallow clone so we don't mutate caller data.
   const out: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
+
+  // `settings` (AppSettings): la larghezza della sidebar e il suo stato di
+  // collasso sono geometria DI QUESTA finestra, non preferenze dell'utente —
+  // 256px su un 27" sono mezzo schermo su un telefono, e "collassata" viene
+  // forzata da sé dalle finestre staccate e dal mobile. Il client le toglie già
+  // (`syncableSettings`), questo è lo stesso difendersi-in-profondità del
+  // `scrollOffset` qui sotto: un client vecchio o bugato non deve poter
+  // imporre la propria geometria a tutti gli altri dispositivi.
+  if (key === SETTINGS_KEY) {
+    for (const field of DEVICE_LOCAL_SETTINGS_FIELDS) delete out[field];
+    return out;
+  }
 
   // top-level panes.*.scrollOffset
   if (out.panes && typeof out.panes === "object" && !Array.isArray(out.panes)) {
@@ -217,7 +236,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       }
 
       // Defense-in-depth: strip device-local scrollOffset before persistence.
-      const sanitized = stripDeviceLocalFields(body);
+      const sanitized = stripDeviceLocalFields(body, key);
       const value = JSON.stringify(sanitized);
 
       // Size cap: measured on the serialized-to-be-stored payload.
@@ -320,7 +339,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       const cleaned: Record<string, { sanitized: unknown; serialized: string }> = {};
       let totalSize = 0;
       for (const [k, v] of Object.entries(body)) {
-        const sanitized = stripDeviceLocalFields(v);
+        const sanitized = stripDeviceLocalFields(v, k);
         const serialized = JSON.stringify(sanitized);
         if (serialized.length > MAX_UI_STATE_BYTES) {
           return json({ error: `Payload for key "${k}" exceeds ${MAX_UI_STATE_BYTES} bytes`, limit: MAX_UI_STATE_BYTES, size: serialized.length, key: k }, 413);

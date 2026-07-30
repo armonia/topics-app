@@ -69,6 +69,12 @@ export type StopCause =
   | "session-reset"
   /** Il processo figlio è uscito con codice diverso da zero. */
   | "process-died"
+  /**
+   * La sessione stava già rispondendo: la front-door ha respinto con 409
+   * `stream_in_flight` e noi non abbiamo guidato NIENTE. Non è un guasto — è un
+   * «riprova quando ha finito» — quindi non brucia un tentativo.
+   */
+  | "turn-in-flight"
   /** Il provider ha risposto errore (rete, credito, limite). */
   | "provider-error";
 
@@ -191,7 +197,15 @@ export function shouldResume(info: TurnEndInfo): boolean {
  */
 export function consumesAttempt(info: TurnEndInfo): boolean {
   if (info.end !== "cancelled") return true;
-  return info.cause !== "user" && info.cause !== "session-reset";
+  return (
+    info.cause !== "user" &&
+    info.cause !== "session-reset" &&
+    // `turn-in-flight`: la front-door ci ha respinti perché la sessione stava
+    // già rispondendo. Non abbiamo guidato nessun turno, quindi non c'è nessun
+    // tentativo da consumare — contarlo significherebbe parcheggiare FAILED un
+    // task solo perché è arrivato mentre l'agente parlava.
+    info.cause !== "turn-in-flight"
+  );
 }
 
 /** Serve l'umano: nessun ritentativo automatico può sbloccarlo. */
@@ -216,6 +230,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         case "watchdog": return "Turno fermato dal watchdog (nessun segno di vita dallo stream)";
         case "wall-clock": return "Turno tagliato dal limite di tempo";
         case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
+        case "turn-in-flight": return "La sessione stava già rispondendo: turno non avviato";
         default: return "Turno annullato";
       }
     case "error":

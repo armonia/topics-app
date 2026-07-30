@@ -10,6 +10,18 @@ import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
+import {
+  claimHead as claimQueuedTurn,
+  decideSend,
+  enqueueTurn,
+  getQueue as getTurnQueue,
+  isHeld as isQueueHeld,
+  holdQueue,
+  releaseClaim,
+  releaseHold,
+  requeueFront,
+  unshiftTurn,
+} from '../state/chatQueue';
 import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
 import {
   evictSessions,
@@ -307,6 +319,20 @@ const queueStorage: QueueStorage = {
   removeItem: (k) => localStorage.removeItem(k),
 };
 
+/**
+ * Identità di QUESTA finestra per le prenotazioni della coda del turno. Non è
+ * il `clientId` del WS di proposito: quello arriva col frame `welcome`, cioè
+ * dopo, e un drain nei primi istanti di vita della pagina resterebbe senza
+ * identità. Qui serve solo che due finestre non si scambino il nome.
+ */
+const CLAIM_CLIENT_ID = (() => {
+  try { return crypto.randomUUID(); } catch { return `w-${Math.random().toString(36).slice(2)}-${Date.now()}`; }
+})();
+
+/** Ritenta del drain quando la sessione è ancora occupata: 10 × 200 ms = 2 s. */
+const TURN_DRAIN_RETRY_MS = 200;
+const TURN_DRAIN_MAX_ATTEMPTS = 10;
+
 const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
 const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
@@ -517,8 +543,6 @@ export function useChat() {
   const releaseSendLock = (sk: string) => sendLockRef.current.delete(sk);
   // DrainQueue concurrency guard
   const drainingRef = useRef(false);
-  // Stream queue: messages queued while AI is streaming (auto-sent on stream:end)
-  const streamQueueRef = useRef<Record<string, { content: string; options?: SendMessageOptions }[]>>({});
 
 
   // Live mirror of the streaming map so the server-reconciler (below) reads the
@@ -529,6 +553,9 @@ export function useChat() {
   const streamMissRef = useRef<Map<string, number>>(new Map());
   // Ref for sendMessage to allow stream:end to trigger next queued message
   const sendMessageRef = useRef<((sk: string, content: string, opts?: SendMessageOptions) => Promise<boolean>) | null>(null);
+  // Il drain della coda del turno si richiama da sé (ritenta se la sessione è
+  // ancora occupata) e viene chiamato da `stream:end`, che è definito più su.
+  const drainTurnQueueRef = useRef<((sk: string, attempt?: number) => void) | null>(null);
 
   const resetStreamTimeout = useCallback((sessionKey: string) => {
     // Clear existing timeout
@@ -1233,18 +1260,13 @@ export function useChat() {
           if (typeof event.cacheCreation1hTokens === 'number') finalPatch.cacheCreation1hTokens = event.cacheCreation1hTokens;
           updateLastMessage(sessionKey, finalPatch);
         }
-        // Auto-send next queued message for this session (if any)
-        {
-          const queue = streamQueueRef.current[sessionKey];
-          if (queue && queue.length > 0) {
-            const next = queue.shift()!;
-            if (queue.length === 0) delete streamQueueRef.current[sessionKey];
-            // Delay slightly to let state settle before next send
-            setTimeout(() => {
-              sendMessageRef.current?.(sessionKey, next.content, next.options);
-            }, 100);
-          }
-        }
+        // Il turno è finito: se c'è una coda, tocca a lei — a meno che il turno
+        // sia finito perché QUALCUNO L'HA FERMATO. Lo `stream:end` di un abort
+        // è indistinguibile da quello di un turno arrivato in fondo, ed è
+        // esattamente per questo che il freno è una bandiera a sé
+        // (`holdQueue`): senza, premere «ferma» faceva PARTIRE il messaggio in
+        // coda. Vedi `state/chatQueue.ts`.
+        drainTurnQueueRef.current?.(sessionKey);
         break;
 
       case 'stream:catchup':
@@ -1314,16 +1336,36 @@ export function useChat() {
     }
   }, [handleStreamEvent]);
 
-  const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
-    // If there's an active send/stream for this session, queue the message for later
+  /**
+   * L'invio vero e proprio: apre la SSE, disegna le bolle, tiene il lock.
+   *
+   * NON decide più se spedire o accodare — quella decisione sta tutta in
+   * `sendMessage` qui sotto, che è l'unico ingresso pubblico. Qui resta solo
+   * l'ultima rete di sicurezza: se il lock è occupato (una corsa fra due
+   * chiamate nello stesso istante) il messaggio va in coda invece di sparire.
+   * Prima disegnava anche una bolla utente ottimista per un messaggio che non
+   * era mai partito: al reload la bolla restava e il testo no.
+   */
+  /**
+   * `restoreOnFailure`: chi chiama tenendo in mano l'UNICA copia del messaggio
+   * (i due drain, che l'hanno estratto dalla coda durevole con `claimHead`)
+   * passa qui il modo di rimetterla a posto. Serve perché `performSend` non
+   * rigetta mai — cattura tutto e torna `true`/`false` — quindi un `catch` dal
+   * lato del chiamante non scatterebbe: la testa era già stata tolta dallo
+   * storage e un errore diverso da 409/rete la faceva sparire e basta. Viene
+   * chiamato SOLO quando il server non ha visto il messaggio: se lo stream era
+   * partito, rimetterlo in coda vorrebbe dire spedirlo due volte.
+   */
+  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: () => void): Promise<boolean> => {
     if (isSendLocked(sessionKey)) {
-      // Show user message immediately, queue content for auto-send on stream:end
-      addMessage(sessionKey, { role: 'user', content, timestamp: new Date().toISOString() });
-      if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
-      streamQueueRef.current[sessionKey].push({ content, options });
+      enqueueTurn(sessionKey, content, options);
       return true;
     }
     acquireSendLock(sessionKey);
+    // Un turno che PARTE toglie il freno dello stop, sempre e da qualunque
+    // strada arrivi. Senza questa riga il freno alzato da uno stop resterebbe su
+    // per sempre, e una coda riempita più tardi non ripartirebbe mai da sola.
+    releaseHold(sessionKey);
 
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
@@ -1585,17 +1627,9 @@ export function useChat() {
         hydratedSessionsRef.current.add(sessionKey);
       } catch {}
 
-      // Auto-send next queued message (Claude Code-style queue drain)
-      {
-        const queue = streamQueueRef.current[sessionKey];
-        if (queue && queue.length > 0) {
-          const next = queue.shift()!;
-          if (queue.length === 0) delete streamQueueRef.current[sessionKey];
-          setTimeout(() => {
-            sendMessageRef.current?.(sessionKey, next.content, next.options);
-          }, 200);
-        }
-      }
+      // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
+      // via WS — tocca alla coda, se non è stata messa in freno da uno stop.
+      drainTurnQueueRef.current?.(sessionKey);
 
       return true;
     } catch (err) {
@@ -1611,19 +1645,24 @@ export function useChat() {
       // when the current stream ends (Claude Code-style message queuing)
       const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
       if (is409) {
-        // Remove the optimistic assistant placeholder but keep the user message visible
+        // «C'è già un turno in volo»: il messaggio torna IN TESTA alla coda —
+        // non in fondo, o si farebbe scavalcare da chi era dietro di lui.
+        // Spariscono ANCHE le due bolle ottimiste: il segnaposto
+        // dell'assistente e la domanda dell'utente. Prima la domanda restava in
+        // pagina come se fosse partita, mentre il testo viveva in un ref
+        // invisibile che un reload buttava via — si vedeva un messaggio spedito
+        // che non era mai esistito. Adesso l'unico posto in cui vive è la coda,
+        // e la coda si vede nel badge del composer.
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
-          const last = sessionMessages[sessionMessages.length - 1];
-          // Remove assistant placeholder (last added), keep user message
-          if (last?.role === 'assistant' && last.partial && !last.content) {
-            return { ...prev, [sessionKey]: sessionMessages.slice(0, -1) };
-          }
-          return prev;
+          let end = sessionMessages.length;
+          const last = sessionMessages[end - 1];
+          if (last?.role === 'assistant' && last.partial && !last.content) end -= 1;
+          const lastUser = sessionMessages[end - 1];
+          if (lastUser?.role === 'user' && lastUser.content === content) end -= 1;
+          return end === sessionMessages.length ? prev : { ...prev, [sessionKey]: sessionMessages.slice(0, end) };
         });
-        // Queue for auto-send on stream:end
-        if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
-        streamQueueRef.current[sessionKey].push({ content, options });
+        unshiftTurn(sessionKey, content, options);
         return true; // Return true since we accepted the message
       }
 
@@ -1647,6 +1686,14 @@ export function useChat() {
         setError('Message queued — will send when reconnected');
         return false;
       }
+
+      // Errore che non è né un 409 né una rete caduta prima di partire. Se il
+      // messaggio veniva dalla coda, questo è l'ULTIMO punto in cui esiste
+      // ancora: `claimHead` l'ha tolto dallo storage durevole e nessuno dei
+      // rami sopra l'ha raccolto. Senza questo, l'utente vede sparire una cosa
+      // che aveva scritto — è la promessa fatta nel commento di `claimHead`.
+      // Solo a stream mai partito: se era partito, il server ce l'ha già.
+      if (!streamStarted) restoreOnFailure?.();
 
       setError(err instanceof Error ? err.message : 'Failed to send message');
 
@@ -1675,6 +1722,68 @@ export function useChat() {
       delete abortControllersRef.current[sessionKey];
     }
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
+
+  /**
+   * Fa partire il messaggio in cima alla coda, se è il momento.
+   *
+   * È l'UNICO drenaggio della coda del turno. Prima ce n'erano tre — un effetto
+   * dentro `ChatPane` (che quindi funzionava solo a pane montata, e scattava al
+   * mount), il ramo `stream:end` e la fine della SSE locale — e nessuno dei tre
+   * sapeva perché il turno fosse finito. Le tre condizioni che qui sono
+   * esplicite:
+   *
+   *   1. **freno**: se l'umano ha premuto «ferma», non riparte niente. La coda
+   *      resta visibile nel badge e la decide lui;
+   *   2. **occupato**: se un altro turno è in volo si riprova poco dopo, senza
+   *      mai perdere l'item (che resta scritto su disco finché non è preso);
+   *   3. **prenotazione**: la testa esce una volta sola anche con due finestre
+   *      aperte sullo stesso topic.
+   */
+  const drainTurnQueue = useCallback((sessionKey: string, attempt = 0): void => {
+    if (isQueueHeld(sessionKey)) return;
+    if (getTurnQueue(sessionKey).length === 0) return;
+    if (isSendLocked(sessionKey) || streamingRef.current[sessionKey]) {
+      if (attempt >= TURN_DRAIN_MAX_ATTEMPTS) return;
+      setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
+      return;
+    }
+    const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
+    if (!head) return;
+    void performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+      .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
+  }, [performSend]);
+  // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
+  // sotto: scrivere un ref durante il render lo fa puntare alla closure di un
+  // render che potrebbe non essere mai committato (StrictMode ne fa due, e uno
+  // concorrente si può buttare via).
+  useEffect(() => { drainTurnQueueRef.current = drainTurnQueue; }, [drainTurnQueue]);
+
+  /**
+   * L'ingresso pubblico: qui si decide fra spedire e accodare, e in nessun
+   * altro posto (`state/chatQueue.ts` → `decideSend`).
+   */
+  const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+    const busy = isSendLocked(sessionKey) || !!streamingRef.current[sessionKey];
+    const decision = decideSend({ busy, queued: getTurnQueue(sessionKey).length });
+
+    if (decision === 'queue') {
+      enqueueTurn(sessionKey, content, options);
+      return true;
+    }
+
+    if (decision === 'queue-then-drain') {
+      // C'era già una coda ferma (tipico dopo uno stop): questo messaggio va in
+      // fondo e riparte la TESTA, altrimenti scavalcherebbe quello che l'umano
+      // aveva scritto prima.
+      enqueueTurn(sessionKey, content, options);
+      const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
+      if (!head) return true;
+      return performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
+        .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
+    }
+
+    return performSend(sessionKey, content, options);
+  }, [performSend]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -1715,6 +1824,14 @@ export function useChat() {
 
   /** Stop streaming. Returns true if this was the first message (chat can be discarded). */
   const stopSession = useCallback((sessionKey: string): boolean => {
+    // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
+    // finire lo stream, e la fine di uno stream è ciò che fa partire la coda —
+    // per questo il freno si alza per primo e in modo DUREVOLE (le altre
+    // finestre vedono solo «lo stream è finito», e ripartirebbero a spedire).
+    // Era il guasto più grosso della coda: premere «ferma» faceva PARTIRE il
+    // messaggio successivo. La coda resta dov'è, visibile nel badge del
+    // composer: si corregge, si butta o riparte scrivendo il messaggio dopo.
+    holdQueue(sessionKey);
     const controller = abortControllersRef.current[sessionKey];
     if (controller) {
       controller.abort();
@@ -1903,6 +2020,7 @@ export function useChat() {
       return false;
     }
     acquireSendLock(sessionKey);
+    releaseHold(sessionKey); // anche modifica e rigenera sono un turno che riparte
 
     localSSESessionsRef.current.add(sessionKey);
     const abortController = new AbortController();
@@ -2004,6 +2122,9 @@ export function useChat() {
 
       // Reload full history to get accurate sibling counts
       await loadHistory(sessionKey);
+      // Anche questo è un turno che finisce: se qualcuno ha scritto mentre la
+      // risposta si rigenerava, adesso tocca a lui.
+      drainTurnQueueRef.current?.(sessionKey);
       return true;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return true;
@@ -2167,12 +2288,14 @@ export function useChat() {
       for (const k of localSSESessionsRef.current) busy.add(k);
       for (const k of inFlightHistoryRef.current) busy.add(k);
       for (const k of Object.keys(abortControllersRef.current)) busy.add(k);
-      for (const k of Object.keys(streamQueueRef.current)) busy.add(k);
       for (const k of sendLockRef.current.keys()) busy.add(k);
       for (const q of pendingQueueRef.current) busy.add(q.sessionKey);
 
       const { evict } = decideMessageResidency({
-        sessions: listSessions().map(s => ({ ...s, busy: busy.has(s.key) })),
+        // Una sessione con dei messaggi ancora in coda è OCCUPATA: sfrattarne
+        // i messaggi mentre il turno successivo deve ancora partire vorrebbe
+        // dire ricaricare la history un istante dopo.
+        sessions: listSessions().map(s => ({ ...s, busy: busy.has(s.key) || getTurnQueue(s.key).length > 0 })),
         now: Date.now(),
         budget: MESSAGE_RESIDENCY_BUDGET,
         maxIdleMessages: MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
@@ -2377,7 +2500,7 @@ export function useChat() {
     retryExpired,
     clearExpired,
     pendingQueueSize: pendingQueue.length,
-    getStreamQueueSize: (sessionKey: string) => streamQueueRef.current[sessionKey]?.length || 0,
+    getStreamQueueSize: (sessionKey: string) => getTurnQueue(sessionKey).length,
     error,
     gatewayConnected,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),

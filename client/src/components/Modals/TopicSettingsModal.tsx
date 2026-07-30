@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
-import { useRefMirror } from '../../hooks/useRefMirror';
 import type { Topic, UpdateTopicRequest, Worktree } from '../../types';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
 
@@ -141,20 +141,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   ];
 
   const dialogRef = useRef<HTMLDivElement>(null);
-  const handleCloseRef = useRefMirror(handleClose);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setTimeout(() => dialogRef.current?.focus(), 50);
-    // Escape-to-close — the conventional affordance for an aria-modal dialog,
-    // which this modal was missing (only the X button / backdrop closed it).
-    // Goes through handleClose so the unsaved-changes guard still fires.
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCloseRef.current();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, handleCloseRef]);
+  // Escape chiude (passando da handleClose, così la guardia sulle modifiche non
+  // salvate scatta lo stesso), il Tab resta dentro, il focus torna da dove è
+  // partito: hooks/useModalDialog. L'Escape scritto a mano stava su `document`
+  // e in bolla — con un dialogo annidato rispondevano tutti e due.
+  useModalDialog({ open: isOpen, onClose: handleClose, panelRef: dialogRef });
 
   if (!isOpen) return null;
 

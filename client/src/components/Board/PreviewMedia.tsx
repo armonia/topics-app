@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 // Extensions that render as a <video> instead of an <img>. Tolerates a trailing
 // query/hash (the check runs on the raw stored path — a bare filesystem path —
@@ -19,21 +20,29 @@ function isVideoMedia(path: string | null | undefined): boolean {
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
  *  autoplays with controls + sound; an image fills the viewport. */
 function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  // Escape, trappola del focus e ritorno del focus: il contratto comune dei
+  // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose, panelRef });
   return createPortal(
     <div
+      ref={panelRef}
       onClick={onClose}
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop"
       data-testid="preview-lightbox"
+      // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
+      // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
+      // Escape con il lightbox aperto arrivava fino a interrompere il turno
+      // dell'AI dietro — lo `stopPropagation()` qui sopra è troppo tardi,
+      // perché il gestore globale è registrato prima, sempre in capture.
+      role="dialog"
+      aria-modal="true"
+      aria-label="Anteprima"
     >
       <button
         onClick={onClose}
         title="Chiudi (Esc)"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-neutral-100 hover:bg-white/20"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
       ><X className="h-5 w-5" /></button>
       {video ? (
         <video
@@ -79,8 +88,8 @@ export function PreviewMedia({ path, variant }: { path: string; variant: 'card' 
   const openLightbox = useCallback(() => setLightbox(true), []);
 
   const mediaCls = variant === 'card'
-    ? 'block w-full max-h-36 rounded border border-white/10 object-cover object-top'
-    : 'block w-full max-h-52 rounded border border-white/10 bg-black/20 object-contain';
+    ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
+    : 'block w-full max-h-52 rounded border border-app-border bg-black/20 object-contain';
 
   const media = video ? (
     <video

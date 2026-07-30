@@ -3,6 +3,7 @@ import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
 import { useScripts } from '../../hooks/useScripts';
+import { Spinner } from '../Shared/Spinner';
 
 interface ScriptRunnerProps {
   projectPath: string;
@@ -107,7 +108,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   if (!ready) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 text-app-text-tertiary text-[11px]">
-        <div className="w-3 h-3 border-[1.5px] border-app-spinner border-t-primary rounded-full animate-spin" />
+        <Spinner size="sm" />
       </div>
     );
   }

@@ -3,7 +3,9 @@ import { Search, X } from 'lucide-react';
 import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { MODAL_PANEL } from '@/lib/modalStyles';
+import { useModalDialog } from '@/hooks/useModalDialog';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface SearchResult {
   file: string;
@@ -30,9 +32,11 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resultRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  // Escape chiude, il Tab resta dentro, il focus torna da dove è partito.
+  // L'Escape scritto sull'input funzionava solo col cursore NELL'input: dopo un
+  // Tab (o un click su un risultato) non chiudeva più niente.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose, panelRef, initialFocusRef: inputRef });
 
   // Monotonic request token: a SLOWER earlier query (broad pattern, many
   // matches) resolving after a faster later one must not overwrite the newer
@@ -136,6 +140,10 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   return (
     <div data-testid="file-search" className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/30 dark:bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search in files"
         className={`w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
         onClick={e => e.stopPropagation()}
       >
@@ -174,7 +182,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-4">
-              <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+              <Spinner size="sm" />
             </div>
           )}
           {regexError && !loading && (

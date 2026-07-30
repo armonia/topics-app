@@ -5,7 +5,9 @@ import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
 import { shellKind } from '../lib/shell';
-import { decideTerminalBanner, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { decideTerminalBanner, statusBody, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
+import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -25,8 +27,10 @@ interface CompletionNotifierProps {
   terminalSessions: TerminalSessionInfo[];
   /** Resolve a topic id → the dispatched task it works, if any. When a
    *  completion banner is for a dispatched-task topic, the taskId rides into the
-   *  notification so a click opens that task's drawer (openTaskInApp). */
-  taskIdForTopic?: (topicId: string) => string | null;
+   *  notification so a click opens that task's drawer (openTaskInApp) — e il suo
+   *  `dispatchState` dice se l'agente sta lavorando ADESSO, che è la condizione
+   *  per zittire la fine turno (isAgentTurnNoise). */
+  taskForTopic?: TopicTaskResolver;
 }
 
 /**
@@ -89,35 +93,6 @@ function playCompletionTone(): void {
   }
 }
 
-/**
- * Fire a NATIVE OS notification — the macOS/Windows banner the user sees even
- * when the Topics window is in the background. This is the "notifiche di
- * sistema" layer: the in-app toast only covers the in-window case, and the
- * Electron main process only desktop-notifies chat replies (message:new) +
- * error/approval — terminal Claude Code sessions (which store no message) got
- * no system banner at all. The Web Notification API works in BOTH the Electron
- * renderer (the main window's default session grants it) and a plain browser
- * tab, and is hot-reloadable (no Electron rebuild/restart needed).
- *
- * The toast message is "Label: status"; we split it so the banner gets a real
- * title + body. Never throws — a denied permission or locked-down env just
- * means no banner, and the toast still shows.
- *
- * Returns true iff a banner was actually posted, so the caller can drop the
- * redundant in-app toast (the OS notification already covers the "done" cue).
- */
-function emitSystemNotification(message: string, taskId?: string | null): boolean {
-  const sep = message.indexOf(': ');
-  const title = sep > 0 ? message.slice(0, sep) : 'Topics';
-  const body = sep > 0 ? message.slice(sep + 2) : message;
-  // silent: we play our own WebAudio tone when the sound toggle is on, so the OS
-  // banner stays quiet to avoid a double chime. Routes through the shell bridge:
-  // Electron/web use the web Notification API, Tauri the native `notify` command
-  // (WKWebView's web Notification API is unreliable). Returns true only when a
-  // banner posted synchronously (Electron/web) so the caller drops the in-app toast.
-  return notifyNative(title, body, { silent: true, taskId: taskId ?? undefined });
-}
-
 /** Pull the topic id out of a panel id like `chat:abc-123`. Returns null
  *  for non-chat panels (agents pane, terminal, etc.) since those aren't
  *  bound to a specific topic. */
@@ -139,10 +114,10 @@ function topicIdFromPanel(panelId: string | null): string | null {
  * is on, so a user actively watching a topic doesn't get a redundant cue
  * for what they can plainly see in the chat pane.
  *
- * Native Electron desktop notifications are dispatched separately by
- * `electron-app/main.ts` (`agents:sessions` handler). The two paths are
- * complementary: the toast covers the in-window case, the desktop notif
- * covers the "app in the background" case.
+ * Superficie unica: il banner nativo del sistema. La seconda via — il main
+ * process di Electron, che bannerizzava per conto suo `agents:sessions` — non
+ * esiste piu' (guscio archiviato in v2.0.0), e con lei il parametro che serviva
+ * solo a non raddoppiare il banner.
  */
 // eslint-disable-next-line react-refresh/only-export-components -- hook colocated with its renderless bridge component (CompletionNotifierBridge); idiomatic and the bridge is the sole consumer
 export function useCompletionNotifier({
@@ -151,10 +126,9 @@ export function useCompletionNotifier({
   topics,
   focusedPanelId,
   terminalSessions,
-  taskIdForTopic,
+  taskForTopic,
 }: CompletionNotifierProps): void {
-  // Prime OS-notification permission once on mount. In the Electron main window
-  // the default session already reports 'granted'; in a browser tab this raises
+  // Prime OS-notification permission once on mount. In a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
   //
   // NOT under Tauri: there the native `notify` command owns delivery AND its own
@@ -172,47 +146,34 @@ export function useCompletionNotifier({
     } catch { /* ignore — notifications simply won't show */ }
   }, []);
 
-  // Single fan-out for every completion/attention cue: a native OS banner (the
-  // only surface — no in-app toast, per user preference) + an optional sound.
-  // Keeps the notifier paths below from drifting in how they surface an event.
+  // UNICA via d'uscita per ogni segnale: banner nativo del sistema (l'unica
+  // superficie — niente toast in-app, preferenza dell'utente) piu' il suono.
   //
-  // `osBanner` (default true) lets a caller SUPPRESS the renderer's native
-  // banner for a channel the Electron main process already banners — namely
-  // agents:sessions, session:state(error/approval), and chat replies via
-  // message:new. Without this the Electron desktop build fired TWO banners per
-  // event: one from main, one from here. The pty `terminal:activity` path is
-  // genuinely uncovered by main, so it keeps osBanner=true; in a plain browser
-  // tab / the Tauri build there is no Electron main, so everything banners.
-  const fire = useCallback((_level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true, taskId?: string | null) => {
-    // The OS system banner is the ONLY surface now (no in-app toast — user pref):
-    // it fires for BOTH an action-required event (awaiting-approval / error) AND
-    // a finish (turn done / completed / agent idle). Every call site is already
-    // guarded by a 10s per-topic cooldown (and focused-pane suppression), so the
-    // same session can't re-banner in a tight loop. `osBanner` is false only on
-    // Electron for channels its main process already banners (avoids a double).
-    // taskId (when the topic works a dispatched task) makes the banner clickable
-    // → opens that task's drawer.
-    if (osBanner) emitSystemNotification(message, taskId);
-    if (sound) playCompletionTone();
-  }, []);
-
-  // Title/body-explicit fan-out for the terminal path. The chat path packs
-  // "Label: status" into one string and `emitSystemNotification` splits on the
-  // first ": " — fine for a fixed status word, but a terminal APPROVAL banner
-  // carries the raw question/plan text as its body, which routinely contains
-  // ": " and would be mis-split. So the terminal path passes title + body
-  // pre-separated and we route straight to `notifyNative`. Same silent+sound
-  // contract as `fire` (WebAudio tone when the sound toggle is on, quiet OS
-  // banner to avoid a double chime).
-  const fireBanner = useCallback((title: string, body: string, sound: boolean) => {
-    notifyNative(title, body, { silent: true });
+  // Titolo e corpo arrivano SEPARATI. Prima si impacchettava tutto in
+  // «Etichetta: stato» e si riseparava sul primo ": " — con un topic chiamato
+  // «Fix: login rotto» il banner diventava titolo «Fix», corpo «login rotto:
+  // in attesa di te». Il nome del topic tagliato a meta' e lo stato appiccicato
+  // dentro il corpo. Il formato non c'e' piu', e con lui quella classe di bug.
+  //
+  // `silent`: il tono lo suoniamo noi in WebAudio quando l'interruttore del
+  // suono e' acceso, cosi' il banner del sistema resta muto e non si sente due
+  // volte. `taskId` (quando la topic lavora un task dispatchato) rende il
+  // banner cliccabile → apre il drawer di quel task.
+  const fire = useCallback((
+    _level: 'ok' | 'warn',
+    title: string,
+    body: string,
+    sound: boolean,
+    taskId?: string | null,
+  ) => {
+    notifyNative(title, body, { silent: true, taskId: taskId ?? undefined });
     if (sound) playCompletionTone();
   }, []);
 
   // Per-session previous status, keyed by `session.key`. We diff frames
   // here — the server publishes the full session list on every frame, so
   // detecting an `active → idle` transition is "what changed since last
-  // frame" rather than a count delta. Same logic as Electron main.ts.
+  // frame" rather than a count delta.
   const prevStatusRef = useRef<Map<string, string>>(new Map());
 
   // Refs let us read the latest values inside the WS handler without
@@ -222,11 +183,10 @@ export function useCompletionNotifier({
   const topicsRef = useRefMirror(topics);
   const focusedRef = useRefMirror(focusedPanelId);
   const terminalSessionsRef = useRefMirror(terminalSessions);
-  const taskIdForTopicRef = useRefMirror(taskIdForTopic);
+  const taskForTopicRef = useRefMirror(taskForTopic);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
-  // the same topic don't double-toast. Mirrors the cooldown in
-  // electron-app/main.ts so the two layers stay consistent.
+  // the same topic don't double-banner.
   const cooldownRef = useRef<Map<string, number>>(new Map());
 
   useWSSubscription(onWSMessage, 'agents:sessions', (msg) => {
@@ -288,14 +248,14 @@ export function useCompletionNotifier({
               const topic = topicsRef.current[topicId];
               const label = topic?.name ?? 'Topic';
               // Dispatched-task topic → carry the taskId so a click opens the task.
-              const taskId = taskIdForTopicRef.current?.(topicId) ?? null;
-              // osBanner off in Electron — main.ts already banners agents:sessions.
-              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound, true, taskId);
+              const taskId = taskForTopicRef.current?.(topicId)?.taskId ?? null;
+              // Il nome della topic resta INTERO nel titolo, comunque sia fatto.
+              fire(justErrored ? 'warn' : 'ok', label, justErrored ? 'Errore agente' : 'Agente: lavoro finito', cfg.notificationsSound, taskId);
             }
           } else if (shouldShow && !topicId) {
             // Session without a topic id — still surface it, but without
             // cooldown keying since we have nothing to key on.
-            fire(justErrored ? 'warn' : 'ok', justErrored ? 'Agent error' : 'Agent done', cfg.notificationsSound);
+            fire(justErrored ? 'warn' : 'ok', 'Topics', justErrored ? 'Errore agente' : 'Agente: lavoro finito', cfg.notificationsSound);
           }
         }
 
@@ -325,8 +285,38 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(key, now);
       const title = (msg.taskTitle || 'Task').slice(0, 140);
-      // "Title: body" — emitSystemNotification splits on the first ": ".
-      fire('ok', `Task pronto per la review: ${title}`, cfg.notificationsSound, true, taskId);
+      fire('ok', 'Task pronto per la review', title, cfg.notificationsSound, taskId);
+  });
+
+  // ── Il gemello di FALLIMENTO ───────────────────────────────────────────
+  // Un task parcheggiato non riparte da solo: o l'umano lo rimette in Todo, o
+  // resta lì. Finora moriva in silenzio — il dispatcher emetteva il solo
+  // `task:updated`, che nessun layer di notifica ascolta (è un refresh di
+  // dati), quindi il fronte terminale di successo aveva banner e push e quello
+  // di fallimento niente. Il server lo manda solo sul park TERMINALE (mai su
+  // una rimessa in coda, vedi `releaseAndEmit` nel dispatcher).
+  // Stesse regole del gemello: nessun gate di focus (un task fermo è azionabile
+  // comunque), cooldown 10s sulla sua chiave, `taskId` per il click.
+  useWSSubscription(onWSMessage, 'task:parked', (msg) => {
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+      const taskId = msg.taskId;
+      if (!taskId) return;
+      const key = `task-park:${taskId}`;
+      const now = Date.now();
+      const last = cooldownRef.current.get(key) ?? 0;
+      if (now - last < 10_000) return;
+      cooldownRef.current.set(key, now);
+      const title = (msg.taskTitle || 'Task').slice(0, 140);
+      // Due domande diverse per l'umano: 'blocked' chiede di sistemare una
+      // configurazione, 'failed' dice che l'agent non ha prodotto niente.
+      fire(
+        'warn',
+        msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
+        title,
+        cfg.notificationsSound,
+        taskId,
+      );
   });
 
   // ── Claude Code session-state notifier ─────────────────────────────────
@@ -430,7 +420,7 @@ export function useCompletionNotifier({
           for (const k of keep) ledger.add(k);
         }
 
-        fireBanner(decision.title, decision.body, cfg.notificationsSound);
+        fire(decision.level === 'warn' ? 'warn' : 'ok', decision.title, decision.body, cfg.notificationsSound);
         return;
       }
 
@@ -463,6 +453,21 @@ export function useCompletionNotifier({
         }
       }
 
+      // Il task che questo topic sta lavorando, se ce n'è uno. Serve due volte:
+      // per zittire la fine turno di un agente di board (subito sotto) e per far
+      // viaggiare il `taskId` dentro al banner (più giù), così un click apre il
+      // drawer del task.
+      const task = topicId ? (taskForTopicRef.current?.(topicId) ?? null) : null;
+
+      // Un agente di board al lavoro: la fine di un suo turno non è un evento per
+      // l'umano — o il dispatcher rilancia, o arriva `task:review-ready` col suo
+      // banner, più informativo. Senza questo, una consegna sola ne produceva
+      // due quasi identici (il nome del topic È il testo del task).
+      // Il taglio sta PRIMA della cooldown di proposito: scrivere la chiave qui
+      // mangerebbe il banner di review che nella consegna di sistema arriva
+      // DOPO. Vedi lib/notify/dispatchedTopic.ts.
+      if (isAgentTurnNoise(phase, task?.dispatchState)) return;
+
       const focusedTopicId = topicIdFromPanel(focusedRef.current);
       // Only suppress when the user is ACTIVELY looking at this chat — its tab is
       // selected AND the window has OS focus. focusedPanelId doesn't clear on
@@ -487,21 +492,21 @@ export function useCompletionNotifier({
       cooldownRef.current.set(cooldownKey, now);
 
       // Dispatched-task topic → the banner carries the taskId so a click opens it.
-      const taskId = topicId ? (taskIdForTopicRef.current?.(topicId) ?? null) : null;
-      // osBanner off in Electron — main.ts already banners chat replies
-      // (message:new) and session:state error/approval; firing here too doubles.
+      const taskId = task?.taskId ?? null;
+      // Il corpo lo scrive `statusBody`, la stessa funzione del ramo terminale:
+      // una frase sola per due superfici.
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound, true, taskId);
+          fire('ok', label, statusBody('awaiting-user'), cfg.notificationsSound, taskId);
           break;
         case 'awaiting-approval':
-          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound, true, taskId);
+          fire('warn', label, statusBody('awaiting-approval'), cfg.notificationsSound, taskId);
           break;
         case 'completed':
-          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound, true, taskId);
+          fire('ok', label, statusBody('completed'), cfg.notificationsSound, taskId);
           break;
         case 'error':
-          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound, true, taskId);
+          fire('warn', label, statusBody('error'), cfg.notificationsSound, taskId);
           break;
       }
   });
@@ -562,7 +567,7 @@ export function useCompletionNotifier({
 
       const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
       const label = ts?.name || topicName || 'Claude Code';
-      fire('ok', `${label}: lavoro completato`, cfg.notificationsSound);
+      fire('ok', label, statusBody('completed'), cfg.notificationsSound);
   });
 }
 

@@ -13,7 +13,8 @@ import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { searchApi } from '../../lib/api';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG } from '../../state/pane/adapters';
-import { MODAL_BACKDROP } from '../../lib/modalStyles';
+import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
 
 export interface CommandAction {
@@ -117,6 +118,7 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [fileList, setFileList] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<CommandAction[]>([]);
@@ -396,16 +398,22 @@ export function CommandPalette({
     setSelectedIndex(0);
   }, [query]);
 
-  // Focus input on open
+  // Reset on open. Il focus iniziale sull'input lo mette useModalDialog qui
+  // sotto — un solo posto che decide dove va il focus, invece di un setTimeout
+  // che corre contro il render.
   useEffect(() => {
     if (isOpen) {
       setQuery('');
       setSelectedIndex(0);
       setSearchResults([]);
       setSearchLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
+
+  // Escape chiude, il Tab resta dentro, il focus torna da dove è partito.
+  // L'Escape stava sull'input (React onKeyDown): valeva solo col cursore lì
+  // dentro, e il Tab usciva sulla pagina coperta.
+  useModalDialog({ open: isOpen, onClose, panelRef, initialFocusRef: inputRef });
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -457,7 +465,8 @@ export function CommandPalette({
     <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
       <div className={MODAL_BACKDROP} />
       <div
-        className="relative w-full max-w-4xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter flex flex-col"
+        ref={panelRef}
+        className={`relative w-full max-w-4xl mx-4 flex flex-col ${MODAL_PANEL}`}
         onClick={e => e.stopPropagation()}
         style={{ maxHeight: '76vh' }}
       >
@@ -482,7 +491,7 @@ export function CommandPalette({
         <div className="flex-1 min-h-0 flex flex-col">
           {scope === 'projects' ? (
             /* ⌘F — projects scope: one full-width list, find/jump to a project. */
-            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Progetti">
+            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Projects">
               <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 Projects
                 {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}

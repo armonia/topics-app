@@ -218,7 +218,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
         onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
         className={`input-glass pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
-          expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
+          expanded ? '-translate-y-2 border-app-border-light' : 'translate-y-0 border-app-border'
         }`}
       >
         <textarea
@@ -230,7 +230,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
           onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder="Descrivi un task per l'agent…"
-          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-neutral-100 outline-none transition-[min-height] duration-200 ease-out placeholder:text-neutral-500 ${
+          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
         />
@@ -244,13 +244,13 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
                 title={autoTarget
                   ? 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale'
                   : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
-                className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
+                className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-app-text hover:bg-white/10"
               >
                 {autoTarget
-                  ? <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
-                  : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />}
+                  ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
+                  : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-app-text-faint'}`} />} />}
                 <span className="truncate">{targetLabel || 'Progetto…'}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+                <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
               </button>
               <Menu
                 open={projOpen}
@@ -278,10 +278,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
             onClick={() => { setModelOpen(true); loadModels(); }}
             data-testid="composer-model-chip"
             title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
-            className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
-          ><Sparkles className="h-3 w-3 text-neutral-500" /> {model ? friendlyModelLabel(model) : 'Modello auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
+            className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-white/10"
+          ><Sparkles className="h-3 w-3 text-app-text-muted" /> {model ? friendlyModelLabel(model) : 'Modello auto'} <ChevronDown className="h-3 w-3 text-app-text-muted" /></button>
           <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
-            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello</p>
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello</p>
             <button
               role="option" aria-selected={model === null}
               onClick={() => { setModel(null); setModelOpen(false); }}
@@ -307,20 +307,20 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
             onClick={() => setPrioOpen(true)}
             data-testid="composer-priority-chip"
             title={prio !== null ? `Priorità: ${PRIORITY_LABEL[prio]}` : "Priorità automatica: la valuta l'agent appena inquadra il task"}
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-white/10"
           >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-neutral-500'}`} />
-            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'} <ChevronDown className="h-3 w-3 text-neutral-500" />
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-app-text-faint'}`} />
+            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'} <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
           <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
             <button
               role="option" aria-selected={prio === null}
               onClick={() => { setPrio(null); setPrioOpen(false); }}
               title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
               className={POPOVER_ITEM}
             >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
               <span className="min-w-0 flex-1">Automatica</span>
               {prio === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
@@ -340,7 +340,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
             onClick={() => setPlanFirst((v) => !v)}
             title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
             className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
-              planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+              planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
             }`}
           ><ClipboardList className="h-3 w-3" /> Plan first</button>
           <button
