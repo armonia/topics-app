@@ -8,6 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { applyPromptCache } from "./prompt-cache";
+import { normalizeAlternating } from "./normalize-history";
 import type {
   AIProvider,
   ChatMessage,
@@ -114,16 +115,17 @@ export class ClaudeProvider implements AIProvider {
     // resend the entire conversation history every turn. Without `history`
     // every call starts a fresh conversation (the long-standing bug).
     const { system, conversationMessages } = this.splitSystemMessage(options?.history ?? []);
+    // L'alternanza dei ruoli è un vincolo dell'API, non una cortesia: la
+    // history è il thread MENO i turni scartati, e togliere un assistente in
+    // mezzo lascia due utenti adiacenti. Si ricuce qui, sul messaggio finale
+    // già in coda, che è l'ultimo punto in cui la sequenza è completa.
     const params: Anthropic.MessageCreateParams = {
       model,
       max_tokens: maxTokens,
-      messages: [
-        ...conversationMessages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
+      messages: normalizeAlternating([
+        ...conversationMessages,
         { role: "user", content: message },
-      ],
+      ]),
     };
     if (system) params.system = system;
 
@@ -235,10 +237,9 @@ export class ClaudeProvider implements AIProvider {
     const params: Anthropic.MessageCreateParams = {
       model,
       max_tokens: maxTokens,
-      messages: conversationMessages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      // Stessa ricucitura del percorso di chat: l'alternanza dei ruoli è un
+      // vincolo dell'API, e questa sequenza arriva già filtrata.
+      messages: normalizeAlternating(conversationMessages),
     };
 
     if (system) {
@@ -310,10 +311,9 @@ export class ClaudeProvider implements AIProvider {
     const params: Anthropic.MessageCreateParams = {
       model,
       max_tokens: maxTokens,
-      messages: conversationMessages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      // Stessa ricucitura del percorso di chat: l'alternanza dei ruoli è un
+      // vincolo dell'API, e questa sequenza arriva già filtrata.
+      messages: normalizeAlternating(conversationMessages),
     };
 
     if (system) {
