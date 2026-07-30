@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, AlertCircle } from 'lucide-react';
 import type { CreateTopicRequest, TopicTemplate, Topic, Project, Worktree, WSMessage } from '../../types';
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
-import { MODAL_BACKDROP } from '../../lib/modalStyles';
+import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
 
@@ -65,6 +66,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   // False once the modal unmounts — lets the waitForReady poll chain bail
   // instead of firing setTimeout for up to 15s against a dead component.
   const aliveRef = useRef(true);
@@ -103,7 +105,6 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
       setNewWtMode('branch');
       setNewWtBaseRef('main');
       setNewWtName('');
-      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
 
@@ -197,6 +198,10 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
     setShowTemplates(false);
   };
 
+  // Escape chiude, il Tab resta dentro, il focus torna da dove è partito. Sta
+  // PRIMA dell'uscita anticipata (regole degli hook) ed è gated su `isOpen`.
+  useModalDialog({ open: isOpen, onClose, panelRef, initialFocusRef: inputRef });
+
   if (!isOpen) return null;
 
   const showPicker = !!project;
@@ -206,10 +211,11 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
       <div className={`absolute ${MODAL_BACKDROP}`} aria-hidden="true" />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-topic-title"
-        className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden max-h-[90vh] overflow-y-auto command-palette-enter"
+        className={`relative w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto ${MODAL_PANEL}`}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

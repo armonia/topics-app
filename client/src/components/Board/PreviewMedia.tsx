@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 // Extensions that render as a <video> instead of an <img>. Tolerates a trailing
 // query/hash (the check runs on the raw stored path — a bare filesystem path —
@@ -19,13 +20,13 @@ function isVideoMedia(path: string | null | undefined): boolean {
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
  *  autoplays with controls + sound; an image fills the viewport. */
 function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  // Escape, trappola del focus e ritorno del focus: il contratto comune dei
+  // dialoghi (hooks/useModalDialog), invece di un listener scritto a mano qui.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog({ onClose, panelRef });
   return createPortal(
     <div
+      ref={panelRef}
       onClick={onClose}
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop"
       data-testid="preview-lightbox"
