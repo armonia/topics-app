@@ -29,7 +29,7 @@ export function ExternalSessionsBadge({ sessions, showProject }: {
 
   const active = sessions.filter((s) => s.state === 'active').length;
   // Amber = somebody is typing in that repo right now; grey = only recent traces.
-  const tone = active > 0 ? 'text-amber-300/90 hover:bg-amber-400/10' : 'text-neutral-500 hover:bg-white/5';
+  const tone = active > 0 ? 'text-amber-300/90 hover:bg-amber-400/10' : 'text-app-text-muted hover:bg-white/5';
 
   return (
     <>
@@ -45,23 +45,23 @@ export function ExternalSessionsBadge({ sessions, showProject }: {
         <span className="hidden sm:inline">fuori kanban</span>
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={300}>
-        <div className="px-3 py-2.5 text-xs text-neutral-300">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Sessioni fuori dalla kanban</p>
-          <p className="mt-1 text-[11px] leading-snug text-neutral-500">
+        <div className="px-3 py-2.5 text-xs text-app-text-heading">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Sessioni fuori dalla kanban</p>
+          <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
             Claude avviato a mano (terminale, altro tool). Topics le vede, non le governa.
           </p>
           <ul className="mt-2 space-y-1.5">
             {sessions.slice(0, 12).map((s) => (
-              <li key={s.sessionId} className="flex items-start gap-2 border-t border-white/5 pt-1.5 first:border-0 first:pt-0">
+              <li key={s.sessionId} className="flex items-start gap-2 border-t border-app-border-subtle pt-1.5 first:border-0 first:pt-0">
                 <span
-                  className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${s.state === 'active' ? 'bg-amber-400' : 'bg-neutral-600'}`}
+                  className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${s.state === 'active' ? 'bg-amber-400' : 'bg-app-text-faint'}`}
                   title={s.state === 'active' ? 'attiva ora' : 'inattiva da un po’'}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-neutral-200" title={s.cwd}>
+                  <span className="block truncate text-app-text" title={s.cwd}>
                     {showProject && s.projectPath ? `${basename(s.projectPath)} · ` : ''}{basename(s.cwd)}
                   </span>
-                  <span className="block truncate text-[10px] text-neutral-500">
+                  <span className="block truncate text-[10px] text-app-text-muted">
                     {s.branch ? `${s.branch} · ` : ''}{fmtUpdatedAt(new Date(s.lastActivityMs).toISOString())}
                   </span>
                 </span>
@@ -69,7 +69,7 @@ export function ExternalSessionsBadge({ sessions, showProject }: {
             ))}
           </ul>
           {sessions.length > 12 && (
-            <p className="mt-1.5 text-[10px] text-neutral-600">…e altre {sessions.length - 12}.</p>
+            <p className="mt-1.5 text-[10px] text-app-text-faint">…e altre {sessions.length - 12}.</p>
           )}
         </div>
       </Menu>

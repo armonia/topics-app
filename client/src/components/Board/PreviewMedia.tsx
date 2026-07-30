@@ -42,7 +42,7 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
       <button
         onClick={onClose}
         title="Chiudi (Esc)"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-neutral-100 hover:bg-white/20"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
       ><X className="h-5 w-5" /></button>
       {video ? (
         <video
@@ -88,8 +88,8 @@ export function PreviewMedia({ path, variant }: { path: string; variant: 'card' 
   const openLightbox = useCallback(() => setLightbox(true), []);
 
   const mediaCls = variant === 'card'
-    ? 'block w-full max-h-36 rounded border border-white/10 object-cover object-top'
-    : 'block w-full max-h-52 rounded border border-white/10 bg-black/20 object-contain';
+    ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
+    : 'block w-full max-h-52 rounded border border-app-border bg-black/20 object-contain';
 
   const media = video ? (
     <video

@@ -86,17 +86,17 @@ function PublishControl() {
       <button
         onClick={() => { setOpen((s) => !s); refresh(); }}
         title={pending.length ? `${total} commit da pubblicare` : 'Niente da pubblicare'}
-        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${pending.length ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/10 text-neutral-400 hover:bg-white/15'}`}
+        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${pending.length ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/10 text-app-text-secondary hover:bg-white/15'}`}
       >
         <UploadCloud className="h-3 w-3" /> Pubblica{total > 0 && <span className="ml-0.5 rounded bg-amber-500/30 px-1 tabular-nums">{total}</span>}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-neutral-500">Da pubblicare — controlla i commit prima</div>
+          <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-app-border bg-surface p-1 shadow-xl">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-app-text-muted">Da pubblicare — controlla i commit prima</div>
             {pending.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-neutral-500">Niente da pubblicare — tutto già su remoto.</div>
+              <div className="px-2 py-1.5 text-[11px] text-app-text-muted">Niente da pubblicare — tutto già su remoto.</div>
             ) : pending.map((p) => {
               const isOpen = expanded === p.projectId;
               return (
@@ -107,27 +107,27 @@ function PublishControl() {
                       className="flex min-w-0 flex-1 items-center gap-1 text-left"
                       title={isOpen ? 'Nascondi commit e diff' : 'Mostra commit e diff da pubblicare'}
                     >
-                      {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />}
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-neutral-200">{p.name}<span className="ml-1 text-[11px] text-neutral-500">{p.ahead} commit · {p.branch}</span></span>
+                      {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">{p.name}<span className="ml-1 text-[11px] text-app-text-muted">{p.ahead} commit · {p.branch}</span></span>
                     </button>
                     <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
                   </div>
                   {isOpen && (
-                    <ul className="mb-1 ml-4 space-y-0.5 border-l border-white/10 pl-2">
+                    <ul className="mb-1 ml-4 space-y-0.5 border-l border-app-border pl-2">
                       {p.commits.map((c) => (
                         <li key={c.hash} className="flex items-baseline gap-1.5 text-[11px] leading-tight">
-                          <code className="shrink-0 text-neutral-500">{c.hash}</code>
-                          <span className="min-w-0 flex-1 truncate text-neutral-300" title={c.subject}>{c.subject}</span>
-                          <span className="shrink-0 text-neutral-600">{c.author} · {c.when}</span>
+                          <code className="shrink-0 text-app-text-muted">{c.hash}</code>
+                          <span className="min-w-0 flex-1 truncate text-app-text-heading" title={c.subject}>{c.subject}</span>
+                          <span className="shrink-0 text-app-text-faint">{c.author} · {c.when}</span>
                         </li>
                       ))}
-                      {p.commits.length >= 50 && <li className="text-[10px] text-neutral-600">…troncato a 50</li>}
+                      {p.commits.length >= 50 && <li className="text-[10px] text-app-text-faint">…troncato a 50</li>}
                     </ul>
                   )}
                   {isOpen && (
-                    <div className="mb-1.5 ml-4 border-l border-white/10 pl-2">
-                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-neutral-600">Diff che verrà pubblicato</div>
-                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-neutral-500">Carico il diff…</div>}
+                    <div className="mb-1.5 ml-4 border-l border-app-border pl-2">
+                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-app-text-faint">Diff che verrà pubblicato</div>
+                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-app-text-muted">Carico il diff…</div>}
                       {diffs[p.projectId] === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
                       {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
                         <UnifiedDiff bundle={diffs[p.projectId] as DiffBundle} />
@@ -137,7 +137,7 @@ function PublishControl() {
                 </div>
               );
             })}
-            {msg && <div className="mt-0.5 border-t border-white/10 px-2 py-1.5 text-[11px] text-neutral-400">{msg}</div>}
+            {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-[11px] text-app-text-secondary">{msg}</div>}
           </div>
         </>
       )}
@@ -176,7 +176,7 @@ function OverloadBadge() {
     >
       <AlertTriangle className="h-3 w-3" />
       {severe ? 'Carico critico' : 'Carico alto'}
-      <span className="text-neutral-500">· max {cap.recommended}</span>
+      <span className="text-app-text-muted">· max {cap.recommended}</span>
     </span>
   );
 }
@@ -233,35 +233,35 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
         title="Impostazioni dispatch — globali (tutte le board)"
-        className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
+        className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-app-text' : 'text-app-text-muted hover:text-app-text-heading'}`}
       ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
-        <div className="space-y-2.5 px-3 py-2.5 text-xs text-neutral-300">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Dispatch — tutte le board</p>
+        <div className="space-y-2.5 px-3 py-2.5 text-xs text-app-text-heading">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Dispatch — tutte le board</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-neutral-400" /> Auto-dispatch</span>
+            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> Auto-dispatch</span>
             <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
-          <div className="space-y-1 border-t border-white/5 pt-2">
+          <div className="space-y-1 border-t border-app-border-subtle pt-2">
             <label className="flex cursor-pointer items-center justify-between gap-3">
               <span>Agent in parallelo — auto</span>
               <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
             </label>
             {g?.maxAgentsAuto ? (
-              <p className="text-[11px] leading-snug text-neutral-500">
-                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-neutral-600"> — {cap.reason}</span>}
+              <p className="text-[11px] leading-snug text-app-text-muted">
+                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-app-text-faint"> — {cap.reason}</span>}
               </p>
             ) : (
               <label className="flex items-center justify-between gap-3">
-                <span className="text-[11px] text-neutral-500">Numero fisso{cap && <span className="text-neutral-600"> (consigliato {cap.recommended})</span>}</span>
+                <span className="text-[11px] text-app-text-muted">Numero fisso{cap && <span className="text-app-text-faint"> (consigliato {cap.recommended})</span>}</span>
                 <input
                   type="number" min={1} max={20} value={g?.maxAgents ?? 3}
                   onChange={(e) => setManual(Number(e.target.value))}
-                  className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
+                  className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
                 />
               </label>
             )}
-            <p className="text-[10px] leading-snug text-neutral-600">Vale su TUTTE le board (una sola macchina, un solo limite).</p>
+            <p className="text-[10px] leading-snug text-app-text-faint">Vale su TUTTE le board (una sola macchina, un solo limite).</p>
           </div>
         </div>
       </Menu>
@@ -337,29 +337,29 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // its UA line-height — sits at the exact same height as these buttons.
   const chip = (active: boolean) =>
     `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
-      active ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-300 hover:bg-white/10'
+      active ? 'bg-white/15 text-app-text' : 'bg-white/5 text-app-text-heading hover:bg-white/10'
     }`;
-  const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500';
+  const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       {/* Search — always visible */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-500" />
+        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10 sm:w-40"
+          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10 sm:w-40"
         />
       </div>
 
       {/* Priority — chip + Menu (multi-select, no "auto") */}
       <button ref={prioBtnRef} onClick={() => setPrioOpen(true)} title="Filtra per priorità" className={chip(filters.priority.length > 0)}>
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
-        Priorità{filters.priority.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.priority.length}</span>}
-        <ChevronDown className="h-3 w-3 text-neutral-500" />
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
+        Priorità{filters.priority.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.priority.length}</span>}
+        <ChevronDown className="h-3 w-3 text-app-text-muted" />
       </button>
       <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
         <p className={menuHeader}>Priorità</p>
@@ -375,8 +375,8 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       {assignees.length > 0 && (
         <>
           <button ref={asgBtnRef} onClick={() => setAsgOpen(true)} title="Filtra per assegnatario" className={chip(filters.assignedTo.length > 0)}>
-            Assegnatario{filters.assignedTo.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.assignedTo.length}</span>}
-            <ChevronDown className="h-3 w-3 text-neutral-500" />
+            Assegnatario{filters.assignedTo.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.assignedTo.length}</span>}
+            <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
           <Menu open={asgOpen} anchorRef={asgBtnRef} onClose={() => setAsgOpen(false)} minWidth={170} role="listbox">
             <p className={menuHeader}>Assegnatario</p>
@@ -391,8 +391,8 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       {showProjects && (
         <>
           <button ref={projBtnRef} onClick={() => setProjOpen(true)} title="Filtra per progetto" className={chip(filters.projectId.length > 0)}>
-            Progetto{filters.projectId.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.projectId.length}</span>}
-            <ChevronDown className="h-3 w-3 text-neutral-500" />
+            Progetto{filters.projectId.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.projectId.length}</span>}
+            <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
           <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={200} role="listbox">
             <p className={menuHeader}>Progetto</p>
@@ -405,7 +405,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
       {/* Reset — only when something is active */}
       {anyActive && (
-        <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-neutral-500 hover:bg-white/10 hover:text-neutral-200">
+        <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
           <X className="h-3 w-3" />
         </button>
       )}
@@ -772,7 +772,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [global]);
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-neutral-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+    return <div className="flex h-full items-center justify-center text-app-text-secondary"><Loader2 className="h-5 w-5 animate-spin" /></div>;
   }
 
   return (
@@ -781,20 +781,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           On phone the toolbar is too dense to fit — it becomes a single
           horizontally-scrollable strip (no wrap, hidden scrollbar) so nothing is
           clipped; on desktop it sits inline with the trailing actions ml-auto'd. */}
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/10 px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-app-border px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
             <button
               onClick={() => setMode('project')}
-              className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+              className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >Questo progetto</button>
             <button
               onClick={() => setMode('all')}
-              className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+              className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >Tutti i progetti</button>
           </>
         ) : (
-          <span className="text-xs font-semibold text-neutral-200">Board<span className="hidden sm:inline"> generale</span></span>
+          <span className="text-xs font-semibold text-app-text">Board<span className="hidden sm:inline"> generale</span></span>
         )}
         <GlobalSettingsMenu onMessage={onMessage} />
         <OverloadBadge />
@@ -813,7 +813,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {mode === 'all' && <span className="hidden text-[11px] text-neutral-500 sm:inline">{tasks.length} task · tutti i progetti</span>}
+          {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tasks.length} task · tutti i progetti</span>}
           {/* The work the kanban does NOT govern — otherwise a repo with three
               bare `claude` sessions and no cards reads as "fermo". */}
           <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} />
@@ -822,7 +822,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           {hasProject && (
             <button
               onClick={() => setShowSettings((s) => !s)}
-              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
               title="Impostazioni auto-dispatch"
             ><Settings className="h-3.5 w-3.5" /></button>
           )}
@@ -875,7 +875,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             {createPortal(
               <DragOverlay dropAnimation={null}>
                 {activeTask ? (
-                  <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
+                  <div className="w-64 rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-xl">
                     <div className="flex items-start gap-2">
                       <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
                       <span className="flex-1 leading-snug">{activeTask.text}</span>
