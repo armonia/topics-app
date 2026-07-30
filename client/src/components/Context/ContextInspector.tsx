@@ -10,6 +10,7 @@ import { ContextWarnings } from './ContextWarnings';
 import { ContextSourceRow } from './ContextSourceRow';
 import { ContextEnvelopeView } from './ContextEnvelopeView';
 import { useToast } from '../Shared/Toast';
+import { Spinner } from '../Shared/Spinner';
 
 /** Extract a human-readable message from an unknown thrown value. */
 function errMessage(err: unknown): string {
@@ -236,7 +237,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
       <div className="flex-1 overflow-y-auto">
         {loading && sources.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+            <Spinner size="md" />
           </div>
         ) : (
           <div>

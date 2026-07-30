@@ -13,6 +13,7 @@ import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOV
 import { useDismissable } from '../../hooks/useDismissable';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface GitChangesProps {
   projectPath: string;
@@ -501,7 +502,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       return (
         <div className="flex items-center justify-center py-4">
           <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
-            <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+            <Spinner size="sm" />
             Loading...
           </div>
         </div>
@@ -695,7 +696,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       title="AI-generate commit message"
                     >
                       {generatingMsg ? (
-                        <div className="w-3 h-3 border border-app-spinner border-t-primary rounded-full animate-spin" />
+                        <Spinner size="sm" />
                       ) : (
                         <Sparkles size={12} />
                       )}
@@ -912,7 +913,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Pull"
               >
                 {pulling ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <ArrowDown size={14} />
                 )}
@@ -924,7 +925,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Push"
               >
                 {pushing ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <ArrowUp size={14} />
                 )}
@@ -986,7 +987,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 title="Auto-generate message"
               >
                 {generatingMsg ? (
-                  <div className="w-3 h-3 border border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Sparkles size={14} />
                 )}
@@ -1059,7 +1060,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
                       title="Stage all"
                     >
-                      {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
+                      {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
                     </button>
                   </div>
                   {unstagedExpanded && fullUnstagedFiles.map(file => renderFullModeFileRow(file, 'unstaged'))}
@@ -1101,7 +1102,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="flex-1 overflow-hidden">
               {loadingDiff ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+                  <Spinner size="md" />
                 </div>
               ) : (
                 <DiffViewer
@@ -1329,7 +1330,7 @@ function CompactFileList({
                 className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
                 title="Stage all"
               >
-                {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
+                {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
               </button>
             </div>
           </div>
