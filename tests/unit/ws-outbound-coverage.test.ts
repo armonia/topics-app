@@ -39,6 +39,41 @@ const DORMANT: Record<string, string> = {
   // erano finzione, e la finzione si cancella invece di motivarla.
 };
 
+/**
+ * Tipi EMESSI dal server che il client non ascolta. Il verso opposto ai
+ * `DORMANT`, e il buco che ha permesso a `stream:slow`, `scripts:output` e ai
+ * tre `agent:profile:*` di restare anni senza consumatore mentre il loro lavoro
+ * lo faceva qualcos'altro, peggio: un'annotazione incollata nel contenuto di un
+ * messaggio, e un polling a 2 secondi.
+ *
+ * Ogni voce va motivata. Un broadcast senza ascoltatori è banda buttata nel caso
+ * migliore, e nel peggiore è una funzione che l'autore CREDE collegata.
+ */
+const UNCONSUMED: Record<string, string> = {
+  // Protocollo: il client non deve gestirli, gli basta ricevere un frame.
+  pong: "risposta al ping di keepalive (useWebSocket manda 'ping')",
+  welcome: "handshake, validato via welcomeMessageSchema e non per letterale",
+  // La card del roster non mostra le assegnazioni, quindi non c'è niente da
+  // aggiornare; AgentAssignPanel, che le mostra, ricarica dopo la propria azione.
+  "agent:assigned": "nessuna superficie mostra le assegnazioni nel roster",
+  "agent:unassigned": "nessuna superficie mostra le assegnazioni nel roster",
+  // Servono righe in `agent_sessions`, che NESSUNO scrive: ascoltarli non
+  // cambierebbe niente di visibile. Vedi il KPI della Dashboard.
+  "agent:session:paused": "richiede righe in agent_sessions, tabella senza scrittori",
+  "agent:session:resumed": "richiede righe in agent_sessions, tabella senza scrittori",
+};
+
+/** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */
+function clientSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry === ".git" || entry === "demo") continue;
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) clientSources(p, out);
+    else if (/\.(ts|tsx)$/.test(p) && !/\.test\.(ts|tsx)$/.test(p)) out.push(p);
+  }
+  return out;
+}
+
 /** Sorgenti del server: quelli che possono emettere. Test e schemi esclusi. */
 function serverSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -84,6 +119,14 @@ function scanEmitted(): Map<string, Set<string>> {
 
 const emitted = scanEmitted();
 
+/** I tipi nominati come letterale da qualche parte nel client. */
+const listened = (() => {
+  const blob = clientSources(join(ROOT, "client", "src"))
+    .map((f) => readFileSync(f, "utf8"))
+    .join("\n");
+  return new Set(REGISTERED_OUTBOUND_TYPES.filter((t) => blob.includes(`'${t}'`) || blob.includes(`"${t}"`)));
+})();
+
 describe("copertura del registro ws-outbound", () => {
   test("ogni tipo EMESSO dal server ha uno schema", () => {
     const missing = [...emitted.entries()]
@@ -119,6 +162,30 @@ describe("copertura del registro ws-outbound", () => {
       .sort();
 
     expect(stale).toEqual([]);
+  });
+
+  test("ogni tipo EMESSO è ascoltato dal client, o è motivato in UNCONSUMED", () => {
+    const orphans = [...emitted.keys()]
+      .filter((t) => REGISTERED_OUTBOUND_TYPES.includes(t))
+      .filter((t) => !listened.has(t) && !(t in UNCONSUMED))
+      .sort();
+
+    expect(orphans).toEqual([]);
+  });
+
+  test("UNCONSUMED non contiene tipi tornati ascoltati, o usciti dal registro", () => {
+    const stale = Object.keys(UNCONSUMED)
+      .filter((t) => listened.has(t) || !REGISTERED_OUTBOUND_TYPES.includes(t))
+      .sort();
+
+    expect(stale).toEqual([]);
+  });
+
+  test("lo scan del client trova davvero gli ascoltatori (guardia anti-test-vuoto)", () => {
+    // Se i sorgenti del client smettessero di essere letti, il test sopra
+    // dichiarerebbe orfano tutto il registro — o, con UNCONSUMED pieno, niente.
+    expect(listened.size).toBeGreaterThan(50);
+    expect(listened.has("stream:end")).toBe(true);
   });
 
   test("lo scan trova davvero le emissioni (guardia anti-test-vuoto)", () => {
