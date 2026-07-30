@@ -3,8 +3,10 @@ import type { ChatMessage } from '../types';
 import {
   __messageStoreDebug,
   __resetMessageStore,
+  evictSessions,
   getAllMessages,
   getSessionMessagesFromStore,
+  listSessions,
   replaceAllMessages,
   subscribeAllMessages,
   subscribeSession,
@@ -124,6 +126,98 @@ describe('igiene delle sottoscrizioni', () => {
     off();
     off();
     expect(__messageStoreDebug().iscritti).toBe(0);
+  });
+});
+
+describe('i fatti per lo sfratto', () => {
+  test('listSessions dice chi e\' guardata e quanto pesa', () => {
+    replaceAllMessages({ s1: [msg('a'), msg('b')], s2: [] });
+    subscribeSession('s1', () => {});
+
+    const byKey = Object.fromEntries(listSessions().map((s) => [s.key, s]));
+    expect(byKey.s1.watched).toBe(true);
+    expect(byKey.s1.messages).toBe(2);
+    expect(byKey.s2.watched).toBe(false);
+    expect(byKey.s2.messages).toBe(0);
+  });
+
+  test('scrivere una sessione la marca come toccata ADESSO', () => {
+    const prima = Date.now();
+    replaceAllMessages({ s1: [msg('a')] });
+    const s1 = listSessions().find((s) => s.key === 's1');
+    expect(s1!.lastTouchedAt).toBeGreaterThanOrEqual(prima);
+  });
+
+  test("l'ultimo che smette di guardare fa ripartire il conto della grazia", () => {
+    // Una chat guardata per un'ora senza che arrivi un messaggio sarebbe
+    // altrimenti vecchia di un'ora nell'istante in cui la chiudi, e sfrattabile
+    // al primo giro dello spazzino.
+    replaceAllMessages({ s1: [msg('a')] });
+    const off = subscribeSession('s1', () => {});
+    const scritta = listSessions().find((s) => s.key === 's1')!.lastTouchedAt;
+
+    const primaDiLasciarla = Date.now();
+    off();
+
+    const lasciata = listSessions().find((s) => s.key === 's1')!.lastTouchedAt;
+    expect(lasciata).toBeGreaterThanOrEqual(primaDiLasciarla);
+    expect(lasciata).toBeGreaterThanOrEqual(scritta);
+  });
+
+  test('con due che guardano, il primo che se ne va non fa ripartire niente', () => {
+    replaceAllMessages({ s1: [msg('a')] });
+    const off1 = subscribeSession('s1', () => {});
+    subscribeSession('s1', () => {});
+    const prima = listSessions().find((s) => s.key === 's1')!.lastTouchedAt;
+    off1();
+    expect(listSessions().find((s) => s.key === 's1')!.lastTouchedAt).toBe(prima);
+  });
+
+  test('una sessione mai toccata (idratata al boot) vale come vecchissima', () => {
+    // `replaceAllMessages` passa da `updateMessages`, quindi marca. Il caso da
+    // proteggere e' quello di una chiave che entra senza passare di li': deve
+    // risultare sfrattabile per prima, non protetta per sempre.
+    __resetMessageStore();
+    const vuota = listSessions();
+    expect(vuota).toEqual([]);
+  });
+});
+
+describe('sfratto', () => {
+  test('restituisce la memoria e sveglia chi ascoltava tutto', () => {
+    replaceAllMessages({ s1: [msg('a')], s2: [msg('b')] });
+    let g = 0;
+    subscribeAllMessages(() => { g++; });
+
+    expect(evictSessions(['s1'])).toEqual(['s1']);
+    expect(getAllMessages()).toEqual({ s2: [msg('b')] });
+    expect(g).toBe(1);
+  });
+
+  test('RIFIUTA di sfrattare una sessione guardata', () => {
+    // L'invariante va difesa qui e non solo nella politica: chiamare questa
+    // funzione a mano dalla console non deve poter svuotare una lista a schermo.
+    replaceAllMessages({ s1: [msg('a')] });
+    subscribeSession('s1', () => {});
+    expect(evictSessions(['s1'])).toEqual([]);
+    expect(getSessionMessagesFromStore('s1')).toHaveLength(1);
+  });
+
+  test('ignora le chiavi che non ci sono, senza toccare lo stato', () => {
+    replaceAllMessages({ s1: [msg('a')] });
+    const prima = getAllMessages();
+    expect(evictSessions(['fantasma'])).toEqual([]);
+    expect(getAllMessages()).toBe(prima); // nemmeno un giro di notifiche
+  });
+
+  test('sfrattare toglie anche il ricordo di quando era stata toccata', () => {
+    replaceAllMessages({ s1: [msg('a')] });
+    evictSessions(['s1']);
+    expect(listSessions().map((s) => s.key)).not.toContain('s1');
+    // E se rientra, riparte pulita: nessuna eta' ereditata dal giro precedente.
+    const prima = Date.now();
+    updateMessages((p) => ({ ...p, s1: [msg('a')] }));
+    expect(listSessions().find((s) => s.key === 's1')!.lastTouchedAt).toBeGreaterThanOrEqual(prima);
   });
 });
 

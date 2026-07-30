@@ -8,14 +8,23 @@ import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
 import {
+  evictSessions,
   getAllMessages,
   getSessionMessagesFromStore,
+  listSessions,
   replaceAllMessages,
   // Importata con l'alias storico: e' una funzione di MODULO, quindi stabile per
   // definizione — ed e' anche il motivo per cui non compare in nessuna lista di
   // dipendenze, mentre il vecchio `setMessages` di `useState` ci compariva.
   updateMessages as setMessages,
 } from '../state/messageStore';
+import {
+  MESSAGE_MIN_IDLE_MS,
+  MESSAGE_RESIDENCY_BUDGET,
+  MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
+  decideMessageResidency,
+  type MessageResidencyInput,
+} from '../state/messageResidency';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -43,6 +52,20 @@ const CACHE_MAX_MESSAGES = 50;
 // `wantsAll`); pagination (positive limit / offset) stays available for callers
 // that opt into it, but the chat never truncates.
 const HISTORY_FETCH_ALL = 0;
+
+/**
+ * Ogni quanto passa lo spazzino dei trascritti. Mezzo minuto: la grazia della
+ * politica è di un minuto, quindi nulla può essere sfrattato prima di averla
+ * superata, e il costo di un giro è contare le chiavi di un oggetto.
+ */
+const SWEEP_EVERY_MS = 30_000;
+
+/**
+ * Quante sessioni lo spazzino ha restituito da quando la finestra è aperta.
+ * Serve alla sonda di memoria: senza, «entries: 7» non distingue «poche chat
+ * aperte» da «ne ho aperte cento e le sto potando».
+ */
+let sweptSessions = 0;
 
 // Dopo tre minuti di silenzio si va a CHIEDERE al server se il turno è ancora
 // vivo. Non si spegne a scadenza: il silenzio non vuol dire morte.
@@ -395,6 +418,9 @@ export function useChat() {
         sessioneMaggiore: biggestKey,
         messaggiNellaMaggiore: biggest,
         markerBytes: roughBytes(heapMarkersRef.current),
+        // Senza questo, `entries: 7` non distingue «ho aperto sette chat» da
+        // «ne ho aperte cento e lo spazzino le sta restituendo».
+        sessioniSfrattate: sweptSessions,
       },
     };
   }), []);
@@ -2040,21 +2066,118 @@ export function useChat() {
     });
   }, []);
 
+  /**
+   * Dimentica le cache per-sessione di questo hook.
+   *
+   * `useChat` è una sola istanza per la vita dell'app, quindi queste mappe
+   * crescerebbero con ogni topic mai aperta senza calare mai. Buttarle rende
+   * anche corretto il rientro: senza, una sessione svuotata resterebbe segnata
+   * come «già idratata» e `stopSession` si fiderebbe di un conteggio a zero che
+   * non viene dal server (vedi `stopSessionPolicy.ts`).
+   */
+  const forgetSessionCaches = useCallback((sessionKey: string) => {
+    filteredMessagesCacheRef.current.delete(sessionKey);
+    lastHistoryFetchAtRef.current.delete(sessionKey);
+    hydratedSessionsRef.current.delete(sessionKey);
+  }, []);
+
   const clearSession = useCallback((sessionKey: string) => {
     setMessages(prev => ({
       ...prev,
       [sessionKey]: [],
     }));
     clearCachedMessages(sessionKey);
-    // Evict this session's per-session caches too. `useChat` is a single
-    // app-lifetime instance (mounted once in App.tsx), so these Maps/Sets would
-    // otherwise grow with every topic ever opened and never shrink on removal.
-    // Dropping them here also makes a re-open correctly re-hydrate from server
-    // rather than trusting a stale "already hydrated" flag over wiped messages.
-    filteredMessagesCacheRef.current.delete(sessionKey);
-    lastHistoryFetchAtRef.current.delete(sessionKey);
-    hydratedSessionsRef.current.delete(sessionKey);
-  }, []);
+    forgetSessionCaches(sessionKey);
+  }, [forgetSessionCaches]);
+
+  /**
+   * Lo spazzino dei trascritti: restituisce la memoria delle chat che nessuno
+   * guarda più.
+   *
+   * `useChat` è una sola istanza per la vita dell'app (montata in `App`), quindi
+   * ogni mappa per-sessione qui dentro cresceva con OGNI topic mai aperta e non
+   * calava mai — e i messaggi, che sono la voce grossa, vivono in
+   * `messageStore`, dove non usciva niente per costruzione. Il tetto sulle pane
+   * smonta la chat ma non tocca il suo trascritto: la pane sparisce, i suoi
+   * diecimila messaggi restano.
+   *
+   * Chi resta lo decide `messageResidency` (modulo puro, testato); qui si
+   * raccolgono i fatti e si applica. «Occupata» è l'unione di tutto ciò che
+   * rende la copia in memoria più fresca di quella sul server: stream in corso,
+   * invio in volo, fetch di cronologia aperta, coda in uscita o in attesa di
+   * fine stream. Sfrattare una di quelle non ricaricherebbe il lavoro: lo
+   * perderebbe.
+   */
+  const loadingRef = useRefMirror(loading);
+  const thinkingRef = useRefMirror(thinking);
+  const pendingQueueRef = useRefMirror(pendingQueue);
+  useEffect(() => {
+    const sweep = (overrides?: Partial<Omit<MessageResidencyInput, 'sessions' | 'now'>>): string[] => {
+      const busy = new Set<string>();
+      const addTruthy = (m: Record<string, boolean>) => {
+        for (const [k, v] of Object.entries(m)) if (v) busy.add(k);
+      };
+      addTruthy(streamingRef.current);
+      addTruthy(loadingRef.current);
+      addTruthy(thinkingRef.current);
+      for (const k of localSSESessionsRef.current) busy.add(k);
+      for (const k of inFlightHistoryRef.current) busy.add(k);
+      for (const k of Object.keys(abortControllersRef.current)) busy.add(k);
+      for (const k of Object.keys(streamQueueRef.current)) busy.add(k);
+      for (const k of sendLockRef.current.keys()) busy.add(k);
+      for (const q of pendingQueueRef.current) busy.add(q.sessionKey);
+
+      const { evict } = decideMessageResidency({
+        sessions: listSessions().map(s => ({ ...s, busy: busy.has(s.key) })),
+        now: Date.now(),
+        budget: MESSAGE_RESIDENCY_BUDGET,
+        maxIdleMessages: MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
+        minIdleMs: MESSAGE_MIN_IDLE_MS,
+        ...overrides,
+      });
+      if (evict.length === 0) return [];
+
+      // `evictSessions` rifiuta comunque le sessioni guardate: la politica e lo
+      // store difendono la stessa invariante da due lati, e il ritorno dice
+      // quali sono uscite DAVVERO.
+      const gone = evictSessions(evict);
+      if (gone.length === 0) return [];
+      for (const k of gone) {
+        forgetSessionCaches(k);
+        sweptSessions += 1;
+      }
+      // I divisori di compattazione seguono il trascritto: tenerli sarebbe
+      // tenere l'indice di un libro che non c'è più, e al rientro
+      // `loadHistory` li rimpiazza con la lista autorevole del server.
+      setCompactionMarkers(prev => {
+        let touched = false;
+        const next = { ...prev };
+        for (const k of gone) {
+          if (k in next) { delete next[k]; touched = true; }
+        }
+        return touched ? next : prev;
+      });
+      return gone;
+    };
+
+    /**
+     * Lo stesso spazzino, a comando. Serve a due cose che il timer non copre:
+     * rispondere a «perché questa chat si è ricaricata?» dalla console
+     * (`__topicsMessageSweep()` dice esattamente quali sessioni escono, con
+     * quali soglie), e permettere a un test di provare l'invariante senza
+     * aspettare mezzo minuto di grazia più mezzo minuto di timer.
+     *
+     * Le soglie si possono forzare, l'invariante no: `evictSessions` rifiuta
+     * comunque una sessione guardata, quindi nemmeno un `budget: 0` può
+     * svuotare una lista a schermo.
+     */
+    (window as unknown as { __topicsMessageSweep?: typeof sweep }).__topicsMessageSweep = sweep;
+    const t = setInterval(sweep, SWEEP_EVERY_MS);
+    return () => {
+      clearInterval(t);
+      delete (window as unknown as { __topicsMessageSweep?: typeof sweep }).__topicsMessageSweep;
+    };
+  }, [forgetSessionCaches, streamingRef, loadingRef, thinkingRef, pendingQueueRef]);
 
   // Ritentativo del drain per gli item rinviati (sessione occupata). Un solo
   // timer alla volta; si autospegne quando la coda non rinvia più nulla.
