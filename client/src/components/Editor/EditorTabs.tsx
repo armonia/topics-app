@@ -18,6 +18,18 @@ export interface TabInfo {
   loading?: boolean;
   preview?: boolean;
   lineNumber?: number;
+  /**
+   * Il caricamento è fallito. Sta QUI e non in `content` per una ragione precisa:
+   * scrivere `content: "Error: File too large"` con `originalContent: ''` produceva
+   * un buffer scrivibile e già "modificato" — un ⌘S riflesso sovrascriveva il file
+   * VERO con il messaggio d'errore. In questo repo bastava aprire
+   * `PanelGrid.tsx` (137 KB) o `useProjectLayout.ts` (113 KB): il server risponde
+   * 413 sopra i 100 KB (server/routes/files.ts:251).
+   *
+   * Il file gemello `FilePane.tsx` teneva già l'errore in uno stato a sé, con un
+   * Retry; qui era l'unica superficie divergente.
+   */
+  loadError?: string;
 }
 
 interface EditorTabsProps {
@@ -104,11 +116,11 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
       filesApi.content(path).then(content => {
         if (controller.signal.aborted) return; // Discard if overtaken by newer open
-        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loading: false } : tab));
+        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loadError: undefined, loading: false } : tab));
       }).catch((err: unknown) => {
         if (controller.signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
-        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${message}`, originalContent: '', loading: false } : tab));
+        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: '', originalContent: '', loadError: message || 'Caricamento del file fallito', loading: false } : tab));
       });
     }
   }, [projectPath]);
@@ -121,6 +133,13 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
   const closeTab = useCallback((index: number, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    // Modifiche non salvate: si chiede, come fa già `TopicSettingsModal.tsx:94` per
+    // lo stesso caso. Prima la X (e il click centrale) buttavano via il lavoro senza
+    // una parola — e il pallino "Unsaved changes" era lì a dire che c'era.
+    const closing = tabs[index];
+    if (closing && !closing.loadError && closing.content !== closing.originalContent) {
+      if (!window.confirm(`"${closing.name}" ha modifiche non salvate. Chiudere senza salvare?`)) return;
+    }
     setTabs(prev => {
       const next = prev.filter((_, i) => i !== index);
       setActiveIndex(ai => {
@@ -130,7 +149,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       });
       return next;
     });
-  }, []);
+  }, [tabs]);
 
   const handleContentChange = useCallback((path: string, newContent: string) => {
     setTabs(prev => prev.map(t => t.path === path ? { ...t, content: newContent, preview: false } : t));
@@ -139,6 +158,10 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const handleSave = useCallback(async (content: string) => {
     const tab = tabs[activeIndex];
     if (!tab) return;
+    // Difesa in profondità: il render non monta l'editor su un tab in errore, ma un
+    // salvataggio non deve poter partire comunque — è il percorso che distruggeva
+    // il file.
+    if (tab.loadError) return;
     try {
       await filesApi.save(tab.path, content);
       setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content } : t));
@@ -175,11 +198,11 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       fetch(`/preview${tab.path}`)
         .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
         .then(content => {
-          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content, loading: false } : t));
+          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content, loadError: undefined, loading: false } : t));
         })
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
-          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content: `Error: ${message}`, originalContent: '', loading: false } : t));
+          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content: '', originalContent: '', loadError: message || 'Caricamento del file fallito', loading: false } : t));
         });
     }
   }, [tabs, activeIndex, htmlPreviewTabs]);
@@ -267,6 +290,24 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {activeTab.content}
             </ReactMarkdown>
+          </div>
+        ) : activeTab?.loadError ? (
+          // Nessun editor su un file che non si è caricato: quello che si vedeva
+          // prima era un buffer scrivibile col messaggio d'errore dentro, e un ⌘S
+          // lo scriveva sul file vero. Stesso pattern del gemello FilePane.tsx:174.
+          <div className="flex items-center justify-center h-full px-6">
+            <div className="text-center max-w-md">
+              <p className="text-[13px] text-red-500 mb-1">{activeTab.loadError}</p>
+              <p className="text-[12px] text-app-text-tertiary mb-3">
+                Il file non è stato caricato, quindi non è modificabile da qui.
+              </p>
+              <button
+                onClick={() => { const p = activeTab.path; setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: undefined, loading: true } : t)); filesApi.content(p).then(content => setTabs(prev => prev.map(t => t.path === p ? { ...t, content, originalContent: content, loadError: undefined, loading: false } : t))).catch((err: unknown) => setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: err instanceof Error ? err.message : String(err), loading: false } : t))); }}
+                className="text-[12px] text-primary hover:underline"
+              >
+                Riprova
+              </button>
+            </div>
           </div>
         ) : activeTab ? (
           <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
