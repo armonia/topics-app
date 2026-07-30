@@ -110,10 +110,13 @@ export function terminalPanelId(terminalId: string): string {
 
 /**
  * Human-readable status line for a phase, used as the banner BODY when there's
- * no richer text (an approval carries its prompt instead). Italian, matching the
- * chat notifier's wording so both surfaces read identically.
+ * no richer text (an approval carries its prompt instead). Italian, e UNICA
+ * fonte del testo: la legge anche il notificatore delle chat
+ * (`useCompletionNotifier`), che prima aveva una copia a mano andata in deriva
+ * («in attesa di te» contro «In attesa di te», «interventi richiesti» contro
+ * «intervieni»). Due superfici, una frase sola.
  */
-function statusBody(phase: ClaudeSessionPhase): string {
+export function statusBody(phase: ClaudeSessionPhase): string {
   switch (phase) {
     case 'awaiting-user': return 'In attesa di te';
     case 'awaiting-approval': return "Serve un'approvazione";
