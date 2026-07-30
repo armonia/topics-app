@@ -11,6 +11,9 @@ import { releaseRunLock } from "./helpers/run-lock";
 const TEST_PORT = E2E_PORT;
 
 async function globalTeardown() {
+  // Da qui in poi la morte del server è ATTESA: il banner "morto a metà run"
+  // di global-setup (stesso processo, modulo diverso) deve tacere.
+  process.env.__E2E_TEARDOWN_STARTED = "1";
   const pid = process.env.__TEST_SERVER_PID;
 
   if (pid) {
