@@ -11,6 +11,7 @@ import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
+import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
@@ -1152,7 +1153,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex items-center gap-2 text-app-text-tertiary text-[13px]">
-          <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+          <Spinner size="md" />
           Loading files...
         </div>
       </div>
@@ -1427,7 +1428,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
         {/* Editor tabs */}
         <div className="flex-1 min-w-0 min-h-[300px] flex flex-col overflow-hidden">
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback />}>
             <EditorTabs ref={editorTabsRef} projectPath={projectPath} />
           </Suspense>
         </div>

@@ -5,6 +5,7 @@ import { basename } from '../../lib/path-utils';
 import { MODAL_PANEL } from '@/lib/modalStyles';
 import { useModalDialog } from '@/hooks/useModalDialog';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface SearchResult {
   file: string;
@@ -181,7 +182,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-4">
-              <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+              <Spinner size="sm" />
             </div>
           )}
           {regexError && !loading && (

@@ -9,6 +9,7 @@ import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { createPaneId } from '../../state/pane/adapters';
+import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
@@ -163,7 +164,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+        <Spinner size="md" />
       </div>
     );
   }
@@ -209,7 +210,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         {isMedia ? (
           <MediaViewer filePath={filePath} mediaType={mediaType} filename={filename} />
         ) : diff ? (
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback />}>
             <DiffViewer
               originalContent={diffOriginal}
               modifiedContent={content}
@@ -232,7 +233,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         ) : htmlPreview && isHtml ? (
           <HtmlPreview filePath={filePath} filename={filename} />
         ) : (
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback />}>
             <CodeEditor
               content={content}
               filename={filename}

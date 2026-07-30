@@ -5,6 +5,7 @@ import { gitApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 interface Branch {
   name: string;
@@ -165,7 +166,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-app-text-tertiary">
-        <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+        <Spinner size="sm" />
         Loading branches...
       </div>
     );
@@ -236,7 +237,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           {branch.current ? (
             <Check size={12} className="flex-shrink-0 text-primary" />
           ) : switching === branch.name ? (
-            <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
+            <Spinner size="sm" className="flex-shrink-0" />
           ) : (
             <GitBranch size={12} className="flex-shrink-0 opacity-40" />
           )}
@@ -284,7 +285,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                 onClick={() => handleCheckout(localName)}
               >
                 {switching === localName ? (
-                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
+                  <Spinner size="sm" className="flex-shrink-0" />
                 ) : (
                   <Globe size={12} className="flex-shrink-0 opacity-30" />
                 )}

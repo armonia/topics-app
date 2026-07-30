@@ -20,6 +20,7 @@ import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/
 import { useDismissable } from '@/hooks/useDismissable';
 import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
+import { SpinnerFallback } from '../Shared/Spinner';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -1447,7 +1448,7 @@ export function ChatInput({
             height: 'min(60vh, 560px)',
           }}
         >
-          <Suspense fallback={<div className="flex-1 flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<SpinnerFallback fill />}>
             <ContextInspector
               topic={topic}
               isOpen={showContextPopover}
@@ -1472,7 +1473,7 @@ export function ChatInput({
             className={`fixed left-0 right-0 bottom-0 ${POPOVER_SHEET} flex flex-col overflow-hidden`}
             style={{ zIndex: Z_POPOVER, height: '70vh' }}
           >
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+            <Suspense fallback={<SpinnerFallback fill />}>
               <ContextInspector
                 topic={topic}
                 isOpen={showContextPopover}
