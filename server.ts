@@ -418,6 +418,18 @@ async function abortHeadlessTurn(sessionKey: string): Promise<void> {
  */
 function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
   if (resp.ok) return null;
+  // Il 409 NON è un guasto: la sessione sta già rispondendo, e i tre consumatori
+  // dello stesso status devono dire la stessa cosa (il client riaccoda, l'MCP
+  // risponde «riprova quando ha finito»). Appiattirlo su `provider-error`
+  // bruciava un tentativo al dispatcher e finiva in park FAILED — un task
+  // dichiarato fallito solo perché è arrivato mentre l'agente parlava.
+  if (resp.status === 409) {
+    return {
+      end: "cancelled",
+      cause: "turn-in-flight",
+      detail: `POST ${what} → HTTP 409 (stream già in volo)`,
+    };
+  }
   // Il corpo si consuma senza rimorsi: da qui si torna indietro comunque.
   return {
     end: "error",

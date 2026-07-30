@@ -152,6 +152,14 @@ describe("politica del dispatcher", () => {
     expect(consumesAttempt(cancelled("session-reset"))).toBe(false);
   });
 
+  // Il 409 `stream_in_flight` della front-door significa «la sessione sta già
+  // rispondendo», non «il provider è guasto». Finché veniva mappato su
+  // `provider-error` bruciava un tentativo, e con un tetto basso bastava
+  // arrivare mentre l'agente parlava per far parcheggiare il task come FAILED.
+  it("un turno respinto perché ce n'era già uno in volo non costa: non abbiamo guidato niente", () => {
+    expect(consumesAttempt(cancelled("turn-in-flight"))).toBe(false);
+  });
+
   it("tutto ciò che non è cancelled costa un tentativo", () => {
     for (const end of ["end_turn", "max_tokens", "max_turn_requests", "refusal", "error"] as const) {
       expect(consumesAttempt({ end })).toBe(true);

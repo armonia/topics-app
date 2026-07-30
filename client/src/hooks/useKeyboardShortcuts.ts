@@ -357,7 +357,15 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // ⌘, — Preferenze. La palette dei comandi lo annunciava gia' accanto a
       // "Settings" (ActionPill shortcut="⌘,"), ma non lo ascoltava nessuno: la
       // scorciatoia piu' automatica del Mac era scritta e basta.
-      if (isMod && !e.shiftKey && e.key === ',') {
+      //
+      // `isMod` è `metaKey || ctrlKey`, quindi qui passa anche `Ctrl+,`. Su Mac
+      // ⌘, è assoluto e deve funzionare anche mentre scrivi — è la convenzione
+      // di sistema. `Ctrl+,` no: dentro un terminale xterm o un editor
+      // CodeMirror è un tasto VERO, e questo handler è in capture su `window`,
+      // quindi il `preventDefault()` incondizionato lo mangiava prima che
+      // arrivasse alla superficie a fuoco. Ctrl cede il passo a chi sta
+      // scrivendo, ⌘ no.
+      if (isMod && !e.shiftKey && e.key === ',' && (e.metaKey || !isTextInputFocused(e.target))) {
         e.preventDefault();
         setShowSettings(true);
         return;

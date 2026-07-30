@@ -48,8 +48,17 @@ export const ACTIVE_DISPATCH_STATES = ['queued', 'starting', 'working'] as const
 
 export type ActiveDispatchState = (typeof ACTIVE_DISPATCH_STATES)[number];
 
-/** True se su questo task c'è un agente al lavoro ADESSO (vedi ACTIVE_DISPATCH_STATES). */
-export function isAgentWorking(dispatchState: string | null | undefined): boolean {
+/**
+ * True se su questo task c'è un agente al lavoro ADESSO (vedi ACTIVE_DISPATCH_STATES).
+ *
+ * È un type guard, non un `boolean`: così `ActiveDispatchState` ha un
+ * consumatore vero invece di essere un export dichiarativo che nessuno annota,
+ * e nel ramo `true` il chiamante ha in mano uno dei tre stati — non una stringa
+ * qualunque. È questo che rende reale la garanzia promessa qui sopra.
+ */
+export function isAgentWorking(
+  dispatchState: string | null | undefined,
+): dispatchState is ActiveDispatchState {
   return (ACTIVE_DISPATCH_STATES as readonly string[]).includes(dispatchState ?? '');
 }
 
