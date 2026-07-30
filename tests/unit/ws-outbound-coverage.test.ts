@@ -52,7 +52,6 @@ const DORMANT: Record<string, string> = {
 const UNCONSUMED: Record<string, string> = {
   // Protocollo: il client non deve gestirli, gli basta ricevere un frame.
   pong: "risposta al ping di keepalive (useWebSocket manda 'ping')",
-  welcome: "handshake, validato via welcomeMessageSchema e non per letterale",
   // La card del roster non mostra le assegnazioni, quindi non c'è niente da
   // aggiornare; AgentAssignPanel, che le mostra, ricarica dopo la propria azione.
   "agent:assigned": "nessuna superficie mostra le assegnazioni nel roster",

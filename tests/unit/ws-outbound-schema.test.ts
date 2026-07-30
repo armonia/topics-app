@@ -147,6 +147,14 @@ describe('outbound registry contract', () => {
     // Adding a type to OUTBOUND_SCHEMAS requires updating this assertion.
     // That's intentional — it forces the PR author to acknowledge that
     // the outbound surface grew (and to document it in WS-PROTOCOL.md).
+    //
+    // 2026-07-30, +1 → `stream:usage`: il CONSUMO del turno mentre cresce.
+    // Fratello di `stream:context` e distinto da lui apposta — quello è il
+    // serbatoio (sale e SCENDE con le compattazioni), questo è la bolletta (solo
+    // cresce). Prima i numeri di consumo arrivavano una volta sola, a turno
+    // finito: in un turno agentico da otto tool call non si vedeva muovere
+    // niente. Non si poteva allargare `stream:context` senza far dire a un
+    // evento due cose che si muovono in verso opposto.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
       'agent:assigned',
       'agent:escalation',
@@ -218,6 +226,7 @@ describe('outbound registry contract', () => {
       'stream:tool_result',
       'stream:tool_update',
       'stream:tool_user_input_required',
+      'stream:usage',
       'task:created',
       'task:deleted',
       'task:review-ready',
@@ -294,8 +303,8 @@ describe('outbound registry contract', () => {
   // ciclo di vita delle chat passa da `topic:*`, che è vivo. Il test di
   // copertura difende il verso opposto (un broadcast senza schema), quindi
   // questi non erano difesi da niente.
-  test('all 95 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
+  test('all 96 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
   });
 });
 

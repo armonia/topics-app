@@ -1,0 +1,128 @@
+/**
+ * Lo scorporo della cache nel piede di un messaggio.
+ *
+ * Perché esiste. Il piede mostrava `<durata> · <token> · $<costo>` e il numero dei
+ * token è dominato dalle RILETTURE: in un turno agentico lungo lo stesso prompt
+ * viene riletto dalla cache a ogni chiamata al modello e si arriva a milioni su una
+ * finestra da 200k. Il commento nel componente lo spiegava già a parole — non
+ * poteva mostrare il numero, perché il server lo calcolava per il prezzo e lo
+ * buttava (`routes/chat.ts`, e solo nel ramo in cui il provider NON dà il costo,
+ * cioè quasi mai su claude-code). Ora il numero c'è, e questa funzione è la parte
+ * che si può sbagliare.
+ *
+ * Le tre trappole che i test fissano:
+ *   1. "non lo sappiamo" ≠ "nessuna cache" — un `?? 0` renderebbe indistinguibili
+ *      un messaggio vecchio e un turno senza cache, e farebbe sembrare che milioni
+ *      di token di rilettura non siano mai esistiti.
+ *   2. quote DISGIUNTE — `write1h` NON è dentro `write5m`: sommarle è contarle due
+ *      volte (stessa convenzione di `usage/pricing.ts`).
+ *   3. il fresco è il RESTO, non un dato — è la sola definizione che fa tornare i
+ *      conti a `prompt` anche quando il provider arrotonda fra chiamate.
+ */
+import { describe, test, expect } from 'bun:test';
+import { cacheBreakdown } from './MessageMetaFooter';
+
+describe('cacheBreakdown — noto contro non noto', () => {
+  test('senza cacheReadTokens NON è noto: nessuno scorporo inventato', () => {
+    const bd = cacheBreakdown({ promptTokens: 500_000 });
+    expect(bd.known).toBe(false);
+    // I numeri restano a zero, ma `known: false` è ciò che impedisce alla UI di
+    // presentarli come una misura.
+    expect(bd.read).toBe(0);
+    expect(bd.pct).toBe(0);
+  });
+
+  test('cacheReadTokens a ZERO è noto: misurato, nessuna rilettura', () => {
+    const bd = cacheBreakdown({ promptTokens: 1000, cacheReadTokens: 0 });
+    expect(bd.known).toBe(true);
+    expect(bd.read).toBe(0);
+    expect(bd.fresh).toBe(1000);
+    expect(bd.pct).toBe(0);
+  });
+
+  test('null è non noto, 0 è noto — la differenza è tutto il punto', () => {
+    expect(cacheBreakdown({ promptTokens: 10, cacheReadTokens: null }).known).toBe(false);
+    expect(cacheBreakdown({ promptTokens: 10, cacheReadTokens: undefined }).known).toBe(false);
+    expect(cacheBreakdown({ promptTokens: 10, cacheReadTokens: 0 }).known).toBe(true);
+  });
+});
+
+describe('cacheBreakdown — le quattro quote sommano al prompt', () => {
+  test('il caso reale di un turno agentico: quasi tutto è rilettura', () => {
+    const bd = cacheBreakdown({
+      promptTokens: 2_000_000,
+      cacheReadTokens: 1_950_000,
+      cacheCreationTokens: 40_000,
+      cacheCreation1hTokens: 8_000,
+    });
+    expect(bd.fresh).toBe(2_000_000 - 1_950_000 - 40_000 - 8_000);
+    expect(bd.read + bd.write5m + bd.write1h + bd.fresh).toBe(2_000_000);
+    expect(bd.pct).toBe(98);
+  });
+
+  test('write1h è DISGIUNTA da write5m, non annidata', () => {
+    // Se fossero annidate, il fresco risulterebbe più alto di 8000 e la somma non
+    // tornerebbe: è esattamente l'errore che questa asserzione impedisce.
+    const bd = cacheBreakdown({
+      promptTokens: 100,
+      cacheReadTokens: 50,
+      cacheCreationTokens: 30,
+      cacheCreation1hTokens: 10,
+    });
+    expect(bd.fresh).toBe(10);
+    expect(bd.read + bd.write5m + bd.write1h + bd.fresh).toBe(100);
+  });
+
+  test('il fresco non va MAI negativo, anche se le quote superano il prompt', () => {
+    // Capita: il provider somma l'usage di più chiamate e arrotonda. Un fresco
+    // negativo avvelenerebbe la somma mostrata e, a monte, anche il prezzo.
+    const bd = cacheBreakdown({
+      promptTokens: 100,
+      cacheReadTokens: 90,
+      cacheCreationTokens: 30,
+      cacheCreation1hTokens: 20,
+    });
+    expect(bd.fresh).toBe(0);
+  });
+});
+
+describe('cacheBreakdown — la percentuale', () => {
+  test('è la quota di RILETTURA sul totale letto, non sulle scritture', () => {
+    const bd = cacheBreakdown({ promptTokens: 1000, cacheReadTokens: 900, cacheCreationTokens: 100 });
+    expect(bd.pct).toBe(90);
+  });
+
+  test('prompt a zero non divide per zero', () => {
+    expect(cacheBreakdown({ promptTokens: 0, cacheReadTokens: 0 }).pct).toBe(0);
+  });
+
+  test('arrotonda all intero: 2/3 → 67', () => {
+    expect(cacheBreakdown({ promptTokens: 3, cacheReadTokens: 2 }).pct).toBe(67);
+  });
+
+  test('non supera 100 nemmeno con dati incoerenti', () => {
+    const bd = cacheBreakdown({ promptTokens: 100, cacheReadTokens: 100 });
+    expect(bd.pct).toBe(100);
+  });
+});
+
+describe('cacheBreakdown — valori sporchi dal provider', () => {
+  test('NaN e Infinity non producono numeri assurdi', () => {
+    // I provider mandano NaN (prompt_tokens null → Number()) e Infinity (su abort):
+    // il componente lo sapeva già per gli altri campi, e vale anche qui.
+    const bd = cacheBreakdown({
+      promptTokens: Number.NaN,
+      cacheReadTokens: Number.POSITIVE_INFINITY,
+      cacheCreationTokens: Number.NaN,
+    });
+    expect(Number.isFinite(bd.read)).toBe(true);
+    expect(Number.isFinite(bd.fresh)).toBe(true);
+    expect(Number.isFinite(bd.pct)).toBe(true);
+  });
+
+  test('un negativo dal provider viene trattato come zero, non sottratto', () => {
+    const bd = cacheBreakdown({ promptTokens: 100, cacheReadTokens: -50 });
+    expect(bd.read).toBe(0);
+    expect(bd.fresh).toBe(100);
+  });
+});

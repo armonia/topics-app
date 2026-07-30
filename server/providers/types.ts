@@ -310,6 +310,36 @@ export interface StreamHandler {
    */
   onContextSize?: (tokens: number, model?: string, windowTokens?: number) => void;
   /**
+   * L'usage di UNA chiamata al modello, appena il provider la vede.
+   *
+   * Perché serve, distinto da `onContextSize`. Le due nascono dallo STESSO evento
+   * e rispondono a due domande diverse: `onContextSize` dice quanto è grande il
+   * prompt che il modello ha appena visto — il SERBATOIO, che sale e scende con le
+   * compattazioni — mentre questo dice quanto è stato CONSUMATO da quella chiamata,
+   * cioè la bolletta, che solo cresce. Prima esisteva solo il primo, e i numeri di
+   * consumo arrivavano al client una volta sola, alla fine del turno: durante un
+   * turno agentico da otto tool call l'utente non vedeva niente muoversi.
+   *
+   * Chiamata una volta PER CHIAMATA, non per turno: chi ascolta ACCUMULA. Il
+   * `result` finale del provider somma già tutte le chiamate, quindi sommare anche
+   * quello sarebbe contare due volte.
+   *
+   * Le chiamate delle sotto-sessioni (sidechain) sono ESCLUSE: hanno un loro
+   * contesto e un loro conto, e mescolarle qui gonfierebbe il turno del genitore.
+   *
+   * Quote disgiunte come altrove: `inputTokens` è il TOTALE letto e comprende
+   * `cacheRead` + `cacheCreation`; `cacheCreation1h` è una quota di
+   * `cacheCreation`, non un'aggiunta.
+   */
+  onCallUsage?: (u: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheRead: number;
+    cacheCreation: number;
+    cacheCreation1h: number;
+    model?: string;
+  }) => void;
+  /**
    * L'agente ha dichiarato (o aggiornato) il suo piano — oggi solo ACP, che
    * manda `session/update` con `sessionUpdate: "plan"`.
    *

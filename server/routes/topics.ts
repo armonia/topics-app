@@ -279,7 +279,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
-    updateLastMessage, updateToolCallFields,
+    updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     searchTranscripts,
@@ -2180,6 +2180,24 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // `abortClearPolicy.ts` for the rationale and the matching client-side
       // guard in `stopSessionPolicy.ts`).
       let clearedForReal = false;
+      // Fermare un turno PRIMA che il modello dica qualcosa lasciava in chat il
+      // segnaposto creato all'inizio dello stream, finalizzato vuoto: una bolla
+      // senza niente dentro, che poi rientra nella history rimandata al modello
+      // a ogni turno successivo. Ne contiamo a decine nei giorni di dispatch.
+      // Ora un turno che non ha prodotto niente non lascia niente — mezza frase
+      // o una tool call sono invece lavoro fatto e restano (vedi shared/empty-turn.ts).
+      let discardedMessageId: string | null = null;
+      const finalizeAborted = () => {
+        // Indirizzato per id, non "l'ultima riga": la finalize del provider
+        // (`onAborted` → finalizeStream in chat.ts) può aver già scartato il
+        // segnaposto di questo stream. Se non c'è più non c'è niente da
+        // finalizzare — e `updateLastMessage`, che è posizionale, scriverebbe
+        // sulla riga dell'UTENTE.
+        if (stream.messageId && !getMessageById(stream.messageId)) return;
+        const finalized = updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+        discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
+        if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
+      };
       if (body?.clearMessages) {
         const stored = loadLocalMessages(sessionKey);
         const decision = shouldHonorClearMessages(stored);
@@ -2192,18 +2210,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           );
           // Fall through to the normal finalize path so we don't lose the
           // partial assistant content the user was about to abort.
-          updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+          finalizeAborted();
         }
       } else {
         // Finalize whatever content we have
-        updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+        finalizeAborted();
       }
 
       endStream(sessionKey);
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
       // choice, not an omission.
-      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort" });
+      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort", ...(discardedMessageId ? { discardedMessageId } : {}) });
 
       return json({ ok: true, cleared: clearedForReal });
     }

@@ -77,6 +77,14 @@ export function SessionConfigPopover({
   // due casi è.
   const sliderTier = effort ?? defaultTier ?? null;
   const sliderIndex = Math.max(0, effortIndex(sliderTier) >= 0 ? effortIndex(sliderTier) : 2);
+  // Quello che il trigger MOSTRA: lo stesso valore del pollice dello slider —
+  // l'override se c'è, altrimenti il default del provider. Non è un dettaglio
+  // grafico: un badge che compariva solo con l'override lasciava il caso comune
+  // (nessun override) senza nessun numero, cioè con un bottone che non diceva
+  // cosa governava. `null` solo quando l'effort in forza non si conosce davvero,
+  // ed è l'unico caso in cui si torna all'icona: meglio nessun numero che uno
+  // inventato.
+  const shownTier = effort ?? defaultTier ?? null;
 
   // With neither knob available there is nothing to show — stay invisible
   // rather than offer an empty panel.
@@ -105,15 +113,49 @@ export function SessionConfigPopover({
           }
           setOpen((v) => !v);
         }}
-        className={`flex-shrink-0 p-1.5 rounded-md transition-colors ${
+        className={`flex-shrink-0 flex items-center justify-center h-8 px-1.5 rounded-lg transition-colors ${
           open ? 'bg-app-hover text-app-text' : 'text-app-text-muted hover:bg-app-hover hover:text-app-text'
         }`}
-        title="Configurazione della chat — effort e autonomia"
-        aria-label="Configurazione della chat"
+        title={shownTier
+          ? effort
+            ? `Effort: ${effort} — impostato per questa chat${defaultTier ? ` (default del provider: ${defaultTier})` : ''}`
+            : `Effort: ${shownTier} — default del provider`
+          : 'Configurazione della chat — effort'}
+        aria-label={shownTier
+          ? `Configurazione della chat, effort ${shownTier}${effort ? ' impostato per questa chat' : ' di default'}`
+          : 'Configurazione della chat'}
         aria-expanded={open}
         data-testid="chat-session-config"
       >
-        <SlidersHorizontal size={16} />
+        {/* IL VALORE AL POSTO DELL'ICONA. Un `SlidersHorizontal` dice "qui si
+            regola qualcosa" e nient'altro: il tier in forza — l'unica cosa che
+            questo bottone governa — stava sul bottone del MODELLO, cioè su un
+            controllo che apre un'altra lista e non lo cambia. Adesso il numero è
+            sul controllo che lo cambia, ed è l'icona a essere superflua.
+            SLOT A LARGHEZZA FISSA: le sigle vanno da 3 (LOW) a 6 (MEDIUM)
+            caratteri, e l'icona ne occupa 16 di pixel. A larghezza libera ogni
+            cambio di effort — e l'arrivo stesso dello snapshot dei provider —
+            avrebbe spostato tutto ciò che sta a destra nella barra. Con lo slot
+            fisso e il testo centrato non si muove un pixel, in nessuno dei tre
+            stati. */}
+        <span className="w-[42px] flex items-center justify-center">
+          {shownTier ? (
+            <span
+              data-testid="session-effort-badge"
+              data-effort-source={effort ? 'override' : 'default'}
+              className={`w-full text-center text-[9px] uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
+                // L'override è una scelta TUA e si vede; il default del provider
+                // è un fatto, e sta smorzato. Due pesi diversi per due cose
+                // diverse, senza bisogno di leggere il pannello per distinguerle.
+                effort ? 'bg-primary/30 text-primary' : 'bg-app-hover/60 text-app-text-muted'
+              }`}
+            >
+              {shownTier}
+            </span>
+          ) : (
+            <SlidersHorizontal size={16} />
+          )}
+        </span>
       </button>
 
       {open && pos && createPortal(

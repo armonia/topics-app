@@ -25,13 +25,23 @@
  */
 
 /**
- * Finestra usata quando il modello non è in tabella.
+ * DOVE STA LA TABELLA. In `shared/context-window.ts`, non più qui: da quando il
+ * picker dei modelli mostra la finestra di OGNI modello, la stessa domanda se la
+ * fanno server e client, e il client non può importare da `server/` (TS6307).
+ * L'alternativa era una seconda copia della tabella nel client, cioè la garanzia
+ * che prima o poi i due numeri divergano sullo stesso modello.
  *
- * 1M, non 200k: sull'intera generazione Claude 5 (e già su Opus 4.6+ e Sonnet
- * 4.6) il milione è la finestra DI SERIE, non una variante. Un modello che non
- * conosciamo è quasi sempre più nuovo di questa tabella, quindi il default deve
- * assomigliare al presente. Resta marcato `estimated`, così la UI mostra "≈"
- * invece di spacciare una precisione che non ha.
+ * Questo modulo resta la porta per il server — i chiamanti storici importano da
+ * qui e non cambiano una riga — e tiene ciò che è davvero suo: la
+ * classificazione di una misura (`classifyContext`, `windowForMeasure`), che
+ * parla di `session_context` e di soglie, non di modelli.
+ *
+ * Finestra usata quando il modello non è in tabella: 1M, non 200k — sull'intera
+ * generazione Claude 5 (e già su Opus 4.6+ e Sonnet 4.6) il milione è la
+ * finestra DI SERIE. Un modello che non conosciamo è quasi sempre più nuovo
+ * della tabella, quindi il default deve assomigliare al presente; resta marcato
+ * `estimated`, così la UI mostra "≈" invece di spacciare una precisione che non
+ * ha.
  */
 import {
   DEFAULT_CONTEXT_WINDOW,
@@ -41,132 +51,18 @@ import {
   worseLevel,
 } from "../../shared/context-thresholds";
 import type { ContextLevel } from "../../shared/context-thresholds";
+import { contextWindowFor } from "../../shared/context-window";
+import type { ContextWindow } from "../../shared/context-window";
 
 export { DEFAULT_CONTEXT_WINDOW } from "../../shared/context-thresholds";
-
-/**
- * Chiave → finestra in token. Il match è per SOTTOSTRINGA sul nome del modello
- * (chiavi più lunghe per prime), come fa `pricing.ts`: i nomi che arrivano dai
- * provider sono pieni di date e suffissi (`claude-sonnet-4-5-20250929`) e una
- * tabella di uguaglianze esatte invecchia in una settimana.
- */
-const CONTEXT_WINDOWS: Record<string, number> = {
-  // Claude. Il milione NON è una variante: è la finestra di serie da Opus 4.6 e
-  // Sonnet 4.6 in avanti, e su tutta la generazione 5. Restano a 200k solo i
-  // modelli davvero vecchi e Haiku.
-  // Le chiavi più lunghe vincono (match per sottostringa), quindi `claude-opus-4-5`
-  // deve stare PRIMA del generico `claude-opus-4` — se no un 4.5 leggerebbe 1M.
-  "claude-fable-5": 1_000_000,
-  "claude-mythos-5": 1_000_000,
-  "claude-opus-5": 1_000_000,
-  "claude-opus-4-8": 1_000_000,
-  "claude-opus-4-7": 1_000_000,
-  "claude-opus-4-6": 1_000_000,
-  "claude-opus-4-5": 200_000,
-  "claude-opus-4": 200_000,
-  "claude-sonnet-5": 1_000_000,
-  "claude-sonnet-4-6": 1_000_000,
-  "claude-sonnet-4": 200_000,
-  "claude-haiku-3-5": 200_000,
-  "claude-haiku-4-5": 200_000,
-  // OpenAI.
-  "gpt-4o-mini": 128_000,
-  "gpt-4o": 128_000,
-  "gpt-4-1": 1_047_576,
-  "gpt-4.1": 1_047_576,
-  "gpt-5-codex": 400_000,
-  "gpt-5": 400_000,
-  "o3-mini": 200_000,
-  "o3": 200_000,
-  // Gemini.
-  "gemini-2-5-pro": 1_048_576,
-  "gemini-2.5-pro": 1_048_576,
-};
-
-/**
- * Varianti a finestra lunga: lo stesso modello, servito con la beta 1M. Il
- * suffisso vince sulla famiglia, quindi si controlla PRIMA della tabella.
- */
-const LONG_WINDOW_MARKERS = ["[1m]", "-1m", ":1m", "1m-context", "context-1m"];
-
-/** true = il nome dichiara la variante a finestra lunga. */
-export function hasLongWindowMarker(model: string | null | undefined): boolean {
-  if (!model || typeof model !== "string") return false;
-  const lower = model.toLowerCase();
-  return LONG_WINDOW_MARKERS.some((m) => lower.includes(m));
-}
-
-/**
- * Quale nome usare per DIMENSIONARE la finestra, dati quello richiesto e quello
- * che ha davvero servito la chiamata.
- *
- * Il problema: `[1m]` è una modalità di servizio, non un modello diverso, e la
- * CLI nei suoi eventi riporta il nome NUDO (`claude-opus-5`). Chi sceglieva
- * "1M" dal picker si vedeva quindi il denominatore a 200k e un anello al 90%
- * mentre era al 18% — il numero giusto c'era, lo perdeva chi lo riportava.
- *
- * La regola: il suffisso della richiesta sopravvive solo se la chiamata è stata
- * servita dallo STESSO modello. Se la CLI è ripiegata su un altro (fast mode,
- * sovraccarico), comanda il modello che ha risposto, finestra compresa — è lui
- * che dimensiona il turno.
- */
-export function windowModelFor(
-  perCallModel: string | null | undefined,
-  requestedModel: string | null | undefined,
-): string | null {
-  const perCall = perCallModel || null;
-  const requested = requestedModel || null;
-  if (!perCall) return requested;
-  if (!requested) return perCall;
-  if (hasLongWindowMarker(perCall) || !hasLongWindowMarker(requested)) return perCall;
-  // La richiesta è a finestra lunga e la risposta ha perso il suffisso: è lo
-  // stesso modello solo se un nome è il prefisso dell'altro una volta tolto il
-  // marcatore (la CLI può aggiungere una data: `claude-opus-5-20260101`).
-  const base = stripLongWindowMarker(requested);
-  const a = perCall.toLowerCase();
-  const b = base.toLowerCase();
-  return a.startsWith(b) || b.startsWith(a) ? requested : perCall;
-}
-
-function stripLongWindowMarker(model: string): string {
-  let out = model;
-  for (const m of LONG_WINDOW_MARKERS) {
-    const i = out.toLowerCase().indexOf(m);
-    if (i >= 0) out = out.slice(0, i) + out.slice(i + m.length);
-  }
-  return out;
-}
-
-export interface ContextWindow {
-  /** Token che il modello regge in ingresso. */
-  tokens: number;
-  /** false = il modello non è in tabella, `tokens` è il default. */
-  known: boolean;
-}
-
-/** Finestra di contesto per un nome di modello (fuzzy, mai lancia). Pura. */
-export function contextWindowFor(model: string | null | undefined): ContextWindow {
-  if (!model || typeof model !== "string") return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
-  const lower = model.toLowerCase();
-
-  if (LONG_WINDOW_MARKERS.some((m) => lower.includes(m))) return { tokens: 1_000_000, known: true };
-
-  const keys = Object.keys(CONTEXT_WINDOWS).sort((a, b) => b.length - a.length);
-  for (const key of keys) {
-    if (lower.includes(key)) return { tokens: CONTEXT_WINDOWS[key]!, known: true };
-  }
-
-  // Fallback di famiglia: gli alias corti ("opus", "sonnet") arrivano dal
-  // selettore del modello e dalle preferenze, non dal provider. Un alias nudo
-  // significa "l'ultimo di quella famiglia", che oggi è a 1M; solo Haiku è ancora
-  // a 200k.
-  if (lower.includes("haiku")) return { tokens: 200_000, known: true };
-  if (lower.includes("opus") || lower.includes("sonnet")) {
-    return { tokens: 1_000_000, known: true };
-  }
-
-  return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
-}
+export {
+  contextWindowFor,
+  hasLongWindowMarker,
+  stripLongWindowMarker,
+  windowModelFor,
+  formatContextWindow,
+} from "../../shared/context-window";
+export type { ContextWindow } from "../../shared/context-window";
 
 /**
  * La finestra contro cui classificare una misura GIÀ REGISTRATA.
