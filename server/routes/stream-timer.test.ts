@@ -43,6 +43,11 @@ import { describe, expect, test } from "bun:test";
 const STREAM_TIMEOUT_MS = 60_000;
 const STREAM_GRACE_MS = 60_000;
 const STREAM_HARD_TIMEOUT_MS = 30 * 60_000;
+// L'annotazione NON viene piu' scritta nel contenuto (fix del 30/07: finiva nella
+// storia e tornava al modello a ogni turno successivo). Resta qui perche' la
+// replica deve modellare anche `stripSlowAnnotation`, che il codice vero tiene per
+// i parziali RILETTI dal DB — un messaggio scritto da un server ancora in volo col
+// codice vecchio puo' ancora portarla.
 const STREAM_SLOW_ANNOTATION =
   "\n\n---\n*[⏱ stream lento — il provider è ancora connesso]*";
 
@@ -99,7 +104,9 @@ function build() {
     softTimer = setTimeout(() => {
       if (h.state !== "streaming") return;
       h.state = "soft-timed-out";
-      h.fullContent = stripSlow(h.fullContent) + STREAM_SLOW_ANNOTATION;
+      // NON tocca `fullContent`: dal 30/07 la lentezza e' un EVENTO
+      // (`stream:slow`, reso da TurnActivityIndicator), non testo appeso al
+      // messaggio. Vedi il commento su STREAM_SLOW_ANNOTATION sopra.
       h.events.push("soft-timeout");
       graceTimer = setTimeout(graceExpiry, STREAM_GRACE_MS);
     }, STREAM_TIMEOUT_MS);
@@ -247,13 +254,15 @@ describe("stream timer state machine", () => {
     });
   });
 
-  test("Fix D: provider event during grace strips annotation and recovers", () => {
+  test("Fix D: un evento durante la grace recupera, e il contenuto non e' mai stato toccato", () => {
     withFakeTimers((advance) => {
       const { h, onEvent } = build();
       onEvent(); // arm soft timer
       advance(STREAM_TIMEOUT_MS + 1);
       expect(h.state).toBe("soft-timed-out");
-      expect(h.fullContent).toContain("⏱ stream lento");
+      // Il soft timeout cambia STATO e annuncia, e basta: il messaggio resta
+      // quello che era.
+      expect(h.fullContent).toBe("");
       // Half-grace, provider sneezes back to life.
       advance(30_000);
       onEvent();
@@ -381,10 +390,11 @@ describe("turno che non parte / finalizzato da fuori", () => {
       const { h } = build();
       // Nessun evento: la CLI è viva ma non emette niente (MCP appeso, resume
       // che non parte). Prima il soft timer si armava solo dal primo evento,
-      // quindi questo caso non produceva NÉ annotazione NÉ timeout.
+      // quindi questo caso non produceva NÉ annuncio NÉ timeout.
       advance(STREAM_TIMEOUT_MS + 1);
       expect(h.events).toContain("soft-timeout");
-      expect(h.fullContent).toContain("stream lento");
+      // L'annuncio c'è; il contenuto resta vuoto perché nessuno ci scrive.
+      expect(h.fullContent).toBe("");
     });
   });
 
