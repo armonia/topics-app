@@ -22,7 +22,7 @@ import { isDesktop, isTauri } from '../lib/shell';
 import { hasOpenModalSurface } from '../lib/modalSurface';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
-import { isProjectPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, type ClosedTabRecord } from '../state/pane/adapters';
+import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 
 export interface UseKeyboardShortcutsArgs {
@@ -60,6 +60,8 @@ export interface UseKeyboardShortcutsArgs {
   setSearchScope: Dispatch<SetStateAction<'all' | 'projects'>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
+  /** ⌘, — le Preferenze, come su ogni app macOS. */
+  setShowSettings: Dispatch<SetStateAction<boolean>>;
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
 }
 
@@ -132,7 +134,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const {
     handleClosePanel, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
-    setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowFileSearch,
+    setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowSettings, setShowFileSearch,
     isSessionStreaming, stopSession,
   } = args;
 
@@ -272,7 +274,13 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // intercept it here in the renderer (which DOES receive the keydown) and
       // reload directly. Electron's native menu reload works, and the web build
       // wants the browser's own reload, so this is gated to Tauri.
-      if (isTauri && isMod && (e.key === 'r' || e.key === 'R')) {
+      //
+      // `!e.shiftKey`: ⌘⇧R è "Record voice" — lo dice il pannello delle
+      // scorciatoie, lo dice il tooltip del microfono, e ChatInput lo ascolta.
+      // Questo ramo lo prendeva prima (capture, su window) e RICARICAVA L'APP:
+      // sotto Tauri il dettato da tastiera semplicemente non esisteva, e con
+      // esso se ne andava anche il testo non ancora inviato.
+      if (isTauri && isMod && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault();
         window.location.reload();
         return;
@@ -346,6 +354,15 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // ⌘, — Preferenze. La palette dei comandi lo annunciava gia' accanto a
+      // "Settings" (ActionPill shortcut="⌘,"), ma non lo ascoltava nessuno: la
+      // scorciatoia piu' automatica del Mac era scritta e basta.
+      if (isMod && !e.shiftKey && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(true);
+        return;
+      }
+
       if (isMod && (e.key === '?' || e.key === '/')) {
         e.preventDefault();
         setShowShortcuts(prev => !prev);
@@ -367,17 +384,17 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         // meglio di una lista scritta a mano — vedi lib/modalSurface.
         if (hasOpenModalSurface()) return;
 
-        // No modal to close — mirror claude-code's Esc: interrupt the
-        // focused panel's running turn (SIGINT-style, session stays alive).
-        // Only fires while the panel is actually streaming, so a bare Esc
-        // elsewhere (nothing open, nothing running) stays a no-op like today.
-        // "session-viewer:<sessionKey>" panes (embedded view of another
-        // session, e.g. inside a project sub-pane) need the prefix stripped
-        // — the sessionKey lives in the map, the paneId doesn't.
-        const focusedPanelId = focusedPanelIdRef.current;
-        const sessionKey = focusedPanelId
-          ? (getSessionKeyFromViewerPaneId(focusedPanelId) ?? focusedPanelId)
-          : null;
+        // Niente da chiudere — come in claude-code, Escape interrompe il turno
+        // del pane a fuoco (stile SIGINT: la sessione resta viva). Scatta solo
+        // se quel pane sta davvero streammando, quindi un Escape a vuoto resta
+        // un no-op.
+        //
+        // Il paneId NON è la sessionKey: per una chat il pane è il TOPIC
+        // (`<uuid>`), la sessione è `topic:<uuid8>`. Usarlo com'era —
+        // `focusedPanelId` come chiave — voleva dire cercare una sessione che
+        // non esiste: `isSessionStreaming` diceva sempre di no e Escape non
+        // interrompeva MAI, in silenzio, tranne nei pane `session-viewer:`.
+        const sessionKey = sessionKeyForPaneId(focusedPanelIdRef.current, topicsRef.current);
         if (sessionKey && isSessionStreaming(sessionKey)) {
           e.preventDefault();
           stopSession(sessionKey);
@@ -418,6 +435,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
+    setShowSettings,
     setShowFileSearch,
     setFocusedPanelId,
     isSessionStreaming,

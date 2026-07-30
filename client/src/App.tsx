@@ -826,6 +826,7 @@ function App() {
     setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
+    setShowSettings,
     setShowFileSearch,
     isSessionStreaming,
     stopSession,

@@ -6376,12 +6376,18 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Native menu — a WKWebView shell with NO app menu also has no working
         // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
-        // explicit View ▸ Reload (Cmd+R / Cmd+Shift+R), matching the Electron app.
+        // explicit View ▸ Reload (Cmd+R), matching the Electron app.
         .menu(|handle| {
             use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
             let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+            // Nessun acceleratore: Cmd+Shift+R e' "Record voice" nell'app (lo dice
+            // il pannello delle scorciatoie e il tooltip del microfono). Il menu
+            // teneva la scorciatoia buona per un doppione del Reload qui sopra —
+            // e quando il fuoco stava in una webview figlia partiva davvero,
+            // ricaricando l'app al posto di far partire il dettato. La voce resta,
+            // cliccabile; la scorciatoia torna a chi la documenta.
             let force_reload =
-                MenuItem::with_id(handle, "force-reload", "Force Reload", true, Some("CmdOrCtrl+Shift+R"))?;
+                MenuItem::with_id(handle, "force-reload", "Force Reload", true, None::<&str>)?;
             let zoom_in = MenuItem::with_id(handle, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
             let zoom_out = MenuItem::with_id(handle, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
             let zoom_reset =
