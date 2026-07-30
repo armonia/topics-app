@@ -20,6 +20,24 @@ export interface SystemStatus {
     /** Dev bundle hot-delivery active (topics-dev.json present): windows
      *  self-reload on each rebuild. Drives the quiet "auto-update" badge. */
     devReload?: boolean;
+    /**
+     * The WHOLE server side: this process plus the detached sidecars (pty-bridge,
+     * ai-bridge, WebRTC) and every process under them — the `claude` CLIs, MCP
+     * servers and headless Chromes that hold most of Topics' RAM. `memoryMB`
+     * above is the Bun process alone and is ~50x smaller.
+     *
+     * Summed from `ps rss`, NOT the phys_footprint the desktop shell reports:
+     * the two are different metrics and are shown as separate lines, never
+     * silently added into one. Absent where `ps` isn't usable (Windows).
+     */
+    fleet?: {
+      processCount: number;
+      memoryMB: number;
+      /** Sum of `ps %cpu`; > 100 is normal on a multi-core box. */
+      cpuPercent: number;
+      roots: { kind: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number }[];
+      supported: boolean;
+    };
   };
   cpu?: {
     cores: number;

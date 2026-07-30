@@ -1,6 +1,6 @@
 import { Activity, Cpu, MonitorSmartphone, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
-import { usePerfMetrics } from '@/hooks/usePerfMetrics';
+import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 const SPARK_W = 288;
@@ -114,10 +114,29 @@ export function PerfSection() {
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
   // shell gets a payload without `memory`, so guard the whole block.
   const serverMemMB = status?.server.memoryMB ?? null;
+  // The server side is not one process: the pty-bridge tree (claude CLIs, MCP
+  // servers, headless Chromes), the ai-bridge and the WebRTC sidecar are all
+  // launchd-reparented children of the server that the shell's attribution set
+  // can't see. `fleet` is that whole set, summed from `ps rss`; `serverMemMB`
+  // (the Bun process alone) is the fallback where `ps` isn't usable.
+  const fleet = status?.server.fleet;
+  const serverSideMemMB = fleet?.memoryMB ?? serverMemMB;
+  const serverSideProcs = fleet?.processCount ?? 1;
   const mem = perf?.memory ?? null;
   const isPartial = perf?.partial ?? false;
-  const totalMemMB = mem ? mem.totalMB : serverMemMB;
+  // Shell footprint + server-side RSS. Different metrics, shown as one headline
+  // because the question it answers ("quanto costa Topics?") has one answer; the
+  // tiles below split it back apart and the tooltips name each metric.
+  const totalMemMB = mem ? mem.totalMB + (serverSideMemMB ?? 0) : serverSideMemMB;
   const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
+  const serverSideTitle = fleet
+    ? `Somma RSS dei ${fleet.processCount} processi lato server: server Bun`
+      + fleet.roots
+          .filter(r => r.kind !== 'server' && r.processCount > 0)
+          .map(r => ` + ${r.kind} (${r.processCount} proc., ${r.memoryMB} MB)`)
+          .join('')
+      + `${status?.server ? ` · heap del server ${status.server.heapUsedMB} MB` : ''}`
+    : `RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`;
 
   // How much of the footprint the OS has had to compress or swap out. Measured at
   // 6937 MB footprint against 610 MB resident with ~20 browser panes open — the
@@ -136,7 +155,7 @@ export function PerfSection() {
       text: `${(compressedMB / 1024).toFixed(1)} GB compressi/in swap — chiudi qualche pannello browser`,
       color: 'text-amber-500',
     };
-  } else if (perf && perf.cpu.total > 100) {
+  } else if (perf && (perf.cpu.total ?? 0) > 100) {
     verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
@@ -158,38 +177,66 @@ export function PerfSection() {
 
       {/* CPU cost. Under Tauri only the shell process is measurable (renderer/GPU
           CPU live in WKWebView's XPC processes we can't attribute), so we show the
-          shell figure ONLY when there's a real reading — cpu.total is 0 until the
-          baseline lands and on an idle shell, and a persistent "0%" reads as fake.
+          shell figure quando c'è UNA MISURA: `total !== null`. Il gate era `> 0`, e
+          uno zero misurato — cioè una shell ferma — perdeva la riga insieme al
+          caso "baseline non ancora arrivata".
           The pre-Tauri renderer+GPU split is kept for a shell that reports it. */}
-      {perf && isPartial && perf.cpu.total > 0 && (
+      {perf && isPartial && perf.cpu.total !== null && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU shell"
             className="col-span-4"
-            value={`${perf.cpu.total}%`}
+            value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
             title="CPU del processo shell di Topics — non include i processi WKWebView dei pannelli · può superare 100% (per core)"
           />
         </div>
       )}
-      {perf && !isPartial && (
+      {perf && !isPartial && perf.cpu.total !== null && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU Topics"
             className="col-span-2"
-            value={`${perf.cpu.total}%`}
+            value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
-            title={`CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`}
+            title={[
+              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`,
+              perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
+                ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi: gli altri sono appena comparsi e non hanno ancora un delta`
+                : null,
+            ].filter(Boolean).join(' · ')}
           />
           <PerfStat
             label="Renderer"
-            value={`${perf.cpu.renderer}%`}
+            value={`${formatCpuPercent(perf.cpu.renderer)}%`}
             title="CPU dei processi WKWebView di contenuto — uno per pannello browser"
           />
           <PerfStat
             label="GPU"
-            value={`${perf.cpu.gpu}%`}
+            value={`${formatCpuPercent(perf.cpu.gpu)}%`}
             title="CPU del processo GPU/compositor di Topics"
+          />
+        </div>
+      )}
+      {/* The server side has its own CPU cost and it is not small — the WebRTC
+          sidecar alone measured ~29% while streaming a pane, and the agent CLIs
+          under the pty-bridge dwarf it. The shell figures above can't see any of
+          it: those processes belong to the server, not to the shell. */}
+      {/* Gate su `fleet`, non su `cpuPercent > 0`: questa cifra viene da `ps %cpu`,
+          che risponde sempre — non ha il problema della baseline che ha la CPU
+          della shell. Uno zero qui è una MISURA (il lato server è fermo), e
+          nasconderlo ripeterebbe l'errore appena corretto sull'altra metà. */}
+      {fleet && (
+        <div className="grid grid-cols-4 gap-1.5">
+          <PerfStat
+            label={`CPU lato server ×${serverSideProcs}`}
+            className="col-span-4"
+            value={`${formatCpuPercent(fleet.cpuPercent)}%`}
+            color={fleet.cpuPercent > 100 ? 'text-amber-500' : 'text-app-text'}
+            title={`CPU del server e di tutto ciò che ne dipende (ps %cpu)${fleet.roots
+              .filter(r => r.kind !== 'server' && r.cpuPercent > 0)
+              .map(r => ` · ${r.kind} ${r.cpuPercent}%`)
+              .join('')} · può superare 100% (per core)`}
           />
         </div>
       )}
@@ -199,16 +246,19 @@ export function PerfSection() {
           shell-only labelling truthful everywhere else. */}
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
-        title={isPartial
-          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli). Il server Bun è un processo separato (tile a parte).'
+        title={(isPartial
+          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).'
           : memLabel === 'footprint'
-            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi di Topics (shell + WKWebView dei pannelli) — lo stesso valore della colonna "Memoria" di Activity Monitor. Il server Bun è un processo separato (tile a parte).`
-            : 'Memoria residente (RSS) dei processi di Topics. Activity Monitor mostra un valore più alto (footprint).'}
+            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi della shell (finestra + WKWebView dei pannelli) — lo stesso valore della colonna "Memoria" di Activity Monitor.`
+            : 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).')
+          + ` PIÙ ${serverSideTitle.charAt(0).toLowerCase()}${serverSideTitle.slice(1)}.`}
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
           <HardDrive size={12} /> Memoria{' '}
           <span className="text-[9px] opacity-60">
-            {isPartial ? 'shell · RSS' : `${mem?.processCount ?? '?'} processi · ${memLabel}`}
+            {isPartial
+              ? `shell + ${serverSideProcs} lato server`
+              : `${(mem?.processCount ?? 0) + serverSideProcs} processi · ${memLabel} + RSS`}
           </span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
@@ -244,10 +294,10 @@ export function PerfSection() {
               title="RSS del processo shell di Topics — i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
             />
             <PerfStat
-              label="Server Bun"
+              label={fleet ? `Lato server ×${serverSideProcs}` : 'Server Bun'}
               className="col-span-2"
-              value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
-              title={`RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`}
+              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+              title={serverSideTitle}
             />
           </>
         ) : mem ? (
@@ -260,17 +310,19 @@ export function PerfSection() {
             <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
             <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio)" />
             <PerfStat
-              label="Server"
-              value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
-              title={`RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`}
+              label={fleet ? `Server ×${serverSideProcs}` : 'Server'}
+              value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+              title={serverSideTitle}
             />
           </>
         ) : (
           <PerfStat
-            label="Server"
+            label={fleet ? `Lato server ×${serverSideProcs}` : 'Server'}
             className="col-span-4"
-            value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
-            title="In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"
+            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : 'n/d'}
+            title={fleet
+              ? serverSideTitle + " · in modalità web la memoria della shell non è disponibile"
+              : "In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"}
           />
         )}
       </div>
