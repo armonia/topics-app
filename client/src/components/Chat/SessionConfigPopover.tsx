@@ -105,15 +105,35 @@ export function SessionConfigPopover({
           }
           setOpen((v) => !v);
         }}
-        className={`flex-shrink-0 p-1.5 rounded-md transition-colors ${
+        className={`flex-shrink-0 flex items-center gap-1 p-1.5 rounded-md transition-colors ${
           open ? 'bg-app-hover text-app-text' : 'text-app-text-muted hover:bg-app-hover hover:text-app-text'
         }`}
-        title="Configurazione della chat — effort e autonomia"
-        aria-label="Configurazione della chat"
+        title={effort
+          ? `Configurazione della chat — effort: ${effort} (impostato per questa chat)`
+          : 'Configurazione della chat — effort e autonomia'}
+        aria-label={effort ? `Configurazione della chat, effort ${effort}` : 'Configurazione della chat'}
         aria-expanded={open}
         data-testid="chat-session-config"
       >
         <SlidersHorizontal size={16} />
+        {/* L'effort STA QUI, sul controllo che lo cambia.
+            Prima viveva nel bottone del modello — che apre la lista dei modelli —
+            mentre a cambiarlo era questo, che non lo mostrava: si cliccava una
+            cosa per far cambiare l'etichetta di un'altra, e questo trigger non
+            aveva nessun segno di cosa governasse.
+            LARGHEZZA FISSA: le sigle sono di lunghezza diversa (LOW 3, MEDIUM 6,
+            XHIGH 5) e a larghezza libera cambiare effort allargava il bottone,
+            spostando tutto quello che gli sta a destra — il layout shift
+            segnalato. Con un `w-` fisso e il testo centrato, il cambio non muove
+            un pixel. */}
+        {effortSupported && effort && (
+          <span
+            data-testid="session-effort-badge"
+            className="w-[38px] text-center text-[9px] uppercase tracking-wide px-1 rounded bg-primary/30 text-primary font-semibold tabular-nums"
+          >
+            {effort}
+          </span>
+        )}
       </button>
 
       {open && pos && createPortal(

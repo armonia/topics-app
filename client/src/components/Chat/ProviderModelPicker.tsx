@@ -6,6 +6,7 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 import { resolveEffectiveProvider, providerEffortTier } from '@/lib/effortTiers';
+import { splitModelId } from '@/lib/modelLabel';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openclaw: 'OpenClaw',
@@ -68,11 +69,16 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     [override, entries, defaultProviderLabel],
   );
 
-  const buttonLabel = useMemo(() => {
-    if (effective) return effective.model;
-    if (override) return override.model;
-    return 'Model';
-  }, [effective, override]);
+  // L'id esatto del modello in uso: e' l'IDENTITA', separata da come la si
+  // mostra. Finisce anche in `data-model` sul bottone, cosi' chi deve sapere
+  // "quale modello" (i test, e chiunque ispezioni la UI) non deve dedurlo
+  // leggendo un'etichetta pensata per gli occhi.
+  const activeModelId = effective?.model ?? override?.model ?? null;
+  // Il `[1m]` viene staccato dal nome: dentro uno span `truncate` quel suffisso
+  // compete per la larghezza col nome, e su una pane stretta a essere tagliato
+  // via era proprio lui — cioe' l'unica differenza visibile fra una finestra da
+  // 200k e una da 1M. Fuori dal truncate diventa un badge che non si accorcia.
+  const { name: modelName, longContext } = splitModelId(activeModelId ?? '');
 
   // Effort/reasoning tier the server forces on the ACTIVE provider's sessions
   // (read-only policy, e.g. `--effort xhigh` for claude-code). Shown as a
@@ -81,10 +87,6 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     () => providerEffortTier(entries, effective, override),
     [effective, override, entries],
   );
-
-  // Il tier davvero in forza per questa topic = override per-topic → default
-  // del provider. Il badge lo mostra; cambiarlo è affare del SessionConfigPopover.
-  const effectiveEffort = effort ?? activeEffortTier ?? null;
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -159,31 +161,53 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="provider-model-picker"
+        data-model={activeModelId ?? undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls="provider-model-listbox"
-        className="inline-flex items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
+        className="inline-flex flex-shrink-0 items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
         title="Provider & model"
       >
-        <Zap size={11} />
+        {/* `flex-shrink-0` sul bottone e sull'icona: la larghezza qui la cede
+            SOLO l'etichetta del modello, col suo `truncate` e i suoi max-w.
+            Lasciando schiacciare il bottone intero si deformavano icona e
+            badge — cioe' proprio le parti che non hanno modo di accorciarsi. */}
+        <Zap size={11} className="flex-shrink-0" />
         {/* Shrinks further once the composer's @container (the pane width,
             not the viewport) drops below 380px — keeps the effort badge and
             the rest of the action bar reachable on a narrow tab. */}
-        <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{buttonLabel}</span>
-        {effectiveEffort && (
+        <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{modelName || 'Model'}</span>
+        {longContext && (
+          <span
+            data-testid="model-longcontext-badge"
+            className="text-[9px] font-semibold tracking-wide px-1 rounded flex-shrink-0 bg-primary/15 text-primary"
+            title="Finestra di contesto da 1M token"
+          >
+            1M
+          </span>
+        )}
+        {/* Qui resta SOLO il tier che il provider forza sulle sue sessioni: e'
+            informazione sul provider, e sta col provider. L'override per-chat —
+            quello che scegli tu — e' passato sul trigger che lo cambia
+            (SessionConfigPopover): prima stava qui, cioe' su un bottone che apre
+            la lista dei modelli, mentre a cambiarlo era un altro controllo che
+            non lo mostrava.
+            Resta visibile ANCHE quando c'e' un override, solo smorzato: farlo
+            sparire avrebbe restretto il bottone proprio mentre si cambia effort,
+            cioe' avrebbe reintrodotto il layout shift dall'altro lato. Larghezza
+            fissa per lo stesso motivo — le sigle vanno da 3 (LOW) a 6 (MEDIUM)
+            caratteri. */}
+        {activeEffortTier && (
           <span
             data-testid="effort-tier-badge"
-            data-overridden={effort ? 'true' : undefined}
-            className={`text-[9px] uppercase tracking-wide px-1 rounded flex-shrink-0 ${
-              effort ? 'bg-primary/30 text-primary font-semibold' : 'bg-primary/15 text-primary'
+            className={`w-[38px] text-center text-[9px] uppercase tracking-wide px-1 rounded flex-shrink-0 ${
+              effort ? 'bg-app-hover text-app-text-muted opacity-60' : 'bg-primary/15 text-primary'
             }`}
-            title={
-              effort
-                ? `Per-topic effort override: ${effectiveEffort} (provider default: ${activeEffortTier ?? '—'})`
-                : `Effort tier Topics forces for this provider's sessions: ${effectiveEffort}`
-            }
+            title={effort
+              ? `Questo provider forza effort ${activeEffortTier}, ma questa chat lo sovrascrive con ${effort}`
+              : `Effort che Topics forza sulle sessioni di questo provider: ${activeEffortTier}`}
           >
-            {effectiveEffort}
+            {activeEffortTier}
           </span>
         )}
       </button>
@@ -326,6 +350,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                         aria-selected={isSelected}
                         ref={(el) => { rowRefs.current[rowIdx] = el; }}
                         data-row-index={rowIdx}
+                        data-model={m}
                         data-active={isActive ? 'true' : undefined}
                         onMouseEnter={() => setActiveIndex(rowIdx)}
                         onClick={() => select(entry.name, m)}
