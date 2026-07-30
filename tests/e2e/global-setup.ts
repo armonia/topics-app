@@ -267,7 +267,17 @@ function listPlaywrightChromiumPids(): string[] {
   }
 }
 
-async function waitForServer(_url: string, timeoutMs = 30000): Promise<void> {
+/**
+ * Attende che la porta del server di test si apra. Il tetto arriva da
+ * `E2E_SERVER_START_TIMEOUT_MS` perché quanto serve dipende da quanti shard
+ * stanno bootando insieme: `scripts/e2e-shards.sh` lo alza, un run singolo tiene
+ * i 30s. Alzarlo non rallenta nulla — il ciclo esce appena la porta risponde —
+ * costa solo quanto si aspetta prima di dichiararlo morto.
+ */
+async function waitForServer(
+  _url: string,
+  timeoutMs = Number(process.env.E2E_SERVER_START_TIMEOUT_MS) || 30000,
+): Promise<void> {
   const net = await import("net");
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {

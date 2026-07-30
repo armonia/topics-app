@@ -17,9 +17,22 @@
 #   SHARDS=2 ./scripts/e2e-shards.sh           # 2 shard
 #   ./scripts/e2e-shards.sh --grep @smoke      # gli argomenti passano a playwright
 #   E2E_TIER=pr ./scripts/e2e-shards.sh        # solo il gate PR
+#   STAGGER=0 ./scripts/e2e-shards.sh          # avvii simultanei (vedi sotto)
+#
+# Gli avvii sono SFASATI di STAGGER secondi. Partendo tutti insieme, N shard
+# fanno insieme anche la parte più costosa del boot — 69 migrazioni su un SQLite
+# nuovo, il BrowserService, il PTY-bridge — e su una macchina sola si fanno la
+# fila a vicenda: il 30/07, con 4 shard, uno ha sforato il timeout di avvio del
+# server e un altro ha perso una corsa sulla cache di trasformazione dei moduli
+# (`Cannot read properties of undefined (reading 'Symbol(testType)')`). Nessuno
+# dei due era un bug del codice: ripetuti da soli, verdi. Sfasare costa qualche
+# secondo su un run di minuti ed è la differenza fra una suite che si può
+# credere e una che va ricontrollata a mano ogni volta.
 #
 # Ogni shard scrive log e risultati sotto test-results/shard-<i>/; alla fine
-# stampa UN riepilogo con tutti i falliti di tutti gli shard.
+# stampa UN riepilogo con tutti i falliti di tutti gli shard. Uno shard che non
+# arriva a eseguire test è un FALLIMENTO del riepilogo, non una nota a piè di
+# pagina: vedi scripts/e2e-shards-summary.ts.
 
 set -uo pipefail
 
@@ -28,11 +41,22 @@ cd "$REPO_ROOT"
 
 SHARDS="${SHARDS:-4}"
 BASE_PORT="${E2E_BASE_PORT:-13334}"
+STAGGER="${STAGGER:-5}"
 
 if ! [[ "$SHARDS" =~ ^[0-9]+$ ]] || [ "$SHARDS" -lt 1 ]; then
   echo "SHARDS deve essere un intero >= 1 (ricevuto: $SHARDS)" >&2
   exit 2
 fi
+if ! [[ "$STAGGER" =~ ^[0-9]+$ ]]; then
+  echo "STAGGER deve essere un intero >= 0 (ricevuto: $STAGGER)" >&2
+  exit 2
+fi
+
+# Il tetto d'attesa per l'apertura della porta del server di test. Il ciclo esce
+# appena la porta risponde, quindi un tetto alto non costa nulla quando il server
+# è pronto in fretta: costa solo quanto si aspetta prima di sapere che è morto.
+# I 30s di default bastavano a uno shard solo e non a quattro.
+export E2E_SERVER_START_TIMEOUT_MS="${E2E_SERVER_START_TIMEOUT_MS:-90000}"
 
 pids=()
 ports=()
@@ -52,7 +76,7 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-echo "[e2e-shards] $SHARDS shard paralleli, porte $BASE_PORT..$((BASE_PORT + SHARDS - 1))"
+echo "[e2e-shards] $SHARDS shard paralleli, porte $BASE_PORT..$((BASE_PORT + SHARDS - 1)) (avvii sfasati di ${STAGGER}s)"
 
 for i in $(seq 1 "$SHARDS"); do
   port=$((BASE_PORT + i - 1))
@@ -74,6 +98,12 @@ for i in $(seq 1 "$SHARDS"); do
   pids+=("$!")
   ports+=("$port")
   echo "[e2e-shards]   shard $i/$SHARDS → :$port  (pid $!, log $out/log.txt)"
+
+  # Sfasa il prossimo avvio: è il boot del server (migrazioni + BrowserService)
+  # a fare la fila, non i test.
+  if [ "$i" -lt "$SHARDS" ] && [ "$STAGGER" -gt 0 ]; then
+    sleep "$STAGGER"
+  fi
 done
 
 failed_shards=0
