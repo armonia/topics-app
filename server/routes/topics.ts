@@ -20,6 +20,7 @@ import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInf
 import { createTaskService } from "../services/tasks";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
+import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
 import { timingSafeEqualStr } from "../utils";
@@ -2204,6 +2205,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (decision.shouldWipe) {
           saveLocalMessages(sessionKey, []);
           clearedForReal = true;
+          // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
+          // buttata via INTERA (era il primo messaggio, fermato prima della
+          // risposta). Senza questo la riga `claude_code_sessions` resta, e la
+          // chat "nuova" che l'utente riapre riprende con `--resume` su una
+          // sessione che ricorda il messaggio appena annullato.
+          if (clearActionFor(abortProvider).kind === "reset") {
+            abortProvider.resetSession!(sessionKey).catch((err: any) =>
+              console.warn(`[Abort] resetSession failed:`, err),
+            );
+          }
         } else {
           console.warn(
             `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages, not first-message`
@@ -2374,7 +2385,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               try { mkdirSync(backupDir, { recursive: true }); const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); const backupFile = join(backupDir, `${sessionKey.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`); writeFileSync(backupFile, JSON.stringify(existingMsgs, null, 2)); console.log(`[clear] Backed up ${existingMsgs.length} messages to ${backupFile}`); } catch (err) { console.warn("[clear] Backup failed:", err); }
             }
             saveLocalMessages(sessionKey, []);
-            try { await providerForSessionKey(sessionKey).sendToSession?.(sessionKey, "/clear"); } catch (err) { console.warn("Failed to clear gateway session:", err); }
+            // Svuotare la tabella pulisce solo quello che si VEDE: al provider
+            // va detto a parte, o il modello ricorda tutto (vedi clearPolicy.ts
+            // — la regola sta lì, pura e testata).
+            const clearProvider = providerForSessionKey(sessionKey);
+            const clearAction = clearActionFor(clearProvider);
+            try {
+              if (clearAction.kind === "reset") await clearProvider.resetSession!(sessionKey);
+              else if (clearAction.kind === "in-band") await clearProvider.sendToSession!(sessionKey, "/clear");
+              else console.warn(`[clear] ${clearProvider.name} non sa dimenticare una sessione: svuotata solo la chat`);
+            } catch (err) { console.warn("Failed to clear provider session:", err); }
             broadcastToAll({ type: "clear", sessionKey });
             return json({ ok: true, command: "clear", message: "Conversation cleared" });
           }

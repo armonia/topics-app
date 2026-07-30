@@ -523,6 +523,24 @@ export interface AIProvider {
   sendToSession?(sessionKey: string, message: string): Promise<void>;
   getSessionStatus?(sessionKey: string): Promise<unknown>;
 
+  /**
+   * Forget everything the model remembers of this session, so the next turn
+   * starts from a blank slate.
+   *
+   * Serve a `/clear`. Nei provider a respawn (claude-code) la memoria non sta
+   * in Topics: sta nel file di sessione della CLI, che il turno dopo viene
+   * ricaricato con `--resume <id>`. Svuotare i messaggi nel DB quindi pulisce
+   * solo quello che si VEDE — il modello continua a ricordare tutto ciò che
+   * l'utente ha appena visto sparire, e lo tira fuori al primo riferimento.
+   * `resetSession` rompe quel legame (dimentica l'id, stacca il processo in
+   * pool) così lo spawn successivo riparte con `--session-id` su un uuid
+   * nuovo: è la stessa semantica che ha `/clear` nella CLI.
+   *
+   * I provider dove la conversazione vive lato server (openclaw) non la
+   * implementano: lì `/clear` passa da `sendToSession`, che è in banda.
+   */
+  resetSession?(sessionKey: string): Promise<void>;
+
   // --- Tools RPC (optional, OpenClaw-specific) ---
 
   invokeTool?(tool: string, args: ToolArgs): Promise<unknown>;
