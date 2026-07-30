@@ -20,7 +20,7 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -567,7 +567,12 @@ export function TopicTree({
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
-            sidebarRowCard({ focused: folderFilled, attention: projTier })
+            // La riga di PROGETTO tiene la regola vecchia (selezione = visto):
+            // `projTier` è un aggregato dei figli, e non è deciso cosa voglia dire
+            // "ho guardato un progetto" — guardarne l'intestazione non è aver letto
+            // le chat che ci stanno dentro. Passa comunque per `attentionFillFor`,
+            // così la decisione è scritta una volta e non ricopiata a mano.
+            sidebarRowCard({ focused: folderFilled, attention: attentionFillFor(projTier, folderFilled) })
           }`}
           data-pinned={item.pinned ? 'true' : undefined}
           onContextMenu={(e) => {
@@ -980,9 +985,12 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
   // Attention TIER — amber 'input' (permission gate) vs blue 'done' (turn
-  // finished), or null. The fill only shows on an UNfocused row (focus clears it).
-  const attentionTier = useTerminalAttentionTier(s.id);
-  const onFill = attentionTier !== null && !isFocused;
+  // finished), o null. Il fill cade quando la riga è stata VISTA (soglia di
+  // SEEN_DWELL_MS a finestra sveglia), non appena viene selezionata: stessa
+  // regola della riga chat, in un posto solo (`attentionFillFor`).
+  useSeenDwell(s.id, isFocused);
+  const attentionTier = useTerminalAttentionFill(s.id);
+  const onFill = attentionTier !== null;
   // Split schematic, same as chat rows (TopicItem) and projects. The standalone
   // terminal pane is published in SplitPositionContext under its pane-id
   // `terminal:<id>` (PanelGrid keys every open pane by paneId), so a topicless

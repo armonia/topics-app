@@ -132,13 +132,21 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
   // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
   const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
-  // FOCUS WINS: the row you're actively viewing shows the neutral selected
-  // surface, never a flashing attention fill. This is the fix for "the row I'm
-  // staring at keeps pulsing" — you've already seen it, so the fill clears. An
-  // UNfocused row that needs you keeps its tier fill (amber 'input' = act now,
-  // blue 'done' = finished-unseen).
-  if (focused) return `${base} ${SELECTED_SURFACE}`;
+  // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
+  // FOCUS WINS non si decide più qui.
+  //
+  // Prima questa funzione lo implementava da sé (`if (focused) → neutro`), e la
+  // stessa regola era ricopiata in altri tre punti con tre definizioni diverse di
+  // "focussato". Il risultato era che "l'ho visto" voleva dire "l'ho selezionato",
+  // anche per un istante: un clic di passaggio spegneva il fill di una chat mai
+  // letta. Ora la regola sta in `attentionFillFor` (state/signals.ts), che pretende
+  // uno sguardo di SEEN_DWELL_MS con la finestra sveglia, e il chiamante passa qui
+  // un `attention` GIÀ risolto — null quando la riga è stata vista.
+  //
+  // Quindi: se arriva un tier, va dipinto (il chiamante ha già stabilito che
+  // l'utente non l'ha guardata); altrimenti valgono selezione e hover come prima.
   if (attention) return `${base} ${attentionSurface(attention)}`;
+  if (focused) return `${base} ${SELECTED_SURFACE}`;
   if (open) return `${base} text-app-text hover:bg-app-hover`;
   return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;
 }

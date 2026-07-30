@@ -9,7 +9,7 @@ import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionP
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicAttentionTier } from '@/state/signals';
+import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
@@ -102,11 +102,15 @@ export const TopicItem = memo(function TopicItem({
   // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
   // (turn finished, look when ready), or null. Same signal/look the chat tab
   // uses, so the sidebar row and the tab can't drift (tabbar ≡ sidebar
-  // invariant). The FILL only shows on an UNfocused row — focus clears it (you've
-  // seen the row you're on), so a focused needy row reads as plain selected and
-  // its labels use normal text, not the on-fill white.
-  const attentionTier = useTopicAttentionTier(topic.id);
-  const onFill = attentionTier !== null && !isFocused;
+  // invariant).
+  //
+  // Il FILL cade quando la riga è stata VISTA, non quando è selezionata: prima il
+  // gate era `!isFocused`, e un clic di passaggio spegneva il fill di una chat mai
+  // letta. `useSeenDwell` arma la soglia mentre la riga è davanti e la finestra è
+  // sveglia; `useTopicAttentionFill` applica FOCUS WINS in un posto solo.
+  useSeenDwell(topic.id, isFocused);
+  const attentionTier = useTopicAttentionFill(topic.id);
+  const onFill = attentionTier !== null;
   // Where this topic's pane sits in the standalone split grid (undefined unless
   // it's open AND the grid is split). Rendered as the same proportional
   // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
