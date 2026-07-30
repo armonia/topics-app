@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { augmentPath } from "../utils/path-env";
 import { resolveStateDir } from "./data-dir";
+import { registerFleetSocket } from "./fleet-usage";
 
 export interface SpawnOpts {
   cliPath: string;
@@ -69,6 +70,10 @@ export class AiBridgeClient {
   constructor() {
     this.socketPath = computeSocketPath();
     this.storeDir = join(resolveStateDir(process.cwd()), "ai-bridge");
+    // Detached daemon: it outlives this server and is reparented to launchd, so
+    // only its command line ties it back to us. Declaring the socket is what puts
+    // it (and its children) into the RAM/CPU figure the status bar shows.
+    registerFleetSocket("ai-bridge", this.socketPath);
   }
 
   // --- connection ---

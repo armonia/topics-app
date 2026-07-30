@@ -3,6 +3,7 @@ import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts, getTopCpuProcesses } from "./processes";
+import { getFleetUsage } from "../lib/fleet-usage";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 
@@ -220,10 +221,16 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       // Gather active ports + top CPU consumers (both reuse cached snapshots).
       let ports: { port: number; pid: number; command: string }[] = [];
       let topProcesses: { pid: number; cpu: number; command: string }[] = [];
+      // Everything the SERVER side really costs: this process plus the detached
+      // sidecars and their trees (the `claude` CLIs, MCP servers and headless
+      // Chromes under the pty-bridge). `memoryMB` above is this process alone —
+      // measured, ~87 MB against ~5 GB for the fleet it drives.
+      let fleet: Awaited<ReturnType<typeof getFleetUsage>> | null = null;
       try {
-        [ports, topProcesses] = await Promise.all([
+        [ports, topProcesses, fleet] = await Promise.all([
           getListeningPorts(),
           getTopCpuProcesses(6),
+          getFleetUsage(),
         ]);
       } catch {}
 
@@ -242,6 +249,12 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           memoryMB: Math.round(memUsage.rss / 1024 / 1024),
           heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
           heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+          // The whole server-side fleet (this process + sidecar trees), summed
+          // from `ps rss`. Absent/`supported:false` where `ps` isn't usable, so
+          // the client can fall back to the single-process number instead of
+          // showing a confident zero. NOT the same metric as the shell's
+          // footprint — the client labels the two apart on purpose.
+          fleet: fleet && fleet.supported ? fleet : undefined,
           // Dev bundle hot-delivery is ON (topics-dev.json in STATE_DIR): open
           // windows self-reload on each rebuild. Drives the quiet "auto-update"
           // status-bar badge — works in the prod-minified bundle (unlike the

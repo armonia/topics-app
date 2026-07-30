@@ -17,6 +17,7 @@ import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
+import { registerFleetSocket } from "../lib/fleet-usage";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -358,6 +359,12 @@ function getSocketPath(): string {
 }
 
 const SOCKET_PATH = getSocketPath();
+
+// The bridge is detached and launchd-reparented, so no ppid walk from the server
+// can find it — nor the tree of `claude` CLIs, MCP servers and headless Chromes
+// underneath it, which is where most of Topics' RAM actually lives. Declaring the
+// socket lets /api/system/status resolve it by command line. See server/lib/fleet-usage.ts.
+registerFleetSocket("pty-bridge", SOCKET_PATH);
 
 /**
  * Append-only stderr sink for the detached bridge, parked next to its socket so
