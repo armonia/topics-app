@@ -134,8 +134,14 @@ test.describe("Sidebar — Unified Timeline", () => {
     ).toBeVisible({ timeout: 10000 });
   });
 
-  // AC-2: Toggle between timeline and grouped view
-  test("AC-2: view toggle switches between timeline and grouped", async ({
+  // AC-2: il toggle cicla fra le TRE viste.
+  //
+  // Era un test su due modi (timeline ⇄ per tipo) e falliva alla terza asserzione
+  // appena la vista per STATO è entrata nel ciclo: dopo "per tipo" l'etichetta non
+  // dice più "Vista timeline" ma "Vista per stato". Non è una rottura da aggirare
+  // — il ciclo è cambiato di proposito (FASE 2, AC c) — quindi il test percorre
+  // ora l'anello intero e verifica che si torni al punto di partenza.
+  test("AC-2: view toggle cicla timeline → per tipo → per stato → timeline", async ({
     page,
     request,
   }) => {
@@ -169,16 +175,32 @@ test.describe("Sidebar — Unified Timeline", () => {
       page.getByRole("button", { name: /sezione Chat/ })
     ).toBeVisible({ timeout: 3000 });
 
-    // The menu stays open and the same row now reads "Vista timeline".
-    const timelineToggle = page.getByRole("button", { name: "Vista timeline" });
-    await expect(timelineToggle).toBeVisible({ timeout: 3000 });
+    // L'etichetta dice il modo SUCCESSIVO: dopo "per tipo" viene "per stato".
+    const statoToggle = page.getByRole("button", { name: "Vista per stato" });
+    await expect(statoToggle).toBeVisible({ timeout: 3000 });
+    await statoToggle.click();
 
-    // Click back to timeline
-    await timelineToggle.click();
-
-    // Section headers should be gone
+    // Vista per stato: le sezioni non sono più i TIPI di pane ma gli stati, e
+    // "Il resto" c'è sempre quando ci sono righe senza fase (qui nessuna sessione
+    // Claude è stata seminata, quindi tutte le righe stanno lì).
+    await expect(
+      page.locator('[data-testid="sidebar-state-section-rest"]')
+    ).toBeVisible({ timeout: 3000 });
     await expect(
       page.getByRole("button", { name: /sezione Chat/ })
+    ).toBeHidden({ timeout: 3000 });
+
+    // Il giro si chiude: da "per stato" si torna a timeline.
+    const timelineToggle = page.getByRole("button", { name: "Vista timeline" });
+    await expect(timelineToggle).toBeVisible({ timeout: 3000 });
+    await timelineToggle.click();
+
+    // Timeline: nessuna sezione, né per tipo né per stato.
+    await expect(
+      page.getByRole("button", { name: /sezione Chat/ })
+    ).toBeHidden({ timeout: 3000 });
+    await expect(
+      page.locator('[data-testid="sidebar-state-section-rest"]')
     ).toBeHidden({ timeout: 3000 });
   });
 
