@@ -195,4 +195,92 @@ test.describe.serial("Coda dei messaggi", () => {
     await page.waitForTimeout(500);
     expect(sent).toEqual(["primo"]);
   });
+
+  /**
+   * IL CASO IN CUI IL CLIENT NON PUÒ SAPERE DA SOLO CHE LA SESSIONE È OCCUPATA.
+   *
+   * `decideSend` accoda quando è QUESTA finestra a stare streammando. Ma la
+   * sessione può essere occupata da qualcun altro: un'altra finestra sullo
+   * stesso topic, o — il caso vero di tutti i giorni — un task dispatchato che
+   * sta lavorando nella sua topic mentre l'umano ci scrive dentro. Lì il client
+   * spedisce in buona fede, ed è il SERVER a doverlo fermare.
+   *
+   * Prima non lo fermava nessuno: `/api/chat` era l'unica route mutante di
+   * sessione senza cancello, e la seconda POST sovrascriveva la voce di
+   * `activeStreams` — il `finally` del primo turno chiudeva il secondo, col
+   * messageId sbagliato. Ora risponde 409, ed è il canale di STEERING della
+   * chat: lo stesso patto che la board ha già per i task, dove un commento
+   * umano viene bufferizzato e consegnato al confine del turno.
+   *
+   * Il 409 lo fa il server (`server/routes/chat.ts`, provato in unità da
+   * `server/routes/chat.front-door.test.ts` con la sua controprova). Qui si
+   * verifica l'ALTRA metà del patto, che fino a ieri era codice morto perché
+   * nessun 409 esisteva: il messaggio torna in TESTA alla coda, non resta una
+   * bolla fantasma in chat, e parte da solo appena il turno dell'altro finisce.
+   */
+  test("«turno già in volo» (409): il messaggio va in TESTA alla coda e parte a fine turno", async ({ page, chatPage }) => {
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+
+    const sent: string[] = [];
+    // Il primo invio trova la sessione occupata da un altro; il secondo (quello
+    // che parte dalla coda) la trova libera.
+    let occupata = true;
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON() as { messages?: { content?: string }[] };
+      sent.push(body?.messages?.[body.messages.length - 1]?.content ?? "");
+      if (occupata) {
+        occupata = false;
+        return route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "a response is already streaming for this session",
+            code: "stream_in_flight",
+            messageId: "msg-di-qualcun-altro",
+          }),
+        });
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await openChat(page, chatPage);
+    expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
+    if (await queueBadge(page).isVisible().catch(() => false)) {
+      await queueBadge(page).click();
+      await page.getByRole("button", { name: "Clear all" }).click();
+    }
+    await expect(queueBadge(page)).toBeHidden();
+
+    const TESTO = "scrivo mentre l'agente sta lavorando qui";
+    await chatPage.messageInput.fill(TESTO);
+    await chatPage.messageInput.press("Enter");
+
+    // Respinto ⇒ in coda, e la coda si vede.
+    await expect(queueBadge(page)).toHaveText(/1 message queued/, { timeout: 10_000 });
+    expect(sent).toEqual([TESTO]);
+    // E NON resta in chat come se fosse partito: l'unico posto in cui vive è
+    // la coda. Prima la domanda restava in pagina mentre il testo viveva in un
+    // ref invisibile — un messaggio spedito che non era mai esistito.
+    await expect(
+      page.locator('[data-testid="chat-message"][data-role="user"]').filter({ hasText: TESTO }),
+    ).toHaveCount(0);
+
+    // Il turno dell'altro finisce: il server lo annuncia a tutti.
+    inject!(JSON.stringify({ type: "stream:end", sessionKey, topicId }));
+
+    // IL PUNTO: riparte da solo, con lo stesso testo, una volta sola.
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
+    await expect(queueBadge(page)).toBeHidden({ timeout: 10_000 });
+  });
 });
