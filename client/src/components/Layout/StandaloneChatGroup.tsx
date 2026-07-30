@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
@@ -87,7 +88,7 @@ interface StandaloneChatGroupProps {
   onNewChat?: () => void | Promise<unknown>;
   stopSession: (sessionKey: string) => boolean;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode' } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project (optional groupId = the tab bar clicked)
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -100,7 +101,7 @@ interface StandaloneChatGroupProps {
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App). Returns the new pane id so the
   // "+" on a split cell's tab bar can re-target the pane into that cell.
-  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: TerminalAgentType, skipPermissions?: boolean) => void | Promise<string | null>;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
