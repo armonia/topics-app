@@ -75,6 +75,8 @@ import m066 from "./migrations/067-drop-master-topic-leftovers.sql" with { type:
 import m067 from "./migrations/068-close-stranded-approvals.sql" with { type: "text" };
 import m068 from "./migrations/069-strip-slow-annotation.sql" with { type: "text" };
 import m069 from "./migrations/070-message-cache-tokens.sql" with { type: "text" };
+import m070 from "./migrations/071-drop-empty-assistant-turns.sql" with { type: "text" };
+import m071 from "./migrations/072-sweep-dangling-message-refs.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -154,4 +156,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 68, name: "068-close-stranded-approvals.sql", sql: m067 },
   { version: 69, name: "069-strip-slow-annotation.sql", sql: m068 },
   { version: 70, name: "070-message-cache-tokens.sql", sql: m069 },
+  { version: 71, name: "071-drop-empty-assistant-turns.sql", sql: m070 },
+  { version: 72, name: "072-sweep-dangling-message-refs.sql", sql: m071 },
 ];

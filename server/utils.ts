@@ -1573,6 +1573,18 @@ export function createAppContext(baseDir: string): AppContext {
       db.prepare(`DELETE FROM active_branches WHERE session_key = ? AND parent_id IN (${placeholders})`)
         .run(sessionKey, ...ids);
 
+      // Riferimenti che restavano appesi nel vuoto: nessuna di queste tabelle ha
+      // una FK verso `messages`, quindi cancellare un sottoalbero lasciava pin e
+      // menzioni che puntavano a righe inesistenti (due se ne contavano nel DB
+      // vivo il 30/07). Il marcatore di compattazione invece non si butta: dice
+      // "la compattazione sta DOPO questo messaggio", e ereditando il padre del
+      // sottoalbero resta nello stesso punto del thread (`NULL` = in testa).
+      db.prepare(`DELETE FROM topic_pinned_messages WHERE message_id IN (${placeholders})`).run(...ids);
+      db.prepare(`DELETE FROM mentions WHERE message_id IN (${placeholders})`).run(...ids);
+      db.prepare(
+        `UPDATE compaction_markers SET after_message_id = ? WHERE after_message_id IN (${placeholders})`,
+      ).run(msg.parentId ?? null, ...ids);
+
       // Rinumera densi i fratelli superstiti, conservandone l'ordine.
       const siblings = db
         .prepare(
@@ -1603,9 +1615,11 @@ export function createAppContext(baseDir: string): AppContext {
    * Da chiamare DOPO aver finalizzato un turno interrotto: se la riga
    * dell'assistente è rimasta completamente vuota (niente testo, niente
    * ragionamento, nessuna tool call, nessun blocco, nessun media) il segnaposto
-   * viene cancellato invece di restare in chat — e nella history che si rimanda
-   * al modello a ogni turno successivo. Ritorna l'id scartato, o `null` se il
-   * turno aveva prodotto qualcosa (allora si tiene: è lavoro fatto).
+   * viene cancellato invece di restare in chat. Al modello non arrivava comunque
+   * (la history verso il provider scarta i turni vuoti, `empty-after-strip` in
+   * server/context/assemble.ts): il danno era nel thread salvato e in pagina.
+   * Ritorna l'id scartato, o `null` se il turno aveva prodotto qualcosa (allora
+   * si tiene: è lavoro fatto).
    */
   function discardIfEmptyTurn(sessionKey: string, msg: StoredMessage | null): string | null {
     if (!msg || !isEmptyAssistantTurn(msg)) return null;

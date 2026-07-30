@@ -3,9 +3,10 @@
  *
  * Fermare una risposta PRIMA che il modello dicesse qualcosa finalizzava il
  * segnaposto creato all'inizio dello stream: contenuto vuoto, `partial: 0`.
- * Risultato in chat una bolla vuota — che poi rientra nella history rimandata
- * al modello a ogni turno successivo. In DB se ne contavano a decine nei giorni
- * di dispatch (26 il 19/07, 20 il 20/07).
+ * Risultato in chat una bolla vuota, che sopravvive a ogni reload. In DB se ne
+ * contavano a decine nei giorni di dispatch (26 il 19/07, 20 il 20/07). Al
+ * modello non arrivavano: la history verso il provider scarta i turni vuoti
+ * (`empty-after-strip`) — il danno è nel thread salvato e in pagina.
  *
  * Qui si verifica il lato store: `discardIfEmptyTurn` cancella il segnaposto e
  * lascia il thread coerente, ma NON tocca un turno che aveva prodotto qualcosa
