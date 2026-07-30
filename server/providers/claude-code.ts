@@ -2225,6 +2225,21 @@ export class ClaudeCodeProvider implements AIProvider {
         // that actually served this call, which is what sizes the window.
         const model = typeof msg?.model === "string" && msg.model ? msg.model : undefined;
         if (size > 0) handler.onContextSize(size, model);
+        // Lo stesso evento porta anche il CONSUMO di questa chiamata, che finora
+        // buttavamo: `onContextSize` misura il serbatoio (sale e scende con le
+        // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula —
+        // il `result` finale somma già tutte le chiamate, quindi non si somma due
+        // volte.
+        handler.onCallUsage?.({
+          inputTokens: n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens),
+          outputTokens: n(mu.output_tokens),
+          cacheRead: n(mu.cache_read_input_tokens),
+          cacheCreation: n(mu.cache_creation_input_tokens),
+          // Il TTL sta scritto nell'usage, non si deduce: una scrittura a un'ora
+          // costa 2×, una a cinque minuti 1.25×.
+          cacheCreation1h: n((mu.cache_creation as Record<string, unknown> | undefined)?.ephemeral_1h_input_tokens),
+          model,
+        });
       }
     }
     if (parentToolUseId && eventContent && handler) {

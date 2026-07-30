@@ -424,6 +424,42 @@ const streamContextSchema = z.looseObject({
   model: z.optional(z.string()),
 });
 
+/**
+ * Il CONSUMO del turno mentre cresce (live). Fratello di `stream:context`, e la
+ * differenza fra i due e' tutta:
+ *   - `stream:context` = il SERBATOIO. Quanto e' grande il prompt che il modello ha
+ *     appena visto; sale e SCENDE con le compattazioni.
+ *   - `stream:usage`   = la BOLLETTA. Quanto ha consumato il turno finora; solo
+ *     cresce, e a fine turno coincide con i totali di `stream:end`.
+ *
+ * Prima esisteva solo il primo, e i numeri di consumo arrivavano una volta sola
+ * alla fine: durante un turno agentico da otto tool call non si vedeva muovere
+ * niente. Emesso a ogni chiamata al modello, con i totali GIA' accumulati dal
+ * server — il client non somma, mostra.
+ *
+ * `calls` e' quante chiamate al modello sono state fatte nel turno: e' il numero
+ * che spiega perche' il totale letto supera la finestra di contesto (lo stesso
+ * prompt riletto N volte), e senza di lui il conteggio sembra rotto.
+ *
+ * Quote disgiunte come altrove: promptTokens = fresco + cacheRead +
+ * cacheCreation + cacheCreation1h.
+ */
+const streamUsageSchema = z.looseObject({
+  type: z.literal('stream:usage'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  /** Chiamate al modello nel turno finora. */
+  calls: z.number(),
+  promptTokens: z.number(),
+  completionTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheCreationTokens: z.number(),
+  cacheCreation1hTokens: z.number(),
+  /** Costo stimato finora in centesimi, quando il modello e' tariffabile. */
+  costCents: z.optional(z.number()),
+  model: z.optional(z.string()),
+});
+
 const streamErrorSchema = z.looseObject({
   type: z.literal('stream:error'),
   sessionKey: z.string(),
@@ -937,6 +973,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:start': streamStartSchema,
   'stream:content_chunk': streamContentChunkSchema,
   'stream:context': streamContextSchema,
+  'stream:usage': streamUsageSchema,
   'stream:thinking_start': streamThinkingStartSchema,
   'stream:thinking_end': streamThinkingEndSchema,
   'stream:thinking_chunk': streamThinkingChunkSchema,
