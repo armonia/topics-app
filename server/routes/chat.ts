@@ -71,6 +71,7 @@ import {
   logStreamRecovered,
 } from "../db/activity-log";
 import { STREAM_SLOW_ANNOTATION, computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
 /**
@@ -135,6 +136,31 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
   } = deps;
+
+  /**
+   * Un evento di tool va a chi ha quella topic aperta, non a tutti.
+   *
+   * I chunk di contenuto e di thinking passavano gia' da
+   * `broadcastToTopicSubscribers` (righe 1226, 1255, 2077-2078): gli eventi dei
+   * tool erano gli unici rimasti su `broadcastToAll`, e su un turno agentico
+   * sono le CENTINAIA di frame piu' grossi del turno — un `stream:tool_result`
+   * porta il risultato intero. Ogni finestra aperta su un'altra topic li
+   * riceveva tutti per scartarli: il client li instrada per `topicId` e li
+   * butta. Su un desktop con tre finestre piu' la PWA in LAN sono tre copie di
+   * troppo per frame.
+   *
+   * Non e' un cambio di semantica ma l'allineamento al resto della famiglia:
+   * `clientReceivesTopicDelta` include comunque i client che non hanno ancora
+   * dichiarato un insieme aperto, e chi non riceve piu' i tool di una topic non
+   * ne riceveva GIA' il testo.
+   *
+   * Senza `topicId` (sessione non ancora legata a una topic) resta il broadcast
+   * a tutti: non c'e' niente su cui instradare.
+   */
+  const broadcastStreamToTopic = (message: OutboundMessage, topicId: string | undefined): void => {
+    if (topicId) broadcastToTopicSubscribers(topicId, message);
+    else broadcastToAll(message);
+  };
 
   // Bump the topic's own timestamp on real activity — a new user message
   // (below) OR a completed/errored/timed-out assistant turn (via
@@ -1085,14 +1111,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // updateToolCallResult sets status='error' when error is provided.
                 updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt });
                 updateBlockTool(tcId, { status: 'error', error: finalizeError, endedAt: finalizeEndedAt });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt });
+                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'error', error: finalizeError } } }] }));
               } else {
                 // Fire-and-forget success. Empty result so the UI shows just
                 // the green ✓ without a literal "success" body.
                 updateToolCallResult(sessionKey, tcId, '', undefined, { endedAt: finalizeEndedAt });
                 updateBlockTool(tcId, { status: 'success', endedAt: finalizeEndedAt });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt });
+                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
               }
             }
@@ -1279,7 +1305,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               trackedToolCallIds.push(toolCallId);
               addToolCallToLastMessage(sessionKey, toolCall);
               appendToolBlock(toolCall);
-              broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
 
               // Also send as SSE for the HTTP client
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
@@ -1307,7 +1333,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const browserEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt });
                     updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt });
+                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1343,7 +1369,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const browserErrEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: browserErrEndedAt });
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt });
+                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1364,7 +1390,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const controlEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, confirmation, undefined, { endedAt: controlEndedAt });
                     updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt });
+                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1376,7 +1402,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const controlErrEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: controlErrEndedAt });
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt });
+                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1400,7 +1426,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             onToolUpdate: (toolCallId: string, _partialResult: string) => {
               resetStreamTimer();
               // Broadcast partial result to clients
-              broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
+              broadcastStreamToTopic({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult }, matchedTopic?.id);
             },
 
             onToolActivity: (_toolCallId: string) => {
@@ -1429,7 +1455,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (!merged) return; // never announced (shouldn't happen)
               updateToolCallFields(sessionKey, toolCallId, { args, detail: merged.detail });
               updateBlockTool(toolCallId, { args, detail: merged.detail });
-              broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged });
+              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged }, matchedTopic?.id);
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name: merged.name, arguments: JSON.stringify(args) }, contentOffset: merged.contentOffset }] } }] }));
             },
 
@@ -1515,12 +1541,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // error text — passing it as both result and error is intentional.
                 updateToolCallResult(sessionKey, toolCallId, result, result, { endedAt });
                 updateBlockTool(toolCallId, { status: 'error', result, error: result, endedAt, ...(detail ? { detail } : {}) });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt });
+                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
                 updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt });
                 updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt });
+                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }
               // Le shell in background non finiscono col tool: restano.
@@ -2026,14 +2052,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
                 const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: fullContent.length };
                 addToolCallToLastMessage(sessionKey, toolCall);
-                broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+                broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
               },
               onToolUpdate(toolCallId: string, partialResult: string) {
-                broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult });
+                broadcastStreamToTopic({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult }, matchedTopic?.id);
               },
               onToolResult(toolCallId: string, result: string) {
                 updateToolCallResult(sessionKey, toolCallId, result);
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
+                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result }, matchedTopic?.id);
               },
               onDone() {},      // Handled by HTTP SSE [DONE]
               onError() {},
@@ -2092,7 +2118,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                       contentOffset: fullContent.length,
                     };
                     addToolCallToLastMessage(sessionKey, toolCall);
-                    broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+                    broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
                     // Also forward as SSE for the HTTP client
                     const sseToolPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCall.id, function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) }, contentOffset: toolCall.contentOffset }] } }] });
                     if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseToolPayload}\n\n`)); } catch {} }
@@ -2103,7 +2129,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
                 if (trId) {
                   updateToolCallResult(sessionKey, trId, trResult || 'completed');
-                  broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: trId, status: trStatus || 'success', result: trResult });
+                  broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: trId, status: trStatus || 'success', result: trResult }, matchedTopic?.id);
                   const sseResultPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: trId, status: trStatus || 'success', result: trResult } } }] });
                   if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseResultPayload}\n\n`)); } catch {} }
                 }
