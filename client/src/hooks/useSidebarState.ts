@@ -1,7 +1,30 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WSMessage } from '../types';
 
-export type SidebarViewMode = 'timeline' | 'grouped';
+/**
+ * Le viste della sidebar.
+ *   - 'timeline' — una lista sola, ordinata per attività.
+ *   - 'grouped'  — sezioni per TIPO di item (progetti / chat / terminali / …).
+ *   - 'state'    — sezioni per STATO: attende te / al lavoro / il resto.
+ *
+ * 'state' risponde a una domanda che le altre due non pongono: "di cosa devo
+ * occuparmi adesso?". In 'timeline' l'unico segnale era un boost binario sulle
+ * notifiche, che mescolava "aspetta una mia risposta" e "ha finito" nello stesso
+ * blocco; in 'grouped' il tipo di pane non dice niente su chi deve muoversi.
+ */
+export type SidebarViewMode = 'timeline' | 'grouped' | 'state';
+
+/** L'ordine del ciclo del bottone. Anche la guardia per un valore persistito che
+ *  non riconosciamo: da lì si riparte da 'timeline'. */
+export const SIDEBAR_VIEW_MODES: readonly SidebarViewMode[] = ['timeline', 'grouped', 'state'];
+
+/** Il modo successivo nel ciclo. Puro, così il bottone non contiene logica. */
+export function nextSidebarViewMode(current: SidebarViewMode): SidebarViewMode {
+  const i = SIDEBAR_VIEW_MODES.indexOf(current);
+  // Valore non riconosciuto (storage vecchio o corrotto) ⇒ riparti dall'inizio.
+  if (i < 0) return SIDEBAR_VIEW_MODES[0];
+  return SIDEBAR_VIEW_MODES[(i + 1) % SIDEBAR_VIEW_MODES.length];
+}
 
 /** Loosely-typed persisted sidebar state — the server/storage layer is
  *  schemaless, so every incoming value MUST pass through
@@ -269,7 +292,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
   const setViewMode = useCallback((v: SidebarViewMode) => updateField('viewMode', v), [updateField]);
   const toggleViewMode = useCallback(() => {
     lastLocalChangeRef.current = Date.now();
-    setStateRaw(prev => ({ ...prev, viewMode: prev.viewMode === 'timeline' ? 'grouped' : 'timeline' }));
+    setStateRaw(prev => ({ ...prev, viewMode: nextSidebarViewMode(prev.viewMode) }));
   }, []);
   const setShowArchived = useCallback((v: boolean) => updateField('showArchived', v), [updateField]);
   const toggleShowArchived = useCallback(() => {

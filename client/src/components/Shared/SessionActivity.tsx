@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useSessionActivity } from '@/state/signals';
-import { ON_FILL_TEXT } from '@/lib/selectionStyles';
+import { ON_FILL_TEXT, TIER_DONE_BG, TIER_INPUT_BG } from '@/lib/selectionStyles';
 
 /** Map a Claude Code tool name to a short human verb. Unknown tools fall back to
  *  the raw name (MCP tools like `mcp__foo__bar` are trimmed to their last leg). */
@@ -110,11 +110,14 @@ export function SessionActivity({ subjectId, onFill, className = '' }: SessionAc
 export function SessionActivityBar({ subjectId, className = '' }: { subjectId: string | undefined; className?: string }) {
   const activity = useSessionActivity(subjectId);
   if (!activity) return null;
+  // Il blu qui era `bg-sky-500`, cioè una tinta DIVERSA da quella dei fill di
+  // tab e riga: due superfici che dicono la stessa cosa con due blu. Ora vengono
+  // entrambe dai token in selectionStyles.
   const dot = activity.working
     ? 'bg-emerald-500'
     : activity.tier === 'input'
-      ? 'bg-amber-500'
-      : 'bg-sky-500';
+      ? TIER_INPUT_BG
+      : TIER_DONE_BG;
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot} ${activity.working || activity.tier === 'input' ? 'animate-pulse' : ''}`} />

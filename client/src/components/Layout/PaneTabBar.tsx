@@ -7,7 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
-import { signalsActions, useSignalsStore, projectAttentionTier } from '../../state/signals';
+import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -204,6 +204,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // sets are the calm 'done' tier (blue). Used to pick the tab fill colour.
   const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
   const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
+  // I soggetti che l'utente ha DAVVERO guardato. Letto una volta qui e consultato
+  // dentro il map: gli hook non possono stare in un ciclo, ed è anche la ragione
+  // per cui questa lista legge i Set a monte invece di chiamare un hook per tab.
+  const seenSubjects = useSignalsStore((s) => s.seenSubjects);
+  // Arma la soglia del "visto" sul soggetto della tab ATTIVA — la sola che possa
+  // essere guardata — e solo se il gruppo e l'app hanno il fuoco: è la stessa
+  // definizione severa (`isFullyActive`) che questa barra usa per la superficie
+  // neutra, quindi le due cose non possono divergere.
+  const activePane = panes.find((p) => p.id === activePaneId);
+  const activeSubjectId =
+    activePane?.type === 'chat'
+      ? activePane.topicId ?? undefined
+      : activePane?.type === 'terminal'
+        ? activePane.terminalSessionId ?? getTerminalSessionFromPaneId(activePane.id) ?? undefined
+        : undefined;
+  useSeenDwell(activeSubjectId, groupIsFocused && isAppFocused);
   const claudeCodeSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of terminalSessions) {
@@ -768,7 +784,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // act now) vs blue 'done' (turn finished, look when ready) — a chat /
         // Claude-Code terminal parked for the user, or a project rolling up such
         // a child. Codex/shell never qualify (no Claude phase).
-        const attentionTier: AttentionTier | null =
+        const rawTier: AttentionTier | null =
           pane.type === 'chat'
             ? (pane.topicId ? (inputTopics.has(pane.topicId) ? 'input' : awaitingTopics.has(pane.topicId) ? 'done' : null) : null)
             : pane.type === 'terminal'
@@ -776,12 +792,38 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               : pane.type === 'project'
                 ? (pane.projectPath ? projectAttentionTier(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds) : null)
                 : null;
-        // Focus clears the fill: the tab you're actively viewing (fully active =
-        // selected + its group focused + app focused) shows the neutral selected
-        // surface, never a flashing attention fill — the fix for "the tab I'm on
-        // keeps pulsing". A background/dimmed needy tab keeps its tier fill.
-        const onFill = attentionTier !== null && !isFullyActive;
+        // Il fill cade quando la tab è stata VISTA, non appena diventa attiva.
+        // Prima il gate era `!isFullyActive`: selezionare una tab per un istante —
+        // di passaggio, cercandone un'altra — ne spegneva il fill anche se non
+        // avevi letto niente. Ora la decisione è una sola, in `attentionFillFor`,
+        // e "visto" pretende SEEN_DWELL_MS davanti con la finestra sveglia (la
+        // soglia è armata da `useSeenDwell` sul soggetto della tab attiva).
+        //
+        // Una pane 'project' non ha un soggetto proprio: il suo tier è l'aggregato
+        // dei figli, e tiene la regola vecchia (attiva = vista), come la riga di
+        // progetto in sidebar.
+        const seenKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? termSid : null;
+        const isSeenTab = seenKey ? seenSubjects.has(seenKey) : isFullyActive;
+        const attentionTier = attentionFillFor(rawTier, isSeenTab);
+        const onFill = attentionTier !== null;
         const label = pane.title || (pane.type === 'chat' ? 'New Chat' : config.label);
+        // Lo stato A PAROLE, per chi non vede il colore.
+        //
+        // Una tab non diceva il proprio stato da nessuna parte: né `title` né
+        // `aria-label`. Chi usa uno screen reader lo trovava solo nei title dei
+        // figli (lo spinner, la riga SessionActivity in sidebar), che sono metà in
+        // italiano e metà in inglese. Il fondo ambra/blu era l'unico veicolo, ed è
+        // un veicolo che non parla.
+        //
+        // USA `rawTier`, NON `attentionTier`: il fill si spegne quando hai
+        // guardato la tab, ma lo STATO no — una sessione che attende una tua
+        // risposta la attende ancora anche dopo che l'hai guardata. Il colore
+        // risponde a "devo attirare l'attenzione?", questa etichetta a "com'è".
+        const statoTab = rawTier === 'input'
+          ? 'attende una tua risposta'
+          : rawTier === 'done'
+            ? 'turno finito'
+            : null;
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
@@ -809,16 +851,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
             role="tab"
+            // Lo stato come ATTRIBUTO, non come classe: i locator dei test erano
+            // agganciati alle classi Tailwind del badge, e rinominarne una li
+            // faceva passare a verde-vuoto senza che nulla fosse rotto. Un
+            // data-attribute è il vero appiglio.
+            data-attention={rawTier ?? undefined}
+            // Il nome accessibile porta lo stato, che prima non era detto da
+            // nessuna parte (il colore non parla). `aria-label` e non `title`: un
+            // title qui aprirebbe un tooltip sopra una tab il cui nome è già
+            // scritto accanto, e duplicherebbe i title dei figli (spinner,
+            // SessionActivity) che dicono la loro parte.
+            aria-label={statoTab ? `${label} — ${statoTab}` : label}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
             // sum past the fixed 150px and spill into the next tab. The label
             // already truncates; this guarantees the rest can't escape either.
+            // L'attenzione PRECEDE la selezione, come nella sidebar: `attentionTier`
+            // è già passato per `attentionFillFor`, quindi se arriva qui vuol dire
+            // che l'utente non ha ancora guardato questa tab — e va dipinto anche
+            // se la tab è attiva. Era l'inverso, ed è per questo che selezionarla
+            // per un istante bastava a spegnerla.
             className={`group flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
-              isFullyActive
-                ? SELECTED_SURFACE
-                : attentionTier
-                  ? attentionSurface(attentionTier)
+              attentionTier
+                ? attentionSurface(attentionTier)
+                : isFullyActive
+                  ? SELECTED_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`

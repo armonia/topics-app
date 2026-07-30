@@ -10,7 +10,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { sanitizeSidebarPayload } from "./useSidebarState";
+import {
+  SIDEBAR_VIEW_MODES,
+  nextSidebarViewMode,
+  sanitizeSidebarPayload,
+  type SidebarViewMode,
+} from "./useSidebarState";
 
 const REAL_STATE = {
   expandedNodes: ["project:/x"],
@@ -83,5 +88,44 @@ describe("sanitizeSidebarPayload", () => {
   test("a state that legitimately lacks envelope keys is untouched", () => {
     const partial = { pinnedItems: ["only-pins"] };
     expect(sanitizeSidebarPayload(partial)).toEqual({ pinnedItems: ["only-pins"] });
+  });
+});
+
+/**
+ * Il ciclo delle viste della sidebar.
+ *
+ * Era un ternario a due (`timeline ? grouped : timeline`) dentro il toggle, con
+ * una SECONDA lista di casi nel bottone che decideva icona ed etichetta. Con
+ * l'arrivo della terza vista ('state') due liste scritte a mano sarebbero
+ * divergute al primo che se ne aggiunge una quarta: ora la funzione è una e la
+ * usano entrambi.
+ */
+describe("nextSidebarViewMode", () => {
+  test("cicla nell'ordine dichiarato e torna all'inizio", () => {
+    expect(nextSidebarViewMode("timeline")).toBe("grouped");
+    expect(nextSidebarViewMode("grouped")).toBe("state");
+    expect(nextSidebarViewMode("state")).toBe("timeline");
+  });
+
+  test("tre click tornano al punto di partenza, da qualunque modo", () => {
+    for (const start of SIDEBAR_VIEW_MODES) {
+      let m: SidebarViewMode = start;
+      for (let i = 0; i < SIDEBAR_VIEW_MODES.length; i++) m = nextSidebarViewMode(m);
+      expect(m).toBe(start);
+    }
+  });
+
+  test("un valore non riconosciuto riparte da 'timeline' invece di bloccarsi", () => {
+    // Lo storage è schemaless: un client vecchio (o corrotto) può aver persistito
+    // qualunque stringa. Senza questa guardia `indexOf` darebbe -1 e il bottone
+    // non muoverebbe più la vista, senza alcun errore.
+    expect(nextSidebarViewMode("zzz" as SidebarViewMode)).toBe("timeline");
+  });
+
+  test("ogni modo dichiarato è raggiungibile dal ciclo", () => {
+    const visti = new Set<SidebarViewMode>();
+    let m: SidebarViewMode = SIDEBAR_VIEW_MODES[0];
+    for (let i = 0; i < SIDEBAR_VIEW_MODES.length; i++) { visti.add(m); m = nextSidebarViewMode(m); }
+    expect([...visti].sort()).toEqual([...SIDEBAR_VIEW_MODES].sort());
   });
 });
