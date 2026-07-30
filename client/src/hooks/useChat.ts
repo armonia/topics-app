@@ -3,6 +3,10 @@ import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryM
 import { chatApi } from '../lib/api';
 import { bumpAura } from '../lib/auraActivity';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
+// "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
+// applica il server prima di cancellare la riga. Due definizioni di "vuoto"
+// vorrebbero dire bolla via da una parte e ancora lì dall'altra.
+import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
@@ -712,6 +716,37 @@ export function useChat() {
     });
   }, []);
 
+  /**
+   * Toglie dalla chat la bolla di un turno che non ha prodotto NIENTE — quella
+   * che restava quando si premeva stop prima che il modello dicesse qualcosa.
+   *
+   * Per id quando il server ce lo dice (`stream:end.discardedMessageId`), con
+   * ripiego sull'ULTIMA bolla: in una finestra che sta solo guardando il turno
+   * di un'altra, il segnaposto ha un id generato in locale che con la riga del
+   * DB non c'entra niente, e cercarlo per id non troverebbe mai nulla.
+   * Ritorna `true` se ha tolto qualcosa.
+   */
+  const dropEmptyTurn = useCallback((sessionKey: string, messageId?: string): boolean => {
+    const msgs = messagesRef.current[sessionKey] || [];
+    if (msgs.length === 0) return false;
+    const byId = messageId ? msgs.findIndex(m => m.id === messageId) : -1;
+    const target = byId >= 0 ? byId : msgs.length - 1;
+    const victim = msgs[target];
+    if (!isEmptyAssistantTurn(victim)) return false;
+    const trimmed = [...msgs.slice(0, target), ...msgs.slice(target + 1)];
+    // L'updater resta PURO e ricontrolla su `prev`: fra la lettura del ref e il
+    // commit può essere arrivato un altro evento, e riscrivere `trimmed` alla
+    // cieca cancellerebbe quello che è arrivato nel mezzo.
+    setMessages(prev => {
+      const cur = prev[sessionKey] || [];
+      const at = cur.findIndex(m => m.id === victim.id);
+      if (at < 0 || !isEmptyAssistantTurn(cur[at])) return prev;
+      return { ...prev, [sessionKey]: [...cur.slice(0, at), ...cur.slice(at + 1)] };
+    });
+    cacheMessages(sessionKey, trimmed);
+    return true;
+  }, []);
+
   // Append a delta or tool call to the message's chronological `blocks`
   // timeline, coalescing consecutive same-kind text/thinking deltas. Returns
   // a NEW blocks array so React sees the change. This is the source of
@@ -1143,6 +1178,11 @@ export function useChat() {
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
         // Clear any stale "queued" error banner on successful stream completion
         setError(prev => (prev?.includes('queued') ? null : prev));
+        // Il turno è stato fermato prima che il modello producesse qualcosa: il
+        // server ha CANCELLATO la riga, non finalizzata. Toglierla anche qui, o
+        // questa finestra resta con una bolla vuota che il DB non ha più (e che
+        // sparirebbe solo al reload).
+        if (event.discardedMessageId) dropEmptyTurn(sessionKey, event.discardedMessageId);
         // Strip any remaining browser markers (handles split-across-chunks case)
         //
         // La scrittura in cache sta FUORI dall'updater. Un updater di `setState`
@@ -1250,7 +1290,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1702,12 +1742,16 @@ export function useChat() {
       // We just emptied the local map; future stop clicks on this key
       // must re-hydrate from the server before they can wipe again.
       hydratedSessionsRef.current.delete(sessionKey);
-    } else {
+    } else if (!dropEmptyTurn(sessionKey)) {
+      // Il turno aveva prodotto qualcosa (mezza frase, un ragionamento, una tool
+      // call): resta, si toglie solo lo stato "in corso". Se non aveva prodotto
+      // niente la bolla se n'è già andata qui sopra — il server fa lo stesso
+      // sulla riga, così lo stop non lascia un vuoto né in pagina né in DB.
       updateLastMessage(sessionKey, { partial: false });
     }
 
     return isFirstMessage;
-  }, [updateLastMessage]);
+  }, [updateLastMessage, dropEmptyTurn]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
