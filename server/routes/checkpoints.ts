@@ -23,7 +23,6 @@ async function runGit(args: string[], cwd: string): Promise<string> {
 }
 
 // Forma del checkpoint: `shared/types.ts` (la legge il client in useCheckpoints).
-export type { Checkpoint } from "../../shared/types";
 import type { Checkpoint } from "../../shared/types";
 
 function getCheckpointsDir(baseDir: string): string {

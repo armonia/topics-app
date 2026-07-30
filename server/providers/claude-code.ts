@@ -2652,7 +2652,7 @@ export class ClaudeCodeProvider implements AIProvider {
   async resumeWithToolResponse(
     sessionKey: string,
     toolCallId: string,
-    response: import("../types").ToolUserResponse,
+    response: import("../../shared/types").ToolUserResponse,
   ): Promise<void> {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) {

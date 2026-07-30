@@ -186,7 +186,7 @@ export type { ProviderStatus, ProviderRequirement } from "../../shared/types";
 
 // Import the types so the local references in this file resolve (a bare
 // `export … from` re-export does not create an in-module binding).
-import type { ProviderStatus, ProviderRequirement, ProvidersSnapshot, GoalStepStatus } from "../../shared/types";
+import type { ProviderStatus, ProviderRequirement, GoalStepStatus } from "../../shared/types";
 
 export interface ProviderDiagnostic {
   name: string;
@@ -484,7 +484,7 @@ export interface AIProvider {
   resumeWithToolResponse?(
     sessionKey: string,
     toolCallId: string,
-    response: import("../types").ToolUserResponse,
+    response: import("../../shared/types").ToolUserResponse,
   ): Promise<void>;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
@@ -591,5 +591,3 @@ export function providerNameForConfig(config: ProviderConfig): string {
 // ProviderSnapshotEntry + ProvidersSnapshot live in shared/types.ts so
 // the WS payload shape can be type-checked symmetrically on both sides.
 export type { ProviderSnapshotEntry, ProvidersSnapshot } from "../../shared/types";
-
-export type { WSProvidersSnapshotMessage } from "../../shared/types";

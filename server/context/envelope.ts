@@ -27,12 +27,10 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { ProviderPayload as SharedProviderPayload } from "../../shared/context-envelope";
 
 export type {
-  SystemBlockCategory,
   SystemBlock,
   HistoryExcludeReason,
   HistoryEntryDiagnostic,
   ContextDiagnostics,
-  SessionMeta,
   ContextEnvelope,
 } from "../../shared/context-envelope";
 export type { ProviderContextStrategy } from "../../shared/types";
