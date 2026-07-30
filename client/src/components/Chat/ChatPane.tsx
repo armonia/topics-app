@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { isOwnFrame } from '@/state/wsIdentity';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -534,11 +535,30 @@ function ChatPaneComponent({
     }
   }, [isDraft, currentMessages, currentStreaming, topic.id, topic.name, topic.projectPath, autoNameTriggered, onUpdateTopic]);
 
-  const sendTyping = useCallback((text?: string) => sendWS({ type: 'typing', topicId: topic.id, text: text || '' }), [sendWS, topic.id]);
+  // Un frame per TASTO era il comportamento di prima: `handleKeyDown` chiamava
+  // questa a ogni keydown, e ogni frame veniva ritrasmesso a tutti i client
+  // focussati sulla topic, ognuno dei quali faceva un setState e riarmava un
+  // timer da 2 s. Su una digitazione normale sono ~5 frame al secondo per
+  // carattere-al-decimo-di-secondo, per niente: l'indicatore dice «sta
+  // scrivendo», non COSA, e mezzo secondo di risoluzione basta.
+  const lastTypingSentRef = useRef(0);
+  const TYPING_THROTTLE_MS = 500;
+  const sendTyping = useCallback((text?: string) => {
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < TYPING_THROTTLE_MS) return;
+    lastTypingSentRef.current = now;
+    sendWS({ type: 'typing', topicId: topic.id, text: text || '' });
+  }, [sendWS, topic.id]);
 
   useEffect(() => {
     const unsub = onWSMessage((msg: WSMessage) => {
-      if (msg.type === 'typing' && msg.topicId === topic.id) {
+      // Il proprio eco NON accende l'indicatore. Il server esclude gia' la socket
+      // mittente, ma quel filtro non copre il caso in cui lo STESSO utente ha la
+      // topic aperta due volte (l'app desktop piu' una scheda su localhost, due
+      // finestre, la PWA sul telefono): li' ognuno vedeva «qualcuno sta
+      // scrivendo» mentre a scrivere era lui. Il frame porta `clientId` proprio
+      // per questo, ed era inutilizzato.
+      if (msg.type === 'typing' && msg.topicId === topic.id && !isOwnFrame((msg as { clientId?: string }).clientId)) {
         setOthersTyping(true); setOthersTypingText(msg.text || '');
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => { setOthersTyping(false); setOthersTypingText(''); }, 2000);
