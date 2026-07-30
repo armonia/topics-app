@@ -1,7 +1,7 @@
 [
   {
-    "version": "2.2.0",
-    "date": "2026-07-26",
+    "version": "2.2.1",
+    "date": "2026-07-31",
     "sections": {
       "new": [
         {
@@ -19,13 +19,133 @@
         {
           "text": "a group IS a window — one unified \"Windows\" section in the sidebar",
           "scope": "ux"
+        },
+        {
+          "text": "pannello di configurazione della chat nel composer (effort + autonomia)",
+          "scope": "ux"
+        },
+        {
+          "text": "badge di sovraccarico visibile nell'header quando load supera i core",
+          "scope": "board"
+        },
+        {
+          "text": "Topics vede le sessioni Claude esterne — scanner ~/.claude/projects, badge sidebar, guardia dispatcher",
+          "scope": "sessioni"
+        },
+        {
+          "text": "censimento delle sessioni Claude ESTERNE (badge board + guardia dispatcher)",
+          "scope": "sessions"
+        },
+        {
+          "text": "agente in attesa dichiara l'attesa e rilascia lo slot",
+          "scope": "dispatch"
+        },
+        {
+          "text": "guardia repo-occupato in HOLD + auto-resume invece di bloccare",
+          "scope": "dispatch"
+        },
+        {
+          "text": "il ring mostra il contesto VERO, e avvisa prima della compaction",
+          "scope": "contesto"
+        },
+        {
+          "text": "una sola superficie, e uno slider al posto delle cinque pill",
+          "scope": "effort"
+        },
+        {
+          "text": "il turno dice PERCHÉ è finito — vocabolario ACP al posto di done/error/aborted",
+          "scope": "0.4"
+        },
+        {
+          "text": "commenti riga per riga sul diff, in un commento solo",
+          "scope": "board"
+        },
+        {
+          "text": "checks pre-review — niente review senza i comandi verdi",
+          "scope": "board"
+        },
+        {
+          "text": "timbra chi ha portato il task in review",
+          "scope": "board"
+        },
+        {
+          "text": "standardizza stream:context sul blocco ACP usage_update",
+          "scope": "contesto"
+        },
+        {
+          "text": "parla Agent Client Protocol — un agente nuovo costa una riga",
+          "scope": "provider"
+        },
+        {
+          "text": "modella i 16 messaggi che il server mandava senza contratto",
+          "scope": "ws"
+        },
+        {
+          "text": "il tipo di un broadcast ora lo decide il registro, non la stringa",
+          "scope": "ws"
+        },
+        {
+          "text": "le shell in background dell'agente diventano stato vivo",
+          "scope": "processi"
+        },
+        {
+          "text": "manda HTML potato + CSS calcolato + ritaglio dell'elemento",
+          "scope": "click-to-edit"
+        },
+        {
+          "text": "manda lo stesso task a N agenti in parallelo e falli scegliere",
+          "scope": "fan-out"
+        },
+        {
+          "text": "`browser_list` — sapere quante WKWebView sono davvero vive",
+          "scope": "shell"
+        },
+        {
+          "text": "una sonda che dice CHI tiene la heap, invece di farlo indovinare",
+          "scope": "diagnostica"
+        },
+        {
+          "text": "un monitor che mette la bolletta accanto al serbatoio",
+          "scope": "usage"
+        },
+        {
+          "text": "avvisa quando ogni chiamata rilegge troppo, non solo quando la finestra finisce",
+          "scope": "contesto"
+        },
+        {
+          "text": "il client presenta il token, e un peer remoto autenticato non e' piu' CSRF",
+          "scope": "pairing"
+        },
+        {
+          "text": "una vista che raggruppa per STATO, non per tipo di pane",
+          "scope": "sidebar"
+        },
+        {
+          "text": "quanto di un messaggio era CACHE — il dato c'era e veniva buttato",
+          "scope": "token"
+        },
+        {
+          "text": "il consumo del turno si vede CRESCERE, invece di apparire alla fine",
+          "scope": "token"
+        },
+        {
+          "text": "l'effort sta sul controllo che lo cambia, e 1M si legge",
+          "scope": "chat"
+        },
+        {
+          "text": "l'effort sul controllo che lo cambia, la finestra su OGNI modello",
+          "scope": "chat"
+        },
+        {
+          "text": "a task that gives up now tells you",
+          "scope": "notifiche"
+        },
+        {
+          "text": "preferences went up to the server and NEVER came back down",
+          "scope": "settings"
         }
       ],
       "fixes": [
-        {
-          "text": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
-          "scope": null
-        },
         {
           "text": "topic context menu localized + single \"Archive\" verb + diagnostic console.logs removed",
           "scope": "ux"
@@ -53,14 +173,564 @@
         {
           "text": "group from the sidebar — restore the drag + open/register the dropped topic",
           "scope": "ux"
+        },
+        {
+          "text": "il loop del banner \"nuova versione\" + coerenza sidebar/status/spazi/board",
+          "scope": "dev"
+        },
+        {
+          "text": "i popover della chrome sidebar non escono piu' dal viewport",
+          "scope": "ux"
+        },
+        {
+          "text": "status bar su UNA riga — l'affollamento tolto alla fonte, non con altezza",
+          "scope": "ux"
+        },
+        {
+          "text": "il controllo delle sessioni non dipende più da un token OpenClaw",
+          "scope": "auth"
+        },
+        {
+          "text": "il controllo sessioni accetta il token agent nativo, non solo il gateway OpenClaw",
+          "scope": "auth"
+        },
+        {
+          "text": "la compaction non \"gonfia\" più il contesto, un solo divider, niente vocali vuoti",
+          "scope": "chat"
+        },
+        {
+          "text": "il sorgente era invisibile a grep — 2 byte NUL grezzi",
+          "scope": "moondream"
+        },
+        {
+          "text": "i daemon staccati non tengono più aperto il nostro stderr",
+          "scope": "bridge"
+        },
+        {
+          "text": "il manifest dichiara ciò che usa davvero",
+          "scope": "client"
+        },
+        {
+          "text": "una tab addormentata non riporta più indietro gli altri device",
+          "scope": "sync"
+        },
+        {
+          "text": "anche il teardown normale uccideva i Chromium degli ALTRI",
+          "scope": "e2e"
+        },
+        {
+          "text": "la pane in modalità DOM mostrava un VUOTO bianco, non uno stato",
+          "scope": "browser"
+        },
+        {
+          "text": "archiviare un topic lasciava il tab VIVO sui client aperti",
+          "scope": "panes"
+        },
+        {
+          "text": "chiudi le quattro strade per cui il sidecar restava vivo a vuoto",
+          "scope": "webrtc"
+        },
+        {
+          "text": "mieta l'orfano stantìo all'avvio, non al primo offer",
+          "scope": "webrtc"
+        },
+        {
+          "text": "il retry CDP si arrende invece di ritentare per settimane",
+          "scope": "webrtc"
+        },
+        {
+          "text": "garantisci la chiusura dell'AudioContext del ding di completamento",
+          "scope": "audio"
+        },
+        {
+          "text": "timbra il rev sull'index servito da disco e avvisa invece di ricaricare",
+          "scope": "shell"
+        },
+        {
+          "text": "verifica prima di distruggere — un branch si reapa solo se il contenuto è davvero su main",
+          "scope": "gc"
+        },
+        {
+          "text": "i messaggi in uscita non evaporano più",
+          "scope": "coda"
+        },
+        {
+          "text": "il rollback taglia il ramo, non l'albero",
+          "scope": "checkpoint"
+        },
+        {
+          "text": "un turno la cui sessione è morta non resta appeso su \"lavora\"",
+          "scope": "dispatch"
+        },
+        {
+          "text": "un task piantato in \"lavora\" da giorni restituisce il checkout, non i commit",
+          "scope": "gc"
+        },
+        {
+          "text": "risolvi il repo dall'id di board, non dal ProjectStore",
+          "scope": "landing-audit"
+        },
+        {
+          "text": "il contatore smette di annunciare sessioni che nessuno vede",
+          "scope": "status"
+        },
+        {
+          "text": "la riga legge lo stesso conteggio del suo tab, non uno zero cablato",
+          "scope": "sidebar"
+        },
+        {
+          "text": "i NUL del test diventano escape, il file torna greppabile",
+          "scope": "guardia"
+        },
+        {
+          "text": "chiudi le WKWebView che il reload lascia senza proprietario",
+          "scope": "memoria"
+        },
+        {
+          "text": "non accusare di crescita chi ha solo il watcher acceso",
+          "scope": "bundle"
+        },
+        {
+          "text": "il separatore di chiave torna un escape, non un byte NUL",
+          "scope": "guardia"
+        },
+        {
+          "text": "il turno arriva in fondo anche se il flusso si stacca sotto",
+          "scope": "chat"
+        },
+        {
+          "text": "il rebuild in watch non lascia piu /public senza index.html",
+          "scope": "build"
+        },
+        {
+          "text": "la finestra da 1M si vede, e la cache non si paga come input fresco",
+          "scope": "usage"
+        },
+        {
+          "text": "una superficie nascosta non ha pane visibili, quindi non ha pavimenti",
+          "scope": "memoria"
+        },
+        {
+          "text": "smetti di credere che l'app sia in secondo piano quando non lo è",
+          "scope": "terminale"
+        },
+        {
+          "text": "dai al contatore una finestra deterministica, invece di quella che capita",
+          "scope": "perf"
+        },
+        {
+          "text": "non sfrattare mai una pane che possiede una WKWebView",
+          "scope": "memoria"
+        },
+        {
+          "text": "togli il reaper — ricaricare tornava gratis, e l'avevo reso caro io",
+          "scope": "memoria"
+        },
+        {
+          "text": "la cache dei messaggi stava mangiando la quota, e con lei i messaggi da inviare",
+          "scope": "chat"
+        },
+        {
+          "text": "libera la quota all'avvio, invece di aspettare la prossima scrittura",
+          "scope": "chat"
+        },
+        {
+          "text": "calcola la CPU dal tempo di CPU, invece di curare il numero di sysinfo",
+          "scope": "perf"
+        },
+        {
+          "text": "rilascia gli elementi audio, invece di limitarti a metterli in pausa",
+          "scope": "voce"
+        },
+        {
+          "text": "manda solo cio' che e' cambiato, invece di ripetere il progetto a ogni messaggio",
+          "scope": "contesto"
+        },
+        {
+          "text": "quattro buchi trovati mettendo alla prova la dedup del preambolo",
+          "scope": "chat"
+        },
+        {
+          "text": "la CPU della status bar era 41,67 volte troppo bassa",
+          "scope": "perf"
+        },
+        {
+          "text": "Rigenera passa dall'envelope canonico, invece di rifarsi il contesto a mano",
+          "scope": "edit"
+        },
+        {
+          "text": "un milione e' la finestra DI SERIE, non una variante",
+          "scope": "contesto"
+        },
+        {
+          "text": "svuota il documento di una pane browser prima di chiuderla",
+          "scope": "memoria"
+        },
+        {
+          "text": "il selettore per-topic era morto sul terminale",
+          "scope": "effort"
+        },
+        {
+          "text": "la cache a un'ora costa il doppio, e il TTL sta scritto nell'usage",
+          "scope": "costi"
+        },
+        {
+          "text": "sette buchi trovati mettendo alla prova il lavoro di oggi",
+          "scope": "chat"
+        },
+        {
+          "text": "un roster vuoto non prova che la sessione sia morta",
+          "scope": "terminale"
+        },
+        {
+          "text": "l'errore di caricamento non e' piu' un buffer scrivibile — ⌘S sovrascriveva il file",
+          "scope": "editor"
+        },
+        {
+          "text": "un messaggio accodato non perde piu' Plan Mode (ne' Fast Mode, ne' il modello scelto)",
+          "scope": "chat"
+        },
+        {
+          "text": "un vocale che non parte adesso lo dice",
+          "scope": "voce"
+        },
+        {
+          "text": "il silenzio non e' morte — il watchdog chiede al server invece di sentenziare",
+          "scope": "chat"
+        },
+        {
+          "text": "una sola verita' su finestra e soglie, invece di cinque copie",
+          "scope": "contesto"
+        },
+        {
+          "text": "le pane opencode non venivano MAI persistite",
+          "scope": "terminale"
+        },
+        {
+          "text": "meta' dei KPI leggeva tabelle che nessuno scrive",
+          "scope": "dashboard"
+        },
+        {
+          "text": "il Context Inspector era spento su ogni provider tranne openclaw",
+          "scope": "contesto"
+        },
+        {
+          "text": "la scelta del default viveva solo in memoria",
+          "scope": "provider"
+        },
+        {
+          "text": "le approvazioni restavano appese se il task usciva da review",
+          "scope": "board"
+        },
+        {
+          "text": "i token per file erano raschiati da una frase, o inventati",
+          "scope": "chat"
+        },
+        {
+          "text": "la lentezza dello stream si DICE, non si scrive nel messaggio",
+          "scope": "chat"
+        },
+        {
+          "text": "il roster non si aggiornava, e un evento era rifiutato dal suo schema",
+          "scope": "agents"
+        },
+        {
+          "text": "via il selettore di autonomia, che mostrava \"Chiedi\" e non chiedeva",
+          "scope": "topic"
+        },
+        {
+          "text": "il cap globale cambiava solo nella finestra che lo toccava",
+          "scope": "board"
+        },
+        {
+          "text": "il token mancava sui 46 percorsi che non passano da api.ts",
+          "scope": "pairing"
+        },
+        {
+          "text": "il contatore CPU distingue \"non misurato\" da \"misurato quasi zero\"",
+          "scope": "perf"
+        },
+        {
+          "text": "la RAM del lato server non e' il solo processo Bun — 27 MB contro 2166",
+          "scope": "perf"
+        },
+        {
+          "text": "una tab resta blu finche' non la GUARDI, non finche' non la sfiori",
+          "scope": "tab"
+        },
+        {
+          "text": "\"letto\" aspetta la soglia, non l'istante del focus",
+          "scope": "unread"
+        },
+        {
+          "text": "lo stato si dice a parole, e il blu del tier e' UN colore",
+          "scope": "tab"
+        },
+        {
+          "text": "la chat non lampeggia piu' mentre scrivi",
+          "scope": "chat"
+        },
+        {
+          "text": "il composer non ruba piu' il fuoco al picker",
+          "scope": "chat"
+        },
+        {
+          "text": "niente fantasmi sotto il composer, niente bottoni schiacciati",
+          "scope": "chat"
+        },
+        {
+          "text": "lo stop su un turno MUTO non lascia piu' una bolla vuota",
+          "scope": "chat"
+        },
+        {
+          "text": "le 170 bolle vuote gia' in DB se ne vanno, e cancellare un messaggio non lascia piu' pin appesi",
+          "scope": "db"
+        },
+        {
+          "text": "due turni utente di fila non fanno piu' 400 sull'API Anthropic",
+          "scope": "provider"
+        },
+        {
+          "text": "'stop' no longer SENDS the queued message",
+          "scope": "chat"
+        },
+        {
+          "text": "the topic name is no longer cut in half in the banner",
+          "scope": "notifiche"
+        },
+        {
+          "text": "a single delivery fired THREE banners",
+          "scope": "notifiche"
+        },
+        {
+          "text": "the notification woke you up and then left you to hunt for it",
+          "scope": "push"
+        },
+        {
+          "text": "Settings promised banners that NEVER arrive",
+          "scope": "notifiche"
+        },
+        {
+          "text": "Escape with Settings open KILLED the AI turn",
+          "scope": "tastiera"
+        },
+        {
+          "text": "two red errors inherited from the token work",
+          "scope": "lint"
+        },
+        {
+          "text": "Escape interrupted NOTHING, and ⌘⇧R reloaded the window",
+          "scope": "tastiera"
+        },
+        {
+          "text": "Escape on a lightbox killed the AI reply behind it",
+          "scope": "modali"
+        },
+        {
+          "text": "/clear emptied the screen, not the model's memory",
+          "scope": "chat"
+        },
+        {
+          "text": "two spawns in the same millisecond and a resumed session restarted empty",
+          "scope": "sessioni"
+        },
+        {
+          "text": "a pane that breaks no longer takes the others down",
+          "scope": "pane"
+        },
+        {
+          "text": "a rejected turn goes back to the queue instead of corrupting the stream",
+          "scope": "chat"
+        },
+        {
+          "text": "the Board was unreadable in light theme — it now follows the tokens",
+          "scope": "board"
+        },
+        {
+          "text": "removed the three screens that speak two languages at once",
+          "scope": "a11y"
+        },
+        {
+          "text": "gone: the 4 alert() calls that FREEZE the app instead of just saying something",
+          "scope": "chat"
+        },
+        {
+          "text": "closed the pre-merge audit findings on contracts and cache",
+          "scope": "audit"
+        },
+        {
+          "text": "a queued message no longer disappears if the send goes wrong",
+          "scope": "coda"
+        },
+        {
+          "text": "a single cause no longer sends N identical notifications",
+          "scope": "board"
+        },
+        {
+          "text": "the notification diagnosis refreshes, and Cmd+Shift+R dictates",
+          "scope": "guscio"
         }
       ],
       "perf": [
         {
           "text": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
           "scope": "client"
+        },
+        {
+          "text": "la suite era per metà sleep — 14,5 → 6,8 min a parità di esiti",
+          "scope": "e2e"
+        },
+        {
+          "text": "via 12 attese morte su /api/ui-state/panels (10s a vuoto l'una)",
+          "scope": "e2e"
+        },
+        {
+          "text": "panels 65s -> 12s, e un test che non verificava il progetto",
+          "scope": "e2e"
+        },
+        {
+          "text": "via 15s di pause dal gate PR — e una che NON va tolta, documentata",
+          "scope": "e2e"
+        },
+        {
+          "text": "la status bar mostrava 59 MB su 6937 reali, e le pane nascoste non erano nascoste",
+          "scope": null
+        },
+        {
+          "text": "congela le pane nascoste, lo switch di tab cala del 23-28%",
+          "scope": null
+        },
+        {
+          "text": "taglia i render globali e le richieste ridondanti allo switch di tab",
+          "scope": "client"
+        },
+        {
+          "text": "coalescia le scritture xterm quando nessuno guarda",
+          "scope": "terminal"
+        },
+        {
+          "text": "non disegnare le aure senza box di layout",
+          "scope": "aura"
+        },
+        {
+          "text": "instrada anche i due lettori SSE nel coalescer rAF",
+          "scope": "chat"
+        },
+        {
+          "text": "niente reflow per una pane nascosta, niente eval a schermo spento",
+          "scope": "browser"
+        },
+        {
+          "text": "il rAF dell'aura si parcheggia, il terminale contiene il proprio layout",
+          "scope": null
+        },
+        {
+          "text": "contieni il layout della lista messaggi + guardia sui frame a riposo",
+          "scope": "chat"
+        },
+        {
+          "text": "dimezza il duty cycle del contatore e togli il +1 dalla misura",
+          "scope": "fps"
+        },
+        {
+          "text": "il replayer rrweb si parcheggia quando nessuno lo guarda",
+          "scope": "cobrowse"
+        },
+        {
+          "text": "il ticker dell'onda va a 30fps, non al refresh del display",
+          "scope": "aura"
+        },
+        {
+          "text": "il timer live segue il flusso, non solo la visibilità",
+          "scope": "cobrowse"
+        },
+        {
+          "text": "niente redraw per una pane senza layout — la cache di xterm non si popola",
+          "scope": "terminale"
+        },
+        {
+          "text": "coalesce i fit anche durante il resize della FINESTRA nativa",
+          "scope": "terminale"
+        },
+        {
+          "text": "confine di layout sul guscio delle pane — il caret non rilayouta più tutta l'app",
+          "scope": "layout"
+        },
+        {
+          "text": "spegni i guardiani che restavano accesi senza pubblico",
+          "scope": "frame"
+        },
+        {
+          "text": "il chip degli agenti si sottoscrive da solo, App non rilegge più tutto",
+          "scope": "render"
+        },
+        {
+          "text": "metti un tetto alle pane montate, invece di tenerle tutte per sempre",
+          "scope": "memoria"
+        },
+        {
+          "text": "spegni i cicli per-pane che girano quando non li guarda nessuno",
+          "scope": "frame"
+        },
+        {
+          "text": "dichiara le zone di trascinamento al render, non con un observer su body",
+          "scope": "frame"
+        },
+        {
+          "text": "smetti di ricostruire a ogni token quello che non è cambiato",
+          "scope": "chat"
+        },
+        {
+          "text": "un token non ri-renderizza piu' tutta l'app",
+          "scope": "chat"
+        },
+        {
+          "text": "fuori dalle chat i server che si riavviano a ogni spawn",
+          "scope": "mcp"
+        },
+        {
+          "text": "non spedire il duplicato che il client scarta comunque",
+          "scope": "history"
+        },
+        {
+          "text": "i mutatori dei tool non ri-idratano la timeline intera",
+          "scope": "chat"
+        },
+        {
+          "text": "la rilevazione pollava a 4s per sempre, anche a riposo",
+          "scope": "processi"
+        },
+        {
+          "text": "gli eventi dei tool andavano a OGNI finestra, anche a chi non guarda",
+          "scope": "chat"
+        },
+        {
+          "text": "la lista delle azioni era quadratica, e sette schemi WS erano morti",
+          "scope": "sub-agent"
+        },
+        {
+          "text": "il log si legge quando c'e' qualcosa, non ogni due secondi",
+          "scope": "processi"
+        },
+        {
+          "text": "i trascritti delle chat che nessuno guarda tornano indietro",
+          "scope": "memoria"
         }
       ]
+    }
+  },
+  {
+    "version": "2.2.0",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
+          "scope": null
+        }
+      ],
+      "perf": []
     }
   },
   {
@@ -231,6 +901,14 @@
         {
           "text": "finalize orphaned tools in the blocks column too (infinite spinner)",
           "scope": "chat"
+        },
+        {
+          "text": "spiegazione sui turni interrotti + verifica sessione finita",
+          "scope": "chat"
+        },
+        {
+          "text": "split, drag e focus piu' solidi e consistenti",
+          "scope": "layout"
         },
         {
           "text": "capture input in the main frame for DOM co-browse (WKWebView-safe)",
