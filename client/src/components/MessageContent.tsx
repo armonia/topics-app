@@ -1171,7 +1171,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} />}
+        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} />}
 
         {!partial && (
           <MessageMetaFooter
@@ -1251,7 +1251,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Live turn-activity indicator (playful phrase + timer) — covers empty
           placeholder and mid-stream alike. */}
-      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} />}
+      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} />}
 
       {/* Per-message footer (latency + tokens + cost). Hidden until streaming
            ends and at least one metric is reported by the provider. */}

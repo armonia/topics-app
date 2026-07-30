@@ -99,6 +99,80 @@ test.describe("Chat streaming indicator", () => {
     await unmockChatStream(page);
   });
 
+  test("stream:slow accende l'indicatore ambra, stream:resumed lo spegne", async ({ page, chatPage, request }) => {
+    // Il server annunciava `stream:slow` e `stream:resumed` e NESSUNO li
+    // ascoltava: al loro posto appendeva `\n\n---\n*[⏱ stream lento…]*` al
+    // CONTENUTO del messaggio. Se il turno si chiudeva mentre era lento —
+    // oppure, come nei dati reali, se il testo nuovo arrivava DOPO
+    // l'annotazione — quel testo restava dentro per sempre e da quel momento
+    // tornava al modello a ogni turno come se l'assistente lo avesse detto
+    // (63 messaggi così nel DB reale, bonificati dalla migration 069).
+    //
+    // Qui si prova la sostituzione: l'evento arriva, l'indicatore lo mostra, e
+    // sparisce quando lo stream riprende. Il segnale non tocca il contenuto.
+    const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+    const topics = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
+    const sessionKey = Object.values(topics.topics).find((t) => t.id === topicId)?.sessionKey;
+    expect(sessionKey, "il topic di questo file deve avere una sessionKey").toBeTruthy();
+
+    // Pass-through sulla WS, tenendo la presa per iniettare un frame "dal
+    // server". Va armata PRIMA di goto, o la connessione iniziale la scavalca.
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Tiene aperta la POST: il turno resta `partial` e l'indicatore resta su.
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await new Promise((r) => setTimeout(r, 20_000));
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await chatPage.messageInput.click();
+    await chatPage.messageInput.fill("ciao");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+    // Parte NON lento.
+    await expect(chatPage.streamingIndicator).not.toHaveAttribute("data-slow", "true");
+
+    expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
+    inject!(JSON.stringify({
+      type: "stream:slow",
+      sessionKey,
+      topicId,
+      messageId: "msg-slow-probe",
+      graceMs: 60_000,
+    }));
+
+    await expect(chatPage.streamingIndicator).toHaveAttribute("data-slow", "true", { timeout: 10_000 });
+    await expect(chatPage.streamingIndicator.locator('[data-testid="turn-phrase"]'))
+      .toContainText(/stream lento/i);
+
+    // E il CONTENUTO del messaggio non è stato toccato. L'indicatore vive dentro
+    // la lista, quindi cercare la frase lì dentro trova l'indicatore stesso: il
+    // segno che distingue l'annotazione vecchia è il `⏱` (che l'indicatore non
+    // usa), insieme al separatore `---` con cui veniva incollata.
+    await expect(chatPage.messageList).not.toContainText("⏱");
+
+    inject!(JSON.stringify({ type: "stream:resumed", sessionKey, topicId }));
+    await expect(chatPage.streamingIndicator).not.toHaveAttribute("data-slow", "true", { timeout: 10_000 });
+
+    await unmockChatStream(page);
+  });
+
   test("sending a message snaps the view to the bottom even when scrolled up", async ({ page, chatPage, request }) => {
     // Seed enough history to make the topic scrollable.
     for (let i = 0; i < 20; i++) {

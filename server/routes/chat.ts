@@ -70,7 +70,11 @@ import {
   logStreamError,
   logStreamRecovered,
 } from "../db/activity-log";
-import { STREAM_SLOW_ANNOTATION, computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
+// `stripSlowAnnotation` resta: non lo appende piu' nessuno, ma `fullContent` puo'
+// essere seminato da un messaggio parziale RILETTO dal DB (reattach, hot-reload
+// con due server in volo), e quello puo' ancora portarla. Toglierlo qui
+// riesumerebbe l'annotazione nel contenuto finale.
+import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
@@ -763,14 +767,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             console.warn(`[StreamWS] Soft timeout: no data for ${STREAM_TIMEOUT_MS / 1000}s on ${sessionKey} (grace ${STREAM_GRACE_MS / 1000}s)`);
             streamState = "soft-timed-out";
             softTimedOutAtMs = Date.now();
-            // Annotate but keep streaming flagged on — the message is still
-            // partial; we are NOT closing the SSE writer or unregistering.
-            if (fullContent.trim()) {
-              fullContent = stripSlowAnnotation(fullContent) + STREAM_SLOW_ANNOTATION;
-            } else {
-              fullContent = STREAM_SLOW_ANNOTATION.trimStart();
-            }
-            updateLastMessage(sessionKey, { content: fullContent });
+            // La lentezza si DICE, non si scrive nel messaggio.
+            //
+            // Prima qui si appendeva `STREAM_SLOW_ANNOTATION` a `fullContent` e si
+            // riscriveva il messaggio. Funzionava come segnale visivo, ma il
+            // segnale finiva nella STORIA: se il turno si chiudeva mentre era
+            // lento, l'annotazione restava nel contenuto per sempre, e da quel
+            // momento tornava al modello a OGNI turno successivo come se
+            // l'assistente avesse detto «stream lento — il provider è ancora
+            // connesso». Misurati 64 messaggi cosi' nel DB reale (bonificati
+            // dalla migration 069).
+            //
+            // L'evento `stream:slow` qui sotto porta la stessa informazione, e
+            // ora il client la rende: `TurnActivityIndicator` diventa ambra e
+            // cambia frase finche' non arriva `stream:resumed` o la fine del
+            // turno. Transitorio, come la cosa che descrive. Il messaggio resta
+            // partial e lo stream resta aperto: non si chiude niente qui.
             if (matchedTopic) {
               broadcastToAll({
                 type: "stream:slow",
