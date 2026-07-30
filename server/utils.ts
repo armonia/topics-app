@@ -204,6 +204,16 @@ export function createAppContext(baseDir: string): AppContext {
     // Messages
     getMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order ASC`),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /**
+     * Come `getLastMessage`, ma SENZA la colonna `blocks`.
+     *
+     * I mutatori dei tool call leggono e riscrivono solo `tool_calls`: con
+     * `SELECT *` il messaggio in corso viaggia dal DB con la timeline intera
+     * appresso — su un turno lungo è ~1,3 MB per evento di tool, letti e
+     * immediatamente scartati. Le colonne qui sono esattamente quelle che quei tre
+     * mutatori leggono o riscrivono.
+     */
+    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -404,7 +414,19 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
-  function rowToMessage(row: any): StoredMessage {
+  /**
+   * Riga → messaggio. `withBlocks: false` salta il parse della timeline.
+   *
+   * Serve ai mutatori dei tool call, che leggono e riscrivono SOLO `tool_calls`:
+   * idratare anche `blocks` significa un `JSON.parse` di ~1,3 MB più un
+   * `sanitizeToolCallDetail` per blocco, buttati via subito dopo. Su un turno
+   * agentico lungo quel lavoro si paga a OGNI evento di tool — decine di volte per
+   * turno, sul thread unico di Bun — e la chat si impunta a scatti proprio quando
+   * l'agente sta lavorando di più.
+   *
+   * Default `true`: nessun altro chiamante cambia comportamento.
+   */
+  function rowToMessage(row: any, opts?: { withBlocks?: boolean }): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
       role: row.role,
@@ -424,7 +446,7 @@ export function createAppContext(baseDir: string): AppContext {
         warnThrottled("rowToMessage:tool_calls", `[Store] Failed to parse tool_calls for message ${row.id}:`, err);
       }
     }
-    if (row.blocks) {
+    if (row.blocks && opts?.withBlocks !== false) {
       try {
         const parsed = JSON.parse(row.blocks);
         if (Array.isArray(parsed)) {
@@ -948,9 +970,9 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
-    const msg = rowToMessage(row);
+    const msg = rowToMessage(row, { withBlocks: false });
     if (!msg.toolCalls) msg.toolCalls = [];
     // Defensive dedup: providers that emit cumulative tool snapshots (the
     // Claude CLI is one) call this multiple times for the same id. Without
@@ -982,9 +1004,9 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
-    const msg = rowToMessage(row);
+    const msg = rowToMessage(row, { withBlocks: false });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
     if (tc) {
       tc.result = result;
@@ -1020,9 +1042,9 @@ export function createAppContext(baseDir: string): AppContext {
    * SQLite row so a reload renders the pending form correctly.
    */
   function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
-    const msg = rowToMessage(row);
+    const msg = rowToMessage(row, { withBlocks: false });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
     if (!tc) return msg;
     Object.assign(tc, patch);
@@ -1509,7 +1531,7 @@ export function createAppContext(baseDir: string): AppContext {
 
   function getSiblingMessages(parentId: string): StoredMessage[] {
     const rows = stmts.getSiblings.all(parentId) as any[];
-    return rows.map(rowToMessage);
+    return rows.map((row) => rowToMessage(row));
   }
 
   return {
