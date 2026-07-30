@@ -40,7 +40,11 @@
 import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { E2E_BASE } from "../helpers/test-server";
 import { closeAllBrowserContexts, waitForPaneStoreQuiet } from "../helpers/api-fixtures";
-import { withServerDeathDiagnosis } from "../helpers/server-death";
+import {
+  diagnoseServerDeath,
+  runLockStolenBy,
+  withServerDeathDiagnosis,
+} from "../helpers/server-death";
 
 /**
  * Uccide le sessioni di terminale rimaste vive.
@@ -67,6 +71,16 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<voi
  * irreparabile), non solo all'inizio.
  */
 export async function resetToBaseline(): Promise<void> {
+  // Prima di tutto: la porta è ancora NOSTRA? Costa una lettura di file, e copre
+  // il caso peggiore — un altro checkout che ci ha ammazzato il server e ne ha
+  // messo uno suo. Quello risponde, quindi nessun ECONNREFUSED lo tradisce: la
+  // suite proseguirebbe contro il database sbagliato producendo verdi e rossi
+  // ugualmente insignificanti. Meglio fermarsi al primo file che se ne accorge.
+  const thief = runLockStolenBy();
+  if (thief !== null) {
+    throw new Error(diagnoseServerDeath() ?? `[hermetic] la porta è passata alla run PID ${thief}.`);
+  }
+
   const request = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
   try {
     await resetToBaselineInner(request);
