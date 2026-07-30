@@ -997,17 +997,27 @@ export function ChatInput({
           `pointer-events-none`: è informazione, non un bersaglio — non deve mai
           rubare un click al composer che copre. */}
       <div className="relative h-0">
-      <div
-        className={`${isMobile ? 'mx-2' : 'mx-3'} absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none transition-opacity duration-150 ${othersTyping ? 'opacity-100' : 'opacity-0'}`}
-        aria-hidden={!othersTyping}
-      >
-        <div className="flex gap-1 flex-shrink-0">
-          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      {/* Il contenitore `h-0` resta sempre; il CONTENUTO no. Tenerlo montato e
+          solo trasparente costava due cose reali: tre pallini `animate-bounce`
+          che animavano per sempre in ogni chat aperta (lavoro del compositor a
+          riposo), e tre elementi fantasma che l'audit geometrico misurava
+          davvero — `chat-layout-audit` li ha beccati come near-miss di 0.6px,
+          perche' li fotografava a meta' rimbalzo. Montare a condizione non
+          rimette il layout shift: ad occupare spazio nel flusso e' il div `h-0`
+          qui sopra, che non se ne va mai. */}
+      {othersTyping && (
+        <div
+          data-testid="others-typing-indicator"
+          className={`${isMobile ? 'mx-2' : 'mx-3'} absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
+        >
+          <div className="flex gap-1 flex-shrink-0">
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+          <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
         </div>
-        <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
-      </div>
+      )}
       </div>
 
       {/* Floating input card */}
@@ -1142,12 +1152,19 @@ export function ChatInput({
               {/* Left: tools. min-w-0 lets this cluster shrink below its
                   content width; overflow-x-auto lets it scroll instead of
                   clipping (or pushing Send off-row) once a narrow pane can't
-                  fit every icon. */}
+                  fit every icon.
+                  Perche' scorra davvero, i bottoni dentro devono essere
+                  `flex-shrink-0`: senza, il default `flex-shrink: 1` li
+                  SCHIACCIAVA invece di farli traboccare — a 390px di viewport
+                  i quadrati da 32px misuravano 20.9px (misurato da
+                  `chat-layout-audit`, sotto il minimo WCAG 2.2 di 24px), con
+                  l'icona da 16px in un box storto. Il contenitore prometteva
+                  lo scroll e i figli non glielo lasciavano fare. */}
               <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
                   title="Attach file (⌘U)"
                   aria-label="Attach file"
                   disabled={currentStreaming}
@@ -1157,7 +1174,7 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={onTogglePlanMode}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
                     planMode
                       ? 'text-indigo-500 bg-indigo-500/10'
                       : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
@@ -1171,7 +1188,7 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onToggleFastMode}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
                       fastMode
                         ? 'text-amber-500 bg-amber-500/10'
                         : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
@@ -1193,7 +1210,7 @@ export function ChatInput({
                     ref={contextBtnRef}
                     type="button"
                     onClick={handleContextRingClick}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
                       showContextPopover
                         ? 'bg-primary/10 text-primary'
                         : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
