@@ -268,6 +268,10 @@ export interface AppContext {
   getMessageSessionKey: (id: string) => string | null;
   createBranchMessage: (sessionKey: string, parentId: string, role: "user" | "assistant", content: string) => StoredMessage;
   createBranchPartialMessage: (sessionKey: string, parentId: string) => StoredMessage;
+  /** Cancella messaggio + sottoalbero e ripara la numerazione dei rami. */
+  deleteMessageSubtree: (sessionKey: string, messageId: string) => boolean;
+  /** Scarta il turno appena finalizzato se non ha prodotto NIENTE; ritorna l'id scartato. */
+  discardIfEmptyTurn: (sessionKey: string, msg: StoredMessage | null) => string | null;
   switchActiveBranch: (sessionKey: string, parentId: string, branchIndex: number) => void;
   getSiblingMessages: (parentId: string) => StoredMessage[];
   loadActiveThread: (sessionKey: string) => StoredMessage[];

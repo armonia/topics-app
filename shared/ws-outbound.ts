@@ -86,6 +86,11 @@ const streamEndSchema = z.object({
   // shapes are correct. Optional + the known companion fields below make the
   // schema a faithful contract of what the server actually emits.
   messageId: z.optional(z.string()),
+  // Il turno è stato fermato PRIMA che il modello producesse qualcosa, e il
+  // segnaposto vuoto è stato cancellato invece che finalizzato: chi ha questa
+  // riga in pagina deve toglierla, o gli resta una bolla vuota che il server non
+  // ha più (e che sparirebbe solo al reload). Vedi `shared/empty-turn.ts`.
+  discardedMessageId: z.optional(z.string()),
   topicId: z.optional(z.string()),
   reason: z.optional(z.string()),
   latencyMs: z.optional(z.number()),

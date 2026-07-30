@@ -371,6 +371,11 @@ export interface WSStreamEndMessage {
   cacheCreation1hTokens?: number;
   /** Free-form reason carried on non-success terminations (e.g. `user_abort`). */
   reason?: string;
+  /** Il turno è stato fermato prima che il modello producesse qualcosa e il
+   *  segnaposto è stato CANCELLATO, non finalizzato: chi ha quella riga in
+   *  pagina deve toglierla o gli resta una bolla vuota che il server non ha
+   *  più. Vedi `shared/empty-turn.ts`. */
+  discardedMessageId?: string;
 }
 
 // Per-event slices of a streaming assistant turn. The server's chat

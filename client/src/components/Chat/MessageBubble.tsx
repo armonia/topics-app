@@ -173,6 +173,13 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
+      // Riga del messaggio identificabile per RUOLO e per id: senza, contare "le
+      // bolle dell'assistente" in un test voleva dire agganciarsi a una classe di
+      // layout, che cambia col design. Serve, fra l'altro, a provare che un turno
+      // fermato prima di produrre qualcosa non lascia una bolla vuota.
+      data-testid="chat-message"
+      data-role={msg.role}
+      data-message-id={msg.id}
       className={emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : 'mb-1.5'}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}

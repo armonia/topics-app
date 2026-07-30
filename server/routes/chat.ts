@@ -132,7 +132,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
     getTopicBySessionKey, saveSingleTopic,
     appendLocalMessage,
-    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
+    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
@@ -1154,7 +1154,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
 
             const latencyMs = Date.now() - requestStartMs;
-            updateLastMessage(sessionKey, {
+            const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
@@ -1168,6 +1168,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               cacheCreationTokens,
               cacheCreation1hTokens,
             });
+            // "Un turno che non ha prodotto niente non lascia niente": stop
+            // premuto prima che il modello dicesse qualsiasi cosa. Il segnaposto
+            // creato all'inizio dello stream restava in chat finalizzato vuoto —
+            // e rientrava nella history rimandata al modello a ogni turno dopo.
+            // Solo su `aborted`: `done` ed `error` scrivono comunque il loro ⚠️,
+            // quindi vuoti non sono mai. Vedi shared/empty-turn.ts.
+            const discardedMessageId = reason === "aborted" ? discardIfEmptyTurn(sessionKey, finalizedMsg) : null;
+            if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
 
@@ -1177,12 +1185,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
 
             if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
+              // Niente `message:new` per un turno scartato: annuncerebbe agli
+              // altri client un messaggio assistente vuoto — cioè ricreerebbe in
+              // pagina la bolla che il DB non ha più.
+              if (!discardedMessageId) {
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
+              }
               broadcastToAll({
                 type: "stream:end",
                 sessionKey,
                 topicId: matchedTopic?.id,
                 messageId: partialMsg.id,
+                ...(discardedMessageId ? { discardedMessageId } : {}),
                 latencyMs,
                 usagePromptTokens,
                 usageCompletionTokens,
