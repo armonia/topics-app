@@ -89,6 +89,42 @@ export interface ChatPaneProps {
  *  ogni render passerebbe un array nuovo a `PinnedMessages`. */
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
+/**
+ * Un messaggio accodato mentre l'agente sta ancora rispondendo, con le opzioni con
+ * cui è stato scritto (Plan Mode, Fast Mode, override di provider/modello).
+ */
+interface QueuedMessage {
+  content: string;
+  options?: SendMessageOptions;
+}
+
+/**
+ * Legge la coda da localStorage tollerando il formato VECCHIO.
+ *
+ * Fino a oggi era `string[]`. Chi ha una coda salvata in quel formato non deve
+ * perderla al primo caricamento del nuovo codice: una stringa diventa un messaggio
+ * senza opzioni, che è esattamente come si comportava prima.
+ */
+function readQueue(key: string): QueuedMessage[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): QueuedMessage | null => {
+        if (typeof item === 'string') return { content: item };
+        if (item && typeof item === 'object' && typeof (item as QueuedMessage).content === 'string') {
+          return item as QueuedMessage;
+        }
+        return null;
+      })
+      .filter((x): x is QueuedMessage => x !== null);
+  } catch {
+    return [];
+  }
+}
+
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
@@ -130,12 +166,23 @@ function ChatPaneComponent({
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [messageQueue, setMessageQueue] = useState<string[]>(() => {
-    try { const s = localStorage.getItem(queueKey); return s ? JSON.parse(s) : []; } catch { return []; }
-  });
+  /**
+   * Un messaggio in coda porta con sé le opzioni con cui è stato SCRITTO.
+   *
+   * Prima la coda era `string[]` e il drain chiamava `sendMessage(sessionKey, next)`
+   * senza opzioni: si perdevano Plan Mode, Fast Mode e l'override di
+   * provider/modello. Il caso che fa male è il primo — si accende Plan Mode
+   * («proponi, non toccare i file»), si accoda un messaggio mentre l'agente
+   * streamma, e quel messaggio parte SENZA plan mode mentre il badge resta
+   * accesso: l'agente scrive sui file e l'interfaccia dice che non lo farà.
+   *
+   * Le opzioni sono quelle del momento dell'accodamento, non del drain: è quello
+   * che l'utente vedeva quando ha premuto invio.
+   */
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>(() => readQueue(queueKey));
   // Restore queue on topic switch
   useEffect(() => {
-    try { const s = localStorage.getItem(`msgQueue:${topic.id}`); setMessageQueue(s ? JSON.parse(s) : []); } catch { setMessageQueue([]); }
+    setMessageQueue(readQueue(`msgQueue:${topic.id}`));
   }, [topic.id]);
   // Persist queue to localStorage
   useEffect(() => {
@@ -145,7 +192,10 @@ function ChatPaneComponent({
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === draftKey) setMessage(e.newValue || '');
-      if (e.key === queueKey) { try { setMessageQueue(e.newValue ? JSON.parse(e.newValue) : []); } catch {} }
+      // Stesso lettore tollerante degli altri due punti: una finestra che gira
+      // ancora il codice vecchio scrive `string[]`, e non deve poter iniettare qui
+      // una coda che il drain non sa leggere.
+      if (e.key === queueKey) setMessageQueue(readQueue(queueKey));
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
@@ -453,7 +503,7 @@ function ChatPaneComponent({
 
   // Scroll management is handled entirely by Virtuoso in MessageList
   // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
-  useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
+  useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]!; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next.content, next.options); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   // `preventScroll` perché il composer è ancorato in fondo alla pane ed è già
   // in vista: lo scroll-into-view implicito di `focus()` non lo sposta di un
@@ -740,6 +790,29 @@ function ChatPaneComponent({
     });
   }, []);
 
+  /**
+   * Le opzioni del turno così come sono ADESSO nel composer.
+   *
+   * Un posto solo, perché servono a due strade: l'invio diretto e l'accodamento
+   * mentre l'agente risponde. Quando ne esisteva una copia sola — dentro il ramo
+   * dell'invio — i messaggi accodati partivano nudi, e Plan Mode si perdeva in
+   * silenzio col badge ancora accesso.
+   */
+  const currentSendOptions = (): SendMessageOptions | undefined => {
+    const opts: SendMessageOptions = {};
+    if (planMode) opts.planMode = true;
+    // Fast Mode is the per-turn signal the server uses to pick the provider's
+    // native fast model (see openspec `chat-fast-mode`). We send it whenever the
+    // toggle is ON — picker (`opts.model`) and persisted `topic.model` still win,
+    // the server enforces priority.
+    if (fastMode) opts.fastMode = true;
+    if (providerOverride) {
+      opts.provider = providerOverride.provider;
+      opts.model = providerOverride.model;
+    }
+    return Object.keys(opts).length ? opts : undefined;
+  };
+
   const handleSendMessage = async (e?: React.SubmitEvent) => {
     if (e) e.preventDefault();
     // Edit mode: submit the edit
@@ -748,7 +821,7 @@ function ChatPaneComponent({
       return;
     }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
-    if (currentStreaming) { if (message.trim()) { setMessageQueue(prev => [...prev, message.trim()]); setMessage(''); } return; }
+    if (currentStreaming) { if (message.trim()) { setMessageQueue(prev => [...prev, { content: message.trim(), options: currentSendOptions() }]); setMessage(''); } return; }
     let finalMessage = message.trim();
     if (finalMessage.startsWith('/')) { if (await handleSlashCommand(finalMessage)) { setMessage(''); return; } }
     const curFiles = [...pendingFiles], curImages = [...pendingImages], curReply = replyingTo, curMentioned = [...mentionedFiles];
@@ -790,18 +863,7 @@ function ChatPaneComponent({
     }
 
     if (finalMessage) {
-      const opts: { planMode?: boolean; fastMode?: boolean; provider?: string; model?: string } = {};
-      if (planMode) opts.planMode = true;
-      // Fast Mode is the per-turn signal the server uses to pick the
-      // provider's native fast model (see openspec `chat-fast-mode`). We send
-      // it whenever the toggle is ON — picker (`opts.model`) and persisted
-      // `topic.model` still win, the server enforces priority.
-      if (fastMode) opts.fastMode = true;
-      if (providerOverride) {
-        opts.provider = providerOverride.provider;
-        opts.model = providerOverride.model;
-      }
-      await sendMessage(topic.sessionKey, finalMessage, Object.keys(opts).length ? opts : undefined);
+      await sendMessage(topic.sessionKey, finalMessage, currentSendOptions());
     }
   };
 
@@ -868,7 +930,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue.map(q => q.content)} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? { ...m, content } : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );
