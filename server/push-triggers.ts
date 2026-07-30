@@ -9,6 +9,20 @@ function firePush(payload: { title: string; body: string; tag?: string; url?: st
 }
 
 /**
+ * La destinazione del click, non la home.
+ *
+ * `url` finisce in `notification.data.url` e il service worker lo passa al
+ * client (`topics:open-url` → `openTaskInApp`). Finché era "/" la push ti
+ * SVEGLIAVA e poi ti scaricava sulla board generale: sapevi che qualcosa era
+ * successo ma dovevi ritrovare tu quale task. `/task/<id>` è la stessa rotta
+ * dei link copiabili (`client/src/lib/openTaskLink.ts`), quindi apre il drawer
+ * giusto sia in-app sia da finestra chiusa.
+ */
+function taskUrl(taskId: unknown): string {
+  return typeof taskId === "string" && taskId ? `/task/${taskId}` : "/";
+}
+
+/**
  * Evaluate a WebSocket broadcast message and send push notifications for meaningful events.
  * Called after broadcastToAll — only triggers on selective, non-spammy events.
  */
@@ -47,7 +61,7 @@ export function maybeSendPush(message: Record<string, any>): void {
       title: "📋 Task pronto per la review",
       body: message.taskTitle || "Un task è pronto per la review",
       tag: `task-review-${message.taskId || "new"}`,
-      url: "/",
+      url: taskUrl(message.taskId),
     });
     return;
   }
@@ -61,21 +75,20 @@ export function maybeSendPush(message: Record<string, any>): void {
       title: message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato",
       body: message.taskTitle || "Un task è stato parcheggiato",
       tag: `task-park-${message.taskId || "new"}`,
-      url: "/",
+      url: taskUrl(message.taskId),
     });
     return;
   }
 
-  // Stream ended — Claude finished responding in a topic
-  if (type === "stream:end" && message.sessionKey) {
-    firePush({
-      title: "✅ Response complete",
-      body: `Claude finished responding`,
-      tag: `stream-end-${message.sessionKey}`,
-      url: "/",
-    });
-    return;
-  }
+  // NIENTE push su `stream:end`. C'era, e diceva "✅ Response complete —
+  // Claude finished responding" per OGNI fine turno: anche quando eri stato TU
+  // ad annullare (`reason: user_abort`), anche quando il watchdog aveva ucciso
+  // il turno (`stopCause: watchdog`), anche per ognuno delle decine di turni di
+  // un agente sulla board. Senza nome del topic e senza deep link. Era rumore
+  // che a volte mentiva. I fronti di fine lavoro corretti sono `review-ready` e
+  // `parked` qui sopra; una push di fine risposta per la CHAT va rifatta con
+  // nome del topic, deep link al topic e i turni d'agente esclusi — è un lavoro
+  // a sé, non una riga da rimettere qui.
 
   // Agent session status changes (error) from the session watcher
   if (type === "agents:sessions" && Array.isArray(message.sessions)) {

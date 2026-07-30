@@ -34,6 +34,19 @@ describe("maybeSendPush — task:review-ready", () => {
     expect(pushCalls[0].tag).toBe("task-review-t1");
   });
 
+  // Il click deve ATTERRARE sul task. Con url:"/" la push ti svegliava e ti
+  // scaricava sulla board generale a cercare da solo quello di cui ti aveva
+  // appena parlato.
+  test("il click porta al task, non alla home", () => {
+    maybeSendPush({ type: "task:review-ready", projectId: "p", taskId: "t9", taskTitle: "x" });
+    expect(pushCalls[0].url).toBe("/task/t9");
+  });
+
+  test("senza taskId ripiega sulla home invece di costruire una URL rotta", () => {
+    maybeSendPush({ type: "task:review-ready", projectId: "p", taskTitle: "x" });
+    expect(pushCalls[0].url).toBe("/");
+  });
+
   test("stays quiet for unrelated broadcasts (e.g. task:updated)", () => {
     maybeSendPush({ type: "task:updated", projectId: "p", task: { id: "t1", status: "review" } });
     maybeSendPush({ type: "task:created", projectId: "p", task: { id: "t2" } });
@@ -70,5 +83,28 @@ describe("maybeSendPush — task:parked", () => {
     maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t6", state: "failed" });
     expect(pushCalls).toHaveLength(1);
     expect(pushCalls[0].body.length).toBeGreaterThan(0);
+  });
+
+  test("anche qui il click porta al task", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t7", state: "blocked" });
+    expect(pushCalls[0].url).toBe("/task/t7");
+  });
+});
+
+/**
+ * `stream:end` NON deve più mandare push. Diceva "Response complete" per ogni
+ * fine turno — anche su un annullamento dell'utente, anche sul kill del
+ * watchdog, anche per ognuno delle decine di turni di un agente sulla board —
+ * senza nome del topic e senza deep link. Questo test è il chiodo che impedisce
+ * di rimetterlo per distrazione.
+ */
+describe("maybeSendPush — nessuna push di fine turno", () => {
+  beforeEach(() => { pushCalls.length = 0; });
+
+  test("stream:end è muto, in tutte le sue forme", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", topicId: "tp1", messageId: "m1" });
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", topicId: "tp1", reason: "user_abort" });
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", stopReason: "cancelled", stopCause: "watchdog" });
+    expect(pushCalls).toHaveLength(0);
   });
 });
