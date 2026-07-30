@@ -3,6 +3,31 @@ import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext, contextWindowFor, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
+import { assembleTopicContext, getProviderStrategy } from "../context";
+import { getProvider, getDefaultProvider } from "../providers";
+
+// ── Cache dell'analisi del contesto (TTL 15s) ────────────────────────────
+const CONTEXT_CACHE_TTL = 15000;
+
+/** Forma storica della risposta di `/api/context/analyze`. */
+interface ContextAnalysisResult {
+  sources: Array<{
+    id: string;
+    label: string;
+    category: string;
+    tokens: number;
+    enabled: boolean;
+    editable: boolean;
+    preview?: string;
+    countInBudget: boolean;
+  }>;
+  totalTokens: number;
+  budgetLimit: number;
+  budgetPercent: number;
+  warnings: { type: string; detail: string }[];
+}
+
+const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, json, loadTopics, loadLocalMessages } = ctx;
@@ -100,6 +125,92 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
         console.error("Context API error:", err);
         return json({ total: 0, limit: modelLimit, breakdown: [] });
       }
+    }
+
+    // GET /api/context/analyze?topicId=xxx — tutte le fonti di contesto di una topic.
+    //
+    // Stava in `openclaw-context.ts`, e quel router e' montato SOLO quando il
+    // provider di default e' `openclaw` (`server.ts`). Su claude-code — cioe'
+    // sempre, di fatto — la route rispondeva 404: il Context Inspector mostrava
+    // un errore, `budgetPercent` restava 0 e l'anello della chat cadeva sul suo
+    // fallback. L'handler non ha mai avuto nulla di specifico per openclaw:
+    // risolve il provider DELLA TOPIC e delega ad `assembleTopicContext`. Il
+    // gate era sul router sbagliato.
+    //
+    // BACK-COMPAT WRAPPER (since change `topic-context-canonical`).
+    // Delegates to the canonical `assembleTopicContext()` so the inspector and
+    // the chat streaming path can never drift. The legacy response shape is
+    // preserved exactly so the existing client (`useContextInspector` ➝
+    // `contextAnalysisApi.analyze`) keeps working without modifications.
+    //
+    // Field mapping envelope.SystemBlock → legacy source:
+    //   { id, label, category, tokens, enabled, editable, countInBudget }
+    //   `preview` = content.slice(0, 200) (legacy field, optional)
+    //
+    // The "project:awareness" legacy id is mapped from the canonical
+    // "template:project-awareness" id and re-labelled to match the original
+    // shape clients render.
+    if (method === "GET" && pathname === "/api/context/analyze") {
+      const topicId = url.searchParams.get("topicId");
+      if (!topicId) return json({ error: "topicId parameter required" }, 400);
+
+      const topicsData = loadTopics();
+      const topic = topicsData.topics[topicId];
+      if (!topic) return json({ error: "Topic not found" }, 404);
+
+      // Resolve provider strategy so the envelope is shaped accurately even
+      // for the inspector preview (matters in case a future composer adds
+      // strategy-dependent blocks).
+      const providerName = topic.provider ?? null;
+      let strategyName = "history-aware" as ReturnType<typeof getProviderStrategy>;
+      try {
+        const provider = providerName ? getProvider(providerName) : getDefaultProvider();
+        strategyName = getProviderStrategy(provider);
+      } catch {
+        /* provider not registered yet — keep the default */
+      }
+
+      const cacheKey = `${topicId}::${providerName ?? "default"}`;
+      const cached = contextAnalysisCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
+        return json(cached.data);
+      }
+
+      // includeLastUserInHistory: true — the inspector wants to display the
+      // CURRENT state of the conversation, not "what we'd send next".
+      const envelope = assembleTopicContext(ctx, {
+        sessionKey: topic.sessionKey,
+        providerName: providerName ?? "(default)",
+        providerStrategy: strategyName,
+        includeLastUserInHistory: true,
+      });
+
+      // Project envelope.systemBlocks → legacy `sources[]` shape.
+      const sources = envelope.systemBlocks.map((b) => {
+        // Re-label the project-awareness block to match the legacy id used by
+        // the client ("project:awareness" — note: NOT "template:project-awareness").
+        const legacyId = b.id === "template:project-awareness" ? "project:awareness" : b.id;
+        return {
+          id: legacyId,
+          label: b.label,
+          category: b.category,
+          tokens: b.tokens,
+          enabled: b.enabled,
+          editable: b.editable,
+          preview: b.content ? b.content.slice(0, 200) : undefined,
+          countInBudget: b.countInBudget,
+        };
+      });
+
+      const result = {
+        sources,
+        totalTokens: envelope.diagnostics.totalTokens,
+        budgetLimit: envelope.diagnostics.budgetLimit,
+        budgetPercent: envelope.diagnostics.budgetPercent,
+        warnings: envelope.diagnostics.warnings,
+      };
+      contextAnalysisCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return json(result);
     }
 
     return null;

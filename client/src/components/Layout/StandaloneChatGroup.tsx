@@ -7,7 +7,6 @@ import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
-import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
@@ -453,16 +452,6 @@ export function StandaloneChatGroup({
     }
   }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
-  // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
-  const paneToTopicMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const id of validatedOrderedIds) {
-      if (!isUtilityPanelId(id) && !isProjectPaneId(id) && !isBrowserPaneId(id) && !isTerminalPaneId(id) && !isSessionViewerPaneId(id) && !isDraftPaneId(id)) map[id] = id;
-    }
-    return map;
-  }, [validatedOrderedIds]);
-  const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
-
   // Project tab status indicators (git + processes)
   const projectPaths = useMemo(() => {
     const paths: string[] = [];
@@ -552,7 +541,6 @@ export function StandaloneChatGroup({
       } : undefined}
       onReorderPanes={handleReorderPanes}
       onCrossGroupDrop={onAcceptSoloDrop ? handleCrossGroupDrop : undefined}
-      contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
       // Gated by the SHARED canSplitPane rule (splitRules.ts) — the same
       // predicate usePaneLifecycle's isSplittable guards the handlers with,

@@ -87,7 +87,6 @@ interface PaneTabBarProps {
    */
   dndScope?: string;
   className?: string;
-  contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
   onCloseOthers?: (paneId: string) => void;
   onDetach?: (paneId: string) => void;
@@ -176,7 +175,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
