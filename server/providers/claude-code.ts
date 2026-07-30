@@ -870,6 +870,12 @@ interface PersistentProcess {
    *  or announced directly with full args). Keeps the late-args path
    *  idempotent across block stop + every cumulative snapshot re-emission. */
   argsFinalized?: Set<string>;
+  /** Tool ids that already received their per-action usage attribution
+   *  (`onToolUsage`). The CLI's `assistant` events are cumulative, so a
+   *  tool_use recurs on later snapshots; this set makes the attribution
+   *  exactly-once — the FIRST call whose snapshot carried it is the call that
+   *  decided it, and no action inherits an earlier action's cost. */
+  attributedToolCalls?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -1102,6 +1108,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.settledToolCalls?.clear();
     pp.streamingToolInputs?.clear();
     pp.argsFinalized?.clear();
+    pp.attributedToolCalls?.clear();
     // Sidechain state belongs to a single turn — fresh tracker per sendChat
     // so a Task() called in turn N doesn't leak state into turn N+1.
     pp.sidechain.clear();
@@ -2248,13 +2255,24 @@ export class ClaudeCodeProvider implements AIProvider {
         ? event.parent_tool_use_id
         : null;
 
+    // L'usage di QUESTA chiamata, tenuto da parte per attribuirlo alle azioni
+    // che ha deciso (i tool_use nuovi di questo evento) nel loop più sotto.
+    // Resta null per gli eventi senza usage o delle sotto-sessioni (Trappola 2).
+    let perCallUsageForActions:
+      | { inputTokens: number; outputTokens: number; cacheRead: number; cacheCreation: number; cacheCreation1h: number; model?: string }
+      | null = null;
+
     // Per-call context size. Each `assistant` event carries the usage of the ONE
     // model call that produced it, so `input + cache_read + cache_creation` is
     // the real size of the prompt the model just saw. The final `result` usage
     // sums every call in the turn — reading THAT as the context size is what
     // made the post-compaction divider claim the context had grown. Sidechain
     // (sub-agent) calls have their own context and are excluded.
-    if (event.type === "assistant" && !parentToolUseId && handler?.onContextSize) {
+    // Guardato solo su usage, NON su un callback specifico: contesto e consumo
+    // nascono dallo stesso evento ma servono ascoltatori diversi (onContextSize,
+    // onCallUsage, onToolUsage). Legarlo a onContextSize spegneva il consumo per
+    // chi ascolta solo la bolletta.
+    if (event.type === "assistant" && !parentToolUseId && handler) {
       const msg = event.message as { usage?: Record<string, unknown>; model?: unknown } | undefined;
       const mu = msg?.usage;
       if (mu) {
@@ -2270,13 +2288,13 @@ export class ClaudeCodeProvider implements AIProvider {
         // The model comes from the SAME event as the usage: it is the model
         // that actually served this call, which is what sizes the window.
         const model = typeof msg?.model === "string" && msg.model ? msg.model : undefined;
-        if (size > 0) handler.onContextSize(size, model);
+        if (size > 0) handler.onContextSize?.(size, model);
         // Lo stesso evento porta anche il CONSUMO di questa chiamata, che finora
         // buttavamo: `onContextSize` misura il serbatoio (sale e scende con le
         // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula —
         // il `result` finale somma già tutte le chiamate, quindi non si somma due
         // volte.
-        handler.onCallUsage?.({
+        const callUsage = {
           inputTokens: n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens),
           outputTokens: n(mu.output_tokens),
           cacheRead: n(mu.cache_read_input_tokens),
@@ -2284,8 +2302,13 @@ export class ClaudeCodeProvider implements AIProvider {
           // Il TTL sta scritto nell'usage, non si deduce: una scrittura a un'ora
           // costa 2×, una a cinque minuti 1.25×.
           cacheCreation1h: n((mu.cache_creation as Record<string, unknown> | undefined)?.ephemeral_1h_input_tokens),
-          model,
-        });
+          ...(model ? { model } : {}),
+        };
+        handler.onCallUsage?.(callUsage);
+        // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
+        // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
+        // loro nel loop dei blocchi, una sola volta ciascuna (Trappola 1).
+        perCallUsageForActions = callUsage;
       }
     }
     if (parentToolUseId && eventContent && handler) {
@@ -2330,6 +2353,19 @@ export class ClaudeCodeProvider implements AIProvider {
       // (`pp.activeToolCalls`) and which we've already settled
       // (`pp.settledToolCalls`). Both are per-process-instance Sets.
       const settled = (pp.settledToolCalls ??= new Set<string>());
+      // Divisore per l'attribuzione: quante AZIONI nuove porta questo evento.
+      // Un tool_use già attribuito (evento cumulativo) o già concluso non
+      // ricontano — altrimenti la quota per azione sarebbe sottostimata.
+      const attributed = (pp.attributedToolCalls ??= new Set<string>());
+      let newActionCount = 0;
+      if (perCallUsageForActions && handler.onToolUsage) {
+        for (const b of eventContent) {
+          if (b.type !== "tool_use") continue;
+          const id = typeof b.id === "string" ? b.id : "";
+          if (!id || settled.has(id) || attributed.has(id)) continue;
+          newActionCount++;
+        }
+      }
       for (const block of eventContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
           pp.fullText += block.text;
@@ -2348,21 +2384,42 @@ export class ClaudeCodeProvider implements AIProvider {
             // Also the fallback when the partial-json buffer didn't parse or
             // the CLI never emitted a content_block_stop.
             this.finalizeToolArgs(pp, handler, toolId, toolName, input ?? {});
-            continue;
+          } else {
+            pp.activeToolCalls.add(toolId);
+            // Sidechain bookkeeping: if this is a Task() call, register it as a
+            // sub-agent parent so its child events get aggregated. We do this
+            // before onToolStart so the route handler sees the right state if
+            // it queries the tracker.
+            if (toolName === "Task") {
+              pp.sidechain.registerParent(toolId, block.input);
+            }
+            handler.onToolStart(toolId, toolName, input);
+            // Announced with the full input already in hand — mark finalized
+            // and run user-input detection (AskUserQuestion / MCP elicitation).
+            (pp.argsFinalized ??= new Set<string>()).add(toolId);
+            this.detectUserInputForTool(pp, handler, toolId, toolName, block.input);
           }
-          pp.activeToolCalls.add(toolId);
-          // Sidechain bookkeeping: if this is a Task() call, register it as a
-          // sub-agent parent so its child events get aggregated. We do this
-          // before onToolStart so the route handler sees the right state if
-          // it queries the tracker.
-          if (toolName === "Task") {
-            pp.sidechain.registerParent(toolId, block.input);
+          // Attribuzione per-azione: il costo della chiamata → questa azione,
+          // in parti uguali fra le azioni nuove dell'evento (una chiamata sola
+          // non sa dire quale dei suoi tool_use paralleli pesi di più). Emesso
+          // QUI, dopo che il tool è annunciato in entrambi i rami: il ToolCall
+          // lato route esiste già (via partial l'onToolStart è partito prima,
+          // via snapshot appena sopra). Una sola volta per tool (attributed) →
+          // un evento cumulativo non ri-attribuisce (Trappola 1).
+          if (perCallUsageForActions && handler.onToolUsage && newActionCount > 0 && !attributed.has(toolId)) {
+            attributed.add(toolId);
+            const k = newActionCount;
+            const u = perCallUsageForActions;
+            handler.onToolUsage(toolId, {
+              inputTokens: Math.floor(u.inputTokens / k),
+              outputTokens: Math.floor(u.outputTokens / k),
+              cacheRead: Math.floor(u.cacheRead / k),
+              cacheCreation: Math.floor(u.cacheCreation / k),
+              cacheCreation1h: Math.floor(u.cacheCreation1h / k),
+              ...(u.model ? { model: u.model } : {}),
+            });
           }
-          handler.onToolStart(toolId, toolName, input);
-          // Announced with the full input already in hand — mark finalized
-          // and run user-input detection (AskUserQuestion / MCP elicitation).
-          (pp.argsFinalized ??= new Set<string>()).add(toolId);
-          this.detectUserInputForTool(pp, handler, toolId, toolName, block.input);
+          continue;
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;

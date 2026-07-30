@@ -5,7 +5,7 @@ import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
 import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
-import { formatDurationMs } from './toolGrouping';
+import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
 
 /**
@@ -124,6 +124,18 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     setOpen((v) => !v);
   };
 
+  // Costo/token dell'azione: preferisci il prezzo (modello noto), altrimenti i
+  // token come fallback. Il title esplicita cos'è, così non si confonde con la
+  // durata accanto.
+  const costFromCents = typeof toolCall.costCents === 'number' ? formatCostCents(toolCall.costCents) : '';
+  const costFromTokens = typeof toolCall.tokens === 'number' ? formatTokensCompact(toolCall.tokens) : '';
+  const costLabel = costFromCents || (costFromTokens ? `${costFromTokens} tok` : '');
+  const costTitle = costFromCents
+    ? `Costo di questa azione${costFromTokens ? ` · ${costFromTokens} token` : ''} — la chiamata che l'ha decisa`
+    : costFromTokens
+      ? `${costFromTokens} token attribuiti a questa azione`
+      : undefined;
+
   return (
     <div
       data-testid={`tool-call-row-${toolCall.id}`}
@@ -164,6 +176,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {!isRunning && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
             <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
+            </span>
+          )}
+          {/* Costo di QUESTA azione, accanto alla durata: la chiamata che l'ha
+              decisa, non il totale del turno. Prezzo se il modello è noto,
+              altrimenti i token. Assente sui messaggi vecchi. */}
+          {costLabel && (
+            <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-cost" title={costTitle}>
+              {costLabel}
             </span>
           )}
           {/* `waiting_for_input` is the new state: spinner is misleading

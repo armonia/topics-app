@@ -447,6 +447,16 @@ export interface WSStreamToolDetailMessage {
   toolCallId: string;
   detail: ToolCall['detail'];
 }
+/** Costo/token attribuiti a UNA azione (tool call), dalla chiamata al modello
+ *  che l'ha decisa. Distinto da `stream:usage` (totale del turno): patcha la
+ *  singola riga del tool mentre è ancora running. */
+export interface WSStreamToolUsageMessage {
+  type: 'stream:tool_usage';
+  sessionKey: string;
+  toolCallId: string;
+  tokens?: number;
+  costCents?: number;
+}
 export interface WSStreamErrorMessage {
   type: 'stream:error';
   sessionKey: string;
@@ -985,6 +995,7 @@ export type WSMessage =
   | WSStreamToolResultMessage
   | WSStreamToolUpdateMessage
   | WSStreamToolDetailMessage
+  | WSStreamToolUsageMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
   | WSStreamContextMessage
