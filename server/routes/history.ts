@@ -105,11 +105,26 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
+      // `blocks` e `tool_calls` portano la STESSA cosa, e il client renderizza solo
+      // i blocchi: «When present and non-empty, [blocks] takes precedence over the
+      // legacy thinking/toolCalls/content bucket rendering» (MessageContent.tsx:967).
+      // Spedirli entrambi significa mandare in chiaro un duplicato che verrà
+      // scartato: su una topic di lavoro lunga sono 11,86 MB di cui il 55% inutile,
+      // più il tempo di `stringify` per produrlo. Su una PWA in LAN sono secondi di
+      // schermo vuoto.
+      //
+      // Solo dai messaggi COMPLETI: il parziale è quello su cui il percorso di
+      // streaming continua ad applicare i tool event (useChat.ts:726), e lì
+      // `toolCalls` è ancora la lista che cresce. Il fallback per i messaggi
+      // legacy senza `blocks` resta intatto.
+      const lean = result.map((m) =>
+        m.partial || !m.blocks?.length || !m.toolCalls?.length ? m : { ...m, toolCalls: undefined },
+      );
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
       const compactionMarkers = getCompactionMarkersBySession(ctx.db, sessionKey);
-      return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
+      return json({ messages: lean, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
     }
 
     // Fallback: Provider history
