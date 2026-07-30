@@ -63,22 +63,26 @@ function num(raw: string | undefined): number | null {
 }
 
 /**
- * Raccoglie le prove. Ogni sonda è difensiva: si chiama mentre qualcosa sta già
- * andando storto, e una diagnosi che a sua volta lancia nasconde l'errore vero.
+ * Quanto si aspetta, dopo la morte del server, prima di dichiararla un problema.
+ *
+ * Non è una pausa di cortesia: è il tempo che serve a distinguere una morte da
+ * un RIAVVIO. `terminal-session-resume.spec.ts` ammazza il server e ne spawna
+ * un altro sulla stessa porta di proposito, e le due cose sono identiche
+ * nell'istante in cui succedono — differiscono solo per ciò che viene dopo.
+ * Generoso di proposito: il costo di aspettare è solo quanto tardi arriva un
+ * messaggio, il costo di sbagliare è un allarme falso a ogni run.
  */
-export function probeServerDeath(port: number = E2E_PORT): DeathProbe {
-  const serverPid = num(process.env.__TEST_SERVER_PID);
-  let runLockRaw: string | null = null;
-  try {
-    runLockRaw = readFileSync(lockPathForPort(port), "utf8");
-  } catch {
-    runLockRaw = null;
-  }
+export const SERVER_DEATH_GRACE_MS = 15_000;
 
-  // `execFileSync` e non `execSync`: niente shell, quindi niente da citare e
-  // niente `|| true` — l'uscita non-zero di lsof («nessuno tiene la porta») è
-  // già gestita dal catch.
-  const portHolders: PortHolder[] = [];
+/**
+ * Chi ascolta sulla porta, adesso.
+ *
+ * `execFileSync` e non `execSync`: niente shell, quindi niente da citare e
+ * niente `|| true` — l'uscita non-zero di lsof («nessuno tiene la porta») è già
+ * gestita dal catch.
+ */
+export function portHolders(port: number = E2E_PORT): PortHolder[] {
+  const holders: PortHolder[] = [];
   try {
     const pids = execFileSync("lsof", ["-ti", `:${port}`], { stdio: ["ignore", "pipe", "ignore"] })
       .toString()
@@ -95,16 +99,31 @@ export function probeServerDeath(port: number = E2E_PORT): DeathProbe {
           .trim()
           .slice(0, 120);
       } catch { /* il processo può sparire fra le due chiamate */ }
-      portHolders.push({ pid, cmd });
+      holders.push({ pid, cmd });
     }
   } catch { /* nessuno sulla porta (lsof esce 1), o niente lsof: si diagnostica lo stesso */ }
+  return holders;
+}
+
+/**
+ * Raccoglie le prove. Ogni sonda è difensiva: si chiama mentre qualcosa sta già
+ * andando storto, e una diagnosi che a sua volta lancia nasconde l'errore vero.
+ */
+export function probeServerDeath(port: number = E2E_PORT): DeathProbe {
+  const serverPid = num(process.env.__TEST_SERVER_PID);
+  let runLockRaw: string | null = null;
+  try {
+    runLockRaw = readFileSync(lockPathForPort(port), "utf8");
+  } catch {
+    runLockRaw = null;
+  }
 
   return {
     serverPid,
     serverAlive: serverPid !== null && isPidAlive(serverPid),
     runLockRaw,
     ourRunPid: num(process.env.__E2E_RUN_LOCK_PID),
-    portHolders,
+    portHolders: portHolders(port),
   };
 }
 
@@ -114,24 +133,6 @@ export function probeServerDeath(port: number = E2E_PORT): DeathProbe {
  * che si sovrascrive a un rosso legittimo è peggio del rosso.
  */
 export function describeServerDeath(p: DeathProbe, port: number = E2E_PORT): string | null {
-  if (p.serverAlive) return null;
-  // Nessun PID noto e la porta risponde ancora: non sappiamo niente, e
-  // inventarci una morte sarebbe peggio del silenzio.
-  if (p.serverPid === null && p.portHolders.length > 0) return null;
-
-  const lines: string[] = [];
-  lines.push(
-    `[e2e] IL SERVER DI TEST NON C'È PIÙ (porta ${port}` +
-      (p.serverPid !== null ? `, PID ${p.serverPid} avviato dal globalSetup` : "") +
-      `).`,
-  );
-  lines.push("");
-  lines.push(
-    "Da questo punto in poi OGNI test fallisce con ECONNREFUSED: sono rossi finti, " +
-      "non dicono niente sul codice sotto test. Il primo rosso vero è questo.",
-  );
-  lines.push("");
-
   // Il lock è la prova decisiva: se non è più nostro, qualcuno è entrato.
   let holder: { pid?: number; cwd?: string; startedAt?: string } | null = null;
   try {
@@ -139,8 +140,51 @@ export function describeServerDeath(p: DeathProbe, port: number = E2E_PORT): str
   } catch {
     holder = null;
   }
+  const stolen =
+    p.ourRunPid !== null &&
+    holder != null &&
+    typeof holder.pid === "number" &&
+    holder.pid !== p.ourRunPid;
 
-  if (p.ourRunPid !== null && holder && typeof holder.pid === "number" && holder.pid !== p.ourRunPid) {
+  // Porta rubata: qualunque cosa risponda adesso è il server di UN ALTRO
+  // checkout, col SUO database. Va detto anche — anzi soprattutto — se la porta
+  // risponde, perché è il caso in cui i test proseguono contro il server
+  // sbagliato invece di fallire subito.
+  if (!stolen) {
+    if (p.serverAlive) return null;
+    // Qualcuno tiene la porta e il lock è ancora nostro: quel server è il
+    // NOSTRO, eventualmente RIAVVIATO. Non è un'ipotesi di scuola —
+    // `terminal-session-resume.spec.ts` (AC-2) ammazza il server e ne spawna un
+    // altro *detached* di proposito: da lì in poi `__TEST_SERVER_PID` punta a un
+    // processo morto per tutti i ~70 test che restano. Una diagnosi basata solo
+    // su quel PID mentirebbe a ogni errore di rete fino a fine suite.
+    if (p.portHolders.length > 0) return null;
+  }
+
+  // Il nostro server è stato non solo ucciso ma RIMPIAZZATO: dire «non c'è più»
+  // manderebbe a cercare un buco dove invece c'è qualcosa che risponde — e che
+  // risponde dal database sbagliato.
+  const usurped = stolen && p.portHolders.length > 0;
+
+  const lines: string[] = [];
+  lines.push(
+    usurped
+      ? `[e2e] SULLA PORTA ${port} C'È IL SERVER DI UN'ALTRA RUN, NON IL NOSTRO.`
+      : `[e2e] IL SERVER DI TEST NON C'È PIÙ (porta ${port}` +
+        (p.serverPid !== null ? `, PID ${p.serverPid} avviato dal globalSetup` : "") +
+        `).`,
+  );
+  lines.push("");
+  lines.push(
+    usurped
+      ? "Il nostro è stato ucciso e rimpiazzato: da qui in poi i test interrogano " +
+        "un DATABASE che non è il loro: verdi e rossi sono ugualmente privi di valore."
+      : "Da questo punto in poi OGNI test fallisce con ECONNREFUSED: sono rossi finti, " +
+        "non dicono niente sul codice sotto test. Il primo rosso vero è questo.",
+  );
+  lines.push("");
+
+  if (stolen && holder) {
     lines.push(
       `CAUSA: un'ALTRA run E2E si è presa la porta. Il lock ${lockPathForPort(port)} ` +
         `era nostro (PID ${p.ourRunPid}), adesso è di PID ${holder.pid}` +
@@ -182,6 +226,34 @@ export function describeServerDeath(p: DeathProbe, port: number = E2E_PORT): str
 /** Scorciatoia: sonda + verdetto. `null` se il server è vivo. */
 export function diagnoseServerDeath(port: number = E2E_PORT): string | null {
   return describeServerDeath(probeServerDeath(port), port);
+}
+
+/**
+ * Il lock della porta è passato a un'ALTRA run?
+ *
+ * Sonda povera apposta — una `readFileSync` di poche centinaia di byte, niente
+ * `lsof`, niente `ps` — perché va chiamata all'inizio di ogni file di spec. Serve
+ * a coprire il caso che nessun altro copre: quando il server che ci ha rubato la
+ * porta *risponde*, non ci sono ECONNREFUSED da intercettare, i test proseguono
+ * contro un database che non è il loro e finiscono verdi o rossi senza che né
+ * l'uno né l'altro significhi qualcosa. Un guasto silenzioso vale meno di zero:
+ * vale il tempo che qualcuno perde a credergli.
+ *
+ * `null` quando va tutto bene o quando non sappiamo di chi sia il lock (fuori dal
+ * `globalSetup` non c'è `__E2E_RUN_LOCK_PID`: in dubbio si tace).
+ */
+export function runLockStolenBy(port: number = E2E_PORT): number | null {
+  const ourRunPid = num(process.env.__E2E_RUN_LOCK_PID);
+  if (ourRunPid === null) return null;
+  try {
+    const holder = JSON.parse(readFileSync(lockPathForPort(port), "utf8")) as { pid?: unknown };
+    return typeof holder.pid === "number" && holder.pid !== ourRunPid ? holder.pid : null;
+  } catch {
+    // Lock sparito o illeggibile: è un indizio, non una prova, e qui non
+    // possiamo permetterci falsi positivi. Se ne accorge chi inciampa in un
+    // errore di rete (`withServerDeathDiagnosis`), con le prove complete.
+    return null;
+  }
 }
 
 /**

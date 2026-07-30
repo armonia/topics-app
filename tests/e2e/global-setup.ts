@@ -23,6 +23,7 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
@@ -348,16 +349,36 @@ async function startTestServer(): Promise<void> {
     // silenzio. Il flag passa da env perché global-teardown.ts è un modulo a
     // parte nello stesso processo — come già fa __TEST_SERVER_PID.
     if (process.env.__E2E_TEARDOWN_STARTED === "1") return;
-    console.error(
-      `\n[test-server] ═══ IL SERVER DI TEST È MORTO A METÀ RUN ` +
-        `(${signal ? `segnale ${signal}` : `codice ${code}`}) ═══\n` +
-        `[test-server] Da qui in poi ogni test fallisce con ECONNREFUSED: sono rossi FINTI.\n` +
-        (signal === "SIGTERM"
-          ? `[test-server] SIGTERM = ucciso da fuori. Su questa macchina è quasi sempre un'altra run E2E\n` +
-            `[test-server] sulla stessa porta (${TEST_SERVER_PORT}): i checkout nati prima del 2026-07-28 non hanno\n` +
-            `[test-server] il run-lock e il loro globalSetup ammazza chi tiene la porta. Rimedio: E2E_PORT=13400.\n`
-          : `[test-server] Nessun segnale: è crashato da solo — il motivo è nelle righe [test-server] qui sopra.\n`),
-    );
+
+    // NON gridare subito. `terminal-session-resume.spec.ts` (AC-2, «server
+    // restart restores sessions») ammazza il server e ne riavvia un altro sulla
+    // stessa porta, DI PROPOSITO. Visto da qui quell'uscita è indistinguibile da
+    // un omicidio: il SIGTERM viene gestito con uno shutdown pulito, quindi
+    // arriva come `codice 0`, esattamente come un kill da un altro checkout. La
+    // prima versione di questo banner infatti accusava quel riavvio di essere un
+    // crash — a ogni run, in mezzo a una suite verde. Un allarme che suona
+    // sempre non è un allarme: è rumore che insegna a ignorare l'allarme vero.
+    //
+    // Ciò che distingue i due casi non è la MORTE, è cosa succede DOPO: un
+    // riavvio voluto riapre la porta in pochi secondi, un omicidio la lascia
+    // vuota (o in mano a un altro). Quindi si aspetta, si guarda, e si parla solo
+    // se non è tornato nessuno. `unref()` perché questo timer non deve tenere in
+    // vita il runner: se la suite finisce prima, il banner semplicemente non
+    // serve più.
+    const timer = setTimeout(() => {
+      if (process.env.__E2E_TEARDOWN_STARTED === "1") return;
+      if (portHolders(TEST_SERVER_PORT).length > 0) return; // riavviato: tutto a posto
+      console.error(
+        `\n[test-server] ═══ IL SERVER DI TEST È MORTO A METÀ RUN ` +
+          `(${signal ? `segnale ${signal}` : `codice ${code}`}), E NESSUNO L'HA RIAVVIATO ═══\n` +
+          `[test-server] Da qui in poi ogni test fallisce con ECONNREFUSED: sono rossi FINTI.\n` +
+          `[test-server] Quasi sempre è un'altra run E2E sulla stessa porta (${TEST_SERVER_PORT}): il suo\n` +
+          `[test-server] globalSetup ammazza chi la tiene. Un worktree di dispatch ormai ha una porta sua\n` +
+          `[test-server] (helpers/worktree-port.ts), ma i checkout nati prima del 2026-07-28 non hanno nemmeno\n` +
+          `[test-server] il run-lock. Rimedio immediato: E2E_PORT=13400 npx playwright test\n`,
+      );
+    }, SERVER_DEATH_GRACE_MS);
+    timer.unref();
   });
 
   // Store PID for teardown
