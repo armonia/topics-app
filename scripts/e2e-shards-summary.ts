@@ -34,19 +34,45 @@ function collectSpecs(suite: Suite, out: Spec[] = []): Spec[] {
 
 const failures: Array<{ shard: number; spec: Spec; message: string }> = [];
 const flaky: Array<{ shard: number; spec: Spec }> = [];
+/**
+ * Shard che NON hanno prodotto un verdetto: results.json assente, zero spec
+ * eseguite, o un errore a livello di report (globalSetup che esplode, un modulo
+ * che non si carica). Vanno tenuti separati dai test rossi perché il modo in cui
+ * mentono è opposto: un test rosso si conta, uno shard morto **non compare nei
+ * conteggi affatto** — e "244 passati, 0 falliti" con due shard morti su quattro
+ * è la riga più rassicurante che questo script possa stampare mentre metà suite
+ * non ha girato. È esattamente il caso visto in locale il 30/07 (uno shard col
+ * server oltre il timeout, uno con la cache di trasformazione in contesa). Da qui
+ * in poi il problema sta nella PRIMA riga, non in una nota dopo i conteggi.
+ */
+const brokenShards: Array<{ shard: number; why: string; detail?: string }> = [];
 let passed = 0;
 let skipped = 0;
-let missing = 0;
 
 for (let i = 1; i <= shards; i++) {
   const path = `test-results/shard-${i}/results.json`;
   const file = Bun.file(path);
   if (!(await file.exists())) {
-    console.log(`⚠️  shard ${i}: nessun results.json (${path}) — lo shard è morto prima di scriverlo`);
-    missing++;
+    brokenShards.push({ shard: i, why: `nessun results.json (${path}) — morto prima di scriverlo` });
     continue;
   }
-  const report = (await file.json()) as { suites?: Suite[] };
+  const report = (await file.json()) as { suites?: Suite[]; errors?: Array<{ message?: string }> };
+
+  // Errori a livello di report: non sono test rossi, sono lo shard che non è mai
+  // arrivato a eseguire. Playwright li mette qui e i conteggi per-spec non li
+  // vedono.
+  const reportErrors = report.errors ?? [];
+  const specCount = (report.suites ?? []).reduce((n, s) => n + collectSpecs(s).length, 0);
+  if (reportErrors.length || specCount === 0) {
+    brokenShards.push({
+      shard: i,
+      why: reportErrors.length
+        ? `${reportErrors.length} errore/i di report, ${specCount} spec eseguite`
+        : "0 spec eseguite",
+      detail: (reportErrors[0]?.message ?? "").split("\n")[0].slice(0, 200) || undefined,
+    });
+  }
+
   for (const suite of report.suites ?? []) {
     for (const spec of collectSpecs(suite)) {
       for (const test of spec.tests) {
@@ -67,11 +93,41 @@ for (let i = 1; i <= shards; i++) {
   }
 }
 
+const reporting = shards - brokenShards.length;
+
 console.log("═".repeat(78));
-console.log(
-  `E2E — ${passed} passati, ${failures.length} falliti, ${flaky.length} flaky, ${skipped} skippati (${shards} shard)`,
-);
+if (brokenShards.length) {
+  // Prima riga = il problema. Un conteggio che sembra verde non deve mai essere
+  // la prima cosa che si legge quando parte della suite non ha girato.
+  console.log(
+    `E2E — INCOMPLETO: ${brokenShards.length}/${shards} shard non hanno eseguito test ` +
+      `(i conteggi sotto coprono solo ${reporting}/${shards} shard)`,
+  );
+} else {
+  console.log(
+    `E2E — ${passed} passati, ${failures.length} falliti, ${flaky.length} flaky, ${skipped} skippati (${shards} shard)`,
+  );
+}
 console.log("═".repeat(78));
+
+if (brokenShards.length) {
+  console.log("\nSHARD SENZA VERDETTO (non è un test rosso: è suite che NON ha girato):");
+  for (const { shard, why, detail } of brokenShards) {
+    console.log(`  · shard ${shard}: ${why}`);
+    if (detail) console.log(`    ${detail}`);
+    console.log(`    log: test-results/shard-${shard}/log.txt`);
+  }
+  console.log(
+    "\n  Quasi sempre è contesa fra shard sulla stessa macchina (server di test oltre\n" +
+      "  il timeout, cache di trasformazione in corsa). Riprova quello shard da solo per\n" +
+      "  distinguerla da un rosso vero:\n" +
+      `    E2E_PORT=13340 npx playwright test --shard=<i>/${shards}`,
+  );
+  console.log(
+    `\n  Conteggi parziali (${reporting}/${shards} shard): ${passed} passati, ` +
+      `${failures.length} falliti, ${flaky.length} flaky, ${skipped} skippati`,
+  );
+}
 
 if (flaky.length) {
   console.log("\nFLAKY (passati al retry — vanno comunque guardati):");
@@ -99,5 +155,4 @@ if (failures.length) {
   }
 }
 
-if (missing) process.exit(1);
-process.exit(failures.length ? 1 : 0);
+process.exit(failures.length || brokenShards.length ? 1 : 0);
