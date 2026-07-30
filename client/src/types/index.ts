@@ -97,6 +97,17 @@ export interface ChatMessage extends Message {
   usageCompletionTokens?: number | null;
   /** Best-effort cost in USD cents. May be null even when token counts exist. */
   costCents?: number | null;
+  /**
+   * Lo SCORPORO di `usagePromptTokens`: quanta parte era cache. Quote DISGIUNTE —
+   * prompt = fresco + read + creation + creation1h, e `cacheCreationTokens` NON
+   * include `cacheCreation1hTokens`. Vedi `server/db/migrations/070`.
+   *
+   * `null`/assente ≠ 0: assente vuol dire "non lo sappiamo" (riga anteriore alla
+   * 070, provider che non riporta l'usage), 0 vuol dire "misurato, nessuna cache".
+   */
+  cacheReadTokens?: number | null;
+  cacheCreationTokens?: number | null;
+  cacheCreation1hTokens?: number | null;
 }
 
 export interface CreateTopicRequest {
@@ -353,8 +364,18 @@ export interface WSStreamEndMessage {
   usageCompletionTokens?: number;
   /** Cost in cents (USD). Computed via `calculateCost` from prompt+completion. */
   costCents?: number;
+  /** Lo scorporo della cache del turno appena finito (quote disgiunte). Assenti
+   *  quando il provider non riporta l'usage. */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheCreation1hTokens?: number;
   /** Free-form reason carried on non-success terminations (e.g. `user_abort`). */
   reason?: string;
+  /** Il turno è stato fermato prima che il modello producesse qualcosa e il
+   *  segnaposto è stato CANCELLATO, non finalizzato: chi ha quella riga in
+   *  pagina deve toglierla o gli resta una bolla vuota che il server non ha
+   *  più. Vedi `shared/empty-turn.ts`. */
+  discardedMessageId?: string;
 }
 
 // Per-event slices of a streaming assistant turn. The server's chat

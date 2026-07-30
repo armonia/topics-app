@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { isOwnFrame } from '@/state/wsIdentity';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -511,7 +512,30 @@ function ChatPaneComponent({
   // antenati scrollabili — inclusa la lista virtualizzata dei messaggi. A ogni
   // cambio di tab era lavoro buttato, e sulla lista poteva pure strattonare la
   // posizione di scroll.
-  useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 50); }, [isFocused]);
+  // …e soprattutto: il fuoco al composer si dà solo se NESSUNO se l'è preso nel
+  // frattempo. Questo `setTimeout` arrivava buono per tutti, e 50 ms dopo il
+  // click strappava il fuoco a qualunque cosa l'utente avesse appena aperto:
+  // misurato sul picker del modello, il campo di ricerca del popover lo prendeva
+  // a 25 ms e il composer se lo riprendeva a 29 ms, quindi le frecce finivano
+  // nella textarea e la navigazione da tastiera del picker NON FUNZIONAVA
+  // (`picker-keyboard-nav.spec.ts` lo dava «flaky»: era rotto, e passava solo
+  // quando la corsa andava per il verso giusto).
+  // La regola è "non rubare": si fotografa chi ha il fuoco quando la pane
+  // diventa attiva e, allo scadere, si procede solo se non è cambiato nulla.
+  // Copre il caso voluto (clic sulla tab o sull'area messaggi ⇒ scrivi subito,
+  // il fuoco lì non l'ha spostato nessuno) senza toccare quello in cui l'utente
+  // ha deliberatamente messo il fuoco altrove.
+  useEffect(() => {
+    if (!isFocused) return;
+    const at = document.activeElement;
+    const t = setTimeout(() => {
+      if (document.activeElement !== at) return;
+      textareaRef.current?.focus({ preventScroll: true });
+    }, 50);
+    // Il timer non veniva nemmeno annullato: cambiando tab in fretta restavano
+    // in volo focus() diretti a una pane che non è più quella davanti.
+    return () => clearTimeout(t);
+  }, [isFocused]);
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
   // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
   // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
@@ -534,11 +558,30 @@ function ChatPaneComponent({
     }
   }, [isDraft, currentMessages, currentStreaming, topic.id, topic.name, topic.projectPath, autoNameTriggered, onUpdateTopic]);
 
-  const sendTyping = useCallback((text?: string) => sendWS({ type: 'typing', topicId: topic.id, text: text || '' }), [sendWS, topic.id]);
+  // Un frame per TASTO era il comportamento di prima: `handleKeyDown` chiamava
+  // questa a ogni keydown, e ogni frame veniva ritrasmesso a tutti i client
+  // focussati sulla topic, ognuno dei quali faceva un setState e riarmava un
+  // timer da 2 s. Su una digitazione normale sono ~5 frame al secondo per
+  // carattere-al-decimo-di-secondo, per niente: l'indicatore dice «sta
+  // scrivendo», non COSA, e mezzo secondo di risoluzione basta.
+  const lastTypingSentRef = useRef(0);
+  const TYPING_THROTTLE_MS = 500;
+  const sendTyping = useCallback((text?: string) => {
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < TYPING_THROTTLE_MS) return;
+    lastTypingSentRef.current = now;
+    sendWS({ type: 'typing', topicId: topic.id, text: text || '' });
+  }, [sendWS, topic.id]);
 
   useEffect(() => {
     const unsub = onWSMessage((msg: WSMessage) => {
-      if (msg.type === 'typing' && msg.topicId === topic.id) {
+      // Il proprio eco NON accende l'indicatore. Il server esclude gia' la socket
+      // mittente, ma quel filtro non copre il caso in cui lo STESSO utente ha la
+      // topic aperta due volte (l'app desktop piu' una scheda su localhost, due
+      // finestre, la PWA sul telefono): li' ognuno vedeva «qualcuno sta
+      // scrivendo» mentre a scrivere era lui. Il frame porta `clientId` proprio
+      // per questo, ed era inutilizzato.
+      if (msg.type === 'typing' && msg.topicId === topic.id && !isOwnFrame((msg as { clientId?: string }).clientId)) {
         setOthersTyping(true); setOthersTypingText(msg.text || '');
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => { setOthersTyping(false); setOthersTypingText(''); }, 2000);

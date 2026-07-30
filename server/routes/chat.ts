@@ -36,6 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
@@ -131,7 +132,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
     getTopicBySessionKey, saveSingleTopic,
     appendLocalMessage,
-    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
+    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
@@ -642,6 +643,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let usagePromptTokens: number | undefined;
           let usageCompletionTokens: number | undefined;
           let costCents: number | undefined;
+          // Lo SCORPORO della cache, che finora esisteva solo dentro il calcolo del
+          // prezzo e veniva buttato. In un turno agentico lungo la cache riletta è
+          // la voce schiacciante — lo stesso prompt riletto a ogni chiamata al
+          // modello arriva a milioni di token — quindi il totale da solo non
+          // insegna niente: dice quanto è costato, non cosa l'ha reso costoso.
+          //
+          // Quote DISGIUNTE, come in usage/pricing.ts: `cacheCreationTokens` NON
+          // include `cacheCreation1hTokens`. Sommarle sarebbe contarle due volte.
+          let cacheReadTokens: number | undefined;
+          let cacheCreationTokens: number | undefined;
+          let cacheCreation1hTokens: number | undefined;
+          // Il consumo del turno MENTRE cresce, chiamata per chiamata. Distinto
+          // dai tre di sopra, che sono il consuntivo che arriva col `result`:
+          // questo serve a far vedere qualcosa muoversi durante un turno agentico
+          // lungo, dove prima non si vedeva niente fino alla fine.
+          let live = emptyTurnUsage();
+          let liveModel: string | undefined;
           // Set when a compaction boundary lands mid-turn, so onDone knows this
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
@@ -1136,7 +1154,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
 
             const latencyMs = Date.now() - requestStartMs;
-            updateLastMessage(sessionKey, {
+            const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
@@ -1146,7 +1164,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               usagePromptTokens,
               usageCompletionTokens,
               costCents,
+              cacheReadTokens,
+              cacheCreationTokens,
+              cacheCreation1hTokens,
             });
+            // "Un turno che non ha prodotto niente non lascia niente": stop
+            // premuto prima che il modello dicesse qualsiasi cosa. Il segnaposto
+            // creato all'inizio dello stream restava in chat finalizzato vuoto —
+            // e rientrava nella history rimandata al modello a ogni turno dopo.
+            // Solo su `aborted`: `done` ed `error` scrivono comunque il loro ⚠️,
+            // quindi vuoti non sono mai. Vedi shared/empty-turn.ts.
+            const discardedMessageId = reason === "aborted" ? discardIfEmptyTurn(sessionKey, finalizedMsg) : null;
+            if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
 
@@ -1156,16 +1185,28 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
 
             if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
+              // Niente `message:new` per un turno scartato: annuncerebbe agli
+              // altri client un messaggio assistente vuoto — cioè ricreerebbe in
+              // pagina la bolla che il DB non ha più.
+              if (!discardedMessageId) {
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
+              }
               broadcastToAll({
                 type: "stream:end",
                 sessionKey,
                 topicId: matchedTopic?.id,
                 messageId: partialMsg.id,
+                ...(discardedMessageId ? { discardedMessageId } : {}),
                 latencyMs,
                 usagePromptTokens,
                 usageCompletionTokens,
                 costCents,
+                // Lo scorporo della cache va anche sul filo, non solo nella riga
+                // salvata: la UI mostra il piede del messaggio appena il turno
+                // finisce, senza rileggere la history.
+                cacheReadTokens,
+                cacheCreationTokens,
+                cacheCreation1hTokens,
                 // Vocabolario ACP sul filo. `error` NON è una ragione ACP: resta
                 // fuori da `stopReason` e viaggia come `reason` dello stream.
                 ...(isAcpStopReason(endInfo.end) ? { stopReason: endInfo.end } : {}),
@@ -1628,6 +1669,42 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
+            onCallUsage: (u) => {
+              // Si ACCUMULA: il provider manda l'usage di UNA chiamata, e il
+              // `result` finale somma già tutto — sommare anche quello sarebbe
+              // contare due volte. Il client non fa aritmetica: riceve i totali.
+              live = accumulateTurnUsage(live, u);
+              if (u.model) liveModel = u.model;
+              if (!matchedTopic) return;
+              // Costo corrente, con le stesse tariffe del consuntivo: il fresco è
+              // il RESTO (mai negativo), le due durate di cache pagano la loro.
+              let liveCost: number | undefined;
+              try {
+                const parts = turnUsageCostParts(live);
+                const usd = calculateCostWithCache({
+                  model: liveModel || overrideModel || "unknown",
+                  freshInputTokens: parts.fresh,
+                  outputTokens: parts.output,
+                  cacheReadTokens: parts.cacheRead,
+                  cacheCreationTokens: parts.cacheCreation5m,
+                  cacheCreation1hTokens: parts.cacheCreation1h,
+                });
+                if (usd > 0) liveCost = Math.round(usd * 100);
+              } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
+              broadcastToAll({
+                type: "stream:usage",
+                sessionKey,
+                topicId: matchedTopic.id,
+                calls: live.calls,
+                promptTokens: live.prompt,
+                completionTokens: live.completion,
+                cacheReadTokens: live.cacheRead,
+                cacheCreationTokens: live.cacheCreation,
+                cacheCreation1hTokens: live.cacheCreation1h,
+                ...(liveCost != null ? { costCents: liveCost } : {}),
+                ...(liveModel ? { model: liveModel } : {}),
+              });
+            },
             onContextSize: (tokens, model, windowTokens) => {
               // 1) Il ring del contesto reale (1b.5). Questo numero — il
               //    prompt di UNA chiamata — è l'unica misura onesta di "quanto
@@ -1716,6 +1793,34 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   const outTok = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens;
                   if (typeof inTok === "number") usagePromptTokens = inTok;
                   if (typeof outTok === "number") usageCompletionTokens = outTok;
+                  // Lo scorporo della cache si calcola SEMPRE, prima e a
+                  // prescindere dal costo.
+                  //
+                  // Prima viveva solo dentro il ramo `else if` qui sotto — quello
+                  // che deriva il prezzo quando il provider non lo dà — e
+                  // claude-code il prezzo lo dà quasi sempre (`total_cost_usd`).
+                  // Quindi nel caso NORMALE lo split non veniva nemmeno calcolato,
+                  // e la quota di cache era invisibile proprio sui turni dove è
+                  // enorme. Ma la composizione dei token è un FATTO del turno, non
+                  // un sottoprodotto del calcolo del prezzo: si misura sempre.
+                  if (typeof inTok === "number") {
+                    try {
+                      const s = splitPromptTokens({
+                        promptTokensTotal: inTok,
+                        cacheReadTokens: usage.cacheRead,
+                        cacheCreationTokens: usage.cacheCreation,
+                      });
+                      // Le due durate sono quote disgiunte: quel che non è a un'ora
+                      // è a cinque minuti. `min` perché il provider potrebbe
+                      // riportare un 1h maggiore del totale di scrittura scorporato
+                      // (arrotondamenti fra chiamate), e un negativo qui
+                      // avvelenerebbe sia la resa sia il prezzo.
+                      const w1h = Math.min(usage.cacheCreation1h ?? 0, s.cacheCreation);
+                      cacheReadTokens = s.cacheRead;
+                      cacheCreationTokens = s.cacheCreation - w1h;
+                      cacheCreation1hTokens = w1h;
+                    } catch { /* modello sconosciuto o usage incoerente: nessuno scorporo */ }
+                  }
                   // NB: `inTok` here is the TURN AGGREGATE (the CLI sums usage
                   // across every model call in the turn), which is fine for
                   // cost/tokens accounting below but is NOT a context size.
@@ -1728,28 +1833,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     costCents = Math.round(usdFromProvider * 100);
                   } else if (typeof inTok === "number" && typeof outTok === "number") {
                     try {
-                      // `inTok` comprende i token letti DALLA CACHE, e in un turno
-                      // agentico lungo sono la quota schiacciante: lo stesso prompt
-                      // riletto a ogni chiamata al modello arriva a milioni. Tariffarli
-                      // come input fresco moltiplicava il costo per ~10 (un turno da
-                      // ~$9 mostrato a $90). Le quote arrivano separate dal provider:
-                      // si scorporano e ognuna paga la sua tariffa.
-                      const split = splitPromptTokens({
-                        promptTokensTotal: inTok,
-                        cacheReadTokens: usage.cacheRead,
-                        cacheCreationTokens: usage.cacheCreation,
-                      });
-                      // Le due durate di cache hanno tariffe diverse (2× a un'ora,
-                      // 1.25× a cinque minuti) e il provider le manda scorporate:
-                      // quote DISGIUNTE, quel che non è a un'ora è a cinque minuti.
-                      const w1h = Math.min(usage.cacheCreation1h ?? 0, split.cacheCreation);
+                      // Riusa lo scorporo già calcolato sopra invece di rifarlo: era
+                      // duplicato, e due copie della stessa aritmetica sullo stesso
+                      // usage sono due occasioni di divergere.
+                      //
+                      // Perché lo scorporo serve al PREZZO: `inTok` comprende i token
+                      // letti DALLA CACHE, e in un turno agentico lungo sono la quota
+                      // schiacciante. Tariffarli come input fresco moltiplicava il
+                      // costo per ~10 (un turno da ~$9 mostrato a $90). Le due durate
+                      // di scrittura hanno tariffe diverse (2× a un'ora, 1.25× a
+                      // cinque minuti) e vanno pagate ognuna la sua.
+                      const fresh = inTok - (cacheReadTokens ?? 0) - (cacheCreationTokens ?? 0) - (cacheCreation1hTokens ?? 0);
                       const usd = calculateCostWithCache({
                         model: message.model || overrideModel || "unknown",
-                        freshInputTokens: split.fresh,
+                        freshInputTokens: Math.max(0, fresh),
                         outputTokens: outTok,
-                        cacheReadTokens: split.cacheRead,
-                        cacheCreationTokens: split.cacheCreation - w1h,
-                        cacheCreation1hTokens: w1h,
+                        cacheReadTokens: cacheReadTokens ?? 0,
+                        cacheCreationTokens: cacheCreationTokens ?? 0,
+                        cacheCreation1hTokens: cacheCreation1hTokens ?? 0,
                       });
                       if (usd > 0) costCents = Math.round(usd * 100);
                     } catch { /* unknown model — skip cost, keep tokens */ }

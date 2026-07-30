@@ -18,6 +18,7 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
+import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import type { OutboundMessage } from "../shared/ws-outbound";
 
@@ -218,8 +219,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -230,6 +231,9 @@ export function createAppContext(baseDir: string): AppContext {
         media = $media,
         partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status,
         latency_ms = COALESCE($latency_ms, latency_ms),
+        cache_read_tokens = COALESCE($cache_read_tokens, cache_read_tokens),
+        cache_creation_tokens = COALESCE($cache_creation_tokens, cache_creation_tokens),
+        cache_creation_1h_tokens = COALESCE($cache_creation_1h_tokens, cache_creation_1h_tokens),
         usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
         usage_completion_tokens = COALESCE($usage_completion_tokens, usage_completion_tokens),
         cost_cents = COALESCE($cost_cents, cost_cents)
@@ -481,6 +485,11 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.usage_prompt_tokens !== undefined && row.usage_prompt_tokens !== null) msg.usagePromptTokens = row.usage_prompt_tokens;
     if (row.usage_completion_tokens !== undefined && row.usage_completion_tokens !== null) msg.usageCompletionTokens = row.usage_completion_tokens;
     if (row.cost_cents !== undefined && row.cost_cents !== null) msg.costCents = row.cost_cents;
+    // NULL resta undefined: "non lo sappiamo" e "misurato, nessuna cache" sono due
+    // cose diverse e la UI le mostra diverse.
+    if (row.cache_read_tokens !== undefined && row.cache_read_tokens !== null) msg.cacheReadTokens = row.cache_read_tokens;
+    if (row.cache_creation_tokens !== undefined && row.cache_creation_tokens !== null) msg.cacheCreationTokens = row.cache_creation_tokens;
+    if (row.cache_creation_1h_tokens !== undefined && row.cache_creation_1h_tokens !== null) msg.cacheCreation1hTokens = row.cache_creation_1h_tokens;
     return msg;
   }
 
@@ -494,6 +503,9 @@ export function createAppContext(baseDir: string): AppContext {
       $usage_prompt_tokens: msg.usagePromptTokens ?? null,
       $usage_completion_tokens: msg.usageCompletionTokens ?? null,
       $cost_cents: msg.costCents ?? null,
+      $cache_read_tokens: msg.cacheReadTokens ?? null,
+      $cache_creation_tokens: msg.cacheCreationTokens ?? null,
+      $cache_creation_1h_tokens: msg.cacheCreation1hTokens ?? null,
       $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
     };
   }
@@ -1525,6 +1537,95 @@ export function createAppContext(baseDir: string): AppContext {
     return stored;
   }
 
+  /**
+   * Cancella un messaggio E tutto il sottoalbero che gli pende sotto, riparando
+   * la contabilità dei rami:
+   *  · i fratelli superstiti vengono rinumerati DENSI (le frecce fanno ±1 sul
+   *    valore letterale di `branch_index`: un buco le lascerebbe a vuoto);
+   *  · il puntatore attivo del padre atterra su un fratello vivo, o sparisce
+   *    quando restano 0/1 figli (indice 0 per default);
+   *  · le righe di `active_branches` che puntano a un id cancellato se ne vanno.
+   *
+   * Stava inline dentro `DELETE /api/messages/:id`. Ora lo chiama anche lo
+   * scarto del segnaposto vuoto sull'abort: due copie della stessa transazione
+   * vorrebbero dire due modi diversi di riparare i rami, e uno dei due sbagliato.
+   * Ritorna `false` se il messaggio non esiste.
+   */
+  function deleteMessageSubtree(sessionKey: string, messageId: string): boolean {
+    const msg = getMessageById(messageId);
+    if (!msg) return false;
+    const deletedIndex = msg.branchIndex ?? 0;
+    const parentKey = msg.parentId ?? "__root__";
+    db.transaction(() => {
+      // Ids del sottoalbero (se stesso incluso) via CTE ricorsiva, per sessione.
+      const subtree = db
+        .prepare(
+          `WITH RECURSIVE sub(id) AS (
+             SELECT id FROM messages WHERE id = ? AND session_key = ?
+             UNION ALL
+             SELECT m.id FROM messages m JOIN sub ON m.parent_id = sub.id
+           ) SELECT id FROM sub`,
+        )
+        .all(messageId, sessionKey) as Array<{ id: string }>;
+      const ids = subtree.map(r => r.id);
+      const placeholders = ids.map(() => "?").join(",");
+      db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids);
+      db.prepare(`DELETE FROM active_branches WHERE session_key = ? AND parent_id IN (${placeholders})`)
+        .run(sessionKey, ...ids);
+
+      // Riferimenti che restavano appesi nel vuoto: nessuna di queste tabelle ha
+      // una FK verso `messages`, quindi cancellare un sottoalbero lasciava pin e
+      // menzioni che puntavano a righe inesistenti (due se ne contavano nel DB
+      // vivo il 30/07). Il marcatore di compattazione invece non si butta: dice
+      // "la compattazione sta DOPO questo messaggio", e ereditando il padre del
+      // sottoalbero resta nello stesso punto del thread (`NULL` = in testa).
+      db.prepare(`DELETE FROM topic_pinned_messages WHERE message_id IN (${placeholders})`).run(...ids);
+      db.prepare(`DELETE FROM mentions WHERE message_id IN (${placeholders})`).run(...ids);
+      db.prepare(
+        `UPDATE compaction_markers SET after_message_id = ? WHERE after_message_id IN (${placeholders})`,
+      ).run(msg.parentId ?? null, ...ids);
+
+      // Rinumera densi i fratelli superstiti, conservandone l'ordine.
+      const siblings = db
+        .prepare(
+          msg.parentId
+            ? `SELECT id, branch_index FROM messages WHERE session_key = ? AND parent_id = ? ORDER BY branch_index ASC`
+            : `SELECT id, branch_index FROM messages WHERE session_key = ? AND parent_id IS NULL ORDER BY branch_index ASC`,
+        )
+        .all(...(msg.parentId ? [sessionKey, msg.parentId] : [sessionKey])) as Array<{ id: string; branch_index: number }>;
+      const renumber = db.prepare(`UPDATE messages SET branch_index = ? WHERE id = ?`);
+      siblings.forEach((s, i) => { if (s.branch_index !== i) renumber.run(i, s.id); });
+
+      if (siblings.length <= 1) {
+        db.prepare(`DELETE FROM active_branches WHERE session_key = ? AND parent_id = ?`).run(sessionKey, parentKey);
+      } else {
+        // Atterra sul fratello che ha preso il posto del ramo cancellato (o
+        // sull'ultimo, quando il cancellato era l'indice più alto).
+        const nextActive = Math.min(deletedIndex, siblings.length - 1);
+        db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES (?, ?, ?)`)
+          .run(parentKey, sessionKey, nextActive);
+      }
+    })();
+    return true;
+  }
+
+  /**
+   * "Un turno che non ha prodotto niente non lascia niente."
+   *
+   * Da chiamare DOPO aver finalizzato un turno interrotto: se la riga
+   * dell'assistente è rimasta completamente vuota (niente testo, niente
+   * ragionamento, nessuna tool call, nessun blocco, nessun media) il segnaposto
+   * viene cancellato invece di restare in chat. Al modello non arrivava comunque
+   * (la history verso il provider scarta i turni vuoti, `empty-after-strip` in
+   * server/context/assemble.ts): il danno era nel thread salvato e in pagina.
+   * Ritorna l'id scartato, o `null` se il turno aveva prodotto qualcosa (allora
+   * si tiene: è lavoro fatto).
+   */
+  function discardIfEmptyTurn(sessionKey: string, msg: StoredMessage | null): string | null {
+    if (!msg || !isEmptyAssistantTurn(msg)) return null;
+    return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
+  }
+
   function switchActiveBranch(sessionKey: string, parentId: string, branchIndex: number): void {
     stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
   }
@@ -1562,6 +1663,8 @@ export function createAppContext(baseDir: string): AppContext {
     getMessageSessionKey,
     createBranchMessage,
     createBranchPartialMessage,
+    deleteMessageSubtree,
+    discardIfEmptyTurn,
     switchActiveBranch,
     getSiblingMessages,
     loadActiveThread,

@@ -53,15 +53,37 @@ export function TurnActivityIndicator({
   // riceve `sessionKey` e `onMessage`: uno stato transitorio di un elemento non
   // ha motivo di attraversare l'albero come prop.
   const [slow, setSlow] = useState(false);
+  // Il CONSUMO del turno mentre cresce. Stessa iscrizione, stessa ragione: uno
+  // stato che vive quanto il turno non ha motivo di attraversare l'albero.
+  //
+  // Prima i numeri di consumo arrivavano una volta sola, a turno finito: durante
+  // un turno agentico da otto tool call non si vedeva muovere niente, e l'unica
+  // cosa viva era il cronometro. Il server manda i totali GIA' accumulati
+  // (`stream:usage`), quindi qui non si fa aritmetica: si mostra.
+  const [usage, setUsage] = useState<{ calls: number; tokens: number; costCents?: number } | null>(null);
   useEffect(() => {
     if (!onMessage || !sessionKey) return;
     return onMessage((msg: WSMessage) => {
-      const m = msg as { type?: string; sessionKey?: string };
+      const m = msg as {
+        type?: string; sessionKey?: string;
+        calls?: number; promptTokens?: number; completionTokens?: number; costCents?: number;
+      };
       if (m.sessionKey !== sessionKey) return;
       if (m.type === 'stream:slow') setSlow(true);
       else if (m.type === 'stream:resumed') setSlow(false);
+      else if (m.type === 'stream:usage') {
+        setUsage({
+          calls: m.calls ?? 0,
+          tokens: (m.promptTokens ?? 0) + (m.completionTokens ?? 0),
+          costCents: m.costCents,
+        });
+      }
     });
   }, [onMessage, sessionKey]);
+
+  // Il turno cambia ⇒ il conto riparte. Senza, un secondo turno erediterebbe i
+  // numeri del primo finché non arriva la sua prima chiamata al modello.
+  useEffect(() => { setUsage(null); }, [since]);
 
   const base = since != null && Number.isFinite(since) ? since : now;
   const elapsed = Math.max(0, now - base);
@@ -84,6 +106,21 @@ export function TurnActivityIndicator({
         {slow ? 'stream lento, il provider è ancora connesso' : `${phraseAt(elapsed)}…`}
       </span>
       <span className="tabular-nums text-app-text-muted shrink-0" data-testid="turn-timer">· {formatDurationMs(elapsed)}</span>
+      {usage && usage.tokens > 0 && (
+        <span
+          className="tabular-nums text-app-text-muted shrink-0"
+          data-testid="turn-usage"
+          // `calls` sta nel title e non nella riga: e' il numero che SPIEGA
+          // perche' i token letti superano la finestra di contesto (lo stesso
+          // prompt riletto N volte), ma la striscia deve restare una riga.
+          title={`${usage.calls} chiamat${usage.calls === 1 ? 'a' : 'e'} al modello finora — i token letti comprendono il prompt riletto a ogni chiamata`}
+        >
+          · {usage.tokens.toLocaleString()} token
+          {usage.costCents != null && usage.costCents > 0
+            ? ` · ${usage.costCents / 100 >= 1 ? `$${(usage.costCents / 100).toFixed(2)}` : `$${(usage.costCents / 100).toFixed(4)}`}`
+            : ''}
+        </span>
+      )}
     </div>
   );
 }

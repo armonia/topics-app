@@ -90,6 +90,41 @@ describe("DELETE /api/messages/:id", () => {
     const resp = (await del(branches, "nope"))!;
     expect(resp.status).toBe(404);
   });
+
+  test("non lascia pin e menzioni appesi, e il marcatore di compattazione eredita il padre", async () => {
+    // Nessuna di queste tabelle ha una FK verso `messages`: prima della bonifica
+    // del 30/07 cancellare un messaggio lasciava righe che puntavano nel vuoto
+    // (due se ne contavano nel DB vivo). Il marcatore invece non si butta —
+    // dice "la compattazione sta DOPO questo messaggio", quindi eredita il padre
+    // del sottoalbero e resta nello stesso punto del thread.
+    const { ctx, branches } = await makeRouters();
+    const sk = "topic:del-refs";
+    seedLinearThread(ctx, sk, "dr");
+    ctx.db.prepare(
+      `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    ).run("t-del-refs", "refs", "refs", sk);
+    ctx.db.prepare(`INSERT INTO topic_pinned_messages (topic_id, message_id) VALUES (?, ?)`)
+      .run("t-del-refs", "dr-a2");
+    ctx.db.prepare(
+      `INSERT INTO mentions (message_id, session_key, mentioned_entity, entity_type, created_at)
+       VALUES (?, ?, ?, 'agent', datetime('now'))`,
+    ).run("dr-a2", sk, "@qualcuno");
+    ctx.db.prepare(
+      `INSERT INTO compaction_markers (id, topic_id, session_key, after_message_id, trigger)
+       VALUES (?, ?, ?, ?, 'manual')`,
+    ).run("cm-del-refs", "t-del-refs", sk, "dr-a2");
+
+    // Cancella u2: si porta dietro a2, su cui pendono pin, menzione e marcatore.
+    expect((await del(branches, "dr-u2"))!.status).toBe(200);
+
+    const n = (sql: string) => (ctx.db.query(sql).get() as { n: number }).n;
+    expect(n(`SELECT COUNT(*) n FROM topic_pinned_messages WHERE message_id = 'dr-a2'`)).toBe(0);
+    expect(n(`SELECT COUNT(*) n FROM mentions WHERE message_id = 'dr-a2'`)).toBe(0);
+    const cm = ctx.db.query(`SELECT after_message_id a FROM compaction_markers WHERE id = 'cm-del-refs'`)
+      .get() as { a: string | null };
+    expect(cm.a).toBe("dr-a1");
+  });
 });
 
 describe("POST /api/messages/:id/regenerate — validation", () => {

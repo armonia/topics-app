@@ -3,19 +3,32 @@ import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryM
 import { chatApi } from '../lib/api';
 import { bumpAura } from '../lib/auraActivity';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
+// "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
+// applica il server prima di cancellare la riga. Due definizioni di "vuoto"
+// vorrebbero dire bolla via da una parte e ancora lì dall'altra.
+import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
 import {
+  evictSessions,
   getAllMessages,
   getSessionMessagesFromStore,
+  listSessions,
   replaceAllMessages,
   // Importata con l'alias storico: e' una funzione di MODULO, quindi stabile per
   // definizione — ed e' anche il motivo per cui non compare in nessuna lista di
   // dipendenze, mentre il vecchio `setMessages` di `useState` ci compariva.
   updateMessages as setMessages,
 } from '../state/messageStore';
+import {
+  MESSAGE_MIN_IDLE_MS,
+  MESSAGE_RESIDENCY_BUDGET,
+  MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
+  decideMessageResidency,
+  type MessageResidencyInput,
+} from '../state/messageResidency';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -43,6 +56,20 @@ const CACHE_MAX_MESSAGES = 50;
 // `wantsAll`); pagination (positive limit / offset) stays available for callers
 // that opt into it, but the chat never truncates.
 const HISTORY_FETCH_ALL = 0;
+
+/**
+ * Ogni quanto passa lo spazzino dei trascritti. Mezzo minuto: la grazia della
+ * politica è di un minuto, quindi nulla può essere sfrattato prima di averla
+ * superata, e il costo di un giro è contare le chiavi di un oggetto.
+ */
+const SWEEP_EVERY_MS = 30_000;
+
+/**
+ * Quante sessioni lo spazzino ha restituito da quando la finestra è aperta.
+ * Serve alla sonda di memoria: senza, «entries: 7» non distingue «poche chat
+ * aperte» da «ne ho aperte cento e le sto potando».
+ */
+let sweptSessions = 0;
 
 // Dopo tre minuti di silenzio si va a CHIEDERE al server se il turno è ancora
 // vivo. Non si spegne a scadenza: il silenzio non vuol dire morte.
@@ -395,6 +422,9 @@ export function useChat() {
         sessioneMaggiore: biggestKey,
         messaggiNellaMaggiore: biggest,
         markerBytes: roughBytes(heapMarkersRef.current),
+        // Senza questo, `entries: 7` non distingue «ho aperto sette chat» da
+        // «ne ho aperte cento e lo spazzino le sta restituendo».
+        sessioniSfrattate: sweptSessions,
       },
     };
   }), []);
@@ -684,6 +714,37 @@ export function useChat() {
       
       return prev;
     });
+  }, []);
+
+  /**
+   * Toglie dalla chat la bolla di un turno che non ha prodotto NIENTE — quella
+   * che restava quando si premeva stop prima che il modello dicesse qualcosa.
+   *
+   * Per id quando il server ce lo dice (`stream:end.discardedMessageId`), con
+   * ripiego sull'ULTIMA bolla: in una finestra che sta solo guardando il turno
+   * di un'altra, il segnaposto ha un id generato in locale che con la riga del
+   * DB non c'entra niente, e cercarlo per id non troverebbe mai nulla.
+   * Ritorna `true` se ha tolto qualcosa.
+   */
+  const dropEmptyTurn = useCallback((sessionKey: string, messageId?: string): boolean => {
+    const msgs = messagesRef.current[sessionKey] || [];
+    if (msgs.length === 0) return false;
+    const byId = messageId ? msgs.findIndex(m => m.id === messageId) : -1;
+    const target = byId >= 0 ? byId : msgs.length - 1;
+    const victim = msgs[target];
+    if (!isEmptyAssistantTurn(victim)) return false;
+    const trimmed = [...msgs.slice(0, target), ...msgs.slice(target + 1)];
+    // L'updater resta PURO e ricontrolla su `prev`: fra la lettura del ref e il
+    // commit può essere arrivato un altro evento, e riscrivere `trimmed` alla
+    // cieca cancellerebbe quello che è arrivato nel mezzo.
+    setMessages(prev => {
+      const cur = prev[sessionKey] || [];
+      const at = cur.findIndex(m => m.id === victim.id);
+      if (at < 0 || !isEmptyAssistantTurn(cur[at])) return prev;
+      return { ...prev, [sessionKey]: [...cur.slice(0, at), ...cur.slice(at + 1)] };
+    });
+    cacheMessages(sessionKey, trimmed);
+    return true;
   }, []);
 
   // Append a delta or tool call to the message's chronological `blocks`
@@ -1117,6 +1178,11 @@ export function useChat() {
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
         // Clear any stale "queued" error banner on successful stream completion
         setError(prev => (prev?.includes('queued') ? null : prev));
+        // Il turno è stato fermato prima che il modello producesse qualcosa: il
+        // server ha CANCELLATO la riga, non finalizzata. Toglierla anche qui, o
+        // questa finestra resta con una bolla vuota che il DB non ha più (e che
+        // sparirebbe solo al reload).
+        if (event.discardedMessageId) dropEmptyTurn(sessionKey, event.discardedMessageId);
         // Strip any remaining browser markers (handles split-across-chunks case)
         //
         // La scrittura in cache sta FUORI dall'updater. Un updater di `setState`
@@ -1159,6 +1225,12 @@ export function useChat() {
           if (typeof event.usagePromptTokens === 'number') finalPatch.usagePromptTokens = event.usagePromptTokens;
           if (typeof event.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = event.usageCompletionTokens;
           if (typeof event.costCents === 'number') finalPatch.costCents = event.costCents;
+          // Lo scorporo della cache, sullo stesso principio degli altri: si applica
+          // SOLO se il server l'ha mandato. Un `?? 0` qui scriverebbe "misurato,
+          // nessuna cache" su un turno di cui non sappiamo la composizione.
+          if (typeof event.cacheReadTokens === 'number') finalPatch.cacheReadTokens = event.cacheReadTokens;
+          if (typeof event.cacheCreationTokens === 'number') finalPatch.cacheCreationTokens = event.cacheCreationTokens;
+          if (typeof event.cacheCreation1hTokens === 'number') finalPatch.cacheCreation1hTokens = event.cacheCreation1hTokens;
           updateLastMessage(sessionKey, finalPatch);
         }
         // Auto-send next queued message for this session (if any)
@@ -1218,7 +1290,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1670,12 +1742,16 @@ export function useChat() {
       // We just emptied the local map; future stop clicks on this key
       // must re-hydrate from the server before they can wipe again.
       hydratedSessionsRef.current.delete(sessionKey);
-    } else {
+    } else if (!dropEmptyTurn(sessionKey)) {
+      // Il turno aveva prodotto qualcosa (mezza frase, un ragionamento, una tool
+      // call): resta, si toglie solo lo stato "in corso". Se non aveva prodotto
+      // niente la bolla se n'è già andata qui sopra — il server fa lo stesso
+      // sulla riga, così lo stop non lascia un vuoto né in pagina né in DB.
       updateLastMessage(sessionKey, { partial: false });
     }
 
     return isFirstMessage;
-  }, [updateLastMessage]);
+  }, [updateLastMessage, dropEmptyTurn]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
@@ -2034,21 +2110,118 @@ export function useChat() {
     });
   }, []);
 
+  /**
+   * Dimentica le cache per-sessione di questo hook.
+   *
+   * `useChat` è una sola istanza per la vita dell'app, quindi queste mappe
+   * crescerebbero con ogni topic mai aperta senza calare mai. Buttarle rende
+   * anche corretto il rientro: senza, una sessione svuotata resterebbe segnata
+   * come «già idratata» e `stopSession` si fiderebbe di un conteggio a zero che
+   * non viene dal server (vedi `stopSessionPolicy.ts`).
+   */
+  const forgetSessionCaches = useCallback((sessionKey: string) => {
+    filteredMessagesCacheRef.current.delete(sessionKey);
+    lastHistoryFetchAtRef.current.delete(sessionKey);
+    hydratedSessionsRef.current.delete(sessionKey);
+  }, []);
+
   const clearSession = useCallback((sessionKey: string) => {
     setMessages(prev => ({
       ...prev,
       [sessionKey]: [],
     }));
     clearCachedMessages(sessionKey);
-    // Evict this session's per-session caches too. `useChat` is a single
-    // app-lifetime instance (mounted once in App.tsx), so these Maps/Sets would
-    // otherwise grow with every topic ever opened and never shrink on removal.
-    // Dropping them here also makes a re-open correctly re-hydrate from server
-    // rather than trusting a stale "already hydrated" flag over wiped messages.
-    filteredMessagesCacheRef.current.delete(sessionKey);
-    lastHistoryFetchAtRef.current.delete(sessionKey);
-    hydratedSessionsRef.current.delete(sessionKey);
-  }, []);
+    forgetSessionCaches(sessionKey);
+  }, [forgetSessionCaches]);
+
+  /**
+   * Lo spazzino dei trascritti: restituisce la memoria delle chat che nessuno
+   * guarda più.
+   *
+   * `useChat` è una sola istanza per la vita dell'app (montata in `App`), quindi
+   * ogni mappa per-sessione qui dentro cresceva con OGNI topic mai aperta e non
+   * calava mai — e i messaggi, che sono la voce grossa, vivono in
+   * `messageStore`, dove non usciva niente per costruzione. Il tetto sulle pane
+   * smonta la chat ma non tocca il suo trascritto: la pane sparisce, i suoi
+   * diecimila messaggi restano.
+   *
+   * Chi resta lo decide `messageResidency` (modulo puro, testato); qui si
+   * raccolgono i fatti e si applica. «Occupata» è l'unione di tutto ciò che
+   * rende la copia in memoria più fresca di quella sul server: stream in corso,
+   * invio in volo, fetch di cronologia aperta, coda in uscita o in attesa di
+   * fine stream. Sfrattare una di quelle non ricaricherebbe il lavoro: lo
+   * perderebbe.
+   */
+  const loadingRef = useRefMirror(loading);
+  const thinkingRef = useRefMirror(thinking);
+  const pendingQueueRef = useRefMirror(pendingQueue);
+  useEffect(() => {
+    const sweep = (overrides?: Partial<Omit<MessageResidencyInput, 'sessions' | 'now'>>): string[] => {
+      const busy = new Set<string>();
+      const addTruthy = (m: Record<string, boolean>) => {
+        for (const [k, v] of Object.entries(m)) if (v) busy.add(k);
+      };
+      addTruthy(streamingRef.current);
+      addTruthy(loadingRef.current);
+      addTruthy(thinkingRef.current);
+      for (const k of localSSESessionsRef.current) busy.add(k);
+      for (const k of inFlightHistoryRef.current) busy.add(k);
+      for (const k of Object.keys(abortControllersRef.current)) busy.add(k);
+      for (const k of Object.keys(streamQueueRef.current)) busy.add(k);
+      for (const k of sendLockRef.current.keys()) busy.add(k);
+      for (const q of pendingQueueRef.current) busy.add(q.sessionKey);
+
+      const { evict } = decideMessageResidency({
+        sessions: listSessions().map(s => ({ ...s, busy: busy.has(s.key) })),
+        now: Date.now(),
+        budget: MESSAGE_RESIDENCY_BUDGET,
+        maxIdleMessages: MESSAGE_RESIDENCY_MAX_IDLE_MESSAGES,
+        minIdleMs: MESSAGE_MIN_IDLE_MS,
+        ...overrides,
+      });
+      if (evict.length === 0) return [];
+
+      // `evictSessions` rifiuta comunque le sessioni guardate: la politica e lo
+      // store difendono la stessa invariante da due lati, e il ritorno dice
+      // quali sono uscite DAVVERO.
+      const gone = evictSessions(evict);
+      if (gone.length === 0) return [];
+      for (const k of gone) {
+        forgetSessionCaches(k);
+        sweptSessions += 1;
+      }
+      // I divisori di compattazione seguono il trascritto: tenerli sarebbe
+      // tenere l'indice di un libro che non c'è più, e al rientro
+      // `loadHistory` li rimpiazza con la lista autorevole del server.
+      setCompactionMarkers(prev => {
+        let touched = false;
+        const next = { ...prev };
+        for (const k of gone) {
+          if (k in next) { delete next[k]; touched = true; }
+        }
+        return touched ? next : prev;
+      });
+      return gone;
+    };
+
+    /**
+     * Lo stesso spazzino, a comando. Serve a due cose che il timer non copre:
+     * rispondere a «perché questa chat si è ricaricata?» dalla console
+     * (`__topicsMessageSweep()` dice esattamente quali sessioni escono, con
+     * quali soglie), e permettere a un test di provare l'invariante senza
+     * aspettare mezzo minuto di grazia più mezzo minuto di timer.
+     *
+     * Le soglie si possono forzare, l'invariante no: `evictSessions` rifiuta
+     * comunque una sessione guardata, quindi nemmeno un `budget: 0` può
+     * svuotare una lista a schermo.
+     */
+    (window as unknown as { __topicsMessageSweep?: typeof sweep }).__topicsMessageSweep = sweep;
+    const t = setInterval(sweep, SWEEP_EVERY_MS);
+    return () => {
+      clearInterval(t);
+      delete (window as unknown as { __topicsMessageSweep?: typeof sweep }).__topicsMessageSweep;
+    };
+  }, [forgetSessionCaches, streamingRef, loadingRef, thinkingRef, pendingQueueRef]);
 
   // Ritentativo del drain per gli item rinviati (sessione occupata). Un solo
   // timer alla volta; si autospegne quando la coda non rinvia più nulla.

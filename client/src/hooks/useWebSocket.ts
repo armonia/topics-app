@@ -7,6 +7,7 @@ import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
 import { withTokenQuery } from '../lib/shell/pairing';
 import { applyUnreadUpdate, clearUnreadFor, hasUnread } from '../state/unread';
+import { setWsClientId } from '../state/wsIdentity';
 import { SEEN_DWELL_MS } from '../state/signals';
 import { isWindowAwake } from '../state/windowAwake';
 
@@ -154,6 +155,16 @@ export function useWebSocket(): UseWebSocketReturn {
         // Server-side already validates emits via devValidateOutbound,
         // so a failure here means protocol drift or a server bug that
         // slipped through.
+        // `welcome` non sta nel registro outbound (vive in shared/ws-handshake),
+        // quindi non e' nell'union `WSMessage` e va letto sul frame GREZZO, prima
+        // del cast. L'id che porta e' quello di QUESTA socket: senza, un client
+        // non sa riconoscere i propri echi. Va sostituito a ogni riconnessione —
+        // il server ne assegna uno nuovo per socket.
+        if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'welcome') {
+          setWsClientId((raw as { clientId?: string }).clientId ?? null);
+          return;
+        }
+
         const validation = validateInbound(raw);
         if (!validation.ok) {
           if (import.meta.env.DEV) {
@@ -169,6 +180,11 @@ export function useWebSocket(): UseWebSocketReturn {
         // `unread:init` triggers the setState below; both need to run.
         dispatchFrame(data);
 
+        // L'id che il server ha assegnato a QUESTA socket. Il campo esisteva da
+        // sempre nel `welcome` («Echo of the WS client id») e non lo leggeva
+        // nessuno: senza, un client non sa riconoscere i propri echi. Va
+        // sostituito a ogni riconnessione — il server assegna un id nuovo per
+        // socket, e tenere il primo farebbe fallire il confronto in silenzio.
         // Handle unread init
         if (data.type === 'unread:init') {
           applyUnread(() => data.data || {});

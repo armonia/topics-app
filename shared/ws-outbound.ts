@@ -86,12 +86,27 @@ const streamEndSchema = z.object({
   // shapes are correct. Optional + the known companion fields below make the
   // schema a faithful contract of what the server actually emits.
   messageId: z.optional(z.string()),
+  // Il turno è stato fermato PRIMA che il modello producesse qualcosa, e il
+  // segnaposto vuoto è stato cancellato invece che finalizzato: chi ha questa
+  // riga in pagina deve toglierla, o gli resta una bolla vuota che il server non
+  // ha più (e che sparirebbe solo al reload). Vedi `shared/empty-turn.ts`.
+  discardedMessageId: z.optional(z.string()),
   topicId: z.optional(z.string()),
   reason: z.optional(z.string()),
   latencyMs: z.optional(z.number()),
   usagePromptTokens: z.optional(z.number()),
   usageCompletionTokens: z.optional(z.number()),
   costCents: z.optional(z.number()),
+  // Lo SCORPORO di `usagePromptTokens`: quanta parte era cache. Il totale da solo
+  // dice quanto è costato il turno, non cosa l'ha reso costoso — e in un turno
+  // agentico lungo la cache riletta è la voce schiacciante. Quote DISGIUNTE, come
+  // in usage/pricing.ts: prompt = fresh + read + creation + creation1h, e
+  // `cacheCreationTokens` NON include `cacheCreation1hTokens`.
+  // Assenti (non zero) quando il provider non riporta l'usage: "non lo sappiamo" e
+  // "misurato, nessuna cache" restano due cose diverse.
+  cacheReadTokens: z.optional(z.number()),
+  cacheCreationTokens: z.optional(z.number()),
+  cacheCreation1hTokens: z.optional(z.number()),
   // PERCHÉ il turno è finito, col vocabolario di ACP (server/providers/stop-reason).
   // Assente quando lo stream è finito in errore: `error` non è una ragione ACP.
   stopReason: z.optional(z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'])),
@@ -411,6 +426,42 @@ const streamContextSchema = z.looseObject({
   percent: z.number(),
   level: z.enum(['ok', 'warn', 'critical']),
   estimated: z.boolean(),
+  model: z.optional(z.string()),
+});
+
+/**
+ * Il CONSUMO del turno mentre cresce (live). Fratello di `stream:context`, e la
+ * differenza fra i due e' tutta:
+ *   - `stream:context` = il SERBATOIO. Quanto e' grande il prompt che il modello ha
+ *     appena visto; sale e SCENDE con le compattazioni.
+ *   - `stream:usage`   = la BOLLETTA. Quanto ha consumato il turno finora; solo
+ *     cresce, e a fine turno coincide con i totali di `stream:end`.
+ *
+ * Prima esisteva solo il primo, e i numeri di consumo arrivavano una volta sola
+ * alla fine: durante un turno agentico da otto tool call non si vedeva muovere
+ * niente. Emesso a ogni chiamata al modello, con i totali GIA' accumulati dal
+ * server — il client non somma, mostra.
+ *
+ * `calls` e' quante chiamate al modello sono state fatte nel turno: e' il numero
+ * che spiega perche' il totale letto supera la finestra di contesto (lo stesso
+ * prompt riletto N volte), e senza di lui il conteggio sembra rotto.
+ *
+ * Quote disgiunte come altrove: promptTokens = fresco + cacheRead +
+ * cacheCreation + cacheCreation1h.
+ */
+const streamUsageSchema = z.looseObject({
+  type: z.literal('stream:usage'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  /** Chiamate al modello nel turno finora. */
+  calls: z.number(),
+  promptTokens: z.number(),
+  completionTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheCreationTokens: z.number(),
+  cacheCreation1hTokens: z.number(),
+  /** Costo stimato finora in centesimi, quando il modello e' tariffabile. */
+  costCents: z.optional(z.number()),
   model: z.optional(z.string()),
 });
 
@@ -927,6 +978,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:start': streamStartSchema,
   'stream:content_chunk': streamContentChunkSchema,
   'stream:context': streamContextSchema,
+  'stream:usage': streamUsageSchema,
   'stream:thinking_start': streamThinkingStartSchema,
   'stream:thinking_end': streamThinkingEndSchema,
   'stream:thinking_chunk': streamThinkingChunkSchema,
