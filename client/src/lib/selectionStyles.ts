@@ -60,10 +60,27 @@ export const RESTING_SURFACE =
 // we're fixing) while black-on-amber is ~10:1, and blue wants white. Labels on a
 // fill then just INHERIT this base (ON_FILL_TEXT = text-inherit), so the tier
 // automatically gets the right text colour with no per-call-site branching.
+/**
+ * Le DUE tinte dei tier, in un posto solo.
+ *
+ * Erano scritte a mano in quattro punti — questo file, il pallino di
+ * `SpaceSwitcher`, il chip della status bar, il pallino di `SessionActivityBar` —
+ * e il quarto era GIÀ fuori sincrono: usava `bg-sky-500`, che è un blu diverso da
+ * `#0a84ff`. Nessuno se ne accorge guardando un pixel per volta; si vede solo
+ * mettendo due superfici accanto. Cambiare tinta richiedeva di trovarli tutti, e
+ * uno era già perso.
+ *
+ * `#0a84ff` non è un blu qualsiasi: è il systemBlue di macOS, la stessa tinta con
+ * cui il sistema segna "questo ti aspetta".
+ */
+export const TIER_DONE_BG = 'bg-[#0a84ff]';
+export const TIER_DONE_TEXT = 'text-[#0a84ff]';
+export const TIER_INPUT_BG = 'bg-amber-500';
+
 export const AWAITING_INPUT_SURFACE =
-  'bg-amber-500 text-black animate-awaiting-attention';
+  `${TIER_INPUT_BG} text-black animate-awaiting-attention`;
 export const DONE_UNSEEN_SURFACE =
-  'bg-[#0a84ff] text-white animate-awaiting-pulse';
+  `${TIER_DONE_BG} text-white animate-awaiting-pulse`;
 
 /** The fill class for an attention tier: 'input' → loud amber, 'done' → calm blue. */
 export function attentionSurface(tier: AttentionTier): string {
