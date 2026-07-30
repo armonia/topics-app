@@ -9,6 +9,13 @@ import App from './App'
 import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
 import { installDesktopFetchShim } from './lib/shell/net';
+import { capturePairingTokenFromUrl } from './lib/shell/pairing';
+
+// LAN/PWA pairing (LAN-PAIR-01): capture a `?token=` launch param into storage
+// and strip it from the address bar BEFORE any fetch/WS fires, so the first
+// authenticated call carries the token and the bar is clean on first paint.
+// No-op on desktop/loopback (never launched with a token).
+capturePairingTokenFromUrl();
 
 // Desktop shell (Tauri) serves the UI locally; rewrite relative API fetches to
 // the data server origin BEFORE any bootstrap fetch fires. No-op off-desktop.

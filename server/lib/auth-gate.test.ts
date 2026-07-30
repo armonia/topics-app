@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, isWebSocketPath, type AuthInput } from "./auth-gate";
+import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, isWebSocketPath, resolveAllowedOrigins, type AuthInput } from "./auth-gate";
 
 const TOKEN = "a".repeat(64);
 
@@ -164,10 +164,23 @@ describe("auth-gate · evaluateAuth", () => {
     expect(evaluateAuth(input({ ip: "192.168.1.5", token: "short" })).allow).toBe(false);
   });
 
-  it("remote with valid token BUT foreign origin on a mutation → 403 (token ok, CSRF still blocks)", () => {
-    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, method: "POST", origin: "https://evil.com" }));
-    expect(r.allow).toBe(false);
-    if (!r.allow) expect(r.status).toBe(403);
+  // LAN-PAIR-02: a valid token from a remote peer IS the CSRF proof — a hostile
+  // site can neither learn the 256-bit token nor set x-topics-token cross-origin
+  // (that trips a preflight the server refuses). So a token-authed remote peer is
+  // allowed WITHOUT the foreign-origin block. (Previously this returned 403.)
+  it("remote with valid token AND foreign origin on a mutation → allow (token bypasses CSRF)", () => {
+    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, method: "POST", origin: "http://192.168.1.12:3333" }));
+    expect(r.allow).toBe(true);
+  });
+
+  it("remote with valid token AND foreign origin on a WS upgrade → allow", () => {
+    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, pathname: "/ws", origin: "http://192.168.1.12:3333" }));
+    expect(r.allow).toBe(true);
+  });
+
+  it("remote with valid token AND foreign origin on a sub-WS (/ws/…) → allow", () => {
+    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, pathname: "/ws/terminal/x", origin: "https://evil.com" }));
+    expect(r.allow).toBe(true);
   });
 
   it("null ip is treated as non-loopback → needs a token", () => {
@@ -179,7 +192,28 @@ describe("auth-gate · evaluateAuth", () => {
     expect(evaluateAuth(input({ ip: "192.168.1.5", token: "whatever", expectedToken: null })).allow).toBe(false);
   });
 
-  it("explicit allowedOrigins lets a paired PWA host through a mutation", () => {
+  // LAN-PAIR-02: the previously-dead allowedOrigins branch, now reachable, on the
+  // LOOPBACK CSRF path (default ip 127.0.0.1) — an operator-configured extra origin.
+  it("explicit allowedOrigins lets a configured origin through a loopback mutation", () => {
     expect(evaluateAuth(input({ method: "POST", origin: "https://phone.pwa", allowedOrigins: ["https://phone.pwa"] })).allow).toBe(true);
+  });
+
+  it("loopback mutation with a foreign origin NOT in allowedOrigins → 403", () => {
+    const r = evaluateAuth(input({ method: "POST", origin: "https://evil.com", allowedOrigins: ["https://phone.pwa"] }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+  });
+});
+
+describe("auth-gate · resolveAllowedOrigins", () => {
+  it("parses TOPICS_ALLOWED_ORIGINS as a trimmed, comma-separated, non-empty list", () => {
+    // Cached on first call; set env before the first read in this fresh process.
+    const prev = process.env.TOPICS_ALLOWED_ORIGINS;
+    process.env.TOPICS_ALLOWED_ORIGINS = " https://a.example , , https://b.example ";
+    try {
+      expect(resolveAllowedOrigins()).toEqual(["https://a.example", "https://b.example"]);
+    } finally {
+      if (prev === undefined) delete process.env.TOPICS_ALLOWED_ORIGINS;
+      else process.env.TOPICS_ALLOWED_ORIGINS = prev;
+    }
   });
 });
