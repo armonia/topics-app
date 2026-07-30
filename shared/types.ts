@@ -392,6 +392,16 @@ export interface Topic {
    */
   fastMode?: boolean;
   /**
+   * Per-topic notification mute (migration 073). When `true`, agent-completion
+   * banners + sound for THIS topic are suppressed in useCompletionNotifier —
+   * the completion still counts toward the app badge (setAppBadge), it just
+   * doesn't interrupt. NULL/absent = not muted (default). Persists server-side
+   * and syncs across windows via the `topic:updated` WS broadcast, so the mute
+   * holds on every client. A project-wide mute lives separately in
+   * AppSettings.mutedProjects (keyed by projectPath).
+   */
+  muted?: boolean;
+  /**
    * Phase A · TOPIC-WT-01 — optional binding to a Worktree (a specific git
    * working copy of a Project). NULL = legacy/default behaviour: chat, tools
    * and slash commands operate inside `projectPath`. NON-NULL = operations are

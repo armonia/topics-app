@@ -163,8 +163,8 @@ export function createAppContext(baseDir: string): AppContext {
     // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
     // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
-      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, standalone, mcp_policy, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $worktree_id, $initial_message, $standalone, $mcp_policy, $archived, $created_at, $updated_at)
+      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, muted, worktree_id, initial_message, standalone, mcp_policy, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $muted, $worktree_id, $initial_message, $standalone, $mcp_policy, $archived, $created_at, $updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         slug = excluded.slug,
@@ -180,6 +180,7 @@ export function createAppContext(baseDir: string): AppContext {
         model = excluded.model,
         effort = excluded.effort,
         fast_mode = excluded.fast_mode,
+        muted = excluded.muted,
         worktree_id = excluded.worktree_id,
         initial_message = excluded.initial_message,
         standalone = excluded.standalone,
@@ -309,6 +310,9 @@ export function createAppContext(baseDir: string): AppContext {
     // Only attached when truthy so legacy rows (pre-migration, before backfill)
     // round-trip through inspector serializers unchanged.
     if (row.fast_mode) topic.fastMode = true;
+    // muted (migration 073). Only attached when truthy so legacy/normal rows
+    // round-trip unchanged through inspector serializers.
+    if (row.muted) topic.muted = true;
     // worktree_id (Phase A · migration 018). Optional FK; legacy rows are NULL.
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
@@ -374,6 +378,10 @@ export function createAppContext(baseDir: string): AppContext {
         // here so callers can pass `undefined` (legacy topics) and still get
         // the schema's NOT NULL DEFAULT 0 guarantee.
         $fast_mode: topic.fastMode ? 1 : 0,
+        // muted column (migration 073). 0/1 — per-topic notification mute.
+        // Same 0/1 coercion as fast_mode so a legacy `undefined` maps to the
+        // schema's NOT NULL DEFAULT 0 (not muted).
+        $muted: topic.muted ? 1 : 0,
         // worktree_id (Phase A · migration 018). NULL = no binding; FK
         // ON DELETE SET NULL on the column ensures graceful degrade.
         $worktree_id: topic.worktreeId || null,

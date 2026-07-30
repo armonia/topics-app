@@ -12,6 +12,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   notificationsSound: true,
   notifyEvenWhenFocused: true,
+  // Per-project notification mute — empty by default. Holds project paths whose
+  // topics' completion banners are silenced; the completions still count toward
+  // the app badge. Round-trips through the server `settings` key like every
+  // other AppSettings field (sanitizeSettingsPayload keeps keys present here).
+  mutedProjects: [],
   // Chat is included in the local Claude subscription (the `claude-code` CLI
   // path draws from the Pro/Max plan, not metered API credits — verified
   // 2026-07), so the "New Chat" affordances ship ON. The toggle stays in
