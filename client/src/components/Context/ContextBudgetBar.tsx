@@ -1,4 +1,5 @@
 import type { ContextSource } from '../../lib/api';
+import { contextLevel } from '../../../../shared/context-thresholds';
 
 const CATEGORY_COLORS: Record<string, string> = {
   openclaw: '#3b82f6',   // blue
@@ -17,8 +18,12 @@ interface ContextBudgetBarProps {
 }
 
 export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPercent }: ContextBudgetBarProps) {
-  const isCritical = budgetPercent > 90;
-  const isWarning = budgetPercent > 70;
+  // Le soglie sono quelle condivise, non una copia: la barra le riscriveva con
+  // `>` mentre il server classifica con `>=`, e ignorava la soglia in token
+  // assoluti. `totalTokens` la abilita anche qui.
+  const level = contextLevel(budgetPercent, totalTokens);
+  const isCritical = level === 'critical';
+  const isWarning = level === 'warn';
 
   const enabledSources = sources.filter(s => s.enabled && s.tokens > 0 && s.countInBudget);
 

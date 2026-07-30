@@ -71,6 +71,7 @@ import {
   logStreamRecovered,
 } from "../db/activity-log";
 import { STREAM_SLOW_ANNOTATION, computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
+import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -415,7 +416,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               .map((m: any) => ({ role: m.role, content: m.content })),
             userMessage: { content: lastUserMsg?.content ?? "" },
             diagnostics: {
-              totalTokens: 0, budgetLimit: 200_000, budgetPercent: 0,
+              totalTokens: 0, budgetLimit: DEFAULT_CONTEXT_WINDOW, budgetPercent: 0,
               droppedHistoryTurns: 0, historyEntries: [],
               warnings: [], assembledAt: Date.now(),
             },

@@ -28,6 +28,7 @@ import { loadMemoryForTopic } from "../routes/memory";
 import { getActiveGoal, goalContextContent } from "../services/goals";
 import { buildProviderHistory } from "../utils/build-provider-history";
 
+import { contextWindowFor } from "../usage/context-window";
 import type {
   ContextDiagnostics,
   ContextEnvelope,
@@ -44,8 +45,12 @@ import type {
 /** Default upper bound on history turns. Mirrors `buildProviderHistory`. */
 const DEFAULT_HISTORY_LIMIT = 100;
 
-/** Reference budget for the inspector bar. */
-const DEFAULT_BUDGET_LIMIT = 200_000;
+/**
+ * Il budget della barra dell'inspector NON e' una costante: e' la finestra del
+ * modello del topic (`contextWindowFor`, unica tabella). Cablarne una copia a
+ * 200k dava la stessa barra al 90% su un topic a 1M che era in realta' al 18% —
+ * il numero giusto esisteva, lo perdeva chi lo riportava.
+ */
 
 /** Threshold above which the inspector flags a "context > N%" warning. */
 const BUDGET_WARN_PERCENT = 80;
@@ -269,7 +274,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     .filter((b) => b.enabled && b.countInBudget)
     .reduce((sum, b) => sum + b.tokens, 0);
 
-  const budgetLimit = DEFAULT_BUDGET_LIMIT;
+  const budgetLimit = contextWindowFor(topic?.model).tokens;
   const budgetPercent = Math.round((totalTokens / budgetLimit) * 100);
   const warnings = buildWarnings(systemBlocks, totalTokens, budgetLimit);
 

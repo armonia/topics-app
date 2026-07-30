@@ -1187,7 +1187,7 @@ export function ChatInput({
                     data-context-percent={ringPercent}
                     data-context-source={realContext ? 'model' : 'envelope'}
                   >
-                    <ContextRing percent={ringPercent} size={14} />
+                    <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
                   </button>
                 )}
                 {onProviderOverrideChange && (

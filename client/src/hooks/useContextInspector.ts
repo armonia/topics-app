@@ -8,6 +8,7 @@ import {
   type ContextPreview,
 } from '../lib/api';
 import type { WSMessage } from '../types';
+import { DEFAULT_CONTEXT_WINDOW } from '../../../shared/context-thresholds';
 
 /**
  * Type guard + topic-affinity check used by every context-related hook
@@ -152,7 +153,10 @@ export function useContextInspector(
   return {
     sources: analysis?.sources || [],
     totalTokens: analysis?.totalTokens || 0,
-    budgetLimit: analysis?.budgetLimit || 200000,
+    // Fallback = il default condiviso, non un 200k cablato: l'analisi arriva
+    // con la finestra del modello del topic, e mentre non c'e' ancora si assume
+    // la stessa cosa che assume il server.
+    budgetLimit: analysis?.budgetLimit || DEFAULT_CONTEXT_WINDOW,
     budgetPercent: analysis?.budgetPercent || 0,
     warnings: analysis?.warnings || [],
     loading,
