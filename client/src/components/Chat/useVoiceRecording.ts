@@ -17,12 +17,17 @@ export function useVoiceRecording(
   // Reserved for callers that gate recording on stream state; not used internally.
   _currentStreaming: boolean,
   /**
-   * Notificato quando l'invio del vocale fallisce.
+   * L'UNICA uscita d'errore del hook: registrazione che non parte E invio che
+   * fallisce. Il messaggio arriva già completo — il chiamante lo mostra e basta,
+   * senza aggiungere un prefisso, perché i due casi non sono la stessa frase.
    *
    * Serve perché questo era l'UNICO upload dell'app che non diceva niente: un
    * `console.error` e quaranta secondi di dettatura — una spec, un ragionamento
    * lungo — spariti senza una bolla, senza un errore, senza modo di riprovare. Il
    * fratello che carica i file (`ChatPane.tsx:556`) fa un toast; qui non c'era.
+   * L'altra metà usava invece `alert()`, che in una WKWebView BLOCCA il thread
+   * della webview: un microfono negato congelava chat, terminali e pane accanto
+   * finché non chiudevi il dialog a mano.
    */
   onError?: (message: string) => void,
 ) {
@@ -67,12 +72,12 @@ export function useVoiceRecording(
       // On mobile Safari over HTTP, getUserMedia is blocked silently
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('secure') || msg.includes('NotAllowed') || msg.includes('Permission')) {
-        alert('Microphone access requires HTTPS. Try accessing Topics via HTTPS or use Chrome on Android.');
+        onError?.('Microfono non disponibile: serve HTTPS (o il permesso è stato negato).');
       } else {
-        alert(`Recording failed: ${msg}`);
+        onError?.(`Registrazione non partita: ${msg}`);
       }
     }
-  }, [getSupportedMimeType, sessionKey]);
+  }, [getSupportedMimeType, sessionKey, onError]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     return new Promise((resolve) => {
@@ -104,7 +109,7 @@ export function useVoiceRecording(
           await sendMessage(recordingSessionKeyRef.current ?? sessionKey, `[Voice message: ${result.path}]`);
         } catch (err) {
           console.error('Voice upload failed:', err);
-          onError?.(err instanceof Error ? err.message : 'Invio del vocale fallito');
+          onError?.(`Invio del vocale fallito: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
         }
         finally { setUploading(false); recordingSessionKeyRef.current = null; }
         resolve();
