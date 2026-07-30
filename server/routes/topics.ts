@@ -1301,6 +1301,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (body.fastMode !== undefined && body.fastMode !== null) {
           topic.fastMode = body.fastMode === true;
         }
+        // Per-topic notification mute (migration 073). Boolean only; null/
+        // undefined leaves it alone. Pure metadata — unlike effort/model it is
+        // NOT a spawn-time flag, so no respawn/context re-broadcast; the
+        // `topic:updated` below is all the client needs to re-gate banners.
+        if (body.muted !== undefined && body.muted !== null) {
+          topic.muted = body.muted === true;
+        }
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
         // worktreeId update (Phase A · TOPIC-WT-01). NULL = clear binding.
         if (body.worktreeId !== undefined) {

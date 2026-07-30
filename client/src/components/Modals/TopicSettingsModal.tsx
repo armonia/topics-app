@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, FolderOpen, GitBranch } from 'lucide-react';
+import { X, FolderOpen, GitBranch, BellOff } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, Worktree } from '../../types';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -29,6 +29,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
   const [newContextFile, setNewContextFile] = useState('');
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
+  const [muted, setMuted] = useState(!!topic.muted);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const toast = useToast();
@@ -58,6 +59,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setContextFilesList(topic.contextFiles || []);
     setNewContextFile('');
     setProvider(topic.provider ?? null);
+    setMuted(!!topic.muted);
     setSaved(false);
     // Keyed on topic.id, NOT the topic object: every `topic:updated` WS
     // broadcast mints a fresh object reference (applyTopicFromWS), and with
@@ -85,7 +87,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     topicColor !== topic.color ||
     systemPrompt !== (topic.systemPrompt || '') ||
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
-    provider !== (topic.provider ?? null);
+    provider !== (topic.provider ?? null) ||
+    muted !== !!topic.muted;
 
   const handleClose = () => {
     if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
@@ -107,6 +110,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       systemPrompt,
       contextFiles: contextFilesList,
       provider,
+      muted,
     });
     if (!result) {
       toast.error('Failed to save settings');
@@ -205,6 +209,32 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               />
               <span className="text-[12px] text-app-text-muted">{topicColor}</span>
             </div>
+          </div>
+
+          {/* Mute notifications (per-topic — migration 073) */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              <span className="flex items-center gap-1.5">
+                <BellOff size={14} />
+                Notifiche
+              </span>
+            </label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={muted}
+              onClick={() => setMuted(v => !v)}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-app-border-light rounded-lg bg-surface dark:bg-elevated text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
+              <span className="text-[12px] text-app-text-muted">
+                {muted
+                  ? 'Muto: nessun banner né suono a fine turno (conta comunque nel badge).'
+                  : 'Attive: banner e suono quando un agente finisce in questa topic.'}
+              </span>
+              <span className={`relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors ${muted ? 'bg-primary' : 'bg-app-border'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${muted ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </span>
+            </button>
           </div>
 
           {/* Link Project */}
