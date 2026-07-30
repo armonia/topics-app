@@ -72,9 +72,9 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
       />
       <KPICard
         label="Agent Utilization"
-        value={`${(kpis.agentUtilization * 100).toFixed(1)}%`}
+        value={kpis.agentUtilization === null ? null : `${(kpis.agentUtilization * 100).toFixed(1)}%`}
         icon={Cpu}
-        trend={kpis.agentUtilization > 0.5 ? 'up' : kpis.agentUtilization > 0 ? 'flat' : 'flat'}
+        trend={(kpis.agentUtilization ?? 0) > 0.5 ? 'up' : 'flat'}
       />
       <KPICard
         label="Approval Turnaround"

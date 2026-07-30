@@ -1106,7 +1106,9 @@ export interface DashboardKPIs {
   errorRate: number;
   tokenSpendDay: number;
   tokenSpendWeek: number;
-  agentUtilization: number;
+  /** `null` = nessuna fonte per la metrica (vedi server/routes/dashboard.ts).
+   *  Non e' zero: zero vorrebbe dire "gli agenti sono fermi". */
+  agentUtilization: number | null;
   approvalTurnaroundHours: number;
   pendingApprovals: number;
 }
