@@ -297,6 +297,44 @@ describe("review gate (KANBAN-05)", () => {
     expect(ap.reviewed_by).toBe("attilio");
   });
 
+  // Uscire da review NON passa solo da `reviewDecision`: c'è il trascinamento
+  // sulla board, c'è `update({status})` da MCP, c'è l'archiviazione. Prima del
+  // fix la richiesta di approvazione restava 'pending' per sempre su tutte
+  // quelle strade — misurate 13 righe appese su 48 nel DB reale, 9 su task già
+  // 'done' — e nessuno l'avrebbe più chiusa, perché `reviewDecision` rifiuta un
+  // task che non è più in review.
+  test("review → done trascinato: l'approvazione si chiude come approved", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("approved");
+    expect(ap.reviewed_at).not.toBeNull();
+  });
+
+  test("review → backlog: l'approvazione scade, NON viene respinta", () => {
+    // 'expired' e non 'rejected': nessun umano ha detto no, la domanda ha solo
+    // perso l'oggetto. Confonderle mentirebbe sulla storia del task.
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "backlog" } });
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("expired");
+  });
+
+  test("un task che RESTA in review tiene la sua approvazione pendente", () => {
+    // Il caso che non va toccato: 35 delle 48 righe misurate erano lavoro vero
+    // in attesa di un umano.
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { text: "work rinominato" } });
+    const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
+    expect(ap.status).toBe("pending");
+  });
+
   test("human reject → in_progress + comment + approval rejected", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
