@@ -821,19 +821,76 @@ interface DetectionSession { ptyPid: number; cwd: string; sessionId: string; nam
 type DetectionSource = () => DetectionSession[];
 
 let _detectionSource: DetectionSource | null = null;
-let _detectionTimer: ReturnType<typeof setInterval> | null = null;
-const DETECTION_INTERVAL_MS = 4000;
+let _detectionTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Cadenza della rilevazione, con BACKOFF.
+ *
+ * Il ciclo esce subito e gratis quando non c'e' nessuna sessione Claude
+ * eleggibile. Ma quando ce n'e' una — cioe' il caso normale di questa app — ogni
+ * passata fa `lsof` sulle porte in ascolto, un secondo `lsof` per i cwd dei pid
+ * candidati e una tabella dei processi: ~2 spawn ogni 4 secondi, per sempre,
+ * anche se nessuno sta guardando il pannello Processi e niente e' cambiato da
+ * un'ora. Sono circa 43.000 spawn al giorno per riscoprire lo stesso elenco.
+ *
+ * Quindi: 4s finche' le cose si MUOVONO, e al raddoppio per ogni passata che non
+ * cambia niente, fino a 32s. Qualunque cambiamento — un server che parte, uno
+ * che muore — riporta subito a 4s, e cosi' fa `bumpProcessDetection()`, che il
+ * percorso HTTP chiama quando un umano apre davvero il pannello. Il tempo di
+ * scoperta nel caso peggiore passa da 4s a 32s solo quando per mezzo minuto non
+ * e' successo niente, ed e' esattamente il caso in cui a nessuno importa.
+ */
+export const DETECTION_INTERVAL_MS = 4000;
+export const DETECTION_INTERVAL_MAX_MS = 32000;
+let _detectionDelayMs = DETECTION_INTERVAL_MS;
+
+/**
+ * La prossima attesa, dato lo stato attuale e se la passata ha cambiato
+ * qualcosa. Pura, ed esportata per essere verificabile senza timer.
+ */
+export function nextDetectionDelay(currentMs: number, changed: boolean): number {
+  if (changed) return DETECTION_INTERVAL_MS;
+  return Math.min(currentMs * 2, DETECTION_INTERVAL_MAX_MS);
+}
 
 /** Wire the source of active Claude sessions and start the detection loop.
  *  Called once from server.ts after the terminal + processes routers exist. */
 export function startProcessDetection(ctx: AppContext, getSessions: DetectionSource): void {
   _detectionSource = getSessions;
   if (_detectionTimer) return;
-  _detectionTimer = setInterval(() => { runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); }, DETECTION_INTERVAL_MS);
-  // Never let this 4s poller keep the process alive on its own — it's the one
-  // long-lived timer that was missing from gracefulShutdown()'s teardown list.
-  if (typeof _detectionTimer.unref === "function") _detectionTimer.unref();
-  runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); // run once promptly
+
+  const arm = () => {
+    _detectionTimer = setTimeout(tick, _detectionDelayMs);
+    // Never let this poller keep the process alive on its own — it's the one
+    // long-lived timer that was missing from gracefulShutdown()'s teardown list.
+    if (typeof _detectionTimer.unref === "function") _detectionTimer.unref();
+  };
+  const tick = async () => {
+    let changed = false;
+    try {
+      changed = await runDetectionCycle(ctx);
+    } catch (e: any) {
+      console.error('[detect] cycle error:', e?.message || e);
+    }
+    // Un errore NON accelera: se `lsof` fallisce, ritentare ogni 4s non lo fa
+    // funzionare, moltiplica solo gli spawn.
+    _detectionDelayMs = nextDetectionDelay(_detectionDelayMs, changed);
+    arm();
+  };
+
+  arm();
+  void tick(); // una passata subito, senza aspettare il primo intervallo
+}
+
+/**
+ * Riporta la rilevazione alla cadenza piena.
+ *
+ * La chiama il percorso HTTP che serve l'elenco dei processi: se un umano ha
+ * aperto il pannello, il backoff non deve fargli aspettare mezzo minuto la
+ * comparsa di un server appena avviato.
+ */
+export function bumpProcessDetection(): void {
+  _detectionDelayMs = DETECTION_INTERVAL_MS;
 }
 
 function detectedKey(pid: number): string { return `detected:${pid}`; }
@@ -896,14 +953,14 @@ function isWithin(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
 }
 
-async function runDetectionCycle(ctx: AppContext): Promise<void> {
+async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
   // Le shell in background si riconciliano SEMPRE, anche quando non c'è
   // nessuna sessione Claude idonea al detector delle porte: una shell non deve
   // per forza ascoltare su una porta per essere viva (è l'intero motivo per cui
   // il pannello finora non la vedeva).
   if (await reconcileBackgroundShells()) broadcastScriptsUpdate(ctx);
 
-  if (!_detectionSource) return;
+  if (!_detectionSource) return false;
   // Active Claude sessions in REAL project dirs (skip the infra/config tree).
   const sessions = _detectionSource().filter(s => s.ptyPid > 0 && !isInfraCwd(s.cwd));
 
@@ -914,7 +971,7 @@ async function runDetectionCycle(ctx: AppContext): Promise<void> {
       if (sp.source === "detected") { runningScripts.delete(sp.processId); changed = true; }
     }
     if (changed) broadcastScriptsUpdate(ctx);
-    return;
+    return changed;
   }
 
   const allPorts = await getListeningPorts();
@@ -989,6 +1046,7 @@ async function runDetectionCycle(ctx: AppContext): Promise<void> {
   }
 
   if (changed) broadcastScriptsUpdate(ctx);
+  return changed;
 }
 
 /**
@@ -1304,6 +1362,11 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {
+      // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
+      // il backoff non fa aspettare mezzo minuto la comparsa di un server
+      // appena avviato. Sta PRIMA della cache: la richiesta e' il segnale di
+      // interesse, indipendentemente da chi risponde.
+      bumpProcessDetection();
       // Server-side cache check (2s TTL)
       if (scriptsResponseCache && Date.now() - scriptsResponseCache.timestamp < SCRIPTS_CACHE_TTL) {
         return json(scriptsResponseCache.data);
