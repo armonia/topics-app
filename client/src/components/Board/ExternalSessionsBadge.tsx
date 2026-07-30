@@ -11,21 +11,41 @@
  * Renders nothing when there's nothing outside — zero chrome for the common case.
  */
 import { useRef, useState } from 'react';
-import { TerminalSquare } from 'lucide-react';
+import { TerminalSquare, ArrowRightToLine } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { fmtUpdatedAt } from './format';
+import { topicsApi } from '../../lib/api';
 import type { ExternalSession } from '../../hooks/useExternalSessions';
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
-export function ExternalSessionsBadge({ sessions, showProject }: {
+export function ExternalSessionsBadge({ sessions, showProject, onOpenTopic }: {
   sessions: ExternalSession[];
   /** Global board: name the project too (the chip spans many). */
   showProject?: boolean;
+  /** Adopt a session into a topic, then focus it. Omit to hide the action. */
+  onOpenTopic?: (topicId: string) => void;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [adopting, setAdopting] = useState<string | null>(null);
   if (sessions.length === 0) return null;
+
+  // Bring a bare terminal session INTO Topics: bind it to a new topic (next turn
+  // resumes the same CLI conversation) and replay its history into the chat.
+  const adopt = async (s: ExternalSession) => {
+    if (!onOpenTopic || adopting) return;
+    setAdopting(s.sessionId);
+    try {
+      const topic = await topicsApi.adoptClaudeSession(s.sessionId, basename(s.cwd));
+      setOpen(false);
+      onOpenTopic(topic.id);
+    } catch (err) {
+      console.warn('[ExternalSessionsBadge] adopt failed', err);
+    } finally {
+      setAdopting(null);
+    }
+  };
 
   const active = sessions.filter((s) => s.state === 'active').length;
   // Amber = somebody is typing in that repo right now; grey = only recent traces.
@@ -65,6 +85,18 @@ export function ExternalSessionsBadge({ sessions, showProject }: {
                     {s.branch ? `${s.branch} · ` : ''}{fmtUpdatedAt(new Date(s.lastActivityMs).toISOString())}
                   </span>
                 </span>
+                {onOpenTopic && (
+                  <button
+                    data-testid="adopt-external-session"
+                    onClick={() => adopt(s)}
+                    disabled={adopting !== null}
+                    title="Continua questa sessione in una topic"
+                    className="mt-0.5 flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-sky-300/90 hover:bg-sky-400/10 disabled:opacity-40"
+                  >
+                    <ArrowRightToLine className="h-3 w-3" />
+                    <span>{adopting === s.sessionId ? '…' : 'Continua qui'}</span>
+                  </button>
+                )}
               </li>
             ))}
           </ul>
