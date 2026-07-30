@@ -59,6 +59,11 @@ export interface ToolGroupSummary {
   /** Wall-clock span of the run — first startedAt → last endedAt — when both
    *  bounds exist. Absent for legacy rows without timestamps. */
   durationMs?: number;
+  /** Somma del costo delle azioni del gruppo, in centesimi. Presente solo se
+   *  almeno una riga porta un costo (messaggi vecchi non ne hanno). */
+  costCents?: number;
+  /** Somma dei token attribuiti, fallback quando il prezzo manca. */
+  tokens?: number;
 }
 
 export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
@@ -67,6 +72,8 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
   let running = 0;
   let firstStart: number | undefined;
   let lastEnd: number | undefined;
+  let costCents: number | undefined;
+  let tokens: number | undefined;
   for (const tc of tools) {
     const name = buildToolDisplayLabel(resolveToolDetail(tc), tc.name).name;
     byName.set(name, (byName.get(name) ?? 0) + 1);
@@ -78,6 +85,10 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     if (typeof tc.endedAt === 'number') {
       lastEnd = lastEnd === undefined ? tc.endedAt : Math.max(lastEnd, tc.endedAt);
     }
+    // Somma i costi/token delle azioni: il gruppo mostra il totale della sua
+    // parte del turno, non la ripete riga per riga.
+    if (typeof tc.costCents === 'number') costCents = (costCents ?? 0) + tc.costCents;
+    if (typeof tc.tokens === 'number') tokens = (tokens ?? 0) + tc.tokens;
   }
   const counts = [...byName.entries()]
     .map(([name, count]) => ({ name, count }))
@@ -92,7 +103,27 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     errors,
     running,
     ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(costCents !== undefined ? { costCents } : {}),
+    ...(tokens !== undefined ? { tokens } : {}),
   };
+}
+
+/** Costo in centesimi → stringa breve per la riga del tool: `$0.0012` sotto un
+ *  dollaro (quattro decimali, un'azione costa poco), `$1.20` sopra. Torna ''
+ *  per zero/non-finito così il chiamante può ometterlo. */
+export function formatCostCents(cents: number): string {
+  if (!Number.isFinite(cents) || cents <= 0) return '';
+  const usd = cents / 100;
+  return usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`;
+}
+
+/** Token → stringa compatta: `1.2k`, `340`, `1.5M`. Il fallback quando il
+ *  prezzo del modello non è noto. */
+export function formatTokensCompact(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return '';
+  if (tokens < 1000) return `${Math.round(tokens)}`;
+  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
 }
 
 /** "Read ×5 · Edit ×3" — the counts joined for the summary header. */
