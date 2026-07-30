@@ -219,7 +219,56 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // provider resolution below (the mapping is provider-dependent).
       const fastModeRequested = body.fastMode === true;
       const messages = body.messages;
-      if (!messages || !Array.isArray(messages) || messages.length === 0) return json({ error: "messages array required" }, 400);
+      /**
+       * `reattach` NON porta un messaggio: adotta il turno che sta già girando
+       * nel broker dopo un riavvio del server (`runHeadlessReattach` in
+       * server.ts, `reattachSurvivingChatTurns`). Pretendere un `messages` non
+       * vuoto lo respingeva con 400 — e il chiamante drenava quel JSON come se
+       * fosse SSE, non trovava `[DONE]`, e riportava `end_turn`: un turno mai
+       * iniziato, dichiarato finito bene. Tutta la macchina di reattach qui
+       * sotto (`reuseOrCreatePartialForReattach`, il ramo `reattachFn`) era
+       * quindi irraggiungibile.
+       */
+      const isReattach = body.mode === "reattach";
+      if (!messages || !Array.isArray(messages) || (messages.length === 0 && !isReattach)) {
+        return json({ error: "messages array required" }, 400);
+      }
+
+      /**
+       * UN TURNO PER SESSIONE.
+       *
+       * Questa era l'unica route mutante di sessione senza cancello: `edit.ts`
+       * e `branches.ts` rispondono già 409 su stream attivo, la chat no. Due
+       * POST sulla stessa sessione (due finestre sullo stesso topic, o l'umano
+       * che scrive mentre un task dispatchato sta lavorando nella sua topic)
+       * finivano entrambe in `startStream`, che SOVRASCRIVE la voce di
+       * `activeStreams`: il `finally` del primo turno chiudeva il SECONDO, con
+       * il messageId sbagliato. Costo doppio, e per un agente anche side effect
+       * doppi — scrive gli stessi file due volte.
+       *
+       * Il 409 è il canale di STEERING della chat, ed è lo stesso patto che la
+       * board ha già per i task (`dispatcher.resume` bufferizza il commento
+       * umano e lo consegna al confine del turno): il client rimette il
+       * messaggio IN TESTA alla coda (`requeueFront`/`unshiftTurn` in
+       * `state/chatQueue.ts`, ramo `is409` di `useChat`) e lo spedisce appena
+       * il turno in volo finisce. Prima quel ramo del client era codice morto —
+       * nessun 409 su /api/chat esisteva in tutto il server.
+       *
+       * Non blocca per sempre: `isStreaming` considera morto uno stream fermo
+       * da oltre 3 minuti, e lo sweeper `[StaleStream]` lo finalizza.
+       * `reattach` è esente per costruzione — adottare il turno vivo È il suo
+       * mestiere.
+       */
+      if (!isReattach) {
+        const live = isStreaming(sessionKey);
+        if (live) {
+          console.log(`[HTTP] POST /api/chat 409 — turno già in volo su ${sessionKey} (messageId ${live.messageId})`);
+          return json(
+            { error: "a response is already streaming for this session", code: "stream_in_flight", messageId: live.messageId },
+            409,
+          );
+        }
+      }
 
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
@@ -689,7 +738,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
           // fresh row.
-          const partialMsg = body.mode === "reattach"
+          const partialMsg = isReattach
             ? reuseOrCreatePartialForReattach(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
           // L'AbortController registrato insieme allo stream è l'unica maniglia
@@ -1995,7 +2044,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // (handler, partial row, SSE, finalize) is reused. Falls back to a
             // normal send when the provider has no reattach (flag off / other providers).
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
-            const drive = (body.mode === "reattach" && typeof reattachFn === "function")
+            const drive = (isReattach && typeof reattachFn === "function")
               ? reattachFn.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,

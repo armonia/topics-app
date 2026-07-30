@@ -402,6 +402,30 @@ async function abortHeadlessTurn(sessionKey: string): Promise<void> {
   } catch { /* best-effort */ }
 }
 
+/**
+ * Una risposta di ERRORE della route ha comunque un corpo — JSON, non SSE. Il
+ * controllo `!resp.body` non la vede, quindi il drain qui sotto la mangiava
+ * tutta senza incontrare `[DONE]`, e il `takeTurnEnd(…) ?? { end: "end_turn" }`
+ * finale la dichiarava una fine normale: un turno mai partito, riportato al
+ * dispatcher come consegnato.
+ *
+ * Non è teorico. `runHeadlessReattach` manda `messages: []` e la route lo
+ * respingeva con 400 «messages array required» (verificato: `curl` su
+ * :3333 → HTTP 400): l'adozione dei turni sopravvissuti a un riavvio non è mai
+ * partita, e a nessuno risultava perché tornava `end_turn`. Da oggi c'è anche
+ * il 409 «turno già in volo», che qui vuol dire la stessa cosa: non abbiamo
+ * guidato niente.
+ */
+function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
+  if (resp.ok) return null;
+  // Il corpo si consuma senza rimorsi: da qui si torna indietro comunque.
+  return {
+    end: "error",
+    cause: "provider-error",
+    detail: `POST ${what} → HTTP ${resp.status}`,
+  };
+}
+
 async function runHeadlessTurn(
   sessionKey: string,
   content: string,
@@ -422,6 +446,8 @@ async function runHeadlessTurn(
   // Nessuno stream = la route non ha nemmeno iniziato il turno: è un guasto,
   // non una fine normale (dirla `end_turn` sarebbe la solita bugia).
   if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat" };
+  const rejected = rejectedTurn(resp, "/api/chat");
+  if (rejected) return rejected;
   // The turn self-drives server-side (consumeGateway) whether or not we read the
   // SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
   // signal). A wall-clock backstop aborts a runaway turn.
@@ -460,6 +486,8 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   );
   // Nessuno stream = il turno adottato non c'era più: non è una fine normale.
   if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (reattach)" };
+  const rejected = rejectedTurn(resp, "/api/chat (reattach)");
+  if (rejected) return rejected;
   const reader = resp.body.getReader();
   let timedOut = false;
   const deadline = setTimeout(() => {
