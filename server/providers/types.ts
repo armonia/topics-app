@@ -242,6 +242,34 @@ export interface StreamHandler {
    */
   onToolResult: (toolCallId: string, result: string, isError?: boolean) => void;
   /**
+   * L'usage attribuito a UNA azione (tool call), non al turno. Nasce dallo
+   * stesso evento `assistant` che annuncia il `tool_use`: quella chiamata al
+   * modello ha DECISO l'azione, quindi il suo costo è il costo dell'azione. Se
+   * una chiamata produce più tool_use paralleli, la quota è spartita in parti
+   * uguali fra loro — una sola chiamata non distingue quale blocco è pesato di
+   * più. Chi ascolta NON accumula: è già la quota di questa azione.
+   *
+   * Fire-once per tool: gli eventi della CLI sono cumulativi, il provider
+   * deduplica e attribuisce solo alla prima chiamata che porta quel tool_use.
+   * Le sotto-sessioni (sidechain) restano fuori, come per `onCallUsage`.
+   *
+   * Quote disgiunte come altrove: `inputTokens` è il totale letto e comprende
+   * `cacheRead` + `cacheCreation`; `cacheCreation1h` è una quota di
+   * `cacheCreation`. La somma delle azioni di un turno non supera il totale
+   * del turno (i troncamenti della divisione la tengono ≤).
+   */
+  onToolUsage?: (
+    toolCallId: string,
+    u: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheRead: number;
+      cacheCreation: number;
+      cacheCreation1h: number;
+      model?: string;
+    },
+  ) => void;
+  /**
    * Sub-agent (Task tool) activity update. Fired when a Claude Code sidechain
    * emits a child event tagged with `parent_tool_use_id`. The provider's
    * SidechainTracker accumulates child events into an `actions[]` log keyed

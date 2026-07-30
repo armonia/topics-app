@@ -1598,6 +1598,40 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (idx >= 0) trackedToolCallIds.splice(idx, 1);
             },
 
+            onToolUsage: (toolCallId, u) => {
+              // Il costo di UNA azione, non del turno. Il provider ha già
+              // spartito la quota della chiamata fra i suoi tool_use; qui si
+              // traduce in prezzo con le STESSE tariffe del consuntivo, così la
+              // somma delle azioni combacia col totale in fondo al messaggio.
+              // Il client non fa aritmetica: riceve costo e token già pronti.
+              const tokens = (u.inputTokens || 0) + (u.outputTokens || 0);
+              let costCents: number | undefined;
+              try {
+                const parts = turnUsageCostParts(accumulateTurnUsage(emptyTurnUsage(), u));
+                const usd = calculateCostWithCache({
+                  model: u.model || liveModel || overrideModel || "unknown",
+                  freshInputTokens: parts.fresh,
+                  outputTokens: parts.output,
+                  cacheReadTokens: parts.cacheRead,
+                  cacheCreationTokens: parts.cacheCreation5m,
+                  cacheCreation1hTokens: parts.cacheCreation1h,
+                });
+                if (usd > 0) costCents = Math.round(usd * 100);
+              } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
+              const patch: Partial<ToolCall> = { tokens };
+              if (costCents != null) patch.costCents = costCents;
+              updateToolCallFields(sessionKey, toolCallId, patch);
+              updateBlockTool(toolCallId, patch);
+              broadcastStreamToTopic({
+                type: "stream:tool_usage",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId,
+                tokens,
+                ...(costCents != null ? { costCents } : {}),
+              }, matchedTopic?.id);
+            },
+
             onCompaction: (marker) => {
               // CHAT-COMPACT-01: surface + persist a context-compaction boundary
               // as a display-only divider. Render-only — no model resume, and

@@ -522,6 +522,18 @@ const streamToolUpdateSchema = z.looseObject({
   topicId: z.optional(z.string()),
 });
 
+// Il costo/token di UNA azione (tool call), attribuito dalla chiamata che l'ha
+// decisa. Distinto da `stream:usage` (totale del turno): patcha la singola riga
+// del tool. Arriva mentre il tool è ancora running.
+const streamToolUsageSchema = z.looseObject({
+  type: z.literal('stream:tool_usage'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  toolCallId: z.string(),
+  tokens: z.optional(z.number()),
+  costCents: z.optional(z.number()),
+});
+
 const streamToolUserInputRequiredSchema = z.looseObject({
   type: z.literal('stream:tool_user_input_required'),
   sessionKey: z.string(),
@@ -985,6 +997,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:tool_detail': streamToolDetailSchema,
   'stream:tool_result': streamToolResultSchema,
   'stream:tool_update': streamToolUpdateSchema,
+  'stream:tool_usage': streamToolUsageSchema,
   'stream:tool_user_input_required': streamToolUserInputRequiredSchema,
   // Message cluster
   'message': messageLegacySchema,

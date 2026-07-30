@@ -280,6 +280,21 @@ export interface ToolCall {
   startedAt?: number;
   endedAt?: number;
   /**
+   * Costo di QUESTA azione in centesimi di dollaro — la quota della chiamata al
+   * modello che l'ha decisa (vedi `StreamHandler.onToolUsage`). È il costo
+   * dell'azione, non del turno: la riga del tool lo mostra accanto alla durata.
+   * Assente per i messaggi vecchi e quando il modello è sconosciuto (in quel
+   * caso resta `tokens`). La somma delle azioni di un turno non supera il
+   * totale del turno mostrato in fondo al messaggio.
+   */
+  costCents?: number;
+  /**
+   * Token totali attribuiti a questa azione (letti + prodotti), il fallback
+   * quando il prezzo del modello non è noto e `costCents` manca — così la riga
+   * dice comunque "quanto ha pesato".
+   */
+  tokens?: number;
+  /**
    * Optional typed detail built at the provider boundary. Renderers branch on
    * `detail.type` for per-tool UI. When absent, fall back to generic rendering
    * via `args` + `result`. Sub-agents (Task) accumulate child activity in

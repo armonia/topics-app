@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import type { ToolCall } from '../../types';
 import {
   GROUP_MIN,
+  formatCostCents,
   formatDurationMs,
+  formatTokensCompact,
   formatToolCounts,
   isActiveTool,
   isSoloTool,
@@ -105,6 +107,22 @@ describe('summarizeToolGroup', () => {
   test('duration absent without timestamps (legacy rows)', () => {
     expect(summarizeToolGroup([tc({ name: 'Read' })]).durationMs).toBeUndefined();
   });
+
+  test('costCents/tokens summed across the group', () => {
+    const s = summarizeToolGroup([
+      tc({ name: 'Read', costCents: 3, tokens: 1200 }),
+      tc({ name: 'Bash', costCents: 5, tokens: 800 }),
+      tc({ name: 'Edit' }), // no usage — contributes nothing
+    ]);
+    expect(s.costCents).toBe(8);
+    expect(s.tokens).toBe(2000);
+  });
+
+  test('cost/tokens absent when no row carries usage (legacy rows)', () => {
+    const s = summarizeToolGroup([tc({ name: 'Read' }), tc({ name: 'Edit' })]);
+    expect(s.costCents).toBeUndefined();
+    expect(s.tokens).toBeUndefined();
+  });
 });
 
 describe('formatters', () => {
@@ -126,5 +144,20 @@ describe('formatters', () => {
     expect(formatDurationMs(60 * 60_000)).toBe('1h 00m');
     expect(formatDurationMs(3600_000 + 125_000)).toBe('1h 02m');
     expect(formatDurationMs(-5)).toBe('');
+  });
+
+  test('formatCostCents: 4 decimali sotto $1, 2 sopra, vuoto per zero', () => {
+    expect(formatCostCents(0.12)).toBe('$0.0012');
+    expect(formatCostCents(150)).toBe('$1.50');
+    expect(formatCostCents(0)).toBe('');
+    expect(formatCostCents(-3)).toBe('');
+  });
+
+  test('formatTokensCompact: k/M con soglie', () => {
+    expect(formatTokensCompact(340)).toBe('340');
+    expect(formatTokensCompact(1200)).toBe('1.2k');
+    expect(formatTokensCompact(48000)).toBe('48k');
+    expect(formatTokensCompact(1_500_000)).toBe('1.5M');
+    expect(formatTokensCompact(0)).toBe('');
   });
 });
