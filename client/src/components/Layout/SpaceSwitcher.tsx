@@ -29,7 +29,7 @@ import { DEFAULT_SPACE_ID, SPACES_MAX, type SpaceMeta, type Pane } from '../../s
 import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from './usePanelGridPersistence';
 import {
@@ -192,7 +192,7 @@ export function SpaceSwitcher() {
               <span
                 aria-label={tier === 'input' ? 'richiede input' : 'attività completata'}
                 className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                  tier === 'input' ? 'bg-amber-500 animate-pulse' : 'bg-[#0a84ff]'
+                  tier === 'input' ? `${TIER_INPUT_BG} animate-pulse` : TIER_DONE_BG
                 }`}
               />
             )}

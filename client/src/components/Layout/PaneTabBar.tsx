@@ -807,6 +807,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const attentionTier = attentionFillFor(rawTier, isSeenTab);
         const onFill = attentionTier !== null;
         const label = pane.title || (pane.type === 'chat' ? 'New Chat' : config.label);
+        // Lo stato A PAROLE, per chi non vede il colore.
+        //
+        // Una tab non diceva il proprio stato da nessuna parte: né `title` né
+        // `aria-label`. Chi usa uno screen reader lo trovava solo nei title dei
+        // figli (lo spinner, la riga SessionActivity in sidebar), che sono metà in
+        // italiano e metà in inglese. Il fondo ambra/blu era l'unico veicolo, ed è
+        // un veicolo che non parla.
+        //
+        // USA `rawTier`, NON `attentionTier`: il fill si spegne quando hai
+        // guardato la tab, ma lo STATO no — una sessione che attende una tua
+        // risposta la attende ancora anche dopo che l'hai guardata. Il colore
+        // risponde a "devo attirare l'attenzione?", questa etichetta a "com'è".
+        const statoTab = rawTier === 'input'
+          ? 'attende una tua risposta'
+          : rawTier === 'done'
+            ? 'turno finito'
+            : null;
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
@@ -834,6 +851,17 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
             role="tab"
+            // Lo stato come ATTRIBUTO, non come classe: i locator dei test erano
+            // agganciati alle classi Tailwind del badge, e rinominarne una li
+            // faceva passare a verde-vuoto senza che nulla fosse rotto. Un
+            // data-attribute è il vero appiglio.
+            data-attention={rawTier ?? undefined}
+            // Il nome accessibile porta lo stato, che prima non era detto da
+            // nessuna parte (il colore non parla). `aria-label` e non `title`: un
+            // title qui aprirebbe un tooltip sopra una tab il cui nome è già
+            // scritto accanto, e duplicherebbe i title dei figli (spinner,
+            // SessionActivity) che dicono la loro parte.
+            aria-label={statoTab ? `${label} — ${statoTab}` : label}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
