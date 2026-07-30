@@ -298,7 +298,14 @@ const agentProfileUpdatedSchema = z.looseObject({
 
 const agentProfileDeletedSchema = z.looseObject({
   type: z.literal('agent:profile:deleted'),
-  agentId: z.string(),
+  // `profileId`, non `agentId`: e' il campo che l'UNICO emittente manda davvero
+  // (`server/routes/agent-profiles.ts`), e sta accanto al `profile` dei fratelli
+  // created/updated. Lo schema chiedeva `agentId`, quindi il frame FALLIVA la
+  // validazione: il server lo segnalava con un warning e il client lo scartava
+  // come malformato (`useWebSocket.ts`). Nessuno lo consumava, quindi il
+  // disallineamento non ha mai fatto rumore — ma un eventuale consumatore non
+  // avrebbe mai visto una cancellazione.
+  profileId: z.string(),
 });
 
 const agentAssignedSchema = z.looseObject({

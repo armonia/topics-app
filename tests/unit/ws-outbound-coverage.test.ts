@@ -33,16 +33,10 @@ const DORMANT: Record<string, string> = {
   "agent:heartbeat": "dichiarato in client/types, emissione server assente",
   "browser:force-open": "gestito da usePanelLifecycle, emissione server assente",
   "topic:switch:complete": "gestito da usePanelLifecycle, emissione server assente",
-  // Superati da `topic:*` in v3: nessuno li manda e nessuno li ascolta più.
-  // Restano solo per non rompere un client vecchissimo che li parsi ancora.
-  "chat:created": "legacy pre-v3, sostituito da topic:created",
-  "chat:updated": "legacy pre-v3, sostituito da topic:updated",
-  "chat:archived": "legacy pre-v3, sostituito da topic:archived",
-  "chat:deleted": "legacy pre-v3, sostituito da topic:deleted",
-  // Il picker legge lo snapshot (`providers:snapshot`), non questi due.
-  "provider:current": "sostituito da providers:snapshot",
-  "provider:changed": "sostituito da providers:snapshot",
-  "agent:status": "sostituito da agents:sessions",
+  // I sette `chat:*` / `provider:*` / `agent:status` che stavano qui sono stati
+  // RIMOSSI dal registro il 30/07: nessuno li mandava e nessuno li ascoltava.
+  // Un tipo dormiente è un contratto che qualcuno potrebbe ancora onorare; quelli
+  // erano finzione, e la finzione si cancella invece di motivarla.
 };
 
 /** Sorgenti del server: quelli che possono emettere. Test e schemi esclusi. */
@@ -114,6 +108,17 @@ describe("copertura del registro ws-outbound", () => {
     const resurrected = Object.keys(DORMANT).filter((type) => emitted.has(type)).sort();
 
     expect(resurrected).toEqual([]);
+  });
+
+  test("la lista dei dormienti non contiene tipi USCITI dal registro", () => {
+    // Il verso che mancava. Togliere uno schema lasciava la sua voce dormiente
+    // lì a marcire, e la motivazione scritta accanto continuava a descrivere un
+    // contratto che non esiste più: la mappa diventa una mappa di fantasmi.
+    const stale = Object.keys(DORMANT)
+      .filter((type) => !REGISTERED_OUTBOUND_TYPES.includes(type))
+      .sort();
+
+    expect(stale).toEqual([]);
   });
 
   test("lo scan trova davvero le emissioni (guardia anti-test-vuoto)", () => {

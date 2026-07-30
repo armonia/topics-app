@@ -60,7 +60,7 @@ export function AgentsPane({ onNavigateToTopic, onOpenSessionViewer, onMessage }
         )}
         {tab === 'roster' && (
           <div className="h-full overflow-y-auto">
-            <AgentRoster />
+            <AgentRoster onMessage={onMessage} />
           </div>
         )}
       </div>
