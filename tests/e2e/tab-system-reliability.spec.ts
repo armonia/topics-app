@@ -156,11 +156,17 @@ test.describe("Tab System Reliability", () => {
     }
   });
 
-  test("message during focused topic does not increment unread", async ({ request, browser }) => {
-    // Behavioral test for the updateUnreadCount invariant:
-    //   - When a client has topic T focused (via WS focus message), subsequent
-    //     system messages to T MUST NOT increment T's unread count.
-    //   - user_abort stream:end relies on the same invariant — user is present.
+  // CAMBIO DI POLITICA DELIBERATO (2026-07-30). Questo test asseriva la vecchia
+  // regola: "un client con la topic focussata SOPPRIME l'incremento del non-letto".
+  // Quella regola era il difetto — vedi il task "I messaggi ad app in background
+  // non diventano mai non-letti": la soppressione era senza nozione di tempo
+  // ("presente = letto") e GLOBALE su tutti i client (una qualsiasi socket, anche
+  // un altro device o una PWA dimenticata, con la topic focussata bastava a
+  // sopprimere il badge per tutti). Ora vige UNA sola politica di lettura: il
+  // server incrementa SEMPRE; solo un `read` esplicito (POST .../read, che il
+  // client manda dopo la soglia di sguardo continuo) azzera. Il test e' stato
+  // riscritto per fissare la NUOVA regola, non cancellato.
+  test("system message always increments unread; only an explicit read clears it", async ({ request, browser }) => {
     const t = await createTopic(request, "FocusedUnreadTest");
     const ctx = await browser.newContext({ baseURL: BASE });
     const page = await ctx.newPage();
@@ -170,28 +176,23 @@ test.describe("Tab System Reliability", () => {
       await resetPaneStore(page.request, [t.id]);
       await gotoAndWait(page);
 
-      // Deterministically establish focus. The server only skips the unread
-      // increment while some client has `focusedTopicId === t` (server.ts:972 sets
-      // it on the WS `focus` frame that ChatPane emits on mount + activation). A
-      // bare 500ms wait races that mount under full-suite load — if the pane never
-      // mounts, focus is never sent and the increment fires. So wait for t's
-      // ChatPane to actually mount (its Message input is visible), opening the tab
-      // from the sidebar if hydrate didn't auto-activate it.
+      // Mount t's ChatPane (so a real client has it focused) — opening the tab
+      // from the sidebar if hydrate didn't auto-activate it. Under the NEW policy
+      // this focus must NOT suppress the increment; the barrier below makes the
+      // "a client is focused" precondition deterministic so the assertion is
+      // meaningful rather than accidentally passing on an un-focused topic.
       const input = page.getByRole("textbox", { name: /Message input/ });
       if (!(await input.isVisible().catch(() => false))) {
         await page.getByRole("treeitem", { name: /FocusedUnreadTest/ }).first().click().catch(() => {});
       }
       await expect(input).toBeVisible({ timeout: 15000 });
 
-      // Deterministic focus barrier. ChatPane emits the `focus` WS frame on mount,
-      // but that frame is async and unordered vs the HTTP POST below — under full-
-      // suite load it can reach the server AFTER the system-message POST, so the
-      // unread-skip (server.ts:972 sets ws.data.focusedTopicId) hasn't taken effect
-      // and the count increments (flaky afterCount=1). Open a test-owned WS that
-      // sends the SAME `focus` frame a real client sends, then a `ping`; a `pong`
-      // on the SAME connection proves the server processed `focus` first (frames
-      // are handled in-order per connection). The socket stays open (stashed on
-      // window) so this client keeps t focused across the POST.
+      // Deterministic focus barrier: open a test-owned WS that sends the SAME
+      // `focus` frame a real client sends, then a `ping`; a `pong` on the SAME
+      // connection proves the server processed `focus` first (frames are handled
+      // in-order per connection). The socket stays open (stashed on window) so this
+      // client keeps t focused across the POST — establishing the precondition
+      // (a client IS focused on t) under which we assert the increment still fires.
       await page.evaluate(
         (topicId) =>
           new Promise<void>((resolve, reject) => {
@@ -219,9 +220,9 @@ test.describe("Tab System Reliability", () => {
       const beforeCount = before[t.id]?.unreadCount ?? 0;
 
       // Post a system message via API. A client (the focus-barrier WS above) has
-      // t focused, so updateUnreadCount must skip the increment. The server
-      // mutates unread synchronously inside the POST handler, so once this
-      // resolves the count is final — no post-hoc wait needed.
+      // t focused, yet updateUnreadCount MUST still increment — no more "presente =
+      // letto". The server mutates unread synchronously inside the POST handler, so
+      // once this resolves the count is final — no post-hoc wait needed.
       const msgRes = await request.post(`${BASE}/api/topics/${t.id}/system-message`, {
         data: { content: "focused-unread-test" },
       });
@@ -229,7 +230,14 @@ test.describe("Tab System Reliability", () => {
 
       const after = (await request.get(`${BASE}/api/unread`).then(r => r.json())) as Record<string, { unreadCount?: number }>;
       const afterCount = after[t.id]?.unreadCount ?? 0;
-      expect(afterCount).toBe(beforeCount);
+      expect(afterCount).toBe(beforeCount + 1);
+
+      // Only an explicit read clears it — this is the single read policy. (This is
+      // exactly the POST the client fires after SEEN_DWELL_MS of continuous focus.)
+      const readRes = await request.post(`${BASE}/api/topics/${t.id}/read`);
+      expect(readRes.ok()).toBe(true);
+      const afterRead = (await request.get(`${BASE}/api/unread`).then(r => r.json())) as Record<string, { unreadCount?: number }>;
+      expect(afterRead[t.id]?.unreadCount ?? 0).toBe(0);
     } finally {
       await ctx.close();
       await deleteTopic(request, t.id);
