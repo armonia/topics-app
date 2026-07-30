@@ -983,16 +983,32 @@ export function ChatInput({
         </div>
       )}
 
-      {othersTyping && (
-        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 flex items-center gap-2 px-3`}>
-          <div className="flex gap-1 flex-shrink-0">
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
-          <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
+      {/* «Qualcuno sta scrivendo», SOPRA il composer e fuori dal flusso.
+          Era un blocco in flusso che montava e smontava: ogni comparsa e ogni
+          scomparsa spostava il composer e con lui la lista dei messaggi, e siccome
+          l'indicatore si spegne 2 s dopo l'ultimo frame, digitare in due produceva
+          un su-e-giù continuo — il «flasha» segnalato. Fuori dal flusso non può
+          più muovere niente: appare sopra il bordo del composer e sparisce senza
+          che nulla si sposti.
+          Il contenitore esterno è `relative h-0`: nel flusso occupa ZERO, quindi
+          non può spostare niente, e l'indicatore ci si ancora sopra. Serve un
+          antenato posizionato e il root del composer è un Fragment, quindi il
+          punto d'ancoraggio va creato qui invece di sperare in uno di sopra.
+          `pointer-events-none`: è informazione, non un bersaglio — non deve mai
+          rubare un click al composer che copre. */}
+      <div className="relative h-0">
+      <div
+        className={`${isMobile ? 'mx-2' : 'mx-3'} absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none transition-opacity duration-150 ${othersTyping ? 'opacity-100' : 'opacity-0'}`}
+        aria-hidden={!othersTyping}
+      >
+        <div className="flex gap-1 flex-shrink-0">
+          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
-      )}
+        <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
+      </div>
+      </div>
 
       {/* Floating input card */}
       <form
