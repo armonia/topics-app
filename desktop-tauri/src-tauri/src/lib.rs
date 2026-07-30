@@ -1386,7 +1386,84 @@ mod macos_notifications {
         pub log_path: Option<String>,
     }
 
+    /// Rilegge da macOS lo stato dell'autorizzazione e lo scrive negli atomici.
+    ///
+    /// Il pannello Impostazioni consiglia di riaccendere le notifiche in
+    /// Impostazioni di Sistema. Finché questa lettura si faceva UNA volta sola
+    /// dentro `install()`, seguire quel consiglio non cambiava niente: la
+    /// diagnosi restava la fotografia scattata al boot e continuava a dire
+    /// «non arrivano» proprio nel momento in cui l'utente aveva appena fatto
+    /// quello che gli avevamo chiesto. Vale anche al contrario — notifiche
+    /// spente a mano e pannello che giura che va tutto bene.
+    ///
+    /// `wait` è il tetto entro cui aspettare il callback (`ZERO` = spara e
+    /// vai, com'era all'install). Scaduto il tetto non si blocca niente:
+    /// restano gli ultimi valori noti e il callback aggiornerà comunque gli
+    /// atomici per la lettura dopo. Chi aspetta NON deve stare sul main
+    /// thread: `notification_status` è marcato `#[tauri::command(async)]`
+    /// apposta.
+    fn refresh_auth_state(wait: std::time::Duration) {
+        if !is_bundled() {
+            return;
+        }
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let landed = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let signal = landed.clone();
+        let settings_done = RcBlock::new(
+            move |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
+                use objc2_user_notifications::UNAuthorizationStatus;
+                let s = unsafe { settings.as_ref() };
+                let status = s.authorizationStatus();
+                // Questa lettura è AUTORITATIVA: dice lo stato di adesso, non
+                // l'esito di un prompt. Perciò un `Denied` sovrascrive anche un
+                // `granted` precedente — è l'unico modo perché una revoca fatta
+                // in Impostazioni di Sistema si veda. E `UN_AUTHORIZED=false`
+                // non spegne i banner: manda `post` sull'helper firmato, che è
+                // esattamente quello che serve quando a nostro nome verrebbero
+                // buttati in silenzio. `NotDetermined` (prompt ancora aperto)
+                // non tocca niente.
+                if status == UNAuthorizationStatus::Authorized
+                    || status == UNAuthorizationStatus::Provisional
+                {
+                    UN_AUTHORIZED.store(true, Ordering::Relaxed);
+                    AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
+                } else if status == UNAuthorizationStatus::Denied {
+                    UN_AUTHORIZED.store(false, Ordering::Relaxed);
+                    AUTH_STATE.store(AUTH_DENIED, Ordering::Relaxed);
+                }
+                diag(&format!(
+                    "settings → authorizationStatus={:?} alertSetting={:?}",
+                    status,
+                    s.alertSetting()
+                ));
+                let (lock, cv) = &*signal;
+                if let Ok(mut done) = lock.lock() {
+                    *done = true;
+                }
+                cv.notify_all();
+            },
+        );
+        center.getNotificationSettingsWithCompletionHandler(&settings_done);
+        if wait.is_zero() {
+            return;
+        }
+        let (lock, cv) = &*landed;
+        let Ok(mut done) = lock.lock() else { return };
+        while !*done {
+            let Ok((guard, timeout)) = cv.wait_timeout(done, wait) else { return };
+            done = guard;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+    }
+
     pub fn status() -> NotificationStatus {
+        // Prima di raccontarlo, si ricontrolla: vedi `refresh_auth_state`. Il
+        // tetto è stretto perché è una query locale al demone delle notifiche —
+        // se non risponde in 300ms si risponde con l'ultimo stato noto invece
+        // di far aspettare il pannello.
+        refresh_auth_state(std::time::Duration::from_millis(300));
         let auth_state = match AUTH_STATE.load(Ordering::Relaxed) {
             AUTH_GRANTED => "granted",
             AUTH_DENIED => "denied",
@@ -1609,32 +1686,10 @@ mod macos_notifications {
             UNAuthorizationOptions::Alert,
             &done,
         );
-        let settings_done = RcBlock::new(
-            |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
-                use objc2_user_notifications::UNAuthorizationStatus;
-                let s = unsafe { settings.as_ref() };
-                let status = s.authorizationStatus();
-                if status == UNAuthorizationStatus::Authorized
-                    || status == UNAuthorizationStatus::Provisional
-                {
-                    UN_AUTHORIZED.store(true, Ordering::Relaxed);
-                    AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
-                } else if status == UNAuthorizationStatus::Denied {
-                    let _ = AUTH_STATE.compare_exchange(
-                        AUTH_PENDING,
-                        AUTH_DENIED,
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    );
-                }
-                diag(&format!(
-                    "settings → authorizationStatus={:?} alertSetting={:?}",
-                    status,
-                    s.alertSetting()
-                ));
-            },
-        );
-        center.getNotificationSettingsWithCompletionHandler(&settings_done);
+        // Spara e vai: qui il prompt può essere ancora aperto, non c'è niente
+        // da aspettare. La stessa lettura la rifà `status()` quando il pannello
+        // la chiede, ed è lì che conta che sia fresca.
+        refresh_auth_state(std::time::Duration::ZERO);
         diag(&format!(
             "helper fallback: {}",
             helper_path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into())
@@ -1732,7 +1787,12 @@ fn notify(app: tauri::AppHandle, title: String, body: String, task_id: Option<St
 ///
 /// `serde_json::Value` perché la forma è per-piattaforma: su Windows/Linux la
 /// catena macOS non esiste e il campo `platform` lo dichiara.
-#[tauri::command]
+/// `(async)` non è cosmetico: un comando sincrono Tauri lo esegue sul MAIN
+/// thread, e `status()` aspetta lì dentro la risposta del demone delle
+/// notifiche. Su un thread del pool quell'attesa è innocua; sul main sarebbe
+/// un blocco della UI, e se il callback volesse a sua volta la main queue
+/// sarebbe uno stallo.
+#[tauri::command(async)]
 fn notification_status() -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
@@ -5307,13 +5367,21 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             // so neither the pane nor the terminal also acts on it. `location.
             // reload()` re-fetches index.html + bundle = the app reload the user
             // expects. (Only ⌘R without Ctrl — leaves ⌃R and page shortcuts alone.)
+            //
+            // E senza Shift: ⌘⇧R è "Record voice" (lo dicono il tooltip del
+            // microfono e il pannello delle scorciatoie). Togliere l'acceleratore
+            // dal menu — dove stava per sbaglio su "Force Reload" — non bastava:
+            // questo monitor vede il tasto PRIMA del menu e prima della webview,
+            // quindi continuava a ricaricare l'app al posto di far partire il
+            // dettato, e a ingoiare l'evento perché la UI non lo vedesse mai.
             {
                 let flags_r: u64 = msg_send![event, modifierFlags];
                 let cmd_r = flags_r & (1 << 20) != 0;
                 let ctrl_r = flags_r & (1 << 18) != 0;
+                let shift_r = flags_r & (1 << 17) != 0;
                 let chars_r_id: id = msg_send![event, charactersIgnoringModifiers];
                 let chars_r = ns_string_to_rust(chars_r_id).to_lowercase();
-                if cmd_r && !ctrl_r && chars_r == "r" {
+                if cmd_r && !ctrl_r && !shift_r && chars_r == "r" {
                     let mut done = false;
                     for (label, w) in app.webview_windows() {
                         if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
@@ -6386,6 +6454,11 @@ pub fn run() {
             // e quando il fuoco stava in una webview figlia partiva davvero,
             // ricaricando l'app al posto di far partire il dettato. La voce resta,
             // cliccabile; la scorciatoia torna a chi la documenta.
+            //
+            // Da SOLO questo non basta e non bastava: il monitor NSEvent (cerca
+            // `!shift_r`) intercetta il tasto prima del menu e prima della
+            // webview. Sono due porte sulla stessa scorciatoia — se ne riapri una
+            // la riapri per tutti.
             let force_reload =
                 MenuItem::with_id(handle, "force-reload", "Force Reload", true, None::<&str>)?;
             let zoom_in = MenuItem::with_id(handle, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
