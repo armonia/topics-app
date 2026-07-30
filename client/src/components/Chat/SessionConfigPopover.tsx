@@ -6,14 +6,15 @@
 //     field, behind a trigger labelled "Provider & model". The composer showed
 //     the current tier only as a non-clickable badge, so "change the effort"
 //     meant opening a menu about something else.
-//   - AUTONOMIA (the permission mode — the single most conversational setting
-//     there is: "stop asking me" / "ask me again") was reachable ONLY from the
-//     topic settings modal, itself only reachable from a tab right-click.
 //
-// Both are per-topic server state: effort goes through the existing
-// onEffortChange funnel (which respawns an idle CLI), autonomyLevel through
-// onUpdateTopic. Nothing new is invented here — this is the missing surface for
-// state the composer already had in scope.
+// L'effort passa dal funnel `onEffortChange` che esisteva già (e che respawna
+// una CLI a riposo): qui non si inventa niente, si dà una superficie a uno stato
+// per-topic che il composer aveva già in mano.
+//
+// Qui c'era anche AUTONOMIA, rimossa il 30/07: mostrava "Chiedi — Approvi ogni
+// azione" selezionato su ogni topic mentre lo spawn usa `bypassPermissions`.
+// Non è collegabile finché il server non gestisce il canale di permesso della
+// CLI — vedi openspec/changes/autonomy-level-needs-permission-channel/.
 import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
@@ -27,19 +28,12 @@ import {
   resolveEffectiveProvider,
   type ProviderSelection,
 } from '@/lib/effortTiers';
-import type { AutonomyLevel, Topic, UpdateTopicRequest } from '@/types';
 
-const AUTONOMY: { value: AutonomyLevel; label: string; desc: string }[] = [
-  { value: 'ask', label: 'Chiedi', desc: 'Approvi ogni azione' },
-  { value: 'auto-apply', label: 'Applica', desc: 'Applica e mostra' },
-  { value: 'yolo', label: 'Autonomo', desc: 'Minimo feedback' },
-];
 
 /** Own width — lets the horizontal clamp work without a measure pass. */
 const PANEL_W = 260;
 
 interface SessionConfigPopoverProps {
-  topic: Topic;
   /** Per-topic effort override; null = provider default. */
   effort: string | null;
   onEffortChange?: (effort: string | null) => void;
@@ -50,17 +44,14 @@ interface SessionConfigPopoverProps {
    *  override, e "default" resterebbe una parola senza posizione. */
   providerOverride?: ProviderSelection | null;
   defaultProviderLabel?: string;
-  onUpdateTopic?: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
 }
 
 export function SessionConfigPopover({
-  topic,
   effort,
   onEffortChange,
   effortSupported,
   providerOverride,
   defaultProviderLabel,
-  onUpdateTopic,
 }: SessionConfigPopoverProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -87,10 +78,12 @@ export function SessionConfigPopover({
   const sliderTier = effort ?? defaultTier ?? null;
   const sliderIndex = Math.max(0, effortIndex(sliderTier) >= 0 ? effortIndex(sliderTier) : 2);
 
-  const autonomy: AutonomyLevel = topic.autonomyLevel ?? 'ask';
   // With neither knob available there is nothing to show — stay invisible
   // rather than offer an empty panel.
-  if (!effortSupported && !onUpdateTopic) return null;
+  // Rimasto solo l'effort (piu' l'etichetta del provider, informativa): senza
+  // supporto all'effort il popover non ha piu' niente da mostrare. Prima la
+  // guardia teneva in vita anche il caso "solo autonomia".
+  if (!effortSupported) return null;
 
   return (
     <>
@@ -205,34 +198,17 @@ export function SessionConfigPopover({
             </div>
           )}
 
-          {onUpdateTopic && (
-            <div>
-              <span className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-app-text-tertiary">
-                Autonomia
-              </span>
-              <div className="flex rounded-md border border-app-border overflow-hidden">
-                {AUTONOMY.map(({ value, label, desc }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => { void onUpdateTopic(topic.id, { autonomyLevel: value }); }}
-                    className={`flex-1 px-1 py-1.5 text-center transition-colors ${
-                      autonomy === value
-                        ? 'bg-primary text-white'
-                        : 'text-app-text-secondary hover:bg-app-hover'
-                    }`}
-                    title={desc}
-                    data-testid={`session-autonomy-${value}`}
-                  >
-                    <span className="block text-[11px] font-medium">{label}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-[10px] leading-snug text-app-text-muted">
-                {AUTONOMY.find((a) => a.value === autonomy)?.desc}
-              </p>
-            </div>
-          )}
+          {/* Il selettore "Autonomia" stava qui, e MENTIVA: mostrava "Chiedi —
+              Approvi ogni azione" selezionato su ogni topic (è il default di
+              schema, tutti i 461 nel DB reale) mentre lo spawn usa
+              `bypassPermissions`. I livelli non sono collegabili finché il
+              server non gestisce il canale di permesso della CLI —
+              `can_use_tool` non compare da nessuna parte, quindi un
+              `--permission-mode` che CHIEDE lascia il turno appeso al watchdog.
+              Motivo e piano in
+              openspec/changes/autonomy-level-needs-permission-channel/.
+              Colonna, PATCH e tipo restano intatti. */}
+
         </div>,
         document.body,
       )}

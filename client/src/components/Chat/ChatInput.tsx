@@ -1209,13 +1209,11 @@ export function ChatInput({
                     and autonomy (the permission mode) was reachable only from
                     the settings modal behind a tab right-click. */}
                 <SessionConfigPopover
-                  topic={topic}
                   effort={effort ?? null}
                   onEffortChange={onEffortChange}
                   effortSupported={!!onEffortChange}
                   providerOverride={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
-                  onUpdateTopic={onUpdateTopic}
                 />
               </div>
 
