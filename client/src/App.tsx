@@ -19,6 +19,7 @@ import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
+import { useSettingsSync } from './hooks/useSettingsSync';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
@@ -495,6 +496,12 @@ function App() {
   // archive-on-close guards (ref-backed, stays a stable identity).
   const sidebar = useSidebarState(onWSMessage);
   const isPinnedRef = useRefMirror(sidebar.isPinned);
+
+  // Verso di LETTURA delle preferenze: `saveSettings` faceva il PUT da sempre,
+  // ma nessuno leggeva mai indietro. Senza questo, un secondo dispositivo o la
+  // WebView del guscio desktop (storage suo) ripartono dai default con il
+  // valore giusto fermo sul server.
+  useSettingsSync(onWSMessage);
 
   // Phase 3 hook 3 — full panel-state cluster (state, store-sync,
   // validation, per-cluster WS subs, handlers). See usePanelLifecycle.ts
