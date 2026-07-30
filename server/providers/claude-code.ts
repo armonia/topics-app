@@ -1385,6 +1385,37 @@ export class ClaudeCodeProvider implements AIProvider {
     this.processes.delete(sessionKey);
   }
 
+  /**
+   * `/clear`: taglia il filo con la sessione della CLI, così il turno dopo
+   * riparte da zero.
+   *
+   * Qui la memoria non sta in Topics. Svuotare la tabella `messages` pulisce
+   * quello che si vede; il modello invece rilegge tutto dal file di sessione
+   * della CLI, perché lo spawn successivo fa `--resume <id>`. Risultato prima
+   * di questo metodo: la chat sembrava azzerata e il modello continuava a
+   * citare quello che l'utente aveva appena visto sparire.
+   *
+   * Il taglio è in due mosse, e servono entrambe: dimenticare l'id (la riga
+   * `claude_code_sessions`) manda lo spawn successivo sul ramo `--session-id`
+   * con un uuid nuovo; staccare il processo in pool evita che a rispondere
+   * resti il figlio ancora attaccato al vecchio id — che è VIVO e ricorda.
+   *
+   * A differenza di `refreshSessionConfig` questo NON risparmia un turno in
+   * corso: chi scrive `/clear` mentre l'AI parla sta chiedendo esattamente di
+   * buttare via quel turno, e i suoi messaggi li ha appena cancellati la
+   * route. Il file di sessione della CLI resta sul disco: è la sua storia,
+   * non tocca a noi cancellarla — semplicemente non ci torniamo più sopra.
+   */
+  async resetSession(sessionKey: string): Promise<void> {
+    const pp = this.processes.get(sessionKey);
+    if (pp) {
+      this.killProcess(pp);
+      this.processes.delete(sessionKey);
+    }
+    forgetClaudeSessionId(sessionKey);
+    console.log(`[claude-code] resetSession: ${sessionKey} riparte con una sessione nuova al prossimo turno`);
+  }
+
   // --- Abort ---
 
   async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {

@@ -301,11 +301,12 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
         // This is the fix for "close a project Claude Code, press Shift+Cmd+T →
         // two tabs (one full, one empty)": the project window's own
         // dormant-revive already brings the session back under `terminal:<id>`,
-        // so a fresh POST here would add a SECOND pane under `terminal:<newId>`,
-        // empty because the POST path ignores claudeSessionId (no --resume).
+        // so a fresh POST here would add a SECOND pane under `terminal:<newId>`.
         // Reviving the same id lets id-dedup collapse both into one restored,
         // full pane. A session that is neither live nor dormant (revive 404)
-        // falls through to a fresh POST below.
+        // falls through to a fresh POST below — che ORA riprende davvero la
+        // sessione: il `claudeSessionId` qui sotto non viene più buttato dal
+        // server, che lo gira a `--resume` (server/routes/terminal.ts).
         try {
           const revived = await fetch(`/api/terminal/sessions/${sessionId}/revive`, {
             method: 'POST',
