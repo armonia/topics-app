@@ -653,6 +653,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let cacheReadTokens: number | undefined;
           let cacheCreationTokens: number | undefined;
           let cacheCreation1hTokens: number | undefined;
+          // Il consumo del turno MENTRE cresce, chiamata per chiamata. Distinto
+          // dai tre di sopra, che sono il consuntivo che arriva col `result`:
+          // questo serve a far vedere qualcosa muoversi durante un turno agentico
+          // lungo, dove prima non si vedeva niente fino alla fine.
+          const live = { calls: 0, prompt: 0, completion: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0 };
+          let liveModel: string | undefined;
           // Set when a compaction boundary lands mid-turn, so onDone knows this
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
@@ -1648,6 +1654,48 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
+            onCallUsage: (u) => {
+              // Si ACCUMULA: il provider manda l'usage di UNA chiamata, e il
+              // `result` finale somma già tutto — sommare anche quello sarebbe
+              // contare due volte. Il client non fa aritmetica: riceve i totali.
+              live.calls += 1;
+              live.prompt += u.inputTokens;
+              live.completion += u.outputTokens;
+              live.cacheRead += u.cacheRead;
+              live.cacheCreation += u.cacheCreation;
+              live.cacheCreation1h += u.cacheCreation1h;
+              if (u.model) liveModel = u.model;
+              if (!matchedTopic) return;
+              // Costo corrente, con le stesse tariffe del consuntivo: il fresco è
+              // il RESTO (mai negativo), le due durate di cache pagano la loro.
+              let liveCost: number | undefined;
+              try {
+                const fresh = Math.max(0, live.prompt - live.cacheRead - live.cacheCreation);
+                const w1h = Math.min(live.cacheCreation1h, live.cacheCreation);
+                const usd = calculateCostWithCache({
+                  model: liveModel || overrideModel || "unknown",
+                  freshInputTokens: fresh,
+                  outputTokens: live.completion,
+                  cacheReadTokens: live.cacheRead,
+                  cacheCreationTokens: live.cacheCreation - w1h,
+                  cacheCreation1hTokens: w1h,
+                });
+                if (usd > 0) liveCost = Math.round(usd * 100);
+              } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
+              broadcastToAll({
+                type: "stream:usage",
+                sessionKey,
+                topicId: matchedTopic.id,
+                calls: live.calls,
+                promptTokens: live.prompt,
+                completionTokens: live.completion,
+                cacheReadTokens: live.cacheRead,
+                cacheCreationTokens: live.cacheCreation,
+                cacheCreation1hTokens: live.cacheCreation1h,
+                ...(liveCost != null ? { costCents: liveCost } : {}),
+                ...(liveModel ? { model: liveModel } : {}),
+              });
+            },
             onContextSize: (tokens, model, windowTokens) => {
               // 1) Il ring del contesto reale (1b.5). Questo numero — il
               //    prompt di UNA chiamata — è l'unica misura onesta di "quanto
