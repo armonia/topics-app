@@ -196,7 +196,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             disabled={creating || !newBranchName.trim()}
             className="px-1.5 h-[22px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
           >
-            {creating ? <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Create'}
+            {creating ? <Spinner size="xs" tone="current" /> : 'Create'}
           </button>
         </div>
       )}
@@ -256,7 +256,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
               title={`Delete ${branch.name}`}
             >
               {deleting === branch.name ? (
-                <div className="w-2.5 h-2.5 border border-app-spinner border-t-red-500 rounded-full animate-spin" />
+                <Spinner size="xs" tone="current" className="text-red-500" />
               ) : (
                 <Trash2 size={10} />
               )}
@@ -341,7 +341,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                   disabled={addingRemote || !newRemoteName.trim() || !newRemoteUrl.trim()}
                   className="px-1.5 h-[20px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
                 >
-                  {addingRemote ? <div className="w-2 h-2 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Add'}
+                  {addingRemote ? <Spinner size="xs" tone="current" /> : 'Add'}
                 </button>
               </div>
             </div>
