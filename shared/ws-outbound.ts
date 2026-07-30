@@ -507,13 +507,6 @@ const messageMediaSchema = z.looseObject({
   media: z.unknown(),
 });
 
-const messagePlanStatusSchema = z.looseObject({
-  type: z.literal('message:plan-status'),
-  topicId: z.string(),
-  messageId: z.string(),
-  planStatus: z.string(),
-});
-
 // ---- Misc / domain-specific outbound --------------------------------------
 
 const browserNavigateSchema = z.looseObject({
@@ -974,7 +967,6 @@ const OUTBOUND_SCHEMAS = {
   'message': messageLegacySchema,
   'message:new': messageNewSchema,
   'message:media': messageMediaSchema,
-  'message:plan-status': messagePlanStatusSchema,
   // Misc domain
   'browser:navigate': browserNavigateSchema,
   'browser:force-open': browserForceOpenSchema,

@@ -71,6 +71,7 @@ import m062 from "./migrations/063-provider-sessions.sql" with { type: "text" };
 import m063 from "./migrations/064-topic-goals.sql" with { type: "text" };
 import m064 from "./migrations/065-task-fanout.sql" with { type: "text" };
 import m065 from "./migrations/066-terminal-session-type-opencode.sql" with { type: "text" };
+import m066 from "./migrations/067-drop-master-topic-leftovers.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -146,4 +147,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 64, name: "064-topic-goals.sql", sql: m063 },
   { version: 65, name: "065-task-fanout.sql", sql: m064 },
   { version: 66, name: "066-terminal-session-type-opencode.sql", sql: m065 },
+  { version: 67, name: "067-drop-master-topic-leftovers.sql", sql: m066 },
 ];

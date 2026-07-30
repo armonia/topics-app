@@ -194,7 +194,6 @@ describe('outbound registry contract', () => {
       'message',
       'message:media',
       'message:new',
-      'message:plan-status',
       'open-project',
       'pane:focus-suggest',
       'pong',
@@ -285,8 +284,14 @@ describe('outbound registry contract', () => {
   // l'envelope re-inietta a ogni turno: se la barra in cima alla chat non lo
   // seguisse dal vivo, due finestre sulla stessa topic mostrerebbero obiettivi
   // diversi mentre il modello ne vede uno solo.
-  test('all 103 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(103);
+  // 103 → 102: via `message:plan-status`. L'endpoint che lo emetteva
+  // (`POST /api/topics/:id/messages/:msgId/plan-status`) non aveva un solo
+  // consumatore — 0 client, 0 su 6293 messaggi con un `plan_status` scritto —
+  // ed era il residuo di un'approvazione dei piani mai collegata: oggi il Plan
+  // Mode passa da `opts.planMode` e l'approvazione la gestisce la CLI. La
+  // COLONNA resta, perché è intrecciata in ogni CRUD dei messaggi.
+  test('all 102 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
   });
 });
 
@@ -489,16 +494,6 @@ describe('validateOutbound — message cluster', () => {
       type: 'message:new', sessionKey: 'sk', role: 'user', messageId: 'm-1',
       content: 'hi', // topicId optional, preview optional
     }).ok).toBe(true);
-  });
-
-  test('message:plan-status requires topicId+messageId+planStatus', () => {
-    expect(validateOutbound({
-      type: 'message:plan-status', topicId: 't-1', messageId: 'm-1',
-      planStatus: 'approved',
-    }).ok).toBe(true);
-    expect(validateOutbound({
-      type: 'message:plan-status', topicId: 't-1',
-    }).ok).toBe(false);
   });
 
   test('message:media accepts arbitrary media field', () => {
