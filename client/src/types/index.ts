@@ -371,6 +371,17 @@ export interface WSStreamEndMessage {
   cacheCreation1hTokens?: number;
   /** Free-form reason carried on non-success terminations (e.g. `user_abort`). */
   reason?: string;
+  /** Vocabolario ACP del PERCHÉ del turno (`cancelled`, `refusal`, …) e CHI l'ha
+   *  fermato (`watchdog`, `user`, …). Presenti solo su una fine non pulita. */
+  stopReason?: string;
+  stopCause?: string;
+  /** Marcatore POSITIVo di fine PULITA (`end_turn`): il modello ha chiuso da
+   *  solo. Assente su annullo/limite/errore. Lo legge la push di fine risposta
+   *  (server/push-triggers.ts) per non annunciare "risposta pronta" a vuoto. */
+  completed?: boolean;
+  /** Turno d'AGENTE guidato dalla board, non una chat umana: la push di fine
+   *  risposta lo esclude. */
+  dispatched?: boolean;
   /** Il turno è stato fermato prima che il modello producesse qualcosa e il
    *  segnaposto è stato CANCELLATO, non finalizzato: chi ha quella riga in
    *  pagina deve toglierla o gli resta una bolla vuota che il server non ha

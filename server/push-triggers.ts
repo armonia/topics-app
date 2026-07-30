@@ -1,5 +1,18 @@
 import { sendPushToAll } from "./push-service";
 
+// Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
+// NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
+// COSA parlava. Il resolver è iniettato una volta al bootstrap
+// (`configurePushTriggers`), così i test possono passarne uno finto e il modulo
+// resta testabile in isolamento.
+let resolveTopicName: ((topicId: string) => string | null | undefined) | null = null;
+
+export function configurePushTriggers(opts: {
+  getTopicName: (topicId: string) => string | null | undefined;
+}): void {
+  resolveTopicName = opts.getTopicName;
+}
+
 // Fire-and-forget: maybeSendPush runs synchronously after broadcastToAll, so a
 // rejected sendPushToAll (DB closed mid-shutdown, VAPID init failure — its top
 // getDatabase()/initVapid() calls are NOT internally caught) would surface as an
@@ -20,6 +33,16 @@ function firePush(payload: { title: string; body: string; tag?: string; url?: st
  */
 function taskUrl(taskId: unknown): string {
   return typeof taskId === "string" && taskId ? `/task/${taskId}` : "/";
+}
+
+/**
+ * Il gemello di `taskUrl` per la CHAT: il click su una push di fine risposta
+ * deve ATTERRARE sul topic, non sulla home. `/topic/<id>` è la rotta che
+ * `client/src/lib/openTaskLink.ts` riconosce (apre la tab del topic in-app, sia
+ * a finestra aperta via service worker sia da finestra chiusa al boot).
+ */
+function topicUrl(topicId: unknown): string {
+  return typeof topicId === "string" && topicId ? `/topic/${topicId}` : "/";
 }
 
 /**
@@ -80,15 +103,34 @@ export function maybeSendPush(message: Record<string, any>): void {
     return;
   }
 
-  // NIENTE push su `stream:end`. C'era, e diceva "✅ Response complete —
-  // Claude finished responding" per OGNI fine turno: anche quando eri stato TU
-  // ad annullare (`reason: user_abort`), anche quando il watchdog aveva ucciso
-  // il turno (`stopCause: watchdog`), anche per ognuno delle decine di turni di
-  // un agente sulla board. Senza nome del topic e senza deep link. Era rumore
-  // che a volte mentiva. I fronti di fine lavoro corretti sono `review-ready` e
-  // `parked` qui sopra; una push di fine risposta per la CHAT va rifatta con
-  // nome del topic, deep link al topic e i turni d'agente esclusi — è un lavoro
-  // a sé, non una riga da rimettere qui.
+  // Fine risposta della CHAT UMANA. La vecchia versione diceva "Response
+  // complete" per OGNI `stream:end` — ecco perché ora ogni ramo è a gate:
+  //  · `completed !== true`  → è un `stream:end` sporco (errore/annullo/finally
+  //     dell'SSE): solo il completamento pulito porta il marcatore esplicito.
+  //  · `dispatched`          → turno d'AGENTE guidato dalla board (runHeadlessTurn
+  //     passa `dispatched:true`): decine di turni = spam, e non è "la tua" chat.
+  //  · `reason: user_abort` / `stopCause: watchdog` / `stopReason: cancelled`
+  //     → ridondanti col marcatore `completed`, ma tenuti espliciti come rete.
+  // Titolo = nome del topic (serve al risveglio sapere DI COSA), deep link al
+  // topic, `tag` per topicId così una seconda risposta rimpiazza invece di
+  // impilare.
+  if (type === "stream:end") {
+    const topicId = typeof message.topicId === "string" ? message.topicId : "";
+    const dispatched = message.dispatched === true;
+    const dirty =
+      message.reason === "user_abort" ||
+      message.stopCause === "watchdog" ||
+      message.stopReason === "cancelled";
+    if (message.completed !== true || dispatched || dirty || !topicId) return;
+    const name = resolveTopicName?.(topicId);
+    firePush({
+      title: name ? `💬 ${name}` : "💬 Risposta pronta",
+      body: "Claude ha finito di rispondere",
+      tag: `chat-end-${topicId}`,
+      url: topicUrl(topicId),
+    });
+    return;
+  }
 
   // Agent session status changes (error) from the session watcher
   if (type === "agents:sessions" && Array.isArray(message.sessions)) {

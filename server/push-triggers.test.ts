@@ -14,7 +14,11 @@ mock.module("./push-service", () => ({
   sendPushToAll: async (payload: any) => { pushCalls.push(payload); },
 }));
 
-const { maybeSendPush } = await import("./push-triggers");
+const { maybeSendPush, configurePushTriggers } = await import("./push-triggers");
+
+// Resolver del nome topic iniettato (in prod è un lookup sul DB in
+// createAppContext). Qui finto: `tp1` → nome, resto → null.
+configurePushTriggers({ getTopicName: (id: string) => (id === "tp1" ? "Rifai la migration" : null) });
 
 describe("maybeSendPush — task:review-ready", () => {
   beforeEach(() => { pushCalls.length = 0; });
@@ -92,19 +96,54 @@ describe("maybeSendPush — task:parked", () => {
 });
 
 /**
- * `stream:end` NON deve più mandare push. Diceva "Response complete" per ogni
- * fine turno — anche su un annullamento dell'utente, anche sul kill del
- * watchdog, anche per ognuno delle decine di turni di un agente sulla board —
- * senza nome del topic e senza deep link. Questo test è il chiodo che impedisce
- * di rimetterlo per distrazione.
+ * Push di fine risposta della CHAT, rifatta. La vecchia versione diceva
+ * "Response complete" per OGNI `stream:end` — anche su un annullo dell'utente,
+ * sul kill del watchdog, e per ognuno delle decine di turni di un agente sulla
+ * board — senza nome del topic e senza deep link. Questi test sono il chiodo che
+ * fissa il nuovo contratto: push SOLO su fine PULITA di CHAT, muta su tutto il
+ * resto, titolo col nome del topic, deep link e tag per topicId.
  */
-describe("maybeSendPush — nessuna push di fine turno", () => {
+describe("maybeSendPush — fine risposta della chat", () => {
   beforeEach(() => { pushCalls.length = 0; });
 
-  test("stream:end è muto, in tutte le sue forme", () => {
-    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", topicId: "tp1", messageId: "m1" });
-    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", topicId: "tp1", reason: "user_abort" });
-    maybeSendPush({ type: "stream:end", sessionKey: "topic:abc", stopReason: "cancelled", stopCause: "watchdog" });
+  test("fine PULITA di chat → una push col nome del topic, tag+url per topicId", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toContain("Rifai la migration");
+    expect(pushCalls[0].body.length).toBeGreaterThan(0);
+    expect(pushCalls[0].tag).toBe("chat-end-tp1");
+    expect(pushCalls[0].url).toBe("/topic/tp1");
+  });
+
+  test("senza nome risolto degrada a un titolo generico, ma manda la push", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:zzz", topicId: "zzz", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].tag).toBe("chat-end-zzz");
+    expect(pushCalls[0].url).toBe("/topic/zzz");
+  });
+
+  test("MUTA su annullo dell'utente", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", completed: true, reason: "user_abort" });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA sul kill del watchdog", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", stopReason: "cancelled", stopCause: "watchdog" });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA su un turno d'AGENTE guidato dalla board", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true, dispatched: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA su un `stream:end` NON pulito (nessun marcatore completed)", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1" });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA senza topicId (non saprebbe DI COSA né DOVE mandarti)", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(0);
   });
 });

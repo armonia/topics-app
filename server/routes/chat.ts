@@ -209,6 +209,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       const sessionKey = body.sessionKey;
+      // Turno guidato dalla board (runHeadlessTurn), non una chat umana: si
+      // propaga sul `stream:end` di completamento così la push di fine risposta
+      // lo esclude (vedi server/push-triggers.ts). Decine di turni d'agente = spam.
+      const dispatched = body.dispatched === true;
       // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
       const matchedTopic = getTopicBySessionKey(sessionKey);
       // Reset browser navigate tracking for this topic so new URLs can trigger
@@ -1211,6 +1215,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // fuori da `stopReason` e viaggia come `reason` dello stream.
                 ...(isAcpStopReason(endInfo.end) ? { stopReason: endInfo.end } : {}),
                 ...(endInfo.cause ? { stopCause: endInfo.cause } : {}),
+                // Marcatore POSITIVo di fine pulita, letto SOLO dalla push di
+                // fine risposta (push-triggers): `end_turn` = il modello ha
+                // chiuso da solo. Su max_tokens/refusal/cancelled/error resta
+                // assente, così un turno morto non annuncia "risposta pronta"; e
+                // nemmeno un turno VUOTO (segnaposto scartato = nessuna risposta).
+                // `dispatched` esclude i turni d'agente guidati dalla board.
+                completed: endInfo.end === "end_turn" && !discardedMessageId,
+                ...(dispatched ? { dispatched: true } : {}),
               });
               finalizeTurnActivity(matchedTopic);
             }
@@ -2201,7 +2213,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+                // Fallback SSE: il `[DONE]` è la fine pulita del turno (l'errore
+                // esce dal ramo catch/finally, non da qui). Stesso marcatore del
+                // path WS per la push di fine risposta.
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id, completed: true, ...(dispatched ? { dispatched: true } : {}) });
                 finalizeTurnActivity(matchedTopic);
               }
               return;
