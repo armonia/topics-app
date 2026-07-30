@@ -8,6 +8,7 @@ import {
   removeProvider,
 } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
+import { updateAppSettings } from "../services/app-settings";
 
 // Slice 9 removed the per-route `diagnoseCache` / `modelsCache` Maps that the
 // old `/api/providers/diagnose` + `/api/providers/models` endpoints used. The
@@ -88,7 +89,20 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
         if (!name || typeof name !== "string") {
           return json({ ok: false, error: "Missing 'provider' in request body" }, 400);
         }
+        // PRIMA valida (lancia se non registrato), POI persiste: se il nome e'
+        // sbagliato la scelta non deve nemmeno finire su disco.
         setDefaultProvider(name);
+        // La scelta va SCRITTA, non solo tenuta in memoria.
+        //
+        // `setDefaultProvider` assegna il solo `_defaultName` del processo. Senza
+        // riga in `app_settings.ai_provider`, `resolveAiProvider()` torna
+        // undefined e `recomputeDefault()` — che gira al boot E a ogni evento di
+        // connect/disconnect — considera il campo libero e ripesca "il migliore
+        // disponibile". Quindi la scelta si perdeva al riavvio, e nella stessa
+        // sessione bastava che un provider andasse giu' e tornasse per
+        // sovrascriverla. Con la riga scritta, `explicit` vince in entrambi i
+        // casi: e' esattamente il ramo che `recomputeDefault` ha per questo.
+        updateAppSettings({ aiProvider: name });
         return json({ ok: true, default: name });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

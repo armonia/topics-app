@@ -140,3 +140,35 @@ describe("resolution chain — setting ?? env ?? default", () => {
     expect(settingClaudeEffort()).toBe("medium");
   });
 });
+
+describe("la scelta del provider di default sopravvive a recomputeDefault", () => {
+  // Il guasto: `PUT /api/providers/default` chiamava solo `setDefaultProvider`,
+  // che assegna il `_defaultName` del PROCESSO. Senza riga in
+  // `app_settings.ai_provider`, `resolveAiProvider()` torna undefined e
+  // `recomputeDefault()` — che gira al boot E a ogni connect/disconnect —
+  // considera il campo libero e ripesca "il migliore disponibile": la scelta si
+  // perdeva al riavvio, e in sessione bastava un provider che andasse giu' e
+  // tornasse per sovrascriverla.
+  //
+  // Questo test copre il pezzo che rende la persistenza EFFICACE: la riga
+  // scritta deve alimentare `resolveAiProvider`, che e' l'unico ramo per cui
+  // `recomputeDefault` tiene una scelta esplicita.
+  test("scritta nelle settings, `resolveAiProvider` la riporta senza env", () => {
+    expect(resolveAiProvider()).toBeUndefined();
+    updateAppSettings({ aiProvider: "codex" });
+    expect(resolveAiProvider()).toBe("codex");
+  });
+
+  test("la riga vince sull'env, cioe' la scelta dalla UI e' l'ultima parola", () => {
+    process.env.AI_PROVIDER = "claude";
+    updateAppSettings({ aiProvider: "claude-code" });
+    expect(resolveAiProvider()).toBe("claude-code");
+  });
+
+  test("azzerata, si torna a cedere all'env", () => {
+    process.env.AI_PROVIDER = "claude";
+    updateAppSettings({ aiProvider: "claude-code" });
+    updateAppSettings({ aiProvider: null });
+    expect(resolveAiProvider()).toBe("claude");
+  });
+});
