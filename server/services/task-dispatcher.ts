@@ -465,10 +465,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * La decisione sta in `parkedEdgeEvent`, in un punto solo e non nei nove siti
    * che rilasciano.
    */
-  function releaseAndEmit(args: Parameters<TaskService["release"]>[0]): Task {
+  /**
+   * `announce: false` parcheggia il task e aggiorna la board (il chip compare
+   * su OGNI task, che è la verità), ma non emette il fronte `task:parked` —
+   * cioè non fa scattare la push. Serve quando una causa SOLA parcheggia N
+   * task in un colpo: la deduplica delle push è per-task (`task-park-<id>`),
+   * quindi senza questo una board che non mappa a una directory produceva N
+   * notifiche identiche, una per task in coda. L'annuncio lo fa il primo.
+   */
+  function releaseAndEmit(
+    args: Parameters<TaskService["release"]>[0],
+    opts?: { announce?: boolean },
+  ): Task {
     const task = deps.svc.release(args);
     emit(task);
-    const parked = parkedEdgeEvent(task, args);
+    const parked = opts?.announce === false ? null : parkedEdgeEvent(task, args);
     if (parked) {
       try { deps.broadcast(parked); } catch { /* best-effort */ }
     }
@@ -1451,6 +1462,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // directory. Park the eligible todos with a visible reason instead of
       // stranding them (chip "queued" forever) with only a server log.
       log(`cannot resolve project path for board ${projectId}`);
+      // La causa è UNA (la board non mappa a una directory) e vale per tutti i
+      // todo idonei: li parcheggia tutti — il chip è la verità, task per task —
+      // ma annuncia solo il primo. Le push si deduplicano per `task-park-<id>`,
+      // quindi senza questo una board scollegata sparava N notifiche identiche
+      // in fila, una per task in coda.
+      let announced = false;
       for (const t of todos) {
         if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
         try {
@@ -1461,7 +1478,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             reason:
               "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
               "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
-          });
+          }, { announce: !announced });
+          announced = true;
         } catch { /* task may have moved */ }
       }
       return;
