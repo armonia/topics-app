@@ -838,7 +838,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
   return (
     <div data-testid="single-terminal-pane" className="flex-1 min-h-0 flex flex-col">
-      {/* Virtual key toolbar — touch devices only */}
+      {/* Virtual key toolbar — touch devices only.
+          Fondo bg-[#111] scuro in ENTRAMBI i temi, quindi i `bg-white/N` qui sotto
+          sono il rialzo corretto (bianco su nero) — è l'eccezione alla regola in
+          index.css, non un bug da tema chiaro. */}
       {isTouchDevice && !stale && (
         <div className="flex-shrink-0 flex items-center gap-1 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
           {TOUCH_KEYS.map(({ label, data, wide }) => (

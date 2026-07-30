@@ -229,3 +229,139 @@ test.describe("Board — leggibilità nei due temi", () => {
     });
   }
 });
+
+/**
+ * Superfici rialzate — devono VEDERSI nei due temi.
+ *
+ * Il difetto sorella della Board: fuori dalla Board l'app usa `bg-white/N` come
+ * "rialzo" di superficie (chip/badge/pillola/hover). `bg-white/N` DA SOLO
+ * funziona solo su fondo scuro: in tema chiaro è bianco su bianco e il rialzo
+ * sparisce — l'elemento smette di leggersi come elemento. La regola di casa,
+ * fissata in `client/src/index.css`, è: rialzo tema-agnostico = coppia
+ * `bg-black/N dark:bg-white/N` (o i token opachi `bg-elevated`/`bg-app-hover`);
+ * `bg-white/N` bare solo su fondo scuro GARANTITO in entrambi i temi.
+ *
+ * Questo test NON misura il contrasto del testo ma la VISIBILITÀ del rialzo:
+ * composita lo sfondo traslucido della superficie fino al primo opaco (stesso
+ * metodo del test Board) e lo confronta col fondo del genitore. Un rialzo che
+ * si vede ha un delta di canale ≥ soglia; uno invisibile ~0. Il controllo
+ * negativo `bg-white/5` bare su superficie chiara prova che il test BECCA il
+ * baco (delta ~0 in chiaro), non che lo maschera.
+ *
+ * Le classi usate nell'harness sono tutte già nel bundle (usate in decine di
+ * punti dell'app), quindi il test gira sul CSS compilato vero.
+ */
+test.describe("Superfici rialzate — visibili nei due temi", () => {
+  const VISIBLE_MIN = 3; // delta di canale minimo perché un rialzo si legga
+  const INVISIBLE_MAX = 1.5; // sotto questo è "sparito" (bianco su bianco)
+
+  // Ogni voce: un rialzo su un genitore `bg-surface` (opaco: bianco in chiaro,
+  // scuro in dark). `expectVisibleIn` dice in quali temi DEVE vedersi.
+  const CASES = [
+    { name: "guarded-5", cls: "bg-black/5 dark:bg-white/5", expectVisibleIn: ["light", "dark"] },
+    { name: "guarded-10", cls: "bg-black/10 dark:bg-white/10", expectVisibleIn: ["light", "dark"] },
+    { name: "elevated-token", cls: "bg-elevated", expectVisibleIn: ["light", "dark"] },
+    // Anti-pattern: bare `bg-white/5`. In dark si vede (bianco su scuro), in
+    // chiaro NO (bianco su bianco). È il baco che la regola vieta.
+    { name: "bare-white-5", cls: "bg-white/5", expectVisibleIn: ["dark"], expectInvisibleIn: ["light"] },
+  ] as const;
+
+  for (const scheme of ["dark", "light"] as const) {
+    test(`SURFACE-ELEV-01 (${scheme}): il rialzo si legge (e il bare bianco no in chiaro)`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
+        .toBe(scheme === "dark");
+
+      // Harness: un genitore opaco `bg-surface`, dentro una riga per caso.
+      await page.evaluate((cases) => {
+        document.getElementById("elev-harness")?.remove();
+        const root = document.createElement("div");
+        root.id = "elev-harness";
+        root.className = "bg-surface";
+        root.style.cssText = "position:fixed;top:0;left:0;z-index:99999;padding:16px;display:flex;gap:12px;";
+        for (const c of cases) {
+          const cell = document.createElement("div");
+          cell.setAttribute("data-elev", c.name);
+          cell.className = `${c.cls} rounded-lg`;
+          cell.style.cssText = "width:80px;height:48px;display:flex;align-items:center;justify-content:center;";
+          cell.textContent = c.name;
+          root.appendChild(cell);
+        }
+        document.body.appendChild(root);
+      }, CASES as unknown as { name: string; cls: string }[]);
+
+      // Sfondo composito effettivo (traslucido → primo opaco), stesso metodo del
+      // test Board. Torna [r,g,b] per il selettore dato.
+      const effectiveBg = (sel: string) =>
+        page.evaluate((s) => {
+          const el = document.querySelector(s);
+          if (!el) throw new Error(`nessun elemento per ${s}`);
+          const probe = document.createElement("canvas");
+          probe.width = probe.height = 1;
+          const ctx = probe.getContext("2d", { willReadFrequently: true })!;
+          const parse = (str: string): [number, number, number, number] => {
+            ctx.clearRect(0, 0, 1, 1);
+            ctx.fillStyle = "#000";
+            ctx.fillStyle = str;
+            ctx.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+            return [r, g, b, a / 255];
+          };
+          const stack: [number, number, number, number][] = [];
+          let node: Element | null = el;
+          while (node) {
+            const [r, g, b, a] = parse(getComputedStyle(node).backgroundColor);
+            if (a > 0) {
+              stack.push([r, g, b, a]);
+              if (a >= 1) break;
+            }
+            node = node.parentElement;
+          }
+          let [br, bgc, bb] = [255, 255, 255];
+          for (let i = stack.length - 1; i >= 0; i--) {
+            const [r, g, b, a] = stack[i];
+            br = r * a + br * (1 - a);
+            bgc = g * a + bgc * (1 - a);
+            bb = b * a + bb * (1 - a);
+          }
+          return [br, bgc, bb] as [number, number, number];
+        }, sel);
+
+      const parentBg = await effectiveBg("#elev-harness");
+      const deltaOf = (bg: number[]) =>
+        Math.max(Math.abs(bg[0] - parentBg[0]), Math.abs(bg[1] - parentBg[1]), Math.abs(bg[2] - parentBg[2]));
+
+      for (const c of CASES) {
+        const bg = await effectiveBg(`[data-elev="${c.name}"]`);
+        const delta = deltaOf(bg);
+        testInfo.annotations.push({
+          type: "rialzo",
+          description: `${scheme}/${c.name} (${c.cls}): delta ${delta.toFixed(1)} — superficie rgb(${bg
+            .map((n) => Math.round(n))
+            .join(",")}) su genitore rgb(${parentBg.map((n) => Math.round(n)).join(",")})`,
+        });
+        const visibleHere = (c.expectVisibleIn as readonly string[]).includes(scheme);
+        const invisibleHere = ((c as { expectInvisibleIn?: readonly string[] }).expectInvisibleIn ?? []).includes(scheme);
+        if (visibleHere) {
+          expect(
+            delta,
+            `${c.name} (${c.cls}) in tema ${scheme} deve VEDERSI come rialzo`,
+          ).toBeGreaterThanOrEqual(VISIBLE_MIN);
+        }
+        if (invisibleHere) {
+          expect(
+            delta,
+            `${c.name} (${c.cls}) in tema ${scheme}: bianco su bianco, il rialzo sparisce — è il baco che la regola vieta`,
+          ).toBeLessThanOrEqual(INVISIBLE_MAX);
+        }
+      }
+
+      await testInfo.attach(`surfaces-${scheme}.png`, {
+        body: await page.locator("#elev-harness").screenshot(),
+        contentType: "image/png",
+      });
+    });
+  }
+});

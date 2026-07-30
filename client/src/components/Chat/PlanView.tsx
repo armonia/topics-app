@@ -113,7 +113,7 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
             {steps.map((step) => (
               <div
                 key={step.number}
-                className="flex items-start gap-2.5 p-2 rounded-lg bg-white/50 dark:bg-surface/50 border border-app-border"
+                className="flex items-start gap-2.5 p-2 rounded-lg bg-black/[0.03] dark:bg-white/[0.05] border border-app-border"
               >
                 <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[11px] font-bold flex items-center justify-center mt-0.5">
                   {step.number}

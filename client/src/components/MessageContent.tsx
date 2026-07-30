@@ -338,6 +338,10 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
       <button
         onClick={toggle}
         className={`w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+          // Bolla utente = bg-primary (blu saturo) in ENTRAMBI i temi: qui
+          // `bg-white/N` è il rialzo corretto sopra fondo scuro garantito,
+          // l'eccezione alla regola in index.css. Fuori dalla bolla si usa il
+          // token accent (bg-primary/N) che si adatta al tema.
           isUserMessage
             ? 'bg-white/20 hover:bg-white/30 text-white'
             : 'bg-primary/15 hover:bg-primary/25 text-primary'
