@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  createTerminalSession,
   deleteTerminalSession,
   listTerminalSessions,
 } from "./helpers/api-fixtures";
@@ -35,10 +34,17 @@ async function waitForServer(timeoutMs = 30000): Promise<void> {
   throw new Error(`Server did not come back within ${timeoutMs}ms`);
 }
 
-/** Kill the test server and wait for the port to be released */
+/** Kill the test server and wait for the port to be released.
+ *
+ *  `-sTCP:LISTEN` NON è decorativo: `lsof -ti :13334` senza filtro elenca ogni
+ *  socket che ha 13334 a UNO QUALSIASI dei due capi — quindi anche i Chromium
+ *  di Playwright, che sono CLIENT del server di test. Senza il filtro questa
+ *  funzione ammazzava i browser insieme al server, e il fallimento usciva nel
+ *  file di spec SUCCESSIVO ("Target page, context or browser has been closed"):
+ *  un flake che sembrava di un altro test. Qui si vuole chi TIENE la porta. */
 async function killServer(): Promise<void> {
   try {
-    const pids = execSync(`lsof -ti :${TEST_PORT} 2>/dev/null || true`).toString().trim();
+    const pids = execSync(`lsof -ti :${TEST_PORT} -sTCP:LISTEN 2>/dev/null || true`).toString().trim();
     if (pids) {
       execSync(`kill ${pids.split("\n").join(" ")} 2>/dev/null || true`);
     }

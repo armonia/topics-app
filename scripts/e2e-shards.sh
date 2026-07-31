@@ -81,8 +81,11 @@ cleanup() {
   done
   # I server di test muoiono col globalTeardown di ciascuno shard; se lo shard
   # è stato ucciso prima, la porta resta occupata — liberala qui.
+  # -sTCP:LISTEN: solo chi ASCOLTA. Senza, lsof elenca anche i socket dei
+  # CLIENT di quella porta (i Chromium degli altri shard ancora vivi) e questo
+  # kill li porterebbe via insieme al server dello shard interrotto.
   for port in "${ports[@]:-}"; do
-    lsof -ti ":$port" 2>/dev/null | xargs kill 2>/dev/null || true
+    lsof -ti ":$port" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
   done
   exit 130
 }

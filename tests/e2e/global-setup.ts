@@ -475,10 +475,13 @@ async function globalSetup() {
   // for every worker, breaking browser launch for the whole suite.
   if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = `${TEST_DATA_DIR}/.openclaw`;
 
-  // Kill any stale test server processes on the test port before starting
+  // Kill any stale test server processes on the test port before starting.
+  // `-sTCP:LISTEN`: senza, lsof elenca anche i socket che hanno questa porta
+  // come capo REMOTO — cioè i client. Vogliamo chi TIENE la porta, non chi la
+  // sta usando (vedi killServer in terminal-session-resume.spec.ts).
   try {
     const stalePids = execSync(
-      `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
+      `lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null || true`
     ).toString().trim();
     if (stalePids) {
       execSync(`kill ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
@@ -729,7 +732,10 @@ function emergencyCleanup() {
     if (serverProcess?.pid) process.kill(-serverProcess.pid, 'SIGTERM');
   } catch {}
   try {
-    execSync(`lsof -ti :${TEST_SERVER_PORT} 2>/dev/null | xargs kill 2>/dev/null || true`);
+    // `-sTCP:LISTEN` o si ammazzano anche i CLIENT della porta: senza il filtro
+    // lsof elenca i Chromium connessi al server di test, e questo kill li porta
+    // via insieme al server (il fallimento poi esce altrove, come flake).
+    execSync(`lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true`);
     // Kill only the Chromiums THIS run is responsible for. The previous version
     // killed every ms-playwright Chromium on the machine, which reaches across
     // repos: a concurrent E2E run in another project (and its results) died
