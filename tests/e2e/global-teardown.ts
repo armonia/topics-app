@@ -30,10 +30,13 @@ async function globalTeardown() {
     }
   }
 
-  // Also kill any stale processes on the test port
+  // Also kill any stale processes on the test port.
+  // `-sTCP:LISTEN`: solo chi ASCOLTA. Senza il filtro lsof restituisce anche i
+  // socket dei client — i Chromium ancora connessi mentre si smonta — e questo
+  // kill li porterebbe via insieme al server.
   try {
     const pids = execSync(
-      `lsof -ti :${TEST_PORT} 2>/dev/null || true`
+      `lsof -ti :${TEST_PORT} -sTCP:LISTEN 2>/dev/null || true`
     )
       .toString()
       .trim();

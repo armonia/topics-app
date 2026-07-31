@@ -80,11 +80,18 @@ export const SERVER_DEATH_GRACE_MS = 15_000;
  * `execFileSync` e non `execSync`: niente shell, quindi niente da citare e
  * niente `|| true` — l'uscita non-zero di lsof («nessuno tiene la porta») è già
  * gestita dal catch.
+ *
+ * `-sTCP:LISTEN`: `lsof -ti :PORT` da solo elenca ogni socket con quella porta
+ * a UNO QUALSIASI dei due capi, quindi anche i CLIENT — i Chromium di
+ * Playwright connessi al server. Senza il filtro «ascolta» diceva vero anche a
+ * server morto, finché un browser aveva ancora la connessione aperta: la sonda
+ * di morte concludeva "riavviato" (riga 370 di global-setup) o "usurpata"
+ * guardando socket di client. Qui serve chi TIENE la porta.
  */
 export function portHolders(port: number = E2E_PORT): PortHolder[] {
   const holders: PortHolder[] = [];
   try {
-    const pids = execFileSync("lsof", ["-ti", `:${port}`], { stdio: ["ignore", "pipe", "ignore"] })
+    const pids = execFileSync("lsof", ["-ti", `:${port}`, "-sTCP:LISTEN"], { stdio: ["ignore", "pipe", "ignore"] })
       .toString()
       .trim();
     for (const raw of pids.split("\n").filter(Boolean)) {

@@ -54,7 +54,7 @@ test.describe("Cross-Feature Interactions", () => {
 
       // Scroll the Virtuoso scroller to a mid-point
       // Virtuoso uses an inner scrollable div -- find it
-      const scrollTop = await messageList.evaluate((el) => {
+      await messageList.evaluate((el) => {
         // Find the first scrollable child (Virtuoso's scroller)
         const scrollable = el.querySelector('[data-test-id="virtuoso-scroller"]')
           || el.querySelector('[style*="overflow"]')
@@ -305,25 +305,34 @@ test.describe("Cross-Feature Interactions", () => {
       // Collect indices near the top
       const topIndices = await collectVisibleIndices();
 
-      // Scroll to the middle (50% of scroll height)
-      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight / 2; });
-      // Wait for Virtuoso to render mid-section items
-      await expect(async () => {
-        const idx = await collectVisibleIndices();
-        // Mid-section should have indices between 200 and 900
-        expect(idx.some(i => i > 200 && i < 900)).toBe(true);
-      }).toPass({ timeout: 10_000 });
+      // Scroll a una frazione dell'altezza e aspetta che Virtuoso ci porti
+      // davvero le righe di quella zona.
+      //
+      // Lo scroll va RIAPPLICATO a ogni tentativo, non una volta prima del
+      // poll: Virtuoso stima le altezze e le ri-misura mentre monta le righe,
+      // quindi `scrollHeight` al momento del primo assegnamento è ancora una
+      // stima. Se cambia subito dopo, la posizione ottenuta non è più la
+      // frazione chiesta — e ripolla all'infinito indici che non arriveranno
+      // mai, perché nessuno tocca più lo scroll. Rimettendolo dentro il retry
+      // ogni tentativo ri-mira sull'altezza appena misurata e la posizione
+      // converge. (Era questo il flake di CROSS-04 al 75%.)
+      async function scrollToFractionAndSample(
+        fraction: number,
+        matches: (i: number) => boolean,
+      ): Promise<number[]> {
+        await expect(async () => {
+          await scroller.evaluate((el, f) => { el.scrollTop = el.scrollHeight * f; }, fraction);
+          const idx = await collectVisibleIndices();
+          expect(idx.some(matches)).toBe(true);
+        }).toPass({ timeout: 10_000 });
+        return collectVisibleIndices();
+      }
 
-      const midIndices = await collectVisibleIndices();
+      // Mid-section should have indices between 200 and 900
+      const midIndices = await scrollToFractionAndSample(0.5, (i) => i > 200 && i < 900);
 
-      // Scroll to 75% to sample another section
-      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight * 0.75; });
-      await expect(async () => {
-        const idx = await collectVisibleIndices();
-        expect(idx.some(i => i > 500)).toBe(true);
-      }).toPass({ timeout: 5_000 });
-
-      const lateIndices = await collectVisibleIndices();
+      // 75% — un'altra fascia, per provare che il campionamento copre la lista
+      const lateIndices = await scrollToFractionAndSample(0.75, (i) => i > 500);
 
       // Combine all collected indices
       const allIndices = new Set([
