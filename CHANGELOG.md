@@ -2,6 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.2 — 2026-07-31
+
+### Novità
+- **changelog** · l'inglese non e' piu' meta' italiano
+
+### Correzioni
+- **contratto ws** · riallineo il registro dopo il merge — 97 tipi
+- **e2e** · la suite si ammazzava i browser da sola
+- **link** · un URL in un commento della board non era cliccabile
+- **updater** · il controllo al boot non piazza piu' un errore a ogni avvio
+
+### Sotto il cofano
+- **changelog** · rigenero per la 2.2.1 e traduco le 22 voci nuove
+- **pulizia** · alzo il cricchetto del bundle e tolgo tre porte murate
+- **e2e** · i tre rossi erano il dialog nativo diventato React
+- **board** · via la superficie 'output', non la costruiva piu' nessuno
+- **repo** · chiudo i 13 tag wip/* — inventario e verdetto
+
 ## 2.2.1 — 2026-07-31
 
 ### Novità
@@ -158,7 +176,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **coda** · un messaggio in coda non sparisce piu' se l'invio va storto
 - **board** · una causa sola non manda piu' N notifiche identiche
 - **guscio** · la diagnosi delle notifiche si aggiorna, e Cmd+Shift+R detta
-- **contratto ws** · riallineo il registro dopo il merge — 97 tipi
 
 ### Prestazioni
 - **client** · hljs highlight deferito in streaming + split chunk dnd-kit
@@ -298,8 +315,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · un worktree di dispatch non puo' piu' rubare la porta del checkout vero
 - **e2e** · l'allarme sulla morte del server accusava un riavvio VOLUTO
 - **versione** · 2.2.1 in lockstep
-- **changelog** · rigenero per la 2.2.1 e traduco le 22 voci nuove
-- **pulizia** · alzo il cricchetto del bundle e tolgo tre porte murate
 
 ## 2.2.0 — 2026-07-23
 

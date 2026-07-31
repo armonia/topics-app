@@ -1,5 +1,78 @@
 [
   {
+    "version": "2.2.2",
+    "date": "2026-07-31",
+    "sections": {
+      "new": [
+        {
+          "it": "l'inglese non e' piu' meta' italiano",
+          "en": "the English changelog is no longer half in Italian",
+          "scope": "changelog",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "riallineo il registro dopo il merge — 97 tipi",
+          "en": "realigned the registry after the merge — 97 types",
+          "scope": "contratto ws",
+          "breaking": false
+        },
+        {
+          "it": "la suite si ammazzava i browser da sola",
+          "en": "the e2e suite was killing its own browsers",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "un URL in un commento della board non era cliccabile",
+          "en": "a URL in a board comment wasn't clickable",
+          "scope": "link",
+          "breaking": false
+        },
+        {
+          "it": "il controllo al boot non piazza piu' un errore a ogni avvio",
+          "en": "the startup update check no longer shows an error on every launch",
+          "scope": "updater",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "rigenero per la 2.2.1 e traduco le 22 voci nuove",
+          "en": "",
+          "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "alzo il cricchetto del bundle e tolgo tre porte murate",
+          "en": "",
+          "scope": "pulizia",
+          "breaking": false
+        },
+        {
+          "it": "i tre rossi erano il dialog nativo diventato React",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "via la superficie 'output', non la costruiva piu' nessuno",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "chiudo i 13 tag wip/* — inventario e verdetto",
+          "en": "",
+          "scope": "repo",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.1",
     "date": "2026-07-31",
     "sections": {
@@ -911,12 +984,6 @@
           "en": "the notification diagnosis refreshes, and Cmd+Shift+R dictates",
           "scope": "guscio",
           "breaking": false
-        },
-        {
-          "it": "riallineo il registro dopo il merge — 97 tipi",
-          "en": "realigned the registry after the merge — 97 types",
-          "scope": "contratto ws",
-          "breaking": false
         }
       ],
       "perf": [
@@ -1717,18 +1784,6 @@
           "it": "2.2.1 in lockstep",
           "en": "",
           "scope": "versione",
-          "breaking": false
-        },
-        {
-          "it": "rigenero per la 2.2.1 e traduco le 22 voci nuove",
-          "en": "",
-          "scope": "changelog",
-          "breaking": false
-        },
-        {
-          "it": "alzo il cricchetto del bundle e tolgo tre porte murate",
-          "en": "",
-          "scope": "pulizia",
           "breaking": false
         }
       ]

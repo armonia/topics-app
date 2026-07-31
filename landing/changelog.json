@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.2",
+    "date": "2026-07-31",
+    "sections": {
+      "new": [
+        {
+          "text": "the English changelog is no longer half in Italian",
+          "scope": "changelog"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "realigned the registry after the merge — 97 types",
+          "scope": "contratto ws"
+        },
+        {
+          "text": "the e2e suite was killing its own browsers",
+          "scope": "e2e"
+        },
+        {
+          "text": "a URL in a board comment wasn't clickable",
+          "scope": "link"
+        },
+        {
+          "text": "the startup update check no longer shows an error on every launch",
+          "scope": "updater"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.1",
     "date": "2026-07-31",
     "sections": {
@@ -609,10 +640,6 @@
         {
           "text": "the notification diagnosis refreshes, and Cmd+Shift+R dictates",
           "scope": "guscio"
-        },
-        {
-          "text": "realigned the registry after the merge — 97 types",
-          "scope": "contratto ws"
         }
       ],
       "perf": [
