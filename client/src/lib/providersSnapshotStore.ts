@@ -110,9 +110,9 @@ export async function refreshProvidersSnapshot(name?: string): Promise<void> {
 }
 
 /**
- * Force re-fetch from the server. Used when a consumer (e.g. legacy
- * `refreshOpenClawAvailability`) wants a value sooner than the next WS push,
- * AND as the retry path when the previous fetch failed.
+ * Force re-fetch from the server. Serve quando un consumatore vuole un valore
+ * prima del prossimo push WS, ed è la via di retry quando la fetch precedente
+ * è fallita.
  */
 export async function reloadProvidersSnapshot(): Promise<ProvidersSnapshot | null> {
   return fetchOnce({ force: true });

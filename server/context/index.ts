@@ -5,7 +5,13 @@
  *   - `ContextEnvelope` — l'unico tipo che i consumatori del barile chiedono
  *     qui. Gli altri tipi dell'envelope si importano da `shared/context-envelope`
  *     (o da `./envelope`), che è dove sono dichiarati: ri-esportarli anche da
- *     qui creava una seconda porta d'ingresso che nessuno usava.
+ *     qui creava una seconda porta d'ingresso che nessuno usava. Stessa regola
+ *     per le funzioni: il barile ri-esporta SOLO ciò che qualcuno importa da
+ *     qui. I costruttori di singoli blocchi (`browserInstructionContent`,
+ *     `planModeContent`, `projectMarkersContent`, `topicSwitchContent`), i
+ *     helper di test (`resetInlineSent`, `snapshotCounts`, `hashSlot`) e le
+ *     costanti interne (`RING_SIZE`) si prendono dal loro modulo, che è già
+ *     quello che fanno i chiamanti veri.
  *
  * Implementation modules added in subsequent commits:
  *   - `assemble.ts`           — assembleTopicContext()
@@ -18,29 +24,15 @@ export type { ContextEnvelope } from "./envelope";
 
 export { getProviderStrategy } from "./provider-strategy";
 
-export {
-  assembleTopicContext,
-  browserInstructionContent,
-  planModeContent,
-  projectMarkersContent,
-  topicSwitchContent,
-} from "./assemble";
+export { assembleTopicContext } from "./assemble";
 
-export { adaptEnvelope, composeSystemMessages, composeSystemSlots } from "./adapt";
+export { adaptEnvelope, composeSystemMessages } from "./adapt";
 
 export {
   getInlineSentState,
-  hashSlot,
   inlineScope,
   markInlineSent,
   rekeyInlineSent,
-  resetInlineSent,
 } from "./inline-sent-state";
 
-export {
-  RING_SIZE,
-  clearSnapshots,
-  getSnapshots,
-  pushSnapshot,
-  snapshotCounts,
-} from "./snapshots";
+export { clearSnapshots, getSnapshots, pushSnapshot } from "./snapshots";

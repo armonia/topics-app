@@ -22,9 +22,11 @@
  *    suffissi (`claude-sonnet-4-5-20250929`) e una tabella di uguaglianze esatte
  *    invecchia in una settimana.
  */
+// Il default vive in `context-thresholds.ts` e si importa DA LI'. Questo modulo
+// lo usa soltanto: ri-esportarlo aggiungeva una terza porta per la stessa
+// costante (`shared/context-thresholds`, `server/usage/context-window`, qui) e
+// nessuno passava da questa.
 import { DEFAULT_CONTEXT_WINDOW } from "./context-thresholds";
-
-export { DEFAULT_CONTEXT_WINDOW } from "./context-thresholds";
 
 /**
  * Chiave → finestra in token.

@@ -19,8 +19,8 @@
 
 // La lista dei tipi vive in `shared/terminal-session-types.ts`: la conosce anche
 // il server, e il CHECK di SQLite le e' legato da un test. Qui si ri-esporta il
-// sottoinsieme creabile dal menu, che e' la domanda di questo modulo.
-export { TERMINAL_AGENT_TYPES } from '../../../shared/terminal-session-types';
+// SOLO tipo, perche' e' l'unica cosa che qualcuno prende da questo modulo: la
+// costante la si importa da `shared/`, che e' dove e' dichiarata.
 export type { TerminalAgentType } from '../../../shared/terminal-session-types';
 import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../shared/terminal-session-types';
 

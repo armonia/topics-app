@@ -2,9 +2,7 @@
 // client can't drift. Re-exported here so existing call sites that do
 // `import type { X } from '@/types'` keep working unchanged.
 export type {
-  ToolCallStatus,
   ProviderStatus,
-  ProviderRequirement,
   ProviderSnapshotEntry,
   ProvidersSnapshot,
   AskUserQuestionItem,
@@ -253,7 +251,7 @@ export interface SearchResult {
 // --- Snapshot / settings -----------------------------------------------------
 export type { WSProvidersSnapshotMessage } from '../../../shared/types';
 // 3.4 — il goal della chat: forma unica in shared/, niente copia qui.
-export type { WSGoalUpdatedMessage, TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from '../../../shared/types';
+export type { WSGoalUpdatedMessage, TopicGoal, GoalStepStatus } from '../../../shared/types';
 
 export interface WSGatewayStatusMessage {
   type: 'gateway:status';
@@ -506,7 +504,7 @@ export interface ContextUsage {
  * ring a indovinare il denominatore. Il resto del payload è presentazione
  * nostra e vive fuori dal blocco.
  */
-export type { AcpUsageUpdate, UsageCost } from '../../../shared/types';
+export type { AcpUsageUpdate } from '../../../shared/types';
 /** Payload sul filo: blocco ACP + presentazione. `useRealContext` lo appiattisce
  *  in `ContextUsage` per la UI, che di ACP non deve sapere niente. */
 export interface ContextUpdatePayload {
@@ -890,29 +888,15 @@ export interface WSMachineMessage {
 }
 
 // --- Catch-all ---------------------------------------------------------------
-/**
- * Fallback for message types not (yet) listed above. Keeps the dispatcher
- * resilient to forward-compat messages without forcing every new server
- * broadcast to add a typed variant first. Index sig is `unknown` (not `any`)
- * so reads require explicit casts — visible churn is the point.
- */
-/**
- * Catch-all kept OUTSIDE the `WSMessage` union below. Its `type: string`
- * would widen `WSMessage['type']` to plain `string` if it were a union
- * member, which destroys literal narrowing on every handler — after a
- * `msg.type === '<literal>'` check the narrowed type would still contain
- * `WSUnknownMessage`, so fields like `msg.task` collapse to `unknown`.
- *
- * Forward-compatibility is preserved without it: at runtime the server
- * can emit any `{type, ...}` shape, and handlers already gate on
- * `if (msg.type === '<literal>')` so unknown types fall through silently.
- * If a call site needs to introspect an unknown message it can cast to
- * `WSUnknownMessage` explicitly.
- */
-export interface WSUnknownMessage {
-  type: string;
-  [key: string]: unknown;
-}
+// Non c'è un tipo catch-all. C'era (`WSUnknownMessage`, `{ type: string;
+// [k: string]: unknown }`), tenuto FUORI dall'unione perché come membro il suo
+// `type: string` avrebbe allargato `WSMessage['type']` a `string`, distruggendo
+// il narrowing per literal su ogni handler. Fuori dall'unione, però, non gli è
+// rimasto nessun chiamante: la forward-compatibility non passa dal tipo ma dal
+// runtime — il server può mandare qualsiasi `{type, …}` e gli handler filtrano
+// già con `if (msg.type === '<literal>')`, quindi i tipi sconosciuti cadono nel
+// vuoto da soli. Se un giorno servisse ispezionarne uno, il cast sul posto è
+// `as { type: string; [k: string]: unknown }`.
 
 // ─── Claude Code session lifecycle (see openspec/changes/claude-session-tracker) ──
 
@@ -935,8 +919,6 @@ export type AttentionTier = 'input' | 'done';
 // `createdAt`, che arrivano a ogni broadcast `session:state`.
 export type {
   ClaudeSessionPendingApproval,
-  ClaudeSessionActiveTool,
-  ClaudeSessionError,
   ClaudeSessionState,
 } from '../../../shared/types';
 
@@ -1035,11 +1017,9 @@ export type WSMessage =
   | WSTaskReviewReadyMessage
   | WSTaskParkedMessage
   | WSSessionStateMessage;
-// (Historical note: an earlier shape included `WSUnknownMessage` as a
-// union member, whose `type: string` widened the union's `type` to plain
-// `string` and broke literal narrowing across every handler. Keeping the
-// catch-all OUT of the union — see its doc comment above — preserves
-// narrowing without losing forward-compat catch-all behavior.)
+// (Nota storica: una forma precedente includeva un catch-all `{ type: string }`
+// come membro dell'unione, e il suo `type` allargato a `string` rompeva il
+// narrowing per literal su ogni handler. Vedi il blocco «Catch-all» qui sopra.)
 // This was the contract before Phase A and the consumers we don't own
 // (useBoard.ts, useChat.ts, …) still assume the wider shape. The new
 // typed members above (WSProjectMessage, WSWorktreeMessage, …) are
@@ -1121,9 +1101,10 @@ export interface TerminalSessionInfo {
 // continue to compile without churn during the cutover. New code should import
 // directly from '@/state/pane/types'.
 export type { Pane, PaneType } from '../state/pane/types';
-// `PANE_TYPES` is the runtime array `PaneType` is derived from — re-exported so
-// a pane-type picker or validator can import the canonical list from '@/types'.
-export { PANE_TYPES } from '../state/pane/types';
+// Solo i TIPI passano di qui. `PANE_TYPES` (l'array runtime da cui `PaneType` è
+// derivato) si importa da '@/state/pane/types' — è già quello che fanno tutti i
+// chiamanti veri, sanitizer compreso. Ri-esportarlo "per comodità di un futuro
+// picker" creava un secondo nome per la stessa lista senza un consumatore.
 
 // Pane Groups — each group has its own tab bar (like VS Code editor groups)
 export type PaneGroupType = 'chat' | 'file' | 'utility';
@@ -1261,29 +1242,10 @@ export interface AppSettings {
   workingGlow: boolean;
 }
 
-export interface ScriptProcess {
-  processId: string;
-  scriptName: string;
-  command: string;
-  projectPath: string;
-  status: 'running' | 'done' | 'error';
-  pid: number | null;
-  startedAt: string;
-  completedAt?: string;
-  exitCode?: number;
-}
-
-// Streaming events from server
-/** Gli eventi di streaming che la chat consuma dal WS. Omonimo ma NON parente
- *  dello `StreamEvent` di `server/providers/types.ts`: quello è cosa un provider
- *  AI emette VERSO il server, e non arriva mai al browser in quella forma. */
-export type StreamEvent =
-  | { type: 'thinking_start'; sessionKey: string }
-  | { type: 'thinking_chunk'; sessionKey: string; content: string }
-  | { type: 'thinking_end'; sessionKey: string }
-  | { type: 'content_start'; sessionKey: string }
-  | { type: 'content_chunk'; sessionKey: string; content: string }
-  | { type: 'tool_call_start'; sessionKey: string; toolCall: ToolCall }
-  | { type: 'tool_call_result'; sessionKey: string; toolCallId: string; result: string; error?: string }
-  | { type: 'message_end'; sessionKey: string; finishReason: string }
-  | { type: 'media'; sessionKey: string; paths: string[] };
+// Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli
+// script legge `ScriptProcessInfo` da `lib/api` (che è la forma che il server
+// manda davvero), e questa copia non l'ha mai importata nessuno. `StreamEvent`:
+// una seconda scrittura dei frame di streaming, mentre quelli veri sono i
+// membri `stream:*` dell'unione `WSMessage` qui sopra — l'unica forma su cui la
+// chat fa il narrowing. Due tipi che nessuno usa non documentano un protocollo:
+// divergono da quello vero senza che nessun compilatore se ne accorga.

@@ -50,12 +50,12 @@ const ALLOWED: Record<string, string> = {
     '`useRealContext.flatten(ContextUpdatePayload)`. Server (usage/context-window.ts) ' +
     '= il risultato intermedio di `classifyContext`, che non esce mai dal processo. ' +
     'Il tipo che attraversa davvero il filo è `ContextUpdatePayload`, ed è uno solo.',
-  StreamEvent:
-    'Due protocolli diversi con lo stesso nome. Client = gli eventi WS che la chat ' +
-    'consuma (`stream:content_chunk` & co., con `sessionKey`). Server ' +
-    '(providers/types.ts) = gli eventi che un provider AI emette verso il server ' +
-    '(TextDeltaEvent, ToolStartEvent, …), che non arrivano mai al browser così come sono.',
 };
+// Nessuna voce per `StreamEvent`: le DUE dichiarazioni omonime sono state
+// rimosse il 31/07, perché nessuna delle due aveva un lettore. Lato server il
+// protocollo vero è `StreamHandler` (callback), lato client sono i membri
+// `stream:*` dell'unione `WSMessage`. L'allowlist è un cricchetto al contrario —
+// se il duplicato sparisce, la voce deve sparire con lui.
 
 const DECLARATION = /^\s*export\s+(?:declare\s+)?(?:type|interface|enum)\s+([A-Za-z_$][\w$]*)/gm;
 

@@ -1,3 +1,11 @@
+// Knip esce 0 con zero export/file morti. Gli unici avvisi che restano sono
+// «configuration hints» e sono VOLUTI: knip chiama "ridondanti" i pattern che
+// coincidono coi suoi default (`server.ts`, `src/main.tsx`, i config di Vite),
+// ma qui gli entrypoint stanno scritti perché questo file è anche la mappa di
+// cosa entra nel grafo — toglierli affiderebbe la copertura a un default che
+// può cambiare sotto. L'ultimo, su `.css`, dice solo che knip non segue gli
+// import dei fogli di stile: servirebbe un plugin, e non ci sono CSS orfani da
+// cercare.
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
@@ -46,12 +54,13 @@
         "scripts/**/*.ts",
         "server.ts"
       ],
-      // Only e2e specs need an explicit ignore: they ARE matched by the
-      // `tests/**` entry above but pull in browser-only helpers we don't want
-      // knip resolving. Everything else (public/, landing/, desktop-tauri/,
-      // openspec/, videos/, performance/, .reference/) already falls outside
-      // `project` and needs no listing.
-      "ignore": ["tests/e2e/**"]
+      // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
+      // check dava falsi positivi a raffica: un export usato SOLO da uno spec
+      // e2e risultava morto, e chi leggeva il report doveva verificarli a mano
+      // uno per uno. Knip li risolve benissimo — l'esclusione costava precisione
+      // e non comprava niente. Il resto (public/, landing/, desktop-tauri/,
+      // openspec/, videos/, performance/, .reference/) cade già fuori da
+      // `project` e non va elencato.
     },
     "client": {
       "entry": [
@@ -69,9 +78,11 @@
       ]
     }
   },
-  // `du` and `tsc` are invoked by scripts/package.json but are not deps:
-  // POSIX coreutils and the tsc pinned under client/node_modules.
-  "ignoreBinaries": ["playwright", "eslint", "spec-flow", "pkill", "du", "tsc"],
+  // `pkill`, `du` e `tsc` sono invocati dagli script di package.json ma non sono
+  // dipendenze: i primi due sono coreutils POSIX, il terzo è il tsc pinnato
+  // sotto client/node_modules. `playwright`, `eslint` e `spec-flow` stavano qui
+  // e non servivano più — knip li risolve da solo.
+  "ignoreBinaries": ["pkill", "du", "tsc"],
   // Caricato per PATH dal filesystem (tests/e2e/chat-layout-audit.spec.ts:34
   // fa resolve su node_modules/axe-core/axe.min.js e lo inietta nella pagina),
   // quindi non compare in nessun import e knip non può vederlo.
@@ -81,6 +92,14 @@
   // reads as a set of named units. Without this knip flags ~150 of them and
   // the report becomes noise nobody reads.
   "ignoreExportsUsedInFile": true,
+  // `@knipignore` nel JSDoc = "questo export HA un consumatore che knip non può
+  // vedere". Oggi il caso è uno solo e preciso: un test che carica il modulo con
+  // `await import()` — perché deve prima installare una finestra finta — e ne
+  // destruttura i seam. L'import dinamico non è un vezzo, è l'ordine di
+  // esecuzione, quindi il riferimento non è statico. Il tag va sul singolo
+  // export, col motivo scritto sopra: un ignore per NOME in questo file
+  // sopravviverebbe alla morte del test che lo giustifica.
+  "tags": ["-knipignore"],
   "bun": false,
   "playwright": false
 }

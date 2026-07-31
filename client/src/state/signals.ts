@@ -26,9 +26,8 @@ import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { isWindowAwake } from './windowAwake';
-import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
+import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
-import { getTerminalSessionFromPaneId, getProjectPathFromPaneId } from './pane/adapters';
 
 /** Claude phases that mean "Claude needs you" — worth a notification badge.
  *  Loading-ish phases (running / tool-running) surface as spinners instead.
@@ -813,22 +812,6 @@ export function deriveSessionLastActivity(
   return out;
 }
 
-// ---- Key derivation --------------------------------------------------------
-
-/** topicId for a chat pane — falls back to the pane id (top-level chat panes
- *  use the bare topic id as their pane id). */
-function topicIdOf(pane: Pane): string | undefined {
-  return pane.topicId ?? (pane.type === 'chat' ? pane.id : undefined);
-}
-/** terminal session id — derived from `terminal:<id>` when the field is unset. */
-function terminalIdOf(pane: Pane): string | undefined {
-  return pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id) ?? undefined;
-}
-/** project path — derived from `project:<encoded>` when the field is unset. */
-function projectPathOf(pane: Pane): string | undefined {
-  return pane.projectPath ?? getProjectPathFromPaneId(pane.id) ?? undefined;
-}
-
 function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
   return cwd === projectPath || cwd.startsWith(projectPath + '/');
 }
@@ -872,33 +855,15 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
   }, [projectPath, topics, terminalSessions, live, hydrated, agent, term, phaseActive, phaseResting]);
 }
 
-/** Pure rollup: is any child of this project parked awaiting the user? A chat
- *  topic under the project in `awaitingTopics`, or a claude-code terminal whose
- *  cwd lives under it in `awaitingTerms`. Shared by the tab bar (synchronous, in
- *  the panes.map loop) and the sidebar (the hook below + the project row), so
- *  every awaiting surface agrees. Mirrors useProjectLoading's child-walk. */
-export function projectHasAwaitingChild(
-  projectPath: string,
-  topics: Record<string, Topic>,
-  terminalSessions: TerminalSessionInfo[],
-  awaitingTopics: ReadonlySet<string>,
-  awaitingTerms: ReadonlySet<string>,
-): boolean {
-  for (const t of Object.values(topics)) {
-    if (t.projectPath === projectPath && awaitingTopics.has(t.id)) return true;
-  }
-  for (const ts of terminalSessions) {
-    if (ts.type === 'shell') continue;
-    if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-    if (awaitingTerms.has(ts.id)) return true;
-  }
-  return false;
-}
-
 /** The attention TIER a project row/tab should paint: 'input' (amber) if ANY
  *  child is awaiting a permission — the loudest child wins — else 'done' (blue)
- *  if any child finished-and-unseen, else null. Mirrors projectHasAwaitingChild's
- *  child-walk but tier-aware, so the project surface matches its leaves. */
+ *  if any child finished-and-unseen, else null. Mirrors useProjectLoading's
+ *  child-walk ma tier-aware, così la superficie del progetto combacia con le
+ *  sue foglie.
+ *
+ *  È l'UNICO rollup di attenzione: il predicato booleano `projectHasAwaitingChild`
+ *  nasceva nello stesso commit ma non ha mai avuto un chiamante — questo lo
+ *  copre, e con un tier invece che con un sì/no. */
 export function projectAttentionTier(
   projectPath: string,
   topics: Record<string, Topic>,
@@ -1282,5 +1247,3 @@ export function rollupGlobalAttention(
   }
   return sum + terminalFinishedIds.size;
 }
-
-export { topicIdOf, terminalIdOf, projectPathOf };

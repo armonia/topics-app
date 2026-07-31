@@ -233,8 +233,13 @@ export function initTombstoneSync(): void {
 }
 
 // ─── test-only exports ────────────────────────────────────────────────────
+// `tombstoneSync.durability.test.ts` carica il modulo con `await import()`
+// (deve prima installare la finestra finta), quindi i riferimenti a questi due
+// seam non sono statici e knip non li vede: da qui `@knipignore`. Il terzo
+// (`__evict…ForTests`) è importato normalmente e non ne ha bisogno.
 /** Test-only: expose the un-acked set so a durability test can assert a
- *  failed PUT is retained for the next WS-reconnect retry. */
+ *  failed PUT is retained for the next WS-reconnect retry.
+ *  @knipignore usato via `await import()` in tombstoneSync.durability.test.ts */
 export function __getUnackedTombstoneSyncKeys(): string[] {
   return [...unackedJson.keys()];
 }
@@ -246,7 +251,8 @@ export function __evictRemotelyClosedBrowserPanesForTests(entries: TombstoneEntr
 }
 /** Test-only: reset per-key sync bookkeeping between cases. Deliberately
  *  does NOT touch `wired` — re-running `initTombstoneSync()` would double
- *  register the WS frame/lifecycle subscriptions. */
+ *  register the WS frame/lifecycle subscriptions.
+ *  @knipignore usato via `await import()` in tombstoneSync.durability.test.ts */
 export function __resetTombstoneSyncForTests(): void {
   for (const t of debounceTimers.values()) clearTimeout(t);
   debounceTimers.clear();

@@ -24,9 +24,7 @@ import { join } from "path";
 
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
-import { loadMemoryForTopic } from "../routes/memory";
 import { getActiveGoal, goalContextContent } from "../services/goals";
-import { buildProviderHistory } from "../utils/build-provider-history";
 
 import { contextWindowFor } from "../usage/context-window";
 import type {
@@ -1000,12 +998,9 @@ Brief summary of the approach and any considerations.
 Wait for the user to approve the plan before executing any changes.`;
 }
 
-// `loadMemoryForTopic` is re-used inside `adaptEnvelope` to compose the memory
-// system message; we re-export it here so consumers can stay within
-// `server/context/`.
-export { loadMemoryForTopic };
-
-// `buildProviderHistory` is referenced by tests that want to compare the
-// canonical history pipeline against the legacy utility. Re-exported for
-// convenience; production code should use `assembleTopicContext`.
-export { buildProviderHistory };
+// Nessuna ri-esportazione di `loadMemoryForTopic` / `buildProviderHistory`: chi
+// li usa (routes, `regression.test.ts`) li importa dal loro modulo — `routes/
+// memory` e `utils/build-provider-history` — non da qui. Ri-esportarli "per
+// restare dentro server/context/" dava due nomi alla stessa funzione senza che
+// nessuno passasse dal secondo. Il codice di produzione usa
+// `assembleTopicContext`.

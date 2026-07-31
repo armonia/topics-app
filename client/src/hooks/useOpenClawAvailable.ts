@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { ProvidersSnapshot } from '../types';
 import {
   getProvidersSnapshotState,
-  reloadProvidersSnapshot,
   subscribeProvidersSnapshot,
 } from '../lib/providersSnapshotStore';
 
@@ -31,8 +30,4 @@ export function useOpenClawAvailable(): boolean {
   }, []);
 
   return available;
-}
-
-export function refreshOpenClawAvailability(): void {
-  void reloadProvidersSnapshot();
 }
