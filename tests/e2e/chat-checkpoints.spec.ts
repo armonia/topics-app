@@ -226,19 +226,26 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
-    // Accept the confirm dialog
-    page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toContain("Auth module done");
-      expect(dialog.message()).toContain("12");
-      await dialog.accept();
-    });
-
     // Click rollback button (rotate-ccw icon, shown on hover)
     const rollbackBtn = middleEntry.locator('button[title="Roll back to this checkpoint"]');
     await expect(rollbackBtn).toBeVisible({ timeout: 3_000 });
     await rollbackBtn.click();
 
+    // La conferma NON è più `window.confirm`: è il ConfirmDialog React di
+    // `useConfirm`. Un dialog modale nativo congela l'intera WKWebView — chat
+    // in streaming e terminali accanto restano in ostaggio — quindi qui non
+    // c'è nessun evento `dialog` da intercettare, c'è un `role="dialog"` da
+    // leggere. Le due asserzioni di prima sul testo restano, cambiano posto:
+    // il titolo porta la descrizione del checkpoint, il corpo il conteggio.
+    const confirmDialog = page.getByRole("dialog", { name: /Roll back to/ });
+    await expect(confirmDialog).toBeVisible({ timeout: 3_000 });
+    await expect(confirmDialog).toContainText("Auth module done");
+    await expect(confirmDialog).toContainText("12");
+
+    await confirmDialog.getByRole("button", { name: "Roll back" }).click();
+
     // Verify rollback API was called
+    await expect(confirmDialog).toBeHidden({ timeout: 3_000 });
     expect(rollbackCalled).toBe(true);
   });
 
@@ -259,15 +266,20 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     const middleEntry = entries.nth(1);
     await middleEntry.hover();
 
-    // Dismiss the dialog
-    page.once("dialog", async (dialog) => {
-      await dialog.dismiss();
-    });
-
     // Click rollback button
     const rollbackBtn = middleEntry.locator('button[title="Roll back to this checkpoint"]');
     await expect(rollbackBtn).toBeVisible({ timeout: 3_000 });
     await rollbackBtn.click();
+
+    // Annulla sul ConfirmDialog React (vedi CHAT-05-05: non è più
+    // `window.confirm`). Va ASPETTATO che sparisca prima di contare i
+    // checkpoint: finché è a schermo il titolo ripete la descrizione del
+    // checkpoint, e `text=Auth module done` troverebbe due elementi — la riga
+    // nella lista e il titolo del dialog.
+    const confirmDialog = page.getByRole("dialog", { name: /Roll back to/ });
+    await expect(confirmDialog).toBeVisible({ timeout: 3_000 });
+    await confirmDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(confirmDialog).toBeHidden({ timeout: 3_000 });
 
     // Verify all 3 checkpoints still present
     await expect(page.locator("text=Initial setup")).toBeVisible();

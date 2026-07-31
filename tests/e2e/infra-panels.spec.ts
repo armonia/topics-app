@@ -80,9 +80,6 @@ test.describe("Cron Jobs Panel", () => {
     test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs();
 
-    // Accept the confirm dialog
-    page.on("dialog", (d) => d.accept());
-
     await page.goto("/");
     await infraPage.openCronPanel();
 
@@ -94,6 +91,14 @@ test.describe("Cron Jobs Panel", () => {
 
     // Click Delete (revealed by hover)
     await page.locator('button[title="Delete"]').first().click();
+
+    // La conferma è il ConfirmDialog React di `useConfirm`, non `window.confirm`
+    // (un modale nativo congela la WKWebView intera): niente evento `dialog` da
+    // accettare, c'è un `role="dialog"` da confermare. Il click va SCOPATO al
+    // dialog — anche la riga della lista ha un bottone che si chiama "Delete".
+    const confirmDialog = page.getByRole("dialog", { name: "Delete this job?" });
+    await expect(confirmDialog).toBeVisible({ timeout: 3_000 });
+    await confirmDialog.getByRole("button", { name: "Delete" }).click();
 
     // Job should be removed from list
     await expect(page.getByText("Daily backup")).not.toBeVisible();
