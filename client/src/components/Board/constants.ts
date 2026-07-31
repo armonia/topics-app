@@ -88,7 +88,10 @@ export const COMPOSER_CURSOR_KEY = 'board:composer';
  * these are the auxiliary surfaces the side panel / inline tab bar switch to.
  */
 export type TaskSurface =
-  | { id: string; kind: 'output'; label: string; url: string }
+  // NON c'è una superficie 'output': l'URL consegnato dall'agent (`output_url`)
+  // semina una tab BROWSER vera (TaskDetail → browser.seedFromUrl), non un
+  // iframe a parte. La variante + il suo OutputFrame sono stati rimossi quando
+  // nessuno li costruiva più.
   | { id: string; kind: 'plan'; label: string; content: string }
   | { id: string; kind: 'media'; label: string; url: string; path: string }
   // The task-owned browser GROUP (feature-flagged): a single surface whose
