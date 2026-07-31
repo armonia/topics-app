@@ -19,6 +19,44 @@ import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
+import { openExternalOnce } from '../lib/openExternal';
+import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
+
+/**
+ * Il renderer `a` di DEFAULT, per OGNI superficie markdown.
+ *
+ * remark-gfm autolinka gli URL scritti in chiaro, ma un `<a target="_blank">`
+ * nudo è morto nella WKWebView del guscio Tauri, e altrove porta via la SPA.
+ * Solo MessageContent passava il suo `a`: i link in un commento della board, in
+ * una descrizione di task, in un piano o in un divisore di compattazione non
+ * erano cliccabili. Ora la regola sta QUI, dove sta già il resto della config
+ * dei plugin, così non può più divergere per superficie.
+ *
+ * Un link alla PROPRIA origine che punta a un task (l'URL di "copia link"
+ * incollato in un commento) apre il drawer in-app invece di far partire un
+ * browser esterno; tutto il resto passa da `openExternalOnce`, che dedupa il
+ * doppio-click e sceglie il canale giusto per host.
+ *
+ * Chi passa un proprio `a` nei `components` lo sovrascrive comunque (lo spread
+ * più sotto mette i components del chiamante DOPO).
+ */
+const DEFAULT_COMPONENTS: Components = {
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-500 hover:text-blue-600 underline"
+      onClick={(e) => {
+        if (!href) return;
+        e.preventDefault();
+        const selfTask = selfTaskLinkTarget(href);
+        if (selfTask) openTaskInApp(selfTask);
+        else openExternalOnce(href);
+      }}
+    >{children}</a>
+  ),
+};
 
 interface MathMods {
   remark: PluggableList[number];
@@ -73,7 +111,7 @@ export function ChatMarkdown({ components, children }: { components: Components;
       <ReactMarkdown
         remarkPlugins={withMath ? [remarkGfm, mathMods!.remark] : BASE_REMARK}
         rehypePlugins={withMath ? [mathMods!.rehype] : BASE_REHYPE}
-        components={components}
+        components={{ ...DEFAULT_COMPONENTS, ...components }}
       >
         {children}
       </ReactMarkdown>

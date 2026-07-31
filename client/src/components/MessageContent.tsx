@@ -10,8 +10,6 @@ import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
-import { openExternalOnce } from '../lib/openExternal';
-import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
 import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
@@ -658,27 +656,9 @@ export const markdownComponents: Components = {
     if (isMediaPath) return <MediaImage path={normalizedSrc} />;
     return <img src={normalizedSrc} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
   },
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-500 hover:text-blue-600 underline"
-      onClick={(e) => {
-        if (href) {
-          e.preventDefault();
-          // A self-origin board deep-link (e.g. a "copia link" URL pasted into a
-          // review comment) points back at THIS app — open its drawer in-app
-          // instead of spawning an external browser. Everything else routes
-          // through the deduped opener so a single click never opens twice
-          // (double-click / duplicate handler guard), in Electron & web.
-          const selfTask = selfTaskLinkTarget(href);
-          if (selfTask) openTaskInApp(selfTask);
-          else openExternalOnce(href);
-        }
-      }}
-    >{children}</a>
-  ),
+  // `a` NON è qui: il renderer dei link è il default di ChatMarkdown, che ogni
+  // superficie markdown eredita (i commenti della board e i piani non avevano
+  // link cliccabili proprio perché la regola viveva solo in questo file).
   pre: ({ children }) => {
     if (children && typeof children === 'object' && 'props' in children) {
       const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
