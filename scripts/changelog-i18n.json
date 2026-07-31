@@ -1679,5 +1679,9 @@
   "presenza finestre in sidebar + \"Stacca il gruppo in una nuova finestra\"": "open windows shown in the sidebar + \"Detach the group into a new window\"",
   "i gruppi di questa finestra in sidebar, con \"Stacca\" per gruppo": "this window's groups in the sidebar, each with its own \"Detach\"",
   "il gruppo E' la finestra — sezione \"Finestre\" unica in sidebar": "a group IS a window — one unified \"Windows\" section in the sidebar",
-  "raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato": "group from the sidebar — restore the drag + open/register the dropped topic"
+  "raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato": "group from the sidebar — restore the drag + open/register the dropped topic",
+  "l'inglese non e' piu' meta' italiano": "the English changelog is no longer half in Italian",
+  "la suite si ammazzava i browser da sola": "the e2e suite was killing its own browsers",
+  "un URL in un commento della board non era cliccabile": "a URL in a board comment wasn't clickable",
+  "il controllo al boot non piazza piu' un errore a ogni avvio": "the startup update check no longer shows an error on every launch"
 }
