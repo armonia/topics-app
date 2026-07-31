@@ -23,7 +23,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
-import { getUpdaterApi, type UpdaterStatus } from '@/lib/updater';
+import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
 import { Z_POPOVER } from '@/lib/popoverStyles';
 
 // The version chip in the sidebar status bar tags itself with this attribute so
@@ -65,10 +65,17 @@ export function UpdaterToast() {
     // successivi" is real — nothing else calls check() on boot, so an available
     // update would otherwise never surface until the user opened the version
     // popover. Delayed a few seconds to let first paint + the sidecar settle.
-    // The updater endpoint 404s until a signed release exists, which surfaces as
-    // a silently-dismissable error, not a crash. (Both Electron and Tauri hosts.)
+    //
+    // SILENZIOSO: finché non esiste una release firmata l'endpoint risponde 404,
+    // e questo controllo automatico piazzava un toast di errore a OGNI avvio —
+    // per una cosa che l'utente non ha chiesto e non può risolvere. Con
+    // `silent` il boot non disegna né il "controllo in corso" né l'esito
+    // negativo; un aggiornamento davvero disponibile esce lo stesso, perché lo
+    // status arriva marcato non-silenzioso. Il controllo dal menu resta
+    // rumoroso: lì l'esito l'ha chiesto l'utente, e "sei aggiornato" è la
+    // risposta. (Entrambi gli host, Electron e Tauri.)
     const bootCheck = window.setTimeout(() => {
-      api.checkForUpdates().catch(() => {});
+      api.checkForUpdates({ silent: true }).catch(() => {});
     }, 4000);
 
     // Native menu "Controlla aggiornamenti…" (Tauri) dispatches this DOM event.
@@ -92,7 +99,7 @@ export function UpdaterToast() {
     return () => window.removeEventListener('resize', onResize);
   }, [status.state]);
 
-  if (status.state === 'idle' || dismissed || versionPopoverOpen) return null;
+  if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen })) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
