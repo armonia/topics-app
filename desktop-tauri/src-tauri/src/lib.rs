@@ -4836,6 +4836,11 @@ fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, Strin
     no_abort("focus_grab_browser", move || focus_grab_browser_inner(app, id))
 }
 
+// Il `cfg` va anche QUI, non solo sul comando: senza, in release spariva il
+// wrapper ma restava compilato il corpo che chiama `makeFirstResponder:` — cioe'
+// proprio il codice che il commento sopra dice non deve esistere in release,
+// vivo nel binario e senza chiamanti (rustc lo segnalava come `never used`).
+#[cfg(debug_assertions)]
 fn focus_grab_browser_inner(app: tauri::AppHandle, id: String) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
@@ -4882,6 +4887,7 @@ fn focus_grab_window(app: tauri::AppHandle) -> Result<String, String> {
     no_abort("focus_grab_window", move || focus_grab_window_inner(app))
 }
 
+#[cfg(debug_assertions)] // idem: il corpo segue il comando, o resta in release
 fn focus_grab_window_inner(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
