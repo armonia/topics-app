@@ -1,14 +1,26 @@
 {
   "$schema": "bundle-baseline-v1",
   "_comment": [
-    "Measured from a real `bun run build:client`, 2026-07-29. Raise a number ONLY",
+    "Measured from a real `bun run build:client`, 2026-07-31. Raise a number ONLY",
     "in the same commit as the change that grew it, so the diff shows what it bought.",
     "tolerance_pct absorbs the few bytes a minifier or hash change moves between",
-    "versions — without it the gate becomes noise and gets switched off within a month."
+    "versions — without it the gate becomes noise and gets switched off within a month.",
+    "",
+    "2026-07-29 → 2026-07-31: entry eager +33.909 raw / +11.877 gz (+3,9% / +4,6%).",
+    "Comprati con il merge delle fasi + 11 branch: 171 file di client/src, +9.100",
+    "righe nette. Prima di alzare il numero ho controllato che non fosse una",
+    "regressione strutturale mascherata da crescita: nessun `lazy(` aggiunto o tolto",
+    "nel diff dalla baseline (nessun chunk pigro diventato statico), critical_path",
+    "ancora a 6 file (nessun asset eager in più in index.html) e `zod` USCITO dalle",
+    "dipendenze del client. ~3,7 byte gz per riga di sorgente: è il costo normale",
+    "di codice minificato, non un import sbagliato.",
+    "total_assets resta al valore del 2026-07-29: qui gira `vite build --watch`, che",
+    "lascia build sovrapposte in public/assets e rende quella misura NON confrontabile",
+    "(lo script lo dice e salta il check). Si rimisura a watcher fermo."
   ],
-  "updated": "2026-07-29",
+  "updated": "2026-07-31",
   "tolerance_pct": 2,
-  "entry_eager": { "raw": 863819, "gz": 257257 },
-  "critical_path": { "raw": 1470549, "gz": 422647, "files": 6 },
+  "entry_eager": { "raw": 897728, "gz": 269134 },
+  "critical_path": { "raw": 1501508, "gz": 434320, "files": 6 },
   "total_assets": { "raw": 7942647 }
 }

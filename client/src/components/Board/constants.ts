@@ -97,10 +97,6 @@ export type TaskSurface =
   // store (see state/taskBrowserTabs + state/taskBrowserLayout).
   | { id: 'browser'; kind: 'browser'; label: string };
 
-/** Min drawer width (px) before the surface tab group earns its own side panel;
- *  below it the surfaces fold inline into the body. */
-export const SIDEPANEL_MIN = 680;
-
 /** Live per-turn usage pushed by the dispatcher (`task:usage-live`, transient). */
 export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null }
 
