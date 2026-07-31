@@ -18,6 +18,45 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 #[cfg(target_os = "macos")]
 mod shortcuts_generated;
 
+/// objc2 compatibility shims for the AppKit FFI throughout this file.
+///
+/// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
+/// build warnings had that single root — both the `use of deprecated …` notes
+/// and the `unexpected cfg condition value: cargo-clippy` ones the old
+/// `msg_send!`/`sel!` macros expanded into our source). The selectors and the
+/// message sends are unchanged; only the crate providing the untyped-pointer
+/// types and the runtime macros moved to `objc2`. Each AppKit block below does
+/// `use crate::mac::*;` — a glob so unused items in a given block don't warn.
+#[cfg(target_os = "macos")]
+mod mac {
+    pub use objc2::runtime::{AnyClass as Class, AnyObject as Object, Sel};
+    pub use objc2::{class, msg_send, sel};
+    pub use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    /// The old `cocoa::base::id`: an untyped Objective-C object pointer.
+    pub type id = *mut objc2::runtime::AnyObject;
+
+    /// The old `cocoa::base::nil`. Kept lower-case to match the thousands of
+    /// `!= nil` / `== nil` sites verbatim; the naming lint is opted out here
+    /// only, not project-wide.
+    #[allow(non_upper_case_globals)]
+    pub const nil: id = std::ptr::null_mut();
+
+    /// NSWindowButton raw values (NSWindow.h). Hard-coded rather than pulling in
+    /// objc2-app-kit for three constants — they are ABI-stable.
+    pub const NS_WINDOW_CLOSE_BUTTON: isize = 0;
+    pub const NS_WINDOW_MINIATURIZE_BUTTON: isize = 1;
+    pub const NS_WINDOW_ZOOM_BUTTON: isize = 2;
+
+    /// Build an autoreleased-free NSString*. Keep the returned `Retained` alive
+    /// for as long as the raw pointer is in use, then read `.as_ptr()`. Replaces
+    /// the old `NSString::alloc(nil).init_str(s)`.
+    #[inline]
+    pub fn nsstring(s: &str) -> objc2::rc::Retained<objc2_foundation::NSString> {
+        objc2_foundation::NSString::from_str(s)
+    }
+}
+
 /// Desired traffic-light visibility (hidden by default; the client flips it when
 /// the Topics menu opens). AppKit re-shows the buttons on focus/resize when the
 /// titlebar is transparent (`Overlay`), so we re-assert this state on those
@@ -1011,9 +1050,7 @@ impl TlWindow for tauri::WebviewWindow {
 
 #[cfg(target_os = "macos")]
 fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
-    use cocoa::appkit::{NSWindow, NSWindowButton};
-    use cocoa::base::{id, nil};
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ptr = match window.tl_ns_window() {
         Ok(p) => p as id,
@@ -1025,11 +1062,11 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     let mut hit = 0;
     unsafe {
         for button in [
-            NSWindowButton::NSWindowCloseButton,
-            NSWindowButton::NSWindowMiniaturizeButton,
-            NSWindowButton::NSWindowZoomButton,
+            NS_WINDOW_CLOSE_BUTTON,
+            NS_WINDOW_MINIATURIZE_BUTTON,
+            NS_WINDOW_ZOOM_BUTTON,
         ] {
-            let b: id = ptr.standardWindowButton_(button);
+            let b: id = msg_send![ptr, standardWindowButton: button];
             if b != nil {
                 let _: () = msg_send![b, setHidden: !visible];
                 hit += 1;
@@ -1045,7 +1082,7 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
         // titlebar container to redraw now so the hide lands immediately.
         // Guarded to the hide path so the show path keeps its existing redraw.
         if !visible {
-            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            let close: id = msg_send![ptr, standardWindowButton: NS_WINDOW_CLOSE_BUTTON];
             if close != nil {
                 let sv: id = msg_send![close, superview];
                 if sv != nil {
@@ -1078,11 +1115,10 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
         // (bounds.height < 60) and clamp every final origin back inside those
         // bounds. Anything else: no-op, keep AppKit defaults.
         if visible && !window.tl_is_fullscreen().unwrap_or(false) {
-            use cocoa::foundation::NSRect;
-            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            let close: id = msg_send![ptr, standardWindowButton: NS_WINDOW_CLOSE_BUTTON];
             if close != nil {
                 let sv0: id = msg_send![close, superview];
-                let svb: NSRect = if sv0 != nil { msg_send![sv0, bounds] } else { NSRect::new(cocoa::foundation::NSPoint::new(0.0, 0.0), cocoa::foundation::NSSize::new(0.0, 0.0)) };
+                let svb: NSRect = if sv0 != nil { msg_send![sv0, bounds] } else { NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)) };
                 // Container must look like a titlebar strip. A full-height theme
                 // frame (Overlay + hidden title) fails this, so we bail and keep
                 // AppKit's own (visible) positions rather than fling the buttons
@@ -1101,14 +1137,14 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                     const LEFT_INSET: f64 = 12.0;
                     const PITCH: f64 = 18.0;
                     for (i, button) in [
-                        NSWindowButton::NSWindowCloseButton,
-                        NSWindowButton::NSWindowMiniaturizeButton,
-                        NSWindowButton::NSWindowZoomButton,
+                        NS_WINDOW_CLOSE_BUTTON,
+                        NS_WINDOW_MINIATURIZE_BUTTON,
+                        NS_WINDOW_ZOOM_BUTTON,
                     ]
                     .into_iter()
                     .enumerate()
                     {
-                        let b: id = ptr.standardWindowButton_(button);
+                        let b: id = msg_send![ptr, standardWindowButton: button];
                         if b == nil {
                             continue;
                         }
@@ -1205,9 +1241,7 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
 /// NSAppearance directly since Tauri exposes no JS API for it. No-op off macOS.
 #[cfg(target_os = "macos")]
 fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ptr = match window.ns_window() {
         Ok(p) => p as id,
@@ -1219,7 +1253,8 @@ fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
         } else {
             "NSAppearanceNameAqua"
         };
-        let ns_name: id = NSString::alloc(nil).init_str(name);
+        let ns_name = nsstring(name);
+        let ns_name: id = objc2::rc::Retained::as_ptr(&ns_name) as id;
         let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns_name];
         if appearance != nil {
             let _: () = msg_send![ptr, setAppearance: appearance];
