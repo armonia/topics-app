@@ -1,4 +1,10 @@
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from "crypto";
+// Niente confronto in tempo costante qui, e non è una difesa mancante: il token
+// non viene MAI comparato in JS. Si cerca il suo hash PBKDF2 in SQLite
+// (`WHERE agent_token_hash = ?`), quindi `timingSafeEqual` era un import senza
+// consumatori. Dove un confronto in JS c'è davvero — il pairing token in
+// `lib/auth-gate.ts`, i token dei topic via `utils.timingSafeEqualStr` — è
+// timing-safe.
+import { pbkdf2Sync, randomBytes } from "crypto";
 import type { Database } from "bun:sqlite";
 
 const SALT = "topix-agent-salt";

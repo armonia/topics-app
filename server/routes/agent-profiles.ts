@@ -19,7 +19,7 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
       WHERE id=$id
     `),
     deleteProfile: db.prepare(`DELETE FROM agent_profiles WHERE id = ?`),
-    setToken: db.prepare(`UPDATE agent_profiles SET agent_token_hash = ?, updated_at = ? WHERE id = ?`),
+    setToken: db.prepare(`UPDATE agent_profiles SET agent_token_hash = $hash, updated_at = $updated_at WHERE id = $id`),
 
     // Assignments
     getAssignments: db.prepare(`SELECT * FROM agent_assignments WHERE agent_id = ?`),
@@ -224,16 +224,38 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
     // again rotates it and invalidates the previous one. This is the only
     // supported way to hand an agent a native X-Agent-Token (agentAuthOk in
     // terminal.ts now honours it), replacing the hand-written DB hash.
+    //
+    // Rotating is DESTRUCTIVE for whoever holds the current token: the old one
+    // stops authorizing the instant the new hash is written, and nothing warns
+    // the agent still using it. Un profilo che ha GIA' un token richiede quindi
+    // un `{ "confirm": true }` esplicito — così un re-POST distratto (o un
+    // doppio click su un futuro bottone "Genera token") non spegne un agente
+    // vivo. Sul primo conio non c'è niente da invalidare: nessuna conferma.
     {
       const params = matchRoute(pathname, "/api/agents/profiles/:id/token");
       if (params && method === "POST") {
         const row = stmts.getProfile.get(params.id) as any;
         if (!row) return errorResponse(404, "Agent profile not found");
+
+        // Body opzionale: un conio iniziale resta un POST senza corpo.
+        const body = (await readJSON(req).catch(() => null)) as { confirm?: boolean } | null;
+        if (row.agent_token_hash && body?.confirm !== true) {
+          return errorResponse(
+            409,
+            'This profile already has a token. Rotating invalidates the one in use; retry with { "confirm": true } to replace it.',
+          );
+        }
+
         const { token, hash } = mintAgentToken();
-        stmts.setToken.run(hash, new Date().toISOString(), params.id);
+        // Parametri nominali: le tre colonne sono tutte stringhe e in forma
+        // posizionale invertirne due passa senza che niente se ne accorga.
+        stmts.setToken.run({ $hash: hash, $updated_at: new Date().toISOString(), $id: params.id });
         const updated = stmts.getProfile.get(params.id) as any;
-        broadcastToAll({ type: "agent:profile:updated", profile: rowToProfile(updated) });
-        return json({ token });
+        const profile = rowToProfile(updated);
+        // Il broadcast porta SOLO il profilo (hasToken passa a true): il token
+        // in chiaro esiste unicamente nella risposta HTTP a chi l'ha coniato.
+        broadcastToAll({ type: "agent:profile:updated", profile });
+        return json({ token, profile });
       }
     }
 

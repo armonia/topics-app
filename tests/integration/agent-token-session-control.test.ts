@@ -102,4 +102,47 @@ describe("Terminal control via native agent token (no OpenClaw)", () => {
 
     await call(terminal, "DELETE", `/api/terminal/sessions/${id}`, { token: leadToken });
   }, 20000);
+
+  // La rotazione è distruttiva: riscrivere l'hash spegne, senza preavviso,
+  // l'agente che sta usando il token corrente. Il gate `confirm` esiste perché
+  // un secondo POST distratto non lo faccia — e questi test provano ENTRAMBI i
+  // versanti, cioè che il rifiuto lascia il token vecchio VIVO e che la
+  // conferma lo uccide davvero. Solo il 409 non proverebbe niente.
+  describe("rotazione del token", () => {
+    let rotId: string;
+    let primo: string;
+
+    beforeAll(async () => {
+      rotId = await createProfile(profiles, "test-rotate", "lead");
+      primo = await mintToken(profiles, rotId); // primo conio: nessuna conferma richiesta
+    });
+
+    test("secondo conio senza confirm → 409, e il token in uso continua a valere", async () => {
+      const resp = await call(profiles, "POST", `/api/agents/profiles/${rotId}/token`, { body: {} });
+      expect(resp!.status).toBe(409);
+
+      const still = await call(terminal, "POST", "/api/terminal/sessions/bogus/send", { body: { input: "hi" }, token: primo });
+      expect(still!.status).not.toBe(401); // non ruotato: autorizza ancora
+    });
+
+    test("POST senza corpo → 409 anche lì (il body è opzionale, non un bypass)", async () => {
+      const resp = await call(profiles, "POST", `/api/agents/profiles/${rotId}/token`);
+      expect(resp!.status).toBe(409);
+    });
+
+    test("con confirm → token nuovo, e il precedente non autorizza più", async () => {
+      const resp = await call(profiles, "POST", `/api/agents/profiles/${rotId}/token`, { body: { confirm: true } });
+      expect(resp!.status).toBe(200);
+      const { token: secondo, profile } = (await resp!.json()) as { token: string; profile: { hasToken?: boolean } };
+      expect(secondo).toMatch(/^topix_/);
+      expect(secondo).not.toBe(primo);
+      expect(profile).toBeTruthy(); // la risposta porta anche il profilo aggiornato
+
+      const vecchio = await call(terminal, "POST", "/api/terminal/sessions/bogus/send", { body: { input: "hi" }, token: primo });
+      expect(vecchio!.status).toBe(401); // invalidato dalla rotazione
+
+      const nuovo = await call(terminal, "POST", "/api/terminal/sessions/bogus/send", { body: { input: "hi" }, token: secondo });
+      expect(nuovo!.status).not.toBe(401);
+    });
+  });
 });
