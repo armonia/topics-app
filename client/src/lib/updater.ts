@@ -14,10 +14,33 @@ export interface UpdaterStatus {
   error?: string;
   /** Version string of the pending update, when the main process reports it. */
   version?: string;
+  /** Esito di un controllo SILENZIOSO (quello automatico al boot): il toast non
+   *  lo disegna. Vale solo per gli esiti che non chiedono niente all'utente —
+   *  "sei aggiornato" e gli errori di rete/endpoint. Un aggiornamento DISPONIBILE
+   *  esce sempre, anche se il controllo era silenzioso. */
+  silent?: boolean;
+}
+
+/**
+ * Il toast dell'updater si disegna?
+ *
+ * Pura di proposito: la regola è piccola ma ha quattro modi di sbagliarsi, e
+ * l'unico posto dove viveva era una `return null` in mezzo a un componente —
+ * non verificabile senza montare la UI. Qui è una tabella di verità.
+ */
+export function shouldShowUpdaterToast(
+  status: UpdaterStatus,
+  opts: { dismissed: boolean; versionPopoverOpen: boolean },
+): boolean {
+  if (status.state === 'idle') return false;      // niente da dire
+  if (opts.dismissed) return false;               // l'utente l'ha chiuso
+  if (opts.versionPopoverOpen) return false;      // lo direbbe due volte
+  if (status.silent) return false;                // esito di un controllo al boot
+  return true;
 }
 
 export interface ElectronUpdater {
-  checkForUpdates: () => Promise<{ ok: boolean; reason?: string }>;
+  checkForUpdates: (options?: { silent?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
   /** Explicit download trigger — required when `autoDownload: false` server-side. */
   downloadUpdate?: () => Promise<{ ok: boolean; reason?: string }>;
   status: () => Promise<UpdaterStatus>;
@@ -52,21 +75,24 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 const tauriUpdater: ElectronUpdater = {
-  async checkForUpdates() {
+  async checkForUpdates(options) {
     if (tauriUpdaterDenied) return { ok: false, reason: 'updater unavailable in this webview' };
-    setTauriStatus({ state: 'checking' });
+    const silent = options?.silent ?? false;
+    // Un controllo silenzioso non annuncia nemmeno di essere in corso.
+    if (!silent) setTauriStatus({ state: 'checking' });
     try {
       const info = await tauriInvoke<{ version: string } | null>('updater_check');
-      if (info) { setTauriStatus({ state: 'update-available', version: info.version }); return { ok: true }; }
-      setTauriStatus({ state: 'idle' });
+      // C'è davvero un aggiornamento: questo si vede SEMPRE, silenzioso o no.
+      if (info) { setTauriStatus({ state: 'update-available', version: info.version, silent: false }); return { ok: true }; }
+      setTauriStatus({ state: 'idle', silent });
       return { ok: true, reason: 'up-to-date' };
     } catch (e) {
       if (isAclDenial(e)) {
         tauriUpdaterDenied = true;
-        setTauriStatus({ state: 'idle' });
+        setTauriStatus({ state: 'idle', silent });
         return { ok: false, reason: 'updater unavailable in this webview' };
       }
-      setTauriStatus({ state: 'error', error: errText(e) });
+      setTauriStatus({ state: 'error', error: errText(e), silent });
       return { ok: false, reason: errText(e) };
     }
   },
