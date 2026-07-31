@@ -36,10 +36,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **sidebar** · una vista che raggruppa per STATO, non per tipo di pane
 - **token** · quanto di un messaggio era CACHE — il dato c'era e veniva buttato
 - **token** · il consumo del turno si vede CRESCERE, invece di apparire alla fine
+- **token** · il costo si legge sulla SINGOLA azione, non solo sul turno
 - **chat** · l'effort sta sul controllo che lo cambia, e 1M si legge
+- **handoff** · adotta in una topic una sessione Claude Code viva dal terminale
 - **chat** · l'effort sul controllo che lo cambia, la finestra su OGNI modello
 - **notifiche** · un task che si arrende ora te lo dice
 - **settings** · le preferenze salivano al server e non tornavano MAI giu'
+- **push** · la fine risposta della chat ti sveglia col nome del topic e ti ci porta
+- **notify** · gate le notifiche di turno su Focus/Non disturbare
+- **shortcuts** · registro unico TS↔Rust, il Rust è generato
+- **notify** · mute per topic/progetto + badge PWA che conta i completamenti
+- **ui** · EmptyState condiviso + Spinner unificato nei 4 file più densi
 
 ### Correzioni
 - **ux** · ContextMenu topic in IT + verbo unico "Archivia" + via console.log diagnostici
@@ -122,6 +129,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tab** · una tab resta blu finche' non la GUARDI, non finche' non la sfiori
 - **unread** · "letto" aspetta la soglia, non l'istante del focus
 - **tab** · lo stato si dice a parole, e il blu del tier e' UN colore
+- **unread** · il badge arriva davvero in background — una sola politica di lettura
 - **chat** · la chat non lampeggia piu' mentre scrivi
 - **chat** · il composer non ruba piu' il fuoco al picker
 - **chat** · niente fantasmi sotto il composer, niente bottoni schiacciati
@@ -144,10 +152,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · la Board era illeggibile in tema chiaro — ora segue i token
 - **a11y** · tolgo le tre schermate che parlano due lingue insieme
 - **chat** · via i 4 alert() che CONGELANO l'app invece di dire una cosa
+- **a11y** · fisso la regola 'superficie rialzata' nei due temi + fix del bare bg-white rimasto
+- **a11y** · i 7 window.confirm CONGELAVANO la webview — ora ConfirmDialog React
 - **audit** · chiudo i rilievi dell'audit pre-merge sui contratti e sulla cache
 - **coda** · un messaggio in coda non sparisce piu' se l'invio va storto
 - **board** · una causa sola non manda piu' N notifiche identiche
 - **guscio** · la diagnosi delle notifiche si aggiorna, e Cmd+Shift+R detta
+- **contratto ws** · riallineo il registro dopo il merge — 97 tipi
 
 ### Prestazioni
 - **client** · hljs highlight deferito in streaming + split chunk dnd-kit
@@ -280,11 +291,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **sidebar** · AC-2 percorre l'anello delle TRE viste, non il ping-pong fra due
 - **token** · chiudo il buco che avevo dichiarato sul numero live
 - **notifiche** · cancello la pipeline `claude-event`, nata morta e mai cablata
+- **macos** · arma la firma Developer ID con env APPLE_* (attiva quando i secret esistono)
+- **macos** · runbook Developer ID (export cert + 6 secret GitHub) per sbloccare i banner
 - **openspec** · la sezione S dice cosa e' stato fatto DAVVERO
 - **e2e** · 8 rossi accusavano il codice, il server era stato ammazzato da fuori
 - **e2e** · un worktree di dispatch non puo' piu' rubare la porta del checkout vero
 - **e2e** · l'allarme sulla morte del server accusava un riavvio VOLUTO
 - **versione** · 2.2.1 in lockstep
+- **changelog** · rigenero per la 2.2.1 e traduco le 22 voci nuove
+- **pulizia** · alzo il cricchetto del bundle e tolgo tre porte murate
 
 ## 2.2.0 — 2026-07-23
 
