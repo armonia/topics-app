@@ -415,6 +415,56 @@ test.describe("Kanban board", () => {
     await expect(drawer).not.toBeVisible({ timeout: 5000 });
   });
 
+  test("BOARD-13: a URL in a thread comment is a link that opens OUT, without navigating the app", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
+    // Regressione: il renderer `a` viveva solo in MessageContent, quindi ogni
+    // altra superficie markdown (commenti della board, descrizione, piano,
+    // divisori di compattazione) cadeva sull'`<a>` di default di react-markdown.
+    // Nella WKWebView del guscio Tauri quel link è morto; su web porta via la
+    // SPA. Ora il default sta in ChatMarkdown, che tutte ereditano.
+    const text = `Link task ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+    const url = "https://example.org/anteprima";
+    const sessionKey = `topic:${projectTopicId!.slice(0, 8)}`;
+    const res = await page.request.post(
+      `${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks/${task.id}/comments`,
+      { data: { content: `Anteprima pronta: ${url}` } },
+    );
+    expect(res.status()).toBe(201);
+
+    // `openExternal` su web finisce in window.open: lo si registra invece di
+    // aprirlo davvero, così il click è osservabile senza una finestra vera.
+    await page.addInitScript(() => {
+      (window as unknown as { __opened: string[] }).__opened = [];
+      window.open = ((u?: string | URL) => {
+        (window as unknown as { __opened: string[] }).__opened.push(String(u));
+        return null;
+      }) as typeof window.open;
+    });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+
+    // remark-gfm autolinka l'URL scritto in chiaro: dev'essere un vero <a>.
+    const link = drawer.locator(`a[href="${url}"]`);
+    await expect(link).toBeVisible({ timeout: 10000 });
+
+    const before = page.url();
+    await link.click();
+
+    // Aperto FUORI…
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened), {
+        timeout: 5000,
+      })
+      .toContain(url);
+    // …e la SPA è rimasta dov'era (il preventDefault ha fatto il suo lavoro).
+    expect(page.url()).toBe(before);
+    await expect(drawer).toBeVisible();
+  });
+
   test("BOARD-07: Board generale opens from the standalone + menu and crosses projects", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-06" });
     // Seed tasks on TWO boards: the project one + a second ad-hoc board.
