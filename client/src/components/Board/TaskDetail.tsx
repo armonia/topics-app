@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -1695,14 +1695,13 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
 }
 
 /**
- * Renders one LIGHT task surface full-height (output iframe / media viewer /
- * plan). The browser group is NOT handled here — it renders through the app's
- * real GroupLayout engine (see useTaskBrowserGroupLayout), placed directly by
- * TaskDetail. The caller places this inside a flex-col so flex-1 children fill.
+ * Renders one LIGHT task surface full-height (media viewer / plan). The browser
+ * group is NOT handled here — it renders through the app's real GroupLayout
+ * engine (see useTaskBrowserGroupLayout), placed directly by TaskDetail. The
+ * caller places this inside a flex-col so flex-1 children fill.
  */
 export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; taskId?: string }) {
   void taskId;
-  if (surface.kind === 'output') return <OutputFrame key={surface.url} url={surface.url} />;
   if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
   if (surface.kind === 'browser') return null; // handled by GroupLayout in TaskDetail
   return (
@@ -1717,15 +1716,6 @@ export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; task
   );
 }
 
-/**
- * The sandboxed output iframe with a loading veil (keyed by URL from the
- * caller, so a URL change remounts and the spinner shows again).
- *
- * Sandbox WITHOUT allow-same-origin: combined with allow-scripts it would void
- * the sandbox entirely (a frame pointed at THIS app's origin could reach
- * parent.document). Opaque origin keeps agent-set URLs inert; pages needing
- * their own storage open externally.
- */
 /**
  * Viewer for OUR /api/media files (allowlisted attachments): image inline,
  * PDF in a NON-sandboxed frame — the sandbox blocks WKWebView's native PDF
@@ -1752,76 +1742,6 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
         onClick={() => openExternalOnce(url)}
         className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
-    </div>
-  );
-}
-
-export function OutputFrame({ url }: { url: string }) {
-  // 'loading' → spinner over a still-loading iframe; 'ok' → the page rendered;
-  // 'unreachable' → the target never answered (dead dev server, refused
-  // connection, or a page the browser refuses to embed). A bare iframe to an
-  // unreachable URL paints a blank white void with zero signal — so we probe
-  // reachability and, on failure, swap in an actionable card instead of
-  // leaving the reviewer staring at nothing.
-  const [state, setState] = useState<'loading' | 'ok' | 'unreachable'>('loading');
-  const [attempt, setAttempt] = useState(0);
-  // Retry re-runs the probe AND remounts the iframe; it resets to 'loading' here
-  // (an event handler, not the effect body) so a fresh url — which remounts the
-  // whole component via the parent's key={surface.url} — starts loading anyway.
-  const retry = () => { setState('loading'); setAttempt((a) => a + 1); };
-
-  useEffect(() => {
-    let alive = true;
-    const ctrl = new AbortController();
-    // no-cors probe: any HTTP answer (200/404/500) resolves opaque → reachable;
-    // a refused connection / dead port / mixed-content block rejects. This is
-    // what distinguishes "server down" from "page just slow to paint".
-    fetch(url, { mode: 'no-cors', signal: ctrl.signal, cache: 'no-store' }).catch((e) => {
-      if (alive && e?.name !== 'AbortError') setState((s) => (s === 'ok' ? s : 'unreachable'));
-    });
-    // Backstop: nothing loaded in time (probe inconclusive AND iframe silent).
-    const timer = setTimeout(() => { if (alive) setState((s) => (s === 'ok' ? s : 'unreachable')); }, 8000);
-    return () => { alive = false; ctrl.abort(); clearTimeout(timer); };
-  }, [url, attempt]);
-
-  if (state === 'unreachable') {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-app-inset p-6 text-center">
-        <Unplug className="h-7 w-7 text-app-text-muted" />
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-app-text">Output non raggiungibile</p>
-          <p className="mx-auto max-w-[26rem] truncate font-mono text-[11px] text-app-text-muted" title={url}>{url}</p>
-          <p className="text-[11px] text-app-text-muted">Il server potrebbe essere spento, o la pagina non è incorporabile.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={retry}
-            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
-          ><RotateCw className="h-3.5 w-3.5" /> Riprova</button>
-          <button
-            onClick={() => openExternalOnce(url)}
-            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
-          ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="relative min-h-0 flex-1">
-      {state === 'loading' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-app-inset">
-          <Spinner size="md" tone="current" className="text-app-text-secondary" />
-        </div>
-      )}
-      <iframe
-        key={attempt}
-        src={url}
-        title="Output del task"
-        sandbox="allow-scripts allow-forms"
-        onLoad={() => setState('ok')}
-        onError={() => setState('unreachable')}
-        className="h-full w-full border-0 bg-white"
-      />
     </div>
   );
 }
