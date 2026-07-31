@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import type { TerminalSessionType, TerminalAgentType } from "../../shared/terminal-session-types";
+import type { TerminalSessionType } from "../../shared/terminal-session-types";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -907,12 +907,12 @@ function restoreDbSessionsOptimistically(): void {
  * sotto: distinguere "una risposta reale, anche vuota" da "NESSUNA risposta"
  * (`answered.ok`). Lì valeva per il bridge, qui vale per chi interroga noi.
  */
+/** Il roster è confrontato con la verità: chi lo legge può fidarsi di un vuoto.
+ *  Esce di qui SOLO come campo `reconciled` di `terminal:sessions` (in fondo al
+ *  file): è quello il canale che il client ascolta. C'era anche un getter
+ *  `isRosterReconciled()` esportato, che non ha mai avuto un chiamante — due
+ *  porte sullo stesso bit, e una murata. */
 let rosterReconciled = false;
-
-/** Il roster è confrontato con la verità: chi lo legge può fidarsi di un vuoto. */
-export function isRosterReconciled(): boolean {
-  return rosterReconciled;
-}
 
 async function reconcileSessions(attempt = 0): Promise<void> {
   // Standalone bundle: no bridge to reconcile against. Short-circuit so we don't
