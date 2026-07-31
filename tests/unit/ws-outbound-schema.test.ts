@@ -224,6 +224,7 @@ describe('outbound registry contract', () => {
       'stream:tool_detail',
       'stream:tool_result',
       'stream:tool_update',
+      'stream:tool_usage',
       'stream:tool_user_input_required',
       'stream:usage',
       'task:created',
@@ -303,8 +304,13 @@ describe('outbound registry contract', () => {
   // `task:review-ready`. Il park terminale (l'agente si arrende, il task NON
   // riparte da solo) era l'unico esito di un dispatch che non aveva un fronte:
   // il task restava fermo in silenzio finché non lo si andava a guardare.
-  test('all 96 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
+  // 96 → 97: entra `stream:tool_usage`, il consumo attribuito alla SINGOLA
+  // azione. `stream:context` racconta il serbatoio e `stream:usage` la bolletta
+  // del turno intero: nessuno dei due sa dire quale tool call è costata. Ha
+  // mittente (`server/routes/chat.ts`) e ascoltatore (`useChat`), quindi non è
+  // un tipo dichiarativo — è il contratto di una via che esiste.
+  test('all 97 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(97);
   });
 });
 
