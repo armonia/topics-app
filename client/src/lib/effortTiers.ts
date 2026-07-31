@@ -14,7 +14,9 @@
 import type { ProviderSnapshotEntry } from '../types';
 
 export const EFFORT_TIERS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-export type EffortTier = (typeof EFFORT_TIERS)[number];
+// Niente alias `EffortTier`: i chiamanti passano stringhe che vengono
+// convalidate contro `EFFORT_TIERS`, e l'alias non ha mai avuto un uso. Se
+// serve, `(typeof EFFORT_TIERS)[number]` è la stessa riga sul posto.
 
 export interface ProviderSelection {
   provider: string;

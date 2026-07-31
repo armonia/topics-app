@@ -20,7 +20,10 @@ import type {
 } from '../../../shared/board';
 // Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
 export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
-export type { TaskAttempt, AttemptState } from '../../../shared/task-attempt';
+// Solo `TaskAttempt` passa di qui (la board lo importa da questo modulo).
+// `AttemptState` si prende da `shared/task-attempt`, dov'è dichiarato ed è già
+// da lì che lo importa chi lo usa (il servizio lato server).
+export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
 
 /**

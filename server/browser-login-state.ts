@@ -28,8 +28,11 @@ import { resolveStateDir } from "./lib/data-dir";
 
 // Il formato sta in `shared/browser-login-state.ts`: lo leggono anche il client
 // e (per struct gemella) il pane nativo in Rust.
-export type { StorageCookie, StorageOrigin, StorageState } from "../shared/browser-login-state";
-import type { StorageCookie, StorageOrigin, StorageState } from "../shared/browser-login-state";
+// Si ri-esporta solo `StorageState`, l'unico che qualcuno importa da qui: le due
+// forme interne (`StorageCookie`, `StorageOrigin`) si prendono da `shared/`, che
+// è dove sono dichiarate e da dove già le importa il client.
+export type { StorageState } from "../shared/browser-login-state";
+import type { StorageState } from "../shared/browser-login-state";
 
 /** Sanitize a handle to a safe single path segment (no traversal). */
 export function safeHandle(handle: string): string {

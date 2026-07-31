@@ -4,20 +4,12 @@
  * Gli schemi (`hello`, `welcome`, `upgrade-required`) NON vivono più qui: erano
  * una copia a mano di `server/schemas/ws-handshake.ts` tenuta insieme da un
  * commento "KEEP IN SYNC". Ora sono in `shared/ws-handshake.ts`, unica fonte
- * per i due progetti TS. Restano qui solo le costanti che descrivono QUESTA
- * build del client — il server ha le sue in `server/ws-capabilities.ts`.
+ * per i due progetti TS: chi ne ha bisogno importa DA LI'. Questo file non li
+ * ri-esporta piu' — la ri-esportazione era rimasta come ponte dopo lo
+ * spostamento e nessuno ci passava, cioe' era un terzo nome per la stessa
+ * cosa. Restano qui solo le costanti che descrivono QUESTA build del client —
+ * il server ha le sue in `server/ws-capabilities.ts`.
  */
-export {
-  helloMessageSchema,
-  welcomeMessageSchema,
-  upgradeRequiredSchema,
-  parseHelloMessage,
-  parseWelcomeMessage,
-  type HelloMessage,
-  type WelcomeMessage,
-  type UpgradeRequiredMessage,
-} from '../../../shared/ws-handshake';
-
 // ----- Client capabilities advertised in hello ------------------------------
 
 /**

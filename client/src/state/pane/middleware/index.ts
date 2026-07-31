@@ -14,15 +14,15 @@
  * in minification, and the shipped bundle would have carried the dev overlay
  * with nobody having touched mutationLog.ts. Import it directly where it is
  * genuinely needed (its own test does).
+ *
+ * Il barrel espone SOLO quello che qualcuno importa da qui (App.tsx e
+ * bootstrap.ts): le chiavi di storage, i getter `__*` da test e i helper di
+ * self-echo si importano dal loro modulo, che è già quello che fanno tutti i
+ * chiamanti veri. Ri-esportarli "per simmetria" li faceva sembrare parte
+ * dell'interfaccia del layer quando nessuno li prendeva da qui.
  */
-export { initLocalPersistence, PANE_STORE_LOCAL_KEY, hydrateFromLocalSnapshot, flushLocalPaneStoreNow } from './persistLocal';
-export { initServerSync, PANE_STORE_REMOTE_KEY, flushPaneStoreNow } from './syncServer';
-export { initWSSync, __getLastAppliedServerSeq } from './syncWS';
+export { initLocalPersistence, hydrateFromLocalSnapshot, flushLocalPaneStoreNow } from './persistLocal';
+export { initServerSync, flushPaneStoreNow } from './syncServer';
+export { initWSSync } from './syncWS';
 export type { WSFrame } from './syncWS';
-export { initCrossTabSync, getTabId } from './syncCrossTab';
-export {
-  rememberLocalAck,
-  isSelfEcho,
-  __getPendingAcks,
-  __getLastEmittedServerSeq,
-} from './selfEcho';
+export { initCrossTabSync } from './syncCrossTab';

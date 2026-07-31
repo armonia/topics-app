@@ -54,14 +54,13 @@ import type { ContextLevel } from "../../shared/context-thresholds";
 import { contextWindowFor } from "../../shared/context-window";
 import type { ContextWindow } from "../../shared/context-window";
 
+// Si ri-esporta SOLO ciò che qualcuno importa da qui (i test di questo modulo e
+// i chiamanti server). Il marcatore di finestra lunga
+// (`hasLongWindowMarker`/`stripLongWindowMarker`) e il formattatore
+// (`formatContextWindow`) si prendono da `shared/context-window`: è dove sono
+// dichiarati ed è già da lì che li importa chi li usa davvero (la UI del picker).
 export { DEFAULT_CONTEXT_WINDOW } from "../../shared/context-thresholds";
-export {
-  contextWindowFor,
-  hasLongWindowMarker,
-  stripLongWindowMarker,
-  windowModelFor,
-  formatContextWindow,
-} from "../../shared/context-window";
+export { contextWindowFor, windowModelFor } from "../../shared/context-window";
 export type { ContextWindow } from "../../shared/context-window";
 
 /**
@@ -115,12 +114,12 @@ export function windowForMeasure(
 // Le soglie e la funzione di livello vivono in `shared/context-thresholds.ts`:
 // il client le disegna, il server le classifica, e quando stavano solo qui il
 // client le riscriveva a mano con `>` invece di `>=`. Ri-esportate perché i
-// chiamanti storici le importano da questo modulo.
+// chiamanti storici le importano da questo modulo — e SOLO quelle: le due
+// soglie in TOKEN si prendono da `shared/context-thresholds`, dove sono
+// dichiarate ed è già da lì che le importa chi le usa.
 export {
   CONTEXT_WARN_PERCENT,
   CONTEXT_CRITICAL_PERCENT,
-  CONTEXT_WARN_TOKENS,
-  CONTEXT_CRITICAL_TOKENS,
   contextLevel,
 } from "../../shared/context-thresholds";
 export type { ContextLevel } from "../../shared/context-thresholds";

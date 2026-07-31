@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react';
 import { liveBrowserViews } from '../lib/shell/nativeBrowserRoster';
 
 /**
@@ -14,10 +13,6 @@ import { liveBrowserViews } from '../lib/shell/nativeBrowserRoster';
  * È lo stesso predicato che `useAnimationPause` usa per parcheggiare le
  * animazioni CSS, e sta qui perché i due devono restare in passo: se le
  * animazioni si fermano e i poll no, si è solo spostato il costo.
- *
- * Un solo set di listener per tutta l'app, refcontato, che si spegne quando
- * l'ultimo iscritto se ne va — stesso modello di `useSharedNow`, per la stessa
- * ragione: N componenti non devono costare N listener.
  */
 
 /** Il predicato, sincrono. Usabile anche fuori da React. */
@@ -46,46 +41,11 @@ export function isWindowAwake(): boolean {
   return liveBrowserViews().size > 0;
 }
 
-let awake = isWindowAwake();
-const subscribers = new Set<() => void>();
-let wired = false;
-
-function recompute(): void {
-  const next = isWindowAwake();
-  if (next === awake) return;
-  awake = next;
-  for (const notify of subscribers) notify();
-}
-
-function subscribe(notify: () => void): () => void {
-  subscribers.add(notify);
-  if (!wired) {
-    wired = true;
-    document.addEventListener('visibilitychange', recompute);
-    // `blur`/`focus` sulla finestra, non sul documento: è l'unico segnale che
-    // distingue "un'altra app è davanti" da "la finestra è minimizzata".
-    window.addEventListener('blur', recompute);
-    window.addEventListener('focus', recompute);
-  }
-  // Ri-allinea alla realtà: chi si iscrive adesso deve leggere lo stato di
-  // adesso, non quello dell'ultimo evento visto.
-  awake = isWindowAwake();
-  return () => {
-    subscribers.delete(notify);
-    if (subscribers.size === 0 && wired) {
-      wired = false;
-      document.removeEventListener('visibilitychange', recompute);
-      window.removeEventListener('blur', recompute);
-      window.removeEventListener('focus', recompute);
-    }
-  };
-}
-
-function getSnapshot(): boolean {
-  return awake;
-}
-
-/** Ri-renderizza il chiamante quando la finestra passa a fuoco / fuori fuoco. */
-export function useWindowAwake(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
+// Qui c'era anche uno store `useSyncExternalStore` (`useWindowAwake`) che
+// ri-renderizzava il chiamante al cambio di fuoco, con un set di listener
+// globali refcontato. L'unico chiamante era `usePaneWatched`, che a sua volta
+// non ne ha mai avuto nessuno: erano listener registrati per zero componenti.
+// Chi deve REAGIRE al fuoco ascolta gli eventi dove serve (`signals.ts` lo fa
+// dentro il suo effetto, ed è l'unico caso); chi deve solo decidere se un ciclo
+// gira chiama il predicato sincrono qui sopra DENTRO il timer — spegnere un
+// `setInterval` non richiede un render.

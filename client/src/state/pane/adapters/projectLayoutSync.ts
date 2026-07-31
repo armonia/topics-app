@@ -332,16 +332,24 @@ function ensureTeardownFlush(): void {
   });
 }
 
+// I tre seam qui sotto sono consumati da `projectLayoutSync.durability.test.ts`,
+// che però carica il modulo con `await import()` DOPO aver installato la
+// finestra finta — questo file si aggancia a `window` al load. Il riferimento
+// quindi non è statico e knip non lo vede: da qui `@knipignore`, uno per uno.
+
 /** Test-only: expose the un-acked set so unit tests can assert a failed PUT is
- *  retained for a later teardown/reconnect flush. */
+ *  retained for a later teardown/reconnect flush.
+ *  @knipignore usato via `await import()` in projectLayoutSync.durability.test.ts */
 export function __getUnackedProjectSyncKeys(): string[] {
   return [...unackedJsonByKey.keys()];
 }
-/** Test-only: force a teardown flush (as pagehide would). */
+/** Test-only: force a teardown flush (as pagehide would).
+ *  @knipignore usato via `await import()` in projectLayoutSync.durability.test.ts */
 export function __flushAllProjectSyncForTests(): void {
   flushAllPending();
 }
-/** Test-only: reset module state between cases. */
+/** Test-only: reset module state between cases.
+ *  @knipignore usato via `await import()` in projectLayoutSync.durability.test.ts */
 export function __resetProjectSyncForTests(): void {
   for (const t of debounceTimers.values()) clearTimeout(t);
   debounceTimers.clear();

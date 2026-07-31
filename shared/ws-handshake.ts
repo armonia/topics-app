@@ -70,7 +70,10 @@ export const upgradeRequiredSchema = z.object({
   message: z.string(),
 });
 
-export type UpgradeRequiredMessage = z.infer<typeof upgradeRequiredSchema>;
+// Nessun alias `UpgradeRequiredMessage`: lo schema è bloccato dai test di
+// contratto (tests/unit/ws-contract.test.ts) ma il messaggio non viene ancora
+// emesso, quindi il tipo non aveva un solo consumatore. Serve in v2?
+// `z.infer<typeof upgradeRequiredSchema>` è una riga.
 
 // ----- Public API -----------------------------------------------------------
 

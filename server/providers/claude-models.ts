@@ -231,8 +231,7 @@ export async function discoverClaudeModels(cliPath: string): Promise<string[]> {
   return inflight;
 }
 
-/** Test seam: drop the memoized scan. */
-export function resetClaudeModelCache(): void {
-  cache = null;
-  inflight = null;
-}
+// Niente `resetClaudeModelCache()`: era nato come test seam e nessun test l'ha
+// mai chiamato (`claude-models.test.ts` costruisce il suo scenario e legge il
+// risultato). Un seam senza test non è un'interfaccia, è una funzione che
+// azzera una cache di produzione e che nessuno controlla.

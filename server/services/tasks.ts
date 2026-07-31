@@ -27,8 +27,9 @@ import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./revie
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
-// ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono.
-export { TASK_STATUSES } from "../../shared/board";
+// ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono — da cui
+// l'import separato. Della lista `TASK_STATUSES` questo modulo non è una porta:
+// chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 import { MAX_FANOUT, TASK_STATUSES, isAgentWorking } from "../../shared/board";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";

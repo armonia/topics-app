@@ -74,76 +74,15 @@ export interface ProviderDoneMessage {
   [key: string]: unknown;
 }
 
-/** Text chunk from the model */
-export interface TextDeltaEvent {
-  type: "text_delta";
-  text: string;
-  /** Cumulative text so far (if available) */
-  fullText?: string;
-}
-
-/** Model thinking/reasoning content */
-export interface ThinkingDeltaEvent {
-  type: "thinking_delta";
-  text: string;
-}
-
-/** Tool call lifecycle */
-export interface ToolStartEvent {
-  type: "tool_start";
-  toolCallId: string;
-  name: string;
-  args?: ToolArgs;
-}
-
-export interface ToolUpdateEvent {
-  type: "tool_update";
-  toolCallId: string;
-  partialResult: string;
-}
-
-export interface ToolResultEvent {
-  type: "tool_result";
-  toolCallId: string;
-  result: string;
-  /**
-   * True when the tool failed (Claude SDK sets this on `tool_result` blocks
-   * whose content is an error message). Drives the UI to render a red ✗ and
-   * status: 'error' instead of green ✓.
-   */
-  isError?: boolean;
-}
-
-/** Stream completed successfully */
-export interface DoneEvent {
-  type: "done";
-  message?: ProviderDoneMessage;
-}
-
-/** Stream errored */
-export interface ErrorEvent {
-  type: "error";
-  error: string;
-}
-
-/** Stream aborted by user/system */
-export interface AbortedEvent {
-  type: "aborted";
-  message?: ProviderDoneMessage;
-}
-
-/** Cosa un provider AI emette verso il server. Omonimo ma NON parente dello
- *  `StreamEvent` del client, che sono i messaggi WS `stream:*` che la chat
- *  consuma — questi vengono tradotti prima di finire sul filo. */
-export type StreamEvent =
-  | TextDeltaEvent
-  | ThinkingDeltaEvent
-  | ToolStartEvent
-  | ToolUpdateEvent
-  | ToolResultEvent
-  | DoneEvent
-  | ErrorEvent
-  | AbortedEvent;
+// Qui viveva una seconda descrizione dello streaming: otto interfacce-evento
+// (`TextDeltaEvent`, `ToolStartEvent`, … ) e l'unione `StreamEvent` che le
+// raccoglieva. Nessun provider le ha mai emesse e nessuna route le ha mai lette:
+// il protocollo VERO è `StreamHandler` qui sotto, callback per callback, ed è
+// quello che i provider implementano. Un'unione parallela mai referenziata è
+// esattamente lo specchio che `tests/unit/no-type-mirrors.test.ts` esiste per
+// impedire — con l'aggravante che `ErrorEvent` ombreggiava l'omonimo del DOM.
+// I frame che arrivano davvero al browser sono i `stream:*` dell'unione
+// `WSMessage` in `client/src/types/index.ts`.
 
 // ============ Completion (non-streaming) ============
 

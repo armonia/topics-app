@@ -99,9 +99,9 @@ function cancelPending() {
  *  reading. Each burst drags the whole `updateRendering` pipeline (intersection
  *  and resize observations, style, layout) along with it.
  *
- *  La definizione ora vive in `state/windowAwake.ts`, condivisa con i poll
- *  per-pane (`usePaneWatched`) e con `useAnimationPause`: erano tre copie della
- *  stessa domanda, e tre copie divergono. */
+ *  La definizione ora vive in `state/windowAwake.ts`, condivisa con gli altri
+ *  cicli periodici (terminali, vibrancy, WS) e con `useAnimationPause`: erano
+ *  copie della stessa domanda, e le copie divergono. */
 const windowAwake = isWindowAwake;
 
 function scheduleMeasure() {

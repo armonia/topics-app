@@ -1,5 +1,4 @@
 import { createContext, useContext } from 'react';
-import { useWindowAwake } from './windowAwake';
 
 /**
  * "Questa pane ha un box nel layout?" — cioè: è visibile, e lo è anche ogni
@@ -29,20 +28,10 @@ export function usePaneAlive(): boolean {
   return useContext(PaneAliveContext);
 }
 
-/**
- * La domanda che serve davvero a un poll: **qualcuno può vedere il risultato?**
- *
- * Una pane visibile in una finestra che sta dietro a un'altra app non è
- * guardata da nessuno, e un poll che gira lì compra niente pagando l'intera
- * pipeline `updateRendering` a ogni raffica.
- *
- * Da usare al posto del solo `isVisible` per tutto ciò che è periodico e
- * RECUPERABILE: contatori monotoni, sincronizzazioni di stato, misure. NON per
- * ciò che deve girare comunque in background (il drenaggio degli errori di
- * navigazione di un agente: l'agente lavora anche mentre guardi altrove).
- */
-export function usePaneWatched(): boolean {
-  const alive = usePaneAlive();
-  const awake = useWindowAwake();
-  return alive && awake;
-}
+// Qui viveva `usePaneWatched()` = `usePaneAlive() && useWindowAwake()`, pensato
+// come gate per i poll periodici. Non ha MAI avuto un chiamante: chi deve
+// decidere se un ciclo gira usa il predicato sincrono `isWindowAwake()` dentro
+// il timer (SingleTerminalPane, useFloatingVibrancy, fpsMonitor, useWebSocket),
+// che è la forma giusta — non serve ri-renderizzare un componente per spegnere
+// un `setInterval`. Un wrapper reattivo senza consumatori teneva in piedi uno
+// store `useSyncExternalStore` con listener globali per nessuno.
