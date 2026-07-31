@@ -2295,34 +2295,34 @@ fn vibrancy_cover_slot() -> &'static std::sync::Mutex<std::collections::HashMap<
 /// clicks" bug the Electron app already burned a trail on.
 #[cfg(target_os = "macos")]
 extern "C" fn region_hit_test(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    _point: cocoa::foundation::NSPoint,
-) -> cocoa::base::id {
-    cocoa::base::nil
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _point: objc2_foundation::NSPoint,
+) -> *mut objc2::runtime::AnyObject {
+    std::ptr::null_mut()
 }
 
 /// Lazily register `TopicsRegionVibrancyView`: an NSVisualEffectView subclass
 /// whose only change is the click-through `hitTest:` above. Registered once per
 /// process (OnceLock); subsequent calls return the cached class.
 #[cfg(target_os = "macos")]
-fn region_vibrancy_class() -> &'static objc::runtime::Class {
-    use objc::declare::ClassDecl;
-    use objc::runtime::{Class, Object, Sel};
-    use objc::{class, sel, sel_impl};
+fn region_vibrancy_class() -> &'static objc2::runtime::AnyClass {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
     static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let p = *PTR.get_or_init(|| unsafe {
+    let p = *PTR.get_or_init(|| {
         let superclass = class!(NSVisualEffectView);
-        let mut decl = ClassDecl::new("TopicsRegionVibrancyView", superclass)
+        let mut decl = ClassBuilder::new(c"TopicsRegionVibrancyView", superclass)
             .expect("register TopicsRegionVibrancyView");
-        decl.add_method(
-            sel!(hitTest:),
-            region_hit_test
-                as extern "C" fn(&Object, Sel, cocoa::foundation::NSPoint) -> cocoa::base::id,
-        );
+        unsafe {
+            decl.add_method(
+                sel!(hitTest:),
+                region_hit_test as extern "C" fn(_, _, _) -> _,
+            );
+        }
         decl.register() as *const Class as usize
     });
-    unsafe { &*(p as *const objc::runtime::Class) }
+    unsafe { &*(p as *const Class) }
 }
 
 /// Reconcile the live NSVisualEffectViews to exactly the requested regions
@@ -2330,9 +2330,7 @@ fn region_vibrancy_class() -> &'static objc::runtime::Class {
 /// thread (AppKit view mutation).
 #[cfg(target_os = "macos")]
 fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
-    use cocoa::base::{id, nil, YES};
-    use cocoa::foundation::{NSPoint, NSRect, NSSize};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2371,7 +2369,7 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
         // the FPS drop on sidebar toggle. Disabling actions makes every frame change
         // INSTANT: one discrete recomposite per push, no animation tail.
         let _: () = msg_send![class!(CATransaction), begin];
-        let _: () = msg_send![class!(CATransaction), setDisableActions: YES];
+        let _: () = msg_send![class!(CATransaction), setDisableActions: true];
 
         for r in &regions {
             keep.insert(r.id.clone());
@@ -2402,11 +2400,11 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
                 let _: () = msg_send![v, setMaterial: 7i64];
                 let _: () = msg_send![v, setBlendingMode: 0i64];
                 let _: () = msg_send![v, setState: 1i64];
-                let _: () = msg_send![v, setWantsLayer: YES];
+                let _: () = msg_send![v, setWantsLayer: true];
                 let layer: id = msg_send![v, layer];
                 if layer != nil {
                     let _: () = msg_send![layer, setCornerRadius: r.radius];
-                    let _: () = msg_send![layer, setMasksToBounds: YES];
+                    let _: () = msg_send![layer, setMasksToBounds: true];
                 }
                 // Insert at the very bottom so it sits BEHIND the (transparent) webview.
                 let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
@@ -2433,9 +2431,8 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
 /// match names rather than build from raw control points because the objc crate can't
 /// cleanly express CAMediaTimingFunction's `initWithControlPoints::::` selector.)
 #[cfg(target_os = "macos")]
-unsafe fn ca_timing_for(timing: [f64; 4]) -> cocoa::base::id {
-    use cocoa::base::id;
-    use objc::{class, msg_send, sel, sel_impl};
+unsafe fn ca_timing_for(timing: [f64; 4]) -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
     #[link(name = "QuartzCore", kind = "framework")]
     extern "C" {
         static kCAMediaTimingFunctionDefault: id;
@@ -2468,9 +2465,7 @@ unsafe fn ca_timing_for(timing: [f64; 4]) -> cocoa::base::id {
 /// (`apply_vibrancy_regions`) pins pixel-exact final rects.
 #[cfg(target_os = "macos")]
 fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, duration_ms: f64, timing: [f64; 4]) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::{NSPoint, NSRect, NSSize};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2602,10 +2597,9 @@ fn vibrancy_set_regions(window: tauri::Window, regions: Vec<VibRegion>) {
 /// live-resize step with no event/IPC. Caller holds the cover slot + has drained the
 /// per-region cards. Returns the new view ptr.
 #[cfg(target_os = "macos")]
-unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::foundation::NSRect) -> cocoa::base::id {
-    use cocoa::base::{id, nil, YES};
-    use objc::{msg_send, sel, sel_impl};
-    let _: () = msg_send![content_view, setAutoresizesSubviews: YES];
+unsafe fn vibrancy_insert_cover(content_view: *mut objc2::runtime::AnyObject, bounds: objc2_foundation::NSRect) -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
+    let _: () = msg_send![content_view, setAutoresizesSubviews: true];
     let v: id = msg_send![region_vibrancy_class(), alloc];
     let v: id = msg_send![v, initWithFrame: bounds];
     // Match the per-region cards: material sidebar=7, behindWindow, active (no
@@ -2613,7 +2607,7 @@ unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::fo
     let _: () = msg_send![v, setMaterial: 7i64];
     let _: () = msg_send![v, setBlendingMode: 0i64];
     let _: () = msg_send![v, setState: 1i64];
-    let _: () = msg_send![v, setWantsLayer: YES];
+    let _: () = msg_send![v, setWantsLayer: true];
     // NSViewWidthSizable(2) | NSViewHeightSizable(16) = 18 → fixed margins to all
     // edges (here 0) maintained as the superview grows/shrinks ⇒ always full-window.
     let _: () = msg_send![v, setAutoresizingMask: 18u64];
@@ -2623,9 +2617,7 @@ unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::fo
 
 #[cfg(target_os = "macos")]
 fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSRect;
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2664,10 +2656,8 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
 /// glued to the window through the whole drag. No-op if a cover is already up or no
 /// frost was ever placed (web gate / pre-mount).
 #[cfg(target_os = "macos")]
-unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSRect;
-    use objc::{msg_send, sel, sel_impl};
+unsafe fn vibrancy_begin_cover(ns_window: *mut objc2::runtime::AnyObject) {
+    use crate::mac::*;
     if ns_window == nil {
         return;
     }
@@ -2700,13 +2690,13 @@ unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
 /// `NSWindowWillStartLiveResize` observer callback → raise the cover for the drag.
 #[cfg(target_os = "macos")]
 extern "C" fn on_live_resize_start(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    notif: cocoa::base::id,
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    notif: *mut objc2::runtime::AnyObject,
 ) {
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
     unsafe {
-        let ns_window: cocoa::base::id = msg_send![notif, object];
+        let ns_window: id = msg_send![notif, object];
         vibrancy_begin_cover(ns_window);
     }
 }
@@ -2717,9 +2707,9 @@ extern "C" fn on_live_resize_start(
 /// the first reflowed push.
 #[cfg(target_os = "macos")]
 extern "C" fn on_live_resize_end(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    _notif: cocoa::base::id,
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notif: *mut objc2::runtime::AnyObject,
 ) {
 }
 
@@ -2727,24 +2717,24 @@ extern "C" fn on_live_resize_end(
 /// returning a (leaked, process-lifetime) instance to register with the default
 /// NSNotificationCenter.
 #[cfg(target_os = "macos")]
-fn live_resize_observer_instance() -> cocoa::base::id {
-    use cocoa::base::id;
-    use objc::declare::ClassDecl;
-    use objc::runtime::{Class, Object, Sel};
-    use objc::{class, msg_send, sel, sel_impl};
+fn live_resize_observer_instance() -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
     static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let class_ptr = *PTR.get_or_init(|| unsafe {
+    let class_ptr = *PTR.get_or_init(|| {
         let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("TopicsLiveResizeObserver", superclass)
+        let mut decl = ClassBuilder::new(c"TopicsLiveResizeObserver", superclass)
             .expect("register TopicsLiveResizeObserver");
-        decl.add_method(
-            sel!(onLiveResizeStart:),
-            on_live_resize_start as extern "C" fn(&Object, Sel, id),
-        );
-        decl.add_method(
-            sel!(onLiveResizeEnd:),
-            on_live_resize_end as extern "C" fn(&Object, Sel, id),
-        );
+        unsafe {
+            decl.add_method(
+                sel!(onLiveResizeStart:),
+                on_live_resize_start as extern "C" fn(_, _, _),
+            );
+            decl.add_method(
+                sel!(onLiveResizeEnd:),
+                on_live_resize_end as extern "C" fn(_, _, _),
+            );
+        }
         decl.register() as *const Class as usize
     });
     unsafe {
@@ -2776,8 +2766,7 @@ fn live_resize_observers() -> &'static std::sync::Mutex<std::collections::HashMa
 /// `Destroyed` — same lifecycle as the vibrancy maps it purges there.
 #[cfg(target_os = "macos")]
 fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
         Err(_) => return,
@@ -2816,8 +2805,7 @@ fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
 /// from the detach window's `Destroyed` handler; a no-op if nothing was wired.
 #[cfg(target_os = "macos")]
 fn unwire_live_resize_cover(wkey: usize) {
-    use cocoa::base::id;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     let obs = match live_resize_observers()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
