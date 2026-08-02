@@ -3468,9 +3468,14 @@ fn browser_open(
     width: f64,
     height: f64,
     isolate: Option<bool>,
+    // Etichetta della finestra che DEVE ospitare la webview. Il client passa
+    // `currentWindowLabel()`: così una pane aperta in un pop-out nasce figlia del
+    // pop-out, non di `main`. Optional per compatibilità coi bundle vecchi (None
+    // = `main`, il vecchio comportamento).
+    window_label: Option<String>,
 ) -> Result<(), String> {
     no_abort("browser_open", move || {
-        browser_open_inner(app, id, url, x, y, width, height, isolate)
+        browser_open_inner(app, id, url, x, y, width, height, isolate, window_label)
     })
 }
 
@@ -3484,6 +3489,7 @@ fn browser_open_inner(
     width: f64,
     height: f64,
     isolate: Option<bool>,
+    window_label: Option<String>,
 ) -> Result<(), String> {
     use tauri::Manager;
     let label = browser_label(&id);
@@ -3514,7 +3520,19 @@ fn browser_open_inner(
         }
         return browser_set_bounds(app, id, x, y, width, height, None);
     }
-    let window = app.get_window("main").ok_or("no 'main' window")?;
+    // Parenta la webview alla finestra che OSPITA la pane, non a `main` per
+    // default. Cablare `main` faceva nascere OGNI pane browser figlia della
+    // finestra principale ovunque vivesse: in un pop-out compariva sopra main
+    // (coordinate del pop-out proiettate su main) e sopravviveva alla chiusura
+    // del pop-out come webview orfana — nessuno la distruggeva (incidente delle
+    // 9 pane del 2026-07-20). Come figlia della finestra giusta, viene distrutta
+    // insieme ad essa. Fallback a `main` per etichetta mancante/sconosciuta
+    // (bundle vecchio, o finestra chiusa nel frattempo).
+    let host_label = window_label.as_deref().unwrap_or("main");
+    let window = app
+        .get_window(host_label)
+        .or_else(|| app.get_window("main"))
+        .ok_or("no host window")?;
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
     // window.open / target=_blank: wry's WKUIDelegate asks this handler what to
     // do (with NO handler set the popup was silently dropped). Electron-parity
@@ -4517,15 +4535,23 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
 /// strip calls this on pointer-down. Principled AppKit hygiene (not a hide/kludge):
 /// worst case it's a no-op. macOS only.
 #[tauri::command]
-fn browser_release_focus(app: tauri::AppHandle) -> Result<(), String> {
-    no_abort("browser_release_focus", move || browser_release_focus_inner(app))
+fn browser_release_focus(app: tauri::AppHandle, window_label: Option<String>) -> Result<(), String> {
+    no_abort("browser_release_focus", move || {
+        browser_release_focus_inner(app, window_label)
+    })
 }
 
-fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
+fn browser_release_focus_inner(app: tauri::AppHandle, window_label: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        if let Some(main_wv) = app.get_webview("main") {
+        // Riporta il first-responder alla chrome React della finestra CHE HA
+        // CHIESTO il rilascio, non sempre a `main`: in un pop-out il click su una
+        // tab deve restituire il focus alla webview del pop-out, altrimenti la
+        // pane browser del pop-out resterebbe "incollata" al first-responder. La
+        // UI webview di una finestra ha la sua stessa etichetta (register_ui_webview).
+        let host_label = window_label.as_deref().unwrap_or("main");
+        if let Some(main_wv) = app.get_webview(host_label).or_else(|| app.get_webview("main")) {
             let _ = main_wv.with_webview(move |platform| unsafe {
                 use crate::mac::*;
                 let view = platform.inner() as id;
@@ -4540,7 +4566,7 @@ fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = app;
+    let _ = (app, window_label);
     Ok(())
 }
 
@@ -5545,10 +5571,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
 
             // If the first responder is inside THIS window's own UI webview, the
             // renderer's keydown path handles the chord — never double-fire.
-            // Only a child browser PANE (main window only in v1) reaches the
-            // forward path. A detached window has no browser pane, so its ⌘W
-            // always lands here as "inside UI webview" → pass → the DETACHED
-            // renderer closes ITS tab, never main's.
+            // Only a child browser PANE reaches the forward path. Da quando
+            // browser_open parenta la webview alla finestra ospite, anche un
+            // pop-out PUÒ avere una pane browser: NON dare più per scontato che
+            // «una finestra staccata non ha pane browser». Non serve comunque,
+            // perché il forward qui sotto risolve la UI webview dalla finestra
+            // dell'evento (ev_window_ptr) — il chord agisce dove è stato digitato,
+            // pop-out incluso, con fallback a main.
             let fr: id = msg_send![ev_window, firstResponder];
             if fr == nil { return event; }
             let ui_view = ui_view_ptr as id;
@@ -5573,8 +5602,9 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             if let Some(js) = app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code) {
                 // Forward into the SAME window's UI webview (resolve its label by
                 // matching the event NSWindow), so the chord acts where it was
-                // typed. Browser panes exist only in main today, but keying off
-                // the event window keeps this correct if that ever changes.
+                // typed. Le pane browser ora possono vivere anche in un pop-out
+                // (browser_open le parenta alla finestra ospite): keying off the
+                // event window è ciò che tiene corretto questo forward.
                 let mut dispatched = false;
                 for (label, w) in app.webview_windows() {
                     if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
@@ -7155,6 +7185,7 @@ pub fn run() {
                                 w,
                                 ht,
                                 None,
+                                None, // window_label: demo runs against main
                             ) {
                                 Ok(()) => eprintln!("[corner-demo] opened ok"),
                                 Err(e) => eprintln!("[corner-demo] open err: {e}"),
