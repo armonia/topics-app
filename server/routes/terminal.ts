@@ -18,6 +18,7 @@ import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/op
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket } from "../lib/fleet-usage";
+import { decidePark, idleParkThresholdMs } from "../lib/terminal-idle-park";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -1848,6 +1849,80 @@ function broadcastTerminalSessions() {
   _broadcastToAll({ type: 'terminal:sessions', sessions: list, reconciled: rosterReconciled });
 }
 
+/**
+ * Parcheggia le sessioni Claude ferme da troppo: uccide la PTY, la riga resta.
+ *
+ * Le chat hanno un reaper di inattività (15 min) e un tetto di vita (2 ore); i
+ * terminali agente non avevano né l'uno né l'altro. Misurate il 2026-08-02:
+ * tredici `claude --resume` vive da tre giorni e cinque ore, ~15% di CPU e
+ * 0,9 GB per sessioni ferme a un prompt.
+ *
+ * Non serve inventare il ripristino: uccidere la PTY fa scattare il percorso di
+ * uscita qui sopra (caso "exit"), che per una sessione claude con un
+ * `claude_session_id` marca la riga `dormant` e chiama `noteDormant` invece di
+ * cancellarla. Da lì `POST /sessions/:id/revive` la rilancia con `--resume`, e
+ * il client la rianima da solo quando la pane torna attiva.
+ *
+ * CHI si parcheggia lo decide `lib/terminal-idle-park.ts`, che è puro e ha 28
+ * test: un reaper su questo sottosistema ha già ucciso turni vivi una volta.
+ * Qui si raccolgono i fatti e si esegue.
+ */
+export interface ParkSweepResult {
+  parked: string[];
+  /** Chi NON e' stato parcheggiato e perche'. Un parcheggio che non si spiega e' un parcheggio che nessuno puo' smentire. */
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
+  const parked: string[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  for (const [id, s] of sessions) {
+    const activity = terminalActivity.get(id);
+    const phase = s.claudeSessionId ? (_tracker?.getSession(s.claudeSessionId)?.phase ?? null) : null;
+    const decision = decidePark(
+      {
+        id,
+        type: s.type,
+        claudeSessionId: s.claudeSessionId,
+        busy: activity?.busy ?? false,
+        // Nessuna misura di attività = non lo sappiamo. `decidePark` rifiuta, ed
+        // è voluto: trattare "mai visto" come "ferma da sempre" è il modo
+        // classico di reapare qualcosa di vivo.
+        idleMs: activity?.lastAt ? Date.now() - activity.lastAt : null,
+        attachedClients: sessionSockets.get(id)?.size ?? 0,
+        hasTranscript:
+          !!s.claudeSessionId && fs.existsSync(claudeTranscriptPath(s.cwd, s.claudeSessionId)),
+        phase,
+      },
+      thresholdMs,
+    );
+    if (!decision.park) {
+      skipped.push({ id, reason: decision.reason });
+      continue;
+    }
+
+    // Un sotto-agente non si parcheggia da solo: lo governa il suo orchestratore
+    // (cascadeKillChildren), e farlo sparire da sotto cambierebbe il conteggio
+    // dei figli vivi senza che nessuno l'abbia chiesto.
+    if (s.parentSessionKey) {
+      skipped.push({ id, reason: "sub-agent" });
+      continue;
+    }
+
+    console.log(
+      `[Terminal] Parcheggio ${id} (${s.type}) — ferma da ${Math.round((Date.now() - (activity?.lastAt ?? 0)) / 60_000)} min, ` +
+        `nessun client attaccato. Torna con --resume alla prossima apertura.`,
+    );
+    sendToBridge({ type: "kill", id });
+    parked.push(id);
+    // Il resto — riga a `dormant`, `noteDormant`, chiusura dei socket, broadcast
+    // — lo fa il percorso di uscita quando il bridge conferma la morte della
+    // PTY. Non lo si anticipa qui: due strade che scrivono lo stesso stato sono
+    // due strade che possono divergere.
+  }
+  return { parked, skipped };
+}
+
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
   _broadcastToAll = ctx.broadcastToAll;
@@ -1858,6 +1933,23 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     .then(() => reconcileSessions())
     .then(() => broadcastTerminalSessions())
     .catch((err) => console.error("[Terminal] Bridge init failed:", err.message));
+
+  // Parcheggio delle sessioni ferme. SPENTO se `TOPICS_TERMINAL_IDLE_PARK_MS`
+  // non c'è, che è il default: vedi `idleParkThresholdMs` per il perché (una
+  // sessione parcheggiata si vede, finché la pane non la rianima).
+  const parkThresholdMs = idleParkThresholdMs(process.env);
+  if (parkThresholdMs !== null) {
+    // Si guarda ogni minuto, non ogni soglia: la soglia è quanto una sessione
+    // dev'essere ferma, non ogni quanto la si controlla.
+    const timer = setInterval(() => {
+      try { parkIdleClaudeSessions(parkThresholdMs); }
+      catch (err) { console.warn(`[Terminal] sweep di parcheggio fallito:`, (err as Error).message); }
+    }, 60_000);
+    timer.unref?.();
+    console.log(
+      `[Terminal] Parcheggio sessioni ferme attivo: soglia ${Math.round(parkThresholdMs / 60_000)} min.`,
+    );
+  }
 
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
