@@ -55,7 +55,12 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
     sideEffect: (id) => {
       const ctx = getBrowserContextFromPaneId(id);
       if (ctx) {
-        fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE' }).catch(() => {});
+        // `keepalive: true` — questa DELETE parte spesso mentre la pagina si sta
+        // chiudendo (il commit della chiusura differita durante pagehide). Una
+        // fetch normale viene ANNULLATA dal browser quando il documento muore:
+        // la richiesta non arriva, e il contesto server resta acceso. E' una
+        // delle strade per cui si vedevano contesti vivi senza nessuna pane.
+        fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         // Clear the spawner relationship so the "opened a browser" tab cue
         // disappears once the browser is closed (registry isn't auto-pruned).
         clearBrowserSpawner(ctx);
@@ -103,7 +108,7 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
     matches: isTerminalPaneId,
     sideEffect: (id) => {
       const sessionId = getTerminalSessionFromPaneId(id);
-      if (sessionId) fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+      if (sessionId) fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE', keepalive: true }).catch(() => {});
     },
     localManaged: false,
   },

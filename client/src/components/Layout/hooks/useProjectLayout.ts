@@ -1166,9 +1166,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // useNativeBrowser intentionally no longer does this on React unmount
             // (that emptied the registry during remounts → phantom); a real close
             // is the right moment to drop it.
-            fetch(`/api/browsers/${encodeURIComponent(bctx)}/cdp-target`, { method: 'DELETE' }).catch(() => {});
+            fetch(`/api/browsers/${encodeURIComponent(bctx)}/cdp-target`, { method: 'DELETE', keepalive: true }).catch(() => {});
             // Tear down any server-side Playwright context that backed this pane.
-            fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE' }).catch(() => {});
+            fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
             // Drop the spawner relationship so the "opened a browser" tab cue clears.
             clearBrowserSpawner(bctx);
             // E la webview NATIVA: si chiude qui, non aspettando che React

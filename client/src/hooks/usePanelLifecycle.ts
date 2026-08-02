@@ -1477,7 +1477,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isBrowserPaneId(topicId)) {
       const bctx = getBrowserContextFromPaneId(topicId);
       if (bctx) {
-        fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE' }).catch(() => {});
+        fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE', keepalive: true }).catch(() => {});
         clearBrowserSpawner(bctx);
         addBrowserTombstone(bctx);
         if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
