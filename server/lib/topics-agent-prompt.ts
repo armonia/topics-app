@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { warnDeprecatedEnv } from './env-alias';
 import { settingClaudeEffort, settingCodexReasoningEffort } from '../services/app-settings';
+import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
 
 /**
  * System-prompt fragment appended to every Topics-launched Claude session
@@ -50,7 +51,7 @@ export const TOPICS_AGENT_SYSTEM_PROMPT = [
  * when disabled or the value is not a recognised tier, in which case no flag is
  * passed.
  */
-const VALID_CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const VALID_CLAUDE_EFFORTS = new Set<string>(EFFORT_TIERS);
 
 /**
  * L'effort scelto per un topic (`topics.effort`, migration 033), da dare in pasto
@@ -128,9 +129,7 @@ export function resolveClaudeEffort(topicOverride?: string | null): string | nul
  * tier). Returns null when disabled or the value is not a recognised tier, in
  * which case no override is passed and no badge is shown.
  */
-const VALID_CODEX_REASONING_EFFORTS = new Set([
-  'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra',
-]);
+const VALID_CODEX_REASONING_EFFORTS = new Set<string>(CODEX_REASONING_EFFORTS);
 
 export function resolveCodexReasoningEffort(opts?: { configPath?: string }): string | null {
   // Global Settings default (Phase B) wins over env.

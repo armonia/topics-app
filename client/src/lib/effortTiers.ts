@@ -13,10 +13,14 @@
  */
 import type { ProviderSnapshotEntry } from '../types';
 
-export const EFFORT_TIERS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// La scala vive in `shared/effort.ts`, letta dai due lati del filo. Ri-esportata
+// qui perché i chiamanti del client la prendono da questo modulo (dove stanno
+// anche `effortIndex` e il resto della risoluzione del provider attivo).
 // Niente alias `EffortTier`: i chiamanti passano stringhe che vengono
 // convalidate contro `EFFORT_TIERS`, e l'alias non ha mai avuto un uso. Se
 // serve, `(typeof EFFORT_TIERS)[number]` è la stessa riga sul posto.
+export { EFFORT_TIERS } from '../../../shared/effort';
+import { EFFORT_TIERS } from '../../../shared/effort';
 
 export interface ProviderSelection {
   provider: string;
