@@ -1146,7 +1146,12 @@ export function useAgentActivityCounts(
   return useMemo(() => {
     let working = 0;
     for (const t of roster) {
-      if (t.type !== 'claude-code' && t.type !== 'claude-code-team' && t.type !== 'codex') continue;
+      // L'esclusione voluta e' la SHELL, non «tutto tranne i tre che mi
+      // ricordo»: scritta come lista negata, aveva gia' lasciato fuori
+      // 'opencode', che quindi lavorava senza comparire fra gli agenti attivi
+      // (il dato c'era: useSignalsSync popola terminalBusyIds per ogni
+      // sessione, senza filtrare sul tipo).
+      if (t.type === 'shell') continue;
       if (terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting)) working++;
     }
     // Chat sessions mid-reply (distinct id space from terminals → no overlap).

@@ -521,7 +521,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // legitimately empty, so it's excluded — it also can't be resumed.
               const info = lastInfoRef.current;
               const t = info?.type;
-              const resumable = t === 'claude-code' || t === 'claude-code-team' || t === 'codex';
+              // Elencare i tipi a mano qui aveva gia' lasciato fuori 'opencode':
+              // una sua pane con la PTY morta restava BIANCA, senza l'overlay
+              // «Sessione terminata» e quindi senza il bottone per ripartire.
+              // La regola vera e' negativa — si esclude la shell, che non ha un
+              // frame a schermo intero da riprodurre e non e' ripristinabile —
+              // quindi si scrive quella, e ogni agente futuro e' coperto.
+              const resumable = !!t && t !== 'shell';
               // A FINISHED session is by definition old; a freshly-spawned one is
               // young and may just be slow to draw its first frame (cold start).
               // Gating on age >10s removes the only false-positive — a brief
