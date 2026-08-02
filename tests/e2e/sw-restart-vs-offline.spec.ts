@@ -18,8 +18,20 @@ hermetic(test);
  *
  * È comportamento nel TEMPO, quindi la prova è un VIDEO (E2E_EVIDENCE=1). Due
  * facce dello stesso contratto:
- *   1. rete che rimbalza (riavvio) → il retry cavalca fino alla shell NUOVA;
+ *   1. server che rimbalza (riavvio) → il retry cavalca fino alla shell NUOVA;
  *   2. rete davvero giù (offline) → cade sulla shell cachata, la PWA regge.
+ *
+ * PERCHÉ DUE TECNICHE DIVERSE per staccare la rete. Il caso 2 usa
+ * `context.setOffline`, che è la cosa vera. Il caso 1 NON può usarlo, ed è stato
+ * misurato invece che supposto: con `setOffline(true)` → `reload()` →
+ * `setOffline(false)` dopo 150ms, la navigazione ci mette comunque ~620ms e
+ * finisce sulla shell stantia. Ritornare online a 0ms dà la shell fresca in 5ms,
+ * a 150ms e a 400ms no: l'emulazione di rete di Playwright NON raggiunge il
+ * service worker mentre una sua fetch è in volo, quindi tutti e tre i tentativi
+ * falliscono comunque e il rimbalzo non è rappresentabile così. Intercettare la
+ * richiesta con `context.route` invece funziona — le fetch del SW ci passano — ed
+ * è anche più fedele: un server che si riavvia RIFIUTA la connessione
+ * (`connectionrefused`), non fa sparire la rete.
  */
 
 // Marcatore di una shell di build PRECEDENTE, seminato a mano nella cache del SW.
@@ -27,6 +39,8 @@ hermetic(test);
 const OLD_SHELL_MARKER = "OLD-STALE-SHELL-vPREV";
 // Deve combaciare con CACHE_NAME in client/public/sw.js.
 const SW_CACHE_NAME = "topics-v11";
+// Deve combaciare con NAV_RETRIES in client/public/sw.js.
+const NAV_RETRIES = 3;
 
 /** Carica l'app e assicura che il SW registrato CONTROLLI la pagina.
  *  boot.js registra il SW al `load` ma NON fa `clients.claim()`, quindi il
@@ -74,42 +88,84 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
       .catch(() => {});
   });
 
-  test("riavvio (~mezzo secondo di rete giù) → il retry cavalca fino alla shell NUOVA, non alla cache", async ({
+  test("riavvio (~mezzo secondo di server giù) → il retry cavalca fino alla shell NUOVA, non alla cache", async ({
     page,
     context,
   }) => {
     await bootWithControllingSW(page);
     await seedStaleShell(page);
 
-    // Simula il riavvio `bun --watch`: rete giù per un attimo, poi torna su con
-    // la build fresca. Andare offline PRIMA di far partire la navigazione e
-    // tornare online quasi subito è robusto: il retry ha ~600ms di finestra
-    // (NAV_RETRIES=3 × 300ms), tornare online a 150ms garantisce che un
-    // tentativo successivo colpisca la rete — mai la cache stantia.
-    await context.setOffline(true);
-    const navigating = page.reload({ waitUntil: "commit" });
-    // Attesa deliberata: rappresenta la DURATA del riavvio del server, che è
-    // proprio il comportamento sotto test (non una sincronizzazione arbitraria).
-    await page.waitForTimeout(150);
-    await context.setOffline(false);
-    await navigating;
+    // Il server "si riavvia": rifiuta le connessioni per 150ms, poi torna su —
+    // esattamente il rimbalzo di `bun --watch`. Il backoff è di 300ms, quindi il
+    // primo tentativo cade e il secondo trova il server già tornato.
+    let refused = 0;
+    let served = 0;
+    let downUntil = 0;
+    await context.route(
+      (u) => u.pathname === "/",
+      async (route) => {
+        if (Date.now() < downUntil) {
+          refused += 1;
+          await route.abort("connectionrefused");
+        } else {
+          served += 1;
+          await route.continue();
+        }
+      },
+    );
 
-    // Rete tornata → l'app VERA fa boot; la shell stantia non compare mai.
+    downUntil = Date.now() + 150;
+    await page.reload({ waitUntil: "commit" });
+
+    // Il primo tentativo DEVE essere caduto: senza questo il test resterebbe
+    // verde anche se il rimbalzo non fosse mai avvenuto, cioè non proverebbe
+    // niente. E almeno una richiesta deve poi essere arrivata al server.
+    expect(refused).toBeGreaterThanOrEqual(1);
+    expect(served).toBeGreaterThanOrEqual(1);
+
+    // Server tornato → l'app VERA fa boot; la shell stantia non compare mai.
     await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible();
     await expect(page.locator("#stale")).toHaveCount(0);
   });
 
-  test("offline vero (rete giù a oltranza) → cade sulla shell cachata: la PWA regge", async ({
+  test("server giù a oltranza → esaurisce i retry e cade sulla shell cachata: la PWA regge", async ({
     page,
     context,
   }) => {
     await bootWithControllingSW(page);
     await seedStaleShell(page);
 
-    // Nessun ritorno della rete: dopo aver esaurito i retry il SW DEVE servire
+    // Nessun ritorno del server: dopo aver esaurito i retry il SW DEVE servire
     // la shell cachata — il fallback offline è voluto, il fix non lo rompe.
+    let refused = 0;
+    await context.route(
+      (u) => u.pathname === "/",
+      async (route) => {
+        refused += 1;
+        await route.abort("connectionrefused");
+      },
+    );
+
+    await page.reload({ waitUntil: "commit" }).catch(() => {});
+
+    await expect(page.locator("#stale")).toHaveText(OLD_SHELL_MARKER);
+    // Ha ritentato il numero di volte previsto prima di arrendersi: è la
+    // differenza fra "cade sulla cache dopo aver insistito" e il vecchio
+    // comportamento, che ci cadeva al primo fallimento.
+    expect(refused).toBe(NAV_RETRIES);
+  });
+
+  test("offline VERO (rete staccata) → la PWA continua a servire la shell", async ({
+    page,
+    context,
+  }) => {
+    // Il caso d'uso originale della PWA, con la cosa vera invece di
+    // un'intercettazione: niente rete, la app si apre lo stesso.
+    await bootWithControllingSW(page);
+    await seedStaleShell(page);
+
     await context.setOffline(true);
-    await page.reload().catch(() => {});
+    await page.reload({ waitUntil: "commit" }).catch(() => {});
 
     await expect(page.locator("#stale")).toHaveText(OLD_SHELL_MARKER);
     await context.setOffline(false);
