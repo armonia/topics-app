@@ -69,7 +69,8 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
     }
 
     // GET /api/projects/icon?path=<abs dir> → serve the project's favicon /
-    // web-manifest icon (image only, contained within the dir), or 404. Lets
+    // web-manifest icon (image only, contained within the dir), o 204 se non ne
+    // ha nessuna (vedi più sotto: «non c'è icona» non è un errore). Lets
     // the sidebar + command palette show a real project glyph when one exists
     // instead of a generic folder. MUST stay above the `/api/projects/:id`
     // matcher below so "icon" isn't captured as an :id.
@@ -93,8 +94,11 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // projects, topic project paths, worktree paths, and terminal-session cwds.
       // An attacker can't add an entry to any of these by calling this endpoint,
       // so the union is a real boundary, not arbitrary client input. Realpath'd
-      // for an exact match (symlink-safe). Cheap enough per request (the client
-      // caches both icon and 404 responses, so it isn't hit in a hot loop).
+      // for an exact match (symlink-safe). Cheap enough per request: sia la
+      // risposta con icona sia il 204 «non ne ha» portano un `max-age`, quindi
+      // la cache HTTP del browser tiene questo endpoint fuori dai cicli caldi.
+      // (Il client NON persiste i 'none' su disco — è un'invariante di
+      // ProjectFavicon.tsx: sono già bastati quattro bump di chiave.)
       const allowedRealDirs = new Set<string>();
       const addPath = (pth: unknown) => {
         if (typeof pth !== "string" || !pth) return;
@@ -137,9 +141,19 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         return new Response(null, { status: 403 });
       }
       const resolved = resolveProjectIcon(realDir);
-      console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "404 no-icon"} ← ${realDir} [ua=${(req.headers.get("user-agent") || "?").slice(0, 60)} ref=${(req.headers.get("referer") || "?").slice(0, 60)} dest=${req.headers.get("sec-fetch-dest") || "?"}]`);
-      // Cache the "no icon" answer too so palette re-opens don't re-probe disk.
-      if (!resolved) return new Response(null, { status: 404, headers: { "cache-control": "max-age=120" } });
+      console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "204 no-icon"} ← ${realDir} [ua=${(req.headers.get("user-agent") || "?").slice(0, 60)} ref=${(req.headers.get("referer") || "?").slice(0, 60)} dest=${req.headers.get("sec-fetch-dest") || "?"}]`);
+      // 204, non 404: la directory esiste, è nell'allowlist, e la risposta è
+      // «non c'è nessuna icona» — che è un esito RIUSCITO della domanda, non una
+      // risorsa mancante. Il 404 era la fonte più rumorosa dei 4xx a ogni load
+      // (un progetto senza icona = un errore rosso in console per ogni superficie
+      // che lo mostra), e non poteva essere zittito dal lato client: il cache
+      // dei 'none' su localStorage è VIETATO in ProjectFavicon.tsx — quattro bump
+      // di chiave (v1→v4) sono serviti a ripulire 'none' incastrati da guasti
+      // transitori, e da allora l'invariante è che su disco finisce solo 'has'.
+      // Resta 404 per una directory che non esiste e 403 per una fuori allowlist:
+      // là il codice di errore è l'informazione. Il `max-age` evita di rileggere
+      // il disco a ogni riapertura della palette.
+      if (!resolved) return new Response(null, { status: 204, headers: { "cache-control": "max-age=120" } });
       // Project icons are arbitrary content from the project dir served on
       // OUR origin. An SVG favicon (file OR inline data: URI) can carry
       // <script>/<foreignObject> that executes if the icon URL is opened as a
