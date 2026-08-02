@@ -1,24 +1,79 @@
-// Model pricing in USD per 1M tokens
+/**
+ * Prezzi in USD per 1M token.
+ *
+ * Questa tabella era ferma a modelli che NON si usano più, e il danno non era
+ * "un prezzo mancante": era un prezzo SBAGLIATO, applicato in silenzio. Nessuna
+ * delle chiavi vecchie compariva nei modelli reali (`claude-opus-4-8`,
+ * `claude-opus-5`, …), quindi ogni turno Opus cadeva nel ripiego di famiglia —
+ * che puntava al modello più VECCHIO della famiglia, a 15$/75$ — e finiva
+ * tariffato al TRIPLO dei 5$/25$ veri. Misurato sul DB di prod: 643,66$
+ * mostrati contro 214,55$ reali sul campione.
+ *
+ * Due lezioni, entrambe cablate qui sotto:
+ *   · il ripiego di famiglia deve puntare al modello CORRENTE, non al primo che
+ *     è stato scritto: sbagliare per difetto (un modello nuovo più economico
+ *     tariffato come il vecchio) è meno peggio che sbagliare per eccesso, e
+ *     comunque il ripiego non deve invecchiare da solo;
+ *   · un modello SCONOSCIUTO deve vedersi. Prima tornava `0` con un
+ *     `console.warn`, cioè "gratis" — indistinguibile da un turno che davvero
+ *     non è costato niente.
+ *
+ * Fonte: tabella prezzi ufficiale (skill `claude-api`), aggiornata al 2026-08-03.
+ */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-6': { input: 15, output: 75 },
-  'claude-opus-4-5-20250918': { input: 15, output: 75 },
-  'claude-sonnet-4-5-20250929': { input: 3, output: 15 },
+  // Claude — generazione corrente
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-mythos-5': { input: 10, output: 50 },
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 3, output: 15 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+  // Claude — legacy, ancora nei messaggi vecchi
+  'claude-opus-4-5': { input: 15, output: 75 },
+  'claude-opus-4-1': { input: 15, output: 75 },
+  'claude-sonnet-4-5': { input: 3, output: 15 },
   'claude-sonnet-4-20250514': { input: 3, output: 15 },
   'claude-haiku-3-5-20241022': { input: 0.80, output: 4 },
+  // OpenAI
   'gpt-4o': { input: 2.50, output: 10 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
   'gpt-o3': { input: 10, output: 40 },
   'gpt-o3-mini': { input: 1.10, output: 4.40 },
 };
 
+/** I modelli visti e non riconosciuti, per poterlo DIRE invece di tariffare zero. */
+const unknownModels = new Set<string>();
+
+/** I nomi di modello che non hanno un prezzo in tabella. Vuoto = tutto tariffato. */
+export function unknownPricedModels(): string[] {
+  return [...unknownModels];
+}
+
+/**
+ * Normalizza un id di modello prima del match.
+ *
+ * Il suffisso di finestra — `claude-opus-5[1m]` — fa parte dell'id che la CLI
+ * riporta, non del nome del modello, e il prezzo non cambia con la finestra
+ * (1M è di serie). Senza toglierlo la chiave esatta non matcha mai e si finisce
+ * nel ripiego. Stessa normalizzazione di `shared/context-window.ts`.
+ */
+function normalizeModel(model: string): string {
+  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, '').trim();
+}
+
 // Fuzzy match model name to pricing entry
 function findPricing(model: string): { input: number; output: number } | null {
   // Exact match first
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
 
+  const lower = normalizeModel(model);
+  if (MODEL_PRICING[lower]) return MODEL_PRICING[lower];
+
   // Partial match: check if model string contains a known key
   // Sort by longest key first so "gpt-4o-mini" matches before "gpt-4o"
-  const lower = model.toLowerCase();
   const sortedEntries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
   for (const [key, pricing] of sortedEntries) {
     // Only match when the MODEL NAME contains a known pricing key. The reverse
@@ -31,24 +86,27 @@ function findPricing(model: string): { input: number; output: number } | null {
     }
   }
 
-  // Family match
-  if (lower.includes('opus')) return MODEL_PRICING['claude-opus-4-6'];
-  if (lower.includes('sonnet')) return MODEL_PRICING['claude-sonnet-4-20250514'];
-  if (lower.includes('haiku')) return MODEL_PRICING['claude-haiku-3-5-20241022'];
+  // Ripiego di famiglia — sul modello CORRENTE della famiglia, non sul primo
+  // che è stato scritto in questo file.
+  if (lower.includes('fable') || lower.includes('mythos')) return MODEL_PRICING['claude-fable-5'];
+  if (lower.includes('opus')) return MODEL_PRICING['claude-opus-5'];
+  if (lower.includes('sonnet')) return MODEL_PRICING['claude-sonnet-5'];
+  if (lower.includes('haiku')) return MODEL_PRICING['claude-haiku-4-5'];
   if (lower.includes('gpt-4o-mini')) return MODEL_PRICING['gpt-4o-mini'];
   if (lower.includes('gpt-4o')) return MODEL_PRICING['gpt-4o'];
   if (lower.includes('o3-mini')) return MODEL_PRICING['gpt-o3-mini'];
   if (lower.includes('o3')) return MODEL_PRICING['gpt-o3'];
 
+  if (!unknownModels.has(model)) {
+    unknownModels.add(model);
+    console.warn(`[usage] Modello senza prezzo: "${model}" — il costo di questi turni resta a 0. Aggiungilo a MODEL_PRICING.`);
+  }
   return null;
 }
 
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = findPricing(model);
-  if (!pricing) {
-    console.warn(`[usage] Unknown model "${model}" — cost will not be tracked. Add pricing to MODEL_PRICING.`);
-    return 0;
-  }
+  if (!pricing) return 0;
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
 
@@ -101,10 +159,7 @@ export function calculateCostWithCache(args: {
   cacheCreation1hTokens?: number;
 }): number {
   const pricing = findPricing(args.model);
-  if (!pricing) {
-    console.warn(`[usage] Unknown model "${args.model}" — cost will not be tracked. Add pricing to MODEL_PRICING.`);
-    return 0;
-  }
+  if (!pricing) return 0;
   const n = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
   const inputCost =
     n(args.freshInputTokens) * pricing.input +
