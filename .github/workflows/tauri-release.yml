@@ -252,8 +252,16 @@ jobs:
             # appesi fino al timeout del job.
             security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null || return 1
             # La FIDUCIA: senza, `find-identity -v` non la elenca (vedi sopra).
-            openssl pkcs12 -in "$WORKDIR/cert.p12" -nokeys -clcerts -legacy \
-              -passin "pass:$CERT_PASSWORD" -out "$WORKDIR/cert.pem" || return 1
+            #
+            # Il PEM si rilegge dal portachiavi in cui l'abbiamo appena
+            # importato, non estratto dal .p12 con openssl: l'`openssl` di macOS
+            # è LibreSSL e non conosce `-legacy` (è di OpenSSL 3). Con quel flag
+            # il comando falliva — `pkcs12: Unrecognized flag legacy` — e la
+            # build usciva non firmata; senza, non aprirebbe un .p12 scritto con
+            # gli algoritmi vecchi. `security` non ha questo problema perché la
+            # chiave è già dentro.
+            security find-certificate -c "$SIGNING_IDENTITY" -p "$KEYCHAIN" > "$WORKDIR/cert.pem" || return 1
+            [ -s "$WORKDIR/cert.pem" ] || return 1
             sudo security add-trusted-cert -d -r trustRoot -p codeSign \
               -k /Library/Keychains/System.keychain "$WORKDIR/cert.pem" || return 1
             return 0
