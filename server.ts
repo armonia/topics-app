@@ -2106,8 +2106,21 @@ const server = Bun.serve<WSData>({
 // touched. Idempotent — a clean boot finds nothing to fix.
 function finalizeOrphanedRunningTools() {
   try {
+    // Finestra temporale, non tutta la storia. Senza il `timestamp >=` questa
+    // gira al boot come SCAN di una tabella da ~128 MB con quattro LIKE su
+    // colonne JSON — 215 ms misurati a caldo — e su questo DB restituiva 17
+    // righe che erano TUTTE falsi positivi: le stringhe `"status":"running"`
+    // comparivano dentro l'OUTPUT di un tool (un log, un pezzo di JSON citato),
+    // non in uno stato vero. Verificato incrociando con json_each su
+    // `$.status` e `$.toolCall.status`: zero tool davvero in corso.
+    //
+    // 30 giorni perché è una bonifica di orfani da un riavvio: un tool rimasto
+    // 'running' più vecchio di un mese non è un turno che qualcuno riprenderà,
+    // e il suo timer non lo sta guardando nessuno. L'indice
+    // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
     const rows = db.prepare(
-      `SELECT id, content, tool_calls, blocks FROM messages WHERE partial = 0 AND (
+      `SELECT id, content, tool_calls, blocks FROM messages
+       WHERE timestamp >= date('now', '-30 days') AND partial = 0 AND (
          tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
          OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%')`
     ).all() as Array<{ id: string; content: string | null; tool_calls: string | null; blocks: string | null }>;
