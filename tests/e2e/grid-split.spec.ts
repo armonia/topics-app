@@ -264,42 +264,72 @@ test.describe("Grid Split System", () => {
   });
 
   test.describe("Resize dividers", () => {
+    // Questi due test SALTAVANO a ogni run, da sempre.
+    //
+    // Aprivano una topic sola e poi facevano `if (dividers.count() === 0)
+    // test.skip()`. Una topic sola non produce nessuno split, quindi nessun
+    // divisore, quindi skip: sempre. Nel conteggio finale finivano fra i
+    // «saltati», che non guarda nessuno, mentre l'annotazione dichiarava di
+    // coprire LAYOUT-01 — copertura zero spacciata per copertura.
+    //
+    // Il divisore non è qualcosa che «ci si trova»: è il risultato di uno
+    // split. Ora il test lo CREA, e se il cursore non è quello giusto cade.
+    let dividerTopicIds: string[] = [];
+
+    test.beforeAll(async ({ request }) => {
+      const a = await createTopic(request, `e2e-div-A-${Date.now()}`);
+      const b = await createTopic(request, `e2e-div-B-${Date.now()}`);
+      dividerTopicIds = [a.id, b.id];
+    });
+
+    test.afterAll(async ({ request }) => {
+      for (const id of dividerTopicIds) await deleteTopic(request, id).catch(() => {});
+    });
+
+    /** Due tab nello stesso gruppo, poi lo split richiesto: il divisore esiste. */
+    async function splitTwoPanes(page: Page, direction: "Dividi a destra" | "Dividi in basso") {
+      const [idA, idB] = dividerTopicIds;
+      // Il pane-store fa UNION in idratazione: senza reset questo test eredita
+      // le pane lasciate dalle spec precedenti e lo split parte dal gruppo
+      // sbagliato (stessa ragione scritta in openTwoTopics più sotto).
+      await resetPaneStore(page.request, [idA, idB]);
+      await page.request
+        .put(`${E2E_BASE}/api/ui-state/panels`, { data: { openPanels: [idA, idB] } })
+        .catch(() => {});
+      await goToApp(page);
+      await collapseSidebarSections(page);
+      // Entrambe le tab devono essere a schermo: con una sola, lo split è un
+      // no-op su un gruppo a pane singola e non nasce nessun divisore.
+      await expect
+        .poll(() => page.locator('[role="main"] [draggable="true"]').count(), { timeout: 15000 })
+        .toBeGreaterThanOrEqual(2);
+      await splitViaContextMenu(page, direction);
+    }
+
     test("column resize divider has correct cursor", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await openAnyTopic(page);
+      await splitTwoPanes(page, "Dividi a destra");
 
-      const colDividers = page.locator('[role="main"] .cursor-col-resize');
-      if (await colDividers.count() === 0) {
-        test.skip();
-        return;
-      }
+      await expect
+        .poll(() => countColDividers(page), { timeout: 10000 })
+        .toBeGreaterThan(0);
 
-      const divider = colDividers.first();
-      const box = await divider.boundingBox();
-      expect(box).not.toBeNull();
-
-      const cursor = await divider.evaluate(el => getComputedStyle(el).cursor);
-      expect(cursor).toBe('col-resize');
+      const divider = page.locator('[role="main"] .cursor-col-resize').first();
+      expect(await divider.boundingBox()).not.toBeNull();
+      expect(await divider.evaluate((el) => getComputedStyle(el).cursor)).toBe('col-resize');
     });
 
     test("row resize divider has correct cursor", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await openAnyTopic(page);
+      await splitTwoPanes(page, "Dividi in basso");
 
-      const rowDividers = page.locator('[role="main"] .cursor-row-resize');
-      if (await rowDividers.count() === 0) {
-        test.skip();
-        return;
-      }
+      await expect
+        .poll(() => countRowDividers(page), { timeout: 10000 })
+        .toBeGreaterThan(0);
 
-      const divider = rowDividers.first();
-      const box = await divider.boundingBox();
-      expect(box).not.toBeNull();
-
-      const cursor = await divider.evaluate(el => getComputedStyle(el).cursor);
-      expect(cursor).toBe('row-resize');
+      const divider = page.locator('[role="main"] .cursor-row-resize').first();
+      expect(await divider.boundingBox()).not.toBeNull();
+      expect(await divider.evaluate((el) => getComputedStyle(el).cursor)).toBe('row-resize');
     });
   });
 
