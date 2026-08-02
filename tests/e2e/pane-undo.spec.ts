@@ -7,15 +7,13 @@
  *   3. Undo (Cmd+Z) restores the tab.
  *
  * Split into two tests:
- *   - "close+undo lifecycle" — verifies the mechanics work (tab removed, tab
- *     restored, scroll-container renders, closedStack captured scrollOffset).
- *     This test PASSES.
- *   - "restored tab position and scroll fidelity" — verifies PANE-03 fidelity
- *     (tab at original position, active, scroll offset restored in DOM).
- *     This test is marked test.fail() because the ghost-pane bug (app-level
- *     UndoContext appends to end instead of re-inserting at groupIndex) has
- *     not been fixed yet. When Wave 3 ships the fix, this test will start
- *     passing and test.fail() will need to be removed.
+ *   - "close+undo lifecycle" — verifies the mechanics work (tab removed,
+ *     closedStack captured the record with the right groupIndex, tab restored,
+ *     scroll-container renders).
+ *   - "la tab ripristinata torna al suo posto" — the PANE-03 invariant: the
+ *     restored tab lands at its ORIGINAL index (not appended) and comes back
+ *     active and usable. Lo scroll NON fa parte dell'invariante: è
+ *     device-local e l'undo lo scarta di proposito (reducers/undo.ts).
  *
  * Strategy: state-injection for panel setup + UI-driven close/undo.
  * Topics are pre-seeded with messages so the chat container is scrollable.
@@ -262,42 +260,62 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     await expect(scrollContainer).toBeVisible({ timeout: 10_000 });
   });
 
-  // This test verifies the FULL PANE-03 fidelity requirements:
-  //   - Tab re-inserted at original position (splicing works)
-  //   - Restored tab becomes active
-  //   - Scroll offset restored in DOM (~250 px after undo)
+  // PANE-03, la fedeltà della posizione: la tab che torna dall'undo deve
+  // ricomparire ESATTAMENTE dov'era, non in fondo.
   //
-  // As of the ChatPane scroll-restore wiring (review I1), ChatPane already:
-  //   - Reads initialScrollOffset from usePaneStore.panes[chat:${topic.id}]
-  //     on mount (and re-seeds on topic.id change).
-  //   - Passes a throttled onScrollOffsetChange → setPaneScrollOffset which
-  //     flushes the current scrollTop on cleanup (before unmount).
-  //   - Hands both props to MessageList, which applies the offset post-mount
-  //     after Virtuoso's bottom-anchor settles (see MessageList.tsx §PANE-03).
-  // App.tsx handleClosePanel now also splices the restored paneId back at its
-  // original index (App.tsx:1109–1141), so the "append instead of splice"
-  // bug is already fixed at the App level.
+  // Questo test è stato rosso-per-scelta (`test.fail()`) per parecchio, con
+  // scritto sopra che «Wave 3 collegherà UNDO_CLOSE all'undo di App». Tre cose
+  // non tornavano più, ed è per questo che ora è verde:
   //
-  // Marked test.fail() because cross-mount scroll fidelity is still brittle:
-  //   The app-level undo (pushUndo callback) does NOT dispatch UNDO_CLOSE on
-  //   usePaneStore — it only mutates openPanels. The restored ChatPane then
-  //   re-reads pane.scrollOffset on mount, but the store entity may have
-  //   been sanitized (scrollOffset stripped on cross-tab/WS snapshots, see
-  //   sanitizeSnapshot.ts) OR the Virtuoso remount may settle at bottom
-  //   before the post-mount restore effect lands. Either way, the DOM
-  //   scrollTop asserted here (|scrollTop - 250| < 30) is not yet a stable
-  //   invariant. Wave 3 will wire UNDO_CLOSE into the app-level undo path
-  //   so ClosedPaneRecord.scrollOffset re-seeds pane.scrollOffset
-  //   deterministically on undo.
-  //
-  // When the fix ships, this test will start passing. Remove test.fail()
-  // at that point.
-  test("PANE-03: restored tab at original position with scroll offset (EXPECTED-RED until Wave 3)", async ({
+  //  1. Quel collegamento È GIÀ STATO FATTO. Lo dice il test qui sopra, 40
+  //     righe più su: «the app-level undo now dispatches UNDO_CLOSE
+  //     (re-inserts at the recorded groupIndex)». Il motivo scritto nel
+  //     `test.fail()` descriveva un mondo che non esiste più.
+  //  2. Lo scroll NON si ripristina dall'undo, e non è un buco: è una scelta.
+  //     `pane.scrollOffset` è DEVICE-LOCAL — `CLOSE_PANE` non lo copia più sul
+  //     record (reducers/panes.ts) e `undoReducer` lo toglie di proposito da
+  //     quello che reinserisce (reducers/undo.ts, ultimo commento: rimetterlo
+  //     riaprirebbe la fuga cross-device). Asserire qui «scrollTop ≈ 250 dopo
+  //     l'undo» significava pretendere il contrario di una decisione presa.
+  //     La posizione dello scroll sullo stesso dispositivo la ristabilisce il
+  //     tracker post-mount, che ha la sua copertura.
+  //  3. E comunque non ci arrivava: falliva PRIMA, sul locator. Usava
+  //     `[data-testid="chat-scroll-container"]` senza `:visible`, che pesca
+  //     anche il guscio keep-alive NASCOSTO, e poi leggeva lo `scrollTop` del
+  //     wrapper esterno — che, come spiega il test qui sopra, resta inchiodato
+  //     a 0 perché è Virtuoso a possedere lo scroll. Marcato `test.fail()`,
+  //     nessuno se n'è accorto: un test rosso-atteso che falliva per un motivo
+  //     diverso da quello dichiarato copriva ZERO, mentre l'annotazione diceva
+  //     di coprire PANE-03.
+  test("PANE-03: la tab ripristinata torna al suo posto, non in fondo", async ({
     page,
   }) => {
+    // ROSSO-ATTESO, e stavolta per il motivo giusto. Misurato con una sonda sul
+    // pane-store subito dopo l'undo:
+    //
+    //   store  group:default = [t1, t3]        ← t2 NON è nel gruppo
+    //   UI     [t1, t3, t2]                    ← ma la tab c'è, in fondo
+    //
+    // Cioè `UNDO_CLOSE` non reinserisce la pane nel gruppo, e la tab che si
+    // vede è una GHOST PANE: esiste in `openPanels` senza uno slot nel gruppo
+    // che la contiene — esattamente il guasto da cui questo file prende il
+    // nome. L'indice registrato è giusto (il test qui sopra verifica
+    // `groupIndex === 1` e passa), quindi il record è sano: si perde a valle.
+    // Sospetto principale: l'uscita anticipata `if (state.panes[record.id])
+    // return` in reducers/undo.ts, che scarta il record quando l'entità è già
+    // stata resuscitata da un'altra strada (l'unarchive parte PRIMA del
+    // dispatch, usePanelLifecycle.ts:1516) — il record viene consumato e
+    // nessuno reinserisce nel gruppo.
+    //
+    // Perché resta `test.fail()` invece di essere sistemato qui: il pane-store
+    // è pieno di invarianti incrociate (LWW, tombstone, hydrate multi-client) e
+    // la correzione va fatta con la sua analisi, non di sfuggita. Tracciato nel
+    // backlog. Quando il fix arriva, questo test diventa verde da solo e il
+    // `test.fail()` va tolto — cosa che prima NON succedeva, perché il test
+    // falliva su un locator sbagliato molto prima di arrivare all'asserzione.
     test.fail(
       true,
-      "WAVE-3 scope — app-level undo does not dispatch UNDO_CLOSE on usePaneStore, so pane.scrollOffset is not deterministically re-seeded from ClosedPaneRecord on undo (see pane/reducers/undo.ts + App.tsx handleClosePanel pushUndo)",
+      "UNDO_CLOSE non reinserisce la pane nel gruppo: dopo l'undo il gruppo è [t1, t3] mentre la UI mostra [t1, t3, t2] — ghost pane in openPanels senza slot nel gruppo",
     );
 
     await gotoAndWait(page);
@@ -316,25 +334,20 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
       els.map((el) => el.getAttribute("data-pane-id")),
     );
 
-    // Activate middle tab, scroll, close
+    // Si attiva la tab di mezzo e la si chiude. Niente scroll da impostare:
+    // l'invariante sotto esame è la POSIZIONE, e lo scroll non attraversa
+    // l'undo per scelta (vedi il cappello del test).
     const middleTab = tabs.nth(1);
     await middleTab.click();
     await expect(middleTab).toHaveAttribute("data-active", "true", {
       timeout: 5_000,
     });
-    // Replaces waitForTimeout(1000): wait for the chat scroll container to
-    // mount before touching scrollTop.
-    const scrollContainer = page.locator(
-      '[data-testid="chat-scroll-container"]',
-    );
-    await expect(scrollContainer).toBeVisible({ timeout: 10_000 });
-
-    await page.evaluate(() => {
-      const outer = document.querySelector(
-        '[data-testid="chat-scroll-container"]',
-      ) as HTMLElement | null;
-      if (outer) outer.scrollTop = 250;
-    });
+    // La chat della tab attiva deve essere montata prima di chiuderla, o si
+    // starebbe chiudendo un guscio vuoto. `:visible` è obbligatorio: il
+    // selettore nudo pesca anche i gusci keep-alive NASCOSTI delle altre pane.
+    await expect(
+      page.locator('[data-testid="chat-scroll-container"]:visible'),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Removed hover + waitForTimeout(200) before close — Playwright handles
     // hover-reveal via click actionability.
@@ -358,27 +371,9 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     // Restored middle tab should be active
     await expect(tabs.nth(1)).toHaveAttribute("data-active", "true");
 
-    // Scroll offset should be ~250.
-    // Replaces waitForTimeout(1500) with expect.poll that auto-retries the
-    // read until the restore effect lands (post-mount Virtuoso settle). We
-    // poll `|scrollTop - 250| < 30` directly as a boolean so the assertion
-    // stays specific (same tolerance the old version used, but with retry).
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(() => {
-            const el = document.querySelector(
-              '[data-testid="chat-scroll-container"]',
-            ) as HTMLElement | null;
-            if (!el) return false;
-            return Math.abs(el.scrollTop - 250) < 30;
-          }),
-        {
-          message: "scroll offset should be restored to ~250 post-undo",
-          timeout: 3_000,
-          intervals: [100, 200, 400, 800],
-        },
-      )
-      .toBe(true);
+    // …e torna USABILE, non un guscio morto: la sua chat si rimonta.
+    await expect(
+      page.locator('[data-testid="chat-scroll-container"]:visible'),
+    ).toBeVisible({ timeout: 10_000 });
   });
 });
