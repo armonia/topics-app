@@ -113,7 +113,15 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
     await expect(group).toContainText("3 azioni");
     await expect(group.locator('[data-testid="tool-group-cost"]')).toContainText("$0.05");
 
-    // Evidenza di review.
-    await page.screenshot({ path: "/Users/zorahrel/.topics/media/tool-cost-attribution.png", fullPage: false });
+    // Evidenza di review, allegata al risultato del test.
+    //
+    // Non un percorso assoluto: c'era `/Users/zorahrel/.topics/media/…` cablato,
+    // che su qualunque altro checkout — e su CI — scrive in una cartella che non
+    // esiste, quindi o fallisce o sparisce. `test.info().attach` mette lo scatto
+    // nel report HTML e negli artifact, dove chi rivede lo trova davvero.
+    await test.info().attach("tool-cost-attribution", {
+      body: await page.screenshot({ fullPage: false }),
+      contentType: "image/png",
+    });
   });
 });
