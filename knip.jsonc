@@ -66,9 +66,7 @@
       "entry": [
         "src/main.tsx",
         "vite.config.ts",
-        "vite.demo.config.ts",
         "vite.landing.config.ts",
-        "src/demo/**/*.{ts,tsx}!",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
       "project": ["src/**/*.{ts,tsx}"],
