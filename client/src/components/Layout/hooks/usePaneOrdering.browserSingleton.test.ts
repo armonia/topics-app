@@ -3,10 +3,45 @@
  * context's browser pane when an explicit contextId is given: one browser
  * pane per context. Legacy context-less opens keep the old singleton reuse.
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach } from 'bun:test';
 import { browserSingletonReducer } from './usePaneOrdering';
+import { usePaneStore } from '../../../state/pane/store';
+import { DEFAULT_SPACE_ID } from '../../../state/pane/types';
+
+/**
+ * Il reducer NON è del tutto puro: il ramo 2b consulta lo store globale
+ * (`findGlobalBrowserPaneId` legge `usePaneStore.groups['group:default']`) per
+ * non creare un secondo browser quando una pane esiste altrove nell'app.
+ *
+ * `usePaneStore` è uno Zustand a livello di modulo, e sotto `bun test` tutti i
+ * file condividono un solo registro dei moduli: quello che semina un altro file
+ * resta lì. Senza questo reset l'ultimo test — «con NESSUN browser da nessuna
+ * parte» — non garantiva la propria precondizione: bastava che un file eseguito
+ * prima avesse lasciato una pane browser nello store e il reducer prendeva
+ * QUELLA, restituendo un `resolvedId` che non era in `next`.
+ *
+ * In locale non si vedeva mai, perché l'ordine dei file lo teneva a posto; su
+ * CI l'ordine è diverso, e il rosso diceva
+ * `Expected to contain: "browser:B" · Received: [ "topic-a" ]` — un id che
+ * questo file non ha mai scritto.
+ */
+function resetPaneStore(): void {
+  usePaneStore.setState({
+    panes: {},
+    groups: {},
+    closedStack: [],
+    focusedPaneId: null,
+    groupOrder: [],
+    spaces: {},
+    activeSpaceId: DEFAULT_SPACE_ID,
+    lastSeq: 0,
+    lastServerSeq: 0,
+  });
+}
 
 describe('browserSingletonReducer', () => {
+  beforeEach(resetPaneStore);
+
   test('exact contextId match reuses the existing pane', () => {
     const prev = ['topic-a', 'browser:ctx-a'];
     const { next, resolvedId } = browserSingletonReducer(prev, 'ctx-a');
@@ -36,5 +71,28 @@ describe('browserSingletonReducer', () => {
     const { next, resolvedId } = browserSingletonReducer(prev);
     expect(resolvedId.startsWith('browser:')).toBe(true);
     expect(next).toContain(resolvedId);
+  });
+
+  test('un browser ALTROVE nell\'app viene riusato, non duplicato (ramo globale)', () => {
+    // Il ramo 2b, quello che rende il reducer non-puro, e finora mai asserito:
+    // ogni StandaloneChatGroup esegue questo reducer sul PROPRIO `prev`, quindi
+    // senza lo sguardo globale due istanze creerebbero ognuna la sua pane e ne
+    // uscirebbero due browser. Qui si semina lo store come farebbe una pane
+    // solo'ata in un'altra cella.
+    usePaneStore.setState({
+      groups: {
+        'group:default': {
+          id: 'group:default',
+          paneIds: ['browser:altrove'],
+          splitRatio: 0.5,
+          splitAxis: 'horizontal',
+        },
+      },
+    });
+
+    const prev = ['topic-a'];
+    const { next, resolvedId } = browserSingletonReducer(prev);
+    expect(resolvedId, 'deve riusare la pane che esiste altrove').toBe('browser:altrove');
+    expect(next, "e non aggiungerne una nuova al proprio gruppo").toBe(prev);
   });
 });

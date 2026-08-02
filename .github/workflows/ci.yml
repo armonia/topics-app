@@ -48,6 +48,14 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
+      # `test:unit` contiene UN file che lancia un Chromium vero
+      # (server/browser-dom-cobrowse.test.ts: rrweb va provato contro una pagina
+      # con una CSP vera, non contro un finto). Senza questo passo quei sette
+      # test cadono con «Chromium executable not found» — un rosso che in locale
+      # non si vede mai, perché la macchina di sviluppo il browser ce l'ha.
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
       # All three projects in one step. Each `typecheck:*` script uses the
       # LOCALLY pinned tsc (5.9.3) — `bunx tsc` could fetch a newer major whose
       # deprecation handling differs and re-break the build gate.
