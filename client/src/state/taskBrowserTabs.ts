@@ -230,6 +230,15 @@ async function uiGet<T>(key: string): Promise<T | null> {
   } catch { return null; }
 }
 
+/** Best-effort teardown of the server-side browser context behind a task tab.
+ *  DELETE /api/browsers/:id closes the Playwright context + persists its state.
+ *  Fire-and-forget: a task tab going away must not block on the network, and a
+ *  missing context (never server-created, native-only) 404s harmlessly. */
+function releaseBrowserContext(contextId: string): void {
+  if (!contextId) return;
+  void fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
+}
+
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function uiPutDebounced(key: string, value: unknown, ms = 800): void {
   const t = writeTimers.get(key);
@@ -346,8 +355,15 @@ export const taskBrowserTabs = {
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
   /** Reopen a parked tab from the preview strip. */
   unparkTab: (taskId: string, contextId: string) => commit(taskId, unparkTab(getTaskTabs(taskId), contextId)),
-  /** Hard-remove a tab (preview trash). */
-  removeTab: (taskId: string, contextId: string) => commit(taskId, removeTab(getTaskTabs(taskId), contextId)),
+  /** Hard-remove a tab (preview trash). Also RELEASES the server-side browser
+   *  context: a hard-remove is a definitive "gone", so the Playwright/agent
+   *  context that backed this task tab must be torn down — otherwise it leaked
+   *  forever (removeTab only dropped the local record; even trashing never freed
+   *  it). Soft-close/park deliberately does NOT do this (the tab is reopenable). */
+  removeTab: (taskId: string, contextId: string) => {
+    commit(taskId, removeTab(getTaskTabs(taskId), contextId));
+    releaseBrowserContext(contextId);
+  },
   setActive: (taskId: string, contextId: string | null) => commit(taskId, setActiveTab(getTaskTabs(taskId), contextId)),
   reorder: (taskId: string, from: number, to: number) => commit(taskId, reorderTabs(getTaskTabs(taskId), from, to)),
   updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
