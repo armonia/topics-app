@@ -14,20 +14,7 @@
  * il suo albero di glifi, badge e menu.
  */
 import { useSharedNow } from '@/state/useSharedNow';
-
-/** «now», «2m», «3h», «5d», «7mo». Formato storico delle righe di sidebar. */
-export function formatRelative(at: number, now: number): string {
-  const diffS = Math.floor((now - at) / 1000);
-  if (!Number.isFinite(diffS)) return '';
-  if (diffS < 60) return 'now';
-  const diffM = Math.floor(diffS / 60);
-  if (diffM < 60) return `${diffM}m`;
-  const diffH = Math.floor(diffM / 60);
-  if (diffH < 24) return `${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 30) return `${diffD}d`;
-  return `${Math.floor(diffD / 30)}mo`;
-}
+import { formatRelative } from '@/state/workLongevity';
 
 export function RelativeTime({
   at,
