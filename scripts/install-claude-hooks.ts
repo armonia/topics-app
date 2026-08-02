@@ -94,17 +94,32 @@ function ensureWrapperInstalled(): void {
   chmodSync(WRAPPER_DEST, 0o755);
 }
 
+function buildCommand(event: string): string {
+  // Il path VA tra apici. Claude Code esegue i command hook via `/bin/sh -c`:
+  // senza virgolette una home che contiene uno spazio viene word-splittata e
+  // l'hook non parte proprio — nessun errore, semplicemente niente segnale, e la
+  // fase resta appesa a `starting`. WRAPPER_DEST nasce da homedir(), quindi non è
+  // input esterno, ma costa una riga e toglie di mezzo un'intera classe di guasto
+  // muto. L'evento resta fuori dagli apici: è una costante nostra, senza spazi.
+  return `"${WRAPPER_DEST}" ${event}`;
+}
+
 function buildEntry(event: string): HookEntry {
   return {
     type: "command",
-    command: `${WRAPPER_DEST} ${event}`,
+    command: buildCommand(event),
     timeout: 5,
     topics_app: true,
   };
 }
 
-function hasOurEntry(matcher: HookMatcher, event: string): boolean {
-  return matcher.hooks.some((h) => h.topics_app === true && h.command?.endsWith(` ${event}`));
+/** La nostra entry per questo evento, se già presente. Il match resta per
+ *  SUFFISSO (non per uguaglianza) apposta: deve riconoscere anche una entry
+ *  scritta da una versione precedente, con un `command` diverso da quello che
+ *  genereremmo oggi. È esattamente ciò che permette a `install()` di RIPARARLA
+ *  invece di lasciarla lì o di affiancarle un duplicato. */
+function findOurEntry(matcher: HookMatcher, event: string): HookEntry | undefined {
+  return matcher.hooks.find((h) => h.topics_app === true && h.command?.endsWith(` ${event}`));
 }
 
 function install(): void {
@@ -113,6 +128,7 @@ function install(): void {
   settings.hooks = settings.hooks ?? {};
 
   let added = 0;
+  let repaired = 0;
   for (const event of HOOK_EVENTS) {
     const matchers = settings.hooks[event] ?? [];
     // Topics App hooks fire on every matcher (no filter). We append our
@@ -122,16 +138,27 @@ function install(): void {
       target = { hooks: [] };
       matchers.push(target);
     }
-    if (!hasOurEntry(target, event)) {
+    const existing = findOurEntry(target, event);
+    if (!existing) {
       target.hooks.push(buildEntry(event));
       added += 1;
+    } else if (existing.command !== buildCommand(event)) {
+      // Una entry NOSTRA ma scritta da una versione precedente. Prima veniva
+      // riconosciuta e lasciata così com'era, quindi ogni correzione al comando
+      // valeva solo per chi installava da zero: chi l'aveva già installato
+      // restava col difetto finché non faceva uninstall+install a mano. Adesso
+      // reinstallare la ripara. Si riscrive solo il campo che generiamo noi —
+      // `matcher`, ordine ed eventuali entry altrui non si toccano.
+      existing.command = buildCommand(event);
+      repaired += 1;
     }
     settings.hooks[event] = matchers;
   }
 
   writeSettings(settings);
   console.log(`✓ Hook wrapper installed at ${WRAPPER_DEST}`);
-  console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} hook entries added, ${HOOK_EVENTS.length - added} already present)`);
+  const unchanged = HOOK_EVENTS.length - added - repaired;
+  console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} added, ${repaired} updated, ${unchanged} already current)`);
   console.log(`\nNext step: start Topics App so the hook token is generated.`);
   console.log(`  bun run dev:server`);
 }
