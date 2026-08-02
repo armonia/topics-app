@@ -707,7 +707,7 @@ export function createAppContext(baseDir: string): AppContext {
    * Walk the message tree following active branch selections.
    * Returns a linear thread representing the currently active conversation path.
    */
-  function loadActiveThread(sessionKey: string): StoredMessage[] {
+  function loadActiveThread(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
     // Get all messages for this session
     const allRows = stmts.getMessages.all(sessionKey) as any[];
     if (allRows.length === 0) return [];
@@ -769,7 +769,7 @@ export function createAppContext(baseDir: string): AppContext {
           continue;
         }
         visited.add(selectedChild.id);
-        const msg = rowToMessage(selectedChild);
+        const msg = rowToMessage(selectedChild, opts);
 
         // Annotate with sibling info for the client
         msg.siblingCount = children.length;
@@ -785,8 +785,15 @@ export function createAppContext(baseDir: string): AppContext {
     return thread;
   }
 
-  function loadLocalMessages(sessionKey: string): StoredMessage[] {
-    return loadActiveThread(sessionKey);
+  /**
+   * `opts.withBlocks: false` carica il ramo attivo SENZA idratare la timeline
+   * `blocks` — un `JSON.parse` di ~1,3 MB per messaggio agentico, buttato via
+   * dai consumatori che leggono solo role/content/partial/id (assemblaggio del
+   * contesto, ultima frase dell'agente). Default `true`: chi renderizza la chat
+   * ha bisogno dei blocchi.
+   */
+  function loadLocalMessages(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
+    return loadActiveThread(sessionKey, opts);
   }
 
   /**
@@ -918,8 +925,18 @@ export function createAppContext(baseDir: string): AppContext {
   function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
     const row = getLastActiveMessage(sessionKey);
     if (!row) return null;
-    const msg = rowToMessage(row);
+    // Salta il parse di `blocks` (il grosso del costo — ~1,3 MB di JSON sul
+    // turno peggiore, letto e buttato via a ogni evento di tool). Il valore di
+    // ritorno finisce in `discardIfEmptyTurn`, che cancella la riga se il turno
+    // è vuoto e — via `isEmptyAssistantTurn` — guarda anche `blocks`. Per non
+    // far passare per vuoto un turno di SOLI blocchi (perdita di dati)
+    // portiamo la STRINGA grezza della colonna: `AssistantTurnShape` accetta
+    // `blocks` come stringa JSON e la valuta senza che noi la si parsi.
+    const msg = rowToMessage(row, { withBlocks: false });
     Object.assign(msg, updates);
+    if (!('blocks' in updates) && row.blocks) {
+      (msg as { blocks?: unknown }).blocks = row.blocks;
+    }
     // Only overwrite the body fields the caller actually passed. Fields absent
     // from `updates` go in as null so the COALESCE in updateMessage keeps the
     // existing column — a partial update (e.g. flipping `partial` on timeout)
