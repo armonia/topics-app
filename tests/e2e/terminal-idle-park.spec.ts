@@ -206,6 +206,46 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
     r.skipped.find((s) => s.id === id)?.reason ?? "(non elencata)";
 
   /**
+   * Questo ambiente riesce a tenere VIVA una sessione claude?
+   *
+   * Lo sweep guarda la mappa in memoria delle sessioni, che si popola solo se il
+   * bridge ha davvero avviato una PTY. Dove il binario `claude` non c'è — i
+   * runner di CI — il server conia comunque un `claudeSessionId` e restituisce
+   * 200, ma la sessione non entra mai in quella mappa: lo sweep non la vede né
+   * fra le parcheggiate né fra le rifiutate, e i test qui sotto misurerebbero
+   * l'assenza di `claude` invece dei gate.
+   *
+   * Si rileva UNA volta, con la stessa macchina che i test usano: se dopo uno
+   * sweep l'id non compare da nessuna parte, la PTY non c'è.
+   */
+  let claudePtyAvailable: boolean | null = null;
+
+  async function ensureClaudePty(
+    request: import("@playwright/test").APIRequestContext,
+  ): Promise<boolean> {
+    if (claudePtyAvailable !== null) return claudePtyAvailable;
+    const res = await request.post(`${E2E_BASE}/api/terminal/sessions`, {
+      data: { cwd: "/tmp", type: "claude-code", name: "E2E-Park-Probe" },
+    });
+    if (!res.ok()) {
+      claudePtyAvailable = false;
+      return false;
+    }
+    const probe = (await res.json()) as SessionRow;
+    const seen = await sweep(request, 0);
+    claudePtyAvailable =
+      seen.parked.includes(probe.id) || seen.skipped.some((s) => s.id === probe.id);
+    await request.delete(`${E2E_BASE}/api/terminal/sessions/${probe.id}`).catch(() => {});
+    return claudePtyAvailable;
+  }
+
+  const NO_CLAUDE =
+    "in questo ambiente il bridge non tiene viva una PTY `claude` " +
+    "(su CI il binario non c'è): lo sweep non vedrebbe la sessione, e il test " +
+    "misurerebbe quello invece dei gate. La decisione è coperta comunque da " +
+    "server/lib/terminal-idle-park.test.ts, che non ha bisogno di un ambiente.";
+
+  /**
    * PERCHÉ QUI NON C'È IL CASO POSITIVO.
    *
    * L'ultimo gate è `idle-unknown`: senza una misura dell'inattività della PTY
@@ -225,6 +265,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
    * comporre senza fingere un ambiente.
    */
   test("senza una misura di inattivita' NON si parcheggia", async ({ request }) => {
+    test.skip(!(await ensureClaudePty(request)), NO_CLAUDE);
     // È la regola che tiene in piedi tutto il resto: un `null` non è "ferma da
     // sempre". Trattarlo come tale è il modo classico di reapare qualcosa di
     // vivo, ed è successo davvero in questo repo.
@@ -243,6 +284,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
   });
 
   test("i gate scattano in ORDINE: il piu' grave per primo", async ({ request }) => {
+    test.skip(!(await ensureClaudePty(request)), NO_CLAUDE);
     // Su una sessione vera, togliendo un ostacolo alla volta, il motivo del
     // rifiuto avanza. E' la prova che i gate sono cablati davvero — non che
     // esistono nel modulo puro, ma che lo sweep li applica a cio' che ha in mano.
@@ -265,6 +307,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
   });
 
   test("una sessione GUARDATA non si parcheggia", async ({ request, page }) => {
+    test.skip(!(await ensureClaudePty(request)), NO_CLAUDE);
     // Il gate `watched` e' quello che tiene il meccanismo invisibile: con il
     // client di oggi una sessione che sparisce dal roster fa comparire
     // «Sessione scaduta», e farlo sotto gli occhi di qualcuno e' inaccettabile.
@@ -312,6 +355,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
   });
 
   test("con una soglia alta non si parcheggia niente", async ({ request }) => {
+    test.skip(!(await ensureClaudePty(request)), NO_CLAUDE);
     // Il contrario del test principale: prova che a decidere e' la soglia, non
     // il fatto di aver chiamato lo sweep.
     const session = await createResumableSession(request, "E2E-Park-Threshold");
