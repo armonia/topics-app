@@ -352,6 +352,18 @@ export interface SessionActivitySignal {
   approvalKind?: string;
   /** Timestamp the current phase/tool started — for the elapsed counter. */
   since: number;
+  /**
+   * Quando è cominciato il TURNO (non l'azione dentro il turno): epoch-ms del
+   * fronte di salita verso una fase di lavoro, dal server (`turnStartedAt`).
+   * Assente per un turno cominciato prima dell'ultimo riavvio del server — il
+   * campo non è persistito apposta — e allora `since` resta l'unica base.
+   *
+   * `since` e questo rispondono a due domande diverse e la UI le mostra in due
+   * posti diversi: `since` è «da quanto dura QUESTA azione» (il tool corrente),
+   * questo è «da quanto va avanti il turno». Confonderli è come cronometrare una
+   * maratona ripartendo da zero a ogni ristoro.
+   */
+  turnSince?: number;
 }
 
 /** Minimal shape the reconciler reads from the server session roster. */
@@ -767,6 +779,9 @@ export function deriveSessionActivity(
       // Prefer the running tool's start (freshest) when working, else the phase
       // change — so the elapsed counter tracks the current action.
       since: (working && st.lastTool?.startedAt) || st.phaseUpdatedAt || st.updatedAt,
+      // Il turno nel suo insieme. Solo mentre lavora: a turno finito il numero
+      // che serve è «quanto fa che ha finito» (phaseUpdatedAt), non la durata.
+      turnSince: working ? st.turnStartedAt : undefined,
     };
   };
   // Chats — keyed by topicId via sessionKey.
@@ -924,6 +939,7 @@ export function projectAttentionTier(
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
     if (t.archived) continue;
+    if (t.standalone) continue; // resa fuori dal progetto — vedi rollupProjectAttention
     if (seenSubjects?.has(t.id)) continue;
     if (inputTopics.has(t.id)) return 'input';
     if (awaitingTopics.has(t.id)) hasDone = true;
@@ -1083,6 +1099,15 @@ export function useSessionLastActivity(): Map<string, number> {
   return useSignalsStore((s) => s.sessionLastActivity);
 }
 
+/** L'ultimo movimento di UN soggetto. Il gemello per-riga di
+ *  `useSessionLastActivity`: quella restituisce la mappa intera, e una riga di
+ *  sidebar che ci si iscrivesse si ri-renderebbe a ogni tick di QUALUNQUE altra
+ *  sessione. Qui il selettore estrae un numero, quindi la riga si muove solo
+ *  quando è il suo numero a muoversi. */
+export function useSubjectLastActivity(subjectId: string | undefined): number | undefined {
+  return useSignalsStore((s) => (subjectId ? s.sessionLastActivity.get(subjectId) : undefined));
+}
+
 /** A terminal session's Claude session is in 'watching' phase (Monitor armed).
  *  The ring should be muted when watching. By terminal session id. */
 export function useTerminalWatching(sessionId: string | undefined): boolean {
@@ -1191,6 +1216,9 @@ export function useAgentActivityCounts(
       hydratedStream: s.hydratedStreamTopics,
       awaitingTopics: s.awaitingFeedbackTopics,
       awaitingInputTopics: s.awaitingInputTopics,
+      // I turni claude-code FINITI. Erano fuori dal conteggio, e il tooltip
+      // intanto chiamava «con il turno finito» un'altra cosa — vedi sotto.
+      finishedTerms: s.terminalFinishedIds,
     })),
   );
   return useMemo(() => {
@@ -1208,7 +1236,23 @@ export function useAgentActivityCounts(
     const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
     working += visibleTopicSignalCount(streamingTopics, topics);
     // Awaiting = the blue-fill set across both surfaces, and its loud subset.
-    const awaiting = sig.awaitingTerm.size + visibleTopicSignalCount(sig.awaitingTopics, topics);
+    //
+    // Ai terminali si aggiungono i turni FINITI (`terminalFinishedIds`), che
+    // prima non contavano da nessuna parte. È la stessa cosa che badgia la loro
+    // tab, e la barra ne stava fuori: si vedevano N tab col pallino blu «turno
+    // finito» e la barra ne annunciava due. Peggio, il tooltip chiamava
+    // «con il turno finito» il resto di `awaiting`, che sono le sessioni in
+    // `awaiting-user`/`paused` — un'altra cosa, con lo stesso nome.
+    //
+    // UNION, non somma: una sessione può essere in entrambi gli insiemi (ha
+    // finito il turno E la fase è `awaiting-user`) e vale UNA cosa da guardare.
+    const awaitingTermIds = new Set<string>(sig.awaitingTerm);
+    // Solo i terminali che esistono ancora nel roster: un id finito la cui
+    // sessione è stata chiusa non ha più né riga né tab, e il suo "1" non
+    // sarebbe azzerabile da nessuna parte (stessa ragione del gate sugli
+    // archiviati in `visibleTopicSignalCount`).
+    for (const t of roster) if (sig.finishedTerms.has(t.id)) awaitingTermIds.add(t.id);
+    const awaiting = awaitingTermIds.size + visibleTopicSignalCount(sig.awaitingTopics, topics);
     const awaitingInput =
       sig.awaitingInputTerm.size + visibleTopicSignalCount(sig.awaitingInputTopics, topics);
     return { working, awaiting, awaitingInput };
@@ -1240,6 +1284,13 @@ export function topicAttentionCount(
   unread: Record<string, { unreadCount: number } | undefined>,
   claudeAttentionTopics: Set<string>,
 ): number {
+  // NB: nessun gate "visto" qui, ed è deliberato. Il conteggio e il fill sono due
+  // ASSI diversi: il fill risponde a «devo attirare la tua attenzione?» e si
+  // spegne quando hai guardato (`attentionFillFor`, `projectAttentionTier`); il
+  // numero risponde a «ti resta un'azione da fare» e si spegne quando l'azione è
+  // fatta. Portare il "visto" qui è stato provato e scartato: farebbe dire 0 al
+  // progetto mentre la riga della chat figlia dice ancora 1, che è esattamente la
+  // deriva fra superfici che questi helper esistono per impedire.
   return Math.max(unread[topicId]?.unreadCount || 0, claudeAttentionTopics.has(topicId) ? 1 : 0);
 }
 
@@ -1249,6 +1300,11 @@ export function topicAttentionCount(
  * read, so the finished signal is one badge, not a dot here and a badge there.
  */
 export function terminalAttentionCount(sid: string, terminalFinishedIds: Set<string>): number {
+  // MAI un gate "visto" davanti a `terminalFinishedIds`: quel segnale si alza
+  // proprio per le sessioni senza fase nota, che per costruzione non entrano mai
+  // in `claudePhaseAwaitingTermIds` — da cui passa il reset del visto. Le due
+  // popolazioni sono disgiunte, e un gate qui renderebbe il chip muto per sempre
+  // dal secondo turno finito in poi.
   return terminalFinishedIds.has(sid) ? 1 : 0;
 }
 
@@ -1276,17 +1332,78 @@ export function rollupProjectAttention(
   terminalFinishedIds: Set<string>,
 ): number {
   let sum = 0;
+  for (const s of projectAttentionSubjects(projectPath, topics, terminalSessions, unread, claudeAttentionTopics, terminalFinishedIds)) {
+    sum += s.count;
+  }
+  return sum;
+}
+
+/** Un figlio che contribuisce al numero del progetto, con il suo NOME. */
+export interface AttentionSubject {
+  id: string;
+  kind: 'chat' | 'terminal';
+  name: string;
+  count: number;
+}
+
+/**
+ * CHI compone il numero del progetto, non solo quanto fa.
+ *
+ * Nasce da un sintomo preciso: il progetto «Guido AI» mostrava 1 e nessuna tab
+ * dentro mostrava niente. Il numero era corretto — una chat ferma su
+ * `awaiting-user` — ma non era ATTRIBUIBILE: quella chat era l'unica pane aperta
+ * del progetto, quindi per forza la tab attiva, e sia la tab (`suppressOnSelect`)
+ * sia la riga di sidebar (`!isFocused`) nascondono il numero di ciò che stai
+ * guardando. Due regole giuste che, insieme, producono un numero orfano.
+ *
+ * La soppressione non si tocca: è la spec, ed è coperta da un test E2E
+ * (`tab-notifications.spec.ts`, TAB-BADGE-07). Quello che mancava era il modo di
+ * RISALIRE dal numero al suo autore, e ora ce l'hanno il tooltip della riga di
+ * progetto e il nome accessibile della tab.
+ *
+ * `rollupProjectAttention` è definito su questa lista, non accanto ad essa: due
+ * walk paralleli sugli stessi figli sono esattamente come i due gemelli
+ * fill/badge hanno già divergito una volta.
+ */
+export function projectAttentionSubjects(
+  projectPath: string,
+  topics: Record<string, Topic>,
+  terminalSessions: TerminalSessionInfo[],
+  unread: Record<string, { unreadCount: number } | undefined>,
+  claudeAttentionTopics: Set<string>,
+  terminalFinishedIds: Set<string>,
+): AttentionSubject[] {
+  const out: AttentionSubject[] = [];
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
     if (t.archived) continue;
-    sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
+    const count = topicAttentionCount(t.id, unread, claudeAttentionTopics);
+    if (count > 0) out.push({ id: t.id, kind: 'chat', name: t.name || 'Chat', count });
   }
   if (terminalFinishedIds.size) {
     for (const ts of terminalSessions) {
-      if (ts.cwd && terminalBelongsToProject(ts.cwd, projectPath)) sum += terminalAttentionCount(ts.id, terminalFinishedIds);
+      // Le shell non sono agenti e `projectAttentionTier` le salta già (:947):
+      // due gemelli che camminano sugli stessi figli con due predicati diversi
+      // producono, prima o poi, un fill senza numero o un numero senza fill.
+      if (ts.type === 'shell') continue;
+      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+      const count = terminalAttentionCount(ts.id, terminalFinishedIds);
+      if (count > 0) out.push({ id: ts.id, kind: 'terminal', name: ts.name || ts.type || 'Terminale', count });
     }
   }
-  return sum;
+  return out;
+}
+
+/** Il tooltip del progetto: «2 da guardare: Lavori aperti da fare · build». Vuoto
+ *  quando non c'è niente, così il chiamante può concatenarlo senza guardie. */
+export function describeProjectAttention(subjects: AttentionSubject[]): string {
+  if (!subjects.length) return '';
+  const total = subjects.reduce((n, s) => n + s.count, 0);
+  // Cap a 4 nomi: un progetto con venti figli non deve produrre un tooltip che
+  // copre lo schermo. Il resto si conta.
+  const shown = subjects.slice(0, 4).map((s) => s.name);
+  const rest = subjects.length - shown.length;
+  return `${total} da guardare: ${shown.join(' · ')}${rest > 0 ? ` · +altri ${rest}` : ''}`;
 }
 
 /**
@@ -1307,6 +1424,14 @@ export function rollupGlobalAttention(
 ): number {
   let sum = 0;
   for (const t of Object.values(topics)) {
+    // Gli ARCHIVIATI fuori anche qui. Il commento di `rollupProjectAttention`
+    // diceva che questo gemello «va guardato a parte»: guardato. Misurato sui
+    // dati veri il 03/08: dei 23 topic con sessione ferma su `awaiting-user`, 21
+    // erano ARCHIVIATI — chat chiuse, alcune di settimane prima, senza riga né
+    // tab. Erano 21 unità sul badge del dock e sul glifo nella barra dei menu che
+    // non si potevano azzerare da nessuna parte, perché non esiste una superficie
+    // dove andare a spegnerle. Stesso gate di `visibleTopicSignalCount`.
+    if (t.archived) continue;
     sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
   }
   return sum + terminalFinishedIds.size;

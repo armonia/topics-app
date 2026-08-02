@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useAttentionSignals, rollupProjectAttention, rollupGlobalAttention, topicAttentionCount, terminalAttentionCount } from '../state/signals';
+import { useAttentionSignals, rollupProjectAttention, rollupGlobalAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { useRefMirror } from './useRefMirror';
@@ -12,6 +12,12 @@ interface TabNotificationContextValue {
   getBadgeCount: (paneId: string, topicId?: string, isActive?: boolean) => number;
   /** Get the rolled-up badge count for a project tab (sum of its children). */
   getProjectBadgeCount: (projectPath: string) => number;
+  /** CHI compone quel numero, in chiaro: «2 da guardare: Lavori aperti · build».
+   *  Stringa vuota quando non c'è niente. Il numero di un progetto è un aggregato
+   *  di figli che possono non avere una tab visibile (o averla, ma selezionata,
+   *  che è il caso in cui la tab il numero non lo mostra): senza questo, un badge
+   *  di progetto non è risalibile a nulla. */
+  describeProjectBadge: (projectPath: string) => string;
   /** Increment badge for a non-chat pane (agents, terminal, etc.) */
   notifyPane: (paneId: string) => void;
   /** Clear badge for a non-chat pane */
@@ -221,6 +227,12 @@ export function TabNotificationProvider({
     return rollupProjectAttention(projectPath, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds);
   }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
 
+  const describeProjectBadge = useCallback((projectPath: string): string => {
+    return describeProjectAttention(
+      projectAttentionSubjects(projectPath, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds),
+    );
+  }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
+
   // Desktop (Tauri) dock-icon badge + macOS menu-bar tray glyph: reflect the
   // app-wide attention total on the OS chrome, driven by the SAME signals as the
   // in-app tab badges so it can never drift from what's on screen. The rollup
@@ -275,12 +287,13 @@ export function TabNotificationProvider({
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
     getProjectBadgeCount,
+    describeProjectBadge,
     notifyPane,
     clearPane,
     lastNotifiedAt,
     extraCounts,
     touchTopic,
-  }), [getBadgeCount, getProjectBadgeCount, notifyPane, clearPane, lastNotifiedAt, extraCounts, touchTopic]);
+  }), [getBadgeCount, getProjectBadgeCount, describeProjectBadge, notifyPane, clearPane, lastNotifiedAt, extraCounts, touchTopic]);
 
   return (
     <TabNotificationContext.Provider value={value}>
@@ -297,6 +310,7 @@ export function useTabNotifications(): TabNotificationContextValue {
     return {
       getBadgeCount: () => 0,
       getProjectBadgeCount: () => 0,
+      describeProjectBadge: () => '',
       notifyPane: () => {},
       clearPane: () => {},
       lastNotifiedAt: new Map(),

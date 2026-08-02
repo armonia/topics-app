@@ -651,6 +651,24 @@ export interface ClaudeSessionState {
   claudeSessionId: string;
   phase: ClaudeSessionPhase;
   phaseUpdatedAt: number;
+  /**
+   * Quando è cominciato il turno ATTUALMENTE in corso — l'istante in cui la
+   * sessione è entrata in una fase di lavoro (`running`/`tool-running`/
+   * `watching`) venendo da una fase che lavoro non era.
+   *
+   * Serve perché `phaseUpdatedAt` non risponde alla domanda «da quanto sta
+   * lavorando?»: dentro un turno la fase rimbalza fra `running` e
+   * `tool-running` a ogni tool, quindi `phaseUpdatedAt` si azzera di continuo e
+   * misura l'ULTIMA azione, non il turno. Le due cose vanno tenute distinte
+   * perché la UI le usa entrambe e per cose opposte: a turno finito conta
+   * `phaseUpdatedAt` («ha finito 5 minuti fa»), a turno in corso conta questo
+   * («sta lavorando da 12 minuti»).
+   *
+   * Deliberatamente NON persistito, come `monitorArmed`: ha senso solo per un
+   * turno VIVO, e dopo un riavvio del server la UI ricade su `phaseUpdatedAt`
+   * invece di mostrare una durata inventata.
+   */
+  turnStartedAt?: number;
   /** Transcript JSONL da cui il tracker legge; dettaglio del server, sul filo comunque. */
   jsonlPath?: string;
   /** Offset già consumato del transcript. Come sopra: server-side, ma copiato sul filo. */

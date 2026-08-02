@@ -306,6 +306,49 @@ describe('applyHook — phase transitions', () => {
   });
 });
 
+describe('turnStartedAt — il cronometro del TURNO, non dell\'ultima azione', () => {
+  it('parte quando la sessione entra nel lavoro', () => {
+    const s0 = freshState();
+    expect(s0.turnStartedAt).toBeUndefined();
+    const s1 = applyHook(s0, hook('UserPromptSubmit'), T0 + TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.turnStartedAt).toBe(T0 + TICK);
+  });
+
+  it('NON si riazzera a ogni tool: e il difetto che esiste per risolvere', () => {
+    // Dentro un turno la fase rimbalza running ↔ tool-running a ogni tool, e
+    // `phaseUpdatedAt` con lei. Chi voleva sapere «da quanto sta lavorando?»
+    // leggeva quindi la durata dell'ULTIMA azione — «3s» su un turno di venti
+    // minuti.
+    const start = T0 + TICK;
+    let s = applyHook(freshState(), hook('UserPromptSubmit'), start);
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Bash', tool_input: {} }), start + 60_000);
+    s = applyHook(s, hook('PostToolUse', { tool_name: 'Bash' }), start + 90_000);
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Read', tool_input: {} }), start + 120_000);
+    expect(s.turnStartedAt).toBe(start);
+    // La prova che i due campi misurano cose diverse:
+    expect(s.phaseUpdatedAt).toBe(start + 120_000);
+  });
+
+  it('un turno NUOVO ridata l\'inizio', () => {
+    const primo = T0 + TICK;
+    let s = applyHook(freshState(), hook('UserPromptSubmit'), primo);
+    s = applyHook(s, hook('Stop'), primo + 300_000);
+    expect(s.turnStartedAt).toBe(primo);
+    const secondo = primo + 900_000;
+    s = applyHook(s, hook('UserPromptSubmit'), secondo);
+    expect(s.turnStartedAt).toBe(secondo);
+  });
+
+  it('a turno finito il valore resta: nessuno lo legge, e cancellarlo non serve', () => {
+    const start = T0 + TICK;
+    let s = applyHook(freshState(), hook('UserPromptSubmit'), start);
+    s = applyHook(s, hook('Stop'), start + 120_000);
+    expect(s.phase).toBe('awaiting-user');
+    expect(s.turnStartedAt).toBe(start);
+  });
+});
+
 describe('applyHook — Monitor lifecycle (watching phase + monitorArmed flag)', () => {
   it('MonitorArmed moves to watching and sets the armed flag', () => {
     const s0 = freshState({ phase: 'running', rev: 1, lastTool: { name: 'Bash', startedAt: T0 } });

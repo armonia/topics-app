@@ -189,6 +189,19 @@ interface TopicSpinnerProps {
    * writing keeps it fresh; only a genuinely quiet one goes stale). `labeled` only.
    */
   lastActivity?: number;
+  /**
+   * `labeled` con `quiet` mostra la cifra SOLO quando la riga è stale (oltre
+   * WORK_STALE_AFTER_MS): sotto quella soglia resta lo spinner nudo.
+   *
+   * Serve dove accanto c'è già una voce di tempo — le righe di chat e terminale,
+   * che sotto al nome mostrano `SessionActivity` («Esegue un comando · 12m»). Lì
+   * il chip in coda era un SECONDO numero che misurava un'altra cosa (il tempo
+   * dall'ultimo aggiornamento, non la durata del turno), e due numeri diversi
+   * sulla stessa riga si leggono come un errore. Da stale il numero torna, perché
+   * lì non duplica niente: dice quanto è che NON si muove. Le righe di progetto,
+   * che una subline non ce l'hanno, non passano `quiet` e restano com'erano.
+   */
+  quiet?: boolean;
 }
 
 export function TopicStreamingSpinner({
@@ -199,6 +212,7 @@ export function TopicStreamingSpinner({
   size,
   variant = 'compact',
   lastActivity,
+  quiet,
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
@@ -213,6 +227,7 @@ export function TopicStreamingSpinner({
         title={title}
         className={className}
         size={size}
+        quiet={quiet}
       />
     );
   }
@@ -238,12 +253,14 @@ function LabeledLoader({
   title,
   className = '',
   size,
+  quiet,
 }: {
   lastUpdate: number | undefined;
   onStop?: () => void;
   title?: string;
   className?: string;
   size?: number;
+  quiet?: boolean;
 }) {
   const now = useSharedNow();
   const { showElapsed, isStale, elapsedMs } = deriveWorkLongevity(lastUpdate, now);
@@ -256,9 +273,12 @@ function LabeledLoader({
       ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
       : baseTip;
 
+  // `quiet`: la cifra esce solo da stale. Il tooltip resta sempre completo — la
+  // spiegazione non occupa spazio sulla riga.
+  const showNumber = quiet ? isStale : showElapsed;
   // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
-  if (!showElapsed) {
-    return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} />;
+  if (!showNumber) {
+    return <LoaderSlot onStop={onStop} title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} />;
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>

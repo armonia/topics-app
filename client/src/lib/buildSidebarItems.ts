@@ -527,7 +527,19 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       icon: 'folder',
       lastActivity: projectActivity,
       notificationCount: projectNotifications,
-      archived: false,
+      // Era `false` letterale, e questa riga è l'UNICO posto che costruisce un
+      // item di tipo 'project': nessun consumatore lo ricalcola. Conseguenza:
+      // `item.archived` non era mai vero, quindi il ramo «Ripristina progetto»
+      // (bottone su hover in TopicTree, voce del menu contestuale, voce del menu
+      // touch) era codice irraggiungibile — e l'unico bottone che si vedeva era
+      // «Archivia», anche su un progetto in cui ogni chat era già archiviata:
+      // cliccarlo ri-archiviava il già archiviato. Su questa macchina il caso
+      // non è teorico: `topics-app` ha 120 topic su 120 archiviati.
+      //
+      // Un progetto è archiviato quando lo sono TUTTI i suoi topic — la stessa
+      // definizione che usa `allArchived` a valle per decidere cosa fa il
+      // bottone. Un progetto senza topic non è "archiviato": è vuoto.
+      archived: projectTopics.length > 0 && projectTopics.every((t) => t.archived),
       projectPath: pp,
       children,
       ...(pinnedIds.has(`project:${pp}`) ? { pinned: true } : {}),
@@ -770,13 +782,39 @@ export function sidebarItemState(item: SidebarItem, sig: SidebarStateSignals): S
  * Preservarlo conta: `buildSidebarItems` li ha già ordinati per notifica e
  * attività, e riordinare dentro il bucket butterebbe via quel lavoro — un utente
  * che rilegge la stessa lista non deve trovare le righe rimescolate.
+ *
+ * I FIGLI DEI PROGETTI vengono promossi. `sidebarItemState` dice, in un commento,
+ * che «un progetto è un contenitore, e i suoi figli finiscono nei bucket per
+ * conto proprio»: non era vero. Questa funzione iterava solo gli item top-level,
+ * mentre le chat e i terminali di un progetto vivono in `item.children` — quindi
+ * la sezione «Attende te» era strutturalmente cieca a tutto ciò che sta dentro un
+ * progetto, cioè alla maggior parte del lavoro. Un progetto con dentro una chat
+ * che ti aspetta finiva in «Il resto» insieme a tutto il resto.
+ *
+ * Il figlio promosso resta contestualizzato (porta il suo `projectPath`), e il
+ * progetto rimane in `rest` con i soli figli che non sono stati promossi: la
+ * riga non sparisce, si svuota di ciò che ora è mostrato altrove.
  */
 export function groupSidebarItemsByState(
   items: SidebarItem[],
   sig: SidebarStateSignals,
 ): Record<SidebarStateBucket, SidebarItem[]> {
   const groups: Record<SidebarStateBucket, SidebarItem[]> = { awaiting: [], working: [], rest: [] };
-  for (const item of items) groups[sidebarItemState(item, sig)].push(item);
+  for (const item of items) {
+    if (item.type === 'project' && item.children?.length) {
+      const remaining: SidebarItem[] = [];
+      for (const child of item.children) {
+        const bucket = sidebarItemState(child, sig);
+        if (bucket === 'rest') remaining.push(child);
+        else groups[bucket].push(child);
+      }
+      // Il progetto sta sempre in `rest`: non ha soggetto proprio, e il suo stato
+      // era già quello. Cambia solo cosa gli resta appeso sotto.
+      groups.rest.push(remaining.length === item.children.length ? item : { ...item, children: remaining });
+      continue;
+    }
+    groups[sidebarItemState(item, sig)].push(item);
+  }
   return groups;
 }
 

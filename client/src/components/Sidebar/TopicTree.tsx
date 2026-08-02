@@ -32,6 +32,7 @@ import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
+import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -55,17 +56,23 @@ const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labe
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function relativeTime(ts: number): string {
-  if (!ts) return '';
-  const diffS = Math.floor((Date.now() - ts) / 1000);
-  if (diffS < 60) return 'now';
-  const diffM = Math.floor(diffS / 60);
-  if (diffM < 60) return `${diffM}m`;
-  const diffH = Math.floor(diffM / 60);
-  if (diffH < 24) return `${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 30) return `${diffD}d`;
-  return `${Math.floor(diffD / 30)}mo`;
+// `relativeTime` locale rimosso: era la terza copia della stessa formattazione e,
+// come le altre due, leggeva `Date.now()` dentro il render — quindi il numero si
+// congelava al primo disegno della riga. Ora è il componente `RelativeTime`, che
+// prende il tempo dal tick condiviso e si ri-renderizza da solo.
+
+/** «2 da guardare: Lavori aperti · build» dai figli che il builder ha già
+ *  calcolato. Gemello di `describeProjectAttention` (che parte dagli store, per
+ *  la tab): qui la lista dei figli è già in mano, e ricalcolarla dagli store
+ *  vorrebbe dire due walk che possono divergere. `undefined` quando non c'è
+ *  niente da dire, così `title` non nasce vuoto. */
+function describeChildAttention(children: SidebarItem[] | undefined): string | undefined {
+  const ringing = (children ?? []).filter((c) => c.notificationCount > 0);
+  if (!ringing.length) return undefined;
+  const total = ringing.reduce((n, c) => n + c.notificationCount, 0);
+  const shown = ringing.slice(0, 4).map((c) => c.name);
+  const rest = ringing.length - shown.length;
+  return `${total} da guardare: ${shown.join(' · ')}${rest > 0 ? ` · +altri ${rest}` : ''}`;
 }
 
 const TYPE_ICONS = {
@@ -712,14 +719,10 @@ export function TopicTree({
                 so a project's last update wasn't visible at a glance. `item.lastActivity`
                 is the project's aggregate (max over its children, per buildSidebarItems).
                 Hidden on hover to free room for the action buttons, like the badge below. */}
-            {item.lastActivity > 0 && (
-              <span
-                className={`flex-shrink-0 text-[11px] tabular-nums group-hover/proj:hidden mr-1 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-                title={new Date(item.lastActivity).toLocaleString()}
-              >
-                {relativeTime(item.lastActivity)}
-              </span>
-            )}
+            <RelativeTime
+              at={item.lastActivity}
+              className={`flex-shrink-0 text-[11px] tabular-nums group-hover/proj:hidden mr-1 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+            />
             <ProjectStreamingSpinner projectPath={pp} className="ml-0.5" />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
@@ -728,7 +731,17 @@ export function TopicTree({
                 and process status live where they're actionable (git/terminal
                 panes + the project tab). */}
             {item.notificationCount > 0 && (
-              <NotificationBadge count={item.notificationCount} className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`} variant={projOnFill ? 'onFill' : 'default'} />
+              <NotificationBadge
+                count={item.notificationCount}
+                className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`}
+                variant={projOnFill ? 'onFill' : 'default'}
+                // Il numero del progetto è una SOMMA sui figli, e il figlio che
+                // lo produce può non avere una riga sott'occhio (accordion
+                // chiuso) né una tab che lo mostri (quella selezionata non porta
+                // badge, per contratto). Il tooltip dice di chi è il numero.
+                // Stessa frase del tooltip sulla tab di progetto.
+                title={describeChildAttention(item.children)}
+              />
             )}
             {/* Action buttons on hover */}
             {!isTouch && (
@@ -1131,9 +1144,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         {/* Relative last-activity — same trailing timestamp BrowserSidebarItem
             shows, so it's visible AT A GLANCE why this row sorts above/below
             another (real last touch, not frozen createdAt). */}
-        <span className={`flex-shrink-0 text-[11px] tabular-nums group-hover/terminal:hidden mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}>
-          {relativeTime(lastActivity)}
-        </span>
+        <RelativeTime
+          at={lastActivity}
+          className={`flex-shrink-0 text-[11px] tabular-nums group-hover/terminal:hidden mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+        />
         {/* Loading spinner + status pinned to the END of the row (after the cwd
             metadata) so "what's working" reads at the trailing edge, mirroring
             the tab bar. A finished turn surfaces as the notification badge, not
@@ -1473,9 +1487,10 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
-      <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
-        {relativeTime(bc.lastActivity)}
-      </span>
+      <RelativeTime
+        at={bc.lastActivity}
+        className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1"
+      />
       {/* Loading spinner pinned to the row's trailing edge (after the
           last-activity timestamp), mirroring the tab + terminal rows. Same
           signal (useBrowserLoading) and component the browser TAB uses. No
