@@ -120,6 +120,13 @@ for arg in "$@"; do
   esac
 done
 
+# Via TUTTE le cartelle shard-*, non solo le N di questa run: una passata a 8
+# shard seguita da una a 4 lascerebbe shard-5..8 con i risultati VECCHI, e il
+# glob `test-results/shard-*/results.json` — quello che si passa a
+# `e2e-record-durations.ts` — li rimescolerebbe con i nuovi. Misure di due run
+# diverse nello stesso file di durate distorcono il pacchettamento in silenzio.
+rm -rf test-results/shard-[0-9]*
+
 PLAN_DIR="test-results/shard-plan"
 rm -rf "$PLAN_DIR"
 PLAN_OK=0
