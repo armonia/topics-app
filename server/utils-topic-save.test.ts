@@ -161,4 +161,73 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
     ctx.saveSingleTopic(plain);
     expect(ctx.getTopicById(plain.id)?.mcpPolicy).toBeUndefined();
   });
+
+  describe("browserState (migration 075)", () => {
+    // Il campo esisteva nel tipo ed era SCRITTO — `onNavigate` in server.ts lo
+    // assegnava e chiamava `saveSingleTopic` — ma senza colonna, senza binding
+    // in insertTopic e senza lettura in rowToTopic il salvataggio lo scartava in
+    // silenzio: la lettura dopo lo ritrovava `undefined`. Costo osservato:
+    // `GET /api/topics` non ha mai riportato browserState a nessun client, e
+    // `restoreAllContexts` — che lo cercava per decidere cosa ripristinare — ha
+    // stampato «0 restored» per 962 boot di fila.
+    const STATE = {
+      url: "https://example.com/",
+      contextId: "bs000001-bbbb-cccc-dddd-000000000001",
+      lastActiveAt: 1_700_000_000_000,
+      viewport: { width: 1280, height: 800 },
+    };
+
+    test("sopravvive al giro salva/ricarica", () => {
+      const t = makeTopic("bs000001-bbbb-cccc-dddd-000000000001", { browserState: STATE });
+      ctx.saveSingleTopic(t);
+      expect(ctx.getTopicById(t.id)?.browserState).toEqual(STATE);
+      // Anche dalla lettura in blocco, che e' la strada di GET /api/topics.
+      expect(ctx.loadTopics().topics[t.id]?.browserState).toEqual(STATE);
+    });
+
+    test("la scrittura mirata aggiorna solo quella colonna", () => {
+      const t = makeTopic("bs000002-bbbb-cccc-dddd-000000000002", { name: "Nome che deve restare" });
+      ctx.saveSingleTopic(t);
+
+      ctx.setTopicBrowserState(t.id, STATE);
+
+      const after = ctx.getTopicById(t.id);
+      expect(after?.browserState).toEqual(STATE);
+      // Il resto della riga non e' stato toccato: e' tutto il punto della
+      // scrittura per colonna (onNavigate scatta a ogni navigazione e non deve
+      // correre con una rinomina o un'archiviazione in volo).
+      expect(after?.name).toBe("Nome che deve restare");
+    });
+
+    test("`null` cancella, e non lascia un valore incastrato", () => {
+      const t = makeTopic("bs000003-bbbb-cccc-dddd-000000000003", { browserState: STATE });
+      ctx.saveSingleTopic(t);
+      expect(ctx.getTopicById(t.id)?.browserState).toBeDefined();
+
+      ctx.setTopicBrowserState(t.id, null);
+      expect(ctx.getTopicById(t.id)?.browserState).toBeUndefined();
+    });
+
+    test("un topic che non esiste e' un no-op silenzioso", () => {
+      // Il contextId puo' appartenere a una pane temporanea o a un terminale
+      // (`term-<id>`), che qui non ha una riga: l'hook non deve rumoreggiare.
+      expect(() => ctx.setTopicBrowserState("non-esiste", STATE)).not.toThrow();
+    });
+
+    test("JSON illeggibile in colonna non fa cadere la lettura del topic", () => {
+      const t = makeTopic("bs000004-bbbb-cccc-dddd-000000000004", { name: "Con JSON rotto" });
+      ctx.saveSingleTopic(t);
+      ctx.db.prepare("UPDATE topics SET browser_state = ? WHERE id = ?").run("{non json", t.id);
+
+      const after = ctx.getTopicById(t.id);
+      expect(after?.name).toBe("Con JSON rotto");
+      expect(after?.browserState).toBeUndefined();
+    });
+
+    test("un topic normale non guadagna il campo", () => {
+      const plain = makeTopic("bs000005-bbbb-cccc-dddd-000000000005");
+      ctx.saveSingleTopic(plain);
+      expect(ctx.getTopicById(plain.id)?.browserState).toBeUndefined();
+    });
+  });
 });

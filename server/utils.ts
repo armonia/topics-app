@@ -163,8 +163,8 @@ export function createAppContext(baseDir: string): AppContext {
     // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
     // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
-      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, muted, worktree_id, initial_message, standalone, mcp_policy, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $muted, $worktree_id, $initial_message, $standalone, $mcp_policy, $archived, $created_at, $updated_at)
+      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, muted, worktree_id, initial_message, standalone, mcp_policy, browser_state, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $muted, $worktree_id, $initial_message, $standalone, $mcp_policy, $browser_state, $archived, $created_at, $updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         slug = excluded.slug,
@@ -185,6 +185,7 @@ export function createAppContext(baseDir: string): AppContext {
         initial_message = excluded.initial_message,
         standalone = excluded.standalone,
         mcp_policy = excluded.mcp_policy,
+        browser_state = excluded.browser_state,
         archived = excluded.archived,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at
@@ -322,6 +323,15 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.standalone) topic.standalone = true;
     // mcp_policy (migration 049). NULL omitted: inherit-the-fleet default.
     if (row.mcp_policy) topic.mcpPolicy = row.mcp_policy;
+    // browser_state (migration 075). Prima non aveva colonna: l'hook onNavigate
+    // scriveva `topic.browserState` su un oggetto che rowToTopic aveva appena
+    // costruito e che nessuno salvava, quindi la lettura successiva lo trovava
+    // di nuovo `undefined` — una scrittura morta, invisibile perche' il valore
+    // c'era per il resto della richiesta. JSON malformato si ignora: e' un
+    // ausilio (ultimo url mostrato), non un dato su cui vale la pena fallire.
+    if (row.browser_state) {
+      try { topic.browserState = JSON.parse(row.browser_state); } catch { /* ignora */ }
+    }
 
     const contextFiles = rels ? (rels.contextFiles.get(row.id) ?? []) : (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -394,6 +404,8 @@ export function createAppContext(baseDir: string): AppContext {
         // mcp_policy (migration 049). NULL = inherit fleet; 'bridge-only' =
         // dispatch-scoped session (topics bridge only, reduced tool profile).
         $mcp_policy: topic.mcpPolicy || null,
+        // browser_state (migration 075): JSON del campo, o NULL. Vedi rowToTopic.
+        $browser_state: topic.browserState ? JSON.stringify(topic.browserState) : null,
         $archived: topic.archived ? 1 : 0,
         $created_at: topic.createdAt,
         $updated_at: topic.updatedAt,
@@ -631,6 +643,31 @@ export function createAppContext(baseDir: string): AppContext {
     const row = stmts.getTopicById.get(id) as any;
     if (!row) return null;
     return rowToTopic(row);
+  }
+
+  /**
+   * Scrive SOLO `browser_state` (migration 075) per un topic.
+   *
+   * Scrittura mirata, non un `saveSingleTopic`: l'hook `onNavigate` scatta a
+   * OGNI navigazione del browser, e un upsert dell'intera riga a quel ritmo
+   * riscriverebbe venti colonne per aggiornarne una — e soprattutto correrebbe
+   * con qualunque altra scrittura sullo stesso topic (nome, archiviazione,
+   * modello), che è esattamente il lost-update che ha portato a preferire le
+   * scritture per colonna in questo file.
+   *
+   * `null` cancella la voce (contesto distrutto). Il topic inesistente è un
+   * no-op silenzioso: il contextId può appartenere a una pane temporanea o a un
+   * terminale (`term-<id>`), che non ha una riga qui.
+   */
+  function setTopicBrowserState(topicId: string, state: Topic['browserState'] | null): void {
+    try {
+      db.prepare("UPDATE topics SET browser_state = ? WHERE id = ?").run(
+        state ? JSON.stringify(state) : null,
+        topicId,
+      );
+    } catch (err) {
+      console.warn(`[topics] setTopicBrowserState(${topicId}) fallita:`, (err as Error).message);
+    }
   }
 
   // Il modulo push-triggers è puro; qui gli passiamo l'unico aggancio al DB che
@@ -1669,7 +1706,7 @@ export function createAppContext(baseDir: string): AppContext {
     activeStreams, wsClients,
     broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers,
     loadTopics, saveTopics, saveSingleTopic,
-    getTopicById, getTopicBySessionKey,
+    getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
