@@ -191,18 +191,48 @@ test.describe("ui-state hardening (Bug #6, #7): validation + size cap + device-l
   // Matches MAX_UI_STATE_BYTES in server/routes/ui-state.ts
   const MAX_BYTES = 256 * 1024;
 
-  test("PUT /api/ui-state/:key rejects array body with 400", async ({ request }) => {
+  // Il vincolo "il valore dev'essere un oggetto" sul PUT a chiave singola è
+  // stato TOLTO, e non per allentare l'hardening: quell'endpoint è un negozio
+  // generico chiave→JSON, e la guardia — ereditata dalla fase pane-state, dove
+  // ogni valore ERA un oggetto — rifiutava con 400 le uniche due chiavi non-pane
+  // che ci passano, `theme` (stringa) e `claude-prefs-skip` (booleano), scritte
+  // da useServerState<T> che manda il valore nudo. Il tema non è MAI stato
+  // persistito lato server, e in silenzio (il hook fa `.catch(() => {})`).
+  // Il cap di dimensione, lo strip dei campi device-local e il vincolo oggetto
+  // sul PUT BULK — che è il canale di pane-store/settings, dove è il contratto
+  // vero — restano tutti. Vedi server/routes/ui-state.scalar.test.ts.
+  test("PUT /api/ui-state/:key accepts an array body (generic key→JSON store)", async ({ request }) => {
     const key = `harden-array-${Date.now()}`;
     const resp = await request.put(`${BASE}/api/ui-state/${encodeURIComponent(key)}`, {
       data: [1, 2, 3],
     });
-    expect(resp.status()).toBe(400);
+    expect(resp.status()).toBe(200);
+    const get = await request.get(`${BASE}/api/ui-state/${encodeURIComponent(key)}`);
+    expect((await get.json()).value).toEqual([1, 2, 3]);
   });
 
-  test("PUT /api/ui-state/:key rejects primitive body (string) with 400", async ({ request }) => {
+  test("PUT /api/ui-state/:key accepts a primitive body (the `theme` case)", async ({ request }) => {
     const key = `harden-str-${Date.now()}`;
+    // `data: "..."` da solo verrebbe spedito come text/plain con il corpo NUDO,
+    // che non è JSON valido: il 400 arriverebbe dal parser, non dalla regola in
+    // esame, e il test passerebbe per il motivo sbagliato. Si spedisce la
+    // stringa JSON-encoded, esattamente come fa useServerState.
     const resp = await request.put(`${BASE}/api/ui-state/${encodeURIComponent(key)}`, {
-      data: "just a string",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify("dark"),
+    });
+    expect(resp.status()).toBe(200);
+    const get = await request.get(`${BASE}/api/ui-state/${encodeURIComponent(key)}`);
+    expect((await get.json()).value).toBe("dark");
+  });
+
+  test("PUT /api/ui-state/:key rejects a null body with 400", async ({ request }) => {
+    // Unico valore JSON che resta fuori, e per una ragione diversa: una chiave
+    // ASSENTE risponde già `null`, quindi un null scritto non è rileggibile.
+    const key = `harden-null-${Date.now()}`;
+    const resp = await request.put(`${BASE}/api/ui-state/${encodeURIComponent(key)}`, {
+      headers: { "Content-Type": "application/json" },
+      data: "null",
     });
     expect(resp.status()).toBe(400);
   });
