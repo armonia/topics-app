@@ -114,6 +114,16 @@ export function setSubAgentExitHandler(fn: ((info: SubAgentExitInfo) => void) | 
   subAgentExitHandler = fn;
 }
 
+// A terminal can open a browser pane (contextId `term-<id>`). Deleting the
+// terminal session must also tear that browser down, else the context lived on
+// after its owner was gone (a `term-*` Playwright context found alive exactly
+// this way). terminal.ts has no browserService handle, so server.ts injects a
+// closer that broadcasts the pane close + destroys the server-side context.
+let terminalBrowserCloser: ((contextId: string) => void) | null = null;
+export function setTerminalBrowserCloser(fn: ((contextId: string) => void) | null): void {
+  terminalBrowserCloser = fn;
+}
+
 /** Read a just-exited sub-agent's final assistant message from its OWN on-disk
  *  transcript (which survives the PTY death). A short retry covers the transcript
  *  flush lag right at exit. Best-effort: returns '' when nothing is recoverable. */
@@ -2054,6 +2064,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       clearTerminalActivity(deleteMatch.id);
       // Reap any sub-agents this session spawned (no orphaned drivable PTYs).
       cascadeKillChildren(deleteMatch.id);
+      // Close the browser this terminal may have opened (contextId `term-<id>`).
+      // Best-effort: no such context (terminal never opened a browser) is a
+      // harmless no-op on the destroy side.
+      terminalBrowserCloser?.(`term-${deleteMatch.id}`);
       broadcastTerminalSessions();
       return json({ ok: true });
     }

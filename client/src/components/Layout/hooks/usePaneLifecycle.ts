@@ -94,7 +94,17 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         // Da NON fare: rimettere un reaper al boot che chiude gli avanzi.
         // nativeBrowserRoster.ts spiega perché è stato tolto — chiudeva alla
         // cieca anche le view che sarebbero state riusate.
-        if (isTauri) void tauriInvoke('browser_close', { id: ctx }).catch(() => {});
+        if (isTauri) {
+          void tauriInvoke('browser_close', { id: ctx }).catch(() => {});
+          // TRUE close (tombstone path, mai il re-key transitorio dell'auto-split):
+          // recupera anche il WKWebsiteDataStore su disco. `browser_close` svuota
+          // il CONTENUTO ma il silo cookie/localStorage/IndexedDB resta su disco per
+          // sempre — l'audit del 2026-08-02 ha trovato ~1,1 GB di store che nessuna
+          // pane riaprirà. Il purge cancella login/sessione: va bene SOLO qui, dove
+          // la pane se ne va davvero (col tombstone). Il comando fa da sé il close
+          // idempotente prima di rimuovere lo store.
+          void tauriInvoke('browser_purge_data_store', { id: ctx }).catch(() => {});
+        }
       }
     },
     localManaged: true,

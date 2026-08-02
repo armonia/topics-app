@@ -1,7 +1,7 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl } from "./browser-state-store";
+import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry } from "./browser-state-store";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
@@ -901,7 +901,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // saver.trigger() (debounced). A debounced trigger at the same
         // period as the debounce delay would re-arm the timer on every
         // tick and never fire.
-        const saver = debouncedSaver(id, async () => context.storageState(), 30_000);
+        // indexedDB:true — cookies + localStorage alone lose the session on
+        // sites that keep their auth/token in IndexedDB (Firebase, many SPAs):
+        // they'd wake up logged OUT even after cookies restored. Playwright
+        // captures IndexedDB into storageState only when asked, and newContext
+        // replays it automatically on load (createContext passes this state).
+        const saver = debouncedSaver(id, async () => context.storageState({ indexedDB: true }), 30_000);
         // Dirty-check: only serialize+write storageState when the context has
         // seen activity since the last save. A parked/idle context (no nav, no
         // clicks) skips the 30s storageState() serialize + disk write entirely.
@@ -981,7 +986,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // Final flush before close (best effort).
       try {
-        const finalState = await entry.context.storageState();
+        const finalState = await entry.context.storageState({ indexedDB: true });
         await saveStorageState(id, finalState);
       } catch (err: any) {
         console.warn(`[BrowserService] Final state save failed for ${id}:`, err.message);
@@ -1304,24 +1309,51 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     },
 
     async restoreAllContexts(topics) {
+      // Source of truth = the DISK store, NOT topic.browserState. browserState
+      // is never persisted to SQLite, so after a restart every topic loads with
+      // browserState=undefined and the old loop skipped 100% of them ("0
+      // restored" over 962 boots). The per-context storage.json + last-url.json
+      // (browser-state-store.ts) DO survive, keyed by the same contextId the
+      // pane uses, so we drive the restore off them.
+      //
+      // Bounded on purpose: eagerly re-launching a Chromium context for every
+      // topic that ever opened a page would be a boot storm (hundreds of
+      // headless contexts + RAM). We warm only the RECENTLY-active ones, newest
+      // first, capped. Everything else still restores LAZILY on first use —
+      // createContext loads storageState + last-url exactly the same way — so no
+      // login or URL is lost, it's just paid for on demand instead of at boot.
+      const RESTORE_MAX = 8;
+      const RESTORE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      const now = Date.now();
+
+      const candidates: { topic: (typeof topics)[number]; contextId: string; updatedAt: number; viewport?: { width: number; height: number } }[] = [];
+      for (const topic of topics) {
+        const contextId = topic.browserState?.contextId ?? topic.id;
+        const entry = readLastUrlEntry(contextId);
+        if (!entry) continue; // nothing persisted for this context — skip
+        if (entry.updatedAt && now - entry.updatedAt > RESTORE_MAX_AGE_MS) continue; // stale
+        candidates.push({ topic, contextId, updatedAt: entry.updatedAt, viewport: topic.browserState?.viewport });
+      }
+      candidates.sort((a, b) => b.updatedAt - a.updatedAt); // newest first
+      const toWarm = candidates.slice(0, RESTORE_MAX);
+      const skipped = candidates.length - toWarm.length;
+
       let restored = 0;
       let failed = 0;
-      for (const topic of topics) {
-        if (!topic.browserState) continue;
-        const { contextId, url, viewport } = topic.browserState;
+      for (const { topic, contextId, viewport } of toWarm) {
         try {
-          // createContext loads storageState internally — DO NOT add
-          // a separate loadStorageState() call here, it would double-load.
-          await service.createContext(contextId, { viewport });
-          await service.navigate(contextId, url);
+          // createContext loads storageState AND re-navigates to the persisted
+          // last-url internally (see the getOrCreate path) — DO NOT add a
+          // separate loadStorageState()/navigate() here, it would double-load.
+          await service.createContext(contextId, viewport ? { viewport } : {});
           restored++;
-          console.log(`[BrowserService] Restored context ${contextId} for topic ${topic.id} -> ${url}`);
+          console.log(`[BrowserService] Restored context ${contextId} for topic ${topic.id}`);
         } catch (err: any) {
           failed++;
           console.warn(`[BrowserService] Failed to restore context for topic ${topic.id}:`, err.message);
         }
       }
-      console.log(`[BrowserService] restoreAllContexts: ${restored} restored, ${failed} failed`);
+      console.log(`[BrowserService] restoreAllContexts: ${restored} restored, ${failed} failed, ${skipped} deferred to lazy (cap ${RESTORE_MAX})`);
       return { restored, failed };
     },
 
