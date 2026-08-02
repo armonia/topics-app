@@ -34,7 +34,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode 
 // older bundles) are dropped — and the purge is persisted immediately, so a
 // concurrent window still running an old bundle can't re-read the poison.
 const CACHE_KEY = 'topics-project-icon-cache-v4';
-// A VERIFIED 'none' (a fetch confirmed a real 404) holds for hours; an
+// A VERIFIED 'none' (a fetch confirmed a real 204/404) holds for hours; an
 // UNVERIFIED one (transport error without confirmation) only briefly, enough
 // to stop an error-remount storm without hiding a recovering icon for long.
 const NONE_VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
@@ -115,11 +115,21 @@ function getSnapshot(path: string): Resolved {
 function settleViaFetch(path: string): void {
   fetch(endpointUrl(path))
     .then(async (r) => {
-      if (r.ok) {
+      // 204 = "il progetto non ha un'icona", ed è una risposta RIUSCITA (prima
+      // era un 404, il 4xx più rumoroso a ogni load). Va intercettata PRIMA di
+      // `r.ok`, che per un 204 è true: altrimenti si costruirebbe un blob VUOTO,
+      // lo si monterebbe come <img>, quella fallirebbe e si ricadrebbe qui via
+      // reportImgError con un 'none' NON verificato — TTL 5 minuti, cioè una
+      // riprova continua per ogni progetto senza icona.
+      if (r.status === 204) {
+        remember(path, 'none', true);
+        setResolved(path, { s: 'none' });
+      } else if (r.ok) {
         const src = URL.createObjectURL(await r.blob());
         remember(path, 'has');
         setResolved(path, { s: 'has', src });
       } else if (r.status === 404) {
+        // La directory non esiste più (progetto spostato/cancellato).
         remember(path, 'none', true);
         setResolved(path, { s: 'none' });
       } else {
@@ -151,8 +161,9 @@ function ensureProbe(path: string): void {
   inflight.add(path);
   if (!cur || cur.s !== 'probing') setResolved(path, PROBING);
   // Probe with a detached Image(): the natural, cache-friendly path. On error
-  // fall through to fetch, which distinguishes "no icon" (404) from a broken
-  // image transport (200 → recover via blob).
+  // fall through to fetch, which distinguishes "no icon" (204 — un'immagine
+  // vuota fa comunque scattare onerror) da un trasporto immagini rotto
+  // (200 → recover via blob).
   const img = new Image();
   img.onload = () => {
     remember(path, 'has');
