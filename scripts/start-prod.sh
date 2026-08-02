@@ -117,9 +117,17 @@ fi
 #
 # Live client hot-reload belongs in `bun run dev:client` (Vite HMR, see
 # CLAUDE.md "Development"), NOT in this production launchd agent. To apply
-# client source changes to the running app, rebuild + reload DELIBERATELY:
-#   launchctl kickstart -k gui/$(id -u)/com.armonia.topics-server
-# (re-runs the initial `npx vite build` above, then Electron reloads once).
+# client source changes to the running app:
+#   cd client && bun run build     # outDir ../public (client/vite.config.ts)
+# then reload the app window.
+#
+# NON usare `launchctl kickstart -k` per questo. Diceva proprio così qui
+# ("re-runs the initial `npx vite build` above, then Electron reloads once") e
+# sono due cose false: quella build è dentro `if [ ! -f public/index.html ]`
+# (riga 104), quindi su un'installazione con /public presente il kickstart non
+# ricompila NIENTE — come spiega il blocco 95-103, scritto dopo, che l'ha resa
+# condizionale apposta. E "Electron" è il guscio archiviato nella v2.0.0.
+# Restava una procedura che costa un riavvio del server per zero effetto.
 
 # ─── Server: STABLE run, no reload-on-source-change ────────────────────────
 # The production server hosts LIVE Claude PTY sessions and every client's

@@ -1,14 +1,16 @@
-// Shell bridge — single abstraction over the host environment.
+// Shell bridge — facade unica sull'ambiente ospite.
 //
-// PORTING-PLAN.md Tier 1 (T1.1): the client today reaches the desktop host via
-// `window.electronAPI` in ~22 files. To swap Electron → Tauri without touching
-// every callsite, those callsites route through this facade instead. Today every
-// branch delegates to `window.electronAPI` (Electron) or no-ops (web/PWA); the
-// Tauri branch is filled in during T1.2 using the plugins listed in the
-// capability map (PORTING-PLAN.md §5b).
+// Riconosce Tauri a runtime (globali `__TAURI_INTERNALS__`/`__TAURI__`, con
+// l'origine `tauri:` come fallback autorevole — vedi il commento CRITICAL in
+// `detectShell`), altrimenti web/PWA. Espone `shellKind`, `isTauri`,
+// `isDesktop` ed è importata da 18 callsite: è la porta da cui il client parla
+// con l'host, non un file in attesa di essere cablato.
 //
-// This file is ADDITIVE and currently imported by nobody — it changes no runtime
-// behaviour until callsites migrate. Migration is incremental and reversible.
+// [Nota storica, perché l'intestazione precedente diceva il contrario e per
+// molto tempo nessuno l'ha riletta: questa facade è nata per il porting
+// Electron → Tauri, quando ogni ramo delegava a `window.electronAPI` e il file
+// non era ancora importato da nessuno. Electron è stato archiviato nella
+// v2.0.0, `window.electronAPI` non esiste più, e i callsite sono migrati.]
 
 /** The shells that actually exist. 'electron' was a member until 2026-07-29
  *  even though `detectShell` has never been able to return it (the Electron
@@ -25,9 +27,7 @@ declare global {
 }
 
 /** Detect the host environment at runtime. Tauri exposes `__TAURI_INTERNALS__`
- *  (v2) / `__TAURI__` (v1 compat); everything else is plain web/PWA. The
- *  'electron' kind is retained in the type for legacy callsites but is never
- *  produced — the archived Electron shell no longer ships (v2.0.0). */
+ *  (v2) / `__TAURI__` (v1 compat); everything else is plain web/PWA. */
 export function detectShell(): ShellKind {
   if (typeof window === 'undefined') return 'web';
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) return 'tauri';
