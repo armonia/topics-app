@@ -26,6 +26,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../l
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
+import { EFFORT_TIERS } from "../../shared/effort";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1413,7 +1414,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             topic.effort = null;
           } else {
             const tier = String(body.effort).trim().toLowerCase();
-            const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+            const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
             if (!VALID_EFFORTS.has(tier)) return json({ error: "invalid effort tier" }, 400);
             topic.effort = tier;
           }
@@ -2558,7 +2559,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             // Per-topic reasoning-effort tier for claude-code (spawn-time
             // `--effort`). openclaw has no effort tier → route through /reasoning.
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
-            const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+            const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
             if (providerForSessionKey(sessionKey).name === 'openclaw') {
               return json({ error: "L'effort non si applica a questo provider — usa /reasoning." }, 400);
             }

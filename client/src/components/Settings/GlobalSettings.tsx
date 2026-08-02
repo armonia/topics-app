@@ -7,6 +7,7 @@ import { describeNativeNotifications } from '../../lib/notificationStatus';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
+import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
@@ -646,14 +647,14 @@ function BehaviorDefaults() {
         value={settings.claudeEffort}
         disabled={saving}
         onChange={(v) => save({ claudeEffort: v })}
-        options={['low', 'medium', 'high', 'xhigh', 'max'].map((v) => ({ value: v, label: v }))}
+        options={EFFORT_TIERS.map((v) => ({ value: v, label: v }))}
       />
       <SettingSelect
         label="Codex reasoning effort"
         value={settings.codexReasoningEffort}
         disabled={saving}
         onChange={(v) => save({ codexReasoningEffort: v })}
-        options={['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].map((v) => ({ value: v, label: v }))}
+        options={CODEX_REASONING_EFFORTS.map((v) => ({ value: v, label: v }))}
       />
       <SettingSelect
         label="Codex approval mode"

@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import { PackageCheck, Hourglass } from 'lucide-react';
 import { MAX_FANOUT } from '../../lib/board';
 import type { TaskStatus } from '../../lib/board';
+import { EFFORT_TIERS } from '../../lib/effortTiers';
 
 /** Compact prose for the shared ChatMarkdown renderer inside small board
  *  surfaces (session slices, comments, task description): small text, tight
@@ -104,7 +105,9 @@ export type TaskSurface =
 export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null }
 
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+// La scala effort vive in `shared/effort.ts` (via lib/effortTiers): il
+// selettore del dispatch e lo slider della chat leggono la STESSA scala ordinata.
+export const EFFORTS = EFFORT_TIERS;
 
 /** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
  *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */
