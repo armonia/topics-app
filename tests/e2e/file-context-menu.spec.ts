@@ -2,8 +2,8 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
-import { execSync } from "child_process";
 import { hermetic } from "./fixtures/hermetic";
+import { initGitRepo } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -31,10 +31,9 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     writeFileSync(`${tmpDir}/README.md`, "# Context Menu Test\n");
     writeFileSync(`${tmpDir}/src/index.ts`, 'export const x = 1;\n');
 
-    // Init git so the project is recognized
-    execSync("git init", { cwd: tmpDir });
-    execSync("git add -A", { cwd: tmpDir });
-    execSync('git commit -m "init"', { cwd: tmpDir });
+    // Init git so the project is recognized. L'identità la mette `initGitRepo`:
+    // senza, su CI `git commit` fallisce con «Please tell me who you are».
+    initGitRepo(tmpDir);
 
     const topic = await createTopic(request, topicName, { projectPath: tmpDir });
     topicId = topic.id;
