@@ -78,6 +78,7 @@ import m069 from "./migrations/070-message-cache-tokens.sql" with { type: "text"
 import m070 from "./migrations/071-drop-empty-assistant-turns.sql" with { type: "text" };
 import m071 from "./migrations/072-sweep-dangling-message-refs.sql" with { type: "text" };
 import m072 from "./migrations/073-topic-muted.sql" with { type: "text" };
+import m073 from "./migrations/074-messages-timestamp-index.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -160,4 +161,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 71, name: "071-drop-empty-assistant-turns.sql", sql: m070 },
   { version: 72, name: "072-sweep-dangling-message-refs.sql", sql: m071 },
   { version: 73, name: "073-topic-muted.sql", sql: m072 },
+  { version: 74, name: "074-messages-timestamp-index.sql", sql: m073 },
 ];
