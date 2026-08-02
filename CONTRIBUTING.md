@@ -132,26 +132,27 @@ designated => identifier "io.armonia.topics.tauri" and certificate leaf = H"…"
 che resta vero per sempre, purché il certificato sia **sempre lo stesso**. È
 l'unica proprietà che serve: stabilità, non autorevolezza.
 
+L'identità di Topics è **`Topics Signing`** — autofirmata, creata il 2026-08-02,
+scade nel 2036. È la stessa in locale e in CI, ed è questo il punto: due identità
+diverse sono due app diverse per macOS.
+
 - **In locale**: `./scripts/local-shell-swap.sh` costruisce, scambia il Mach-O e
-  firma con un'identità stabile (`SIGN_IDENTITY`, default `Mosaic Dev`). Si ferma
-  se il risultato è adhoc, invece di consegnare il problema che deve evitare.
-- **In CI**: finché `APPLE_CERTIFICATE` non è nei secret, la build macOS esce
-  **non firmata** — e lo dice nel log. Per firmarla, esporta lo stesso
-  certificato dal portachiavi come `.p12` e imposta:
+  firma con `SIGN_IDENTITY` (default `Topics Signing`). Si ferma se il risultato
+  è adhoc, invece di consegnare il problema che deve evitare.
+- **In CI**: i tre secret sono già impostati (`APPLE_CERTIFICATE` in base64,
+  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`). Senza di loro la build
+  macOS esce **non firmata** e lo dice nel log.
+- **Copia di sicurezza**: `~/.topics/signing/topics-signing.p12`, con la password
+  nel portachiavi alla voce «Topics Signing .p12 export password»
+  (`security find-generic-password -a topics-signing-p12 -w`). Serve per
+  reimportare l'identità su un altro Mac, o per rimettere i secret se si perdono.
 
-  ```
-  APPLE_CERTIFICATE            base64 del .p12
-  APPLE_CERTIFICATE_PASSWORD   la password di export
-  APPLE_SIGNING_IDENTITY       il nome del certificato (es. "Mosaic Dev")
-  ```
-
-  `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` servono solo alla
-  **notarizzazione**, che richiede l'account a pagamento: si armano solo tutti e
-  tre insieme, altrimenti la build ci prova e fallisce alla fine.
-
-  Un certificato autofirmato **non** soddisfa Gatekeeper al primo download (resta
-  l'avviso «sviluppatore non identificato»), ma rende stabili i permessi degli
-  aggiornamenti successivi, che è il problema pratico.
+`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` riguardano solo la
+**notarizzazione**, che richiede l'account Apple a pagamento: si armano solo
+tutti e tre insieme, altrimenti la build ci prova e fallisce alla fine. Senza
+notarizzazione un download resta «sviluppatore non identificato» al primo avvio —
+ma i permessi degli aggiornamenti successivi sono stabili, che è il problema
+pratico.
 
 `ship.sh` tags whatever is on `origin/main` (never local WIP) and is the intended
 release path. Tagging by hand (`git tag tauri-vX.Y.Z && git push origin …`) still

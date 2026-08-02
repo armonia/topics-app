@@ -34,7 +34,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${TOPICS_APP:-$HOME/Applications/Topics.app}"
-SIGN_IDENTITY="${SIGN_IDENTITY:-Mosaic Dev}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-Topics Signing}"
 BUNDLE_ID="io.armonia.topics.tauri"
 
 die() { echo "✗ $*" >&2; exit 1; }
@@ -49,13 +49,18 @@ if ! security find-identity -v -p codesigning | grep -qF "$SIGN_IDENTITY"; then
   serve un account Apple a pagamento. L'unica proprietà che conta è che non
   cambi: se cambia, macOS richiede di nuovo tutti i permessi.
 
-  Crearne uno (una volta sola):
-    Accesso Portachiavi → menu Certificati → Crea certificato…
-      Nome: $SIGN_IDENTITY
-      Tipo di identità: Root autofirmato
-      Tipo di certificato: Firma codice
+  Quello di Topics è "Topics Signing" (autofirmato, scade nel 2036). Se manca da
+  questo portachiavi, reimportalo dalla copia salvata:
 
-  Poi rilancia. Oppure indica un'identità già tua:
+    security import ~/.topics/signing/topics-signing.p12 \\
+      -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign \\
+      -P "\$(security find-generic-password -a topics-signing-p12 -w)"
+
+  È LO STESSO certificato che firma le release (secret APPLE_CERTIFICATE): se ne
+  usi un altro, l'app locale e quella aggiornata sono due identità diverse per
+  macOS e i permessi ripartono da zero.
+
+  Oppure indica un'identità già tua:
     SIGN_IDENTITY="Nome esistente" $0
 EOF
   exit 1
