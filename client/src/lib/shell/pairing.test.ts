@@ -10,6 +10,11 @@ import {
   getPairingToken,
   withTokenHeader,
   withTokenQuery,
+  isPairingRequired,
+  markPairingRequired,
+  clearPairingRequired,
+  subscribePairingRequired,
+  __resetPairingStateForTests,
 } from './pairing';
 
 const TOKEN = 'a'.repeat(64);
@@ -147,5 +152,72 @@ describe('pairing · withTokenQuery', () => {
   test('no-op when no token stored', () => {
     stubWindow('http://localhost:3333/');
     expect(withTokenQuery('ws://127.0.0.1:3333/ws')).toBe('ws://127.0.0.1:3333/ws');
+  });
+});
+
+/**
+ * «Questo dispositivo non è appaiato» deve ARRIVARE a schermo.
+ *
+ * Il commento in cima a `pairing.ts` prometteva che un dispositivo senza token
+ * cadesse su «the 401 pairing-prompt path, never a silent fail». Quel percorso
+ * non esisteva: in tutto il client non c'era una riga che guardasse il 401.
+ * Misurato il 2026-08-02 da un telefono via Tailscale — pagina 200,
+ * `/api/topics` 401, e a schermo solo «Reconnecting…», per sempre.
+ *
+ * Questi test tengono in piedi il canale: chi lo rompe scopre qui che l'unico
+ * segnale all'utente è tornato a essere un'attesa senza uscita.
+ */
+describe('stato di pairing (avviso «non appaiato»)', () => {
+  beforeEach(() => { __resetPairingStateForTests(); });
+
+  test('parte da «appaiato»: sul desktop non compare nessun avviso', () => {
+    expect(isPairingRequired()).toBe(false);
+  });
+
+  test('un 401 lo alza, e chi ascolta lo sa', () => {
+    const seen: boolean[] = [];
+    subscribePairingRequired((v) => seen.push(v));
+    // La sottoscrizione riceve SUBITO lo stato corrente: senza, un componente
+    // montato dopo il 401 resterebbe a mostrare «Reconnecting…».
+    expect(seen).toEqual([false]);
+
+    markPairingRequired();
+    expect(isPairingRequired()).toBe(true);
+    expect(seen).toEqual([false, true]);
+  });
+
+  test('chi si iscrive DOPO vede comunque lo stato', () => {
+    markPairingRequired();
+    const seen: boolean[] = [];
+    subscribePairingRequired((v) => seen.push(v));
+    expect(seen).toEqual([true]);
+  });
+
+  test('non notifica due volte lo stesso stato', () => {
+    // `api.ts` lo chiama a OGNI risposta: senza questa guardia ogni chiamata
+    // fallita ridisegnerebbe la status bar.
+    const seen: boolean[] = [];
+    subscribePairingRequired((v) => seen.push(v));
+    markPairingRequired();
+    markPairingRequired();
+    markPairingRequired();
+    expect(seen).toEqual([false, true]);
+  });
+
+  test('una risposta buona lo abbassa: il pairing riuscito si vede', () => {
+    const seen: boolean[] = [];
+    subscribePairingRequired((v) => seen.push(v));
+    markPairingRequired();
+    clearPairingRequired();
+    expect(isPairingRequired()).toBe(false);
+    expect(seen).toEqual([false, true, false]);
+  });
+
+  test('disiscriversi smette davvero di notificare', () => {
+    const seen: boolean[] = [];
+    const off = subscribePairingRequired((v) => seen.push(v));
+    off();
+    markPairingRequired();
+    expect(seen).toEqual([false]);
   });
 });

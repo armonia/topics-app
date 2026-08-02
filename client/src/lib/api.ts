@@ -22,7 +22,7 @@ import type {
   GoalStepStatus,
 } from '../types';
 import { serverHttpBase } from './shell/net';
-import { withTokenHeader } from './shell/pairing';
+import { withTokenHeader, markPairingRequired, clearPairingRequired } from './shell/pairing';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -50,6 +50,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...options,
     headers,
   });
+
+  // Il server rifiuta per AUTENTICAZIONE: questo dispositivo non è appaiato.
+  // Va segnalato una volta sola e a voce alta — senza, l'unico sintomo è un
+  // «Reconnecting…» eterno, perché il WebSocket non può leggere lo stato HTTP
+  // del proprio upgrade e nessun altro guarda il 401. Vedi shell/pairing.ts.
+  if (response.status === 401) markPairingRequired();
+  else if (response.ok) clearPairingRequired();
 
   if (!response.ok) {
     const text = await response.text();

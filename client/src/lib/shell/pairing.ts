@@ -81,3 +81,58 @@ export function withTokenQuery(rawUrl: string): string {
   const sep = rawUrl.includes('?') ? '&' : '?';
   return `${rawUrl}${sep}token=${encodeURIComponent(token)}`;
 }
+
+// ── «Questo dispositivo non è appaiato» ──────────────────────────────────────
+//
+// Il commento in cima a questo file diceva che un dispositivo senza token
+// «falls back to the 401 pairing-prompt path, never a silent fail». Quel
+// percorso NON esisteva: in tutto il client non c'era una sola riga che
+// guardasse `code: "unauthorized"`. Il risultato, misurato il 2026-08-02 da un
+// telefono via Tailscale: la pagina si apre (l'HTML non è protetto), ogni
+// `/api` e il WebSocket tornano 401, e l'unico segnale a schermo è
+// «Reconnecting…» — per sempre, senza mai dire che manca il pairing.
+//
+//     GET https://<host>:3333/            → 200
+//     GET https://<host>:3333/api/topics  → 401
+//
+// È lo stesso guasto che «Sessione scaduta» evita nei terminali: uno stato
+// senza uscita non è un'attesa, è un vicolo cieco. Qui basta dirlo — chi lo
+// legge sa che deve riaprire il link con `?token=`.
+//
+// Il segnale arriva da `api.ts`, che è la strada di TUTTE le chiamate /api: il
+// WebSocket non può leggere lo stato HTTP del proprio upgrade, quindi la
+// diagnosi la porta la fetch, che invece lo vede.
+
+let pairingRequired = false;
+const pairingListeners = new Set<(required: boolean) => void>();
+
+/** Da chiamare quando il server rifiuta per autenticazione (401 `unauthorized`). */
+export function markPairingRequired(): void {
+  if (pairingRequired) return;
+  pairingRequired = true;
+  for (const fn of pairingListeners) fn(true);
+}
+
+/** Il server ha risposto: qualunque risposta buona significa che siamo dentro. */
+export function clearPairingRequired(): void {
+  if (!pairingRequired) return;
+  pairingRequired = false;
+  for (const fn of pairingListeners) fn(false);
+}
+
+export function isPairingRequired(): boolean {
+  return pairingRequired;
+}
+
+/** Sottoscrive lo stato; restituisce la disiscrizione. Chiama subito col valore corrente. */
+export function subscribePairingRequired(fn: (required: boolean) => void): () => void {
+  pairingListeners.add(fn);
+  fn(pairingRequired);
+  return () => { pairingListeners.delete(fn); };
+}
+
+/** Test-only: riporta lo stato a zero fra un caso e l'altro. */
+export function __resetPairingStateForTests(): void {
+  pairingRequired = false;
+  pairingListeners.clear();
+}
