@@ -24,7 +24,7 @@
  * not bridged; see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { tauriInvoke } from '../lib/shell/tauri';
+import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
@@ -487,7 +487,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // browser_open is idempotent on an existing label (lib.rs), so reusing a view
     // whose close we just cancelled simply re-shows it.
     markBrowserViewLive(id);
-    void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
+    // windowLabel: la webview nativa deve nascere figlia della finestra che
+    // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
+    // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
+    void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' })
       .then(() => {
         if (cancelled) return;
         openedRef.current = true;
