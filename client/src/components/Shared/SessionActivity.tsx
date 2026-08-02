@@ -52,6 +52,17 @@ interface SessionActivityProps {
 }
 
 export function SessionActivity({ subjectId, onFill, className = '' }: SessionActivityProps) {
+  // Gate PRIMA di qualunque orologio. `deriveSessionActivity` scarta le sessioni
+  // idle, quindi la maggior parte delle righe di sidebar arriva qui e rende
+  // `null` — e se l'orologio si sottoscrivesse comunque, quelle righe si
+  // ri-renderizzerebbero ogni 10 secondi per non mostrare niente. È la
+  // regressione che `useSharedNow` avverte di evitare, in tutte lettere.
+  const activity = useSessionActivity(subjectId);
+  if (!activity) return null;
+  return <SessionActivityText subjectId={subjectId} onFill={onFill} className={className} />;
+}
+
+function SessionActivityText({ subjectId, onFill, className = '' }: SessionActivityProps) {
   const activity = useSessionActivity(subjectId);
   const lastActivityAt = useSubjectLastActivity(subjectId);
   // Due orologi, per due granularità. Mentre LAVORA il tempo va al secondo, e
