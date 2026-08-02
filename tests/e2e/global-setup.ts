@@ -85,13 +85,41 @@ function resolveChromiumPath(): string {
  * fallimento di prima, solo congelato per tutta la run.
  */
 async function snapshotBundle(): Promise<string> {
-  const src = resolve(__dirname, "../../public");
+  // `TOPICS_E2E_BUNDLE_DIR` — un bundle costruito ALTROVE.
+  //
+  // Il default (`public/`) presuppone che il watcher del client sia vivo e
+  // aggiorni la cartella: è il contratto dello sviluppo su questa macchina. Ma
+  // ci sono casi in cui non lo è, e senza via d'uscita la suite non parte
+  // affatto: una macchina di CI che builda una volta e basta; un checkout dove
+  // il watcher è morto o — visto il 2026-08-02 — è rimasto a girare a vuoto,
+  // 98% di CPU per un'ora senza scrivere niente. In entrambi i casi l'unica
+  // strada era «aspetta 90 secondi e arrenditi», su un bundle che nessuno stava
+  // per aggiornare.
+  //
+  // Con la variabile si punta a una cartella costruita a mano
+  // (`cd client && ./node_modules/.bin/vite build --outDir /tmp/e2e-bundle`),
+  // che NON tocca `public/` e non richiede di riavviare niente. I controlli di
+  // coerenza restano identici: quel bundle viene validato e congelato come
+  // l'altro. Salta invece l'attesa di freschezza, che non ha senso su una
+  // cartella che nessun watcher sta riscrivendo.
+  const override = process.env.TOPICS_E2E_BUNDLE_DIR?.trim();
+  const src = override ? resolve(override) : resolve(__dirname, "../../public");
+  if (override) {
+    if (!existsSync(src)) {
+      throw new Error(
+        `[global-setup] TOPICS_E2E_BUNDLE_DIR punta a ${src}, che non esiste.\n` +
+          `Costruiscilo: cd client && ./node_modules/.bin/vite build --outDir ${src}`,
+      );
+    }
+    console.log(`[global-setup] Bundle da TOPICS_E2E_BUNDLE_DIR: ${src} (nessuna attesa del watcher)`);
+  }
   const dest = publicDirForPort(E2E_PORT);
   for (let attempt = 1; attempt <= 3; attempt++) {
     // La freschezza si ricontrolla a OGNI tentativo: fra una copia stracciata e
     // la successiva possono passare secondi, e in mezzo il watcher può aver
-    // ricominciato da capo.
-    await waitForFreshBundle(src);
+    // ricominciato da capo. Con un bundle esterno non c'è nessun watcher da
+    // aspettare: la coerenza si verifica lo stesso, sulla copia, qui sotto.
+    if (!override) await waitForFreshBundle(src);
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     // execFileSync, non execSync: niente shell di mezzo, quindi un percorso con
