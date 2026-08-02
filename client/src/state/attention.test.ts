@@ -243,13 +243,27 @@ describe("projectAttentionTier — un figlio già VISTO non segnala più", () =>
     expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S())).toBe("done");
   });
 
-  test("un ARCHIVIATO continua a contare: un genitore muto sopra un figlio che pulsa sarebbe peggio", () => {
-    // `buildSidebarItems` tiene visibile una chat archiviata se è FISSATA, e la sua
-    // riga si colora. Chi invece non ha riga è coperto da FOCUS WINS nei chiamanti
-    // (selezionare il progetto spegne), non da un filtro qui.
+  test("un ARCHIVIATO non accende: è la chat CHIUSA che non ha dove essere spenta", () => {
+    // Misurato sulla macchina vera: 6 dei 6 figli che tenevano segnalato
+    // `topics-app` erano archiviati, fermi su `awaiting-user`. Una chat chiusa non
+    // ha riga né tab, quindi nessuna soglia può marcarla vista e il progetto
+    // resterebbe acceso per sempre. Stessa scelta di `visibleTopicSignalCount`.
     const withArchived = { z: topic("z", { projectPath: PROJ, archived: true }) };
-    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S())).toBe("input");
-    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S(), S("z"))).toBeNull();
+    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S())).toBeNull();
+    // …e non è il "visto" a spegnerlo: non conta proprio.
+    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S(), S())).toBeNull();
+  });
+});
+
+describe("rollupProjectAttention — il BADGE ha la stessa causa del fill", () => {
+  const PROJ = "/work/app";
+  test("una chat CHIUSA parcheggiata su awaiting non tiene appeso il numero", () => {
+    const topics = {
+      viva: topic("viva", { projectPath: PROJ }),
+      chiusa: topic("chiusa", { projectPath: PROJ, archived: true }),
+    };
+    // Entrambe hanno l'attenzione di Claude; solo la viva la può azzerare.
+    expect(rollupProjectAttention(PROJ, topics, [], unread({}), new Set(["viva", "chiusa"]), new Set())).toBe(1);
   });
 });
 

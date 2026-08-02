@@ -151,4 +151,56 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     });
     await expect(tabProgetto).toHaveAttribute("data-attention", "input", { timeout: 15000 });
   });
+
+  /**
+   * Il caso che si misura sul campo, non un caso di scuola: sulla macchina di
+   * sviluppo dei 22 figli che tenevano accesi i progetti, 21 erano chat CHIUSE
+   * ferme su `awaiting-user` — alcune di settimane prima. Una chat chiusa non ha
+   * riga in sidebar né tab: nessuna soglia può marcarla vista, quindi non c'è
+   * NESSUN posto dove andare a spegnere il progetto. Il "visto" non basta: questi
+   * figli non devono proprio contare.
+   */
+  test("una chat CHIUSA parcheggiata in attesa non accende il progetto", async ({ page, request }) => {
+    const stamp = Date.now();
+    const chiusa = await createTopic(request, `visto-chiusa-${stamp}`, { projectPath: PROJECT_PATH });
+    const chiusaKey = await sessionKeyOf(request, chiusa.id);
+    // Archiviare è una DELETE con `{archived:true}` (soft delete), non una PATCH:
+    // il PATCH del campo passa senza errore e non archivia niente — un test che
+    // lo usasse verificherebbe una chat APERTA credendola chiusa.
+    const chiuso = await request.delete(`${BASE}/api/topics/${chiusa.id}`, {
+      data: { archived: true },
+      ignoreHTTPSErrors: true,
+    });
+    expect(chiuso.ok(), "la chat di prova dev'essere davvero archiviata").toBeTruthy();
+    const dopo = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+    const mappa = ((await dopo.json()) as { topics: Record<string, { archived?: boolean }> }).topics;
+    expect(mappa[chiusa.id]?.archived, "il server deve riportarla archiviata").toBe(true);
+    try {
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+
+      const tabProgetto = page.locator(`[role="tab"][data-pane-id="${PROJECT_PANE_ID}"]`);
+      await expect(tabProgetto).toBeVisible({ timeout: 20000 });
+
+      // Il turno della chat CHIUSA finisce. Non deve dire niente al progetto.
+      ws.send({
+        type: "session:state",
+        sessionKey: chiusaKey,
+        state: { phase: "awaiting-user", rev: 1, claudeSessionId: chiusaKey },
+      });
+      await page.waitForTimeout(2000);
+      await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);
+
+      // Controprova sullo STESSO canale: la chat APERTA dello stesso progetto
+      // accende. Senza, un verde qui direbbe solo «non è arrivato niente».
+      ws.send({
+        type: "session:state",
+        sessionKey: chatSessionKey,
+        state: { phase: "awaiting-user", rev: 1, claudeSessionId: chatSessionKey },
+      });
+      await expect(tabProgetto).toHaveAttribute("data-attention", "done", { timeout: 15000 });
+    } finally {
+      await deleteTopic(request, chiusa.id).catch(() => {});
+    }
+  });
 });
