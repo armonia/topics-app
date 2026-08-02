@@ -88,10 +88,22 @@ test.describe("Isolamento dei guasti fra pane", () => {
 
   test("il chunk del Journal non carica: la pane mostra l'errore, la chat accanto resta viva", async ({
     page,
+    context,
   }) => {
     // Il guasto: il chunk della pane non c'è più. `abort()` fa rifiutare
     // l'`import()` esattamente come un 404 su un bundle ricostruito.
-    await page.route("**/assets/JournalPanel-*.js", (route) => route.abort());
+    //
+    // `context.route`, NON `page.route`: il service worker intercetta ogni GET
+    // di pari origine e la RI-EMETTE dal proprio contesto (`event.respondWith(
+    // fetch(...))`, client/public/sw.js), e le fetch del SW non passano da
+    // `page.route`. Misurato: il chunk viene chiesto DUE volte — una dalla
+    // pagina, una dal worker — e con la sola rotta di pagina la seconda arriva
+    // al server, il chunk carica e la pane non si rompe mai. Prima non si
+    // vedeva perché il SW non si registrava affatto: `/boot.js` — l'unico posto
+    // che lo registra — rispondeva 404 sul percorso web (vedi
+    // server/static-assets.ts). Stessa ragione già scritta in
+    // tool-call-rendering.spec.ts.
+    await context.route("**/assets/JournalPanel-*.js", (route) => route.abort());
 
     await goToApp(page);
 
