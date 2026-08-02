@@ -8,6 +8,7 @@ import {
   deleteTerminalSession,
   deleteAllTerminalSessions,
   resetPaneStore,
+  seedPaneStore,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -93,9 +94,23 @@ test.describe("Sidebar — Unified Timeline", () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  // AC-1: Project accordion expands to show children
-  // TODO: test infrastructure issue — pre-setting openPanels via API/localStorage doesn't reliably
-  // propagate to React state before the click. Works correctly in the real app.
+  // AC-1: Project accordion expands to show children — ANCORA fixme, ma la
+  // motivazione scritta prima era sbagliata e la semina pure.
+  //
+  // Diceva: «pre-setting openPanels via API/localStorage doesn't reliably
+  // propagate to React state before the click». In realtà seminava
+  // `localStorage['topics-open-panels']`, una chiave MORTA: nel client la
+  // nomina solo `state/pane/migration/importLegacy.ts` (la migrazione una
+  // tantum), e `state/pane/bootstrap.ts` documenta che nella cartella pane
+  // «no file references /api/ui-state, topics-open-panels, etc.». Si scriveva
+  // in un cassetto che nessuno apre più — non era una corsa, era un no-op.
+  //
+  // Semina corretta (pane-store v2, come le spec stabili) messa comunque, ma
+  // NON basta: il pannello del progetto compare e si apre, e il figlio
+  // `E2E-ProjectChat` non viene elencato lo stesso. Lo screenshot del
+  // fallimento mostra «No chats open», quindi il buco sta a monte, in come
+  // `buildSidebarItems` decide i figli di un progetto — non nella semina.
+  // Serve la sua analisi, tracciato nel backlog.
   test.fixme("AC-1: project accordion expands and collapses", async ({
     page,
     request,
@@ -105,15 +120,20 @@ test.describe("Sidebar — Unified Timeline", () => {
       description: "SIDEBAR-AC1",
     });
 
-    // Set panels in both localStorage and server to include the project chat
     const topicId = created.topics[0];
+    // `/api/ui-state/panels` è l'endpoint LEGACY: la sorgente autorevole delle
+    // tab aperte è il pane-store v2, ed è da lì che la sidebar decide chi
+    // elencare. Si seminano entrambi.
+    await seedPaneStore(request, () => ({
+      panes: { [topicId]: { id: topicId, type: "chat", title: "E2E-ProjectChat", topicId } },
+      groups: { "group:default": { id: "group:default", paneIds: [topicId], activePaneId: topicId, splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
     await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [topicId] },
     });
-    // Also pre-set localStorage so the page loads with the panels immediately
-    await page.addInitScript((id) => {
-      localStorage.setItem("topics-open-panels", JSON.stringify([id]));
-    }, topicId);
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
