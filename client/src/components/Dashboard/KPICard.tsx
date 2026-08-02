@@ -18,9 +18,20 @@ interface KPICardProps {
   trend?: Trend;
   /** Is "up" good for this metric? Default true. Used to color the trend arrow. */
   upIsGood?: boolean;
+  /**
+   * Il valore c'e' ma NON copre tutto: qui va detto cosa manca e perche'.
+   *
+   * E' il gradino di mezzo fra "misurato" e `value === null` ("nessuna fonte"),
+   * e serve perche' esiste: i costi anteriori allo scorporo della cache sono
+   * gonfiati di un fattore ignoto, quindi vengono esclusi dal totale — un totale
+   * che li includesse non sarebbe ne' il costo vero ne' una sua stima. Escluderli
+   * in silenzio pero' rifarebbe lo stesso danno all'incontrario: un numero che
+   * sembra completo e non lo e'.
+   */
+  partialNote?: string | null;
 }
 
-export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGood = true }: KPICardProps) {
+export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGood = true, partialNote }: KPICardProps) {
   const missing = value === null;
   const trendColor =
     trend === 'flat' ? 'text-app-text-muted'
@@ -48,8 +59,11 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
           </span>
         )}
       </div>
-      <span className="text-[11px] text-app-text-muted leading-tight truncate">
+      <span className="text-[11px] text-app-text-muted leading-tight truncate" title={partialNote || undefined}>
         {label}
+        {/* Un asterisco, non una frase: la card e' larga come un pollice. Il
+            perche' sta nel tooltip, dove c'e' lo spazio per dirlo davvero. */}
+        {partialNote && <span className="text-amber-500 ml-0.5" aria-label={partialNote}>*</span>}
       </span>
     </div>
   );

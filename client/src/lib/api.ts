@@ -1130,6 +1130,10 @@ export interface DashboardKPIs {
   errorRate: number;
   tokenSpendDay: number;
   tokenSpendWeek: number;
+  /** Quanti messaggi sono stati ESCLUSI dai due totali perche' il loro costo non
+   *  e' attendibile (registrato prima dello scorporo della cache). */
+  tokenSpendDayUncertain?: number;
+  tokenSpendWeekUncertain?: number;
   /** `null` = nessuna fonte per la metrica (vedi server/routes/dashboard.ts).
    *  Non e' zero: zero vorrebbe dire "gli agenti sono fermi". */
   agentUtilization: number | null;

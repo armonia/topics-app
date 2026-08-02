@@ -61,13 +61,39 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
     // quindi il confronto con `date('now', ...)` — che rende 'YYYY-MM-DD', anche
     // lui UTC — e' lessicografico e corretto: ogni istante del giorno ordina
     // dopo la sua mezzanotte e prima di quella dopo.
+    // `cache_read_tokens IS NOT NULL` non e' un dettaglio tecnico: e' il
+    // predicato di ATTENDIBILITA' del costo, e in questo schema esiste gia'.
+    //
+    // Una riga senza lo scorporo della cache e' stata tariffata contando come
+    // input fresco anche i token RILETTI dalla cache, che in un turno agentico
+    // sono la quota schiacciante: il suo `cost_cents` e' gonfiato fino a ~10
+    // volte, di un fattore che non e' ricostruibile perche' le quote non sono
+    // state salvate. Sommarle insieme alle righe buone produceva un totale che
+    // non e' ne' il costo vero ne' una sua stima — sul DB di prod, 8.839$ di
+    // righe cosi' accanto a 215$ di righe misurate.
+    //
+    // Quindi non si sommano, e non si nascondono: le due query gemelle le
+    // CONTANO, e il KPI porta quel numero accanto al totale (`…Uncertain`). Un
+    // dato mancante dichiarato e' informazione; sommato di nascosto e' una bugia.
     tokenSpendDay: db.prepare(`
       SELECT COALESCE(SUM(cost_cents), 0) / 100.0 as total FROM messages
       WHERE timestamp >= date('now', 'start of day')
+        AND cache_read_tokens IS NOT NULL
     `),
     tokenSpendWeek: db.prepare(`
       SELECT COALESCE(SUM(cost_cents), 0) / 100.0 as total FROM messages
       WHERE timestamp >= date('now', '-7 days')
+        AND cache_read_tokens IS NOT NULL
+    `),
+    tokenSpendDayUncertain: db.prepare(`
+      SELECT COUNT(*) as count FROM messages
+      WHERE timestamp >= date('now', 'start of day')
+        AND cost_cents > 0 AND cache_read_tokens IS NULL
+    `),
+    tokenSpendWeekUncertain: db.prepare(`
+      SELECT COUNT(*) as count FROM messages
+      WHERE timestamp >= date('now', '-7 days')
+        AND cost_cents > 0 AND cache_read_tokens IS NULL
     `),
     activeHeartbeatsLastHour: db.prepare(`
       SELECT COUNT(*) as count FROM heartbeats
@@ -124,10 +150,15 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
     // un totale senza la scomposizione input/output, quindi tariffarlo sarebbe
     // inventare una precisione che il dato non ha: il consumo degli agenti
     // compare nella serie dei TOKEN, dove e' un fatto.
+    // Stesso gate dei KPI: la serie disegna i giorni col costo MISURATO. Una
+    // riga anteriore allo scorporo della cache alzerebbe la sua giornata di un
+    // fattore ignoto, e una curva con dentro due unita' di misura diverse non e'
+    // una curva.
     costSeries: db.prepare(`
       SELECT date(timestamp) as date, SUM(COALESCE(cost_cents, 0)) / 100.0 as value
       FROM messages
       WHERE timestamp >= date('now', ? || ' days')
+        AND cache_read_tokens IS NOT NULL
       GROUP BY date(timestamp)
       ORDER BY date
     `),
@@ -216,6 +247,10 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
 
         const tokenSpendDay = (stmts.tokenSpendDay.get() as any)?.total ?? 0;
         const tokenSpendWeek = (stmts.tokenSpendWeek.get() as any)?.total ?? 0;
+        // Quante righe sono state ESCLUSE dai due totali perche' il loro costo
+        // non e' attendibile. Zero quasi sempre: sono righe vecchie.
+        const tokenSpendDayUncertain = (stmts.tokenSpendDayUncertain.get() as any)?.count ?? 0;
+        const tokenSpendWeekUncertain = (stmts.tokenSpendWeekUncertain.get() as any)?.count ?? 0;
 
         // `heartbeats` non ha una fonte: la route POST che la popola
         // (`/api/agents/sessions/:key/heartbeat`) pretende una riga di
@@ -237,6 +272,8 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
           errorRate: Math.round(errorRate * 10000) / 10000,
           tokenSpendDay: Math.round(tokenSpendDay * 100) / 100,
           tokenSpendWeek: Math.round(tokenSpendWeek * 100) / 100,
+          tokenSpendDayUncertain,
+          tokenSpendWeekUncertain,
           agentUtilization:
             agentUtilization === null ? null : Math.round(agentUtilization * 10000) / 10000,
           approvalTurnaroundHours: Math.round(approvalTurnaroundHours * 100) / 100,
