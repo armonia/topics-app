@@ -78,18 +78,40 @@ export interface PsRow {
   pid: number;
   ppid: number;
   rssKB: number;
+  /** `ps pcpu`: media sull'INTERA VITA del processo. Ripiego, non la misura. */
   cpu: number;
+  /** `ps time`: secondi di CPU consumati finora. La differenza fra due letture,
+   *  divisa per il tempo trascorso, e' la CPU istantanea. */
+  cpuSeconds: number;
   command: string;
 }
 
-/** Parse `ps -axo pid=,ppid=,rss=,pcpu=,command=`. Exported for the unit test:
- *  the parsing (not the spawning) is where this can silently go wrong. */
+/** `[[dd-]hh:]mm:ss[.cc]` → secondi. Il formato di `ps time=` cambia con la
+ *  durata (`12:34`, `1:02:03`, `3-04:05:06`), quindi si conta dai campi in coda. */
+export function parseCpuTimeSeconds(v: string): number {
+  const m = v.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/);
+  if (!m) return 0;
+  const [, d, h, mi, se] = m;
+  return (+(d ?? 0)) * 86400 + (+(h ?? 0)) * 3600 + (+mi) * 60 + parseFloat(se);
+}
+
+/** Parse `ps -axo pid=,ppid=,rss=,pcpu=,time=,command=`. Exported for the unit
+ *  test: the parsing (not the spawning) is where this can silently go wrong.
+ *
+ *  `cpu` resta la lettura di `pcpu` (media di VITA del processo), tenuta solo
+ *  come ripiego; il numero che conta e' `cpuSeconds`, da cui si ricava la CPU
+ *  ISTANTANEA per differenza fra due letture. Vedi `getFleetUsage`. */
 export function parsePsRows(text: string): PsRow[] {
   const rows: PsRow[] = [];
   for (const line of text.split("\n")) {
-    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/);
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
     if (!m) continue;
-    rows.push({ pid: +m[1], ppid: +m[2], rssKB: +m[3], cpu: parseFloat(m[4]), command: m[5] });
+    rows.push({
+      pid: +m[1], ppid: +m[2], rssKB: +m[3],
+      cpu: parseFloat(m[4]),
+      cpuSeconds: parseCpuTimeSeconds(m[5]),
+      command: m[6],
+    });
   }
   return rows;
 }
@@ -102,6 +124,9 @@ export function parsePsRows(text: string): PsRow[] {
 export function summarizeFleet(
   rows: PsRow[],
   roots: { kind: FleetKind | "server"; pid: number }[],
+  /** CPU % ISTANTANEA di un pid. Assente = si ripiega su `ps pcpu` (media di
+   *  vita), che e' cio' che faceva prima e va bene solo come ultima risorsa. */
+  instantCpu?: (row: PsRow) => number,
 ): Omit<FleetUsage, "supported"> {
   const byPid = new Map<number, PsRow>();
   const children = new Map<number, number[]>();
@@ -130,7 +155,7 @@ export function summarizeFleet(
       if (!row) continue;
       procs++;
       rssKB += row.rssKB;
-      cpu += row.cpu;
+      cpu += instantCpu ? instantCpu(row) : row.cpu;
     }
     rootUsages.push({
       kind: root.kind,
@@ -169,18 +194,81 @@ let cached: FleetUsage | null = null;
 let cachedAt = 0;
 const FLEET_TTL_MS = 4000;
 
+/** Lettura precedente dei secondi di CPU per pid: e' la BASE da cui si ricava
+ *  la percentuale istantanea. Senza, si potrebbe solo riportare la media di
+ *  vita di `ps pcpu`, che e' il difetto che questo modulo aveva. */
+let prevSample: { at: number; byPid: Map<number, number> } | null = null;
+
+async function snapshot(): Promise<PsRow[]> {
+  const proc = Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return parsePsRows(text);
+}
+
+/** CPU % di un pid fra due letture. Un pid mai visto prima non ha una base:
+ *  contribuisce 0 per questa finestra invece di ereditare la media di vita —
+ *  un processo appena nato non ha ancora consumato niente NELLA finestra. */
+function makeInstantCpu(base: { at: number; byPid: Map<number, number> } | null, nowMs: number) {
+  const dt = base ? (nowMs - base.at) / 1000 : 0;
+  if (!base || dt <= 0) return undefined;
+  return (row: PsRow): number => {
+    const before = base.byPid.get(row.pid);
+    if (before === undefined) return 0;
+    const d = row.cpuSeconds - before;
+    return d > 0 ? (d / dt) * 100 : 0;
+  };
+}
+
+function finish(
+  rows: PsRow[],
+  base: { at: number; byPid: Map<number, number> } | null,
+  nowMs: number,
+): FleetUsage {
+  const usage = {
+    ...summarizeFleet(rows, resolveFleetRoots(rows, process.pid), makeInstantCpu(base, nowMs)),
+    supported: true,
+  };
+  cached = usage;
+  cachedAt = Date.now();
+  return usage;
+}
+
 export async function getFleetUsage(): Promise<FleetUsage> {
   const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, roots: [], supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;
   try {
-    const proc = Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,command="], { stdout: "pipe", stderr: "ignore" });
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    const rows = parsePsRows(text);
+    const rows = await snapshot();
     if (!rows.length) return cached ?? unsupported;
-    const usage = { ...summarizeFleet(rows, resolveFleetRoots(rows, process.pid)), supported: true };
+
+    // CPU ISTANTANEA, non la media di vita.
+    //
+    // Prima si sommava `ps pcpu`, che su macOS e' la media sull'INTERA VITA del
+    // processo: un CLI che ha macinato per un'ora resta alto per sempre anche a
+    // riposo, e la somma sulla flotta non scende piu'. Dopo una sessione lunga
+    // la status bar arrivava a segnare 318% con l'app ferma — misurato il
+    // 2026-08-02, con `top` che dava l'8% per lo stesso processo.
+    //
+    // Si misura per DIFFERENZA: `ps time` e' la CPU cumulata, quindi
+    // (Δsecondi di CPU / Δtempo reale) × 100 e' la percentuale nella finestra
+    // fra due letture. Alla primissima lettura non c'e' una base, quindi se ne
+    // prendono due ravvicinate: meglio 200 ms di attesa una tantum che un
+    // numero inventato.
+    let base = prevSample;
+    if (!base) {
+      await new Promise((r) => setTimeout(r, 200));
+      const second = await snapshot();
+      if (second.length) {
+        base = { at: now, byPid: new Map(rows.map((r) => [r.pid, r.cpuSeconds])) };
+        prevSample = { at: Date.now(), byPid: new Map(second.map((r) => [r.pid, r.cpuSeconds])) };
+        return finish(second, base, prevSample.at);
+      }
+    }
+    const sampleNow = { at: now, byPid: new Map(rows.map((r) => [r.pid, r.cpuSeconds])) };
+    const usage = finish(rows, base, now);
+    prevSample = sampleNow;
     cached = usage;
     cachedAt = now;
     return usage;
