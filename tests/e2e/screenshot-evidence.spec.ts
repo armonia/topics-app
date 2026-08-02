@@ -31,10 +31,15 @@ test('Sidebar toggle — collapses off-screen and restores', async ({ page }) =>
   await page.goto('/');
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 15000 });
 
-  // BEFORE: sidebar open, right edge past its real width.
+  // Nomi degli scatti: il verbo dopo BEFORE-/AFTER- deve COINCIDERE, o non
+  // esiste nessuna coppia (vedi scripts/ai-review-screenshots.py). Qui le
+  // transizioni sono due — «collapse» e «expand» — quindi sono due coppie, non
+  // una sequenza di tre. Prima si chiamavano BEFORE-open / AFTER-closed /
+  // AFTER-reopened: tre verbi diversi, zero coppie, e i tre scatti sparivano
+  // dalla review senza un avviso.
   const openEdge = await sidebarRightEdge(page);
   expect(openEdge, 'sidebar should start open with a real on-screen width').toBeGreaterThan(100);
-  await page.screenshot({ path: 'test-results/sidebar-BEFORE-open.png', fullPage: false });
+  await page.screenshot({ path: 'test-results/sidebar-BEFORE-collapse.png', fullPage: false });
 
   // The sidebar is toggled with ⌘B (useKeyboardShortcuts → toggleSidebar); there
   // is no persistent toggle button (the "Expand sidebar" button only appears
@@ -45,14 +50,17 @@ test('Sidebar toggle — collapses off-screen and restores', async ({ page }) =>
   await expect
     .poll(() => sidebarRightEdge(page), { timeout: 5000 })
     .toBeLessThan(2);
-  await page.screenshot({ path: 'test-results/sidebar-AFTER-closed.png', fullPage: false });
+  await page.screenshot({ path: 'test-results/sidebar-AFTER-collapse.png', fullPage: false });
+
+  // Lo stesso fotogramma apre la seconda coppia: è il «prima» della riapertura.
+  await page.screenshot({ path: 'test-results/sidebar-BEFORE-expand.png', fullPage: false });
 
   // Toggle back open → slides back on-screen.
   await page.keyboard.press('Meta+b');
   await expect
     .poll(() => sidebarRightEdge(page), { timeout: 5000 })
     .toBeGreaterThan(100);
-  await page.screenshot({ path: 'test-results/sidebar-AFTER-reopened.png', fullPage: false });
+  await page.screenshot({ path: 'test-results/sidebar-AFTER-expand.png', fullPage: false });
 });
 
 test('Topic switch — activating a second tab changes the active tab', async ({ page, request }) => {
@@ -96,5 +104,10 @@ test('Page load — app shell renders the sidebar and main area', async ({ page 
   // The shell must actually mount: sidebar visible + a main region present.
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 10000 });
   await expect(page.locator('[role="main"]')).toBeVisible({ timeout: 10000 });
-  await page.screenshot({ path: 'test-results/load-2000ms.png', fullPage: false });
+  // Si chiamava `load-2000ms.png`, ma non c'è nessuna attesa a 2000 ms: le due
+  // expect qui sopra passano all'istante perché a 500 ms il guscio è già
+  // montato, quindi lo scatto usciva IDENTICO byte per byte a quello dei 500 ms
+  // (verificato con md5) e il nome prometteva un secondo campione temporale che
+  // non esiste. Il nome ora dice quello che lo scatto prova davvero.
+  await page.screenshot({ path: 'test-results/load-shell-mounted.png', fullPage: false });
 });

@@ -306,7 +306,12 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     await waitForSettledX(sidebar);
     await videoPause(page, 1500);
 
-    await page.screenshot({ path: 'test-results/sidebar-AFTER-restore.png' });
+    // Non `sidebar-AFTER-restore`: il verbo dopo AFTER- deve avere un BEFORE-
+    // gemello, e qui non c'è (il «prima» della riapertura è lo scatto
+    // AFTER-toggle). Marcato come mezza coppia, finiva fuori dalla review senza
+    // un avviso — vedi scripts/ai-review-screenshots.py. È uno stato a sé: si
+    // chiama per quello che è e viene rivisto come singolo.
+    await page.screenshot({ path: 'test-results/sidebar-restored.png' });
 
     // Layout stability: riaperta la sidebar, tutto torna fermo dov'era.
     const moved = await assertLayoutSettled(page);
