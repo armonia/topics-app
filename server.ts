@@ -319,13 +319,25 @@ const browserService = await createBrowserService({
           ?? null;
       }
       if (!topic) return;  // contextId may be temp/standalone — ignore
-      topic.browserState = {
+      // Scrittura MIRATA sulla sola colonna `browser_state` (migration 075).
+      //
+      // Non `saveSingleTopic`: questo hook scatta a OGNI navigazione, e un
+      // upsert dell'intera riga a quel ritmo riscrive venti colonne più le
+      // relazioni per aggiornarne una — e corre con qualunque altra scrittura
+      // sullo stesso topic (rinomina, archiviazione, cambio modello), che è il
+      // lost-update per cui questo file preferisce le scritture per colonna.
+      //
+      // Fino alla 075 la colonna non c'era: `saveSingleTopic` salvava tutto
+      // TRANNE questo campo, e la lettura successiva lo ritrovava `undefined`.
+      // È il motivo per cui `browserState` sembrava scritto e non arrivava mai a
+      // nessun client — e per cui `restoreAllContexts`, che lo cercava, ha
+      // riportato «0 restored» per 962 boot.
+      ctx.setTopicBrowserState(topic.id, {
         url,
         contextId,
         lastActiveAt: Date.now(),
         viewport,
-      };
-      ctx.saveSingleTopic(topic);
+      });
     } catch (err: any) {
       console.warn(`[server] onNavigate persist failed for ${contextId}:`, err.message);
     }

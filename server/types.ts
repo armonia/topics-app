@@ -213,6 +213,8 @@ export interface AppContext {
   getTopicById: (id: string) => Topic | null;
   /** Constant-time topic lookup by sessionKey (UNIQUE column). */
   getTopicBySessionKey: (sessionKey: string) => Topic | null;
+  /** Scrive SOLO `topics.browser_state` (migration 075). `null` cancella. Vedi utils.ts. */
+  setTopicBrowserState: (topicId: string, state: Topic['browserState'] | null) => void;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: { withBlocks?: boolean }) => StoredMessage[];

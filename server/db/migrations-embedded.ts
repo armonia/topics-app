@@ -79,6 +79,7 @@ import m070 from "./migrations/071-drop-empty-assistant-turns.sql" with { type: 
 import m071 from "./migrations/072-sweep-dangling-message-refs.sql" with { type: "text" };
 import m072 from "./migrations/073-topic-muted.sql" with { type: "text" };
 import m073 from "./migrations/074-messages-timestamp-index.sql" with { type: "text" };
+import m074 from "./migrations/075-topic-browser-state.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -162,4 +163,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 72, name: "072-sweep-dangling-message-refs.sql", sql: m071 },
   { version: 73, name: "073-topic-muted.sql", sql: m072 },
   { version: 74, name: "074-messages-timestamp-index.sql", sql: m073 },
+  { version: 75, name: "075-topic-browser-state.sql", sql: m074 },
 ];
