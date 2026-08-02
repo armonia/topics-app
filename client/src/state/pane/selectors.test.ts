@@ -1,7 +1,19 @@
 import { describe, test, expect } from "bun:test";
 import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds } from "./selectors";
-import type { PaneState, Pane, ClosedPaneRecord } from "./types";
+import type { PaneState, Pane, ClosedPaneRecord, SpaceMeta } from "./types";
 import { DEFAULT_SPACE_ID } from "./types";
+
+/**
+ * Un registro di spazi VIVO, tipizzato.
+ *
+ * Era `{ … } as any`: il cast serviva solo a non scrivere `order` e `updatedAt`,
+ * ma spegneva ogni controllo — se `SpaceMeta` cambiasse forma, questi due test
+ * continuerebbero a compilare passando un oggetto che il codice vero non
+ * accetterebbe mai.
+ */
+const spaceRegistry = (id: string, name: string): Record<string, SpaceMeta> => ({
+  [id]: { id, name, order: 0, updatedAt: 1 },
+});
 
 const blankState = (): PaneState => ({
   panes: {},
@@ -175,7 +187,7 @@ describe("filterVisiblePaneIds — stabilità sotto scroll (perf di App/PanelGri
     };
     // Lo spazio dev'essere VIVO nel registro, altrimenti resolvePaneSpace lo
     // ricade sul default e `chat:c` risulterebbe visibile.
-    const spaces = { "space:altro": { id: "space:altro", name: "Altro" } } as any;
+    const spaces = spaceRegistry("space:altro", "Altro");
     const order = ["chat:a", "chat:b", "chat:c"];
     const before = filterVisiblePaneIds(order, panes, spaces, DEFAULT_SPACE_ID);
 
@@ -196,7 +208,7 @@ describe("filterVisiblePaneIds — stabilità sotto scroll (perf di App/PanelGri
   test("un cambio VERO di visibilità invece si vede (il test sopra non è vacuo)", () => {
     const panes: Record<string, Pane> = { "chat:a": pane("chat:a"), "chat:b": pane("chat:b") };
     const order = ["chat:a", "chat:b"];
-    const spaces = { "space:altrove": { id: "space:altrove", name: "Altrove" } } as any;
+    const spaces = spaceRegistry("space:altrove", "Altrove");
     const before = filterVisiblePaneIds(order, panes, spaces, DEFAULT_SPACE_ID);
     const after = filterVisiblePaneIds(
       order,

@@ -594,6 +594,7 @@ export function useChat() {
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
       })();
     }, STREAM_TIMEOUT_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `resetStreamTimeoutRef` NON può stare qui: è dichiarato tre righe più sotto, quindi valutare l'array di dipendenze lo leggerebbe nella sua temporal dead zone. Il corpo della callback lo legge invece quando il timer scatta, a dichiarazione avvenuta — ed è tutto il punto dello specchio. Il ref è comunque stabile (useRefMirror restituisce sempre lo stesso oggetto), quindi non sarebbe una dipendenza reale.
   }, []);
   // La callback si riarma da sé: lo specchio rompe il ciclo di dichiarazione, con
   // l'helper che questo file usa già per lo stesso scopo.
@@ -1789,7 +1790,7 @@ export function useChat() {
     if (!head) return;
     void performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
-  }, [performSend]);
+  }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
   // sotto: scrivere un ref durante il render lo fa puntare alla closure di un
   // render che potrebbe non essere mai committato (StrictMode ne fa due, e uno
@@ -1821,7 +1822,7 @@ export function useChat() {
     }
 
     return performSend(sessionKey, content, options);
-  }, [performSend]);
+  }, [performSend, streamingRef]); // `streamingRef` e' uno specchio (useRefMirror): stesso oggetto a ogni render, quindi elencarlo non ridichiara nulla — serve solo a non lasciare un avviso exhaustive-deps che coprirebbe quelli veri.
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
