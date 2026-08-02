@@ -5,6 +5,7 @@ import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
+import { classifyStaticAsset } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome,
@@ -1469,14 +1470,18 @@ const server = Bun.serve<WSData>({
       const file = Bun.file(join(PUBLIC_DIR, pathname));
       if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
-    if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" || pathname === "/changelog.json")) {
-      const filePath = join(PUBLIC_DIR, pathname);
-      const file = Bun.file(filePath);
-      if (await file.exists()) {
-        // /changelog.json changes every release → no-cache like the manifests, so
-        // the in-app "Novità" modal never renders a stale history after an update.
-        const cacheControl = pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" || pathname === "/changelog.json" ? "no-cache" : "public, max-age=31536000, immutable";
-        return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": cacheControl } });
+    // Asset del bundle. La decisione (quali file, con che cache) sta in
+    // `classifyStaticAsset` (server/static-assets.ts) così è unit-testata —
+    // stesso trattamento di `shouldServeSpaFallback`. Qui c'era un elenco di
+    // nomi a mano in cui `/boot.js` mancava: la shell web caricava uno script
+    // che rispondeva 404, e con lui perdeva tema pre-paint e service worker.
+    if (method === "GET") {
+      const asset = classifyStaticAsset(pathname, PUBLIC_DIR);
+      if (asset) {
+        const file = Bun.file(asset.filePath);
+        if (await file.exists()) {
+          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl } });
+        }
       }
     }
 
