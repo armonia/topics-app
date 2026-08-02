@@ -35,7 +35,15 @@ const NIGHTLY_ONLY_SPECS = [
   // tutte le suite sono `describe.serial` e si passano il topic creato nel
   // beforeAll. Restano quindi fuori dal gate PR finché non sono riscritte
   // test-per-test. TODO(e2e-isolation).
+  //
+  // `file-explorer` è stato spezzato in tre file per tema (era 22 test / 138s in
+  // uno solo, il pavimento dello sharding — vedi helpers/file-project.ts). Ora
+  // ognuno ha il SUO progetto seminato, il che toglie l'interferenza FRA i tre;
+  // dentro ciascuno lo stato scorre ancora esattamente come prima, quindi la
+  // ragione di questa esclusione non è cambiata e valgono tutti e tre.
   "file-explorer",
+  "file-explorer-git",
+  "file-explorer-panels",
   "file-context-menu",
   "file-external-drop",
 ].map((name) => `**/${name}.spec.ts`);

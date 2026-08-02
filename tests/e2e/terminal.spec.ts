@@ -1,66 +1,35 @@
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { test } from "./fixtures/terminal.fixture";
 import {
-  createTopic,
-  deleteTopic,
-  listTerminalSessions,
-  deleteTerminalSession,
-  deleteAllTerminalSessions,
-  resetPaneStore,
-  resetProjectPanes,
-} from "./helpers/api-fixtures";
-import { goToApp } from "./helpers";
+  TERMINAL_PROJECT_PATH as projectPath,
+  resetTerminalWorkspace,
+  seedTerminalTopic,
+  cleanupTerminalTopic,
+  navigateAndOpenTerminal,
+} from "./helpers/terminal-workspace";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
-// Use /tmp which always exists. On macOS, /tmp symlinks to /private/tmp.
-const projectPath = "/tmp";
-
 /**
- * Stato di partenza noto per OGNI test del file (retry-safe: gira a ogni tentativo).
+ * Il terminale: apertura, input, cwd, resize, scrollback, chiusura e focus.
  *
- * The e2e DB persists across runs (DATA_DIR=/tmp/topics-test-data) and the
- * per-project pane channel is union-additive on hydrate, so terminal panes
- * opened by a prior run — or a prior RETRY of the same test — stay persisted
- * under /tmp's `topics-project-panes-<hash>` key and are re-added into a fresh
- * page. That made TERM-01 pick up a DEAD stale pane (empty → no prompt) and
- * TERM-04 count 3–6 tabs instead of 2.
- *
- * Il reset per-progetto non basta: una pane terminale aperta al livello GLOBALE
- * da un altro file (il pane-store è uno solo per tutta la suite seriale)
- * sopravvive, e `navigateAndOpenTerminal` vede `xtermAlreadyVisible` → riusa una
- * shell morta invece di aprirne una. Sulle tab bar in più, poi, il `.last()` di
- * TERM-04/TERM-08 finisce sul gruppo sbagliato.
- *
- * Il pane-store va però azzerato al topic del describe, NON a `[]`. La riga di un
- * progetto nella sidebar è guidata dalle TAB APERTE, non dai topic che esistono:
- * `buildSidebarItems.ts` la salta se non c'è né la tab del progetto né un figlio
- * con una tab aperta. Svuotando il pane-store spariva quindi anche
- * `button[title="/tmp"]`, che è il punto di partenza di ogni test qui — TERM-01,
- * TERM-03 e TERM-04 morivano tutti e tre lì. È lo stesso inciampo già corretto in
- * browser-process.spec.ts nel commit che ha introdotto questi reset.
+ * La famiglia terminale sta in tre file — `terminal`, `terminal-reconnect`,
+ * `terminal-multi` — che prima erano tre `describe` dentro un unico file da 76
+ * secondi. Poiche' Playwright distribuisce gli shard PER FILE, quei 76 secondi
+ * erano un pavimento sotto cui il wall-clock non poteva scendere con nessun
+ * numero di shard. La procedura condivisa (apri il progetto, "+" -> Shell,
+ * aspetta il prompt) vive in `helpers/terminal-workspace.ts`: era ricopiata
+ * tre volte, gia' divergente fra le copie.
  */
-async function resetTerminalWorkspace(
-  request: APIRequestContext,
-  topicId: string,
-): Promise<void> {
-  await deleteAllTerminalSessions(request);
-  await resetPaneStore(request, [topicId]);
-  await resetProjectPanes(request, projectPath);
-}
-
 test.describe.serial("Terminal", () => {
-  const topicName = `e2e-terminal-${Date.now()}`;
-  let topicId: string;
+  let topicId = "";
+  let topicName = "";
 
   test.beforeAll(async ({ request }) => {
-    const topic = await createTopic(request, topicName, {
-      projectPath,
-    });
-    topicId = topic.id;
+    ({ topicId, topicName } = await seedTerminalTopic(request, "main"));
   });
 
   test.beforeEach(async ({ request }) => {
@@ -68,96 +37,15 @@ test.describe.serial("Terminal", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    // Clean up all terminal sessions for this topic
-    if (topicId) {
-      const sessions = await listTerminalSessions(request, topicId);
-      for (const s of sessions) {
-        await deleteTerminalSession(request, s.id);
-      }
-      await deleteTopic(request, topicId);
-    }
+    await cleanupTerminalTopic(request, topicId);
   });
-
-  /**
-   * Navigate to the project and open a terminal via the sidebar "Add to project" > "Shell" dropdown.
-   * Returns once xterm.js rows are visible.
-   */
-  async function navigateAndOpenTerminal(
-    page: import("@playwright/test").Page,
-    terminalPage: import("./fixtures/terminal.fixture").TerminalPage
-  ) {
-    await goToApp(page);
-
-    // Expand the sezione Progetti if collapsed
-    const projectsSection = page.getByRole("button", {
-      name: /sezione Progetti/,
-    });
-    if ((await projectsSection.count()) > 0) {
-      const expanded = await projectsSection.getAttribute("aria-expanded");
-      if (expanded === "false") {
-        await projectsSection.click();
-      }
-    }
-
-    // Click the project header to open the project pane
-    const projectHeader = page.locator(`button[title="${projectPath}"]`);
-    await projectHeader.waitFor({ state: "visible", timeout: 10000 });
-    await projectHeader.click();
-
-    // Click the topic to ensure a pane group exists
-    const topicItem = page.getByRole("treeitem", { name: topicName });
-    await topicItem
-      .waitFor({ state: "visible", timeout: 5000 })
-      .catch(() => {});
-    if (await topicItem.isVisible()) {
-      await topicItem.click();
-      await page
-        .locator('[data-testid="panel-tab-bar"]')
-        .last()
-        .waitFor({ state: "visible", timeout: 5000 })
-        .catch(() => {});
-    }
-
-    // Check if terminal is already visible (session may have reconnected)
-    const xtermAlreadyVisible = await terminalPage.xtermRows
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (xtermAlreadyVisible) {
-      await terminalPage.waitForReady();
-      return;
-    }
-
-    // Hover over the project row to reveal the "+" button
-    await projectHeader.hover();
-
-    // Click the "+" button (title="Add to project")
-    const addBtn = projectHeader
-      .locator("..")
-      .locator('button[title="Add to project"]');
-    await addBtn.waitFor({ state: "visible", timeout: 5000 });
-    await addBtn.click();
-
-    // Click "Shell" in the dropdown (use exact: true to avoid ambiguity with sidebar items)
-    const shellBtn = page.getByRole("button", { name: "Shell", exact: true });
-    await shellBtn.waitFor({ state: "visible", timeout: 5000 });
-    await shellBtn.click();
-
-    // Wait for xterm.js to render
-    await expect(terminalPage.xtermRows.first()).toBeVisible({
-      timeout: 15_000,
-    });
-
-    // Wait for shell prompt
-    await terminalPage.waitForReady();
-  }
 
   test("TERM-01: terminal opens and xterm.js renders with WebSocket connection", async ({
     terminalPage,
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Verify xterm.js DOM renderer created .xterm-rows
     await expect(terminalPage.xtermRows.first()).toBeVisible();
@@ -173,7 +61,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Click terminal to focus
     await terminalPage.focus();
@@ -191,7 +79,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Click terminal to focus
     await terminalPage.focus();
@@ -216,7 +104,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Record initial xterm screen width
     const initialWidth = await page.evaluate(
@@ -227,15 +115,25 @@ test.describe.serial("Terminal", () => {
     // Resize viewport to a smaller width
     await page.setViewportSize({ width: 800, height: 600 });
 
-    // Wait for xterm to process the resize (fit addon triggers on resize observer)
-    await page.waitForTimeout(500);
+    // Il fit addon reagisce a un ResizeObserver: si POLLA la larghezza finche'
+    // cambia, invece di dormire 500ms al buio. L'attesa fissa era sbagliata in
+    // entrambe le direzioni — spreca mezzo secondo quando il resize arriva in
+    // 30ms, e non basta su una macchina carica, dove il test fallisce dicendo
+    // "la larghezza non e' cambiata" mentre stava solo per cambiare.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.querySelector(".xterm-screen")?.getBoundingClientRect().width,
+          ),
+        { timeout: 10_000 },
+      )
+      .not.toBe(initialWidth);
 
-    // Measure new width
     const newWidth = await page.evaluate(
       () => document.querySelector(".xterm-screen")?.getBoundingClientRect().width,
     );
     expect(newWidth).toBeTruthy();
-    expect(newWidth).not.toBe(initialWidth);
   });
 
   test("TERM-07: terminal preserves scrollback buffer", async ({
@@ -243,7 +141,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     await terminalPage.focus();
 
@@ -267,7 +165,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Locate the Shell tab in the pane tab bar. Post-redesign the shell tab is
     // auto-named basename(cwd) (server/routes/terminal.ts:1019-1022), never "Shell",
@@ -293,7 +191,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     await terminalPage.focus();
 
@@ -316,7 +214,7 @@ test.describe.serial("Terminal", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await navigateAndOpenTerminal(page, terminalPage);
+    await navigateAndOpenTerminal(page, terminalPage, topicName);
 
     // Click somewhere else to unfocus the terminal (e.g., the sidebar)
     const sidebar = page.locator('[data-testid="sidebar"]').or(
@@ -335,272 +233,5 @@ test.describe.serial("Terminal", () => {
 
     // Verify the command executed (focus was successfully restored by clicking)
     await terminalPage.waitForOutput(marker);
-  });
-});
-
-/**
- * TERM-03: WebSocket reconnect test.
- * Requires routeWebSocket BEFORE navigation, so it has its own describe block.
- */
-test.describe("Terminal Reconnect", () => {
-  const topicName = `e2e-term-reconnect-${Date.now()}`;
-  let topicId: string;
-
-  test.beforeAll(async ({ request }) => {
-    const topic = await createTopic(request, topicName, { projectPath });
-    topicId = topic.id;
-  });
-
-  test.beforeEach(async ({ request }) => {
-    await resetTerminalWorkspace(request, topicId);
-  });
-
-  test.afterAll(async ({ request }) => {
-    if (topicId) {
-      const sessions = await listTerminalSessions(request, topicId);
-      for (const s of sessions) {
-        await deleteTerminalSession(request, s.id);
-      }
-      await deleteTopic(request, topicId);
-    }
-  });
-
-  test("TERM-03: terminal auto-reconnects after WebSocket disconnect", async ({
-    page,
-    terminalPage,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    // Set up WS interception BEFORE navigation to capture terminal WS connections
-    type WsRoute = {
-      close: (options?: { code?: number; reason?: string }) => void | Promise<void>;
-    };
-    const serverConnections: WsRoute[] = [];
-    // We drive the disconnect from the CLIENT side (below), so keep the page-
-    // side routes too. Closing the SERVER route does not reliably surface a
-    // close event to the browser's WebSocket under Playwright's proxy (the
-    // custom close code isn't propagated), so the client never sees the drop
-    // and never reconnects. Closing the CLIENT route makes the page's socket
-    // fire `onclose` with our non-1000 code — exactly a real network drop —
-    // which is what SingleTerminalPane's auto-reconnect keys off.
-    const clientConnections: WsRoute[] = [];
-    await page.routeWebSocket(/\/ws\/terminal\//, (ws) => {
-      const server = ws.connectToServer();
-      serverConnections.push(server);
-      clientConnections.push(ws);
-      // Transparent proxy — pass through all messages
-      ws.onMessage((msg) => server.send(msg));
-      server.onMessage((msg) => ws.send(msg));
-    });
-
-    // Navigate and open terminal
-    await goToApp(page);
-
-    // Expand sezione Progetti if collapsed
-    const projectsSection = page.getByRole("button", {
-      name: /sezione Progetti/,
-    });
-    if ((await projectsSection.count()) > 0) {
-      const expanded = await projectsSection.getAttribute("aria-expanded");
-      if (expanded === "false") {
-        await projectsSection.click();
-      }
-    }
-
-    // Click the project header
-    const projectHeader = page.locator(`button[title="${projectPath}"]`);
-    await projectHeader.waitFor({ state: "visible", timeout: 10000 });
-    await projectHeader.click();
-
-    // Click the topic to get a pane group
-    const topicItem = page.getByRole("treeitem", { name: topicName });
-    await topicItem
-      .waitFor({ state: "visible", timeout: 5000 })
-      .catch(() => {});
-    if (await topicItem.isVisible()) {
-      await topicItem.click();
-      await page
-        .locator('[data-testid="panel-tab-bar"]')
-        .last()
-        .waitFor({ state: "visible", timeout: 5000 })
-        .catch(() => {});
-    }
-
-    // Open terminal via sidebar Add to project > Shell
-    await projectHeader.hover();
-    const addBtn = projectHeader
-      .locator("..")
-      .locator('button[title="Add to project"]');
-    await addBtn.waitFor({ state: "visible", timeout: 5000 });
-    await addBtn.click();
-    const shellBtn = page.getByRole("button", { name: "Shell", exact: true });
-    await shellBtn.waitFor({ state: "visible", timeout: 5000 });
-    await shellBtn.click();
-
-    // Wait for xterm to render and shell prompt
-    await expect(terminalPage.xtermRows.first()).toBeVisible({
-      timeout: 15_000,
-    });
-    await terminalPage.waitForReady();
-
-    // Verify terminal works before disconnect
-    const marker1 = `pre-disconnect-${Date.now()}`;
-    await terminalPage.focus();
-    await terminalPage.typeCommand(`echo ${marker1}`);
-    await terminalPage.waitForOutput(marker1);
-
-    // Capture current server connection count
-    const connectionsBefore = serverConnections.length;
-    expect(connectionsBefore).toBeGreaterThanOrEqual(1);
-
-    // Trigger disconnect by closing the CLIENT-side connection with a non-1000
-    // code. Code 1000 is treated as a clean PTY-exit and the client will NOT
-    // reconnect (SingleTerminalPane.tsx:376-382); 1001 forces auto-reconnect.
-    const lastClient = clientConnections[clientConnections.length - 1];
-    await lastClient.close({ code: 1001, reason: "e2e-disconnect" });
-
-    // Wait for client to auto-reconnect — a new server connection should appear
-    await expect(async () => {
-      expect(serverConnections.length).toBeGreaterThan(connectionsBefore);
-    }).toPass({ timeout: 15_000 });
-
-    // Wait for terminal to stabilize after reconnect
-    // The PTY process survives the WS disconnect; only the WS link broke
-    // After reconnect, the shell is still alive and accepts commands
-    await terminalPage.focus();
-    const marker2 = `post-reconnect-${Date.now()}`;
-    await terminalPage.typeCommand(`echo ${marker2}`);
-    await terminalPage.waitForOutput(marker2, 15_000);
-  });
-});
-
-/**
- * TERM-04: Multiple terminal instances with switching.
- * Tests opening 2 terminal panes and switching between them via PaneTabBar.
- */
-test.describe("Terminal Multi-Instance", () => {
-  const topicName = `e2e-term-multi-${Date.now()}`;
-  let topicId: string;
-
-  test.beforeAll(async ({ request }) => {
-    const topic = await createTopic(request, topicName, { projectPath });
-    topicId = topic.id;
-  });
-
-  test.beforeEach(async ({ request }) => {
-    await resetTerminalWorkspace(request, topicId);
-  });
-
-  test.afterAll(async ({ request }) => {
-    if (topicId) {
-      const sessions = await listTerminalSessions(request, topicId);
-      for (const s of sessions) {
-        await deleteTerminalSession(request, s.id);
-      }
-      await deleteTopic(request, topicId);
-    }
-  });
-
-  /**
-   * Open a terminal via the sidebar Add to project > Shell dropdown.
-   */
-  async function openTerminalViaUI(
-    page: import("@playwright/test").Page,
-    terminalPage: import("./fixtures/terminal.fixture").TerminalPage
-  ) {
-    const projectHeader = page.locator(`button[title="${projectPath}"]`);
-    await projectHeader.hover();
-    const addBtn = projectHeader
-      .locator("..")
-      .locator('button[title="Add to project"]');
-    await addBtn.waitFor({ state: "visible", timeout: 5000 });
-    await addBtn.click();
-    const shellBtn = page.getByRole("button", { name: "Shell", exact: true });
-    await shellBtn.waitFor({ state: "visible", timeout: 5000 });
-    await shellBtn.click();
-    await expect(terminalPage.xtermRows.first()).toBeVisible({
-      timeout: 15_000,
-    });
-    await terminalPage.waitForReady();
-  }
-
-  test("TERM-04: multiple terminal instances can be opened and switched", async ({
-    terminalPage,
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-01" });
-    await goToApp(page);
-
-    // Expand sezione Progetti if collapsed
-    const projectsSection = page.getByRole("button", {
-      name: /sezione Progetti/,
-    });
-    if ((await projectsSection.count()) > 0) {
-      const expanded = await projectsSection.getAttribute("aria-expanded");
-      if (expanded === "false") {
-        await projectsSection.click();
-      }
-    }
-
-    // Click the project header
-    const projectHeader = page.locator(`button[title="${projectPath}"]`);
-    await projectHeader.waitFor({ state: "visible", timeout: 10000 });
-    await projectHeader.click();
-
-    // Click the topic to get a pane group
-    const topicItem = page.getByRole("treeitem", { name: topicName });
-    await topicItem
-      .waitFor({ state: "visible", timeout: 5000 })
-      .catch(() => {});
-    if (await topicItem.isVisible()) {
-      await topicItem.click();
-      await page
-        .locator('[data-testid="panel-tab-bar"]')
-        .last()
-        .waitFor({ state: "visible", timeout: 5000 })
-        .catch(() => {});
-    }
-
-    // Open first terminal
-    await openTerminalViaUI(page, terminalPage);
-
-    // Type unique marker in terminal 1
-    await terminalPage.focus();
-    const marker1 = `term1-${Date.now()}`;
-    await terminalPage.typeCommand(`echo ${marker1}`);
-    await terminalPage.waitForOutput(marker1);
-
-    // Open second terminal
-    await openTerminalViaUI(page, terminalPage);
-
-    // Type unique marker in terminal 2
-    await terminalPage.focus();
-    const marker2 = `term2-${Date.now()}`;
-    await terminalPage.typeCommand(`echo ${marker2}`);
-    await terminalPage.waitForOutput(marker2);
-
-    // Verify there are at least 2 terminal/shell tabs in the pane tab bar
-    // Terminal panes have title "Shell" and show in the last panel-tab-bar
-    const tabBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    // Each pane tab is a div containing a span with the pane title; filter those with "Shell"
-    const shellTabs = tabBar.locator('[data-testid^="pane-tab-terminal:"]');
-    await expect(shellTabs).toHaveCount(2, { timeout: 5000 });
-
-    // Switch to terminal 1 by clicking the first Shell tab
-    await shellTabs.first().click();
-
-    // Wait for terminal 1 content to be visible with marker1
-    await expect(async () => {
-      const text = await terminalPage.getTerminalText();
-      expect(text).toContain(marker1);
-    }).toPass({ timeout: 10_000 });
-
-    // Switch to terminal 2 by clicking the second Shell tab
-    await shellTabs.last().click();
-
-    // Wait for terminal 2 content to be visible with marker2
-    await expect(async () => {
-      const text = await terminalPage.getTerminalText();
-      expect(text).toContain(marker2);
-    }).toPass({ timeout: 10_000 });
   });
 });
