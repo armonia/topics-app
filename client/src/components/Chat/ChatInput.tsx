@@ -1468,6 +1468,7 @@ export function ChatInput({
               onClose={() => setShowContextPopover(false)}
               onUpdateTopic={onUpdateTopic}
               onMessage={onMessage}
+              onCompact={isDraftTopic ? undefined : () => { void sendMessageDirect('/compact'); }}
             />
           </Suspense>
         </div>,
@@ -1493,6 +1494,7 @@ export function ChatInput({
                 onClose={() => setShowContextPopover(false)}
                 onUpdateTopic={onUpdateTopic}
                 onMessage={onMessage}
+                onCompact={isDraftTopic ? undefined : () => { void sendMessageDirect('/compact'); }}
               />
             </Suspense>
           </div>
