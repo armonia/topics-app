@@ -3,6 +3,7 @@ import { Search, X, ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Filter, M
 import { agentProfilesApi, chatApi, topicsApi, type SessionHistoryItem, type AgentProfile } from '../../lib/api';
 import type { HistoryMessage, WSMessage } from '../../types';
 import type { AgentSession as LiveSession } from '../../hooks/useAgents';
+import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -64,11 +65,10 @@ function formatDate(ts: string | number): string {
   return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
-  return String(tokens);
-}
+// Stampava «1000K» per 999.600 token: il ramo dei milioni scattava a
+// 1.000.000 esatti mentre Math.round(999600/1000) fa gia' 1000. Il confine
+// ora lo calcola lib/formatTokens dai decimali richiesti.
+const formatTokens = (tokens: number) => sharedFormatTokens(tokens, { suffix: 'K' });
 
 // Unified session type (works for both live and DB sessions)
 export interface UnifiedSession {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, memo } from 'react';
 import { Loader2, Check, X, ExternalLink } from 'lucide-react';
 import type { WSMessage } from '../../types';
+import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 
 interface AgentSpawnCardProps {
   sessionKey: string;
@@ -26,11 +27,7 @@ function formatDuration(startedAt: string): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
+const formatTokens = (n: number) => sharedFormatTokens(n, { decimals: 1 });
 
 export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, onOpenInPane, onMessage }: AgentSpawnCardProps) {
   const [info, setInfo] = useState<SessionInfo>({ status: 'active', totalTokens: 0, startedAt: null });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ContextUpdatePayload, ContextUsage, WSMessage } from '../types';
+import { formatTokens as sharedFormatTokens } from '../lib/formatTokens';
 
 /**
  * Dal payload sul filo (blocco `usage_update` ACP + presentazione) alla forma
@@ -79,8 +80,10 @@ export function useRealContext(
  * l'arrotondamento viene PRIMA del suffisso: con il taglio a 1_000_000 netto,
  * 999_999 sarebbe diventato "1000k".
  */
+// Era l'UNICA delle cinque copie ad azzeccare il confine con i milioni.
+// L'algoritmo vive ora in lib/formatTokens, con quel confine calcolato dai
+// decimali invece che scritto a mano; questo re-export tiene la firma per i
+// suoi chiamanti e per il test che la pinna.
 export function formatTokens(n: number): string {
-  if (n >= 999_500) return `${(n / 1_000_000).toFixed(n >= 9_950_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
+  return sharedFormatTokens(n);
 }
