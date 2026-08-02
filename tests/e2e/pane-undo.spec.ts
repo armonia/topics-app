@@ -315,7 +315,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     // falliva su un locator sbagliato molto prima di arrivare all'asserzione.
     test.fail(
       true,
-      "UNDO_CLOSE non reinserisce la pane nel gruppo: dopo l'undo il gruppo è [t1, t3] mentre la UI mostra [t1, t3, t2] — ghost pane in openPanels senza slot nel gruppo",
+      "Il gruppo resta [t1, t3] mentre la UI mostra [t1, t3, t2]. NON è più il reducer: `undoReducer` ora reinserisce anche quando l'entità è già stata resuscitata (vedi undoGhostPane.test.ts, 5/5). Il record non arriva: sonda sullo snapshot server → closedStack VUOTO prima del Cmd+Z, quindi UNDO_CLOSE fa pop di niente ed esce. La tab che riappare viene tutta dal percorso openPanels (markTabRestored + Effect A), appesa in fondo. Da isolare guardando lo store IN MEMORIA del client, non lo snapshot del server che è in ritardo.",
     );
 
     await gotoAndWait(page);

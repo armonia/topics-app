@@ -11,7 +11,20 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   // here would put the same id in paneIds twice — duplicate tabs sharing one
   // entity and React key collisions. Popping the record IS the right outcome;
   // there is nothing left to undo.
-  if (state.panes[record.id]) return;
+  //
+  // La domanda però è «ha già un POSTO in un gruppo?», non «esiste l'entità?».
+  // Con il test sulla sola entità questa guardia produceva una GHOST PANE:
+  // l'undo di App fa partire un unarchive PRIMA del dispatch
+  // (usePanelLifecycle), e una ri-idratazione può rimettere l'entità in `panes`
+  // mentre nessun gruppo la contiene ancora. Il reducer usciva qui, il record
+  // era già stato consumato dalla `pop`, e la pane restava senza posto:
+  // invisibile allo store, visibile alla UI attraverso `openPanels`, e appesa
+  // in fondo invece che al suo indice. Misurato nell'E2E pane-undo:
+  //   store  group:default = [t1, t3]   ·   UI  [t1, t3, t2]
+  // A duplicare la tab è l'id ripetuto nei `paneIds`, ed è quello che si
+  // controlla.
+  const alreadySlotted = Object.values(state.groups).some((g) => g.paneIds.includes(record.id));
+  if (alreadySlotted) return;
 
   // Re-insert the pane entity. Strip `scrollOffset` defensively — it is a
   // device-local field that CLOSE_PANE no longer copies onto the record
@@ -28,7 +41,15 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   // Undo is a closed→open transition — stamp the causal open timestamp so a
   // stale peer's surviving marker for this id (union-merged tombstone maps
   // never propagate deletions) loses the hydrate comparison to the restore.
-  state.panes[record.id] = { ...paneWithoutScroll, openedAt: Date.now() };
+  // Se l'entità è stata resuscitata da un'altra strada, la si tiene: quella
+  // viva può avere campi più freschi del record (che è una fotografia del
+  // momento della chiusura). Quello che serviva è il POSTO nel gruppo, qui
+  // sotto. `openedAt` si ristampa comunque: l'undo è una transizione
+  // chiuso→aperto, e senza quel timbro un marcatore superstite di un peer
+  // stantio vince il confronto all'hydrate e richiude la tab.
+  state.panes[record.id] = state.panes[record.id]
+    ? { ...state.panes[record.id], openedAt: Date.now() }
+    : { ...paneWithoutScroll, openedAt: Date.now() };
 
   // Undo re-opens the pane — retract its durable tombstone so the restored tab
   // isn't stripped on the next union hydrate (mirrors OPEN_PANE's clear).
