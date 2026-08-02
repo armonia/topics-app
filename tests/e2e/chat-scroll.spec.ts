@@ -77,10 +77,12 @@ test.describe("Chat scroll behavior", () => {
     await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    if (await scroller.count() === 0) {
-      test.skip(true, "Virtuoso scroller not found");
-      return;
-    }
+    // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
+    // dell'ambiente: se sparisce, e' il difetto — non un motivo per saltare. Con
+    // `test.skip(count === 0)` questi tre test diventavano verdi-vuoti proprio
+    // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
+    // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
+    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
 
     // Scroll up by pressing Home key
     await scroller.click();
@@ -111,10 +113,12 @@ test.describe("Chat scroll behavior", () => {
     await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    if (await scroller.count() === 0) {
-      test.skip(true, "Virtuoso scroller not found");
-      return;
-    }
+    // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
+    // dell'ambiente: se sparisce, e' il difetto — non un motivo per saltare. Con
+    // `test.skip(count === 0)` questi tre test diventavano verdi-vuoti proprio
+    // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
+    // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
+    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 
@@ -152,10 +156,12 @@ test.describe("Chat scroll behavior", () => {
     await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    if (await scroller.count() === 0) {
-      test.skip(true, "Virtuoso scroller not found");
-      return;
-    }
+    // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
+    // dell'ambiente: se sparisce, e' il difetto — non un motivo per saltare. Con
+    // `test.skip(count === 0)` questi tre test diventavano verdi-vuoti proprio
+    // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
+    // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
+    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 
