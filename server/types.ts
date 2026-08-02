@@ -43,11 +43,6 @@ export interface WSData {
    *  native pane reads 0 other viewers — otherwise its own delegate connection would
    *  make 'auto' oscillate native↔shared every poll ("il browser si resetta"). */
   _nativeDelegate?: boolean;
-  /** Il contesto browser esisteva GIA' quando questo socket si e' aperto.
-   *  Distingue un contesto legittimo di qualcun altro da quello creato dalla
-   *  partenza differita dello screencast, che per una pane NATIVA e' un
-   *  fantasma da distruggere (vedi il ramo 'registered' in server.ts). */
-  _browserCtxExistedBefore?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
