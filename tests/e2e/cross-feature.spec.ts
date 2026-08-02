@@ -298,13 +298,6 @@ test.describe("Cross-Feature Interactions", () => {
       // Collect indices at the bottom position
       const bottomIndices = await collectVisibleIndices();
 
-      // Scroll to the very top
-      await scroller.evaluate((el) => { el.scrollTop = 0; });
-      await expect(page.locator('[data-item-index="0"]')).toBeVisible({ timeout: 5_000 }).catch(() => {});
-
-      // Collect indices near the top
-      const topIndices = await collectVisibleIndices();
-
       // Scroll a una frazione dell'altezza e aspetta che Virtuoso ci porti
       // davvero le righe di quella zona.
       //
@@ -327,6 +320,14 @@ test.describe("Cross-Feature Interactions", () => {
         }).toPass({ timeout: 10_000 });
         return collectVisibleIndices();
       }
+
+      // Cima della lista. Passa dallo STESSO retry delle altre fasce, e per lo
+      // stesso motivo: un `scrollTop = 0` sparato una volta sola atterra su
+      // un'altezza ancora stimata, e Virtuoso puo' non aver montato la riga 0
+      // quando la si guarda. Prima qui c'era un `expect(...).toBeVisible()` con
+      // `.catch(() => {})` attaccato — non poteva fallire, quindi `topIndices`
+      // finiva per essere un campione qualunque spacciato per "la cima".
+      const topIndices = await scrollToFractionAndSample(0, (i) => i === 0);
 
       // Mid-section should have indices between 200 and 900
       const midIndices = await scrollToFractionAndSample(0.5, (i) => i > 200 && i < 900);

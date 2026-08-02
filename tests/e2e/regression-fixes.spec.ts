@@ -135,37 +135,54 @@ test.describe("EditorTabs: rapid file opening does not show stale content", () =
     // Look for file entries in the file explorer tree.
     // Directories have a chevron icon; files do not. We need to click actual files
     // (not directories) to trigger the editor open path.
+    //
+    // DUE FILE SONO LA PRECONDIZIONE, non una comodità dell'ambiente: senza due
+    // click ravvicinati la corsa dell'AbortController non viene nemmeno
+    // provocata, e l'asserzione finale (nessun errore di React) è vera a vuoto.
+    // Prima qui c'erano tre attese con `.catch(() => {})` e un `if (fileCount >=
+    // 2)`: con l'albero assente il test passava senza cliccare niente — verde
+    // proprio nel caso che doveva intercettare. Il progetto è `process.cwd()`,
+    // cioè questo repo: i file ci sono, e se non ci sono è quello il difetto.
     const fileTree = page.locator('[data-testid="file-tree"]');
-    await fileTree.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+    await expect(fileTree, "il pane Files deve montare l'albero").toBeVisible({ timeout: 10_000 });
 
-    // Find treeitem entries that are NOT directories (no expand chevron / font-medium)
-    // Strategy: click items that don't have the font-medium class (files, not dirs)
-    const allTreeItems = fileTree.locator('[role="treeitem"]');
-    await expect(allTreeItems.first()).toBeVisible({ timeout: 10000 }).catch(() => {});
-
-    // Find two file entries by looking for items whose text matches known file extensions
-    const fileItems = fileTree.locator('[role="treeitem"]').filter({
-      hasText: /\.(ts|js|json|md|txt|html|css|sh)$/,
+    // Due file DELLA RADICE di questo repo, per nome. Prima si filtravano i
+    // treeitem con `hasText: /\.(ts|js|json|…)$/`, e quel `$` non poteva mai
+    // combaciare: l'etichetta di una riga finisce col BADGE GIT (`server.ts M`),
+    // non con l'estensione. Il filtro restituiva zero, l'`if (fileCount >= 2)`
+    // che lo avvolgeva saltava tutto in silenzio, e il test chiudeva verde senza
+    // aver cliccato niente — cioe' senza aver mai provocato la corsa
+    // dell'AbortController che gli da' il nome.
+    const firstFile = fileTree.getByRole("treeitem", { name: /package\.json/ });
+    const secondFile = fileTree.getByRole("treeitem", { name: /server\.ts/ });
+    await expect(firstFile.first(), "package.json deve essere nell'albero").toBeVisible({
+      timeout: 10_000,
     });
-    const fileCount = await fileItems.count();
+    await expect(secondFile.first(), "server.ts deve essere nell'albero").toBeVisible({
+      timeout: 10_000,
+    });
 
-    if (fileCount >= 2) {
-      // Rapidly click two different files to trigger the abort race condition path
-      await fileItems.nth(0).click();
-      // Immediately click the second file before the first finishes loading
-      await fileItems.nth(1).click();
+    // Rapidly click two different files to trigger the abort race condition path:
+    // il secondo click arriva PRIMA che il primo abbia finito di caricare.
+    await firstFile.first().click();
+    await secondFile.first().click();
 
-      // Wait for the editor to settle — content should load without errors
-      await expect(
-        page.locator('[data-testid="editor-tabs"]')
-      ).toBeVisible({ timeout: 10000 });
-    } else if (fileCount === 1) {
-      // At minimum, open one file and verify no errors
-      await fileItems.nth(0).click();
-      await expect(
-        page.locator('[data-testid="editor-tabs"]')
-      ).toBeVisible({ timeout: 10000 });
-    }
+    // A vincere dev'essere il SECONDO file: e' letteralmente il titolo del
+    // describe («does not show stale content»), ed e' cio' che l'AbortController
+    // serve a garantire — la risposta della prima fetch, se arriva dopo, non
+    // deve sovrascrivere il contenuto piu' recente.
+    //
+    // Il segnale e' il breadcrumb del FilePane attivo. Prima si aspettava
+    // `[data-testid="editor-tabs"]`, che in questo percorso non compare mai:
+    // quel testid sta dentro il pane «Files» (FileExplorer.tsx), e questo test
+    // clicca nell'albero della SIDEBAR, che apre un FilePane nell'area
+    // principale. Non se n'era accorto nessuno perche' l'asserzione era dentro
+    // un `if` che non si avverava. `:visible` perche' i pane inattivi restano
+    // montati con display:none, quindi un locator nudo ne trova due.
+    await expect(
+      page.locator('[data-testid="breadcrumb-nav"]:visible'),
+      "deve restare aperto l'ULTIMO file cliccato, non il primo",
+    ).toContainText("server.ts", { timeout: 10_000 });
 
     // The key assertion: no page errors from the abort controller cleanup
     // Filter out unrelated errors (e.g., network errors from other components)

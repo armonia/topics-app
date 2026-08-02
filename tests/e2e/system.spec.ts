@@ -65,10 +65,12 @@ test.describe("System & Infrastructure", () => {
     expect(hasDialog || hasModal).toBeTruthy();
 
     await page.keyboard.press("Escape");
-    // Verify palette closed
-    if (hasDialog) {
-      await expect(dialog.first()).toBeHidden({ timeout: 3000 }).catch(() => {});
-    }
+    // Si chiude QUELLA CHE SI E' APERTA. Prima si guardava solo `dialog`, e con
+    // un `.catch(() => {})` attaccato: se ad aprirsi era `modal` il controllo
+    // saltava del tutto, e se era `dialog` l'asserzione non poteva comunque
+    // fallire. In entrambi i casi «Escape chiude la palette» non era verificato.
+    const opened = hasDialog ? dialog.first() : modal.first();
+    await expect(opened, "Escape deve chiudere la palette").toBeHidden({ timeout: 3000 });
   });
 
   test("API endpoints respond correctly", async ({ page }) => {

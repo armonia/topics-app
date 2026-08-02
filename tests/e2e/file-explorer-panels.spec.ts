@@ -93,18 +93,30 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await expect(srcSegment).toBeVisible();
     await srcSegment.click();
 
-    // A dropdown should appear showing sibling entries in the parent directory
-    // The DropdownPortal renders outside the breadcrumb, so look for it at page level
-    const dropdown = page.locator('[role="listbox"], .fixed, [class*="shadow-2xl"]').filter({
-      hasText: /index\.ts/,
-    });
-    // If the dropdown rendered, it should contain "index.ts" as a child of src
-    // If no dropdown, the segment click may navigate - either outcome is valid
-    const dropdownVisible = await dropdown.first().isVisible().catch(() => false);
-    if (dropdownVisible) {
-      await expect(dropdown.first()).toBeVisible();
-    }
-    // The breadcrumb interaction itself is verified by the click not erroring
+    // Il dropdown di un segmento elenca il contenuto della sua directory
+    // PADRE — cioe' i FRATELLI del segmento, che e' come ci si sposta di lato
+    // nell'albero. Per il segmento `src` il padre e' la radice del progetto:
+    // dentro ci sono `src` stesso, `package.json` e `newfile.txt` (README.md e'
+    // cancellato nel seed). `index.ts` NON c'e': e' un figlio di src, e comparira'
+    // nel dropdown del segmento successivo. Lo dice `BreadcrumbNav.tsx`:
+    //   parentDir = i === 0 ? projectPath : projectPath + '/' + segments.slice(0, i)
+    //
+    // Prima qui c'era `if (visibile) expect(visibile)` — una tautologia — con il
+    // commento «se non c'e' il dropdown, il click puo' aver navigato: vanno bene
+    // entrambi gli esiti» e «l'interazione e' verificata dal fatto che il click
+    // non da' errore». Non era vero: un click che non fa NULLA non da' errore, e
+    // il test sarebbe rimasto verde comunque.
+    const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    await expect
+      .poll(async () => (await dropdownItems.allInnerTexts()).join(" "), {
+        timeout: 10_000,
+        message: "il segmento `src` deve aprire il dropdown della sua directory padre",
+      })
+      .toContain("package.json");
+
+    const entries = (await dropdownItems.allInnerTexts()).map((t) => t.trim());
+    expect(entries.join(" "), "i fratelli di src, non i suoi figli").toContain("newfile.txt");
+    expect(entries.join(" ")).toContain("src");
   });
 
   test("FIX-07: breadcrumb dropdown refreshes on directory change", async ({
@@ -136,24 +148,35 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await expect(breadcrumb).toBeVisible({ timeout: 5000 });
     await expect(breadcrumb).toContainText("index.ts");
 
-    // Click the first breadcrumb segment (project root directory name) to open dropdown
-    // The first segment is the root-level segment before "src"
-    const segments = breadcrumb.locator("button");
-    const firstSegmentText = await segments.first().textContent();
+    // Si apre il dropdown dell'ULTIMO segmento (`index.ts`), la cui directory
+    // padre e' `src/`: dentro c'e' solo `index.ts`.
+    //
+    // Prima si cliccava il segmento `src` con il commento «this lists children of
+    // the parent directory» e, due righe sotto, «the dropdown should show
+    // index.ts (child of src/)»: i due commenti si contraddicevano e il secondo
+    // era sbagliato — il padre di `src` e' la RADICE, quindi quel dropdown
+    // elencava package.json e fratelli. Nessuno se n'era accorto perche'
+    // l'unica asserzione era «la prima voce e' visibile», vera per qualunque
+    // dropdown. E cliccando `src` questo test non provava nemmeno cio' che dice
+    // di provare: il dropdown della radice confrontato con... il dropdown della
+    // radice. Due directory DIVERSE servono, o non c'e' nessuna cache da
+    // invalidare.
+    const indexSegment = breadcrumb.getByRole("button", { name: "index.ts" });
+    await indexSegment.click();
 
-    // Click the "src" segment to open dropdown -- this lists children of the parent directory
-    const srcSegment = breadcrumb.getByRole("button", { name: "src" });
-    await srcSegment.click();
-
-    // The dropdown should show index.ts (child of src/)
     // DropdownPortal renders at page level. Il segnale che l'API ha risposto è
     // la prima voce a schermo, non 500ms di attesa al buio.
     const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
-    await expect(dropdownItems.first()).toBeVisible({ timeout: 10_000 });
-    const firstDropdownCount = await dropdownItems.count();
+    await expect
+      .poll(async () => (await dropdownItems.allInnerTexts()).join(" "), { timeout: 10_000 })
+      .toContain("index.ts");
+    const srcEntries = (await dropdownItems.allInnerTexts()).map((t) => t.trim());
+    expect(srcEntries.join(" "), "il padre di index.ts e' src/, che contiene solo lui").not.toContain(
+      "package.json",
+    );
 
     // Close the dropdown by clicking the segment again
-    await srcSegment.click();
+    await indexSegment.click();
 
     // Now open a different file at root level: package.json (README.md is
     // deleted in beforeAll to seed FILE-13's "D" status, so it's absent).
@@ -170,17 +193,27 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     const rootSegment = breadcrumb.locator("button").first();
     await rootSegment.click();
 
-    // This dropdown should show root-level children (README.md, package.json, src/, etc.)
-    // If the fix is working, the dropdown content reflects the new directory, not stale cache
+    // Il difetto in esame e' una CACHE STANTIA (BreadcrumbNav.tsx: `cache` tiene
+    // la directory per cui e' stata riempita, e la si scarta se `parentDir`
+    // cambia). Quindi la cosa da asserire e' che l'elenco sia CAMBIATO, non che
+    // sia "abbastanza lungo".
+    //
+    // Prima si contavano le voci e si pretendeva `>= 3`, e il conteggio del primo
+    // dropdown veniva catturato in una variabile mai confrontata con niente — era
+    // l'unico pezzo che avrebbe legato il controllo al nome del test.
     const rootDropdownItems = page.locator('[class*="max-h-[300px]"] button');
     await expect
-      .poll(() => rootDropdownItems.count(), { timeout: 10_000 })
-      .toBeGreaterThanOrEqual(3);
-    const rootDropdownCount = await rootDropdownItems.count();
+      .poll(async () => (await rootDropdownItems.allInnerTexts()).join(" "), { timeout: 10_000 })
+      .toContain("package.json");
 
-    // Root directory should have multiple items (README.md, package.json, src/, newfile.txt)
-    // This verifies the dropdown refreshed with the correct directory's contents
-    expect(rootDropdownCount).toBeGreaterThanOrEqual(3);
+    const rootEntries = (await rootDropdownItems.allInnerTexts()).map((t) => t.trim());
+    // Voci della RADICE, che `src/` non contiene: se la cache fosse stantia, qui
+    // ci sarebbe ancora il solo index.ts.
+    expect(rootEntries.join(" "), "il dropdown deve elencare la radice").toContain("newfile.txt");
+    expect(
+      rootEntries,
+      `il dropdown non si e' aggiornato: mostra ancora il contenuto di src/ (${srcEntries.join(", ")})`,
+    ).not.toEqual(srcEntries);
   });
 
   test("FILE-09: process list renders", async ({
