@@ -1,5 +1,5 @@
-import { formatDurationMs } from './toolGrouping';
-import { safeNum, cacheBreakdown } from '../../lib/cacheBreakdown';
+import { formatDurationMs, formatCostCents } from './toolGrouping';
+import { safeNum, cacheBreakdown, costBreakdown } from '../../lib/cacheBreakdown';
 
 interface Props {
   latencyMs?: number | null;
@@ -74,23 +74,35 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   if (total > 0) {
     parts.push({ text: `${total.toLocaleString()} tokens`, title: tokensTitle });
   }
-  // La quota di cache come voce a sé, in percentuale: è l'informazione che il
-  // numero grande non dà. Una percentuale sta in tre caratteri e la striscia resta
-  // una riga — il dettaglio esatto è già nel title dei token.
+  // La quota di cache, in COSTO e non in percentuale di token.
   //
-  // Solo quando c'è davvero cache: uno "0% cache" su un primo turno sarebbe
-  // rumore, e la sua assenza dice la stessa cosa.
-  if (breakdownKnown && prompt > 0 && cacheRead > 0) {
-    const pct = bd.pct;
+  // Prima qui c'era «92% cache», e quella percentuale contava i TOKEN mentre si
+  // legge come uno sconto. Sui numeri veri di un turno misurato il 92,5% dei
+  // token era rilettura ma solo il 54,3% della SPESA: due numeri che raccontano
+  // due storie diverse, e quello che serve quando si guarda un costo è il
+  // secondo. Il chip dice ora quanto dei dollari veniva dalla cache; la
+  // differenza col totale — che resta l'ultima voce, invariata — è il resto.
+  const cb = costBreakdown({ promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens });
+  const safeCost = safeNum(costCents);
+  if (cb.known && cb.cacheCents > 0) {
     parts.push({
-      text: `${pct}% cache`,
-      title: `${cacheRead.toLocaleString()} dei ${prompt.toLocaleString()} token letti erano una rilettura dalla cache — costano il 10% di un token fresco`,
+      text: `${formatCostCents(cb.cacheCents)} cache`,
+      // Il title è la CONTABILITÀ del costo, come il title dei token lo è dei
+      // token: le voci sommano al totale. La scrittura in cache è nominata a
+      // parte perché è la sorpresa — costa 1,25× (o 2× a un'ora) un token
+      // fresco, non 0,1×, e in un turno lungo è una fetta grossa della spesa.
+      title: [
+        `${formatCostCents(safeCost)} in tutto, di cui:`,
+        `  ${formatCostCents(cb.cacheCents)} di rilettura dalla cache (×0,1)`,
+        ...(cb.writeCents > 0 ? [`  ${formatCostCents(cb.writeCents)} di scrittura in cache (×1,25, ×2 a un'ora)`] : []),
+        `  ${formatCostCents(cb.freshCents - cb.writeCents)} di token freschi e risposta`,
+        '',
+        `Ripartizione del costo misurato in base al peso di ogni quota; su tutti i modelli Claude un token di risposta costa 5× uno di prompt.`,
+      ].join('\n'),
     });
   }
-  const safeCost = safeNum(costCents);
   if (safeCost > 0) {
-    const usd = safeCost / 100;
-    parts.push({ text: usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}` });
+    parts.push({ text: formatCostCents(safeCost) });
   }
 
   if (parts.length === 0) return null;

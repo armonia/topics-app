@@ -20,7 +20,7 @@
  *      conti a `prompt` anche quando il provider arrotonda fra chiamate.
  */
 import { describe, test, expect } from 'bun:test';
-import { cacheBreakdown } from './cacheBreakdown';
+import { cacheBreakdown, costBreakdown } from './cacheBreakdown';
 
 describe('cacheBreakdown — noto contro non noto', () => {
   test('senza cacheReadTokens NON è noto: nessuno scorporo inventato', () => {
@@ -124,5 +124,73 @@ describe('cacheBreakdown — valori sporchi dal provider', () => {
     const bd = cacheBreakdown({ promptTokens: 100, cacheReadTokens: -50 });
     expect(bd.read).toBe(0);
     expect(bd.fresh).toBe(100);
+  });
+});
+
+describe('costBreakdown — lo scorporo del COSTO, non dei token', () => {
+  test('senza scorporo dei token non riparte niente', () => {
+    expect(costBreakdown({ promptTokens: 1000, costCents: 500 }).known).toBe(false);
+  });
+
+  test('senza un costo misurato non riparte niente', () => {
+    // `0` non e' "gratis": e' "non misurato". Mostrare «0$ cache» direbbe una
+    // cosa falsa con la stessa faccia di una vera.
+    expect(costBreakdown({ promptTokens: 1000, cacheReadTokens: 900, costCents: 0 }).known).toBe(false);
+    expect(costBreakdown({ promptTokens: 1000, cacheReadTokens: 900, costCents: null }).known).toBe(false);
+  });
+
+  test('le voci SOMMANO al costo misurato', () => {
+    // E' l'invariante che rende la ripartizione onesta: qualunque cosa mostri,
+    // deve tornare al numero che la riga ha davvero pagato.
+    const cb = costBreakdown({
+      promptTokens: 1_000_000, completionTokens: 20_000, costCents: 12_345,
+      cacheReadTokens: 900_000, cacheCreationTokens: 50_000, cacheCreation1hTokens: 20_000,
+    });
+    expect(cb.known).toBe(true);
+    expect(cb.cacheCents + cb.freshCents).toBeCloseTo(12_345, 6);
+  });
+
+  test('la quota di COSTO e quella di TOKEN sono numeri diversi — ed e\' il punto', () => {
+    // 92,5% dei token e' rilettura, ma la rilettura costa un decimo: la sua
+    // quota di SPESA e' molto piu' bassa. Il chip vecchio mostrava il primo
+    // numero mentre stava accanto a un totale in dollari.
+    const args = {
+      promptTokens: 1_000_000, completionTokens: 10_000, costCents: 10_000,
+      cacheReadTokens: 925_000, cacheCreationTokens: 50_000,
+    };
+    const pctToken = cacheBreakdown(args).pct;
+    const cb = costBreakdown(args);
+    const pctCosto = (cb.cacheCents / 10_000) * 100;
+    expect(pctToken).toBe(93); // arrotondato
+    expect(pctCosto).toBeLessThan(pctToken / 2);
+  });
+
+  test('la SCRITTURA in cache sta col nuovo, non con la cache', () => {
+    // Scrivere in cache vuol dire che quei token erano freschi e li hai pagati
+    // 1,25x (o 2x) per memorizzarli: e' un anticipo, non un risparmio.
+    const cb = costBreakdown({
+      promptTokens: 1_000_000, completionTokens: 0, costCents: 1000,
+      cacheReadTokens: 0, cacheCreation1hTokens: 1_000_000,
+    });
+    expect(cb.cacheCents).toBe(0);
+    expect(cb.freshCents).toBeCloseTo(1000, 6);
+    expect(cb.writeCents).toBeCloseTo(1000, 6);
+  });
+
+  test('una rilettura pura si prende tutto il costo', () => {
+    const cb = costBreakdown({
+      promptTokens: 1_000_000, completionTokens: 0, costCents: 777,
+      cacheReadTokens: 1_000_000,
+    });
+    expect(cb.cacheCents).toBeCloseTo(777, 6);
+    expect(cb.freshCents).toBeCloseTo(0, 6);
+  });
+
+  test('un turno di sola risposta non attribuisce niente alla cache', () => {
+    const cb = costBreakdown({
+      promptTokens: 0, completionTokens: 5000, costCents: 400, cacheReadTokens: 0,
+    });
+    expect(cb.cacheCents).toBe(0);
+    expect(cb.freshCents).toBeCloseTo(400, 6);
   });
 });
