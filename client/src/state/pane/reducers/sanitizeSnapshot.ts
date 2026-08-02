@@ -21,6 +21,13 @@
 
 import type { Pane, PaneType, Group, ClosedPaneRecord, SpaceMeta } from '../types';
 import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX, TOMBSTONES_MAX } from '../types';
+// Stessa regola di PANE_TYPES qui sotto: la lista dei tipi di terminale si
+// IMPORTA, non si ricopia. Le due whitelist scritte a mano che stavano più
+// giù si erano fermate a tre valori e buttavano via `opencode` a ogni
+// idratazione. `TERMINAL_AGENT_TYPES` e non `TERMINAL_SESSION_TYPES`: la
+// seconda contiene anche il legacy `claude-code-team`, che non è assegnabile
+// a `TerminalAgentType`.
+import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../../../shared/terminal-session-types';
 
 export interface SanitizedSnapshot {
   panes?: Record<string, Pane>;
@@ -57,6 +64,11 @@ export interface SanitizedSnapshot {
  * into the store.
  */
 export const KNOWN_PANE_TYPES = PANE_TYPES;
+
+/** true = la stringa è un tipo di terminale APRIBILE (shell/claude-code/codex/opencode). */
+function isTerminalAgentType(v: unknown): v is TerminalAgentType {
+  return typeof v === 'string' && (TERMINAL_AGENT_TYPES as readonly string[]).includes(v);
+}
 
 function isKnownPaneType(v: unknown): v is PaneType {
   return typeof v === 'string' && (KNOWN_PANE_TYPES as readonly string[]).includes(v);
@@ -104,7 +116,7 @@ function sanitizePane(raw: unknown): Pane | null {
   if (typeof raw.color === 'string') pane.color = raw.color;
   if (typeof raw.processId === 'string') pane.processId = raw.processId;
   if (typeof raw.sessionKey === 'string') pane.sessionKey = raw.sessionKey;
-  if (raw.terminalType === 'shell' || raw.terminalType === 'claude-code' || raw.terminalType === 'codex') {
+  if (isTerminalAgentType(raw.terminalType)) {
     pane.terminalType = raw.terminalType;
   }
   // Causal open timestamp — the counterpart of the durable tombstone map.
@@ -266,7 +278,7 @@ function sanitizeTerminal(raw: unknown): ClosedPaneRecord['terminal'] | undefine
   const out: NonNullable<ClosedPaneRecord['terminal']> = {};
   if (typeof raw.sessionId === 'string') out.sessionId = raw.sessionId;
   if (typeof raw.cwd === 'string') out.cwd = raw.cwd;
-  if (raw.sessionType === 'shell' || raw.sessionType === 'claude-code' || raw.sessionType === 'codex') {
+  if (isTerminalAgentType(raw.sessionType)) {
     out.sessionType = raw.sessionType;
   }
   if (typeof raw.name === 'string') out.name = raw.name;
