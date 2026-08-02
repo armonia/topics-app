@@ -1,0 +1,23 @@
+-- Indice su messages(timestamp).
+--
+-- `messages` ha quattro indici e nessuno tocca `timestamp`
+-- (idx_messages_session, _session_order, _parent_id, _session_parent), mentre
+-- tre query lo usano come UNICO filtro:
+--
+--   server/routes/dashboard.ts — tokenSpendDay / tokenSpendWeek / costSeries
+--     Somme e GROUP BY su una finestra temporale. Piani misurati PRIMA:
+--       SCAN messages                          (tokenSpendDay,  15,8 ms)
+--       SCAN messages                          (tokenSpendWeek, 18,1 ms)
+--       SCAN messages + USE TEMP B-TREE FOR GROUP BY (costSeries, 9,6 ms)
+--     Sono tre scansioni piene di una tabella da ~128 MB per sommare due
+--     colonnine, e girano a ogni apertura della dashboard.
+--
+--   server.ts — la bonifica al boot dei tool rimasti 'running'
+--     Anche quella scandisce tutto (215 ms a caldo, misurati) e senza una
+--     finestra temporale non ha modo di non farlo.
+--
+-- Un indice, non tre: la stessa colonna serve a tutti i casi.
+--
+-- IF NOT EXISTS perché il DB di sviluppo di qualcuno può già averlo creato a
+-- mano durante l'indagine; la migration deve restare ri-eseguibile.
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
