@@ -22,7 +22,6 @@ import {
   type GatewayEvent,
   GatewayWS,
   initGatewayWS,
-  getGatewayWS,
   registerSessionHandler,
   unregisterSessionHandler,
   routeGatewayEvent,

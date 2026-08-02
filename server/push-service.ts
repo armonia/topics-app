@@ -47,15 +47,30 @@ export function getVapidPublicKey(): string {
   return keys.publicKey;
 }
 
+/** La riga come sta in SQLite: colonne piatte. */
+interface PushSubscriptionRow {
+  endpoint: string;
+  keys_p256dh: string;
+  keys_auth: string;
+}
+
+/** La forma che vuole webpush: chiavi annidate. NON coincide con la riga, ed è
+ *  il motivo per cui esistono entrambi i tipi — l'interfaccia c'era già ma non la
+ *  usava nessuno, mentre la query si accontentava di `any[]`: il rimappaggio
+ *  colonna→chiave era quindi l'unico punto non controllato dal compilatore. */
 interface PushSubscription {
   endpoint: string;
   keys: { p256dh: string; auth: string };
 }
 
+function toPushSubscription(row: PushSubscriptionRow): PushSubscription {
+  return { endpoint: row.endpoint, keys: { p256dh: row.keys_p256dh, auth: row.keys_auth } };
+}
+
 export async function sendPushToAll(payload: { title: string; body: string; tag?: string; url?: string }) {
   initVapid();
   const db = getDatabase();
-  const subs = db.query("SELECT endpoint, keys_p256dh, keys_auth FROM push_subscriptions").all() as any[];
+  const subs = db.query("SELECT endpoint, keys_p256dh, keys_auth FROM push_subscriptions").all() as PushSubscriptionRow[];
 
   if (subs.length === 0) return;
 
@@ -63,12 +78,14 @@ export async function sendPushToAll(payload: { title: string; body: string; tag?
   const results = await Promise.allSettled(
     subs.map(sub =>
       webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth } },
+        toPushSubscription(sub),
         jsonPayload
       ).catch(err => {
         // 410 Gone or 404 = subscription expired, remove it
         if (err.statusCode === 410 || err.statusCode === 404) {
-          db.run("DELETE FROM push_subscriptions WHERE endpoint = ?", sub.endpoint);
+          // Bindings in forma di array: è la firma che `Database.run` dichiara.
+          // Con `sub` tipizzato `any` il compilatore non poteva dirlo.
+          db.run("DELETE FROM push_subscriptions WHERE endpoint = ?", [sub.endpoint]);
           console.log(`[Push] Removed expired subscription`);
         } else {
           console.error(`[Push] Send failed:`, err.statusCode || err.message);

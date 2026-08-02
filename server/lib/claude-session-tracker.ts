@@ -33,7 +33,7 @@ import {
   type ReaperConfig,
   DEFAULT_REAPER_CONFIG,
 } from './claude-session-state';
-import { createClaudeSessionRepo, type ClaudeSessionRepo } from './claude-session-repo';
+import { createClaudeSessionRepo } from './claude-session-repo';
 
 export type Broadcaster = (msg: OutboundMessage) => void;
 

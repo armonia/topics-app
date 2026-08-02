@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "fs";
 import { join } from "path";
-import type { UsageRecord, UsageSummary, DaySummary, ModelSummary, TopicSummary } from "./types";
+import type { UsageRecord, UsageSummary, DaySummary } from "./types";
 
 let USAGE_DIR = "";
 let SUMMARY_FILE = "";

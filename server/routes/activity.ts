@@ -3,7 +3,7 @@ import type { ActivityMonitor } from "../activity-monitor";
 import { listActivity, type ActivityLevel } from "../db/activity-log";
 
 export function createActivityRouter(ctx: AppContext, monitor: ActivityMonitor): RouteHandler {
-  const { json, matchRoute } = ctx;
+  const { json } = ctx;
 
   return async function activityRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
