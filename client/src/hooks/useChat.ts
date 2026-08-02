@@ -1291,6 +1291,7 @@ export function useChat() {
           if (typeof event.usagePromptTokens === 'number') finalPatch.usagePromptTokens = event.usagePromptTokens;
           if (typeof event.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = event.usageCompletionTokens;
           if (typeof event.costCents === 'number') finalPatch.costCents = event.costCents;
+          if (typeof event.model === 'string' && event.model) finalPatch.model = event.model;
           // Lo scorporo della cache, sullo stesso principio degli altri: si applica
           // SOLO se il server l'ha mandato. Un `?? 0` qui scriverebbe "misurato,
           // nessuna cache" su un turno di cui non sappiamo la composizione.

@@ -982,6 +982,8 @@ interface MessageContentProps {
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
+  /** Il modello del turno — nel tooltip del costo, per renderlo verificabile. */
+  model?: string | null;
   usageCompletionTokens?: number | null;
   costCents?: number | null;
   // Plan mode
@@ -1008,7 +1010,7 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1179,6 +1181,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             cacheReadTokens={cacheReadTokens}
             cacheCreationTokens={cacheCreationTokens}
             cacheCreation1hTokens={cacheCreation1hTokens}
+            model={model}
             completionTokens={usageCompletionTokens}
             costCents={costCents}
           />
@@ -1264,6 +1267,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           cacheReadTokens={cacheReadTokens}
           cacheCreationTokens={cacheCreationTokens}
           cacheCreation1hTokens={cacheCreation1hTokens}
+          model={model}
           completionTokens={usageCompletionTokens}
           costCents={costCents}
         />

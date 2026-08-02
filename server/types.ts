@@ -102,6 +102,21 @@ export interface StoredMessage {
   /** Best-effort cost in USD cents (`Math.round(usd * 100)`). */
   costCents?: number;
   /**
+   * Il modello che ha prodotto il turno (`claude-opus-5`, `gpt-4o`, …).
+   *
+   * Il server lo conosce nell'istante in cui calcola `costCents` e lo buttava:
+   * restava il risultato del prezzo, non l'input che lo aveva determinato. Il
+   * giorno in cui il prezzo è sbagliato — ed è successo, ogni Opus tariffato al
+   * triplo per mesi — senza questo campo non si può nemmeno sapere quale riga
+   * vada corretta e di quanto: la bonifica 077 ha dovuto DEDURRE la tariffa
+   * dividendo il costo per le quote pesate, e regge solo finché due modelli non
+   * condividono lo stesso prezzo.
+   *
+   * `undefined` sulle righe anteriori alla migration 076: non è ricostruibile da
+   * nessuna parte, e inventarlo sarebbe peggio del non saperlo.
+   */
+  model?: string;
+  /**
    * Lo SCORPORO di `usagePromptTokens`: quanta parte era cache.
    *
    * Serve perché il totale da solo non insegna niente. In un turno agentico lungo

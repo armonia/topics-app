@@ -713,6 +713,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let usagePromptTokens: number | undefined;
           let usageCompletionTokens: number | undefined;
           let costCents: number | undefined;
+          // Il MODELLO del turno, salvato accanto al costo che ha determinato.
+          // Qui e' l'unico punto in cui e' noto: piu' avanti resta solo il numero,
+          // e un numero senza la tariffa che lo ha prodotto non e' correggibile
+          // (vedi la bonifica 077, che ha dovuto dedurre il prezzo a ritroso).
+          let usageModel: string | undefined;
           // Lo SCORPORO della cache, che finora esisteva solo dentro il calcolo del
           // prezzo e veniva buttato. In un turno agentico lungo la cache riletta è
           // la voce schiacciante — lo stesso prompt riletto a ogni chiamata al
@@ -1234,6 +1239,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               usagePromptTokens,
               usageCompletionTokens,
               costCents,
+              model: usageModel,
               cacheReadTokens,
               cacheCreationTokens,
               cacheCreation1hTokens,
@@ -1271,6 +1277,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 usagePromptTokens,
                 usageCompletionTokens,
                 costCents,
+                ...(usageModel ? { model: usageModel } : {}),
                 // Lo scorporo della cache va anche sul filo, non solo nella riga
                 // salvata: la UI mostra il piede del messaggio appena il turno
                 // finisce, senza rileggere la history.
@@ -1940,6 +1947,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   // from the first single call after the boundary.
                   // Cost: try the provider field first, then derive via the
                   // existing per-model price table when both token counts exist.
+                  // Il modello vale a prescindere da CHI ha calcolato il costo:
+                  // serve tanto per attribuire la spesa quanto per sapere, se un
+                  // domani la tariffa cambia, quale riga rifare.
+                  const modelOfTurn = message.model || overrideModel || undefined;
+                  if (typeof modelOfTurn === "string" && modelOfTurn) usageModel = modelOfTurn;
                   const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;
                   if (usdFromProvider != null) {
                     costCents = Math.round(usdFromProvider * 100);
