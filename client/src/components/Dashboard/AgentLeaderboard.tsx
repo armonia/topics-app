@@ -1,14 +1,11 @@
 import type { AgentStat } from '../../lib/api';
+import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 
 interface AgentLeaderboardProps {
   agents: AgentStat[];
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
+const formatTokens = (n: number) => sharedFormatTokens(n, { decimals: 1, suffix: 'K' });
 
 export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
   if (agents.length === 0) {

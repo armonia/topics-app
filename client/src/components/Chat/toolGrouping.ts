@@ -8,6 +8,7 @@
 
 import type { ToolCall } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
+import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
 
 /** Runs shorter than this render as plain per-call rows (no group chrome). */
 export const GROUP_MIN = 3;
@@ -120,10 +121,11 @@ export function formatCostCents(cents: number): string {
 /** Token → stringa compatta: `1.2k`, `340`, `1.5M`. Il fallback quando il
  *  prezzo del modello non è noto. */
 export function formatTokensCompact(tokens: number): string {
+  // Variante compatta: il vuoto (non "0") quando non c'e' niente da mostrare,
+  // e un decimale solo sotto i 10k. Il resto — incluso il confine con i
+  // milioni, che qui stampava "1000k" a 999.600 — e' lib/formatTokens.
   if (!Number.isFinite(tokens) || tokens <= 0) return '';
-  if (tokens < 1000) return `${Math.round(tokens)}`;
-  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k`;
-  return `${(tokens / 1_000_000).toFixed(1)}M`;
+  return sharedFormatTokens(tokens, { decimals: tokens < 10_000 ? 1 : 0, millionDecimals: 1 });
 }
 
 /** "Read ×5 · Edit ×3" — the counts joined for the summary header. */
