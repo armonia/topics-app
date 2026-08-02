@@ -1,7 +1,6 @@
-import { readFileSync, existsSync, readdirSync, statSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { join, resolve, relative, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
-import { loadMemoryForTopic } from "./memory";
 
 /** One node in the recursively-scanned workspace memory tree. */
 interface MemoryNode {
@@ -13,7 +12,7 @@ interface MemoryNode {
 }
 
 export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
-  const { json, matchRoute, loadTopics, OPENCLAW_DIR } = ctx;
+  const { json, OPENCLAW_DIR } = ctx;
   const WORKSPACE_DIR = join(OPENCLAW_DIR, "workspace");
 
   // Known OpenClaw workspace files (injected by gateway)

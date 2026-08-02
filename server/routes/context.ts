@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext, contextWindowFor, windowForMeasure } from "../usage/context-window";

@@ -11,6 +11,13 @@ import {
 
 const HEARTBEAT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+// La soglia compariva QUATTRO volte: questa costante (che nessuno leggeva) e
+// `'-2 minutes'` scritto a mano in tre query. Cambiarla in un posto solo la
+// faceva divergere in silenzio — le query sarebbero rimaste a 2 minuti mentre
+// la costante diceva altro. Ora il modificatore SQL si DERIVA dalla costante,
+// che torna a essere l'unica fonte. È interpolazione di un numero nostro, non
+// di input esterno.
+const STALE_SQL_OFFSET = `-${STALE_THRESHOLD_MS / 60_000} minutes`;
 
 export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: OutboundMessage) => void): () => void {
   const staleSessionsStmt = db.prepare(`
@@ -18,7 +25,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: Outbou
     FROM agent_sessions
     WHERE status = 'active'
       AND last_heartbeat IS NOT NULL
-      AND datetime(last_heartbeat) < datetime('now', '-2 minutes')
+      AND datetime(last_heartbeat) < datetime('now', '${STALE_SQL_OFFSET}')
   `);
 
   // v3 foundations AGENT-01 adoption: route status updates through the FSM
@@ -98,13 +105,13 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: Outbou
     return ((result as { changes?: number }).changes ?? 0) > 0;
   }
 
-  // Check for sessions without any heartbeat that started more than 2 minutes ago
+  // Check for sessions without any heartbeat that started more than STALE_THRESHOLD_MS ago
   const noHeartbeatSessionsStmt = db.prepare(`
     SELECT id, agent_id, session_key, started_at, status
     FROM agent_sessions
     WHERE status = 'active'
       AND last_heartbeat IS NULL
-      AND datetime(started_at) < datetime('now', '-2 minutes')
+      AND datetime(started_at) < datetime('now', '${STALE_SQL_OFFSET}')
   `);
 
   // Prepared once: counts non-terminal sessions for a given agent. Re-used per
@@ -118,7 +125,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: Outbou
     SELECT id FROM agent_profiles
     WHERE status NOT IN ('offline', 'paused')
       AND last_seen_at IS NOT NULL
-      AND datetime(last_seen_at) < datetime('now', '-2 minutes')
+      AND datetime(last_seen_at) < datetime('now', '${STALE_SQL_OFFSET}')
   `);
 
   // Row shapes returned by the heartbeat queries above.

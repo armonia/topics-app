@@ -32,7 +32,7 @@ import { adaptEnvelope, assembleTopicContext, clearSnapshots, getProviderStrateg
 import { getDefaultProvider, getProvider } from "../providers";
 
 export function createContextPreviewRouter(ctx: AppContext): RouteHandler {
-  const { json, matchRoute, loadTopics } = ctx;
+  const { json, matchRoute } = ctx;
 
   return async function contextPreviewRouter(
     _req: Request,

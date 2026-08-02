@@ -7,7 +7,6 @@
  * Protocol reverse-engineered from the Control UI source.
  */
 
-import { EventEmitter } from "events";
 import type { ChatMessage } from "./providers/types";
 
 // --- Types ---
@@ -83,7 +82,6 @@ export class GatewayWS {
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private closed = false;
   private connectSent = false;
-  private connectNonce: string | null = null;
   private backoffMs = 800;
   private opts: GatewayWSOptions;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -142,7 +140,6 @@ export class GatewayWS {
 
     this.ws.addEventListener("open", () => {
       console.log("[GatewayWS] WebSocket opened, waiting for challenge...");
-      this.connectNonce = null;
       this.connectSent = false;
       // Wait a bit for challenge, then send connect anyway
       setTimeout(() => {
@@ -208,7 +205,8 @@ export class GatewayWS {
     // nonce is used for device auth only, not needed for token auth
 
     try {
-      const result = await this.request("connect", connectParams);
+      // L'await serve (è lui che fallisce se il gateway rifiuta), la risposta no.
+      await this.request("connect", connectParams);
       console.log("[GatewayWS] Connected to gateway successfully");
       this._connected = true;
       this.backoffMs = 800;
@@ -252,9 +250,12 @@ export class GatewayWS {
 
       // Handle connect challenge
       if (event.event === "connect.challenge") {
-        const nonce = event.payload?.nonce;
-        if (typeof nonce === "string") {
-          this.connectNonce = nonce;
+        // Il nonce si LEGGE ma non si conserva: serviva alla device auth, che qui
+        // non esiste più (`sendConnect` manda il token — vedi il commento lì).
+        // Restava un campo `connectNonce` scritto in due punti e letto da nessuno,
+        // cioè stato morto che faceva sembrare implementato un secondo modo di
+        // autenticarsi. Del challenge conta solo il segnale: il gateway è pronto.
+        if (typeof event.payload?.nonce === "string") {
           this.connectSent = false;
           this.sendConnect();
         }
