@@ -60,3 +60,81 @@ export function formatElapsedCompact(ms: number): string {
   const h = Math.floor(totalM / 60);
   return `${h}h ${String(totalM % 60).padStart(2, '0')}m`;
 }
+
+// ─── Quale tempo mostrare accanto allo stato ──────────────────────────────────
+//
+// Sidebar e tab mostravano tempi diversi, calcolati in posti diversi, e a volte
+// DUE nello stesso punto: una riga che stava lavorando diceva «Esegue un comando
+// · 12s» nel sottotitolo (durata dell'ULTIMO tool) e «3m» accanto allo spinner
+// (tempo dall'ultimo aggiornamento). Due numeri che rispondono a due domande che
+// nessuno ha fatto, e nessuno dei due era quello che serve.
+//
+// La regola, una sola per ogni superficie:
+//   · sta lavorando  → da quanto va avanti IL TURNO  (kind 'working')
+//   · ha finito      → quanto fa che ha finito       (kind 'done')
+// Una sola voce alla volta, accanto alla descrizione dello stato.
+
+export type SubjectTimeKind = 'working' | 'done';
+
+export interface SubjectTime {
+  kind: SubjectTimeKind;
+  /** Durata in ms, mai negativa. */
+  ms: number;
+  /** `true` quando il turno è in corso ma l'inizio non è noto (server riavviato
+   *  a metà turno): la durata parte dall'ultima transizione di fase, quindi è un
+   *  MINIMO. Chi mostra il numero lo dice nel tooltip invece di spacciarlo per
+   *  esatto. */
+  approx: boolean;
+}
+
+/** La parte di `SessionActivitySignal` che serve qui — niente import circolare. */
+export interface SubjectTimeInput {
+  working: boolean;
+  since: number;
+  turnSince?: number;
+}
+
+/**
+ * @param activity       il descrittore vivo della sessione, se ce n'è uno
+ * @param lastActivityAt epoch-ms dell'ultimo movimento (deriveSessionLastActivity):
+ *                       l'unica base per una sessione FINITA, che un descrittore
+ *                       vivo non ce l'ha più
+ * @param now            epoch-ms condiviso (useSharedNow), non Date.now() per riga
+ */
+export function deriveSubjectTime(
+  activity: SubjectTimeInput | undefined,
+  lastActivityAt: number | undefined,
+  now: number,
+): SubjectTime | null {
+  const valid = (t: number | undefined): t is number =>
+    typeof t === 'number' && Number.isFinite(t) && t > 0;
+
+  if (activity?.working) {
+    // `turnSince` è la risposta giusta; `since` (inizio dell'ultimo tool) è il
+    // ripiego quando il server è ripartito a metà turno e l'ha persa. In quel
+    // caso il numero è un minimo, non la verità: `approx` lo dichiara.
+    if (valid(activity.turnSince)) return { kind: 'working', ms: Math.max(0, now - activity.turnSince), approx: false };
+    if (valid(activity.since)) return { kind: 'working', ms: Math.max(0, now - activity.since), approx: true };
+    return null;
+  }
+  // Ferma: quanto fa che ha finito. Con un descrittore vivo (parcheggiata in
+  // awaiting-*) `since` È il momento in cui è entrata in quella fase, cioè la
+  // fine del turno. Senza descrittore (completed/dormant) resta l'ultimo
+  // movimento noto.
+  const at = activity && valid(activity.since) ? activity.since : lastActivityAt;
+  if (!valid(at)) return null;
+  return { kind: 'done', ms: Math.max(0, now - at), approx: false };
+}
+
+/**
+ * Durata col SECONDO quando conta e senza quando è rumore: "8s", "45s", "12m",
+ * "1h 02m". Sotto il minuto i secondi sono l'informazione (un turno appena
+ * partito), sopra no — e `formatElapsedCompact`, che parte da "1m", li perdeva
+ * tutti mostrando "1m" a un turno di tre secondi.
+ */
+export function formatElapsedShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return formatElapsedCompact(ms);
+}

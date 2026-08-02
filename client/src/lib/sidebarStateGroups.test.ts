@@ -58,8 +58,12 @@ function terminal(sessionId: string, name = sessionId): SidebarItem {
   };
 }
 
-function project(path: string): SidebarItem {
-  return { id: `project:${path}`, type: 'project', name: path, icon: '', lastActivity: 0, notificationCount: 0, archived: false };
+function project(path: string, children?: SidebarItem[]): SidebarItem {
+  return {
+    id: `project:${path}`, type: 'project', name: path, icon: '', lastActivity: 0,
+    notificationCount: 0, archived: false, projectPath: path,
+    ...(children ? { children } : {}),
+  };
 }
 
 describe('sidebarItemSubject — la chiave con cui i segnali conoscono un item', () => {
@@ -142,6 +146,35 @@ describe('groupSidebarItemsByState', () => {
     expect(g.awaiting).toEqual([]);
     expect(g.working).toEqual([]);
     expect(g.rest).toEqual([]);
+  });
+
+  test('i FIGLI di un progetto entrano nei bucket per conto proprio', () => {
+    // La premessa scritta in `sidebarItemState` («i figli entrano nei bucket per
+    // conto proprio») era falsa: questa funzione iterava solo gli item top-level,
+    // e i figli di un progetto vivono in `item.children`. Effetto: «Attende te»
+    // era cieca a tutto ciò che sta dentro un progetto — cioè quasi tutto.
+    const figlioAttende = chat('f1', 'attende');
+    const figlioLavora = terminal('s9', 'lavora');
+    const figlioFermo = chat('f2', 'fermo');
+    const g = groupSidebarItemsByState([project('/p', [figlioAttende, figlioLavora, figlioFermo])], {
+      awaitingTopics: S('f1'),
+      awaitingTermIds: S(),
+      workingTopics: S(),
+      workingTermIds: S('s9'),
+    });
+    expect(g.awaiting.map(i => i.name)).toEqual(['attende']);
+    expect(g.working.map(i => i.name)).toEqual(['lavora']);
+    // Il progetto resta, ma con appesi solo i figli non promossi.
+    expect(g.rest.map(i => i.name)).toEqual(['/p']);
+    expect(g.rest[0].children?.map(c => c.name)).toEqual(['fermo']);
+  });
+
+  test('un progetto i cui figli sono tutti fermi non viene ricostruito', () => {
+    // Identità preservata quando non c'è niente da promuovere: un oggetto nuovo
+    // a ogni rebuild farebbe ri-renderizzare la riga per nulla.
+    const p = project('/p', [chat('f1')]);
+    const g = groupSidebarItemsByState([p], noSignals);
+    expect(g.rest[0]).toBe(p);
   });
 
   test('nessun item si perde né si duplica', () => {

@@ -53,6 +53,23 @@ export function isBusySpinnerPhase(p: ClaudeSessionPhase): boolean {
   return BUSY_SPINNER_SET.has(p);
 }
 
+/**
+ * Le fasi che sono LAVORO IN CORSO, per l'unico scopo di datare l'inizio del
+ * turno (`turnStartedAt`). Sono le stesse tre che il client tratta come
+ * "working" (`ACTIVE_CLAUDE_PHASES` in client/src/state/signals.ts): un cronometro
+ * che parte quando la UI mostra lo spinner e si ferma quando lo toglie.
+ *
+ * `starting` è ESCLUSA di proposito, ed è la differenza con
+ * `BUSY_SPINNER_PHASES`: una sessione appena aperta ci resta finché l'umano non
+ * scrive, che possono essere ore. Farla partire da lì darebbe «sta lavorando da
+ * 3 ore» a un turno cominciato dieci secondi fa.
+ */
+const TURN_WORK_PHASES = new Set<ClaudeSessionPhase>(['running', 'tool-running', 'watching']);
+
+export function isTurnWorkPhase(p: ClaudeSessionPhase): boolean {
+  return TURN_WORK_PHASES.has(p);
+}
+
 // Le tre forme dello stato vivono in shared/types.ts: il payload di
 // `session:state` è una COPIA INTEGRALE di `ClaudeSessionState`, quindi il
 // client legge lo stesso tipo invece di ritagliarsene una versione ridotta.
@@ -809,10 +826,20 @@ function transition(
     return base;
   }
 
+  // Inizio del turno: si data solo il FRONTE DI SALITA verso il lavoro. Dentro
+  // un turno la fase rimbalza fra `running` e `tool-running` a ogni tool, e
+  // ridatare a ogni rimbalzo trasformerebbe il cronometro del turno in quello
+  // dell'ultima azione (che è già `lastTool.startedAt`). Uscendo dal lavoro il
+  // valore NON viene cancellato: a turno finito nessuno lo legge, e tenerlo
+  // permette di dire quanto è durato senza un secondo campo.
+  const nextPhase = delta.phase ?? base.phase;
+  const turnStarted = phaseChanged && isTurnWorkPhase(nextPhase) && !isTurnWorkPhase(base.phase);
+
   return {
     ...base,
-    phase: delta.phase ?? base.phase,
+    phase: nextPhase,
     phaseUpdatedAt: phaseChanged ? now : base.phaseUpdatedAt,
+    turnStartedAt: turnStarted ? now : base.turnStartedAt,
     pendingApproval: 'pendingApproval' in delta ? delta.pendingApproval : base.pendingApproval,
     lastTool: 'lastTool' in delta ? delta.lastTool : base.lastTool,
     jsonlPath: delta.jsonlPath ?? base.jsonlPath,

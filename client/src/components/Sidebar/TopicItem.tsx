@@ -12,6 +12,7 @@ import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
+import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
@@ -20,18 +21,6 @@ import { useSplitPosition } from '@/contexts/SplitPositionContext';
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
 );
-
-function relativeTime(dateStr: string): string {
-  const diffS = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (diffS < 60) return 'now';
-  const diffM = Math.floor(diffS / 60);
-  if (diffM < 60) return `${diffM}m`;
-  const diffH = Math.floor(diffM / 60);
-  if (diffH < 24) return `${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 30) return `${diffD}d`;
-  return `${Math.floor(diffD / 30)}mo`;
-}
 
 interface TopicItemProps {
   topic: Topic;
@@ -327,20 +316,19 @@ export const TopicItem = memo(function TopicItem({
           size={28}
           variant="labeled"
           lastActivity={new Date(topic.updatedAt || topic.createdAt).getTime()}
+          // La durata del turno la dice già `SessionActivity` sotto al nome. Qui
+          // resta il solo campanello dello STALLO — vedi `quiet`.
+          quiet
           className="flex-shrink-0"
         />
       ) : (
         isTouchDevice ? (
           /* Touch: timestamp always visible + ... button always visible */
           <>
-            {topic.updatedAt && (
-              <span
-                className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-                title={new Date(topic.updatedAt).toLocaleString()}
-              >
-                {relativeTime(topic.updatedAt)}
-              </span>
-            )}
+            <RelativeTime
+              at={topic.updatedAt}
+              className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
+            />
             {onArchive && (
               <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative">
                 <button
@@ -395,14 +383,10 @@ export const TopicItem = memo(function TopicItem({
               />
             ) : (
               <>
-                {topic.updatedAt && (
-                  <span
-                    className={cn("text-[11px] tabular-nums group-hover:hidden", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-                    title={new Date(topic.updatedAt).toLocaleString()}
-                  >
-                    {relativeTime(topic.updatedAt)}
-                  </span>
-                )}
+                <RelativeTime
+                  at={topic.updatedAt}
+                  className={cn("text-[11px] tabular-nums group-hover:hidden", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
+                />
                 {onArchive && !topic.archived && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onArchive(topic.id, true); }}

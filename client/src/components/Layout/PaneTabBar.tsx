@@ -17,6 +17,8 @@ import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
+import { SessionElapsed } from '../Shared/SessionActivity';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
@@ -179,6 +181,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
+  // Il CONTEGGIO delle tab arriva come prop (`tabNotifications`), perché ogni
+  // host lo compone a modo suo; la DESCRIZIONE di un badge di progetto no — è la
+  // stessa ovunque e dipende solo dagli store globali, quindi si legge dal
+  // contesto invece di aggiungere una seconda mappa a ogni chiamante. Fuori dal
+  // provider l'hook restituisce dei no-op, quindi non serve una guardia.
+  const { describeProjectBadge } = useTabNotifications();
   // Spawner map (chat topicId | terminal paneId → browser contextId) so each
   // tab can show a quiet "opened a browser" cue. One subscription, read per tab.
   const spawnedBrowserMap = useSpawnedBrowserMap();
@@ -844,6 +852,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           : rawTier === 'done'
             ? 'turno finito'
             : null;
+        // Per un PROGETTO lo stato non basta: il tier è un aggregato e il numero
+        // pure, quindi «turno finito» non dice di CHI. Il nome accessibile porta
+        // i figli per nome, come il tooltip del badge.
+        const dettaglioProgetto = pane.type === 'project' && pane.projectPath
+          ? describeProjectBadge(pane.projectPath)
+          : '';
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
@@ -881,7 +895,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
-            aria-label={statoTab ? `${label} — ${statoTab}` : label}
+            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' — ')}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
@@ -1066,11 +1080,38 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </span>
               );
             })()}
+            {/* Tempo: da quanto lavora, o quanto fa che ha finito. Stessa regola
+                della riga di sidebar (`deriveSubjectTime`), così le due superfici
+                non possono dire due numeri diversi per lo stesso soggetto. Si
+                auto-nasconde quando non c'è niente da dire — vedi SessionElapsed. */}
+            {(() => {
+              const subjectId = pane.type === 'chat'
+                ? pane.topicId
+                : pane.type === 'terminal'
+                  ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id))
+                  : undefined;
+              return subjectId ? <SessionElapsed subjectId={subjectId} onFill={onFill} /> : null;
+            })()}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).
                 The tab bar deliberately renders no split schematic. */}
-            <NotificationBadge count={badgeCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
+            <NotificationBadge
+              count={badgeCount}
+              className="ml-0.5"
+              variant={onFill ? 'onFill' : 'default'}
+              // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
+              // E i suoi figli possono benissimo non mostrare niente — quello
+              // selezionato non porta badge per contratto (TAB-BADGE-07), quello
+              // in un altro gruppo non è sott'occhio. Risultato osservato: la tab
+              // «Guido AI» con un 1 e nessuna tab dentro che lo rivendicasse. Il
+              // tooltip chiude il cerchio: il numero ha sempre un nome.
+              title={
+                pane.type === 'project' && pane.projectPath
+                  ? describeProjectBadge(pane.projectPath) || undefined
+                  : undefined
+              }
+            />
             {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );

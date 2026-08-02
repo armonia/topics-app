@@ -431,13 +431,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           <span
             data-testid="agent-count"
             className="flex items-center gap-1.5 text-[11px] flex-shrink-0 tabular-nums"
+            // Il tooltip dice cosa CONTA, non cosa suona bene: il gruppo blu è
+            // «ha finito e non l'hai ancora guardata» — turni conclusi più
+            // sessioni parcheggiate — ed è lo stesso insieme che porta il badge
+            // sulle tab. Il conteggio ne stava fuori per metà, e la frase
+            // «con il turno finito» era già lì a descrivere un altro insieme.
             title={[
               'Agenti Claude Code',
               `· ${agentCounts.working} al lavoro`,
               agentCounts.awaitingInput > 0 ? `· ${agentCounts.awaitingInput} in attesa di una tua risposta` : '',
               agentCounts.awaiting - agentCounts.awaitingInput > 0
-                ? `· ${agentCounts.awaiting - agentCounts.awaitingInput} con il turno finito`
+                ? `· ${agentCounts.awaiting - agentCounts.awaitingInput} da guardare (turno finito o in pausa)`
                 : '',
+              '',
+              'Non contano le chat archiviate e le sessioni chiuse: non hanno una riga dove andarle a spegnere.',
             ].filter(Boolean).join('\n')}
           >
             {agentCounts.working > 0 && (

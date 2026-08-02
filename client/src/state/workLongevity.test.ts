@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
   deriveWorkLongevity,
+  deriveSubjectTime,
   formatElapsedCompact,
+  formatElapsedShort,
   WORK_ELAPSED_AFTER_MS,
   WORK_STALE_AFTER_MS,
 } from './workLongevity';
@@ -70,5 +72,81 @@ describe('formatElapsedCompact', () => {
     expect(formatElapsedCompact(30_000)).toBe('1m');
     expect(formatElapsedCompact(-1)).toBe('');
     expect(formatElapsedCompact(NaN)).toBe('');
+  });
+});
+
+
+describe('deriveSubjectTime — quale tempo mostrare', () => {
+  const M = 60_000;
+
+  it('mentre LAVORA misura il turno, non l\'ultima azione', () => {
+    // `since` e' l'inizio del tool corrente e si riazzera a ogni tool call: da
+    // solo diceva «3s» a un turno che andava avanti da venti minuti.
+    const t = deriveSubjectTime(
+      { working: true, since: NOW - 3_000, turnSince: NOW - 20 * M },
+      undefined,
+      NOW,
+    );
+    expect(t).toEqual({ kind: 'working', ms: 20 * M, approx: false });
+  });
+
+  it('senza inizio del turno ricade su `since`, e lo DICHIARA', () => {
+    // Succede quando il server e' ripartito a meta' turno: `turnStartedAt` non
+    // e' persistito apposta. Il numero e' un MINIMO, non la verita', e `approx`
+    // e' cio' che permette al tooltip di non spacciarlo per esatto.
+    const t = deriveSubjectTime({ working: true, since: NOW - 4 * M }, undefined, NOW);
+    expect(t).toEqual({ kind: 'working', ms: 4 * M, approx: true });
+  });
+
+  it('da FERMA misura quanto fa che ha finito', () => {
+    // Per una sessione parcheggiata `since` E' il momento in cui e' entrata in
+    // quella fase, cioe' la fine del turno.
+    const t = deriveSubjectTime({ working: false, since: NOW - 7 * M }, undefined, NOW);
+    expect(t).toEqual({ kind: 'done', ms: 7 * M, approx: false });
+  });
+
+  it('senza descrittore vivo usa l\'ultimo movimento noto', () => {
+    // Una sessione conclusa non ha piu' un descrittore: resta
+    // `sessionLastActivity`, che e' l'unica base per «finito X fa».
+    const t = deriveSubjectTime(undefined, NOW - 90 * M, NOW);
+    expect(t).toEqual({ kind: 'done', ms: 90 * M, approx: false });
+  });
+
+  it('niente da mostrare quando non si sa niente', () => {
+    expect(deriveSubjectTime(undefined, undefined, NOW)).toBe(null);
+    expect(deriveSubjectTime(undefined, 0, NOW)).toBe(null);
+    expect(deriveSubjectTime({ working: true, since: 0 }, undefined, NOW)).toBe(null);
+  });
+
+  it('un orologio sfasato non produce durate negative', () => {
+    expect(deriveSubjectTime({ working: true, since: NOW + 5 * M, turnSince: NOW + 5 * M }, undefined, NOW)?.ms).toBe(0);
+    expect(deriveSubjectTime(undefined, NOW + 5 * M, NOW)?.ms).toBe(0);
+  });
+
+  it('UNA sola voce di tempo per soggetto: o lavora o ha finito', () => {
+    const lavora = deriveSubjectTime({ working: true, since: NOW - M, turnSince: NOW - M }, NOW - 99 * M, NOW);
+    expect(lavora?.kind).toBe('working');
+    const ferma = deriveSubjectTime({ working: false, since: NOW - M }, NOW - 99 * M, NOW);
+    expect(ferma?.kind).toBe('done');
+  });
+});
+
+describe('formatElapsedShort', () => {
+  it('sotto il minuto i secondi sono l\'informazione', () => {
+    // `formatElapsedCompact` ha un pavimento a «1m»: mostrava «1m» a un turno di
+    // tre secondi, cioe' proprio dove il numero serve piu' preciso.
+    expect(formatElapsedShort(3_000)).toBe('3s');
+    expect(formatElapsedShort(45_000)).toBe('45s');
+    expect(formatElapsedShort(0)).toBe('0s');
+  });
+
+  it('sopra il minuto torna al formato compatto', () => {
+    expect(formatElapsedShort(60_000)).toBe('1m');
+    expect(formatElapsedShort(62 * 60_000)).toBe('1h 02m');
+  });
+
+  it('vuoto su input non valido', () => {
+    expect(formatElapsedShort(-1)).toBe('');
+    expect(formatElapsedShort(NaN)).toBe('');
   });
 });
