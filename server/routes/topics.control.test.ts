@@ -338,6 +338,27 @@ describe("POST /api/sessions/:sessionKey/open-project", () => {
     } finally { h.cleanup(); }
   });
 
+  test("un ref di soli caratteri non ammessi NON lega la topic alla radice del workspace", async () => {
+    // Il ramo di ultima risorsa faceva
+    // `join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""))`. Con un ref
+    // come «../..» lo slug esce VUOTO e `join(dir, "")` è `dir`: la directory
+    // esiste, quindi la funzione restituiva la RADICE del workspace e ce la
+    // legava. È la classe che il docstring di resolveProjectRef dice di parare
+    // (prompt injection che emette {{PROJECT_OPEN:…}}), ed è raggiungibile
+    // proprio sul percorso AI, perché una stringa così non inizia né con «/»
+    // né con «~/» e non passa dal controllo sui path assoluti.
+    const h = makeHarness();
+    try {
+      h.topics.set("cur", makeTopic({ id: "cur" }));
+      for (const ref of ["../..", "..", "///", "@@@"]) {
+        const resp = (await h.call("POST", "/api/sessions/topic:cur/open-project", { ref }))!;
+        expect(resp.status, `ref ${JSON.stringify(ref)} deve essere rifiutato`).toBe(404);
+      }
+      expect(h.topics.get("cur")!.projectPath).toBeUndefined();
+      expect(h.broadcasts).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
   test("404 when session unknown, 400 when ref missing", async () => {
     const h = makeHarness();
     try {

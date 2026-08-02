@@ -832,7 +832,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     if (matches.length) return matches.find(looksLikeProject) ?? matches[0];
 
     // Last resort: a same-named folder directly under the workspace.
-    const wsDir = join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""));
+    //
+    // Lo slug si controlla PRIMA del join, e non è pignoleria. Un `raw` fatto
+    // solo di caratteri non ammessi — «../..» è il caso da manuale — dà slug
+    // VUOTO, e `join(WORKSPACE_DIR, "")` è WORKSPACE_DIR: `isExistingDir`
+    // rispondeva sì e questa funzione restituiva la RADICE del workspace,
+    // legandoci la topic. È esattamente la classe che il docstring qui sopra
+    // dice di parare («un modello, o una prompt injection… potrebbe emettere
+    // {{PROJECT_OPEN:~/.ssh}}»), e il ramo è raggiungibile proprio con
+    // `trustRawPaths` falso, perché una stringa così non inizia né con «/» né
+    // con «~/» e non viene intercettata dal controllo là sopra.
+    const slug = raw.replace(/[^a-zA-Z0-9_-]/g, "");
+    if (!slug) return null;
+    const wsDir = join(WORKSPACE_DIR, slug);
     return isExistingDir(wsDir) ? wsDir : null;
   }
 
