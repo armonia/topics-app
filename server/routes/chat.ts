@@ -482,7 +482,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // "lean"), but ONLY when the session already has stored turns — a
             // resume onto an empty/lost conversation must re-ground with the
             // full envelope, not a bare role prompt.
-            leanContext: body.contextMode === "lean" && ctx.loadLocalMessages(sessionKey).length > 0,
+            //
+            // La soglia è `> 1`, non `> 0`, e non è un dettaglio: il turno
+            // utente di QUESTA richiesta è già stato scritto in DB poco sopra
+            // (`appendLocalMessage`, ~riga 279), quindi con `> 0` la
+            // condizione era VERA sempre — anche su una conversazione persa,
+            // che è esattamente il caso che questo guard doveva proteggere.
+            // Il ramo «re-ground con l'inviluppo pieno» non è mai stato preso.
+            //
+            // E si conta, non si carica: `loadLocalMessages` ricostruisce
+            // tutto il ramo attivo con blocks e tool_calls riparsati da JSON
+            // (25 ms sulle sessioni agentiche grosse) — e `assembleTopicContext`
+            // qui sotto lo rifà comunque per conto suo, quindi erano due
+            // passate complete per rispondere a una domanda da COUNT.
+            leanContext:
+              body.contextMode === "lean" &&
+              ((ctx.db
+                .prepare("SELECT COUNT(*) AS n FROM messages WHERE session_key = ?")
+                .get(sessionKey) as { n: number } | undefined)?.n ?? 0) > 1,
           })
         : {
             // No topic bound to this sessionKey — emit a degenerate envelope
