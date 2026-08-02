@@ -544,12 +544,26 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       const awaitingInputChanged = !setsEqual(awaitingInput, s.claudePhaseAwaitingInputTermIds);
       const watchingChanged = !setsEqual(watching, s.claudePhaseWatchingTermIds);
       if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged && !watchingChanged) return s;
+      // Il "visto" dei TERMINALI si annulla qui, sul fronte di salita, esattamente
+      // come quello delle chat in `applyNewAttention`. Per le chat è una chiamata
+      // separata da fare PRIMA della sostituzione (col suo avvertimento
+      // sull'ordine); qui sta dentro l'aggiornamento che HA già il precedente,
+      // quindi l'ordine non si può sbagliare.
+      //
+      // Senza, un terminale claude-code guardato una volta restava "visto" per
+      // sempre: `seenSubjects` non lo toglieva più nessuno, e la sua tab non
+      // tornava blu al secondo turno finito. Lo stesso silenzio si propagava al
+      // progetto, che ora salta i figli visti.
+      const seenSubjects = awaitingChanged
+        ? resetSeenOnNewAttention(s.seenSubjects, s.claudePhaseAwaitingTermIds, awaiting)
+        : s.seenSubjects;
       return {
         ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
         ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
         ...(awaitingInputChanged ? { claudePhaseAwaitingInputTermIds: awaitingInput } : {}),
         ...(watchingChanged ? { claudePhaseWatchingTermIds: watching } : {}),
+        ...(seenSubjects === s.seenSubjects ? {} : { seenSubjects }),
       };
     }),
 
@@ -863,7 +877,27 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
  *
  *  È l'UNICO rollup di attenzione: il predicato booleano `projectHasAwaitingChild`
  *  nasceva nello stesso commit ma non ha mai avuto un chiamante — questo lo
- *  copre, e con un tier invece che con un sì/no. */
+ *  copre, e con un tier invece che con un sì/no.
+ *
+ *  `seenSubjects` è il gate del "visto", ed è il motivo per cui la tab di un
+ *  progetto tornava blu per sempre. Una fase Claude come `awaiting-user` NON si
+ *  spegne da sola: resta lì fino al turno dopo. Per una chat o un terminale il
+ *  fill lo spegne il "visto" (vedi `attentionFillFor`), ma questo rollup leggeva
+ *  gli insiemi GREZZI — quindi il progetto continuava a segnalare un figlio che
+ *  avevi già letto, e la sola cosa che lo nascondeva era il gate transitorio
+ *  «la tab è attiva adesso»: bastava selezionare un'altra tab e tornava blu.
+ *  Passandolo, un figlio già guardato smette di contribuire, e ricomincia da solo
+ *  al turno successivo (`resetSeenOnNewAttention` gli toglie il visto sul fronte
+ *  di salita).
+ *
+ *  Questo NON sostituisce FOCUS WINS sulla superficie del progetto: il gate
+ *  «quella che stai guardando non ti pulsa in faccia» resta dov'era, nei
+ *  chiamanti. Serve perché non tutti i figli sono raggiungibili — una sessione
+ *  claude-code nel roster con cwd sotto il progetto e nessuna riga né tab non può
+ *  essere marcata vista da nessuno (le tre soglie si armano solo su una riga
+ *  renderizzata o sulla tab attiva), e senza quella valvola il progetto pulserebbe
+ *  per sempre. I due gate sono complementari: questo spegne ciò che HAI letto,
+ *  quello copre ciò che non puoi raggiungere. */
 export function projectAttentionTier(
   projectPath: string,
   topics: Record<string, Topic>,
@@ -872,16 +906,23 @@ export function projectAttentionTier(
   awaitingTerms: ReadonlySet<string>,
   inputTopics: ReadonlySet<string>,
   inputTerms: ReadonlySet<string>,
+  seenSubjects?: ReadonlySet<string>,
 ): AttentionTier | null {
   let hasDone = false;
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
+    // Gli ARCHIVIATI restano dentro di proposito: `buildSidebarItems` tiene
+    // visibile una chat archiviata se è FISSATA, e un genitore muto sopra un
+    // figlio che pulsa sarebbe una contraddizione peggiore del rumore. Chi non ha
+    // riga è coperto da FOCUS WINS nei chiamanti.
+    if (seenSubjects?.has(t.id)) continue;
     if (inputTopics.has(t.id)) return 'input';
     if (awaitingTopics.has(t.id)) hasDone = true;
   }
   for (const ts of terminalSessions) {
     if (ts.type === 'shell') continue;
     if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+    if (seenSubjects?.has(ts.id)) continue;
     if (inputTerms.has(ts.id)) return 'input';
     if (awaitingTerms.has(ts.id)) hasDone = true;
   }

@@ -784,13 +784,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // act now) vs blue 'done' (turn finished, look when ready) — a chat /
         // Claude-Code terminal parked for the user, or a project rolling up such
         // a child. Codex/shell never qualify (no Claude phase).
+        //
+        // Per una CHAT o un TERMINALE questo tier è GREZZO, e deve restarlo: è lo
+        // stato di quella sessione, che attende una risposta anche dopo che l'hai
+        // guardata (il fill lo spegne il "visto", più sotto; l'etichetta no).
+        //
+        // Per un PROGETTO no. Lì il tier non è uno stato ma un AGGREGATO — "qui
+        // dentro c'è qualcosa che ti aspetta" — e una cosa che hai già letto non
+        // ti aspetta più. Quindi il rollup sconta il "visto" dei figli
+        // (`projectAttentionTier`), e da qui passa sia al fondo sia alle parole:
+        // letta la chat dentro al progetto, la tab smette di dirlo.
         const rawTier: AttentionTier | null =
           pane.type === 'chat'
             ? (pane.topicId ? (inputTopics.has(pane.topicId) ? 'input' : awaitingTopics.has(pane.topicId) ? 'done' : null) : null)
             : pane.type === 'terminal'
               ? (isClaudeCodeTab && termSid ? (inputTermIds.has(termSid) ? 'input' : awaitingTermIds.has(termSid) ? 'done' : null) : null)
               : pane.type === 'project'
-                ? (pane.projectPath ? projectAttentionTier(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds) : null)
+                ? (pane.projectPath ? projectAttentionTier(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds, seenSubjects) : null)
                 : null;
         // Il fill cade quando la tab è stata VISTA, non appena diventa attiva.
         // Prima il gate era `!isFullyActive`: selezionare una tab per un istante —
@@ -799,9 +809,17 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // e "visto" pretende SEEN_DWELL_MS davanti con la finestra sveglia (la
         // soglia è armata da `useSeenDwell` sul soggetto della tab attiva).
         //
-        // Una pane 'project' non ha un soggetto proprio: il suo tier è l'aggregato
-        // dei figli, e tiene la regola vecchia (attiva = vista), come la riga di
-        // progetto in sidebar.
+        // Una pane 'project' non ha un soggetto proprio, e tiene qui la regola
+        // vecchia — attiva = vista — come valvola: fra i suoi figli ce ne sono di
+        // NON raggiungibili (una sessione claude-code nel roster, senza riga né
+        // tab, che nessuna soglia può mai marcare vista), e senza valvola la tab
+        // pulserebbe per sempre in faccia a chi la sta guardando. Ma è una valvola
+        // TRANSITORIA: da sola era anche l'unica cosa che spegneva il progetto, ed
+        // è il bug — leggevi la chat dentro al progetto, passavi a un'altra tab e
+        // il progetto tornava blu per una cosa appena letta, perché la fase Claude
+        // resta `awaiting-user` fino al turno dopo. Il pezzo durevole ora sta nel
+        // rollup (`rawTier` qui sopra salta i figli già visti): letto il figlio, la
+        // tab del progetto resta spenta anche quando non è più selezionata.
         const seenKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? termSid : null;
         const isSeenTab = seenKey ? seenSubjects.has(seenKey) : isFullyActive;
         const attentionTier = attentionFillFor(rawTier, isSeenTab);
@@ -819,6 +837,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // guardato la tab, ma lo STATO no — una sessione che attende una tua
         // risposta la attende ancora anche dopo che l'hai guardata. Il colore
         // risponde a "devo attirare l'attenzione?", questa etichetta a "com'è".
+        // (Per un progetto le due domande coincidono: il suo tier è l'aggregato
+        // di ciò che resta da guardare — vedi la nota su `rawTier`.)
         const statoTab = rawTier === 'input'
           ? 'attende una tua risposta'
           : rawTier === 'done'

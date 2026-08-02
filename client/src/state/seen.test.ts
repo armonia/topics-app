@@ -18,6 +18,7 @@ import {
   attentionFillFor,
   isSeen,
   resetSeenOnNewAttention,
+  useSignalsStore,
 } from './signals';
 
 describe('isSeen — la soglia', () => {
@@ -92,6 +93,61 @@ describe('resetSeenOnNewAttention — un nuovo "tocca a te" annulla il visto', (
   test('più id insieme: solo i nuovi perdono il visto', () => {
     const next = resetSeenOnNewAttention(S('a', 'b', 'c'), S('a'), S('a', 'b', 'c'));
     expect([...next].sort()).toEqual(['a']);
+  });
+});
+
+/**
+ * Il fronte di salita vale anche per i TERMINALI.
+ *
+ * `applyNewAttention` annulla il visto delle CHAT, e per anni è stata l'unica
+ * invalidazione: un terminale claude-code guardato una volta restava "visto" per
+ * sempre, quindi al secondo turno finito la sua tab non tornava blu — e, da quando
+ * il rollup di progetto salta i figli visti, lo stesso silenzio si propagava alla
+ * tab del progetto. Per i terminali il reset sta DENTRO `setClaudePhaseTerminals`,
+ * che è l'aggiornamento che ha già il precedente: così l'ordine non si può
+ * sbagliare (per le chat è invece una chiamata separata, da fare prima).
+ */
+describe('setClaudePhaseTerminals — un terminale che rifinisce torna da guardare', () => {
+  const S = (...ids: string[]) => new Set(ids);
+  const reset = () => useSignalsStore.setState({
+    seenSubjects: new Set(),
+    claudePhaseActiveTermIds: new Set(),
+    claudePhaseRestingTermIds: new Set(),
+    claudePhaseAwaitingTermIds: new Set(),
+    claudePhaseAwaitingInputTermIds: new Set(),
+    claudePhaseWatchingTermIds: new Set(),
+  });
+  // Un terminale in attesa è anche "resting": qui conta solo l'insieme awaiting.
+  const awaitingTerms = (ids: Set<string>) =>
+    useSignalsStore.getState().setClaudePhaseTerminals(new Set(), new Set(ids), new Set(ids), new Set(), new Set());
+  const seen = () => useSignalsStore.getState().seenSubjects;
+
+  test('finito → guardato → finito di nuovo ⇒ il visto cade', () => {
+    reset();
+    awaitingTerms(S('t1'));
+    useSignalsStore.getState().markSubjectSeen('t1');
+    expect(seen().has('t1')).toBe(true);
+    awaitingTerms(S());        // riparte a lavorare
+    expect(seen().has('t1')).toBe(true); // uscire non è un evento nuovo
+    awaitingTerms(S('t1'));    // secondo turno finito
+    expect(seen().has('t1')).toBe(false);
+  });
+
+  test('un terminale che RESTA in attesa mentre lo guardi non perde il visto', () => {
+    reset();
+    awaitingTerms(S('t1'));
+    useSignalsStore.getState().markSubjectSeen('t1');
+    awaitingTerms(S('t1', 't2')); // entra t2, t1 c'era già
+    expect(seen().has('t1')).toBe(true);
+  });
+
+  test('niente cambia ⇒ stesso riferimento di seenSubjects (contratto anti-render)', () => {
+    reset();
+    awaitingTerms(S('t1'));
+    useSignalsStore.getState().markSubjectSeen('t1');
+    const before = seen();
+    awaitingTerms(S('t1'));
+    expect(seen()).toBe(before);
   });
 });
 

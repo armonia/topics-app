@@ -212,6 +212,10 @@ export function TopicTree({
   // colour of its loudest child.
   const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
   const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
+  // I soggetti già guardati: il rollup di progetto li salta, così la riga del
+  // progetto si spegne quando hai letto ciò che segnalava — e resta spenta, invece
+  // di dipendere da «è selezionata adesso». Stessa regola della tab omonima.
+  const seenSubjects = useSignalsStore((s) => s.seenSubjects);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -599,7 +603,7 @@ export function TopicTree({
     // the name/badge must switch to the on-fill treatment then — otherwise the
     // hardcoded muted name colour + default blue badge render grey-on-fill /
     // blue-on-blue, the exact illegibility this redesign removes.
-    const projTier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds);
+    const projTier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds, seenSubjects);
     const projOnFill = !isProjectFocused && projTier !== null;
 
     return (
@@ -613,11 +617,13 @@ export function TopicTree({
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
-            // La riga di PROGETTO tiene la regola vecchia (selezione = visto):
-            // `projTier` è un aggregato dei figli, e non è deciso cosa voglia dire
-            // "ho guardato un progetto" — guardarne l'intestazione non è aver letto
-            // le chat che ci stanno dentro. Passa comunque per `attentionFillFor`,
-            // così la decisione è scritta una volta e non ricopiata a mano.
+            // "Ho guardato un progetto" vuol dire: ho guardato ciò che stava
+            // segnalando — guardarne l'INTESTAZIONE non è aver letto le chat che ci
+            // stanno dentro. Quel pezzo ora sta dentro `projectAttentionTier`, che
+            // salta i figli già visti: letta la chat, la riga resta spenta anche
+            // dopo aver selezionato altro (prima tornava blu, perché la fase Claude
+            // resta `awaiting-user` fino al turno dopo). `folderFilled` resta come
+            // valvola per i figli che nessuna soglia può raggiungere.
             sidebarRowCard({ focused: folderFilled, attention: attentionFillFor(projTier, folderFilled) })
           }`}
           data-pinned={item.pinned ? 'true' : undefined}
