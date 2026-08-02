@@ -29,6 +29,7 @@ import { useSessionMessages } from '../../state/useSessionMessages';
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
   '/context — Show context-window usage (tokens, budget, sources)',
+  '/compact — Compatta il contesto ora (riassume la storia e libera spazio)',
   '/clear — Clear conversation',
   '/model — Change model (e.g. /model claude-opus-4-8)',
   '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
