@@ -1,0 +1,9 @@
+Questa cartella tiene in vita `tests/features/`, che spec-flow legge con un
+`readdirSync` NUDO (spec-flow/scripts/lint-gherkin.ts): senza la cartella,
+`bun run lint:gherkin`, `tag:scenarios` e `uat` muoiono con ENOENT invece di
+dire «nessuno scenario».
+
+Non e' abbandono di spec-flow: i .feature che c'erano sono morti come effetto
+collaterale della rimozione di Master (dd1c3f28) e della pipeline claude-event
+(9e5516d1), cioe' insieme alle funzionalita' che descrivevano. La cartella
+resta pronta per i prossimi.
