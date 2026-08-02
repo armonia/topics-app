@@ -87,6 +87,7 @@ import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 import { isAgentWorking } from '../lib/board';
+import { useShallow } from 'zustand/react/shallow';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -367,15 +368,23 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // structurally shared by Immer, so `panes`/`spaces` only change identity
   // when a pane/space actually changes.
   const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
-  const storePanes = usePaneStore((s) => s.panes);
   const storeSpaces = usePaneStore((s) => s.spaces);
-  const visiblePanels = useMemo(
-    () =>
-      isDetached
-        ? openPanels
-        : filterVisiblePaneIds(openPanels, storePanes, storeSpaces, activeSpaceId),
-    [isDetached, openPanels, storePanes, storeSpaces, activeSpaceId],
+  // NON ci si iscrive a `s.panes`. Il commento qui sopra è vero ma incompleto:
+  // Immer condivide le strutture, sì, ma `panes` cambia identità a ogni
+  // modifica di UNA QUALSIASI pane — e `setPaneScrollOffset` ne scrive una
+  // ogni 250 ms mentre si scorre una chat. Ogni tick cambiava lo snapshot,
+  // rompeva questo memo (`filterVisiblePaneIds` è un `.filter()` puro, quindi
+  // rende sempre un array nuovo) e ridisegnava App e con lui `<PanelGrid>`,
+  // che non è memoizzato: quattro render al secondo dell'intera griglia per
+  // un dato che nessuno di questi due guarda.
+  //
+  // Iscriversi al RISULTATO con `useShallow` toglie il problema alla radice:
+  // il selettore rigira comunque, ma lo snapshot cambia solo quando cambia
+  // l'insieme delle pane VISIBILI. Uno scroll non lo tocca.
+  const visibleFromStore = usePaneStore(
+    useShallow((s) => filterVisiblePaneIds(openPanels, s.panes, s.spaces, s.activeSpaceId)),
   );
+  const visiblePanels = isDetached ? openPanels : visibleFromStore;
 
   // Space died remotely (a hydrate brought its deleted:true tombstone) while
   // this window was looking at it → fall back to the default space. Read-time

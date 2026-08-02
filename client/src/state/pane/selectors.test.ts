@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds } from "./selectors";
 import type { PaneState, Pane, ClosedPaneRecord } from "./types";
+import { DEFAULT_SPACE_ID } from "./types";
 
 const blankState = (): PaneState => ({
   panes: {},
@@ -148,5 +149,62 @@ describe("Spazi: filterVisiblePaneIds / selectVisiblePaneIds (the visiblePanels 
       "chat:ghost",
       "chat:unregistered",
     ]);
+  });
+});
+
+describe("filterVisiblePaneIds — stabilità sotto scroll (perf di App/PanelGrid)", () => {
+  // Perché questo test esiste: `usePanelLifecycle` derivava `visiblePanels`
+  // iscrivendosi a `s.panes`. Immer condivide le strutture, ma `panes` cambia
+  // identità a ogni modifica di UNA QUALSIASI pane — e `setPaneScrollOffset`
+  // ne scrive una ogni 250 ms mentre si scorre una chat. Ogni tick rompeva il
+  // memo e ridisegnava App e `<PanelGrid>` (che non è memoizzato).
+  //
+  // La correzione si iscrive al RISULTATO con `useShallow`, e regge solo se
+  // vale questa invariante: il risultato di `filterVisiblePaneIds` è
+  // shallow-uguale prima e dopo una scrittura di scrollOffset. Se un giorno
+  // la visibilità dovesse dipendere anche dallo scroll, questo test cade — ed
+  // è giusto che cada, perché l'ottimizzazione non sarebbe più corretta.
+  const pane = (id: string, extra: Partial<Pane> = {}): Pane =>
+    ({ id, type: "chat", title: id, ...extra }) as Pane;
+
+  test("scrivere scrollOffset non cambia l'insieme delle pane visibili", () => {
+    const panes: Record<string, Pane> = {
+      "chat:a": pane("chat:a"),
+      "chat:b": pane("chat:b"),
+      "chat:c": pane("chat:c", { spaceId: "space:altro" }),
+    };
+    // Lo spazio dev'essere VIVO nel registro, altrimenti resolvePaneSpace lo
+    // ricade sul default e `chat:c` risulterebbe visibile.
+    const spaces = { "space:altro": { id: "space:altro", name: "Altro" } } as any;
+    const order = ["chat:a", "chat:b", "chat:c"];
+    const before = filterVisiblePaneIds(order, panes, spaces, DEFAULT_SPACE_ID);
+
+    // Il tick dello scroll: una nuova mappa `panes` (come fa Immer) con una
+    // sola pane cambiata.
+    const after = filterVisiblePaneIds(
+      order,
+      { ...panes, "chat:a": { ...panes["chat:a"], scrollOffset: 250 } },
+      spaces,
+      DEFAULT_SPACE_ID,
+    );
+
+    expect(before).toEqual(["chat:a", "chat:b"]);
+    expect(after).toEqual(before);          // shallow-uguale → niente re-render
+    expect(after).not.toBe(before);         // ...ma è un array NUOVO: per questo serve useShallow e non ===
+  });
+
+  test("un cambio VERO di visibilità invece si vede (il test sopra non è vacuo)", () => {
+    const panes: Record<string, Pane> = { "chat:a": pane("chat:a"), "chat:b": pane("chat:b") };
+    const order = ["chat:a", "chat:b"];
+    const spaces = { "space:altrove": { id: "space:altrove", name: "Altrove" } } as any;
+    const before = filterVisiblePaneIds(order, panes, spaces, DEFAULT_SPACE_ID);
+    const after = filterVisiblePaneIds(
+      order,
+      { ...panes, "chat:b": { ...panes["chat:b"], spaceId: "space:altrove" } },
+      spaces,
+      DEFAULT_SPACE_ID,
+    );
+    expect(before).toEqual(["chat:a", "chat:b"]);
+    expect(after).toEqual(["chat:a"]);
   });
 });
