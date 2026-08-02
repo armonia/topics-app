@@ -133,6 +133,8 @@ function ChatPaneComponent({
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  /** Compattazione in attesa del suo marcatore: {conteggio prima, scadenza}. */
+  const compactWatchRef = useRef<{ before: number; until: number } | null>(null);
   const confirm = useConfirm();
   /**
    * La coda del turno NON vive più qui.
@@ -297,6 +299,35 @@ function ChatPaneComponent({
   // vedi l'intestazione di GoalBar per il perché non convivono.
   const { goal, declare: declareGoal, close: closeGoal } = useGoal(topic.id, onWSMessage);
   const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
+
+  // Chiude il banner della compattazione con l'esito VERO, quando il marcatore
+  // arriva. `stream:compaction` porta i token prima/dopo, quindi si puo' dire
+  // quanto e' stato liberato invece di un generico «fatto». Se non arriva entro
+  // il tetto (3 min) il banner si spegne senza dichiarare un successo che non
+  // c'e' stato: meglio silenzio che una bugia.
+  useEffect(() => {
+    const w = compactWatchRef.current;
+    if (!w) return;
+    const markers = currentMarkers ?? [];
+    if (markers.length > w.before) {
+      compactWatchRef.current = null;
+      const last = markers[markers.length - 1];
+      const pre = last?.preTokens;
+      const post = last?.postTokens;
+      setCommandResult({
+        type: 'success',
+        message:
+          typeof pre === 'number' && typeof post === 'number'
+            ? `Contesto compattato: ${pre.toLocaleString('it-IT')} → ${post.toLocaleString('it-IT')} token.`
+            : 'Contesto compattato.',
+      });
+      return;
+    }
+    if (Date.now() > w.until) {
+      compactWatchRef.current = null;
+      setCommandResult(null);
+    }
+  }, [currentMarkers]);
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
 
@@ -574,6 +605,37 @@ function ChatPaneComponent({
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
 
+    // /compact — la compattazione ha un ESITO preciso, quindi merita una UI, non
+    // uno spinner generico.
+    //
+    // Il lavoro lo fa la CLI (`/compact` e' un suo comando) e l'esito ha gia' la
+    // sua rappresentazione: il divider «context compacted» con i token prima e
+    // dopo, che arriva via `stream:compaction` e vive in `currentMarkers`. Quello
+    // che mancava era il MEZZO: mandare il comando come un normale messaggio di
+    // chat lo faceva sembrare un turno bloccato — l'utente vedeva «stream lento,
+    // il provider e' ancora connesso», che e' l'indicatore d'attesa generico e
+    // non dice niente di cosa stia succedendo. Segnalato dal vivo il 2026-08-02.
+    //
+    // Qui il comando viene INTERCETTATO: si dichiara subito cosa sta succedendo
+    // e quanto puo' durare, si manda il testo alla CLI perche' faccia il lavoro,
+    // e si lascia che sia il divider a raccontare il risultato. Non intercettarlo
+    // e basta non funzionerebbe: senza `sendMessage` la CLI non compatta.
+    if (cmd === '/compact') {
+      const markersBefore = getCompactionMarkers?.(topic.sessionKey)?.length ?? 0;
+      setCommandResult({
+        type: 'success',
+        message: 'Compattazione del contesto in corso… riassume la conversazione e libera spazio. Su una chat lunga puo\' richiedere qualche decina di secondi; l\'esito compare come separatore nel thread.',
+      });
+      void sendMessage(topic.sessionKey, '/compact').catch(() => {
+        setCommandResult({ type: 'error', message: 'Non sono riuscito a chiedere la compattazione.' });
+      });
+      // Il marcatore arriva in modo asincrono (stream:compaction). Si aspetta il
+      // suo incremento invece di dire «fatto» a caso: cosi' il banner riporta
+      // l'esito VERO, e se non arriva entro il tetto non si mente.
+      compactWatchRef.current = { before: markersBefore, until: Date.now() + 180_000 };
+      return true;
+    }
+
     // 3.4 — /goal: l'obiettivo della conversazione. Intercettato QUI, prima del
     // modello: è stato della topic, non un messaggio, e mandarlo all'agente
     // vorrebbe dire farglielo riscrivere in una forma che nessuno rilegge.
@@ -655,7 +717,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal]);
+  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers]);
 
   const togglePlanMode = useCallback(() => {
     setPlanMode(prev => {
@@ -948,7 +1010,14 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+          // Passa dall'imbuto degli slash: il bottone «Compact now» e
+          // l'azione dell'anello mandavano `/compact` come messaggio nudo,
+          // quindi non vedevano il banner di stato ne' l'esito. Ora le tre
+          // strade (comando digitato, bottone, anello) fanno la stessa cosa.
+          if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
+          return sendMessage(topic.sessionKey, c);
+        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );
