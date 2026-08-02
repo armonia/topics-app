@@ -1631,13 +1631,6 @@ const server = Bun.serve<WSData>({
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
-        // Il contesto esisteva GIA' prima che questo socket arrivasse?
-        // Serve al ramo 'registered' piu' sotto per sapere se il contesto e'
-        // farina della partenza differita dello screencast (e quindi va
-        // distrutto) o se e' un contesto legittimo di qualcun altro (e quindi
-        // NON si tocca). Va fotografato qui, prima che qualunque
-        // getOrCreate possa crearlo.
-        ws.data._browserCtxExistedBefore = browserService.listContexts().some((c) => c.id === ctxId);
         // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
         // so broadcastToBrowserWs(ctxId, msg) reaches it.
         let bset = browserWsClients.get(ctxId);
@@ -1849,24 +1842,51 @@ const server = Bun.serve<WSData>({
             // Cosi' muore il fantasma nato dalla partenza differita, e mai un
             // contesto legittimo che qualcun altro sta usando.
             const cleanup = ws.data._browserCleanup;
-            const wasPhantom = ws.data._browserCtxExistedBefore === false;
             ws.data._browserCleanup = undefined;
+            // Mark it so the viewer count excludes it: a native pane is NOT a viewer
+            // of the shared session, and counting its own delegate socket made an
+            // 'auto' pane flap native↔shared every poll (browser reset every ~2s).
+            // Va marcato PRIMA del controllo qui sotto, o questo stesso socket si
+            // conterebbe come spettatore e il contesto non morirebbe mai.
+            ws.data._nativeDelegate = true;
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
               try { await cleanup?.(); } catch {}
-              if (!wasPhantom) return;
+              // La condizione NON e' «l'ho creato io» ma «lo sta guardando
+              // qualcun altro?».
+              //
+              // La prima versione si fidava di `_browserCtxExistedBefore`,
+              // fotografato in `open()`. Copriva solo il contesto nato dalla
+              // partenza differita di QUESTO socket: alla RICONNESSIONE il
+              // contesto esiste gia', quindi il controllo passava e il fantasma
+              // sopravviveva. Misurato dopo quel fix: due contesti vivi, nove
+              // processi Chromium, 664 MB — con zero pane browser aperte.
+              //
+              // Il contratto (vedi SCREENCAST_START_GRACE_MS) dice che per una
+              // pane NATIVA il contesto server «must NOT exist». Non «non deve
+              // essere creato da questo socket»: non deve esistere. Quindi si
+              // guarda chi resta attaccato: se non c'e' nessun socket che NON
+              // sia un delegato nativo, quel contesto non lo guarda nessuno e
+              // se ne va. Una sessione condivisa (co-browse, il telefono che
+              // guarda lo stream) tiene il suo socket non-delegato e sopravvive.
+              //
+              // Di proposito NON si riusa il contatore dei viewer di
+              // `createBrowserRouter`: quello esclude anche chi ha messo lo
+              // stream in pausa (`_streamActive === false`), che per il flapping
+              // native↔shared e' giusto ma qui sarebbe un disastro — uno
+              // spettatore in pausa e' comunque uno spettatore, e distruggergli
+              // il contesto sotto lo lascerebbe a mani vuote alla ripresa.
+              const watchers = [...(browserWsClients.get(ctxId) ?? [])]
+                .filter((w) => !w.data._nativeDelegate).length;
+              if (watchers > 0) return;
               try {
                 await browserService.destroyContext(ctxId);
-                console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops)`);
+                console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops, 0 viewers)`);
               } catch (err) {
                 console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
               }
             })();
-            // Mark it so the viewer count excludes it: a native pane is NOT a viewer
-            // of the shared session, and counting its own delegate socket made an
-            // 'auto' pane flap native↔shared every poll (browser reset every ~2s).
-            ws.data._nativeDelegate = true;
             console.log(`[WS][browser] native executor registered for ctx ${ctxId}`);
             return;
           }
