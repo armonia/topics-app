@@ -183,6 +183,55 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
+      # Esporta le variabili della firma macOS SOLO se un certificato c'è.
+      #
+      # Perché non basta metterle nell'`env:` del passo dopo: in Actions una
+      # chiave con valore vuoto è comunque DEFINITA, e per tauri-action una
+      # `APPLE_CERTIFICATE` definita è una richiesta di firmare — anche vuota.
+      # Il 2026-08-02 la build macOS moriva proprio lì, con zero secret APPLE_*
+      # configurati, e trascinava con sé la pubblicazione di Windows e Linux
+      # (`publish` dipende da tutte e tre). Passando da $GITHUB_ENV la chiave
+      # semplicemente NON esiste finché non c'è un certificato, e la build macOS
+      # esce non firmata invece di non uscire.
+      #
+      # I secret entrano come `env:` di QUESTO passo e si leggono come variabili
+      # di shell: mai interpolati dentro `run:`.
+      - name: Prepara la firma macOS (solo se il certificato c'è)
+        if: runner.os == 'macOS'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CERT" ]; then
+            echo "Nessun APPLE_CERTIFICATE: la build macOS esce NON FIRMATA."
+            echo "Conseguenza da sapere: senza un'identità stabile il requisito"
+            echo "designato è l'hash della build, quindi a ogni aggiornamento"
+            echo "macOS richiede di nuovo notifiche/schermo/accessibilità."
+            exit 0
+          fi
+          echo "Certificato presente: la build macOS verrà firmata."
+          {
+            echo "APPLE_CERTIFICATE=$CERT"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+          } >> "$GITHUB_ENV"
+          # La notarizzazione è un passo a parte e richiede un account Apple a
+          # pagamento: si arma solo se TUTTE e tre le sue variabili ci sono,
+          # altrimenti tauri-action ci prova e fallisce a fine build.
+          if [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_PASSWORD_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID_SECRET"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD_SECRET"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
+            } >> "$GITHUB_ENV"
+          else
+            echo "Notarizzazione non configurata: firma sì, notarizzazione no."
+          fi
+
       - name: Build Tauri + upload to the draft release (signed when secrets present)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -198,29 +247,23 @@ jobs:
           # take-2). Bun single-file executables embed their JS payload past the ELF
           # sections and don't survive strip anyway. Linux-only effect.
           NO_STRIP: true
-          # macOS code signing + notarization — ARMED, activates when the secrets
-          # exist. tauri-action only signs when APPLE_CERTIFICATE is a NON-EMPTY
-          # string; until the secrets are set these all resolve to "" and the
-          # macOS job ships unsigned exactly as before (no import, no failure).
-          # This is safe precisely because we DON'T reuse the old MAC_CSC_LINK
-          # org secret: the tauri-v2.1.0 run proved that value is electron-builder's
-          # CSC_LINK format, NOT an importable .p12 for tauri-action (`security
-          # import: failed to import keychain certificate`), and a broken non-empty
-          # value fails the whole macOS job instead of skipping. New APPLE_* names
-          # start empty, so arming them here cannot re-trigger that break.
+          # macOS code signing — le variabili le esporta il passo «Prepara la
+          # firma macOS» qui sopra, e SOLO se un certificato c'è davvero.
           #
-          # To go LIVE (signed + notarized so macOS 26 grants UserNotifications):
-          #   APPLE_CERTIFICATE          — base64 of a "Developer ID Application" .p12
-          #   APPLE_CERTIFICATE_PASSWORD — the .p12 export password
-          #   APPLE_SIGNING_IDENTITY     — e.g. "Developer ID Application: Name (TEAMID)"
-          #   APPLE_ID / APPLE_PASSWORD  — Apple ID + app-specific password (notarize)
-          #   APPLE_TEAM_ID              — 10-char team id
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Qui prima stavano come `APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}`,
+          # col commento «until the secrets are set these all resolve to "" and
+          # the macOS job ships unsigned exactly as before (no import, no
+          # failure)». Il 2026-08-02 si è visto che non è vero: nel repo non
+          # esiste NESSUN secret APPLE_* (c'è solo TAURI_SIGNING_PRIVATE_KEY) e
+          # la build macOS moriva lo stesso con
+          #     failed codesign application: failed to run command security
+          #     import: failed to import keychain certificate
+          # perché per tauri-action la chiave DEFINITA-ma-vuota è comunque una
+          # richiesta di firmare. E poiché `publish` dipende da tutte e tre le
+          # build, quel fallimento buttava via anche Windows e Linux, che erano
+          # verdi: nessuna release usciva. Una chiave non definita non ha questo
+          # problema — ed è l'unico modo di ottenerla, in Actions, passando da
+          # $GITHUB_ENV.
         with:
           projectPath: desktop-tauri
           # Upload into the pre-made draft (by id) — no per-job createRelease, no
