@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
@@ -9,6 +9,70 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 const BASE = E2E_BASE;
+
+/**
+ * Le tre attese di questo file, come CONDIZIONI invece che come dormite.
+ *
+ * Il primo test lo diceva già nel suo commento — «POLL, don't sleep-then-sample»:
+ * il `waitForTimeout(2000)` da cui partiva falliva 3 run su 4 a macchina calda,
+ * perché l'ancoraggio iniziale di Virtuoso arriva quando la lista finisce di
+ * misurarsi, che non è sull'orologio di nessuno. Gli altri tre test erano rimasti
+ * indietro con 15,5 secondi di sonno fisso fra tutti, sbagliato in entrambe le
+ * direzioni: sprecato quando lo scroll si assesta in 50ms, insufficiente quando
+ * la macchina è carica — e in quel caso il test accusa lo scroll di un difetto
+ * che non ha.
+ *
+ * Restano attese fisse SOLO dove si osserva che qualcosa NON accade: per un
+ * evento che non deve arrivare non esiste condizione da pollare, serve una
+ * finestra. Sono segnate una per una.
+ */
+const AT_BOTTOM_TOLERANCE_PX = 150; // = AT_BOTTOM_TOLERANCE_PX in scrollAuthority.ts
+const TRUE_BOTTOM_TOLERANCE_PX = 60; // padding di Virtuoso
+
+type Scroller = Locator;
+
+const isAtBottom = (scroller: Scroller, tolerance = AT_BOTTOM_TOLERANCE_PX) =>
+  scroller.evaluate(
+    (el, tol) => Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < tol,
+    tolerance,
+  );
+
+/** Attende che la lista virtualizzata abbia finito di misurarsi e sia ancorata in fondo. */
+async function settleAtBottom(scroller: Scroller): Promise<void> {
+  await expect.poll(() => isAtBottom(scroller), { timeout: 15_000 }).toBe(true);
+}
+
+/** Legge `scrollTop` finché due letture consecutive coincidono: lo scroll si è fermato. */
+async function stableScrollTop(scroller: Scroller): Promise<number> {
+  let last = await scroller.evaluate((el) => el.scrollTop);
+  for (let i = 0; i < 40; i++) {
+    const now = await scroller.evaluate((el) => el.scrollTop);
+    if (now === last) return now;
+    last = now;
+  }
+  return last;
+}
+
+/**
+ * Porta lo scroller in cima e restituisce dove si è fermato.
+ *
+ * Un solo Home non basta, ed è il motivo per cui il codice originale ne premeva
+ * due: la lista è virtualizzata e monta le righe mancanti man mano, quindi il
+ * primo salto atterra su un'altezza che subito dopo cambia. Ma "due volte" era
+ * un numero indovinato — qui si ripete finché `scrollTop` smette di scendere,
+ * che è la condizione vera dietro quelle due dormite.
+ */
+async function scrollToTop(page: Page, scroller: Scroller): Promise<number> {
+  await scroller.click();
+  let previous = Number.POSITIVE_INFINITY;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await page.keyboard.press("Home");
+    const settled = await stableScrollTop(scroller);
+    if (settled === 0 || settled >= previous) return settled;
+    previous = settled;
+  }
+  return previous;
+}
 
 test.describe("Chat scroll behavior", () => {
   let topicId: string;
@@ -74,7 +138,6 @@ test.describe("Chat scroll behavior", () => {
   test("does NOT auto-scroll when user has scrolled up", async ({ page, request }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
-    await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
     // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
@@ -83,16 +146,9 @@ test.describe("Chat scroll behavior", () => {
     // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+    await settleAtBottom(scroller);
 
-    // Scroll up by pressing Home key
-    await scroller.click();
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1000);
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1500);
-
-    // Record scroll position
-    const scrollBefore = await scroller.evaluate((el) => el.scrollTop);
+    const scrollBefore = await scrollToTop(page, scroller);
 
     // Add a new message
     await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
@@ -100,9 +156,13 @@ test.describe("Chat scroll behavior", () => {
       ignoreHTTPSErrors: true,
     });
 
+    // ATTESA FISSA VOLUTA: qui si osserva che una cosa NON accade (la lista non
+    // deve rincorrere il messaggio nuovo). Per un evento che non deve arrivare
+    // non c'e' condizione da pollare — serve una finestra in cui, se lo scroll
+    // saltasse, lo si vedrebbe. Due secondi coprono il round-trip WS piu' il
+    // rendering della riga.
     await page.waitForTimeout(2000);
 
-    // Scroll position should not have changed significantly (stayed up)
     const scrollAfter = await scroller.evaluate((el) => el.scrollTop);
     expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThan(100);
   });
@@ -110,7 +170,6 @@ test.describe("Chat scroll behavior", () => {
   test("scroll-to-bottom button appears when scrolled up and works on click", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
-    await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
     // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
@@ -119,32 +178,22 @@ test.describe("Chat scroll behavior", () => {
     // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+    await settleAtBottom(scroller);
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 
-    // Scroll up by pressing Home key while focused on the scroller
-    // This triggers native scroll that Virtuoso's IntersectionObserver detects
-    await scroller.click();
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1000);
-    // Repeat to ensure we're really at top (Virtuoso virtualizes content)
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1500);
-
-    // Scroll-to-bottom button should appear
+    // Home fa uno scroll nativo, che e' cio' che l'IntersectionObserver di
+    // Virtuoso rileva per far comparire il bottone.
+    await scrollToTop(page, scroller);
     await expect(scrollBtn).toBeVisible({ timeout: 8000 });
 
-    // Click it
     await scrollBtn.click();
 
-    // Wait for smooth scroll animation to settle
-    await page.waitForTimeout(1500);
-
-    // Should be at the true bottom (within 60px tolerance for Virtuoso padding)
-    const atBottom = await scroller.evaluate((el) => {
-      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 60;
-    });
-    expect(atBottom).toBe(true);
+    // Lo scroll e' animato (400ms smooth + 600ms di guardia): si polla il fondo
+    // vero invece di indovinare quando l'animazione e' finita.
+    await expect
+      .poll(() => isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 10_000 })
+      .toBe(true);
 
     // Button should disappear
     await expect(scrollBtn).not.toBeVisible({ timeout: 5000 });
@@ -153,7 +202,6 @@ test.describe("Chat scroll behavior", () => {
   test("scroll-to-bottom button reaches true bottom and stays there", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
-    await page.waitForTimeout(2000);
 
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
     // Lo scroller e' la PRECONDIZIONE della cosa in esame, non una comodita'
@@ -162,32 +210,30 @@ test.describe("Chat scroll behavior", () => {
     // nel caso che dovevano intercettare, e il conteggio dei "saltati" non lo
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+    await settleAtBottom(scroller);
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 
-    // Scroll up by pressing Home key
-    await scroller.click();
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1000);
-    await page.keyboard.press("Home");
-    await page.waitForTimeout(1500);
-
+    await scrollToTop(page, scroller);
     await expect(scrollBtn).toBeVisible({ timeout: 8000 });
 
-    // Click scroll-to-bottom
     await scrollBtn.click();
 
-    // Wait for animation (400ms smooth + 600ms guard settle)
-    await page.waitForTimeout(1500);
+    // Prima si aspetta che l'animazione ARRIVI in fondo (condizione), poi si
+    // guarda se ci RESTA (finestra).
+    await expect
+      .poll(() => isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 10_000 })
+      .toBe(true);
 
-    // Take multiple measurements over 2 seconds to confirm no bounce-back
+    // ATTESA FISSA VOLUTA: il difetto in esame e' il RIMBALZO — la lista che
+    // torna in fondo e poi se ne stacca da sola. Un rimbalzo si vede solo
+    // guardando per un po', quindi qui il campionamento a tempo E' la misura, non
+    // un'attesa che si possa sostituire con una condizione. Quattro letture in
+    // due secondi.
     const measurements: boolean[] = [];
     for (let i = 0; i < 4; i++) {
       await page.waitForTimeout(500);
-      const isBottom = await scroller.evaluate((el) => {
-        return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 60;
-      });
-      measurements.push(isBottom);
+      measurements.push(await isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX));
     }
 
     // ALL measurements should report at-bottom (no drift/bounce)
