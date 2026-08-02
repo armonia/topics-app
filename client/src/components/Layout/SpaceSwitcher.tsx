@@ -48,6 +48,11 @@ interface AttentionSets {
   claudePhaseAwaitingInputTermIds: Set<string>;
   claudePhaseAwaitingTermIds: Set<string>;
   terminalFinishedIds: Set<string>;
+  /** I soggetti già GUARDATI, per il solo ramo PROGETTO: il suo rollup li salta,
+   *  o il pallino resterebbe acceso su una chat già letta (la fase Claude non si
+   *  spegne da sola). Chat e terminali membri dello Spazio restano grezzi — vedi
+   *  la nota su `terminalFinishedIds` nel ciclo. */
+  seenSubjects: ReadonlySet<string>;
 }
 
 /**
@@ -73,6 +78,11 @@ function spaceAttentionTier(
     } else if (pane.type === 'terminal') {
       const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
       if (!sid) continue;
+      // NB: qui NON si filtra per "visto". `terminalFinishedIds` (riga sotto) è
+      // alzato proprio per le sessioni SENZA fase nota, e il reset del visto sul
+      // fronte di salita passa da `claudePhaseAwaitingTermIds`: le due popolazioni
+      // sono disgiunte, quindi un gate qui renderebbe muto per sempre il chip di
+      // una sessione hook-less al secondo turno finito.
       if (sig.claudePhaseAwaitingInputTermIds.has(sid)) return 'input';
       if (sig.claudePhaseAwaitingTermIds.has(sid) || sig.terminalFinishedIds.has(sid)) hasDone = true;
     } else if (pane.type === 'project' && pane.projectPath) {
@@ -84,6 +94,7 @@ function spaceAttentionTier(
         sig.claudePhaseAwaitingTermIds,
         sig.awaitingInputTopics,
         sig.claudePhaseAwaitingInputTermIds,
+        sig.seenSubjects,
       );
       if (tier === 'input') return 'input';
       if (tier === 'done') hasDone = true;
@@ -116,6 +127,7 @@ export function SpaceSwitcher() {
       claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
       claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds,
       terminalFinishedIds: s.terminalFinishedIds,
+      seenSubjects: s.seenSubjects,
     })),
   );
 

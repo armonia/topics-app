@@ -198,6 +198,61 @@ describe("projectAttentionTier — loudest child wins", () => {
   });
 });
 
+/**
+ * Il "visto" nel rollup — perché la tab «Progetto» restava segnalata.
+ *
+ * Una fase Claude come `awaiting-user` non si spegne da sola: resta fino al turno
+ * dopo. Per una chat il fill lo spegne il "visto"; questo rollup però leggeva gli
+ * insiemi grezzi, quindi il progetto continuava a segnalare un figlio già letto e
+ * l'unica cosa che lo nascondeva era «la tab è attiva adesso» — un gate che cade
+ * appena selezioni un'altra tab. Qui si fissa il pezzo DUREVOLE: il progetto
+ * segnala solo ciò che non hai ancora guardato. Il gate transitorio resta nei
+ * chiamanti come valvola per i figli irraggiungibili (una sessione nel roster
+ * senza riga né tab non può essere marcata vista da nessuno).
+ */
+describe("projectAttentionTier — un figlio già VISTO non segnala più", () => {
+  const PROJ = "/work/app";
+  const topics = {
+    a: topic("a", { projectPath: PROJ }),
+    b: topic("b", { projectPath: PROJ }),
+  };
+  const S = (...ids: string[]) => new Set(ids);
+
+  test("l'unico figlio in attesa è stato visto ⇒ il progetto tace", () => {
+    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S(), S("a"))).toBeNull();
+  });
+
+  test("visto un figlio, ne resta un altro non visto ⇒ segnala ancora", () => {
+    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S(), S(), S("a"))).toBe("done");
+  });
+
+  test("il figlio AMBRA visto non declassa: vince quello che resta", () => {
+    // 'b' chiede un permesso (input) ma l'hai guardato; 'a' ha solo finito il turno.
+    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("b"))).toBe("done");
+    // Se invece l'ambra NON è vista, vince lei.
+    expect(projectAttentionTier(PROJ, topics, [], S("a", "b"), S(), S("b"), S(), S("a"))).toBe("input");
+  });
+
+  test("vale anche per i terminali claude-code sotto il progetto", () => {
+    const terminals = [{ id: "t1", cwd: `${PROJ}/sub`, type: "claude-code" } as TerminalSessionInfo];
+    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S())).toBe("done");
+    expect(projectAttentionTier(PROJ, {}, terminals, S(), S("t1"), S(), S(), S("t1"))).toBeNull();
+  });
+
+  test("omettere seenSubjects lascia il rollup GREZZO", () => {
+    expect(projectAttentionTier(PROJ, topics, [], S("a"), S(), S(), S())).toBe("done");
+  });
+
+  test("un ARCHIVIATO continua a contare: un genitore muto sopra un figlio che pulsa sarebbe peggio", () => {
+    // `buildSidebarItems` tiene visibile una chat archiviata se è FISSATA, e la sua
+    // riga si colora. Chi invece non ha riga è coperto da FOCUS WINS nei chiamanti
+    // (selezionare il progetto spegne), non da un filtro qui.
+    const withArchived = { z: topic("z", { projectPath: PROJ, archived: true }) };
+    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S())).toBe("input");
+    expect(projectAttentionTier(PROJ, withArchived, [], S("z"), S(), S("z"), S(), S("z"))).toBeNull();
+  });
+});
+
 describe("deriveSessionActivity", () => {
   const topics = {
     work: topic("work", { sessionKey: "kw" }),
