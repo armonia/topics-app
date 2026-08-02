@@ -15,7 +15,8 @@
  * which would otherwise read as a false "already running".
  *
  * The token is the only secret; it's 32 random bytes hex-encoded and
- * lives in the (mode 0600) state file. Electron reads it to make
+ * lives in the (mode 0600) state file. La CLI `topics` (cli/topics.ts) e la
+ * shell Tauri (probe healthz in src-tauri/src/lib.rs) lo leggono per fare
  * `Authorization: Bearer …` calls against the server's `/__daemon/*`
  * control endpoints.
  *

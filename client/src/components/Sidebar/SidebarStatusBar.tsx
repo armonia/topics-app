@@ -22,9 +22,10 @@ declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
 declare const __APP_VERSION__: string;
 
-// App version baked at build time (from electron-app/package.json). In the
-// desktop app the live `electronAPI.app.getVersion()` is preferred at runtime
-// since an auto-update can change it after this bundle was built.
+// Versione compilata a build time da client/vite.config.ts (define
+// `__APP_VERSION__`, letta dal package.json di ROOT). Nell'app desktop si
+// preferisce `getVersion()` di lib/shell/app a runtime, perché un auto-update
+// può cambiarla dopo la build di questo bundle.
 const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
 // When this bundle was compiled (`vite build`). In dev the "X fa" chip tracks

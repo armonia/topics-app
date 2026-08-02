@@ -1,8 +1,14 @@
 /**
- * Shared access to the Electron auto-updater bridge (electron-app/main.ts
- * `updater:*` IPC). The global `electronAPI` type leaves `updater` under an
- * ad-hoc index signature, so we narrow it locally rather than widening window.
- * Returns `undefined` in web mode — callers render their own web fallback.
+ * Accesso condiviso all'updater della shell: su Tauri adatta i comandi Rust
+ * `updater_check`/`updater_install` alla forma consumata da UpdaterToast e
+ * VersionPopover; su web ritorna `undefined` e il chiamante disegna il proprio
+ * fallback.
+ *
+ * [Il docblock precedente descriveva un bridge IPC di `electron-app/main.ts` e
+ * la narrowing del tipo globale `electronAPI`: quel guscio è stato archiviato
+ * nella v2.0.0 e quel global non esiste più. Il nome `ElectronUpdater` qui
+ * sotto NON è un residuo — è tenuto apposta, e il perché è scritto dove viene
+ * dichiarato.]
  */
 import { useEffect, useState } from 'react';
 import { isTauri } from './shell/index';
