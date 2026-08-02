@@ -41,6 +41,18 @@ async function fetchScripts() {
 }
 
 function updateInterval() {
+  // Senza iscritti NON si poller. Sembra ovvio, e invece qui nasceva una
+  // fuga: `markVisible(false)` gira nella pulizia dello smontaggio e chiama
+  // questa funzione, che con `pollTimer` gia' azzerato dall'ultimo
+  // disiscritto cadeva dritta nel `setInterval` qui sotto e RESUSCITAVA il
+  // timer. Nessuno lo avrebbe piu' fermato: il prossimo `subscribe`
+  // sovrascriveva `pollTimer` senza pulire quello vecchio, quindi ogni ciclo
+  // apri/chiudi del pannello lasciava indietro un poll immortale — e i poll
+  // orfani si sommano, ognuno con la sua fetch a `/api/scripts`.
+  if (subscriberCount === 0) {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    return;
+  }
   const desired = visibleCount > 0
     ? (wsConnected ? POLL_BACKGROUND : POLL_VISIBLE)
     : POLL_BACKGROUND;
@@ -54,8 +66,11 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   subscriberCount++;
   if (subscriberCount === 1) {
-    // First subscriber — start polling
+    // First subscriber — start polling. La clearInterval NON e' ridondante:
+    // raccoglie un eventuale timer gia' in volo invece di perderne il handle
+    // riassegnando (era la seconda meta' della fuga descritta sopra).
     fetchScripts();
+    if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(fetchScripts, currentInterval);
   }
   return () => {
