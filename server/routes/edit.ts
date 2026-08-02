@@ -146,6 +146,13 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         if (!line.startsWith("data: ")) return;
         const data = line.slice(6).trim();
         if (data === "[DONE]") {
+          // Stesso guard di chat.ts (CHAT-REL-01): una risposta vuota si DICE.
+          // Senza, la Rigenera finalizzava una bolla assistant vuota e
+          // l'utente vedeva sparire il messaggio senza sapere perche'.
+          if (!fullContent.trim()) {
+            fullContent = "⚠️ No response received. The AI service may be overloaded. Please try again.";
+            console.warn(`[Stream:Edit] Empty response for ${sessionKey} — surfacing error to client`);
+          }
           updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
           endStream(sessionKey);
           if (matchedTopic) {
@@ -219,8 +226,28 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
             for (const line of lines) processLine(line);
           }
           if (sseBuffer.trim()) processLine(sseBuffer);
-        } catch (err) {
-          console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err);
+        } catch (err: any) {
+          // Prima qui c'era SOLO questo console.warn, e il `finally` qui sotto
+          // persisteva comunque `fullContent` cosi' com'era: con un gateway
+          // che si pianta a meta' (o non risponde affatto) la Rigenera
+          // salvava una bolla assistant VUOTA e chiudeva lo stream senza un
+          // segno. L'utente vedeva il messaggio svuotarsi e basta.
+          //
+          // Stessa gestione di chat.ts (CHAT-REL-02): si compone il motivo, lo
+          // si mette nel contenuto persistito, e lo si manda anche sul canale
+          // SSE — dietro `clientDisconnected`, perche' scrivere su un client
+          // gia' andato via rilancia.
+          const isAbort = err?.name === "AbortError" || abortController.signal.aborted;
+          const errorMsg = isAbort
+            ? "⚠️ Response timed out. Please try again."
+            : "⚠️ Connection lost during response. Please try again.";
+          console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err?.message || err);
+          if (!fullContent.trim()) fullContent = errorMsg;
+          else fullContent += `\n\n---\n*${errorMsg}*`;
+          if (!clientDisconnected) {
+            const errPayload = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `\n\n${errorMsg}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+            try { await writer.write(new TextEncoder().encode(errPayload)); } catch { clientDisconnected = true; }
+          }
         } finally {
           if (inactivityTimer) clearTimeout(inactivityTimer);
           abortController.signal.removeEventListener("abort", onAbort);
