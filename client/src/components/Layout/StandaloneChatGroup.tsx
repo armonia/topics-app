@@ -497,24 +497,14 @@ export function StandaloneChatGroup({
     const present = new Set<PaneType>();
     if (validatedOrderedIds.some(id => isBrowserPaneId(id))) present.add('browser');
     const types = getAddableTypesForScope('standalone', present);
-    // In una finestra POP-OUT il Browser non si offre.
+    // In una finestra POP-OUT il Browser non si offre nel menu «+».
     //
-    // `browser_open_inner` cabla `app.get_window("main")` come genitore della
-    // webview: una pane browser aperta in un pop-out non compare nel pop-out,
-    // compare sopra la finestra PRINCIPALE, alle coordinate che aveva nel
-    // pop-out — un rettangolo di sito web piazzato in mezzo all'interfaccia di
-    // main. E quando il pop-out si chiude, la sua pagina React muore senza
-    // cleanup: nessuno chiama `browser_close` e quel rettangolo resta finche'
-    // non si riavvia l'app.
-    //
-    // Il resto del guscio ASSUME già che le pane browser vivano solo in main
-    // (lib.rs: «A detached window has no browser pane»), ma era un'assunzione,
-    // non un vincolo: questo menu la offriva. Qui diventa vera.
-    //
-    // È contenimento, non la soluzione: quella vera è passare la finestra a
-    // `browser_open` e risolverla con `get_window(&label)`, rivedendo tutti i
-    // percorsi che danno main per scontato (release_focus, forwarder ⌘W,
-    // maschere d'angolo). Tracciata a parte.
+    // Il difetto strutturale è risolto: `browser_open` ora riceve l'etichetta
+    // della finestra e parenta la webview alla finestra ospite (get_window(&label)),
+    // quindi una pane browser in un pop-out compare NEL pop-out e viene distrutta
+    // con esso. Questo filtro resta come contenimento intenzionale (il pop-out è
+    // un thread singolo: niente split/browser nel suo «+»), non più come workaround
+    // per un bug del guscio.
     const detached = isTauri && (currentWindowLabel() ?? 'main') !== 'main';
     return detached ? types.filter((t) => t !== 'browser') : types;
   })();
