@@ -202,11 +202,68 @@ the shell source and its full universal-build machinery (`stage-server-dist.mjs`
 `electron-archive` branch. The old `v*` installers remain downloadable on the Releases
 page but are no longer built, signed, or updated.
 
+## Testing
+
+```bash
+bun run typecheck        # client + server + e2e
+bun run lint             # eslint (client)
+bun run test:unit        # bun:test — moduli puri (~70s, ~4100 test)
+bun run test             # E2E Playwright, seriale (~35 min)
+bun run test:e2e:shards  # E2E in parallelo sulla stessa macchina  ← usa questo
+```
+
+**E2E in parallelo.** Playwright gira con `workers: 1` e `fullyParallel: false`
+perché i test condividono UN server e UN SQLite: dentro un singolo processo la
+serialità è l'unica cosa che li tiene onesti. Il parallelismo giusto non è "più
+worker", è PIÙ SUITE — N processi, ognuno col suo server, il suo database e i
+suoi socket (porta, `DATA_DIR` e socket derivano tutti da `E2E_PORT`).
+
+```bash
+SHARDS=4 ./scripts/e2e-shards.sh          # 4 è il valore che rende su 8-12 core
+SHARDS=4 E2E_BASE_PORT=13360 ./scripts/e2e-shards.sh   # porte alternative
+bun run test:e2e:plan 4                    # vedi la divisione senza eseguirla
+```
+
+Gli shard si dividono **per durata misurata**, non per numero di test:
+`scripts/e2e-durations.json` (committato) dice quanto costa ogni file, e
+`e2e-plan-shards.ts` li pacchetta col metodo LPT. Il `--shard=i/N` nativo di
+Playwright riparte contando i test e non sa che un file da 22 test può costare
+quanto quaranta file da uno — è quello che produceva shard da 193s, 326s, 186s,
+209s, cioè una suite lunga quanto il suo shard peggiore. Dopo una passata,
+riallinea le misure:
+
+```bash
+bun run test:e2e:durations test-results/shard-*/results.json
+```
+
+**Quanti shard.** Ogni shard è un server Bun + un Chromium + un node: su 12 core,
+otto shard producono un fattore di contesa ~3× e vanno PIÙ PIANO di quattro
+(misurato: `chat.spec` 17,5s → 92,3s nella stessa passata). Il parallelismo utile
+è circa `core / 3`.
+
+**Due trappole che costano una run intera:**
+
+1. **Non modificare `client/src/**` mentre una run sta partendo.** Il
+   `global-setup` rifiuta di girare su un bundle più vecchio dei sorgenti — è una
+   guardia giusta (`vite build --watch` svuota e riscrive `public/`, e nella
+   finestra in cui `index.html` non c'è i test cadono a caso accusando la
+   feature sbagliata) — ma uno shard che ci sbatte contro non esegue NIENTE, e il
+   riepilogo lo segnala come "suite che non ha girato", non come rosso.
+2. **Una porta, una run.** Due run sulla stessa porta si cancellerebbero il DB da
+   sotto: `helpers/run-lock.ts` lo impedisce e la seconda si ferma con un
+   messaggio esplicito. Se serve girare in parallelo a qualcun altro, dai una
+   base diversa con `E2E_BASE_PORT`.
+
+**Due tier.** Il gate PR (`E2E_TIER=pr`) salta le spec lente, di rete, a due
+finestre o non ancora isolate test-per-test (`NIGHTLY_ONLY_SPECS` in
+`playwright.config.ts`); il nightly esegue tutto. La copertura non si perde: si
+sposta.
+
 ## Submitting Changes
 
 1. Create a feature branch: `git checkout -b feature/your-feature`
 2. Make your changes
-3. Test locally (server + client build)
+3. Test locally — vedi **Testing** qui sopra
 4. Commit with a clear message
 5. Push and open a Pull Request
 
