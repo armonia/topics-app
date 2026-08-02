@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   decideTerminalBanner,
   isBannerPhase,
+  isRealPhaseTransition,
   isTabActivelyVisible,
   isTerminalPaneSelected,
   statusBody,
@@ -267,5 +268,36 @@ describe("isTerminalPaneSelected — anche i terminali dentro un progetto", () =
     expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp")).toBe(false);
     expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", {})).toBe(false);
     expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", { "/work/app": null })).toBe(false);
+  });
+});
+
+describe('isRealPhaseTransition — il bootstrap non deve riannunciare il passato', () => {
+  // `session:state` è per-transizione, ma alla connessione il server rimanda lo
+  // SNAPSHOT di ogni sessione. Senza questa guardia, un client appena avviato
+  // (nessuna fase precedente in memoria) vede ogni chat ferma in
+  // `awaiting-user` come appena arrivata lì, e spara un banner per ognuna.
+  // Misurato il 2026-08-02: sei riavvii dell'app, sei raffiche di notifiche per
+  // lavoro finito giorni prima. Il ramo terminale era protetto, quello delle
+  // chat no — pur avendo un commento che diceva il contrario.
+  test('primo frame: nessuna transizione, solo baseline', () => {
+    expect(isRealPhaseTransition(undefined, 'awaiting-user')).toBe(false);
+    expect(isRealPhaseTransition(undefined, 'completed')).toBe(false);
+    expect(isRealPhaseTransition(undefined, 'error')).toBe(false);
+  });
+
+  test('ripetizione della stessa fase: non è una transizione', () => {
+    expect(isRealPhaseTransition('awaiting-user', 'awaiting-user')).toBe(false);
+  });
+
+  test('un cambio vero è una transizione', () => {
+    expect(isRealPhaseTransition('running', 'awaiting-user')).toBe(true);
+    expect(isRealPhaseTransition('tool-running', 'error')).toBe(true);
+  });
+
+  test('la sessione che nasce e finisce mentre siamo scollegati non banna: è il prezzo accettato', () => {
+    // Documentato di proposito: il compromesso è non riannunciare tutto il
+    // passato a ogni avvio. Se un giorno si volesse il contrario, questo test
+    // è il posto dove la decisione va cambiata consapevolmente.
+    expect(isRealPhaseTransition(undefined, 'awaiting-user')).toBe(false);
   });
 });
