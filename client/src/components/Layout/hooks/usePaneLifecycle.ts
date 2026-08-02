@@ -22,6 +22,8 @@ import {
 import { primaryFromSoloCellKey } from '../soloCells';
 import { canSplitPane, standaloneSplitSurface } from '../splitRules';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
+import { isTauri } from '../../../lib/shell';
+import { tauriInvoke } from '../../../lib/shell/tauri';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 import { popOutTopic, popOutTopics } from '../../../lib/popOutTopic';
@@ -63,6 +65,31 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         // panes did NOT, so a tab closed on the Mac lingered on the PWA. Paired
         // with tombstoneSync's evictRemotelyClosedBrowserPanes on the peer.
         addBrowserTombstone(ctx);
+        // E CHIUDI LA WEBVIEW NATIVA, qui, adesso — non aspettando che React
+        // smonti la pane.
+        //
+        // L'unico chiamante di `browser_close` era la cleanup dell'effect in
+        // useTauriBrowser, differita di 350 ms. Ma quando la chiusura viene
+        // COMMITTATA durante l'unload della pagina (`flushPendingActions` su
+        // pagehide/beforeunload: il countdown di 3 s che scade mentre l'app si
+        // ricarica) React non ri-renderizza mai, quindi quella cleanup non gira
+        // e `browser_close` non viene nemmeno accodato. Al giro dopo la pane non
+        // esiste più — è stata chiusa apposta, col suo tombstone — quindi non si
+        // rimonterà: nessuno chiuderà MAI quella webview. E le webview native
+        // sopravvivono al reload per progetto (nativeBrowserRoster.ts: le pane
+        // «RIUSANO la webview di prima»). Risultato: una pagina web dipinta
+        // sopra l'interfaccia, senza una tab a cui appartenga, che se ne va solo
+        // riavviando l'app.
+        //
+        // Perché è sicuro chiamarlo di qui: questo side effect gira su una
+        // chiusura VERA, mai sul re-key transitorio dell'auto-split (che passa
+        // dalla grazia dei 350 ms in useTauriBrowser), e `browser_open` è
+        // idempotente — un doppio close è un no-op.
+        //
+        // Da NON fare: rimettere un reaper al boot che chiude gli avanzi.
+        // nativeBrowserRoster.ts spiega perché è stato tolto — chiudeva alla
+        // cieca anche le view che sarebbero state riusate.
+        if (isTauri) void tauriInvoke('browser_close', { id: ctx }).catch(() => {});
       }
     },
     localManaged: true,

@@ -75,6 +75,8 @@ import {
   rowGroupIds,
 } from '../groupLayoutStacks';
 import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSpawner';
+import { isTauri } from '../../../lib/shell';
+import { tauriInvoke } from '../../../lib/shell/tauri';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
@@ -1169,6 +1171,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE' }).catch(() => {});
             // Drop the spawner relationship so the "opened a browser" tab cue clears.
             clearBrowserSpawner(bctx);
+            // E la webview NATIVA: si chiude qui, non aspettando che React
+            // smonti la pane. Il commento qui sopra descrive già il caso —
+            // «the close committed at unload via flushPendingActions, where
+            // React never re-renders» — ma la conseguenza era stata vista solo
+            // per il tombstone: in quello stesso scenario non gira nemmeno la
+            // cleanup di useTauriBrowser, che è l'UNICO posto che chiama
+            // `browser_close`. La pane non si rimonta più (è chiusa, col suo
+            // tombstone) e le webview native sopravvivono al reload per
+            // progetto, quindi quella pagina resta dipinta sopra
+            // l'interfaccia finché non si riavvia l'app.
+            if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
           }
         }
 
