@@ -213,12 +213,71 @@ jobs:
             echo "macOS richiede di nuovo notifiche/schermo/accessibilità."
             exit 0
           fi
-          echo "Certificato presente: la build macOS verrà firmata."
-          {
-            echo "APPLE_CERTIFICATE=$CERT"
-            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
-            echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
-          } >> "$GITHUB_ENV"
+          # Il certificato lo importiamo NOI, non tauri-action, perché va anche
+          # reso FIDATO — e questo tauri-action non lo fa.
+          #
+          # Il perché, imparato a spese di una release: `codesign -s "Nome"`
+          # firma benissimo con un certificato autofirmato non fidato (la
+          # fiducia riguarda la validazione della catena, non la capacità di
+          # firmare). Ma il bundler di Tauri non chiama codesign alla cieca:
+          # prima RISOLVE l'identità con `security find-identity -v`, e quel
+          # `-v` elenca solo le identità VALIDE. Un certificato autofirmato è
+          # `CSSMERR_TP_NOT_TRUSTED`, quindi non compare, e la build muore con
+          # «failed to resolve signing identity» pur avendo appena importato la
+          # chiave («1 identity imported»). Serve la fiducia — che su un runner
+          # si aggiunge senza interazione, mentre su un Mac vero chiederebbe
+          # conferma.
+          #
+          # Ogni fallimento qui è NON fatale: si esce senza esportare
+          # APPLE_SIGNING_IDENTITY, la build macOS viene non firmata e la
+          # release esce comunque. Perdere Windows e Linux per un problema di
+          # firma è il guasto che questo passo esiste per evitare.
+          set +e
+          WORKDIR="$RUNNER_TEMP/signing"
+          mkdir -p "$WORKDIR"
+          printf '%s' "$CERT" | base64 --decode > "$WORKDIR/cert.p12"
+          KEYCHAIN="$WORKDIR/topics-signing.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+
+          setup_signing() {
+            security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN" || return 1
+            security set-keychain-settings -lut 21600 "$KEYCHAIN" || return 1
+            security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN" || return 1
+            # In lista di ricerca INSIEME alle altre: `find-identity` guarda lì.
+            security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"') || return 1
+            security import "$WORKDIR/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+              -T /usr/bin/codesign -T /usr/bin/security || return 1
+            # Senza questo, il primo accesso alla chiave privata aprirebbe un
+            # dialogo di consenso — su un runner headless significa restare
+            # appesi fino al timeout del job.
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null || return 1
+            # La FIDUCIA: senza, `find-identity -v` non la elenca (vedi sopra).
+            openssl pkcs12 -in "$WORKDIR/cert.p12" -nokeys -clcerts -legacy \
+              -passin "pass:$CERT_PASSWORD" -out "$WORKDIR/cert.pem" || return 1
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+              -k /Library/Keychains/System.keychain "$WORKDIR/cert.pem" || return 1
+            return 0
+          }
+
+          if ! setup_signing; then
+            echo "::warning::Firma macOS non configurabile — la build esce NON FIRMATA (release comunque pubblicata)."
+            rm -f "$WORKDIR/cert.p12" "$WORKDIR/cert.pem"
+            exit 0
+          fi
+          rm -f "$WORKDIR/cert.p12" "$WORKDIR/cert.pem"
+
+          # Prova che l'identità è ora RISOLVIBILE come la cercherà Tauri.
+          if ! security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
+            echo "::warning::«$SIGNING_IDENTITY» non risulta valida dopo l'import — build NON FIRMATA."
+            security find-identity -p codesigning | sed 's/^/  /'
+            exit 0
+          fi
+          echo "Identità di firma risolta: la build macOS verrà firmata."
+
+          # NB: si esporta SOLO l'identità. Passando anche APPLE_CERTIFICATE,
+          # tauri-action rifarebbe il proprio import in un ALTRO portachiavi —
+          # senza fiducia, quindi di nuovo irrisolvibile.
+          echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
           # La notarizzazione è un passo a parte e richiede un account Apple a
           # pagamento: si arma solo se TUTTE e tre le sue variabili ci sono,
           # altrimenti tauri-action ci prova e fallisce a fine build.
