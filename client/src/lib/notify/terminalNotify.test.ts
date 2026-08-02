@@ -3,6 +3,7 @@ import {
   decideTerminalBanner,
   isBannerPhase,
   isTabActivelyVisible,
+  isTerminalPaneSelected,
   statusBody,
   terminalDedupeKey,
   terminalPanelId,
@@ -210,5 +211,61 @@ describe("il nome non si spacca sui due punti", () => {
     const d = decideTerminalBanner(input({ name: "Fix: login rotto" }))!;
     expect(d.title).toBe("Fix: login rotto");
     expect(d.body).toBe("In attesa di te");
+  });
+});
+
+// Il caso che mancava del tutto: un terminale dentro una finestra progetto non
+// compare MAI come pane di livello App — `focusedPanelId` resta `project:<path>`
+// (lo dice state/projectFocus.ts). Il vecchio confronto secco era quindi sempre
+// falso e il banner partiva mentre l'utente guardava quel terminale.
+describe("isTerminalPaneSelected — anche i terminali dentro un progetto", () => {
+  test("pane di primo livello: match esatto", () => {
+    expect(isTerminalPaneSelected("t1", "terminal:t1")).toBe(true);
+    expect(isTerminalPaneSelected("t1", "terminal:t2")).toBe(false);
+  });
+
+  test("niente focus → falso (non si zittisce niente)", () => {
+    expect(isTerminalPaneSelected("t1", null)).toBe(false);
+    expect(isTerminalPaneSelected("t1", undefined)).toBe(false);
+    expect(isTerminalPaneSelected("t1", "")).toBe(false);
+  });
+
+  test("mai per substring: un id che CONTIENE il nostro non lo seleziona", () => {
+    // Il bug che il percorso pty aveva ancora: `focused.includes(id)` faceva
+    // zittire il banner di `t1` a un pane completamente diverso.
+    expect(isTerminalPaneSelected("t1", "terminal:t1-backup")).toBe(false);
+    expect(isTerminalPaneSelected("t1", "browser:ctx-terminal:t1")).toBe(false);
+  });
+
+  test("dentro un progetto: vero solo se la tab interna attiva è QUESTO terminale", () => {
+    const focused = terminalPanelId("t1");
+    expect(
+      isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", { "/work/app": focused }),
+    ).toBe(true);
+    // Progetto a fuoco, ma dentro sei su un'altra tab → il banner deve partire.
+    expect(
+      isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", { "/work/app": "chat:c9" }),
+    ).toBe(false);
+    // Tab interna giusta, ma il progetto a fuoco è un ALTRO.
+    expect(
+      isTerminalPaneSelected("t1", "project:%2Fwork%2Fother", { "/work/app": focused }),
+    ).toBe(false);
+  });
+
+  test("path con spazi e caratteri percent-encoded", () => {
+    // Il pane id porta il path encodato, la mappa il path grezzo: se il
+    // confronto non li riconcilia, ogni progetto con uno spazio nel path perde
+    // la soppressione.
+    expect(
+      isTerminalPaneSelected("t1", "project:%2FUsers%2Fa%20b%2Fproj", {
+        "/Users/a b/proj": terminalPanelId("t1"),
+      }),
+    ).toBe(true);
+  });
+
+  test("mappa assente o vuota → nessun crash, semplicemente falso", () => {
+    expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp")).toBe(false);
+    expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", {})).toBe(false);
+    expect(isTerminalPaneSelected("t1", "project:%2Fwork%2Fapp", { "/work/app": null })).toBe(false);
   });
 });

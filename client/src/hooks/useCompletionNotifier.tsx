@@ -6,7 +6,8 @@ import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
 import { shellKind } from '../lib/shell';
 import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
-import { decideTerminalBanner, statusBody, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { useProjectFocusStore } from '../state/projectFocus';
 import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
@@ -416,17 +417,18 @@ export function useCompletionNotifier({
         const prevPhase = prevTermPhaseRef.current.get(csid);
         prevTermPhaseRef.current.set(csid, state.phase);
 
-        // Focus suppression: the terminal's panel id is `terminal:<id>`. Only
-        // suppress on an EXACT active-panel match (not a loose substring) so an
-        // unrelated pane whose id happens to contain this id can't mute it — AND
-        // only when the Topics window actually has OS focus. `focusedPanelId` is
-        // just "which tab is selected" and never clears when the app goes to the
-        // background, so without the hasFocus() gate a backgrounded window whose
-        // active tab happened to be this terminal would swallow the very banner
-        // the user needs. A backgrounded window is never "actively visible".
+        // Focus suppression: `isTerminalPaneSelected` decide se questo terminale
+        // è la tab davvero selezionata — confronto ESATTO (mai substring: un pane
+        // diverso il cui id contiene questo id non deve poter zittire il banner
+        // altrui) e consapevole dell'annidamento, perché un terminale dentro una
+        // finestra progetto lascia il `focusedPanelId` di App su `project:<path>`
+        // e il confronto secco era sempre falso. Il gate hasFocus() resta
+        // load-bearing: `focusedPanelId` è solo "quale tab è selezionata" e non si
+        // azzera quando l'app va in background, quindi senza di lui una finestra
+        // sullo sfondo avrebbe ingoiato proprio il banner che serve.
         const focused = focusedRef.current;
         const isFocusedAndVisible = isTabActivelyVisible(
-          focused === terminalPanelId(ts.id),
+          isTerminalPaneSelected(ts.id, focused, useProjectFocusStore.getState().activePaneByProject),
           typeof document !== 'undefined' ? document.hasFocus() : true,
         );
 
@@ -592,13 +594,14 @@ export function useCompletionNotifier({
       const ts = terminalSessionsRef.current.find((t) => t.id === msg.id);
       // Per-topic / per-project mute — silence the fallback banner too.
       if (isTopicMuted(ts?.topicId)) return;
-      // Focus suppression: the focused panel id for a terminal contains its id
-      // (`terminal:<id>`); skip the toast if the user is staring at it already —
-      // but only when the window has OS focus, so a backgrounded window whose
-      // active tab is this terminal still surfaces the banner (isTabActivelyVisible).
+      // Focus suppression, STESSA regola del percorso phase-based sopra: qui il
+      // confronto era `focused.includes(msg.id)`, cioè proprio la substring che
+      // l'altro ramo si era già tolto — un pane diverso il cui id contiene questo
+      // id zittiva un banner che non era suo. Ora entrambi passano dall'unico
+      // predicato, che è anche l'unico a vedere i terminali dentro un progetto.
       const focused = focusedRef.current;
       const isFocused = isTabActivelyVisible(
-        !!focused && focused.includes(msg.id),
+        isTerminalPaneSelected(msg.id, focused, useProjectFocusStore.getState().activePaneByProject),
         typeof document !== 'undefined' ? document.hasFocus() : true,
       );
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
