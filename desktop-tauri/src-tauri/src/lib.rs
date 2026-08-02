@@ -18,6 +18,57 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 #[cfg(target_os = "macos")]
 mod shortcuts_generated;
 
+/// objc2 compatibility shims for the AppKit FFI throughout this file.
+///
+/// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
+/// build warnings had that single root — both the `use of deprecated …` notes
+/// and the `unexpected cfg condition value: cargo-clippy` ones the old
+/// `msg_send!`/`sel!` macros expanded into our source). The selectors and the
+/// message sends are unchanged; only the crate providing the untyped-pointer
+/// types and the runtime macros moved to `objc2`. Each AppKit block below does
+/// `use crate::mac::*;` — a glob so unused items in a given block don't warn.
+#[cfg(target_os = "macos")]
+mod mac {
+    pub use objc2::runtime::{AnyClass as Class, AnyObject as Object, Sel};
+    pub use objc2::{class, msg_send, sel};
+    pub use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    /// The old `cocoa::base::id`: an untyped Objective-C object pointer. Kept
+    /// lower-case to match the hundreds of `let x: id = …` sites verbatim.
+    #[allow(non_camel_case_types)]
+    pub type id = *mut objc2::runtime::AnyObject;
+
+    /// The old `cocoa::base::nil`. Kept lower-case to match the thousands of
+    /// `!= nil` / `== nil` sites verbatim; the naming lint is opted out here
+    /// only, not project-wide.
+    #[allow(non_upper_case_globals)]
+    pub const nil: id = std::ptr::null_mut();
+
+    /// The old `cocoa::base::{BOOL, YES, NO}`. objc2's `msg_send!` bridges the
+    /// Objective-C `BOOL` to/from Rust `bool` automatically, so aliasing these
+    /// to `bool`/`true`/`false` lets every legacy `let x: BOOL = …`, `!= NO` and
+    /// `setFoo: YES` site keep compiling untouched.
+    pub type BOOL = bool;
+    #[allow(non_upper_case_globals)]
+    pub const YES: bool = true;
+    #[allow(non_upper_case_globals)]
+    pub const NO: bool = false;
+
+    /// NSWindowButton raw values (NSWindow.h). Hard-coded rather than pulling in
+    /// objc2-app-kit for three constants — they are ABI-stable.
+    pub const NS_WINDOW_CLOSE_BUTTON: isize = 0;
+    pub const NS_WINDOW_MINIATURIZE_BUTTON: isize = 1;
+    pub const NS_WINDOW_ZOOM_BUTTON: isize = 2;
+
+    /// Build an autoreleased-free NSString*. Keep the returned `Retained` alive
+    /// for as long as the raw pointer is in use, then read `.as_ptr()`. Replaces
+    /// the old `NSString::alloc(nil).init_str(s)`.
+    #[inline]
+    pub fn nsstring(s: &str) -> objc2::rc::Retained<objc2_foundation::NSString> {
+        objc2_foundation::NSString::from_str(s)
+    }
+}
+
 /// Desired traffic-light visibility (hidden by default; the client flips it when
 /// the Topics menu opens). AppKit re-shows the buttons on focus/resize when the
 /// titlebar is transparent (`Overlay`), so we re-assert this state on those
@@ -1011,9 +1062,7 @@ impl TlWindow for tauri::WebviewWindow {
 
 #[cfg(target_os = "macos")]
 fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
-    use cocoa::appkit::{NSWindow, NSWindowButton};
-    use cocoa::base::{id, nil};
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ptr = match window.tl_ns_window() {
         Ok(p) => p as id,
@@ -1025,11 +1074,11 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     let mut hit = 0;
     unsafe {
         for button in [
-            NSWindowButton::NSWindowCloseButton,
-            NSWindowButton::NSWindowMiniaturizeButton,
-            NSWindowButton::NSWindowZoomButton,
+            NS_WINDOW_CLOSE_BUTTON,
+            NS_WINDOW_MINIATURIZE_BUTTON,
+            NS_WINDOW_ZOOM_BUTTON,
         ] {
-            let b: id = ptr.standardWindowButton_(button);
+            let b: id = msg_send![ptr, standardWindowButton: button];
             if b != nil {
                 let _: () = msg_send![b, setHidden: !visible];
                 hit += 1;
@@ -1045,7 +1094,7 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
         // titlebar container to redraw now so the hide lands immediately.
         // Guarded to the hide path so the show path keeps its existing redraw.
         if !visible {
-            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            let close: id = msg_send![ptr, standardWindowButton: NS_WINDOW_CLOSE_BUTTON];
             if close != nil {
                 let sv: id = msg_send![close, superview];
                 if sv != nil {
@@ -1078,11 +1127,10 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
         // (bounds.height < 60) and clamp every final origin back inside those
         // bounds. Anything else: no-op, keep AppKit defaults.
         if visible && !window.tl_is_fullscreen().unwrap_or(false) {
-            use cocoa::foundation::NSRect;
-            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            let close: id = msg_send![ptr, standardWindowButton: NS_WINDOW_CLOSE_BUTTON];
             if close != nil {
                 let sv0: id = msg_send![close, superview];
-                let svb: NSRect = if sv0 != nil { msg_send![sv0, bounds] } else { NSRect::new(cocoa::foundation::NSPoint::new(0.0, 0.0), cocoa::foundation::NSSize::new(0.0, 0.0)) };
+                let svb: NSRect = if sv0 != nil { msg_send![sv0, bounds] } else { NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)) };
                 // Container must look like a titlebar strip. A full-height theme
                 // frame (Overlay + hidden title) fails this, so we bail and keep
                 // AppKit's own (visible) positions rather than fling the buttons
@@ -1101,14 +1149,14 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                     const LEFT_INSET: f64 = 12.0;
                     const PITCH: f64 = 18.0;
                     for (i, button) in [
-                        NSWindowButton::NSWindowCloseButton,
-                        NSWindowButton::NSWindowMiniaturizeButton,
-                        NSWindowButton::NSWindowZoomButton,
+                        NS_WINDOW_CLOSE_BUTTON,
+                        NS_WINDOW_MINIATURIZE_BUTTON,
+                        NS_WINDOW_ZOOM_BUTTON,
                     ]
                     .into_iter()
                     .enumerate()
                     {
-                        let b: id = ptr.standardWindowButton_(button);
+                        let b: id = msg_send![ptr, standardWindowButton: button];
                         if b == nil {
                             continue;
                         }
@@ -1205,9 +1253,7 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
 /// NSAppearance directly since Tauri exposes no JS API for it. No-op off macOS.
 #[cfg(target_os = "macos")]
 fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ptr = match window.ns_window() {
         Ok(p) => p as id,
@@ -1219,7 +1265,8 @@ fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
         } else {
             "NSAppearanceNameAqua"
         };
-        let ns_name: id = NSString::alloc(nil).init_str(name);
+        let ns_name = nsstring(name);
+        let ns_name: id = objc2::rc::Retained::as_ptr(&ns_name) as id;
         let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns_name];
         if appearance != nil {
             let _: () = msg_send![ptr, setAppearance: appearance];
@@ -2109,16 +2156,15 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
 /// thread. Electron's `app.dock.setBadge` equivalent.
 #[cfg(target_os = "macos")]
 fn set_dock_badge(count: u32) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     unsafe {
         let ns_app: id = msg_send![class!(NSApplication), sharedApplication];
         let tile: id = msg_send![ns_app, dockTile];
         if count == 0 {
             let _: () = msg_send![tile, setBadgeLabel: nil];
         } else {
-            let label: id = NSString::alloc(nil).init_str(&count.to_string());
+            let label_ns = nsstring(&count.to_string());
+            let label: id = objc2::rc::Retained::as_ptr(&label_ns) as id;
             let _: () = msg_send![tile, setBadgeLabel: label];
         }
     }
@@ -2260,34 +2306,34 @@ fn vibrancy_cover_slot() -> &'static std::sync::Mutex<std::collections::HashMap<
 /// clicks" bug the Electron app already burned a trail on.
 #[cfg(target_os = "macos")]
 extern "C" fn region_hit_test(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    _point: cocoa::foundation::NSPoint,
-) -> cocoa::base::id {
-    cocoa::base::nil
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _point: objc2_foundation::NSPoint,
+) -> *mut objc2::runtime::AnyObject {
+    std::ptr::null_mut()
 }
 
 /// Lazily register `TopicsRegionVibrancyView`: an NSVisualEffectView subclass
 /// whose only change is the click-through `hitTest:` above. Registered once per
 /// process (OnceLock); subsequent calls return the cached class.
 #[cfg(target_os = "macos")]
-fn region_vibrancy_class() -> &'static objc::runtime::Class {
-    use objc::declare::ClassDecl;
-    use objc::runtime::{Class, Object, Sel};
-    use objc::{class, sel, sel_impl};
+fn region_vibrancy_class() -> &'static objc2::runtime::AnyClass {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
     static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let p = *PTR.get_or_init(|| unsafe {
+    let p = *PTR.get_or_init(|| {
         let superclass = class!(NSVisualEffectView);
-        let mut decl = ClassDecl::new("TopicsRegionVibrancyView", superclass)
+        let mut decl = ClassBuilder::new(c"TopicsRegionVibrancyView", superclass)
             .expect("register TopicsRegionVibrancyView");
-        decl.add_method(
-            sel!(hitTest:),
-            region_hit_test
-                as extern "C" fn(&Object, Sel, cocoa::foundation::NSPoint) -> cocoa::base::id,
-        );
+        unsafe {
+            decl.add_method(
+                sel!(hitTest:),
+                region_hit_test as extern "C" fn(_, _, _) -> _,
+            );
+        }
         decl.register() as *const Class as usize
     });
-    unsafe { &*(p as *const objc::runtime::Class) }
+    unsafe { &*(p as *const Class) }
 }
 
 /// Reconcile the live NSVisualEffectViews to exactly the requested regions
@@ -2295,9 +2341,7 @@ fn region_vibrancy_class() -> &'static objc::runtime::Class {
 /// thread (AppKit view mutation).
 #[cfg(target_os = "macos")]
 fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
-    use cocoa::base::{id, nil, YES};
-    use cocoa::foundation::{NSPoint, NSRect, NSSize};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2336,7 +2380,7 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
         // the FPS drop on sidebar toggle. Disabling actions makes every frame change
         // INSTANT: one discrete recomposite per push, no animation tail.
         let _: () = msg_send![class!(CATransaction), begin];
-        let _: () = msg_send![class!(CATransaction), setDisableActions: YES];
+        let _: () = msg_send![class!(CATransaction), setDisableActions: true];
 
         for r in &regions {
             keep.insert(r.id.clone());
@@ -2367,14 +2411,14 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
                 let _: () = msg_send![v, setMaterial: 7i64];
                 let _: () = msg_send![v, setBlendingMode: 0i64];
                 let _: () = msg_send![v, setState: 1i64];
-                let _: () = msg_send![v, setWantsLayer: YES];
+                let _: () = msg_send![v, setWantsLayer: true];
                 let layer: id = msg_send![v, layer];
                 if layer != nil {
                     let _: () = msg_send![layer, setCornerRadius: r.radius];
-                    let _: () = msg_send![layer, setMasksToBounds: YES];
+                    let _: () = msg_send![layer, setMasksToBounds: true];
                 }
                 // Insert at the very bottom so it sits BEHIND the (transparent) webview.
-                let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
+                let _: () = msg_send![content_view, addSubview: v, positioned: -1i64, relativeTo: nil];
                 map.insert(r.id.clone(), v as usize);
             }
         }
@@ -2398,9 +2442,8 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
 /// match names rather than build from raw control points because the objc crate can't
 /// cleanly express CAMediaTimingFunction's `initWithControlPoints::::` selector.)
 #[cfg(target_os = "macos")]
-unsafe fn ca_timing_for(timing: [f64; 4]) -> cocoa::base::id {
-    use cocoa::base::id;
-    use objc::{class, msg_send, sel, sel_impl};
+unsafe fn ca_timing_for(timing: [f64; 4]) -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
     #[link(name = "QuartzCore", kind = "framework")]
     extern "C" {
         static kCAMediaTimingFunctionDefault: id;
@@ -2433,9 +2476,7 @@ unsafe fn ca_timing_for(timing: [f64; 4]) -> cocoa::base::id {
 /// (`apply_vibrancy_regions`) pins pixel-exact final rects.
 #[cfg(target_os = "macos")]
 fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, duration_ms: f64, timing: [f64; 4]) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::{NSPoint, NSRect, NSSize};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2567,10 +2608,9 @@ fn vibrancy_set_regions(window: tauri::Window, regions: Vec<VibRegion>) {
 /// live-resize step with no event/IPC. Caller holds the cover slot + has drained the
 /// per-region cards. Returns the new view ptr.
 #[cfg(target_os = "macos")]
-unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::foundation::NSRect) -> cocoa::base::id {
-    use cocoa::base::{id, nil, YES};
-    use objc::{msg_send, sel, sel_impl};
-    let _: () = msg_send![content_view, setAutoresizesSubviews: YES];
+unsafe fn vibrancy_insert_cover(content_view: *mut objc2::runtime::AnyObject, bounds: objc2_foundation::NSRect) -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
+    let _: () = msg_send![content_view, setAutoresizesSubviews: true];
     let v: id = msg_send![region_vibrancy_class(), alloc];
     let v: id = msg_send![v, initWithFrame: bounds];
     // Match the per-region cards: material sidebar=7, behindWindow, active (no
@@ -2578,19 +2618,17 @@ unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::fo
     let _: () = msg_send![v, setMaterial: 7i64];
     let _: () = msg_send![v, setBlendingMode: 0i64];
     let _: () = msg_send![v, setState: 1i64];
-    let _: () = msg_send![v, setWantsLayer: YES];
+    let _: () = msg_send![v, setWantsLayer: true];
     // NSViewWidthSizable(2) | NSViewHeightSizable(16) = 18 → fixed margins to all
     // edges (here 0) maintained as the superview grows/shrinks ⇒ always full-window.
     let _: () = msg_send![v, setAutoresizingMask: 18u64];
-    let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
+    let _: () = msg_send![content_view, addSubview: v, positioned: -1i64, relativeTo: nil];
     v
 }
 
 #[cfg(target_os = "macos")]
 fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSRect;
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -2629,10 +2667,8 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
 /// glued to the window through the whole drag. No-op if a cover is already up or no
 /// frost was ever placed (web gate / pre-mount).
 #[cfg(target_os = "macos")]
-unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSRect;
-    use objc::{msg_send, sel, sel_impl};
+unsafe fn vibrancy_begin_cover(ns_window: *mut objc2::runtime::AnyObject) {
+    use crate::mac::*;
     if ns_window == nil {
         return;
     }
@@ -2665,13 +2701,13 @@ unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
 /// `NSWindowWillStartLiveResize` observer callback → raise the cover for the drag.
 #[cfg(target_os = "macos")]
 extern "C" fn on_live_resize_start(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    notif: cocoa::base::id,
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    notif: *mut objc2::runtime::AnyObject,
 ) {
-    use objc::{msg_send, sel, sel_impl};
+    use crate::mac::*;
     unsafe {
-        let ns_window: cocoa::base::id = msg_send![notif, object];
+        let ns_window: id = msg_send![notif, object];
         vibrancy_begin_cover(ns_window);
     }
 }
@@ -2682,9 +2718,9 @@ extern "C" fn on_live_resize_start(
 /// the first reflowed push.
 #[cfg(target_os = "macos")]
 extern "C" fn on_live_resize_end(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    _notif: cocoa::base::id,
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    _notif: *mut objc2::runtime::AnyObject,
 ) {
 }
 
@@ -2692,24 +2728,24 @@ extern "C" fn on_live_resize_end(
 /// returning a (leaked, process-lifetime) instance to register with the default
 /// NSNotificationCenter.
 #[cfg(target_os = "macos")]
-fn live_resize_observer_instance() -> cocoa::base::id {
-    use cocoa::base::id;
-    use objc::declare::ClassDecl;
-    use objc::runtime::{Class, Object, Sel};
-    use objc::{class, msg_send, sel, sel_impl};
+fn live_resize_observer_instance() -> *mut objc2::runtime::AnyObject {
+    use crate::mac::*;
+    use objc2::runtime::ClassBuilder;
     static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let class_ptr = *PTR.get_or_init(|| unsafe {
+    let class_ptr = *PTR.get_or_init(|| {
         let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("TopicsLiveResizeObserver", superclass)
+        let mut decl = ClassBuilder::new(c"TopicsLiveResizeObserver", superclass)
             .expect("register TopicsLiveResizeObserver");
-        decl.add_method(
-            sel!(onLiveResizeStart:),
-            on_live_resize_start as extern "C" fn(&Object, Sel, id),
-        );
-        decl.add_method(
-            sel!(onLiveResizeEnd:),
-            on_live_resize_end as extern "C" fn(&Object, Sel, id),
-        );
+        unsafe {
+            decl.add_method(
+                sel!(onLiveResizeStart:),
+                on_live_resize_start as extern "C" fn(_, _, _),
+            );
+            decl.add_method(
+                sel!(onLiveResizeEnd:),
+                on_live_resize_end as extern "C" fn(_, _, _),
+            );
+        }
         decl.register() as *const Class as usize
     });
     unsafe {
@@ -2741,8 +2777,7 @@ fn live_resize_observers() -> &'static std::sync::Mutex<std::collections::HashMa
 /// `Destroyed` — same lifecycle as the vibrancy maps it purges there.
 #[cfg(target_os = "macos")]
 fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
         Err(_) => return,
@@ -2759,13 +2794,13 @@ fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
     unsafe {
         let obs = live_resize_observer_instance();
         let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
-        let _: () = msg_send![nc, addObserver: obs
-                                   selector: sel!(onLiveResizeStart:)
-                                   name: NSWindowWillStartLiveResizeNotification
+        let _: () = msg_send![nc, addObserver: obs,
+                                   selector: sel!(onLiveResizeStart:),
+                                   name: NSWindowWillStartLiveResizeNotification,
                                    object: ns_window];
-        let _: () = msg_send![nc, addObserver: obs
-                                   selector: sel!(onLiveResizeEnd:)
-                                   name: NSWindowDidEndLiveResizeNotification
+        let _: () = msg_send![nc, addObserver: obs,
+                                   selector: sel!(onLiveResizeEnd:),
+                                   name: NSWindowDidEndLiveResizeNotification,
                                    object: ns_window];
         // Record so a detach window can unregister this observer when it closes.
         live_resize_observers()
@@ -2781,8 +2816,7 @@ fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
 /// from the detach window's `Destroyed` handler; a no-op if nothing was wired.
 #[cfg(target_os = "macos")]
 fn unwire_live_resize_cover(wkey: usize) {
-    use cocoa::base::id;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     let obs = match live_resize_observers()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2891,11 +2925,11 @@ fn nav_pane_by_webview() -> &'static std::sync::Mutex<std::collections::HashMap<
 
 #[cfg(target_os = "macos")]
 extern "C" fn nav_did_fail_imp(
-    _this: &objc::runtime::Object,
-    _sel: objc::runtime::Sel,
-    webview: cocoa::base::id,
-    _navigation: cocoa::base::id,
-    error: cocoa::base::id,
+    _this: &objc2::runtime::AnyObject,
+    _sel: objc2::runtime::Sel,
+    webview: *mut objc2::runtime::AnyObject,
+    _navigation: *mut objc2::runtime::AnyObject,
+    error: *mut objc2::runtime::AnyObject,
 ) {
     nav_record_failure(webview, error);
 }
@@ -2903,10 +2937,8 @@ extern "C" fn nav_did_fail_imp(
 /// Shared body for both did-fail selectors: filter the benign codes every real
 /// browser suppresses, then queue the failure for the owning pane's poll.
 #[cfg(target_os = "macos")]
-fn nav_record_failure(webview: cocoa::base::id, error: cocoa::base::id) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use objc::{msg_send, sel, sel_impl};
+fn nav_record_failure(webview: *mut objc2::runtime::AnyObject, error: *mut objc2::runtime::AnyObject) {
+    use crate::mac::*;
     let pane_id = match nav_pane_by_webview().lock() {
         Ok(g) => match g.get(&(webview as usize)) {
             Some(p) => p.clone(),
@@ -2934,7 +2966,8 @@ fn nav_record_failure(webview: cocoa::base::id, error: cocoa::base::id) {
         let user_info: id = msg_send![error, userInfo];
         let mut url = String::new();
         if user_info != nil {
-            let key: id = NSString::alloc(nil).init_str("NSErrorFailingURLStringKey");
+            let key_ns = nsstring("NSErrorFailingURLStringKey");
+            let key: id = objc2::rc::Retained::as_ptr(&key_ns) as id;
             let val: id = msg_send![user_info, objectForKey: key];
             if val != nil {
                 url = ns_string_to_rust(val);
@@ -2957,9 +2990,19 @@ fn nav_record_failure(webview: cocoa::base::id, error: cocoa::base::id) {
 fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
     let pane = pane_id.to_string();
     let _ = wv.with_webview(move |platform| unsafe {
-        use cocoa::base::{id, nil, BOOL, NO};
-        use objc::runtime::{Class, Object, Sel};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
+        // Raw Objective-C runtime call to graft two methods onto wry's existing
+        // navigation-delegate class. objc2 only exposes method-adding on its
+        // `ClassBuilder` (for NEW classes); for an EXISTING class we bind the
+        // libobjc symbol directly — it is always linked by the objc2 stack.
+        extern "C" {
+            fn class_addMethod(
+                cls: *mut objc2::runtime::AnyClass,
+                name: objc2::runtime::Sel,
+                imp: *const std::ffi::c_void,
+                types: *const std::os::raw::c_char,
+            ) -> objc2::runtime::Bool;
+        }
         let wk = platform.inner() as id;
         if wk == nil {
             return;
@@ -2988,13 +3031,13 @@ fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
             let imp: extern "C" fn(&Object, Sel, id, id, id) = nav_did_fail_imp;
             let types = std::ffi::CString::new("v@:@@@").expect("static types str");
             let cls_ptr = cls as *const Class as *mut Class;
-            objc::runtime::class_addMethod(
+            class_addMethod(
                 cls_ptr,
                 sel!(webView:didFailProvisionalNavigation:withError:),
                 std::mem::transmute(imp),
                 types.as_ptr(),
             );
-            objc::runtime::class_addMethod(
+            class_addMethod(
                 cls_ptr,
                 sel!(webView:didFailNavigation:withError:),
                 std::mem::transmute(imp),
@@ -3049,9 +3092,7 @@ const CONSOLE_PROXY_JS: &str = r#"(function(){
 #[cfg(target_os = "macos")]
 fn disable_layer_implicit_animations(wv: &tauri::Webview) {
     let _ = wv.with_webview(move |platform| unsafe {
-        use cocoa::base::{id, nil, YES};
-        use cocoa::foundation::NSString;
-        use objc::{class, msg_send, sel, sel_impl};
+        use crate::mac::*;
         let view = platform.inner() as id;
         if view == nil {
             return;
@@ -3067,8 +3108,9 @@ fn disable_layer_implicit_animations(wv: &tauri::Webview) {
         for key in [
             "position", "bounds", "frame", "contents", "hidden", "onOrderIn", "onOrderOut", "sublayers",
         ] {
-            let k: id = NSString::alloc(nil).init_str(key);
-            let _: () = msg_send![dict, setObject: null forKey: k];
+            let k_ns = nsstring(key);
+            let k: id = objc2::rc::Retained::as_ptr(&k_ns) as id;
+            let _: () = msg_send![dict, setObject: null, forKey: k];
         }
         let _: () = msg_send![layer, setActions: dict];
     });
@@ -3125,7 +3167,7 @@ fn browser_bounds_cache() -> &'static std::sync::Mutex<std::collections::HashMap
 /// Read the live OS major version so a machine-independent binary matches its host.
 #[cfg(target_os = "macos")]
 fn window_corner_radius() -> f64 {
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     // NSProcessInfo.operatingSystemVersion → NSOperatingSystemVersion { major, minor, patch }.
     #[repr(C)]
     struct NSOperatingSystemVersion {
@@ -3133,8 +3175,20 @@ fn window_corner_radius() -> f64 {
         minor: i64,
         patch: i64,
     }
+    // objc2's msg_send! type-checks the return encoding, so a struct returned
+    // by value must declare its Objective-C encoding (three NSInteger = i64).
+    unsafe impl objc2::Encode for NSOperatingSystemVersion {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct(
+            "_NSOperatingSystemVersion",
+            &[
+                <i64 as objc2::Encode>::ENCODING,
+                <i64 as objc2::Encode>::ENCODING,
+                <i64 as objc2::Encode>::ENCODING,
+            ],
+        );
+    }
     let major = unsafe {
-        let pi: cocoa::base::id = msg_send![class!(NSProcessInfo), processInfo];
+        let pi: *mut objc2::runtime::AnyObject = msg_send![class!(NSProcessInfo), processInfo];
         let v: NSOperatingSystemVersion = msg_send![pi, operatingSystemVersion];
         v.major
     };
@@ -3179,8 +3233,7 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         g.insert(id.to_string(), (visual, radius_key));
     }
     let _ = wv.with_webview(move |platform| unsafe {
-        use cocoa::base::{id, nil, NO, YES};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         let view = platform.inner() as id;
         if view == nil {
             return;
@@ -3224,7 +3277,7 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         const MINX_MAXY: u64 = 4;
         const MAXX_MAXY: u64 = 8;
         let flipped: bool = {
-            let b: cocoa::base::BOOL = msg_send![layer, isGeometryFlipped];
+            let b: bool = msg_send![layer, isGeometryFlipped];
             b != NO
         };
         let (tl_bit, tr_bit, bl_bit, br_bit) = if flipped {
@@ -3253,7 +3306,7 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if std::env::var("TOPICS_CORNER_DEMO").is_ok() {
             let rback: f64 = msg_send![layer, cornerRadius];
             let mback: u64 = msg_send![layer, maskedCorners];
-            let clips: cocoa::base::BOOL = msg_send![layer, masksToBounds];
+            let clips: bool = msg_send![layer, masksToBounds];
             eprintln!(
                 "[corner-mask] flush(l{} t{} r{} b{}) tl{} tr{} bl{} br{} flipped={} mask={} -> radius={} maskedBack={} clips={}",
                 flush_left as u8, flush_top as u8, flush_right as u8, flush_bottom as u8,
@@ -3749,9 +3802,7 @@ fn browser_animate_bounds(
             use tauri::Manager;
             if let Some(wv) = anim_app.get_webview(&browser_label(&id)) {
                 let _ = wv.with_webview(move |platform| unsafe {
-                    use cocoa::base::{id, nil};
-                    use cocoa::foundation::NSString;
-                    use objc::{class, msg_send, sel, sel_impl};
+                    use crate::mac::*;
                     let view = platform.inner() as id;
                     if view == nil {
                         return;
@@ -3760,7 +3811,8 @@ fn browser_animate_bounds(
                     if layer == nil {
                         return;
                     }
-                    let key_path: id = NSString::alloc(nil).init_str("transform.translation.x");
+                    let key_path_ns = nsstring("transform.translation.x");
+                    let key_path: id = objc2::rc::Retained::as_ptr(&key_path_ns) as id;
                     let anim: id = msg_send![class!(CABasicAnimation), animationWithKeyPath: key_path];
                     let from_num: id = msg_send![class!(NSNumber), numberWithDouble: from_dx];
                     let to_num: id = msg_send![class!(NSNumber), numberWithDouble: 0.0f64];
@@ -3771,8 +3823,9 @@ fn browser_animate_bounds(
                     let _: () = msg_send![anim, setTimingFunction: tf];
                     // Default removedOnCompletion=YES → the layer settles at the
                     // model value (translation 0 = the committed final frame).
-                    let key: id = NSString::alloc(nil).init_str("topics-sidebar-slide");
-                    let _: () = msg_send![layer, addAnimation: anim forKey: key];
+                    let key_ns = nsstring("topics-sidebar-slide");
+                    let key: id = objc2::rc::Retained::as_ptr(&key_ns) as id;
+                    let _: () = msg_send![layer, addAnimation: anim, forKey: key];
                 });
             }
         }
@@ -3879,12 +3932,9 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
     wv.with_webview(move |platform| {
-        use cocoa::base::{id, nil};
-        use cocoa::foundation::NSString;
-        use objc::{class, msg_send, sel, sel_impl};
-        unsafe fn id_to_string(obj: cocoa::base::id) -> String {
-            use cocoa::base::nil;
-            use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
+        unsafe fn id_to_string(obj: *mut objc2::runtime::AnyObject) -> String {
+            use crate::mac::*;
             use std::ffi::CStr;
             use std::os::raw::c_char;
             if obj == nil {
@@ -3892,7 +3942,7 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
             }
             // `description` is defined on every NSObject and returns an NSString; for an
             // NSString it IS the string, so this stringifies ANY JS result type safely.
-            let desc: cocoa::base::id = msg_send![obj, description];
+            let desc: *mut objc2::runtime::AnyObject = msg_send![obj, description];
             let c: *const c_char = msg_send![desc, UTF8String];
             if c.is_null() { String::new() } else { CStr::from_ptr(c).to_string_lossy().into_owned() }
         }
@@ -3925,12 +3975,13 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
             // browser_eval (e.g. `let x=1; x`) must carry its own `return`; agents send
             // a single expression or an async IIFE, both of which wrap cleanly.
             let body = format!("return await ({});", js);
-            let nsjs: id = NSString::alloc(nil).init_str(&body);
+            let nsjs_ns = nsstring(&body);
+            let nsjs: id = objc2::rc::Retained::as_ptr(&nsjs_ns) as id;
             // Empty arguments dict (nil asserts on some SDKs); page-world content world.
             let args: id = msg_send![class!(NSDictionary), dictionary];
             let world: id = msg_send![class!(WKContentWorld), pageWorld];
             let tx2 = tx.clone();
-            let handler = block::ConcreteBlock::new(move |result: id, error: id| {
+            let handler = block2::RcBlock::new(move |result: id, error: id| {
                 // Restore the pre-eval first-responder if the JS grabbed it onto this
                 // pane (an agent action focused a field). No-op when focus didn't move
                 // or when the user was already in this pane (saved == current).
@@ -3944,12 +3995,11 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
                 let out = if error != nil { Err(id_to_string(error)) } else { Ok(id_to_string(result)) };
                 let _ = tx2.send(out);
             });
-            let handler = handler.copy();
             let _: () = msg_send![wk,
-                callAsyncJavaScript: nsjs
-                arguments: args
-                inFrame: nil
-                inContentWorld: world
+                callAsyncJavaScript: nsjs,
+                arguments: args,
+                inFrame: nil,
+                inContentWorld: world,
                 completionHandler: &*handler];
         }
     })
@@ -3997,17 +4047,16 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve
 /// `CGImageForProposedRect → NSBitmapImageRep → representationUsingType:4 (PNG) →
 /// base64EncodedStringWithOptions`. SAFETY: `img` must be a valid NSImage id.
 #[cfg(target_os = "macos")]
-unsafe fn nsimage_to_png_base64(img: cocoa::base::id) -> Result<String, String> {
-    use cocoa::base::{id, nil};
-    use objc::{class, msg_send, sel, sel_impl};
+unsafe fn nsimage_to_png_base64(img: *mut objc2::runtime::AnyObject) -> Result<String, String> {
+    use crate::mac::*;
     use std::ffi::CStr;
     use std::os::raw::c_char;
     if img == nil {
         return Err("nil NSImage".to_string());
     }
     // NSImage → CGImage → NSBitmapImageRep → PNG NSData → base64 NSString.
-    let null_rect: *const cocoa::foundation::NSRect = std::ptr::null();
-    let cg: id = msg_send![img, CGImageForProposedRect: null_rect context: nil hints: nil];
+    let null_rect: *const objc2_foundation::NSRect = std::ptr::null();
+    let cg: id = msg_send![img, CGImageForProposedRect: null_rect, context: nil, hints: nil];
     if cg == nil {
         return Err("no CGImage".to_string());
     }
@@ -4018,7 +4067,7 @@ unsafe fn nsimage_to_png_base64(img: cocoa::base::id) -> Result<String, String> 
     }
     let props: id = msg_send![class!(NSDictionary), dictionary];
     // NSBitmapImageFileTypePNG = 4
-    let png: id = msg_send![rep, representationUsingType: 4u64 properties: props];
+    let png: id = msg_send![rep, representationUsingType: 4u64, properties: props];
     if png == nil {
         return Err("no PNG data".to_string());
     }
@@ -4039,13 +4088,12 @@ fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
     wv.with_webview(move |platform| {
-        use cocoa::base::{id, nil};
-        use objc::{class, msg_send, sel, sel_impl};
+        use crate::mac::*;
         unsafe {
             let wk = platform.inner() as id;
             let cfg: id = msg_send![class!(WKSnapshotConfiguration), new];
             let tx2 = tx.clone();
-            let handler = block::ConcreteBlock::new(move |img: id, err: id| {
+            let handler = block2::RcBlock::new(move |img: id, err: id| {
                 let out: Result<String, String> = if err != nil {
                     Err("takeSnapshot failed".to_string())
                 } else {
@@ -4053,8 +4101,7 @@ fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
                 };
                 let _ = tx2.send(out);
             });
-            let handler = handler.copy();
-            let _: () = msg_send![wk, takeSnapshotWithConfiguration: cfg completionHandler: &*handler];
+            let _: () = msg_send![wk, takeSnapshotWithConfiguration: cfg, completionHandler: &*handler];
         }
     })
     .map_err(|e| e.to_string())?;
@@ -4120,15 +4167,14 @@ struct CookieJson {
 /// NSString (or any NSObject via `description`) → Rust String. nil → "".
 /// SAFETY: `obj` must be nil or a valid ObjC object.
 #[cfg(target_os = "macos")]
-unsafe fn nsobject_to_string(obj: cocoa::base::id) -> String {
-    use cocoa::base::nil;
-    use objc::{msg_send, sel, sel_impl};
+unsafe fn nsobject_to_string(obj: *mut objc2::runtime::AnyObject) -> String {
+    use crate::mac::*;
     use std::ffi::CStr;
     use std::os::raw::c_char;
     if obj == nil {
         return String::new();
     }
-    let desc: cocoa::base::id = msg_send![obj, description];
+    let desc: *mut objc2::runtime::AnyObject = msg_send![obj, description];
     let c: *const c_char = msg_send![desc, UTF8String];
     if c.is_null() { String::new() } else { CStr::from_ptr(c).to_string_lossy().into_owned() }
 }
@@ -4137,13 +4183,13 @@ unsafe fn nsobject_to_string(obj: cocoa::base::id) -> String {
 /// for `NSHTTPCookie cookieWithProperties:`. SAFETY: `dict` must be a valid
 /// NSMutableDictionary.
 #[cfg(target_os = "macos")]
-unsafe fn ns_dict_set_str(dict: cocoa::base::id, key: &str, val: &str) {
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use objc::{msg_send, sel, sel_impl};
-    let k: id = NSString::alloc(nil).init_str(key);
-    let v: id = NSString::alloc(nil).init_str(val);
-    let _: () = msg_send![dict, setObject: v forKey: k];
+unsafe fn ns_dict_set_str(dict: *mut objc2::runtime::AnyObject, key: &str, val: &str) {
+    use crate::mac::*;
+    let k_ns = nsstring(key);
+    let k: id = objc2::rc::Retained::as_ptr(&k_ns) as id;
+    let v_ns = nsstring(val);
+    let v: id = objc2::rc::Retained::as_ptr(&v_ns) as id;
+    let _: () = msg_send![dict, setObject: v, forKey: k];
 }
 
 /// Dump the pane's WKHTTPCookieStore as storageState-cookie JSON (a serialized
@@ -4156,15 +4202,14 @@ fn cookies_get_blocking(wv: &tauri::Webview) -> Result<String, String> {
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
     wv.with_webview(move |platform| {
-        use cocoa::base::{id, nil, BOOL, YES};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         unsafe {
             let wk = platform.inner() as id; // WKWebView
             let config: id = msg_send![wk, configuration];
             let store: id = msg_send![config, websiteDataStore];
             let jar: id = msg_send![store, httpCookieStore];
             let tx2 = tx.clone();
-            let handler = block::ConcreteBlock::new(move |cookies: id| {
+            let handler = block2::RcBlock::new(move |cookies: id| {
                 let mut list: Vec<CookieJson> = Vec::new();
                 if cookies != nil {
                     let count: usize = msg_send![cookies, count];
@@ -4212,7 +4257,6 @@ fn cookies_get_blocking(wv: &tauri::Webview) -> Result<String, String> {
                 }
                 let _ = tx2.send(serde_json::to_string(&list).map_err(|e| e.to_string()));
             });
-            let handler = handler.copy();
             let _: () = msg_send![jar, getAllCookies: &*handler];
         }
     })
@@ -4245,9 +4289,7 @@ fn cookies_set_blocking(wv: &tauri::Webview, cookies: Vec<CookieJson>) -> Result
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<CookieSetMsg>();
     wv.with_webview(move |platform| {
-        use cocoa::base::{id, nil};
-        use cocoa::foundation::NSString;
-        use objc::{class, msg_send, sel, sel_impl};
+        use crate::mac::*;
         unsafe {
             let wk = platform.inner() as id; // WKWebView
             let config: id = msg_send![wk, configuration];
@@ -4269,8 +4311,9 @@ fn cookies_set_blocking(wv: &tauri::Webview, cookies: Vec<CookieJson>) -> Result
                 // expires <= 0 (Playwright -1) = session cookie → omit Expires.
                 if let Some(exp) = ck.expires.filter(|e| *e > 0.0) {
                     let date: id = msg_send![class!(NSDate), dateWithTimeIntervalSince1970: exp];
-                    let k: id = NSString::alloc(nil).init_str("Expires");
-                    let _: () = msg_send![props, setObject: date forKey: k];
+                    let k_ns = nsstring("Expires");
+                    let k: id = objc2::rc::Retained::as_ptr(&k_ns) as id;
+                    let _: () = msg_send![props, setObject: date, forKey: k];
                 }
                 // NSHTTPCookieSecure: PRESENCE of any value marks the cookie secure.
                 if ck.secure == Some(true) {
@@ -4296,11 +4339,10 @@ fn cookies_set_blocking(wv: &tauri::Webview, cookies: Vec<CookieJson>) -> Result
             let _ = tx.send(CookieSetMsg::Counts { set: natives.len(), skipped });
             for c in natives {
                 let tx2 = tx.clone();
-                let done = block::ConcreteBlock::new(move || {
+                let done = block2::RcBlock::new(move || {
                     let _ = tx2.send(CookieSetMsg::Done);
                 });
-                let done = done.copy();
-                let _: () = msg_send![jar, setCookie: c completionHandler: &*done];
+                let _: () = msg_send![jar, setCookie: c, completionHandler: &*done];
             }
         }
     })
@@ -4394,8 +4436,7 @@ fn browser_exec_js(app: tauri::AppHandle, id: String, js: String) -> Result<(), 
 #[cfg(target_os = "macos")]
 fn wk_nav(wv: &tauri::Webview, which: u8) {
     let _ = wv.with_webview(move |platform| unsafe {
-        use cocoa::base::id;
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         let wk = platform.inner() as id;
         match which {
             0 => {
@@ -4486,8 +4527,7 @@ fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
         use tauri::Manager;
         if let Some(main_wv) = app.get_webview("main") {
             let _ = main_wv.with_webview(move |platform| unsafe {
-                use cocoa::base::{id, nil};
-                use objc::{msg_send, sel, sel_impl};
+                use crate::mac::*;
                 let view = platform.inner() as id;
                 if view == nil {
                     return;
@@ -4796,8 +4836,7 @@ fn focus_read_inner(app: tauri::AppHandle) -> Result<String, String> {
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     main_wv
         .with_webview(move |platform| unsafe {
-            use cocoa::base::{id, nil};
-            use objc::{msg_send, sel, sel_impl};
+            use crate::mac::*;
             let view = platform.inner() as id;
             let mut out = String::from("{\"error\":\"nil view\"}");
             if view != nil {
@@ -4808,7 +4847,7 @@ fn focus_read_inner(app: tauri::AppHandle) -> Result<String, String> {
                     nil
                 };
                 let cls = if fr != nil {
-                    (*fr).class().name().to_string()
+                    (*fr).class().name().to_string_lossy().into_owned()
                 } else {
                     String::from("nil")
                 };
@@ -4855,8 +4894,7 @@ fn focus_grab_browser_inner(app: tauri::AppHandle, id: String) -> Result<String,
         .ok_or("no such browser pane")?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     wv.with_webview(move |platform| unsafe {
-        use cocoa::base::{id, nil};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         let view = platform.inner() as id;
         let mut out = String::from("nil");
         if view != nil {
@@ -4901,8 +4939,7 @@ fn focus_grab_window_inner(app: tauri::AppHandle) -> Result<String, String> {
         let (tx, rx) = std::sync::mpsc::channel::<String>();
         main_wv
             .with_webview(move |platform| unsafe {
-                use cocoa::base::{id, nil, BOOL};
-                use objc::{msg_send, sel, sel_impl};
+                use crate::mac::*;
                 let view = platform.inner() as id;
                 let mut out = String::from("nil");
                 if view != nil {
@@ -5217,14 +5254,13 @@ fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -
     #[cfg(target_os = "macos")]
     {
         let _ = wv.with_webview(move |platform| unsafe {
-            use cocoa::base::{id as objid, nil};
-            use cocoa::foundation::NSString;
-            use objc::{msg_send, sel, sel_impl};
-            let wk = platform.inner() as objid;
+            use crate::mac::*;
+            let wk = platform.inner() as id;
             if ua.is_empty() {
                 let _: () = msg_send![wk, setCustomUserAgent: nil];
             } else {
-                let s: objid = NSString::alloc(nil).init_str(&ua);
+                let s_ns = nsstring(&ua);
+                let s: id = objc2::rc::Retained::as_ptr(&s_ns) as id;
                 let _: () = msg_send![wk, setCustomUserAgent: s];
             }
         });
@@ -5236,9 +5272,8 @@ fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -
 
 /// Stringify an NSString* (nil → ""). macOS objc helper.
 #[cfg(target_os = "macos")]
-unsafe fn ns_string_to_rust(obj: cocoa::base::id) -> String {
-    use cocoa::base::nil;
-    use objc::{msg_send, sel, sel_impl};
+unsafe fn ns_string_to_rust(obj: *mut objc2::runtime::AnyObject) -> String {
+    use crate::mac::*;
     use std::ffi::CStr;
     use std::os::raw::c_char;
     if obj == nil {
@@ -5254,15 +5289,14 @@ unsafe fn ns_string_to_rust(obj: cocoa::base::id) -> String {
 
 /// (absoluteURL, title) for a WKBackForwardListItem* (nil-safe).
 #[cfg(target_os = "macos")]
-unsafe fn wk_bf_item_pair(item: cocoa::base::id) -> (String, String) {
-    use cocoa::base::nil;
-    use objc::{msg_send, sel, sel_impl};
+unsafe fn wk_bf_item_pair(item: *mut objc2::runtime::AnyObject) -> (String, String) {
+    use crate::mac::*;
     if item == nil {
         return (String::new(), String::new());
     }
-    let url: cocoa::base::id = msg_send![item, URL];
-    let abs: cocoa::base::id = msg_send![url, absoluteString];
-    let title: cocoa::base::id = msg_send![item, title];
+    let url: *mut objc2::runtime::AnyObject = msg_send![item, URL];
+    let abs: *mut objc2::runtime::AnyObject = msg_send![url, absoluteString];
+    let title: *mut objc2::runtime::AnyObject = msg_send![item, title];
     (ns_string_to_rust(abs), ns_string_to_rust(title))
 }
 
@@ -5276,8 +5310,7 @@ fn nav_entries_blocking(wv: &tauri::Webview) -> Result<String, String> {
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<String>();
     wv.with_webview(move |platform| {
-        use cocoa::base::{id, nil};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         unsafe {
             let wk = platform.inner() as id;
             let bfl: id = msg_send![wk, backForwardList];
@@ -5316,8 +5349,7 @@ fn nav_entries_blocking(wv: &tauri::Webview) -> Result<String, String> {
 #[cfg(target_os = "macos")]
 fn go_to_index_blocking(wv: &tauri::Webview, index: i64) {
     let _ = wv.with_webview(move |platform| unsafe {
-        use cocoa::base::{id, nil};
-        use objc::{msg_send, sel, sel_impl};
+        use crate::mac::*;
         let wk = platform.inner() as id;
         let bfl: id = msg_send![wk, backForwardList];
         if bfl == nil {
@@ -5438,8 +5470,7 @@ fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_co
 /// ⌘C/⌘V/⌘Z/⌘F which the page needs — passes through untouched.
 #[cfg(target_os = "macos")]
 fn install_shortcut_forwarder(app: &tauri::AppHandle) {
-    use cocoa::base::{id, nil, BOOL, YES};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     use tauri::Manager;
 
     // Seed the UI-webview registry with the main window before the monitor arms
@@ -5452,7 +5483,7 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
 
     let app = app.clone();
     let mask: u64 = 1 << 10; // NSEventMaskKeyDown
-    let block = block::ConcreteBlock::new(move |event: id| -> id {
+    let block = block2::RcBlock::new(move |event: id| -> id {
         unsafe {
             // Resolve which of OUR windows fired this event and what its UI
             // webview is. The event's NSWindow keys the registry; if it isn't
@@ -5571,10 +5602,9 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             event // not an app chord → let the focused page have it
         }
     });
-    let block = block.copy();
     unsafe {
         let _monitor: id = msg_send![class!(NSEvent),
-            addLocalMonitorForEventsMatchingMask: mask
+            addLocalMonitorForEventsMatchingMask: mask,
             handler: &*block];
     }
     // AppKit Block_copy'd the handler; keep OUR heap block alive for the app
@@ -5603,8 +5633,7 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
 // nothing, so this degrades to "in-app only" rather than breaking.
 #[cfg(target_os = "macos")]
 fn install_global_cmd_tap(app: &tauri::AppHandle) {
-    use cocoa::base::id;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -5637,7 +5666,7 @@ fn install_global_cmd_tap(app: &tauri::AppHandle) {
     // ── Monitor 1: flagsChanged — arm on bare right-⌘ press, fire on quick release ──
     let app_flags = app.clone();
     let armed_flags = armed_at.clone();
-    let flags_block = block::ConcreteBlock::new(move |event: id| {
+    let flags_block = block2::RcBlock::new(move |event: id| {
         unsafe {
             // Every event here is a flagsChanged, so keyCode/modifierFlags/timestamp
             // are all valid selectors on it.
@@ -5666,21 +5695,19 @@ fn install_global_cmd_tap(app: &tauri::AppHandle) {
             }
         }
     });
-    let flags_block = flags_block.copy();
 
     // ── Monitor 2: any other key / mouse / scroll → disarm (never a tap) ──
     let armed_disarm = armed_at.clone();
-    let disarm_block = block::ConcreteBlock::new(move |_event: id| {
+    let disarm_block = block2::RcBlock::new(move |_event: id| {
         armed_disarm.set(0.0);
     });
-    let disarm_block = disarm_block.copy();
 
     unsafe {
         let _m1: id = msg_send![class!(NSEvent),
-            addGlobalMonitorForEventsMatchingMask: MASK_FLAGS_CHANGED
+            addGlobalMonitorForEventsMatchingMask: MASK_FLAGS_CHANGED,
             handler: &*flags_block];
         let _m2: id = msg_send![class!(NSEvent),
-            addGlobalMonitorForEventsMatchingMask: MASK_DISARM
+            addGlobalMonitorForEventsMatchingMask: MASK_DISARM,
             handler: &*disarm_block];
     }
     // Keep the heap blocks alive for the app lifetime (monitors are never removed).
@@ -5698,8 +5725,7 @@ fn focus_task_composer_from_background(app: &tauri::AppHandle) {
     use tauri::Manager;
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
-        use cocoa::base::{id, YES};
-        use objc::{class, msg_send, sel, sel_impl};
+        use crate::mac::*;
         if let Some(win) = app.get_webview_window("main") {
             unsafe {
                 let nsapp: id = msg_send![class!(NSApplication), sharedApplication];
@@ -5728,9 +5754,7 @@ fn focus_task_composer_from_background(app: &tauri::AppHandle) {
 // unaffected: without trust the global monitor is simply inert.
 #[cfg(target_os = "macos")]
 fn install_accessibility_prompt(app: &tauri::AppHandle) {
-    use cocoa::base::{id, nil, YES};
-    use cocoa::foundation::NSString;
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
     use tauri::Manager;
 
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -5767,9 +5791,10 @@ fn install_accessibility_prompt(app: &tauri::AppHandle) {
     unsafe {
         // options = @{ @"AXTrustedCheckOptionPrompt": @YES } — the constant's value
         // IS this string, so a literal key avoids linking the CFString global.
-        let key = NSString::alloc(nil).init_str("AXTrustedCheckOptionPrompt");
+        let key_ns = nsstring("AXTrustedCheckOptionPrompt");
+        let key: id = objc2::rc::Retained::as_ptr(&key_ns) as id;
         let yes: id = msg_send![class!(NSNumber), numberWithBool: YES];
-        let opts: id = msg_send![class!(NSDictionary), dictionaryWithObject: yes forKey: key];
+        let opts: id = msg_send![class!(NSDictionary), dictionaryWithObject: yes, forKey: key];
         let trusted = AXIsProcessTrustedWithOptions(opts);
         if !trusted {
             log::warn!(
@@ -7768,9 +7793,7 @@ mod win_store_tests {
 #[cfg(all(test, target_os = "macos"))]
 mod screenshot_tests {
     use super::{clamp_position_to_monitors, nsimage_to_png_base64};
-    use cocoa::base::{id, nil, NO, YES};
-    use cocoa::foundation::{NSSize, NSString};
-    use objc::{class, msg_send, sel, sel_impl};
+    use crate::mac::*;
 
     // Headless proof of the novel conversion chain (no webview / app / run-loop):
     // a synthetic 4x4 RGBA NSImage → nsimage_to_png_base64 → a string whose bytes
@@ -7779,7 +7802,8 @@ mod screenshot_tests {
     #[test]
     fn nsimage_converts_to_valid_png_base64() {
         unsafe {
-            let cs = NSString::alloc(nil).init_str("NSDeviceRGBColorSpace");
+            let cs_ns = nsstring("NSDeviceRGBColorSpace");
+            let cs: id = objc2::rc::Retained::as_ptr(&cs_ns) as id;
             let rep: id = msg_send![class!(NSBitmapImageRep), alloc];
             let rep: id = msg_send![rep,
                 initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
