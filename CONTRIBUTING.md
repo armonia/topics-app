@@ -111,6 +111,48 @@ scripts/ship.sh          # tags origin/main's version + pushes → builds the dr
 gh release edit tauri-v<version> --draft=false
 ```
 
+#### La firma macOS: perché conta anche senza pagare Apple
+
+macOS lega i permessi (notifiche, registrazione schermo, accessibilità, Full Disk
+Access) al **requisito designato** dell'app. Con una firma *adhoc* quel requisito
+è l'hash del binario:
+
+```
+designated => cdhash H"17c0b00a…"
+```
+
+Cioè ogni build è un'applicazione DIVERSA e i permessi ripartono da zero a ogni
+aggiornamento. Con un certificato — anche **autofirmato**, nessun account a
+pagamento — diventa:
+
+```
+designated => identifier "io.armonia.topics.tauri" and certificate leaf = H"…"
+```
+
+che resta vero per sempre, purché il certificato sia **sempre lo stesso**. È
+l'unica proprietà che serve: stabilità, non autorevolezza.
+
+- **In locale**: `./scripts/local-shell-swap.sh` costruisce, scambia il Mach-O e
+  firma con un'identità stabile (`SIGN_IDENTITY`, default `Mosaic Dev`). Si ferma
+  se il risultato è adhoc, invece di consegnare il problema che deve evitare.
+- **In CI**: finché `APPLE_CERTIFICATE` non è nei secret, la build macOS esce
+  **non firmata** — e lo dice nel log. Per firmarla, esporta lo stesso
+  certificato dal portachiavi come `.p12` e imposta:
+
+  ```
+  APPLE_CERTIFICATE            base64 del .p12
+  APPLE_CERTIFICATE_PASSWORD   la password di export
+  APPLE_SIGNING_IDENTITY       il nome del certificato (es. "Mosaic Dev")
+  ```
+
+  `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` servono solo alla
+  **notarizzazione**, che richiede l'account a pagamento: si armano solo tutti e
+  tre insieme, altrimenti la build ci prova e fallisce alla fine.
+
+  Un certificato autofirmato **non** soddisfa Gatekeeper al primo download (resta
+  l'avviso «sviluppatore non identificato»), ma rende stabili i permessi degli
+  aggiornamenti successivi, che è il problema pratico.
+
 `ship.sh` tags whatever is on `origin/main` (never local WIP) and is the intended
 release path. Tagging by hand (`git tag tauri-vX.Y.Z && git push origin …`) still
 works. **The tag must be pushed from a real git credential, not from CI:** every
