@@ -259,6 +259,22 @@ finestre o non ancora isolate test-per-test (`NIGHTLY_ONLY_SPECS` in
 `playwright.config.ts`); il nightly esegue tutto. La copertura non si perde: si
 sposta.
 
+**Le spec `browser-*` sono sensibili al CARICO.** Avviano contesti Chromium veri,
+e con quattro shard su una macchina già occupata sforano il timeout di 30s del
+test: `browser-persistence` e `browser-shared-session` sono cadute in due run
+locali di fila, sempre insieme. Non è un difetto del codice né del
+raggruppamento — verificato: quei file, insieme e da soli, passano 9/9 in 13
+secondi, e la stessa terna insieme a `terminal-session-resume` (che riavvia il
+server di proposito) resta verde. Prima di trattarle come regressione,
+**rigirale da sole**:
+
+```bash
+E2E_PORT=13410 npx playwright test browser-persistence.spec.ts browser-shared-session.spec.ts
+```
+
+Se lì sono verdi, era la macchina. Su CI hanno un runner per shard e il problema
+non si pone.
+
 ## Submitting Changes
 
 1. Create a feature branch: `git checkout -b feature/your-feature`
