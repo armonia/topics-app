@@ -34,5 +34,8 @@ export function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkn
  *  click/focus is "stuck" in the pane. Fire-and-forget; no-op off Tauri. */
 export function releaseNativeFocus(): void {
   if (!internals()) return;
-  void tauriInvoke('browser_release_focus').catch(() => {});
+  // Scoping the reclaim to THIS window: in un pop-out il first-responder va
+  // restituito alla chrome del pop-out, non a `main` (vedi browser_release_focus
+  // in lib.rs). Bundle vecchi ignoravano l'arg → main, comportamento invariato.
+  void tauriInvoke('browser_release_focus', { windowLabel: currentWindowLabel() ?? 'main' }).catch(() => {});
 }
