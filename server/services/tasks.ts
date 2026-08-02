@@ -32,6 +32,7 @@ import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./revie
 // chi la vuole la prende da `shared/board`.
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 import { MAX_FANOUT, TASK_STATUSES, isAgentWorking } from "../../shared/board";
+import { EFFORT_TIERS } from "../../shared/effort";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -248,7 +249,7 @@ function parseChecksJson(raw: unknown): CheckRun[] | null {
   } catch { return null; }
 }
 
-const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
+const VALID_EFFORT = new Set<string>(EFFORT_TIERS);
 const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
