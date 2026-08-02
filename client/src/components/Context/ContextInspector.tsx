@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2 } from 'lucide-react';
+import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2, ChevronsDownUp } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useOpenClawContext } from '../../hooks/useOpenClawContext';
@@ -29,9 +29,12 @@ interface ContextInspectorProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenFile?: (path: string) => void;
+  /** Chiede la compattazione del contesto. Assente = l'azione non si mostra
+   *  (es. su una topic bozza, che non ha ancora una sessione a cui chiederla). */
+  onCompact?: () => void;
 }
 
-export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile }: ContextInspectorProps) {
+export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile, onCompact }: ContextInspectorProps) {
   // Keep the latest topic in a ref so stable callbacks (handleToggleSource) read
   // current values without listing `topic` in their deps. Synced in an effect to
   // avoid mutating a ref during render.
@@ -229,6 +232,27 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
         budgetLimit={budgetLimit}
         budgetPercent={budgetPercent}
       />
+
+      {/* «Compatta ora» — qui, sotto la barra del budget.
+          Perche' proprio qui: e' il punto in cui si sta GUARDANDO quanto
+          contesto e' occupato e da cosa. Prima l'unico modo di chiedere la
+          compattazione era il bottone dentro l'avviso di soglia, che compare
+          solo sopra soglia e sparisce appena lo si chiude — cioe' proprio
+          quando serve pianificare non c'era. Il comando `/compact` copre chi
+          lo conosce; questo copre chi sta guardando i numeri. */}
+      {onCompact && (
+        <div className="px-4 pb-2 -mt-1 flex justify-end">
+          <button
+            type="button"
+            onClick={() => { onCompact(); onClose(); }}
+            className="px-2 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors inline-flex items-center gap-1.5"
+            title="Riassume la storia della conversazione e libera spazio nel contesto"
+          >
+            <ChevronsDownUp size={12} />
+            Compatta ora
+          </button>
+        </div>
+      )}
 
       {/* Warnings */}
       <ContextWarnings warnings={warnings} />

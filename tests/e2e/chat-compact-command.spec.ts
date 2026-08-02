@@ -55,6 +55,21 @@ test.describe("Chat /compact — il comando si trova", () => {
     await expect(page.getByText("/compact", { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
+  test("l'anello del contesto offre «Compatta ora»", async ({ page, chatPage }) => {
+    // La seconda superficie permanente: chi sta guardando quanto contesto sta
+    // consumando deve poterlo compattare da li', senza ricordarsi un comando.
+    await expect(chatPage.messageInput).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /context/i }).first().click();
+    const popover = page.locator('[data-popover="context-inspector"]');
+    await expect(popover).toBeVisible({ timeout: 15_000 });
+    // Il riquadro compare SUBITO ma vuoto: l'Inspector e' `lazy()`, e finche' il
+    // suo chunk non arriva dentro c'e' solo lo spinner. Si aspetta il titolo,
+    // che e' il primo pezzo di contenuto vero — altrimenti si cerca un bottone
+    // dentro un guscio ancora vuoto e il test fallisce per pura tempistica.
+    await expect(popover.getByText("Context Inspector")).toBeVisible({ timeout: 20_000 });
+    await expect(popover.getByRole("button", { name: /Compatta ora/i })).toBeVisible({ timeout: 10_000 });
+  });
+
   test("`/help` elenca /compact", async ({ page, chatPage }) => {
     const input = chatPage.messageInput;
     await expect(input).toBeVisible({ timeout: 30_000 });
