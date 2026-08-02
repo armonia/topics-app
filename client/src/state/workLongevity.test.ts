@@ -4,6 +4,7 @@ import {
   deriveSubjectTime,
   formatElapsedCompact,
   formatElapsedShort,
+  formatRelative,
   WORK_ELAPSED_AFTER_MS,
   WORK_STALE_AFTER_MS,
 } from './workLongevity';
@@ -148,5 +149,35 @@ describe('formatElapsedShort', () => {
   it('vuoto su input non valido', () => {
     expect(formatElapsedShort(-1)).toBe('');
     expect(formatElapsedShort(NaN)).toBe('');
+  });
+});
+
+
+describe('formatRelative — la colonna «quanto tempo fa»', () => {
+  const M = 60_000, H = 60 * M, D = 24 * H;
+
+  it('scala di unita\' senza mai mostrare zero', () => {
+    expect(formatRelative(NOW, NOW)).toBe('now');
+    expect(formatRelative(NOW - 59_000, NOW)).toBe('now');
+    expect(formatRelative(NOW - 2 * M, NOW)).toBe('2m');
+    expect(formatRelative(NOW - 59 * M, NOW)).toBe('59m');
+    expect(formatRelative(NOW - 3 * H, NOW)).toBe('3h');
+    expect(formatRelative(NOW - 23 * H, NOW)).toBe('23h');
+    expect(formatRelative(NOW - 5 * D, NOW)).toBe('5d');
+    expect(formatRelative(NOW - 29 * D, NOW)).toBe('29d');
+    expect(formatRelative(NOW - 60 * D, NOW)).toBe('2mo');
+  });
+
+  it('prende `now` come ARGOMENTO: e\' cio\' che le impedisce di congelarsi', () => {
+    // Le tre copie che questa funzione ha sostituito leggevano `Date.now()`
+    // dentro il render. Con `now` iniettato, lo stesso timestamp a due istanti
+    // diversi da' due risposte diverse — che e' tutto il punto della colonna.
+    const at = NOW - 2 * M;
+    expect(formatRelative(at, NOW)).toBe('2m');
+    expect(formatRelative(at, NOW + 30 * M)).toBe('32m');
+  });
+
+  it('un orologio indietro non produce durate assurde', () => {
+    expect(formatRelative(NOW + 5 * M, NOW)).toBe('now');
   });
 });

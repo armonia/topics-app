@@ -138,3 +138,27 @@ export function formatElapsedShort(ms: number): string {
   if (s < 60) return `${s}s`;
   return formatElapsedCompact(ms);
 }
+
+/**
+ * «now», «2m», «3h», «5d», «7mo» — il formato storico delle righe di sidebar.
+ *
+ * Sta qui e non accanto al componente che lo usa perche' un file che esporta un
+ * componente E una funzione rompe il fast-refresh di Vite
+ * (`react-refresh/only-export-components`). Prende `now` come argomento invece
+ * di leggere l'orologio: e' cio' che la rende pura, testabile, e — soprattutto —
+ * costringe il chiamante a procurarsi un `now` che si AGGIORNA. Le tre copie che
+ * ha sostituito leggevano `Date.now()` dentro il render, che non e' una
+ * sottoscrizione: il numero si congelava al primo disegno.
+ */
+export function formatRelative(at: number, now: number): string {
+  const diffS = Math.floor((now - at) / 1000);
+  if (!Number.isFinite(diffS)) return '';
+  if (diffS < 60) return 'now';
+  const diffM = Math.floor(diffS / 60);
+  if (diffM < 60) return `${diffM}m`;
+  const diffH = Math.floor(diffM / 60);
+  if (diffH < 24) return `${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 30) return `${diffD}d`;
+  return `${Math.floor(diffD / 30)}mo`;
+}
