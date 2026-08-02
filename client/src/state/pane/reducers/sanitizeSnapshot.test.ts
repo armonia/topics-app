@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from "./sanitizeSnapshot";
+import { TERMINAL_AGENT_TYPES } from '../../../../../shared/terminal-session-types';
 import type { ClosedPaneRecord } from "../types";
 import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX } from "../types";
 
@@ -137,22 +138,50 @@ describe("sanitizeSnapshot (audit fixes)", () => {
     });
   });
 
-  test("terminal pane preserves terminalType 'codex' through hydrate", () => {
-    // Regression: the sanitizer guard only accepted 'shell' | 'claude-code',
-    // so a Codex terminal lost its terminalType on every HYDRATE_FROM_SNAPSHOT
-    // (the type union and sanitizeTerminal both already allow 'codex').
-    const sanitized = sanitizeSnapshot({
-      panes: {
-        "terminal:cx": {
-          id: "terminal:cx",
-          type: "terminal",
-          title: "Codex",
-          terminalType: "codex",
+  // Lo stesso guasto è capitato DUE volte: prima la guardia accettava solo
+  // 'shell' | 'claude-code' e un terminale Codex perdeva il tipo a ogni
+  // HYDRATE_FROM_SNAPSHOT; è stato aggiunto 'codex' a mano, ed è tornato
+  // identico con 'opencode'. Il test non elenca più i valori: li prende
+  // dall'union, così il prossimo tipo aggiunto è coperto senza che nessuno se
+  // ne ricordi. Se un giorno cade, è perché la whitelist è tornata a mano.
+  for (const t of TERMINAL_AGENT_TYPES) {
+    test(`terminalType '${t}' sopravvive all'idratazione`, () => {
+      const sanitized = sanitizeSnapshot({
+        panes: {
+          "terminal:x": { id: "terminal:x", type: "terminal", title: t, terminalType: t },
         },
-      },
+      });
+      expect(sanitized!.panes!["terminal:x"].terminalType).toBe(t);
     });
 
-    expect(sanitized!.panes!["terminal:cx"].terminalType).toBe("codex");
+    test(`sessionType '${t}' sopravvive nel record di chiusura`, () => {
+      // È il ramo che fa il danno visibile: da qui closedTabRecord.ts legge
+      // `record.terminal.sessionType ?? 'shell'`, quindi un tipo perso qui
+      // fa RINASCERE una shell al posto dell'agente col Cmd+Shift+T.
+      const sanitized = sanitizeSnapshot({
+        closedStack: [
+          {
+            id: "terminal:x",
+            closedAt: 1000,
+            pane: { id: "terminal:x", type: "terminal", title: t },
+            groupId: "group:default",
+            groupIndex: 0,
+            level: "app",
+            terminal: { sessionId: "s1", sessionType: t },
+          },
+        ],
+      });
+      expect(sanitized!.closedStack![0].terminal!.sessionType).toBe(t);
+    });
+  }
+
+  test("un tipo di terminale inventato viene comunque scartato", () => {
+    const sanitized = sanitizeSnapshot({
+      panes: {
+        "terminal:bad": { id: "terminal:bad", type: "terminal", title: "x", terminalType: "rm-rf" },
+      },
+    });
+    expect(sanitized!.panes!["terminal:bad"].terminalType).toBeUndefined();
   });
 
   test("panes with empty-string type are dropped", () => {
