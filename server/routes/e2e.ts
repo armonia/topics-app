@@ -21,6 +21,14 @@
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
  *                              testano senza far girare N agenti veri.
+ *   POST /api/test/terminal/park-idle     fa girare SUBITO lo sweep che
+ *                              parcheggia le sessioni ferme. In produzione è un
+ *                              timer al minuto con una soglia di mezz'ora:
+ *                              aspettarla in un test significherebbe un test da
+ *                              trenta minuti. Qui la si passa (0 = «tutte quelle
+ *                              che i gate lasciano passare»), e si osserva
+ *                              l'effetto vero — non una simulazione dello sweep,
+ *                              che è la stessa funzione del server.
  *
  * **Gate.** Tutto risponde `null` — cioè 404 — se `TOPICS_E2E` non vale "1".
  * Non è cosmesi: `reset` cancella ogni riga di ogni tabella. Sul server vero
@@ -47,6 +55,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
+import { parkIdleClaudeSessions } from "./terminal";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -75,7 +84,7 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     }
   }
 
-  return async function e2eRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+  return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
 
     // POST /api/test/checkpoint — fotografa lo stato corrente come baseline.
@@ -119,6 +128,30 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true, ...result, takenAt: snap.takenAt });
     }
 
+    // POST /api/test/terminal/park-idle {thresholdMs?} — lo sweep di parcheggio,
+    // subito.
+    //
+    // In produzione è un timer al minuto con una soglia di mezz'ora, e acceso
+    // solo da `TOPICS_TERMINAL_IDLE_PARK_MS`: aspettare quella soglia in un test
+    // vorrebbe dire un test da trenta minuti, e riprodurre lo sweep nel test
+    // vorrebbe dire testare la copia. Qui si chiama la STESSA funzione del
+    // server con una soglia scelta dal chiamante — `0` significa «tutte quelle
+    // che i gate lasciano passare», e i gate restano quelli veri
+    // (`lib/terminal-idle-park.ts`).
+    if (method === "POST" && pathname === "/api/test/terminal/park-idle") {
+      let thresholdMs = 0;
+      try {
+        const body = (await req.json().catch(() => null)) as { thresholdMs?: number } | null;
+        if (body && typeof body.thresholdMs === "number" && body.thresholdMs >= 0) {
+          thresholdMs = body.thresholdMs;
+        }
+      } catch { /* corpo assente: soglia 0 */ }
+      const result = parkIdleClaudeSessions(thresholdMs);
+      // `skipped` con il motivo: senza, un test che non vede il parcheggio non
+      // sa distinguere «il gate ha fatto il suo lavoro» da «lo sweep e' rotto».
+      return json({ ok: true, ...result });
+    }
+
     // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla
     // topic dell'agente, come farebbe il dispatcher.
     //
@@ -132,7 +165,7 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     // logica che possa invecchiare.
     const bind = /^\/api\/test\/tasks\/([^/]+)\/bind-topic$/.exec(pathname);
     if (method === "POST" && bind) {
-      const body = (await _req.json().catch(() => null)) as { topicId?: string } | null;
+      const body = (await req.json().catch(() => null)) as { topicId?: string } | null;
       if (!body?.topicId) return json({ error: "topicId required" }, 400);
       try {
         const task = createTaskService(db).bindTopic({
@@ -153,7 +186,7 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
     // nessuna seconda copia dello schema che possa invecchiare.
     const seedAttempts = /^\/api\/test\/tasks\/([^/]+)\/attempts$/.exec(pathname);
     if (method === "POST" && seedAttempts) {
-      const body = (await _req.json().catch(() => null)) as { attempts?: SeedAttempt[] } | null;
+      const body = (await req.json().catch(() => null)) as { attempts?: SeedAttempt[] } | null;
       if (!Array.isArray(body?.attempts) || body.attempts.length === 0) {
         return json({ error: "attempts required" }, 400);
       }

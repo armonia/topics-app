@@ -669,6 +669,49 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     }
   }, [sessionListed]);
 
+  // ── Rianimazione automatica di una sessione DORMIENTE ──────────────────
+  //
+  // Una sessione claude può uscire dal roster mentre la sua pane resta montata:
+  // la CLI termina da sola, oppure il server la PARCHEGGIA perché ferma da
+  // troppo (`TOPICS_TERMINAL_IDLE_PARK_MS`, vedi lib/terminal-idle-park.ts). In
+  // entrambi i casi la riga resta `dormant` e `--resume` la riporterebbe
+  // esattamente dov'era — ma finora l'unica strada era l'overlay «Sessione
+  // scaduta» e un click su Ricarica.
+  //
+  // Va bene per una CLI che è finita da sola: te ne accorgi ed è un'informazione.
+  // NON va bene per un parcheggio: sarebbe il meccanismo che lascia in giro il
+  // proprio sporco, tredici tab da ricliccare per un risparmio che doveva essere
+  // invisibile. Quindi quando la pane torna ATTIVA e la sua sessione è dormiente,
+  // la si rianima e basta.
+  //
+  // Gate su `isActive`: si rianima ciò che si sta guardando, non tutte le pane
+  // montate. Rianimarle tutte rimetterebbe in piedi in un colpo solo proprio i
+  // processi che il parcheggio ha spento.
+  const revivingRef = useRef(false);
+  useEffect(() => {
+    if (!isActive || !stale || revivingRef.current) return;
+    let cancelled = false;
+    revivingRef.current = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/revive`, {
+          method: 'POST',
+        });
+        // 404 = la sessione non è dormiente, è proprio sparita (riga cancellata).
+        // Allora «Sessione scaduta» è la verità e l'overlay resta: il bottone
+        // Ricarica è l'unica strada, ed è giusto che si veda.
+        if (!res.ok || cancelled) return;
+        setStale(false);
+        reconnectRef.current?.();
+      } catch {
+        /* rete giù: l'overlay resta, e il tentativo si ripete al prossimo giro */
+      } finally {
+        if (!cancelled) revivingRef.current = false;
+      }
+    })();
+    return () => { cancelled = true; revivingRef.current = false; };
+  }, [isActive, stale, sessionId]);
+
   // Resize observer. A divider drag resizes this pane's container on every
   // animation frame; fitting xterm per frame resizes its canvas layers and
   // repaints the whole grid each time — a continuous flicker for the length of
