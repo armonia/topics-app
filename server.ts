@@ -1631,6 +1631,13 @@ const server = Bun.serve<WSData>({
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
+        // Il contesto esisteva GIA' prima che questo socket arrivasse?
+        // Serve al ramo 'registered' piu' sotto per sapere se il contesto e'
+        // farina della partenza differita dello screencast (e quindi va
+        // distrutto) o se e' un contesto legittimo di qualcun altro (e quindi
+        // NON si tocca). Va fotografato qui, prima che qualunque
+        // getOrCreate possa crearlo.
+        ws.data._browserCtxExistedBefore = browserService.listContexts().some((c) => c.id === ctxId);
         // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
         // so broadcastToBrowserWs(ctxId, msg) reaches it.
         let bset = browserWsClients.get(ctxId);
@@ -1821,8 +1828,41 @@ const server = Bun.serve<WSData>({
             // A native pane runs ops itself — it never views server frames, so tear
             // down the screencast the open handler auto-started (no wasted headless
             // Chromium / bandwidth for a context that isn't streaming).
-            try { void ws.data._browserCleanup?.(); } catch {}
+            //
+            // FERMARE LO SCREENCAST NON BASTA. Il commento sulla grazia dei
+            // 250 ms (SCREENCAST_START_GRACE_MS) dice che per una pane nativa
+            // il contesto server «must NOT exist», e che un fantasma «pinning
+            // Chromium past the reaper's contexts.size===0 gate». Ma la grazia
+            // PERDE regolarmente: nel log di produzione il registro nativo
+            // arriva DOPO che il timer ha gia' fatto `Context created` +
+            // `Screencast started`, e da li' in poi si vede solo
+            // `Screencast stopped` — mai `Context destroyed`. Il contesto
+            // resta, si ri-naviga da solo all'ultima URL salvata (quindi
+            // ricarica pagine e login che nessuno guarda) e tiene acceso
+            // l'intero processo Chromium, che non puo' morire finche' esiste
+            // un contesto. Il 2026-07-30 ne sono sopravvissuti quattro
+            // insieme, raccolti solo dal reaper d'inattivita' a 30 minuti.
+            //
+            // Si aspetta la cleanup (che e' async: senza await lo stop puo'
+            // perdere la corsa con la start in volo) e poi si distrugge il
+            // contesto — ma SOLO se non esisteva prima di questo socket.
+            // Cosi' muore il fantasma nato dalla partenza differita, e mai un
+            // contesto legittimo che qualcun altro sta usando.
+            const cleanup = ws.data._browserCleanup;
+            const wasPhantom = ws.data._browserCtxExistedBefore === false;
             ws.data._browserCleanup = undefined;
+            // Il `message` handler non e' async: si sequenzia in una IIFE, che
+            // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
+            void (async () => {
+              try { await cleanup?.(); } catch {}
+              if (!wasPhantom) return;
+              try {
+                await browserService.destroyContext(ctxId);
+                console.log(`[WS][browser] destroyed phantom context ${ctxId} (native pane delegates ops)`);
+              } catch (err) {
+                console.warn(`[WS][browser] destroyContext(${ctxId}) failed:`, (err as Error).message);
+              }
+            })();
             // Mark it so the viewer count excludes it: a native pane is NOT a viewer
             // of the shared session, and counting its own delegate socket made an
             // 'auto' pane flap native↔shared every poll (browser reset every ~2s).
