@@ -230,9 +230,33 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       let body: unknown;
       try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
-      // Shape: must be a plain object (arrays, primitives, null rejected).
-      if (!isPlainObject(body)) {
-        return json({ error: "Body must be a JSON object" }, 400);
+      // Shape: QUALSIASI valore JSON, non solo un oggetto.
+      //
+      // Il vincolo "oggetto" arrivava dalla fase pane-state (`abbbbd05`), dove
+      // ogni valore ERA un oggetto, ed è poi rimasto su un endpoint che è un
+      // negozio generico chiave→JSON. Le due chiavi non-pane che ci passano —
+      // `theme` (stringa) e `claude-prefs-skip` (booleano), entrambe scritte da
+      // `useServerState<T>` — sono primitive: ogni loro PUT rispondeva 400 e il
+      // valore NON veniva mai persistito. Il tema sopravviveva solo in
+      // localStorage (quindi non seguiva l'utente su un altro dispositivo) e la
+      // riga `claude-prefs-skip` nel DB era ferma a payload_version=1, cioè
+      // all'ultima scrittura prima che il vincolo esistesse. In silenzio: il
+      // hook fa `.catch(() => {})`, e un 400 in console non lo guarda nessuno.
+      //
+      // La lettura non ha mai avuto il problema (`GET` fa `JSON.parse` e
+      // restituisce qualunque cosa), e `stripDeviceLocalFields` lascia passare
+      // i non-oggetti intatti: era solo questa guardia a stare in mezzo. Un
+      // `useServerState<number>` domani avrebbe ripetuto il guasto — la terza
+      // volta.
+      //
+      // `null` resta fuori, ma per un motivo diverso: una chiave ASSENTE
+      // risponde già `null` (riga 197), quindi un `null` scritto non è
+      // rileggibile — sarebbe una scrittura che nessun lettore può distinguere
+      // dal non aver mai scritto. Il PUT bulk qui sotto tiene invece il
+      // vincolo oggetto: è il canale di pane-store/settings, dove è il contratto
+      // vero, non un residuo.
+      if (body === null) {
+        return json({ error: "null is not a storable value (an absent key already reads as null)" }, 400);
       }
 
       // Defense-in-depth: strip device-local scrollOffset before persistence.
