@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
@@ -30,6 +30,19 @@ const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m
 const SLASH_COMMANDS = [
   { cmd: '/status', label: 'Status', description: 'Show session status', icon: Zap },
   { cmd: '/context', label: 'Context', description: 'Show context-window usage (tokens, budget, sources)', icon: Gauge },
+  // La compattazione esisteva già e l'app ne disegna anche l'esito (i divider
+  // «context compacted», partitionMarkers.ts), ma l'UNICO modo di lanciarla era
+  // il bottone «Compact now» dentro l'avviso del contesto — che compare solo
+  // sopra soglia e sparisce appena lo si chiude. Non c'era nessun modo
+  // permanente di chiederla, e in `/help` non era nemmeno nominata.
+  //
+  // Non serve un gestore lato client: `handleSlashCommand` non lo intercetta,
+  // quindi il messaggio passa dritto alla CLI, che `/compact` lo conosce da sé.
+  // È esattamente quello che fa il bottone (`sendMessageDirect('/compact')`).
+  // Mettendolo qui diventa una voce di prima classe in tutte e due le
+  // superfici che questo elenco alimenta: l'autocompletamento con `/` e il
+  // menu overflow, che è sempre raggiungibile.
+  { cmd: '/compact', label: 'Compact', description: 'Compatta il contesto ora (riassume la storia e libera spazio)', icon: ChevronsDownUp },
   { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
   { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-4-8)', icon: Cpu },
   { cmd: '/effort', label: 'Effort', description: 'Set reasoning effort (low|medium|high|xhigh|max)', icon: Brain },
