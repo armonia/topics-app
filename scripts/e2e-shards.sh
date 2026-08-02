@@ -33,6 +33,23 @@
 # stampa UN riepilogo con tutti i falliti di tutti gli shard. Uno shard che non
 # arriva a eseguire test è un FALLIMENTO del riepilogo, non una nota a piè di
 # pagina: vedi scripts/e2e-shards-summary.ts.
+#
+# ── Il bilanciamento ────────────────────────────────────────────────────────
+# `--shard=i/N` di Playwright riparte i file per NUMERO DI TEST: non conosce le
+# durate, quindi non sa che un file da 22 test può costare quanto quaranta file
+# da uno. Misurato il 30/07 con 4 shard: 193s, 326s, 186s, 209s. Il wall-clock
+# di una suite parallela è il suo shard più lento, quindi si aspettavano 326
+# secondi con tre quarti della macchina fermi.
+#
+# Qui il piano lo fa `e2e-plan-shards.ts`, che pacchetta i file per DURATA
+# misurata (`e2e-durations.json`) e passa a ogni shard il suo elenco esplicito.
+# Sugli stessi dati: 228s a 4 shard, 114s a 8 — l'ideale teorico in entrambi i
+# casi. Se il piano non si può fare (durate assenti, `--list` fallito, o l'utente
+# ha passato un filtro suo) si torna a `--shard=i/N` e la suite gira lo stesso:
+# questo meccanismo accorcia la corsa, non la rende più corretta.
+#
+# Le durate si aggiornano dopo una passata:
+#   bun run scripts/e2e-record-durations.ts test-results/shard-*/results.json
 
 set -uo pipefail
 
@@ -91,6 +108,34 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+# Il piano per durata si usa solo se l'utente NON ha passato un filtro suo di
+# file: sommare due elenchi di file darebbe una selezione che non è né la sua né
+# la nostra. I flag (--grep, --repeat-each, …) invece compongono senza problemi
+# e non disattivano il piano.
+USER_FILE_FILTER=0
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    *) USER_FILE_FILTER=1 ;;
+  esac
+done
+
+PLAN_DIR="test-results/shard-plan"
+rm -rf "$PLAN_DIR"
+PLAN_OK=0
+if [ "$USER_FILE_FILTER" -eq 0 ]; then
+  # UNA sola pianificazione per tutta la run: elencare le spec costa ~10s
+  # (Playwright deve caricarle e transpilarle tutte), e farlo una volta per shard
+  # costerebbe più di quanto il bilanciamento faccia risparmiare.
+  if PLAN_SUMMARY="$(bun run "$REPO_ROOT/scripts/e2e-plan-shards.ts" "$SHARDS" --out "$PLAN_DIR" 2>&1)"; then
+    PLAN_OK=1
+    echo "$PLAN_SUMMARY" | sed 's/^/[e2e-shards] /'
+  else
+    echo "[e2e-shards] piano per durata non disponibile, uso --shard=i/N:"
+    echo "$PLAN_SUMMARY" | sed 's/^/[e2e-shards]   /' | head -3
+  fi
+fi
+
 echo "[e2e-shards] $SHARDS shard paralleli, porte $BASE_PORT..$((BASE_PORT + SHARDS - 1)) (avvii sfasati di ${STAGGER}s)"
 
 for i in $(seq 1 "$SHARDS"); do
@@ -99,13 +144,27 @@ for i in $(seq 1 "$SHARDS"); do
   rm -rf "$out"
   mkdir -p "$out"
 
+  # Selezione dei test: elenco esplicito di file (piano per durata) oppure la
+  # ripartizione nativa di Playwright.
+  shard_files=()
+  if [ "$PLAN_OK" -eq 1 ] && [ -f "$PLAN_DIR/shard-$i.txt" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] && shard_files+=("$f")
+    done < "$PLAN_DIR/shard-$i.txt"
+  fi
+  if [ "${#shard_files[@]}" -gt 0 ]; then
+    selection=("${shard_files[@]}")
+  else
+    selection=("--shard=$i/$SHARDS")
+  fi
+
   # --reporter da CLI SOSTITUISCE quelli del config: niente html (gli shard si
   # sovrascriverebbero a vicenda la stessa cartella), un JSON per shard che il
   # riepilogo finale rilegge.
   E2E_PORT="$port" \
   PLAYWRIGHT_JSON_OUTPUT_NAME="$out/results.json" \
     npx playwright test \
-      --shard="$i/$SHARDS" \
+      "${selection[@]}" \
       --reporter=line,json \
       --output="$out/artifacts" \
       "$@" >"$out/log.txt" 2>&1 &
