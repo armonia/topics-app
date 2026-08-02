@@ -491,6 +491,35 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       .then(() => {
         if (cancelled) return;
         openedRef.current = true;
+        // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
+        // `browser_open` ha appena restituito può essere una view RIUSATA, e
+        // il suo ramo idempotente (lib.rs) fa solo navigate + set_bounds —
+        // non chiama mai `show()`. Se la ref dice già `true`, il primo
+        // `setNativeVisible(true)` esce subito come no-op e la view resta
+        // `setHidden:YES`: la pane si apre con la sua toolbar e sotto NIENTE.
+        //
+        // È lo scenario comune, non un caso limite: le pane browser non
+        // vengono mai sfrattate (RESIDENCY_BUDGET.native = Infinity), quindi
+        // una tab di sfondo resta montata e nascosta; un ⌘R non smonta la
+        // webview figlia (le pane la RIUSANO, vedi nativeBrowserRoster.ts) ma
+        // azzera il registro di residenza, che è in memoria. Alla prima
+        // riattivazione la pane monta già attiva, la ref è `true`, e nessuno
+        // riaccende la view.
+        //
+        // Si segna l'OPPOSTO di quello che il primo giro chiederà, non un
+        // `false` fisso: una view APPENA CREATA nasce visibile (`add_child`
+        // senza `.visible(false)`), quindi fissare `false` romperebbe il caso
+        // speculare — pane che monta dovendo restare nascosta, no-op, e la
+        // view resta accesa. Così invece la prima chiamata è una transizione
+        // vera in ENTRAMBI i versi, e `browser_set_visible` fa da autorità
+        // qualunque fosse lo stato reale della view riusata.
+        //
+        // La DECISIONE resta quella di prima (`isVisible || agentActive ||
+        // agentOpsInFlight`): non si riaccendono le pane di sfondo, che è il
+        // motivo per cui `browser_set_visible` esiste.
+        nativeVisibleRef.current = !(
+          isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0
+        );
         setReady(true);
         setUrl(startUrl === 'about:blank' ? '' : startUrl);
         if (pendingRectRef.current) setBounds(pendingRectRef.current);
