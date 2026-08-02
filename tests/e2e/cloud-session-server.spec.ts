@@ -40,6 +40,12 @@ const BASE = E2E_BASE;
  * invece una pagina same-origin — servita qui dal route handler di Playwright,
  * così l'osservatorio resta un documento vuoto e non tira su tutta la SPA (che
  * aprirebbe una sua WS e scriverebbe nel pane-store condiviso della suite).
+ *
+ * Quel «niente SPA» è anche ciò che rende sufficiente `page.route` qui: la SPA
+ * è l'unico posto che registra il service worker, e un SW attivo servirebbe
+ * questa navigazione dal PROPRIO contesto, dove `page.route` non arriva (vedi
+ * pane-error-isolation.spec.ts). Se un giorno questo file caricasse l'app
+ * prima del probe, la rotta va spostata su `context.route`.
  */
 async function captureFrames(page: import("@playwright/test").Page) {
   const probeUrl = `${BASE}/__e2e-ws-probe`;

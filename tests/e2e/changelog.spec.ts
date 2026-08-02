@@ -35,11 +35,23 @@ const FIXTURE = [
 ];
 
 test.describe("Changelog (in-app Novità)", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // Le due rotte non sono simmetriche, e la ragione è il service worker.
+    // `/api/…` è nella lista che `client/public/sw.js` lascia passare
+    // intatta (riga 100), quindi la richiesta arriva dalla pagina e
+    // `page.route` la vede. `/changelog.json` NO: è un GET di pari origine
+    // fuori da `/api/`, quindi il worker lo intercetta e lo RI-EMETTE dal
+    // proprio contesto — e le fetch del worker non passano da `page.route`
+    // (vedi pane-error-isolation.spec.ts, dove questo ha rotto un test vero).
+    // Qui reggeva solo per ordine di caricamento: al primo `goto` il SW si
+    // installa ma non controlla ancora la pagina (sw.js non chiama
+    // `clients.claim`). Basterebbe un `reload` in mezzo per far saltare il
+    // mock, in modo silenzioso. `context.route` toglie la dipendenza
+    // dall'ordine.
     await page.route("**/api/version", (r) =>
       r.fulfill({ json: { version: "9.9.9" }, headers: { "Cache-Control": "no-store" } }),
     );
-    await page.route("**/changelog.json", (r) => r.fulfill({ json: FIXTURE }));
+    await context.route("**/changelog.json", (r) => r.fulfill({ json: FIXTURE }));
   });
 
   test("CHANGELOG-01: open from the version chip and see the running version's entries", async ({ page }) => {
