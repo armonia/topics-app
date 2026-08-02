@@ -113,6 +113,27 @@ export function loadLastUrl(topicId: string): string | null {
   }
 }
 
+/**
+ * Read the last-url entry (url + updatedAt) for a context id. Unlike
+ * `loadLastUrl`, it also surfaces the recency stamp so callers can bound a
+ * bulk restore (e.g. restoreAllContexts) to the most-recently-active contexts
+ * instead of eagerly re-launching every context that ever had a page — a boot
+ * storm over hundreds of stale contexts. `updatedAt` is epoch ms (0 if the file
+ * predates the stamp). Returns null when there's nothing restorable on disk.
+ */
+export function readLastUrlEntry(topicId: string): { url: string; updatedAt: number } | null {
+  const file = lastUrlFile(topicId);
+  if (!existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf-8")) as { url?: unknown; updatedAt?: unknown };
+    if (!isRestorableUrl(parsed.url)) return null;
+    const ts = typeof parsed.updatedAt === "string" ? Date.parse(parsed.updatedAt) : NaN;
+    return { url: parsed.url, updatedAt: Number.isFinite(ts) ? ts : 0 };
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteStorageState(topicId: string): Promise<void> {
   // The last-url rides the same lifecycle as storage.json: an explicitly
   // deleted state must not resurrect the old page on a future same-id context.
