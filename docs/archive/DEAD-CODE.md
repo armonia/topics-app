@@ -1,17 +1,23 @@
 # Dead-code sweep — report (Fase 1)
 
+> **REFERTO STORICO — chiuso.** Stato attuale: `bun run check:deadcode` esce
+> pulito (exit 0, nessun file morto, nessun export inutilizzato); restano solo
+> "configuration hints" di knip. Le voci qui sotto sono la fotografia di quando
+> il referto e' stato scritto: molte sono gia' state rimosse. Il razionale di
+> cio' che e' tenuto vivo di proposito sta in `knip.jsonc` e nei commenti dei
+> file interessati, non qui.
+
 > Obiettivo: file mai importati, export mai usati, dipendenze npm non referenziate — **senza rompere nulla**.
 > Complementare a env-audit (env var). Report PRIMA, rimozione DOPO e solo del verificato-sicuro.
-> Generato con `knip` (config: [`knip.json`](../knip.json)). Ogni voce verificata a mano con grep di import statici **e** dinamici.
+> Generato con `knip` (config: [`knip.jsonc`](../../knip.jsonc)). Ogni voce verificata a mano con grep di import statici **e** dinamici.
 
 ## Come rigenerare
 
 ```bash
-bun install && (cd client && bun install)   # deps servono al grafo di knip
-npx knip@5 --no-progress                     # 3 liste: file / export / deps
+bun run check:deadcode    # = bunx --bun knip, con knip.jsonc gia' cablato
 ```
 
-`knip.json` note di config (per non ri-inciampare):
+`knip.jsonc` note di config (per non ri-inciampare):
 - Plugin **bun** e **playwright** disattivati (`"bun": false`, `"playwright": false`): il parser degli script `bun test <file>` di knip fa `scandir` su un file → `ENOTDIR` (il crash citato nel task). Disattivarli evita il crash senza perdere copertura (entry dichiarati a mano).
 - Sidecar `.mjs` spawnati per path (`server/ai-bridge.mjs`, `server/pty-bridge.mjs`) marcati **entry** (`!`) → non falsi-morti.
 - `cli/topics.ts`, `scripts/*.ts` marcati entry (compilati / `bun run`).
