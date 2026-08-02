@@ -6,7 +6,7 @@ import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
 import { shellKind } from '../lib/shell';
 import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
-import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActivelyVisible, isRealPhaseTransition } from '../lib/notify/terminalNotify';
 import { useProjectFocusStore } from '../state/projectFocus';
 import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
@@ -469,7 +469,18 @@ export function useCompletionNotifier({
       const phase = state.phase;
       const prev = prevPhaseRef.current.get(sessionKey);
       prevPhaseRef.current.set(sessionKey, phase);
-      if (prev === phase) return; // no-op repeats
+      // Transizione VERA, non lo snapshot del bootstrap che ci ripresenta il
+      // passato. Qui c'era solo `if (prev === phase) return`, che sul primo
+      // frame — mappa vuota, `prev` undefined — non ferma niente: a ogni avvio
+      // dell'app ogni chat parcheggiata in `awaiting-user`/`completed` sparava
+      // il suo banner. Sei riavvii in una sera, sei raffiche di notifiche per
+      // lavoro finito giorni prima.
+      //
+      // Il ramo terminale qui sopra la guardia ce l'aveva, e il suo commento
+      // diceva «mirrors the chat path's isFirstFrame guard» descrivendo una
+      // guardia che in questo ramo non è mai esistita. Ora l'implementazione è
+      // UNA sola, pura e testata (lib/notify/terminalNotify.ts).
+      if (!isRealPhaseTransition(prev, phase)) return;
 
       const cfg = settingsRef.current;
       if (!cfg.notificationsEnabled) return;

@@ -190,10 +190,37 @@ export function statusBody(phase: ClaudeSessionPhase): string {
  * testable). The caller checks its record set before firing and records the
  * returned key after.
  */
+/**
+ * La transizione è REALE, o è il bootstrap che ci ripresenta il passato?
+ *
+ * `session:state` è per-transizione, ma alla connessione il server rimanda lo
+ * SNAPSHOT di ogni sessione. Un client appena avviato non ha nessuna fase
+ * precedente in memoria, quindi ogni sessione ferma in `awaiting-user` o
+ * `completed` — cioè ogni conversazione mai finita — sembra essere appena
+ * arrivata lì.
+ *
+ * Il ramo terminale lo gestiva già; quello delle chat NO, e il commento del
+ * primo diceva «mirrors the chat path's isFirstFrame guard» descrivendo una
+ * guardia che non esisteva. Il risultato, il 2026-08-02: sei riavvii dell'app in
+ * una sera, e a ogni riavvio una raffica di banner per lavoro finito giorni
+ * prima.
+ *
+ * Il costo del `false` sul primo frame è noto e accettato: una sessione che
+ * nasce E finisce mentre il client è disconnesso non produce banner al
+ * ritorno. È il prezzo per non riannunciare tutto il passato a ogni avvio, ed è
+ * lo stesso compromesso che il ramo terminale ha già preso.
+ */
+export function isRealPhaseTransition(
+  prevPhase: ClaudeSessionPhase | undefined,
+  phase: ClaudeSessionPhase,
+): boolean {
+  if (prevPhase === undefined) return false; // primo frame: solo baseline
+  return prevPhase !== phase;
+}
+
 export function decideTerminalBanner(input: TerminalNotifyInput): TerminalNotifyDecision | null {
   // 1 + 2: only fire on a genuine transition we can attribute.
-  if (input.prevPhase === undefined) return null;
-  if (input.prevPhase === input.phase) return null;
+  if (!isRealPhaseTransition(input.prevPhase, input.phase)) return null;
 
   // 3: gate on the actionable/terminal phase set.
   if (!isBannerPhase(input.phase)) return null;
