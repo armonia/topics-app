@@ -736,7 +736,7 @@ const taskDispatcher = createTaskDispatcher({
   // carries the agent's own summary. Reads the local message store (sync).
   getLastAgentText: (sessionKey: string) => {
     try {
-      const msgs = ctx.loadLocalMessages(sessionKey);
+      const msgs = ctx.loadLocalMessages(sessionKey, { withBlocks: false });
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
         if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;

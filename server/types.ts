@@ -215,7 +215,7 @@ export interface AppContext {
   getTopicBySessionKey: (sessionKey: string) => Topic | null;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
-  loadLocalMessages: (sessionKey: string) => StoredMessage[];
+  loadLocalMessages: (sessionKey: string, opts?: { withBlocks?: boolean }) => StoredMessage[];
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;

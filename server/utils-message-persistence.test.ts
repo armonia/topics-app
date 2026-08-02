@@ -166,6 +166,27 @@ describe("message field-ownership on updateMessage", () => {
     expect(row.content).toBe("⚠️ Hard timeout reached");
     expect(row.toolCalls?.[0]?.result).toBe("ok");
   });
+
+  test("un turno di SOLI blocchi non viene scartato come vuoto", () => {
+    // La proiezione magra di updateLastMessage salta il parse di `blocks`. Se
+    // facesse sparire del tutto `blocks` dal valore di ritorno, un turno che ha
+    // prodotto SOLO blocchi (niente prosa, niente tool_calls) risulterebbe vuoto
+    // e discardIfEmptyTurn lo cancellerebbe: perdita di dati. La colonna grezza
+    // deve arrivare fino a isEmptyAssistantTurn.
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.updateLastMessage(SK, { blocks: [{ kind: "text", text: "solo un blocco" }] as any });
+
+    // Finalize come fa il vero percorso: solo flag di controllo, contenuto vuoto.
+    const finalized = ctx.updateLastMessage(SK, { content: "", partial: undefined, streamedAt: undefined });
+    expect(finalized).not.toBeNull();
+
+    const discarded = ctx.discardIfEmptyTurn(SK, finalized);
+    expect(discarded).toBeNull(); // NON scartato: aveva blocchi
+
+    const row = ctx.getMessageById(msg.id);
+    expect(row).not.toBeNull(); // la riga sopravvive
+    expect(row!.blocks?.length).toBe(1);
+  });
 });
 
 describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn, no ghost)", () => {

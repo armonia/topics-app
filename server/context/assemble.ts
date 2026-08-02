@@ -256,7 +256,10 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // TRONCATO (il modello non deve vedere la risposta che sta rimpiazzando), e
   // il troncamento non è esprimibile leggendo la tabella. Assente ⇒ si legge il
   // thread attivo, che è il caso di tutti gli altri chiamanti.
-  const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey);
+  // I consumatori del thread — buildHistoryWithDiagnostics, resolveUserMessage,
+  // pushPinnedMessagesBlock — leggono solo role/content/partial/id: mai `blocks`.
+  // Caricalo magro per non pagare il parse della timeline sulla coda agentica.
+  const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey, { withBlocks: false });
   const { history, historyEntries, droppedHistoryTurns } = buildHistoryWithDiagnostics(
     stored,
     { historyLimit, includeLastUserInHistory },
