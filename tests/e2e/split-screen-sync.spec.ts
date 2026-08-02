@@ -495,9 +495,24 @@ test.describe("Split Screen Sync & Correctness", () => {
     // Persistence: the layout must not SHRINK across reload (the old >=1 was
     // always true even if every panel was lost). >= before catches a reload
     // that drops the restored panels down to the empty-shell floor.
-    const tabBarsAfter = await countTabBars(page);
+    //
+    // Il conteggio finale si POLLA, non si campiona una volta. Prima era una
+    // lettura secca subito dopo `openProjectInSidebar`: se la griglia non
+    // aveva ancora finito di rimontare, `after` usciva più basso di `before` e
+    // il test cadeva per tempistica, non per una perdita vera. Si vedeva solo
+    // nella run seriale completa (macchina sotto carico, rimonto più lento) —
+    // verde 5 volte su 5 in isolamento, un flaky nella suite intera.
+    //
+    // Il significato dell'asserzione non cambia: se il layout si RESTRINGE
+    // davvero, il poll non converge e il test cade lo stesso, con lo stesso
+    // messaggio.
     expect(tabBarsBefore).toBeGreaterThanOrEqual(1);
-    expect(tabBarsAfter).toBeGreaterThanOrEqual(tabBarsBefore);
+    await expect
+      .poll(() => countTabBars(page), {
+        message: `il layout non deve restringersi al reload (prima: ${tabBarsBefore})`,
+        timeout: 10_000,
+      })
+      .toBeGreaterThanOrEqual(tabBarsBefore);
   });
 
   // ── 3.4: Multi-row top-level grid ──
