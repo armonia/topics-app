@@ -1,41 +1,41 @@
 import { useState, useRef } from 'react';
-import { Terminal, Trash2, Cpu, Brain, ChevronDown, Check, Loader } from 'lucide-react';
+import { Terminal, Trash2, Brain, Loader } from 'lucide-react';
 import { Menu } from './Menu';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 interface CommandMenuProps {
   onStatus: () => void;
   onClear: () => void;
-  onModel: (model: string) => void;
   onReasoning: () => void;
   isLoading?: boolean;
-  currentModel?: string;
 }
 
-const AVAILABLE_MODELS = [
-  { id: 'default', name: 'Default', description: 'Reset to default model' },
-  { id: 'anthropic/claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Fast & capable' },
-  { id: 'anthropic/claude-opus-4-6', name: 'Claude Opus 4', description: 'Most powerful' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o', description: 'OpenAI flagship' },
-  { id: 'openai/o3-mini', name: 'o3-mini', description: 'Reasoning model' },
-];
+// La voce «Model» viveva qui con una lista scritta a mano e ferma al 2025.
+// Non era solo vecchia: era un controllo che MENTIVA. Gli id erano nella forma
+// `anthropic/claude-sonnet-4-20250514`, e il guard che porta l'override sulla
+// riga di comando della CLI è `/^[A-Za-z0-9._[\]-]{1,64}$/`
+// (server/providers/claude-code.ts, getTopicSpawnOverridesForSession): la barra
+// non ci passa. Quindi il server scriveva `topic.model`, rispondeva «Modello
+// impostato: … — attivo dal prossimo turno», l'interfaccia mostrava la spunta,
+// e allo spawn l'override veniva scartato in silenzio con ritorno al default.
+//
+// Il picker VERO è ProviderModelPicker in ChatInput: si alimenta dallo
+// snapshot dei provider, quindi non invecchia, e produce `{provider, model}`
+// separati — la forma che il guard accetta. Un secondo selettore, sbagliato e
+// sempre visibile su desktop, non andava aggiornato: andava tolto.
 
-export function CommandMenu({ 
-  onStatus, 
-  onClear, 
-  onModel, 
-  onReasoning, 
+export function CommandMenu({
+  onStatus,
+  onClear,
+  onReasoning,
   isLoading,
-  currentModel 
 }: CommandMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [showModelPicker, setShowModelPicker] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleAction = (action: () => void) => {
     action();
     setIsOpen(false);
-    setShowModelPicker(false);
   };
 
   return (
@@ -60,7 +60,7 @@ export function CommandMenu({
       <Menu
         open={isOpen}
         anchorRef={buttonRef}
-        onClose={() => { setIsOpen(false); setShowModelPicker(false); }}
+        onClose={() => setIsOpen(false)}
         align="right"
         className="w-48 overflow-hidden"
       >
@@ -73,38 +73,6 @@ export function CommandMenu({
           <span>Status</span>
           <span className="ml-auto text-[11px] text-app-text-muted">/status</span>
         </button>
-
-        {/* Model picker */}
-        <div className="relative">
-          <button
-            onClick={() => setShowModelPicker(!showModelPicker)}
-            className="w-full px-3 py-2 text-left text-[12px] text-app-text hover:bg-app-hover flex items-center gap-2 transition-colors"
-          >
-            <Cpu size={14} className="text-emerald-500 dark:text-emerald-400" />
-            <span>Model</span>
-            <ChevronDown size={12} className={`ml-auto text-app-text-muted transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
-          </button>
-
-          {showModelPicker && (
-            <div className="border-t border-app-border bg-elevated">
-              {AVAILABLE_MODELS.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => handleAction(() => onModel(model.id))}
-                  className="w-full px-3 py-1.5 text-left hover:bg-app-hover flex items-center gap-2 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-app-text truncate">{model.name}</div>
-                    <div className="text-[11px] text-app-text-muted truncate">{model.description}</div>
-                  </div>
-                  {currentModel === model.id && (
-                    <Check size={12} className="text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
 
         {/* Reasoning toggle */}
         <button
