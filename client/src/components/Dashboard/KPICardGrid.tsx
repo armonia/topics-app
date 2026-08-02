@@ -17,6 +17,20 @@ interface KPICardGridProps {
   kpis: DashboardKPIs;
 }
 
+/**
+ * Cosa NON e' dentro il totale di spesa, detto in una riga.
+ *
+ * I costi anteriori allo scorporo della cache sono gonfiati di un fattore ignoto
+ * (la cache riletta veniva tariffata come input fresco, e in un turno agentico e'
+ * la quota schiacciante). Sommarli darebbe un numero che non e' ne' il costo vero
+ * ne' una stima; escluderli e basta darebbe un numero che sembra completo. Si
+ * escludono e si dice quanti.
+ */
+function uncertainNote(n: number | undefined): string | null {
+  if (!n || n <= 0) return null;
+  return `${n} messagg${n === 1 ? 'io' : 'i'} non contati: costo registrato prima che la cache fosse misurata, quindi sovrastimato di un fattore che non e' ricostruibile.`;
+}
+
 export function KPICardGrid({ kpis }: KPICardGridProps) {
   return (
     <div data-testid="kpi-card-grid" className="grid grid-cols-5 gap-2">
@@ -62,6 +76,7 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         icon={DollarSign}
         trend={kpis.tokenSpendDay > 0 ? 'up' : 'flat'}
         upIsGood={false}
+        partialNote={uncertainNote(kpis.tokenSpendDayUncertain)}
       />
       <KPICard
         label="Token Spend (Week)"
@@ -69,6 +84,7 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         icon={Wallet}
         trend={kpis.tokenSpendWeek > 0 ? 'up' : 'flat'}
         upIsGood={false}
+        partialNote={uncertainNote(kpis.tokenSpendWeekUncertain)}
       />
       <KPICard
         label="Agent Utilization"
