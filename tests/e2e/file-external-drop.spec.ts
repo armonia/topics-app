@@ -1,9 +1,9 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { execFileSync } from "child_process";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
+import { initGitRepo } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -18,9 +18,7 @@ test.describe("External File Drop", () => {
     mkdirSync(`${tmpDir}/src`, { recursive: true });
     writeFileSync(`${tmpDir}/package.json`, JSON.stringify({ name: "test" }, null, 2));
     writeFileSync(`${tmpDir}/src/index.ts`, 'export const x = 1;\n');
-    execFileSync("git", ["init"], { cwd: tmpDir });
-    execFileSync("git", ["add", "-A"], { cwd: tmpDir });
-    execFileSync("git", ["commit", "-m", "init"], { cwd: tmpDir });
+    initGitRepo(tmpDir);
 
     const topic = await createTopic(request, topicName, { projectPath: tmpDir });
     topicId = topic.id;

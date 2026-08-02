@@ -37,6 +37,37 @@ export type FileProject = {
 };
 
 /**
+ * `git init` + primo commit in una cartella di prova.
+ *
+ * L'IDENTITÀ È OBBLIGATORIA, e non è pignoleria: senza, `git commit` fallisce
+ * con «Please tell me who you are» ovunque non ci sia una config globale — cioè
+ * su CI. È così che il nightly è rimasto rosso tre notti di fila
+ * (`Command failed: git commit -m init`), mentre in locale non si vedeva niente
+ * perché la config dell'utente copriva il buco.
+ *
+ * `commit.gpgsign=false` copre l'altro verso: se l'utente firma i commit, la
+ * richiesta di passphrase parte in un processo che nessuno guarda e il test
+ * resta appeso fino al timeout, senza dire perché.
+ *
+ * Sta qui perché era ricopiato in tre fixture e una sola aveva l'identità: è la
+ * ragione per cui il rosso si vedeva solo su CI e solo in un file.
+ *
+ * `execFileSync` con un array, non `execSync` con una stringa: niente shell di
+ * mezzo, quindi il percorso non può essere reinterpretato come comando.
+ */
+export function initGitRepo(dir: string, message = "init"): void {
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      ["-c", "user.name=e2e", "-c", "user.email=e2e@test", "-c", "commit.gpgsign=false", ...args],
+      { cwd: dir, stdio: "pipe" },
+    );
+  git("init");
+  git("add", "-A");
+  git("commit", "-m", message);
+}
+
+/**
  * Crea il repo di prova e la topic che lo punta.
  *
  * @param label discriminante per file di spec (es. "tree", "git", "proc") — vedi sopra.
@@ -64,22 +95,7 @@ export async function seedFileProject(
   writeFileSync(`${tmpDir}/README.md`, "# E2E Test Project\n");
   writeFileSync(`${tmpDir}/src/index.ts`, 'export const hello = "world";\n');
 
-  // Identità e firma esplicite: sotto CI (e in una HOME isolata) `git commit`
-  // fallisce con "Please tell me who you are" se non le trova, e `commit.gpgsign`
-  // dell'utente vero farebbe partire una richiesta di passphrase che nessuno
-  // vedrà mai — il test resterebbe appeso fino al timeout senza dire perché.
-  //
-  // `execFileSync` con un array, non `execSync` con una stringa: niente shell di
-  // mezzo, quindi `tmpDir` non può essere reinterpretato come comando.
-  const git = (...args: string[]) =>
-    execFileSync(
-      "git",
-      ["-c", "user.name=e2e", "-c", "user.email=e2e@test", "-c", "commit.gpgsign=false", ...args],
-      { cwd: tmpDir, stdio: "pipe" },
-    );
-  git("init");
-  git("add", "-A");
-  git("commit", "-m", "initial");
+  initGitRepo(tmpDir, "initial");
 
   // Gli stati git su cui i test asseriscono (vedi l'intestazione del modulo).
   writeFileSync(`${tmpDir}/src/index.ts`, 'export const hello = "modified";\n'); // M
