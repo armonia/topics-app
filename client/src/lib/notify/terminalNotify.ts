@@ -11,6 +11,7 @@
 // (completed) — never for every turn-end, and never for a working phase.
 
 import type { ClaudeSessionPhase, ClaudeSessionPendingApproval } from '../../types';
+import { createPaneId } from '../../state/pane/adapters/paneConfig';
 
 /**
  * The phases that warrant an OS banner for a terminal session. Identical to the
@@ -103,9 +104,53 @@ export function terminalDedupeKey(terminalId: string, phase: ClaudeSessionPhase,
   return `${terminalId}:${phase}:${rev}`;
 }
 
-/** The terminal panel id for a session id — matches createPaneId('terminal', id). */
+/** The terminal panel id for a session id. Delega a `createPaneId` invece di
+ *  ricostruire la stringa: il commento diceva già «matches createPaneId», ma era
+ *  una promessa, non un vincolo. */
 export function terminalPanelId(terminalId: string): string {
-  return `terminal:${terminalId}`;
+  return createPaneId('terminal', terminalId);
+}
+
+/**
+ * È il terminale `terminalId` la tab che l'utente ha davvero selezionato?
+ *
+ * Non basta `focusedPanelId === 'terminal:<id>'`, ed è un buco vero: un terminale
+ * che vive DENTRO una finestra progetto non compare mai come pane di livello App.
+ * Lo dice il modello stesso (`state/projectFocus.ts`): «when you focus a child
+ * inside a project, the App-level focusedPanelId stays the project pane». Quindi
+ * per ogni terminale annidato in un progetto il confronto secco era sempre falso
+ * e il banner partiva mentre l'utente stava GUARDANDO quel terminale — proprio il
+ * caso che la soppressione esiste per evitare.
+ *
+ * Il secondo livello lo risolve `activePaneByProject`: la ProjectWindow a fuoco
+ * pubblica lì la sua tab interna attiva. Se il pane a fuoco è `project:<path>` e
+ * la sua tab interna è il nostro terminale, l'utente ci sta dentro.
+ *
+ * Confronto SEMPRE esatto, mai `includes()`: un `focusedPanelId` che per caso
+ * contiene questo id (un pane diverso, un path che se lo porta dentro) non deve
+ * poter zittire una notifica altrui.
+ *
+ * Pura di proposito: il chiamante legge lo store e passa la mappa.
+ */
+export function isTerminalPaneSelected(
+  terminalId: string,
+  focusedPanelId: string | null | undefined,
+  activePaneByProject: Record<string, string | null> = {},
+): boolean {
+  if (!focusedPanelId) return false;
+  const paneId = terminalPanelId(terminalId);
+  if (focusedPanelId === paneId) return true;
+  if (!focusedPanelId.startsWith('project:')) return false;
+  // Il pane id porta il path PERCENT-ENCODED (`project:${encodeURIComponent(p)}`)
+  // mentre la mappa è chiavata sul path GREZZO. Invece di decodificare — che su
+  // una stringa malformata lancia — ricostruisco l'id da ogni chiave con la
+  // stessa funzione che l'ha creato: l'inverso esatto, e impossibile da far
+  // divergere. Le chiavi sono i progetti aperti, una manciata.
+  for (const [projectPath, activePaneId] of Object.entries(activePaneByProject)) {
+    if (activePaneId !== paneId) continue;
+    if (createPaneId('project', projectPath) === focusedPanelId) return true;
+  }
+  return false;
 }
 
 /**
