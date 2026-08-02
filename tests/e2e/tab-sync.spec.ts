@@ -10,6 +10,12 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 test.describe("Tab Sync & Persistence", () => {
+  // Topic creati dai test di questo file, cancellati alla fine (il DB di test
+  // e' condiviso dalla run seriale: lasciarli dentro sporca le spec successive).
+  const closeTestTopics: string[] = [];
+  test.afterAll(async ({ request }) => {
+    for (const id of closeTestTopics) await deleteTopic(request, id).catch(() => {});
+  });
   // TAB-SYNC-01: Tab State Persistence Across Reload
 
   test("TAB-SYNC-01: open tabs survive page reload", async ({
@@ -56,18 +62,30 @@ test.describe("Tab Sync & Persistence", () => {
     tabSyncPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
-    // Clean pane-store so the topic opens are a real state change (shared test DB).
-    await resetPaneStore(page.request, []);
+
+    // DUE tab, seminate — non aperte cliccando.
+    //
+    // Prima era «doppio click sulla prima (per fissarla) + click sulla
+    // seconda», seguito da `expect(labelsBefore.length >= 1)`. Misurato: di tab
+    // ne restava UNA sola. E con una tab sola il test non provava niente:
+    // chiudendola la barra sparisce del tutto, e l'unica asserzione dopo il
+    // reload stava dentro un `if (tabBarVisible)` — quindi veniva saltata.
+    // Verde senza eseguire un solo expect.
+    //
+    // Aprire per via di UI qui non serve (l'oggetto del test e' la CHIUSURA) e
+    // porta dentro la semantica delle tab di anteprima. `resetPaneStore` con
+    // due id le semina come pane aperte, deterministico: e' lo stesso schema
+    // delle spec stabili. Con due tab, chiuderne una lascia l'altra — la barra
+    // resta e «la tab chiusa non e' tornata» diventa verificabile invece che
+    // una tautologia su una lista vuota.
+    const a = await createTopic(page.request, `TabSync-A-${Date.now()}`);
+    const b = await createTopic(page.request, `TabSync-B-${Date.now()}`);
+    closeTestTopics.push(a.id, b.id);
+    await resetPaneStore(page.request, [a.id, b.id]);
     await goToApp(page);
 
-    // Double-click first topic to pin, then open second
-    await openTopicByDoubleClick(page, /Web Search Test/);
-    await openTopic(page, /Best Ramen/);
-    await tabSyncPage.waitForSyncPut("pane-store-v2");
-
-    // Get labels before closing — need at least 1 tab
     const labelsBefore = await tabSyncPage.getTabLabels();
-    expect(labelsBefore.length).toBeGreaterThanOrEqual(1);
+    expect(labelsBefore.length, "servono DUE tab perche' il test provi qualcosa").toBeGreaterThanOrEqual(2);
 
     // Close the last tab via its close button
     const tabs = tabSyncPage.tabs;
@@ -75,6 +93,35 @@ test.describe("Tab Sync & Persistence", () => {
     const closeBtn = lastTab.locator("button").last();
     const closedLabel = (await lastTab.textContent())?.trim() || "";
     await closeBtn.click();
+
+    // ASPETTA CHE LA TAB SIA DAVVERO CHIUSA, non solo che il click sia partito.
+    //
+    // La X non chiude subito: mette in coda una pending action con un countdown
+    // di 3 s (flusso soft-destructive, App.tsx «Things3-style»), e la tab resta
+    // a schermo con la spunta di annullamento finché il commit non scatta.
+    // Prima qui c'era solo `waitForSyncPut`, che veniva soddisfatta da una PUT
+    // qualsiasi del pane-store: il reload partiva DENTRO il countdown, il
+    // commit non arrivava mai, e la tab tornava. Il test falliva al primo
+    // tentativo e passava al retry — misurato: a +0,8 s la tab è ancora lì, a
+    // +4,3 s non c'è più.
+    //
+    // Aspettare la scomparsa è anche l'unico modo di tenere questo test onesto:
+    // se un domani la chiusura smettesse di committare, cadrebbe QUI, con il
+    // messaggio giusto, invece di cadere dopo il reload accusando la
+    // persistenza.
+    await expect
+      .poll(
+        () =>
+          page
+            .locator(`[data-testid="panel-tab-bar"] [draggable="true"]`)
+            .filter({ hasText: closedLabel })
+            .count(),
+        {
+          message: `la tab "${closedLabel}" doveva chiudersi entro il countdown`,
+          timeout: 15_000,
+        },
+      )
+      .toBe(0);
 
     // Wait for sync
     await tabSyncPage.waitForSyncPut("pane-store-v2");
@@ -86,21 +133,22 @@ test.describe("Tab Sync & Persistence", () => {
       timeout: 15000,
     });
 
-    // Wait for tab bar to load
+    // L'asserzione NON va dentro un `if`.
+    //
+    // Prima era `if (tabBarVisible) { if (closedLabel) { expect(...) } }`, con
+    // a chiudere il commento «If no tab bar visible, all tabs were closed —
+    // that's also valid». Ma qui l'altra tab (quella fissata col doppio click)
+    // resta aperta APPOSTA: se dopo il reload la barra non c'è, non è un esito
+    // valido, è la prova che il reload si è portato via anche lei — e il test
+    // passava lo stesso, senza eseguire un solo expect.
+    //
+    // La barra dev'esserci, e la tab chiusa non dev'esserci dentro.
     const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    const tabBarVisible = await tabBar
-      .waitFor({ state: "visible", timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
-
-    if (tabBarVisible) {
-      const labelsAfter = await tabSyncPage.getTabLabels();
-      // The closed tab should not be among the restored tabs
-      if (closedLabel) {
-        expect(labelsAfter).not.toContain(closedLabel);
-      }
-    }
-    // If no tab bar visible, all tabs were closed — that's also valid
+    await expect(tabBar, "dopo il reload deve restare la tab NON chiusa").toBeVisible({
+      timeout: 10_000,
+    });
+    expect(closedLabel, "il test non ha catturato l'etichetta della tab chiusa").not.toBe("");
+    expect(await tabSyncPage.getTabLabels()).not.toContain(closedLabel);
   });
 
   test("TAB-SYNC-01: closed BROWSER tab does not reappear after reload", async ({

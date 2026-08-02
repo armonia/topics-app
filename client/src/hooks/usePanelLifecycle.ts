@@ -81,6 +81,9 @@ import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { notifyNative } from '../lib/shell/app';
 import { isTauri } from '../lib/shell';
+import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
+import { clearBrowserSpawner } from '../state/browserSpawner';
+import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
@@ -1456,6 +1459,30 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // panelIndex would be -1, and undo would splice the tab back at the wrong
     // slot, duplicating it). Undo/redo re-add the pane first, so both still work.
     if (!openPanelsRef.current.includes(topicId)) return;
+    // Le tre (ora quattro) conseguenze della chiusura di una pane BROWSER
+    // vivono qui, e non solo nel gestore per-tipo di usePaneLifecycle, perche'
+    // questo e' l'UNICO imbuto da cui passano tutte le strade: la X, ⌘W, il
+    // «Chiudi ora» del tasto destro, il commit della chiusura differita e il
+    // broadcast dell'agente. Passando solo dalla X, con ⌘W la tab spariva di
+    // qui ma restava sul telefono (nessun tombstone cross-device) e il pallino
+    // «ha aperto un browser» restava appeso alla chat che l'aveva aperta
+    // (relazione spawner mai cancellata).
+    //
+    // La guardia qui sopra (`openPanelsRef.current.includes`) garantisce che
+    // non scatti mai per una pane interna a un progetto, che ha il suo
+    // percorso in useProjectLayout. E il doppio scatto con la X e' innocuo:
+    // `destroyContext` esce in silenzio su un id sconosciuto, tombstone e
+    // spawner sono idempotenti, e `browser_close` su una label gia' chiusa e'
+    // un no-op.
+    if (isBrowserPaneId(topicId)) {
+      const bctx = getBrowserContextFromPaneId(topicId);
+      if (bctx) {
+        fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE' }).catch(() => {});
+        clearBrowserSpawner(bctx);
+        addBrowserTombstone(bctx);
+        if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
+      }
+    }
     const closingTopic = topicsRef.current[topicId];
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
     // archived). Guard to REAL chat topics only — never drafts, never the
