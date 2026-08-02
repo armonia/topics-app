@@ -897,7 +897,19 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
  *  essere marcata vista da nessuno (le tre soglie si armano solo su una riga
  *  renderizzata o sulla tab attiva), e senza quella valvola il progetto pulserebbe
  *  per sempre. I due gate sono complementari: questo spegne ciò che HAI letto,
- *  quello copre ciò che non puoi raggiungere. */
+ *  quello copre ciò che non puoi raggiungere.
+ *
+ *  Gli ARCHIVIATI non contano, ed è la causa che si misura sul campo, non un caso
+ *  di scuola: sulla macchina di sviluppo, dei 22 figli che tenevano accesi i
+ *  progetti, 21 erano chat CHIUSE ferme su `awaiting-user` — alcune di settimane
+ *  prima. Una chat chiusa non ha riga né tab, quindi non c'è nessun posto dove
+ *  andare a spegnerla: senza questa riga il progetto resta acceso per sempre, ed è
+ *  precisamente il sintomo. È anche la scelta già fatta per l'ALTRO aggregato,
+ *  `visibleTopicSignalCount` (che nacque dal gemello di questo bug: la status bar
+ *  annunciava 22 sessioni parcheggiate mentre la sidebar non ne mostrava
+ *  nessuna). Prezzo accettato, lo stesso di lì: una chat archiviata ma FISSATA ha
+ *  una riga che pulsa mentre il progetto tace — il segnale non si perde, non viene
+ *  aggregato. */
 export function projectAttentionTier(
   projectPath: string,
   topics: Record<string, Topic>,
@@ -911,10 +923,7 @@ export function projectAttentionTier(
   let hasDone = false;
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
-    // Gli ARCHIVIATI restano dentro di proposito: `buildSidebarItems` tiene
-    // visibile una chat archiviata se è FISSATA, e un genitore muto sopra un
-    // figlio che pulsa sarebbe una contraddizione peggiore del rumore. Chi non ha
-    // riga è coperto da FOCUS WINS nei chiamanti.
+    if (t.archived) continue;
     if (seenSubjects?.has(t.id)) continue;
     if (inputTopics.has(t.id)) return 'input';
     if (awaitingTopics.has(t.id)) hasDone = true;
@@ -1249,6 +1258,14 @@ export function terminalAttentionCount(sid: string, terminalFinishedIds: Set<str
  * bar) and buildSidebarItems (sidebar project row) call it — guaranteeing the
  * project tab and the sidebar project row show the SAME summed count. Built on
  * the per-subject helpers above so there's one definition of "attention".
+ *
+ * Gli ARCHIVIATI non contano, per la stessa ragione di `projectAttentionTier` e
+ * di `visibleTopicSignalCount`: una chat chiusa ferma su `awaiting-user` non ha
+ * riga né tab, quindi il suo "1" non si può azzerare da nessuna parte e il badge
+ * del progetto resta appeso per sempre. Misurato: 6 dei 6 figli che tenevano
+ * segnalato `topics-app` erano archiviati. Il gemello globale
+ * (`rollupGlobalAttention`, badge del dock) NON è cambiato qui — è un'altra
+ * superficie e va guardato a parte.
  */
 export function rollupProjectAttention(
   projectPath: string,
@@ -1261,6 +1278,7 @@ export function rollupProjectAttention(
   let sum = 0;
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
+    if (t.archived) continue;
     sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
   }
   if (terminalFinishedIds.size) {
