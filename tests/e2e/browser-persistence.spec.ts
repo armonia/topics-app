@@ -99,18 +99,30 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
       const shot = await readFile(reopenBody.path!);
       expect(shot.length).toBe(reopenBody.bytes);
 
-      // 5. Topic.browserState.url should reflect last navigation (best-effort
-      // soft assertion). Only some topics receive the upsert (depends on the
-      // server.onNavigate hook firing for this contextId); the round-trip
-      // via storage.json (steps 3-4) is the load-bearing assertion.
+      // 4b. The reopen above recreated the context from scratch (it was DELETEd
+      // at step 2) — the same cold path a post-restart lazy creation takes.
+      // createContext restores the persisted last-url from disk, so the fresh
+      // context must be sitting on example.com, not about:blank. This is the
+      // load-bearing "restore" assertion the test's title promises; without it
+      // the spec never actually verified that the URL came BACK.
+      const stateRes = await request.get(`${BASE}/api/browsers/${ctxId}`);
+      expect(stateRes.ok()).toBe(true);
+      const state = (await stateRes.json()) as { url?: string };
+      expect(state.url ?? "").toContain("example.com");
+
+      // 5. Topic.browserState.url MUST reflect the last navigation. The
+      // onNavigate hook fires on service.navigate (agent/open path) and resolves
+      // the topic by its full id (ctxId === topic.id), so browserState is
+      // populated. HARD assert — the old `if (…url)` guard made this dead: it
+      // silently passed whenever the hook failed to populate, which is exactly
+      // the regression it was meant to catch.
       const topicRes = await request.get(`${BASE}/api/topics`);
       const topicData = (await topicRes.json()) as {
         topics?: Record<string, { browserState?: { url?: string } }>;
       };
       const restoredTopic = topicData.topics?.[ctxId];
-      if (restoredTopic?.browserState?.url) {
-        expect(restoredTopic.browserState.url).toContain("example.com");
-      }
+      expect(restoredTopic?.browserState?.url).toBeTruthy();
+      expect(restoredTopic!.browserState!.url).toContain("example.com");
     } finally {
       await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
       await deleteTopic(request, ctxId).catch(() => {});

@@ -134,6 +134,24 @@ function normalizeUrl(input: string): string {
 const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
 const BROWSER_CLOSE_GRACE_MS = 350;
 
+// Live-pane refcount per contextId. A native WKWebView is keyed by contextId and
+// SHARED by every pane that mounts under the same id (e.g. the chat tab and a
+// co-browse mirror of the same context, or a transient double-mount). Without a
+// refcount, the first pane to unmount would fire `browser_close(id)` after the
+// grace and destroy the view out from under the sibling that's still visible.
+// We only schedule the real close when the LAST reference drops. `mount` cancels
+// any pending close; the deferred close double-checks the count is still 0.
+const browserViewRefs = new Map<string, number>();
+function retainBrowserView(id: string): void {
+  browserViewRefs.set(id, (browserViewRefs.get(id) ?? 0) + 1);
+}
+function releaseBrowserView(id: string): number {
+  const next = (browserViewRefs.get(id) ?? 1) - 1;
+  if (next <= 0) browserViewRefs.delete(id);
+  else browserViewRefs.set(id, next);
+  return Math.max(0, next);
+}
+
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
   const [ready, setReady] = useState(false);
@@ -477,6 +495,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // the still-alive native view is REUSED instead of destroyed-then-orphaned.
     const queuedClose = pendingBrowserCloses.get(id);
     if (queuedClose) { clearTimeout(queuedClose); pendingBrowserCloses.delete(id); }
+    retainBrowserView(id);
     const startUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
     // isolate: each pane gets its OWN persistent WKWebsiteDataStore keyed on the
     // contextId (stable across restarts) — per-topic cookie/localStorage
@@ -487,9 +506,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // browser_open is idempotent on an existing label (lib.rs), so reusing a view
     // whose close we just cancelled simply re-shows it.
     markBrowserViewLive(id);
-    void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
-      .then(() => {
-        if (cancelled) return;
+    const applyOpened = () => {
         openedRef.current = true;
         // NON fidarsi del `true` iniziale di `nativeVisibleRef`: la view che
         // `browser_open` ha appena restituito può essere una view RIUSATA, e
@@ -523,8 +540,26 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         setReady(true);
         setUrl(startUrl === 'about:blank' ? '' : startUrl);
         if (pendingRectRef.current) setBounds(pendingRectRef.current);
-      })
-      .catch((e) => console.warn('[tauri-browser] open failed', e));
+    };
+    // browser_open used to fail silently: a transient IPC/shell hiccup left the
+    // pane stuck on "Initializing native browser…" forever, with no signal to
+    // the user and no recovery. Do one bounded retry, then surface the failure
+    // in the nav-error strip so the pane can offer a retry instead of hanging.
+    const attemptOpen = (attempt: number): void => {
+      void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
+        .then(() => { if (!cancelled) applyOpened(); })
+        .catch((e) => {
+          if (cancelled) return;
+          if (attempt < 1) {
+            console.warn(`[tauri-browser] open failed (attempt ${attempt + 1}), retrying`, e);
+            window.setTimeout(() => { if (!cancelled) attemptOpen(attempt + 1); }, 400);
+            return;
+          }
+          console.warn('[tauri-browser] open failed (giving up)', e);
+          setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: startUrl });
+        });
+    };
+    attemptOpen(0);
     return () => {
       cancelled = true;
       openedRef.current = false;
@@ -534,9 +569,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // teardown, which otherwise orphans a native view on close+open same tick.
       const existing = pendingBrowserCloses.get(id);
       if (existing) clearTimeout(existing);
+      // Only the LAST live pane for this contextId may close the shared view.
+      // If a sibling pane still references it, drop our ref and leave the view
+      // alone — closing here would blank the sibling.
+      if (releaseBrowserView(id) > 0) return;
       markBrowserViewDead(id);
       pendingBrowserCloses.set(id, setTimeout(() => {
         pendingBrowserCloses.delete(id);
+        // Re-check under the grace: a remount may have re-retained the id.
+        if ((browserViewRefs.get(id) ?? 0) > 0) return;
         void tauriInvoke('browser_close', { id }).catch(() => {});
       }, BROWSER_CLOSE_GRACE_MS));
     };

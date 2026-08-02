@@ -23,7 +23,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -307,7 +307,16 @@ const browserService = await createBrowserService({
     try {
       let topic = ctx.getTopicBySessionKey("topic:" + contextId);
       if (!topic || topic.id.slice(0, 8) !== contextId) {
-        topic = Object.values(ctx.loadTopics().topics).find(t => t.id.slice(0, 8) === contextId) ?? null;
+        // Chat panes resolve their contextId via resolveContextIdForTopic ->
+        // `topic.browserState?.contextId ?? topic.id`, i.e. the FULL topic id —
+        // NOT the 8-char sessionKey prefix. Match both the full id and the
+        // prefix, else onNavigate silently never resolves a normal chat pane and
+        // browserState is never populated (which is exactly why it read as dead).
+        const topics = Object.values(ctx.loadTopics().topics);
+        topic = topics.find(t => t.id === contextId)
+          ?? topics.find(t => t.browserState?.contextId === contextId)
+          ?? topics.find(t => t.id.slice(0, 8) === contextId)
+          ?? null;
       }
       if (!topic) return;  // contextId may be temp/standalone — ignore
       topic.browserState = {
@@ -371,6 +380,14 @@ const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
+// Deleting a terminal session closes any browser it opened (contextId
+// `term-<id>`): broadcast the pane close for every client + destroy the
+// server-side headless context. Best-effort — a native-only pane has no
+// headless context and destroyContext simply no-ops.
+setTerminalBrowserCloser((contextId) => {
+  ctx.broadcastToAll({ type: "browser:close-pane", contextId });
+  browserService.destroyContext(contextId).catch(() => {});
+});
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
 const usageRouter = createUsageRouter(ctx);

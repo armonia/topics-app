@@ -151,6 +151,38 @@ function publish(kind: TombstoneKind): void {
   }, SYNC_DEBOUNCE_MS));
 }
 
+/**
+ * Teardown flush: fire any debounced-but-unsent publish SYNCHRONOUSLY before the
+ * document goes away. Closing a tab then immediately reloading/navigating (well
+ * inside SYNC_DEBOUNCE_MS) would otherwise drop the pending 500ms PUT and the
+ * peer would never learn the tab was closed ("chiudi e ricarica subito, e il
+ * peer non lo sa mai"). `keepalive` lets the PUT outlive the unloading page —
+ * same durability idiom as projectChannelSync's pagehide flush.
+ */
+function flushPendingOnTeardown(): void {
+  for (const [uiKey, timer] of [...debounceTimers]) {
+    clearTimeout(timer);
+    debounceTimers.delete(uiKey);
+    const kind = KIND_BY_UI_KEY[uiKey];
+    if (!kind) continue;
+    const latest = serializeKind(kind);
+    if (latest === lastSyncedJson.get(uiKey)) { unackedJson.delete(uiKey); continue; }
+    try {
+      void fetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
+        body: latest,
+        keepalive: true,
+      }).catch(() => {});
+      // Optimistically mark synced; if the keepalive PUT is dropped, the value
+      // stays in unackedJson only if we DON'T clear it — but a reload re-seeds
+      // from localStorage anyway, so a lost flush self-heals on next connect.
+      lastSyncedJson.set(uiKey, latest);
+      unackedJson.delete(uiKey);
+    } catch { /* best effort during unload */ }
+  }
+}
+
 function applyServerValue(uiKey: string, value: unknown, serverSeq: number, sourceClientId: unknown): void {
   // Our own write echoing back — record the seq, don't re-apply.
   if (typeof sourceClientId === 'string' && sourceClientId === getTabId()) {
@@ -216,6 +248,13 @@ export function initTombstoneSync(): void {
   if (wired || typeof window === 'undefined') return;
   wired = true;
   setTombstoneChangeListener(publish);
+  // pagehide fires on real unload AND on bfcache freeze; visibilitychange→hidden
+  // is the reliable mobile-Safari path (pagehide can be skipped there). Both
+  // flush the pending debounce so an immediate reload doesn't strand the close.
+  window.addEventListener('pagehide', flushPendingOnTeardown);
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingOnTeardown();
+  });
   subscribeFrames(handleFrame, { types: ['ui-state:init', 'ui-state:updated', 'ui-state:patch'] });
   subscribeLifecycle((event) => {
     if (event !== 'open') return;

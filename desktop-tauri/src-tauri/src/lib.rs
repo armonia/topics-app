@@ -3917,6 +3917,68 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     Ok(())
 }
 
+/// Purge a browser pane's PERSISTENT on-disk `WKWebsiteDataStore` — the cookie/
+/// localStorage/IndexedDB silo keyed by `data_store_uuid_for(id)`. `browser_close`
+/// frees the CONTENT (about:blank) but the persistent store lives on disk forever;
+/// an audit on 2026-08-02 found ~1.1 GB accumulated across contexts that no pane
+/// will ever reopen. This reclaims it.
+///
+/// ⚠️ DESTRUCTIVE + IRREVERSIBLE: this deletes the login/session for `id`. Call it
+/// ONLY on a pane's TRUE close (the tombstone path in `usePaneLifecycle`), NEVER on
+/// the transient re-key of an auto-split or a hide — those must keep the store so
+/// the pane comes back logged in. The client contract enforces that.
+///
+/// macOS 14+ (`removeDataStoreForIdentifier:completionHandler:`); older systems
+/// no-op via `respondsToSelector:`. Caveat: wry never deallocates the WKWebView
+/// (`browser_close`'s retain-leak note), so if the just-closed view still pins the
+/// store WebKit may answer the completion handler with an error — we log and move
+/// on (no regression; the on-disk bytes are reclaimed on the next relaunch's close
+/// when nothing pins them). Fire-and-forget: we don't block the caller on the
+/// async completion.
+#[tauri::command]
+fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_purge_data_store", move || {
+        // Close first (idempotent) so the store has the best chance of being free.
+        let _ = browser_close_inner(app.clone(), id.clone());
+        #[cfg(target_os = "macos")]
+        {
+            use crate::mac::*;
+            let bytes = data_store_uuid_for(&id);
+            let id_for_log = id.clone();
+            // WebKit class methods want the main thread + an autorelease pool;
+            // hop onto it. Fire-and-forget — we don't join the async completion.
+            let _ = app.run_on_main_thread(move || unsafe {
+                let cls = class!(WKWebsiteDataStore);
+                let sel = sel!(removeDataStoreForIdentifier:completionHandler:);
+                let responds: BOOL = msg_send![cls, respondsToSelector: sel];
+                if responds != YES {
+                    return; // pre-macOS-14: no per-identifier removal API.
+                }
+                // NSUUID initWithUUIDBytes: wants a `const uuid_t` = `const u8[16]`.
+                let uuid_alloc: id = msg_send![class!(NSUUID), alloc];
+                let uuid: id = msg_send![uuid_alloc, initWithUUIDBytes: bytes.as_ptr()];
+                if uuid == nil {
+                    return;
+                }
+                let handler = block2::RcBlock::new(move |err: id| {
+                    if err != nil {
+                        let desc: id = msg_send![err, localizedDescription];
+                        eprintln!(
+                            "[browser_purge_data_store] {}: {}",
+                            id_for_log,
+                            nsobject_to_string(desc)
+                        );
+                    }
+                });
+                let _: () = msg_send![cls, removeDataStoreForIdentifier: uuid, completionHandler: &*handler];
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = id;
+        Ok(())
+    })
+}
+
 /// Run `js` in a webview and return its result stringified — the read-side agent
 /// primitive (extract / read DOM / get url+title) for the native browser pane,
 /// the part `webview.eval()` can't do (it's fire-and-forget; good for click/fill/
@@ -7440,6 +7502,7 @@ pub fn run() {
             browser_set_visible,
             browser_animate_bounds,
             browser_close,
+            browser_purge_data_store,
             browser_list,
             browser_eval_js,
             browser_screenshot,
