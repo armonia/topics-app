@@ -18,6 +18,16 @@ interface Props {
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
+  /**
+   * Il modello del turno. Sta nel tooltip del costo, non nella striscia: serve a
+   * rendere il numero VERIFICABILE — senza sapere a che tariffa è stato contato,
+   * un costo è un numero che si può solo credere. È anche la ragione per cui la
+   * colonna esiste (migration 076): quando i prezzi si sono rivelati sbagliati,
+   * senza il modello non si poteva sapere quale riga correggere.
+   *
+   * Assente sui messaggi anteriori alla 076.
+   */
+  model?: string | null;
 }
 
 /**
@@ -28,7 +38,7 @@ interface Props {
  *
  * The format mirrors the reference screenshot: `<duration>s · <tokens> tokens · $<cost>`.
  */
-export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens }: Props) {
+export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
   const prompt = safeNum(promptTokens);
   const completion = safeNum(completionTokens);
   const total = prompt + completion;
@@ -97,8 +107,9 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
         ...(cb.writeCents > 0 ? [`  ${formatCostCents(cb.writeCents)} di scrittura in cache (×1,25, ×2 a un'ora)`] : []),
         `  ${formatCostCents(cb.freshCents - cb.writeCents)} di token freschi e risposta`,
         '',
+        model ? `Modello: ${model}` : '',
         `Ripartizione del costo misurato in base al peso di ogni quota; su tutti i modelli Claude un token di risposta costa 5× uno di prompt.`,
-      ].join('\n'),
+      ].filter(Boolean).join('\n'),
     });
   }
   if (safeCost > 0) {

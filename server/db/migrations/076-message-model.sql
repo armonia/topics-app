@@ -1,0 +1,19 @@
+-- Il MODELLO che ha prodotto il messaggio.
+--
+-- Il server conosce il modello nel momento esatto in cui calcola il costo
+-- (`server/routes/chat.ts`: `message.model || liveModel || overrideModel`), e
+-- poi lo butta via: la riga conserva il RISULTATO del prezzo ma non l'input che
+-- lo ha determinato. Finché il prezzo è giusto non si nota; il giorno in cui è
+-- sbagliato — ed è successo, ogni Opus tariffato 15$/M invece di 5$/M per mesi —
+-- non c'è modo di sapere a quale tariffa una riga sia stata contata, quindi non
+-- c'è modo di correggerla. Si è dovuto DEDURRE il prezzo applicato dividendo il
+-- costo per le unità pesate: funziona, ma è archeologia, e funziona solo finché
+-- due modelli non condividono la stessa tariffa.
+--
+-- Con la colonna: attribuzione del costo per modello, correzione diretta di uno
+-- storico se una tariffa cambia, e la possibilità di accorgersi che un modello
+-- non è in tabella invece di vederlo passare come "costo zero".
+--
+-- Nullable e senza backfill: per le righe passate il modello non esiste da
+-- nessuna parte, e inventarlo sarebbe peggio del non saperlo.
+ALTER TABLE messages ADD COLUMN model TEXT;

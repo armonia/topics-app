@@ -106,6 +106,15 @@ export interface ChatMessage extends Message {
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
+  /**
+   * Il modello che ha prodotto il turno. Il server lo conosce nell'istante in cui
+   * calcola `costCents` e prima della migration 076 lo buttava: restava il
+   * risultato del prezzo, non l'input che lo aveva determinato — e un costo senza
+   * la sua tariffa non è verificabile né correggibile.
+   *
+   * `null`/assente sulle righe anteriori alla 076: non è ricostruibile.
+   */
+  model?: string | null;
 }
 
 export interface CreateTopicRequest {
@@ -369,6 +378,8 @@ export interface WSStreamEndMessage {
   usageCompletionTokens?: number;
   /** Cost in cents (USD). Computed via `calculateCost` from prompt+completion. */
   costCents?: number;
+  /** Il modello del turno, accanto al costo che ha prodotto. */
+  model?: string;
   /** Lo scorporo della cache del turno appena finito (quote disgiunte). Assenti
    *  quando il provider non riporta l'usage. */
   cacheReadTokens?: number;

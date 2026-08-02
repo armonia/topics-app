@@ -97,6 +97,11 @@ const streamEndSchema = z.object({
   usagePromptTokens: z.optional(z.number()),
   usageCompletionTokens: z.optional(z.number()),
   costCents: z.optional(z.number()),
+  // Il modello del turno, accanto al costo che ha prodotto. Va sul filo per la
+  // stessa ragione per cui ci va lo scorporo della cache: la UI mostra il piede
+  // del messaggio appena il turno finisce, senza rileggere la history. Assente
+  // quando il provider non riporta l'usage.
+  model: z.optional(z.string()),
   // Lo SCORPORO di `usagePromptTokens`: quanta parte era cache. Il totale da solo
   // dice quanto è costato il turno, non cosa l'ha reso costoso — e in un turno
   // agentico lungo la cache riletta è la voce schiacciante. Quote DISGIUNTE, come
