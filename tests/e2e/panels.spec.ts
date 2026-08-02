@@ -325,8 +325,10 @@ test.describe("Panels & Views", () => {
     }
 
     await page.keyboard.press("Escape");
-    // Wait for dialog to close
-    await expect(dialog.first()).toBeHidden({ timeout: 3000 }).catch(() => {});
+    // Che Escape CHIUDA e' l'unica cosa che questa riga verifica, ed era annullata
+    // da un `.catch(() => {})`: con quello attaccato l'asserzione non poteva
+    // fallire, quindi il test restava verde anche se Escape non faceva nulla.
+    await expect(dialog.first()).toBeHidden({ timeout: 3000 });
   });
 
   test("scripts API responds", async ({ page }) => {

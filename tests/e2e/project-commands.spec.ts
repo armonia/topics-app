@@ -28,15 +28,12 @@ const WORKSPACE_DIR = join(
   "workspace"
 );
 
-/**
- * Open a topic by finding it anywhere in the sidebar.
- * If not visible directly, tries to expand the project group node.
- */
-async function openTopicAnywhere(
+/** Apre la topic dalla sidebar, se ci compare. `true` se ci è riuscita. */
+async function openTopicFromSidebar(
   page: import("@playwright/test").Page,
   name: string | RegExp,
-  projectName?: string
-) {
+  projectName?: string,
+): Promise<boolean> {
   const item = page.getByRole("treeitem", { name });
 
   let found = await item.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
@@ -60,31 +57,81 @@ async function openTopicAnywhere(
     found = await item.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
   }
 
-  if (found) {
-    await item.click();
-    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
-    return;
-  }
+  if (!found) return false;
+  await item.click();
+  await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
+  return true;
+}
 
-  // Fallback: a project-BOUND topic is absorbed into its project window and no
-  // longer renders as a standalone sidebar treeitem. buildSidebarItems only
-  // lists a project's child chat when it has an OPEN inner tab (or a
-  // notification / pin), and the project's inner-pane layout is localStorage-
-  // scoped — which does NOT survive a fresh Playwright context (each test gets
-  // a new context, so a reload restores the project window with "No chats
-  // open"). Open the topic via the ⌘K command palette instead: its
-  // onOpenTopic → handleTopicClick opens the project window AND focuses this
-  // topic's chat inside it (usePanelLifecycle.ts:1097 — setPendingProjectFocus).
+/**
+ * Apre la topic dalla palette ⌘K. `true` se ci è riuscita.
+ *
+ * È la strada di una topic LEGATA a un progetto: viene assorbita nella finestra
+ * del progetto e non compare più come treeitem a sé. `buildSidebarItems` elenca
+ * la chat figlia di un progetto solo se ha una tab interna APERTA (o una
+ * notifica, o è pinnata), e il layout interno del progetto sta in localStorage —
+ * che NON sopravvive a un contesto Playwright nuovo (ogni test ne riceve uno, e
+ * al reload la finestra del progetto torna con "No chats open").
+ *
+ * La palette invece funziona sempre: `onOpenTopic` → `handleTopicClick` apre la
+ * finestra del progetto E ci mette a fuoco dentro la chat di questa topic
+ * (usePanelLifecycle.ts — setPendingProjectFocus).
+ */
+async function openTopicFromPalette(
+  page: import("@playwright/test").Page,
+  name: string | RegExp,
+): Promise<boolean> {
   await page.keyboard.press("Meta+k");
   const overlay = page.locator('[data-testid="command-palette"]');
-  await overlay.waitFor({ state: "visible", timeout: 5000 });
+  const opened = await overlay.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
+  if (!opened) return false;
+
   const query = typeof name === "string" ? name : name.source;
   await overlay.getByRole("textbox").fill(query);
   const option = overlay.getByRole("option", { name }).first();
-  await option.waitFor({ state: "visible", timeout: 5000 });
+  const hasOption = await option.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
+  if (!hasOption) {
+    await page.keyboard.press("Escape");
+    return false;
+  }
   await option.click();
   await overlay.waitFor({ state: "hidden", timeout: 5000 });
   await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
+  return true;
+}
+
+/**
+ * Apre una topic ovunque si trovi, scegliendo la strada in base a COM'È FATTA.
+ *
+ * Prima questa funzione provava sempre la sidebar e teneva la palette come
+ * ripiego: tre sonde in cascata da 3+5+5 secondi, poi ⌘K. Per una topic legata a
+ * un progetto quelle tre sonde sono destinate a fallire — lo spiega il commento
+ * di `openTopicFromPalette`, ed è la ragione per cui il ripiego esiste — quindi
+ * erano TREDICI SECONDI spesi a dimostrare una cosa che il codice sapeva già.
+ * Costavano 14,6s a testa ad AC-2 e AC-6b, i due test più lenti dell'intera
+ * suite dopo FILE-17.
+ *
+ * Ora il caso noto va per la sua strada: `projectName` presente significa
+ * "questa topic è legata a un progetto" — si passa dalla palette. L'altra strada
+ * resta come ripiego in entrambi i versi, così nessuno dei due casi perde
+ * copertura se la UI cambia.
+ */
+async function openTopicAnywhere(
+  page: import("@playwright/test").Page,
+  name: string | RegExp,
+  projectName?: string
+) {
+  if (projectName) {
+    if (await openTopicFromPalette(page, name)) return;
+    if (await openTopicFromSidebar(page, name, projectName)) return;
+  } else {
+    if (await openTopicFromSidebar(page, name)) return;
+    if (await openTopicFromPalette(page, name)) return;
+  }
+  throw new Error(
+    `openTopicAnywhere: la topic ${name} non si apre ne' dalla sidebar ne' dalla palette` +
+      (projectName ? ` (progetto: ${projectName})` : ""),
+  );
 }
 
 /** Send a slash command in the open chat.

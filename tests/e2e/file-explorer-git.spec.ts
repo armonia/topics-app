@@ -187,35 +187,43 @@ test.describe("File Explorer — Git", () => {
     const gitHeader = gitChanges.locator("div").filter({ hasText: /^Git$/ }).first();
     await expect(gitHeader).toBeVisible();
 
-    // Ensure expanded first - look for any file status indicator or commit input
+    // «La sezione mostra il suo contenuto» in UNA definizione sola.
+    //
+    // Serve perché il contenuto non ha una forma fissa: a repo sporco sono i
+    // badge M/D/U/A più il campo del messaggio, a repo pulito è la scritta
+    // "Clean working tree". Prima questa disgiunzione era ricopiata due volte
+    // (per capire se era già aperta, e per controllare la ri-apertura), mentre
+    // la CHIUSURA veniva verificata su due locator singoli con un
+    // `.catch(() => {})` attaccato: quelle due asserzioni non potevano fallire,
+    // quindi metà del test — la metà che dà il nome al test — non verificava
+    // nulla. E non bastava togliere il `catch`: a repo pulito i badge M/D/U/A
+    // sono assenti anche da APERTA, quindi asserirne l'assenza sarebbe passato
+    // comunque. Il predicato giusto è questo.
     const statusIndicators = gitChanges.locator("span", { hasText: /^[MDUA]$/ });
     const commitInput = gitChanges.locator('input[placeholder="Message"]');
     const cleanTree = gitChanges.getByText("Clean working tree");
+    const sectionHasContent = async () =>
+      (await statusIndicators.first().isVisible().catch(() => false)) ||
+      (await commitInput.isVisible().catch(() => false)) ||
+      (await cleanTree.isVisible().catch(() => false));
 
-    // Check if content is visible (section expanded)
-    const isExpanded = await statusIndicators.first().isVisible().catch(() => false)
-      || await commitInput.isVisible().catch(() => false)
-      || await cleanTree.isVisible().catch(() => false);
-
-    if (!isExpanded) {
+    // Ensure expanded first
+    if (!(await sectionHasContent())) {
       await gitHeader.click();
+      await expect.poll(sectionHasContent, { timeout: 5_000 }).toBe(true);
     }
 
-    // Now collapse by clicking git header
+    // Collassa: il contenuto deve sparire.
     await gitHeader.click();
+    await expect
+      .poll(sectionHasContent, { timeout: 5_000, message: "la sezione Git non si e' chiusa" })
+      .toBe(false);
 
-    // Content should be hidden after collapse
-    await expect(statusIndicators.first()).not.toBeVisible({ timeout: 5000 }).catch(() => {});
-    await expect(commitInput).not.toBeVisible({ timeout: 5000 }).catch(() => {});
-
-    // Re-expand
+    // Ri-espandi: il contenuto deve tornare.
     await gitHeader.click();
-
-    // Content should reappear
-    const hasContent = await statusIndicators.first().isVisible().catch(() => false)
-      || await commitInput.isVisible().catch(() => false)
-      || await cleanTree.isVisible().catch(() => false);
-    expect(hasContent).toBeTruthy();
+    await expect
+      .poll(sectionHasContent, { timeout: 5_000, message: "la sezione Git non si e' riaperta" })
+      .toBe(true);
   });
 
   test("FILE-07: diff viewer renders with CodeMirror MergeView", async ({
