@@ -490,13 +490,33 @@ async function globalSetup() {
     }
   } catch {}
 
-  // Phase 30.1 polish — wipe per-topic browser-state from previous runs.
-  // BASE_DIR in browser-state-store.ts now honours DATA_DIR, but pre-fix
-  // runs (or runs with the old default) may have left files under
-  // <repo>/data/browser-state/. Belt-and-braces: clean both locations
-  // before the test server boots so restoreAllContexts doesn't re-hydrate
-  // a context with stale cookies that would skew BROWSER-CHAT-01 asserts.
-  for (const dir of [join(TEST_DATA_DIR, "browser-state"), join(process.cwd(), "data", "browser-state")]) {
+  // Pulizia dello stato browser della run PRECEDENTE — SOLO sotto la cartella
+  // dati di test, mai `<repo>/data`.
+  //
+  // Qui c'era anche `join(process.cwd(), "data", "browser-state")`, con accanto
+  // un commento che lo chiamava «belt-and-braces» per ripulire i residui delle
+  // run pre-fix. La premessa era falsa e il prezzo altissimo: il server di
+  // PRODUZIONE non ha `DATA_DIR` (il plist com.armonia.topics-server esporta
+  // solo HOME e PATH, con WorkingDirectory sul repo), quindi
+  // `browser-state-store.ts:19-21` risolve proprio `<repo>/data/browser-state`.
+  // Quella cartella contiene i cookie e il localStorage di ogni pane browser
+  // (`storage.json`), l'ultima URL visitata (`last-url.json`) e — sotto
+  // `_handles/` — i login salvati a mano con `browser_save_state`. Nessun
+  // percorso di produzione li cancella: l'unico che lo faceva era questa riga.
+  //
+  // Effetto per chi usa l'app: dopo ogni run E2E lanciata dal checkout, tutte
+  // le pane browser si risvegliano SLOGGATE e su `about:blank` invece che sulla
+  // loro pagina — non subito (i contesti vivi tengono i cookie in RAM) ma al
+  // primo ricreare del contesto, cioè al riavvio del server o dopo il reaper
+  // d'inattività. È il «ai reset si perde la sessione» + «schermata bianca»
+  // segnalato il 2026-08-02. Nei log ci sono le prove del wipe del 30/07, e da
+  // lì in poi lo stesso contesto passa da `persisted=yes` a `persisted=no`.
+  //
+  // Toglierla non tocca un solo assert: la riga 466 forza già `DATA_DIR` a
+  // TEST_DATA_DIR, `scripts/start-test-server.sh` la esporta sempre, e le spec
+  // risolvono il percorso da lì (browser-persistence.spec.ts usa E2E_DATA_DIR),
+  // mai da `process.cwd()`.
+  for (const dir of [join(TEST_DATA_DIR, "browser-state")]) {
     try {
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true });
