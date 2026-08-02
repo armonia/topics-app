@@ -40,6 +40,8 @@ import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { isTauri } from '../../lib/shell';
+import { currentWindowLabel } from '../../lib/shell/tauri';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -494,7 +496,27 @@ export function StandaloneChatGroup({
   const availableTypes: PaneType[] = (() => {
     const present = new Set<PaneType>();
     if (validatedOrderedIds.some(id => isBrowserPaneId(id))) present.add('browser');
-    return getAddableTypesForScope('standalone', present);
+    const types = getAddableTypesForScope('standalone', present);
+    // In una finestra POP-OUT il Browser non si offre.
+    //
+    // `browser_open_inner` cabla `app.get_window("main")` come genitore della
+    // webview: una pane browser aperta in un pop-out non compare nel pop-out,
+    // compare sopra la finestra PRINCIPALE, alle coordinate che aveva nel
+    // pop-out — un rettangolo di sito web piazzato in mezzo all'interfaccia di
+    // main. E quando il pop-out si chiude, la sua pagina React muore senza
+    // cleanup: nessuno chiama `browser_close` e quel rettangolo resta finche'
+    // non si riavvia l'app.
+    //
+    // Il resto del guscio ASSUME già che le pane browser vivano solo in main
+    // (lib.rs: «A detached window has no browser pane»), ma era un'assunzione,
+    // non un vincolo: questo menu la offriva. Qui diventa vera.
+    //
+    // È contenimento, non la soluzione: quella vera è passare la finestra a
+    // `browser_open` e risolverla con `get_window(&label)`, rivedendo tutti i
+    // percorsi che danno main per scontato (release_focus, forwarder ⌘W,
+    // maschere d'angolo). Tracciata a parte.
+    const detached = isTauri && (currentWindowLabel() ?? 'main') !== 'main';
+    return detached ? types.filter((t) => t !== 'browser') : types;
   })();
 
   // Shared split gating (splitRules.ts) — the ONE predicate this group's
