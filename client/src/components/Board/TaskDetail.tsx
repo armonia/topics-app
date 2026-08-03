@@ -6,15 +6,18 @@ import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
+import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
+import { collectTaskMediaPaths } from './taskMedia';
 import { formatReviewNotes } from './reviewNotes';
-import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, type TaskSurface } from './constants';
+import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -395,7 +398,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, focusPaneId }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * Change signal (the task's updatedAt from the board's live list): any WS
@@ -407,6 +410,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   onOpenTask?: (taskId: string) => void;
   /** Deep-link the agent's chat tab (output panel fallback). */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * Tab del task da mettere davanti all'apertura (`media:<path>`): la chiede
+   * chi ha aperto il drawer con un gesto MIRATO — il bottone «apri in una tab»
+   * sull'anteprima della card. Senza, si apre sul Thread come sempre.
+   */
+  focusPaneId?: string;
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
@@ -547,15 +556,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Distinct media attachments across the whole thread, newest-first, deduped by
   // path — each is one "Anteprima" tab of the task (a delivered PDF/screenshot
   // IS review output even when the agent didn't set output_url).
-  const mediaPaths = useMemo(() => {
-    const seen = new Set<string>(); const out: string[] = [];
-    for (let i = comments.length - 1; i >= 0; i--) {
-      for (const m of comments[i].media ?? []) {
-        if (!seen.has(m)) { seen.add(m); out.push(m); }
-      }
-    }
-    return out;
-  }, [comments]);
+  //
+  // `previewImage` viene PRIMA ed è parte della lista: è l'evidenza principale
+  // della consegna e l'agente la imposta con `update_task(previewImage=…)`, non
+  // allegandola a un commento — partendo dai soli media dei commenti era quindi
+  // l'unico artefatto del task SENZA una sua tab. Stando qui la ottiene gratis,
+  // come ogni altro allegato.
+  const mediaPaths = useMemo(
+    () => collectTaskMediaPaths(task?.previewImage, comments),
+    [comments, task?.previewImage],
+  );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
@@ -1001,6 +1011,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // The single GroupLayout that IS the drawer body's tab system.
   const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface });
+  // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
+  // e quindi le pane) non sono ancora arrivati, perciò `focusPane` fallisce e
+  // basta. Il ref si azzera solo quando la pane c'è davvero ed è stata attivata,
+  // così il gesto dell'utente non si perde nel buco tra mount e fetch — e non si
+  // ripete più dopo, altrimenti riporterebbe l'anteprima davanti a ogni nuovo
+  // commento mentre stai leggendo il thread.
+  const pendingFocusRef = useRef<string | null>(focusPaneId ?? null);
+  useEffect(() => {
+    const wanted = pendingFocusRef.current;
+    if (!wanted) return;
+    if (browser.focusPane(wanted)) pendingFocusRef.current = null;
+  }, [browser]);
   browserRef.current = browser;
   // Seed the first browser tab from the review output_url once, when the task
   // has no tabs yet (so the reviewer lands on the delivered page). NO forced
@@ -1395,15 +1417,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
             {/* Anteprima della consegna anche nel drawer (non solo sulla card):
                 intera, object-contain — il reviewer deve poter vedere TUTTO lo
-                screenshot. Click → apre l'immagine piena fuori dal drawer. */}
+                screenshot.
+
+                È lo STESSO componente della card (`PreviewMedia`), non più un
+                <img> scritto a mano: da qui il click apre il lightbox dentro
+                l'app — prima usciva in una finestra esterna, perdendo il thread
+                (e dentro il WKWebView di Tauri spesso non apriva niente) — e un
+                video è un <video> coi controlli invece di un'icona rotta.
+
+                In hover, il bottone «apri in una tab» porta l'anteprima
+                accanto a Thread: il lightbox serve a guardare, la tab a
+                lavorarci mentre leggi il resto. La tab esiste perché
+                `previewImage` sta in `mediaPaths`. */}
             {task?.previewImage && (
-              <img
-                src={getMediaUrl(task.previewImage)}
-                alt="Anteprima della consegna"
-                loading="lazy"
-                title="Apri lo screenshot a grandezza piena"
-                onClick={() => openExternalOnce(getMediaUrl(task.previewImage!))}
-                className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-app-border bg-black/20 object-contain"
+              <PreviewMedia
+                path={task.previewImage}
+                variant="drawer"
+                onOpenTab={() => browser.focusPane(mediaPaneIdFor(task.previewImage!))}
               />
             )}
             {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
@@ -1421,7 +1451,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                         <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
                         <button
                           type="button"
-                          onClick={() => browser.focusPane(`media:${p}`)}
+                          onClick={() => browser.focusPane(mediaPaneIdFor(p))}
                           title="Apri come tab nel workspace del task"
                           className="min-w-0 flex-1 truncate text-left hover:text-white"
                         >{name}</button>
@@ -1723,8 +1753,19 @@ export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; task
  * agent-controlled web pages: the URL-sandbox rationale doesn't apply.
  */
 export function MediaViewer({ url, path }: { url: string; path: string }) {
-  const isImg = /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(path);
-  const isPdf = /\.pdf$/i.test(path);
+  const isImg = isImagePath(path);
+  const isPdf = isPdfPath(path);
+  // Una clip di review è un artefatto di prima classe come lo screenshot: prima
+  // cadeva nel ramo «Nessuna anteprima per questo tipo di file» e per guardarla
+  // dovevi uscire dall'app. Controlli sì (si scorre), niente autoplay: la tab
+  // l'hai aperta tu, parte quando vuoi tu.
+  if (isVideoPath(path)) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-app-inset p-3">
+        <video src={url} controls playsInline preload="metadata" className="max-h-full max-w-full rounded" />
+      </div>
+    );
+  }
   if (isImg) {
     return (
       <div className="min-h-0 flex-1 overflow-auto bg-app-inset p-3">

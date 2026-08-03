@@ -9,14 +9,14 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
+import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
 import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
-  status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
+  status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
   /** Live per-turn usage keyed by task id (ticking chip on working cards). */
@@ -103,7 +103,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // (useCallback / state setters), and task/blocker come from tasks-keyed memos,
 // so the shallow prop compare holds for idle cards.
 export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live }: {
-  task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
+  task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
@@ -272,7 +272,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           cosa. Il click passa alla card (apre il drawer). object-top: di un
           full-page si vede la testata, non un centro anonimo. */}
       {task.previewImage && (
-        <PreviewMedia path={task.previewImage} variant="card" />
+        <PreviewMedia
+          path={task.previewImage}
+          variant="card"
+          // Il click nudo sulla card apre il drawer sul Thread; questo apre lo
+          // stesso task con l'anteprima GIÀ in primo piano come tab.
+          onOpenTab={() => onOpen(task.id, mediaPaneIdFor(task.previewImage!))}
+        />
       )}
       {/* Title — full width; the priority rides INLINE before the text (only
           when hand-set and non-default), so urgency reads in the same glance
