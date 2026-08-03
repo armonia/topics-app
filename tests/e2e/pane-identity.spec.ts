@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, seedPaneStore } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico del file: questa spec semina i propri topic e pane-store, ma
+// parte dallo stato lasciato dalla spec precedente se non lo dichiara.
+hermetic(test);
 
 // PANE-IDENTITY — evidenza del task "una identità per pane + una pane rotta non
 // abbatte la finestra".
