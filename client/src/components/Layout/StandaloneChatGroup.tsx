@@ -218,13 +218,12 @@ export function StandaloneChatGroup({
     topics,
   });
   const {
-    // Per-pane type flags are now consumed inside `renderPaneBody`
-    // directly off pane.id (so hidden panes get the right body too); we
-    // only keep the active-* flags that the early-return guard still
-    // checks below, plus draftTopics + browserContextId for the chat /
-    // browser branches inside renderPaneBody.
-    activeIsBrowser, activeIsTerminal, activeIsSessionViewer,
-    activeIsProject, activeIsUtility,
+    // Per-pane type flags are consumed inside `renderPaneBody` directly off
+    // pane.id (so hidden panes get the right body too). The active-* flags that
+    // the old whole-group early-return checked are gone — a broken active pane
+    // now degrades to an error body instead of blanking the group, so those
+    // flags are no longer needed here. We keep `activeTopic` (context ring),
+    // plus draftTopics + browserContextId for the chat / browser branches.
     activeTopic, browserContextId,
     draftTopics,
   } = active;
@@ -492,8 +491,14 @@ export function StandaloneChatGroup({
   }, [activeTopic]);
 
   if (validatedOrderedIds.length === 0) return null;
-  // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
-  if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer) return null;
+  // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
+  // unrenderable (e.g. a chat whose topic no longer resolves). That old bail —
+  // `if (!activeTopic && !activeIsUtility && …) return null` — took down the
+  // ENTIRE window (blank screen, only the sidebar left) the moment a single
+  // broken pane happened to be active. A broken pane must degrade to an error
+  // BODY under a live tab strip, never abbattere la finestra: the tab bar keeps
+  // rendering (you can switch away or close the tab) and `renderPaneBody`
+  // returns a "Topic non trovato" fallback for the broken pane below.
 
   // Single source of truth — `addableScopes: ['standalone']` in PANE_CONFIG.
   // Previously this was a hardcoded ['browser', 'terminal'] with a bespoke
@@ -733,7 +738,12 @@ export function StandaloneChatGroup({
     }
     // Chat (real or draft).
     const topic = topics[paneId] || draftTopics[paneId];
-    if (!topic) return null;
+    // A chat pane whose topic no longer resolves (deleted/archived topic, a
+    // stale id from an external write) degrades to an error body — NOT null,
+    // which used to leave a blank cell, and NOT a group-wide bail, which used to
+    // blank the whole window. The tab strip above stays live so the user can
+    // close this tab or switch away. Mirrors ProjectWindow's chat fallback.
+    if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">Topic non trovato</div>;
     const isDraft = isDraftPaneId(paneId);
     const isPinned = effectivePinnedIds.has(paneId);
     const wrappedSendMessage = isDraft
