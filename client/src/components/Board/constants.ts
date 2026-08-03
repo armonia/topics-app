@@ -112,3 +112,15 @@ export const EFFORTS = EFFORT_TIERS;
 /** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
  *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */
 export const FANOUT_CHOICES = Array.from({ length: MAX_FANOUT }, (_, i) => i + 1);
+
+/**
+ * Aprire un task dalla board. `focusPaneId` è opzionale e dice QUALE tab del
+ * task deve stare davanti all'apertura — serve al gesto «apri l'anteprima in
+ * una tab» partendo dalla card: senza, il drawer si apre sempre sul Thread e
+ * l'artefatto appena cliccato lo dovresti ricercare a mano.
+ */
+export type OpenTask = (id: string, focusPaneId?: string) => void;
+
+/** Pane id dell'allegato `path` dentro il gruppo di tab del task. Unica fonte:
+ *  la costruisce `useTaskBrowserGroupLayout`, la consumano card e drawer. */
+export const mediaPaneIdFor = (path: string): string => `media:${path}`;
