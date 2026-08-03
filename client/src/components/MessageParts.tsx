@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { formatDurationMs } from './Chat/toolGrouping';
+import { turnClock } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
 import type { WSMessage } from '../types';
 
@@ -44,12 +45,17 @@ export function TurnActivityIndicator({
   awaitingInput?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  // `awaitingInput` è fra le dipendenze perché l'apertura e la chiusura di
+  // un'attesa si misurano su `now`: rileggere l'orologio subito al cambio fa
+  // partire il conto dell'attesa dall'istante giusto invece che dall'ultimo
+  // battito. Resta un arrotondamento sotto il secondo sulla chiusura — su
+  // un'attesa che si misura in minuti non si vede.
   useEffect(() => {
     const update = () => setNow(Date.now());
     update();
     const t = setInterval(update, 1000);
     return () => clearInterval(t);
-  }, [since]);
+  }, [since, awaitingInput]);
 
   // Stream lento: `stream:slow` lo accende, `stream:resumed` lo spegne.
   //
@@ -104,17 +110,51 @@ export function TurnActivityIndicator({
     setUsage(null);
   }
 
+  // Da quando aspetta noi, e quanto ha aspettato in tutto in questo turno.
+  //
+  // Stessa forma dell'azzeramento del consumo qui sopra: si aggiusta lo stato in
+  // RENDER confrontandolo con l'ultimo valore visto, non in un effetto. Gli
+  // orologi si leggono da `now`, il battito che già scandisce la striscia: un
+  // `Date.now()` in fase di render sarebbe impuro (React ridisegna quando vuole,
+  // e in StrictMode due volte). Il prezzo è che l'inizio dell'attesa si arrotonda
+  // al battito, cioè meno di un secondo su un'attesa che si misura in minuti.
+  const isWaiting = !!awaitingInput;
+  const [waitTurn, setWaitTurn] = useState(since);
+  const [waitStartedAt, setWaitStartedAt] = useState<number | null>(isWaiting ? now : null);
+  const [waitedMs, setWaitedMs] = useState(0);
+  if (waitTurn !== since) {
+    // Turno nuovo: conti azzerati. Se nasce già in attesa, l'attesa parte adesso.
+    setWaitTurn(since);
+    setWaitStartedAt(isWaiting ? now : null);
+    setWaitedMs(0);
+  } else if (isWaiting && waitStartedAt == null) {
+    setWaitStartedAt(now);
+  } else if (!isWaiting && waitStartedAt != null) {
+    // L'attesa si chiude: il suo pezzo va nel totale, così il turno che riparte
+    // non se la porta dentro al tempo di lavoro.
+    setWaitedMs(waitedMs + Math.max(0, now - waitStartedAt));
+    setWaitStartedAt(null);
+  }
+
   const base = since != null && Number.isFinite(since) ? since : now;
   const elapsed = Math.max(0, now - base);
   // L'attesa dell'umano vince su "lento": se il turno è fermo su una domanda,
   // uno stream che non produce token è la normalità, non un sintomo.
   const state = awaitingInput ? 'waiting' : slow ? 'slow' : 'working';
+  const clock = turnClock({
+    elapsedMs: elapsed,
+    waitedMs,
+    waitingMs: state === 'waiting' && waitStartedAt != null ? Math.max(0, now - waitStartedAt) : null,
+  });
   const label =
     state === 'waiting'
       ? 'in attesa della tua risposta'
       : state === 'slow'
         ? 'stream lento, il provider è ancora connesso'
-        : `${phraseAt(elapsed)}…`;
+        // La frase di fatica cresce col LAVORO, non col totale: dopo mezz'ora di
+        // attesa nostra il turno non deve ripartire da «ci sto ancora mettendo
+        // parecchio» per una cosa cominciata due secondi fa.
+        : `${phraseAt(clock.workedMs)}…`;
   return (
     <div
       data-testid="chat-streaming-indicator"
@@ -155,7 +195,16 @@ export function TurnActivityIndicator({
       >
         {label}
       </span>
-      <span className="tabular-nums text-app-text-muted shrink-0" data-testid="turn-timer">· {formatDurationMs(elapsed)}</span>
+      <span
+        className="tabular-nums text-app-text-muted shrink-0"
+        data-testid="turn-timer"
+        // Che cosa sta contando questo numero adesso: il totale (turno senza
+        // attese), l'attesa in corso, o il lavoro al netto delle attese.
+        data-clock={state === 'waiting' ? 'waiting' : clock.totalWaitedMs > 0 ? 'worked' : 'total'}
+        title={clock.title}
+      >
+        · {formatDurationMs(clock.primaryMs)}
+      </span>
       {usage && usage.tokens > 0 && (
         <span
           className="tabular-nums text-app-text-muted shrink-0"
