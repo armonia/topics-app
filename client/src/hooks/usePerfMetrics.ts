@@ -76,6 +76,12 @@ const TAURI_GPU: PerfMetrics['gpu'] = { accelerated: true, compositing: 'core-an
  * "nessun contatore". Sotto l'1% si scrive `<1`, che dice la verità (è acceso, sta
  * misurando, il valore è minuscolo) invece di sparire.
  */
+/** Core logici della macchina, per riportare le CPU per-core (shell Tauri e
+ *  `ps`) sulla scala 0-100 dell'intera macchina. `hardwareConcurrency` è la
+ *  fonte che il webview ha già in mano; il `|| 1` copre il caso in cui manchi,
+ *  dove è meglio mostrare il numero per-core di dividerlo per zero. */
+const CPU_CORES = Math.max(1, navigator.hardwareConcurrency || 1);
+
 export function formatCpuPercent(v: number): string {
   if (!Number.isFinite(v) || v <= 0) return '0';
   if (v < 1) return '<1';
@@ -116,11 +122,21 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
                 // Non arrotondati qui: `formatCpuPercent` decide come si scrivono,
                 // così un valore piccolo ma reale non diventa uno zero prima di
                 // arrivare alla UI.
-                renderer: m.cpu_renderer ?? 0,
-                gpu: m.cpu_gpu ?? 0,
+                //
+                // DIVISI PER I CORE, invece: la shell li misura per-core
+                // (`proc_cpu_percent` in lib.rs fa `Δns / dt * 100`, 100% = un
+                // core saturo), e su questa scala il totale dell'app arrivava a
+                // "170%" accanto a un Mac al 30% — due unità affiancate che si
+                // leggono come una contraddizione, mentre sono 1,7 core su 12.
+                // Qui è l'unico punto d'ingresso della CPU della shell, quindi
+                // normalizzare qui tiene status bar e pannello sulla stessa
+                // scala 0-100 della macchina, la stessa che usa il lato server
+                // (`fleet-usage.ts`).
+                renderer: (m.cpu_renderer ?? 0) / CPU_CORES,
+                gpu: (m.cpu_gpu ?? 0) / CPU_CORES,
                 // `null` = nessuna misura. `?? null` copre anche uno shell vecchio
                 // che non manda ancora il campo: assente ⇒ non misurato, non zero.
-                total: m.cpu_percent ?? null,
+                total: m.cpu_percent === undefined || m.cpu_percent === null ? null : m.cpu_percent / CPU_CORES,
                 sampled: m.cpu_sampled ?? 0,
                 pids: m.cpu_pids ?? 0,
               },

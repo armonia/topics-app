@@ -155,7 +155,10 @@ export function PerfSection() {
       text: `${(compressedMB / 1024).toFixed(1)} GB compressi/in swap — chiudi qualche pannello browser`,
       color: 'text-amber-500',
     };
-  } else if (perf && (perf.cpu.total ?? 0) > 100) {
+    // Soglia su scala 0-100 dell'intera macchina (vedi `usePerfMetrics`): metà
+    // macchina presa dalla sola shell è già "sotto carico". Era `> 100`, che
+    // aveva senso finché il numero era per-core e poteva arrivare a 1200.
+  } else if (perf && (perf.cpu.total ?? 0) > 50) {
     verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
@@ -187,7 +190,7 @@ export function PerfSection() {
             label="CPU shell"
             className="col-span-4"
             value={`${formatCpuPercent(perf.cpu.total)}%`}
-            color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
+            color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
             title="CPU del processo shell di Topics — non include i processi WKWebView dei pannelli · può superare 100% (per core)"
           />
         </div>
@@ -198,7 +201,7 @@ export function PerfSection() {
             label="CPU Topics"
             className="col-span-2"
             value={`${formatCpuPercent(perf.cpu.total)}%`}
-            color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
+            color={perf.cpu.total > 50 ? 'text-amber-500' : 'text-app-text'}
             title={[
               `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`,
               perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
@@ -222,21 +225,27 @@ export function PerfSection() {
           sidecar alone measured ~29% while streaming a pane, and the agent CLIs
           under the pty-bridge dwarf it. The shell figures above can't see any of
           it: those processes belong to the server, not to the shell. */}
-      {/* Gate su `fleet`, non su `cpuPercent > 0`: questa cifra viene da `ps %cpu`,
+      {/* Gate su `fleet`, non su `cpuPercent > 0`: questa cifra viene da `ps`,
           che risponde sempre — non ha il problema della baseline che ha la CPU
           della shell. Uno zero qui è una MISURA (il lato server è fermo), e
-          nasconderlo ripeterebbe l'errore appena corretto sull'altra metà. */}
+          nasconderlo ripeterebbe l'errore appena corretto sull'altra metà.
+
+          Scala 0-100 dell'INTERA macchina: il server divide già per i core
+          (`fleet-usage.ts`). Prima era la somma per-core di `ps`, che accanto
+          alla CPU di sistema si leggeva come una contraddizione — "170%" su un
+          Mac al 30%, che sono 1,7 core su 12. La soglia d'allarme è quindi
+          metà macchina, non più 100. */}
       {fleet && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label={`CPU lato server ×${serverSideProcs}`}
             className="col-span-4"
             value={`${formatCpuPercent(fleet.cpuPercent)}%`}
-            color={fleet.cpuPercent > 100 ? 'text-amber-500' : 'text-app-text'}
-            title={`CPU del server e di tutto ciò che ne dipende (ps %cpu)${fleet.roots
+            color={fleet.cpuPercent > 50 ? 'text-amber-500' : 'text-app-text'}
+            title={`CPU del server e di tutto ciò che ne dipende, sui ${fleet.cpuCores} core della macchina${fleet.roots
               .filter(r => r.kind !== 'server' && r.cpuPercent > 0)
               .map(r => ` · ${r.kind} ${r.cpuPercent}%`)
-              .join('')} · può superare 100% (per core)`}
+              .join('')}`}
           />
         </div>
       )}

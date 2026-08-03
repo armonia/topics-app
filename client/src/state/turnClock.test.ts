@@ -10,14 +10,27 @@ describe('turnClock', () => {
     expect(v.title).toBeUndefined();
   });
 
-  test('mentre aspetta: il numero è L’ATTESA, non il turno', () => {
+  test('mentre aspetta il numero è il LAVORO, cioè sta fermo', () => {
     // Il caso che ha fatto storcere il naso: dieci minuti di turno di cui nove
-    // e mezzo di pranzo. Il numero grande deve dire «da quanto aspetta te».
+    // e mezzo di pranzo. Prima il numero grande contava l'attesa — vero, ma è
+    // comunque un numero che scorre mentre si legge una domanda, e mette fretta
+    // senza informare. Adesso mostra il lavoro; da quanto aspetta sta nel title.
     const v = turnClock({ elapsedMs: 600_000, waitedMs: 0, waitingMs: 570_000 });
-    expect(v.primaryMs).toBe(570_000);
+    expect(v.primaryMs).toBe(30_000);
     expect(v.workedMs).toBe(30_000);
     expect(v.title).toContain('in attesa di te');
     expect(v.title).toContain('lavorato');
+  });
+
+  test('mentre aspetta il numero NON cresce col passare del tempo', () => {
+    // La proprietà per cui esiste tutto il resto: i due orologi si leggono
+    // dallo stesso istante, quindi ogni millisecondo in più finisce sia nel
+    // turno sia nell'attesa e il lavoro resta identico. Un secondo dopo, dieci
+    // minuti dopo: stesso numero a schermo.
+    const dopo = (ms: number) => turnClock({ elapsedMs: 600_000 + ms, waitedMs: 0, waitingMs: 570_000 + ms });
+    expect(dopo(0).primaryMs).toBe(30_000);
+    expect(dopo(1_000).primaryMs).toBe(30_000);
+    expect(dopo(600_000).primaryMs).toBe(30_000);
   });
 
   test('a domanda chiusa il numero torna al LAVORO, con le attese sottratte', () => {
@@ -33,7 +46,7 @@ describe('turnClock', () => {
     const v = turnClock({ elapsedMs: 100_000, waitedMs: 30_000, waitingMs: 20_000 });
     expect(v.totalWaitedMs).toBe(50_000);
     expect(v.workedMs).toBe(50_000);
-    expect(v.primaryMs).toBe(20_000);
+    expect(v.primaryMs).toBe(50_000);
   });
 
   test('attesa più lunga del turno ⇒ lavoro a zero, mai negativo', () => {
@@ -42,7 +55,7 @@ describe('turnClock', () => {
     const v = turnClock({ elapsedMs: 5_000, waitedMs: 0, waitingMs: 5_400 });
     expect(v.workedMs).toBe(0);
     expect(v.totalWaitedMs).toBe(5_000);
-    expect(v.primaryMs).toBe(5_400);
+    expect(v.primaryMs).toBe(0);
   });
 
   test('numeri sporchi non producono numeri sporchi', () => {

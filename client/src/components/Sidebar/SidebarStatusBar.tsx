@@ -407,7 +407,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
               lì il contatore spariva. Ora `null` è l'unico "non misurato". */}
           {totalCpu !== null && (
             <span
-              className={`flex-shrink-0 text-app-text-muted tabular-nums ${totalCpu > 100 ? 'text-amber-500' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted tabular-nums ${totalCpu > 50 ? 'text-amber-500' : ''}`}
               title={cpuTitle}
             >
               {formatCpuPercent(totalCpu)}%

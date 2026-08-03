@@ -97,6 +97,48 @@ describe("summarizeFleet", () => {
     expect(out.memoryMB).toBe(Math.round((30000 + 2000000 + 500000) / 1024));
   });
 
+  it("normalizza sui core: la somma per-core diventa la scala 0-100 della macchina", () => {
+    // Il difetto: `ps` conta per CORE (100% = un core saturo), quindi la flotta
+    // segnava "170%" accanto a un Mac al 30% — due scale diverse affiancate,
+    // che si legge come una contraddizione. Su 12 core quel 170% è il 14%.
+    const perCore = summarizeFleet(rows, [
+      { kind: "server", pid: 10 },
+      { kind: "pty-bridge", pid: 20 },
+      { kind: "webrtc-bridge", pid: 40 },
+    ]);
+    const normalized = summarizeFleet(
+      rows,
+      [
+        { kind: "server", pid: 10 },
+        { kind: "pty-bridge", pid: 20 },
+        { kind: "webrtc-bridge", pid: 40 },
+      ],
+      undefined,
+      12,
+    );
+    expect(perCore.cpuPercent).toBe(82);
+    expect(normalized.cpuCores).toBe(12);
+    // ~6.8, non esattamente 82/12: ogni root si arrotonda a un decimale PRIMA
+    // della somma, quindi il totale può scostarsi di qualche centesimo. Su una
+    // scala 0-100 è rumore, e vale il prezzo di avere i root già arrotondati
+    // come li mostra il tooltip.
+    expect(normalized.cpuPercent).toBeCloseTo(82 / 12, 0);
+    // Anche il dettaglio per-root, non solo il totale: il tooltip li mostra
+    // affiancati e non devono essere su scale diverse.
+    for (const r of normalized.roots) {
+      const same = perCore.roots.find(p => p.pid === r.pid)!;
+      expect(r.cpuPercent).toBeCloseTo(same.cpuPercent / 12, 0);
+    }
+    // La memoria NON si normalizza: i MB sono già assoluti.
+    expect(normalized.memoryMB).toBe(perCore.memoryMB);
+  });
+
+  it("un conteggio core assurdo non produce Infinity", () => {
+    const out = summarizeFleet(rows, [{ kind: "server", pid: 10 }], undefined, 0);
+    expect(Number.isFinite(out.cpuPercent)).toBe(true);
+    expect(out.cpuCores).toBe(1);
+  });
+
   it("drops a root that is no longer running", () => {
     const out = summarizeFleet(rows, [
       { kind: "server", pid: 10 },

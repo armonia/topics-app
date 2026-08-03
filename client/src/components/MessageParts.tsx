@@ -239,8 +239,10 @@ export function TurnActivityIndicator({
         className="tabular-nums text-app-text-muted shrink-0"
         data-testid="turn-timer"
         // Che cosa sta contando questo numero adesso: il totale (turno senza
-        // attese), l'attesa in corso, o il lavoro al netto delle attese.
-        data-clock={state === 'waiting' ? 'waiting' : clock.totalWaitedMs > 0 ? 'worked' : 'total'}
+        // attese) o il lavoro al netto delle attese. Durante un'attesa è
+        // `worked` come dopo — cioè FERMO: che la palla sia dell'umano lo dice
+        // `data-waiting` sulla striscia, non un numero che corre.
+        data-clock={state === 'waiting' || clock.totalWaitedMs > 0 ? 'worked' : 'total'}
         title={clock.title}
       >
         · {formatDurationMs(clock.primaryMs)}

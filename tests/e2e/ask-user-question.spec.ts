@@ -154,15 +154,12 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     // The always-present "Other" free-text escape hatch.
     await expect(form.getByText("Other")).toBeVisible();
 
-    // La riga NON smette di essere una riga di tool solo perché aspetta: il
-    // suo orologio continua a girare, ed è la cosa più utile che possa dire
-    // ("l'agente è fermo su di te da tot"). Prima mostrava il nulla — né il
-    // cronometro (`isRunning` è falso) né la durata finale (`endedAt` non
-    // c'è ancora).
+    // Mentre la palla è dell'umano la riga NON tiene un cronometro acceso: un
+    // contatore che scorre mentre si legge una domanda mette fretta e non dice
+    // niente di nuovo. Che stia aspettando lo annuncia il cerchietto ambra; da
+    // quanto, il title del cronometro del turno (l'unico che ha un tick).
     const row = page.locator(`[data-testid="tool-call-row-${toolCallId}"]`);
-    const elapsed = row.locator('[data-testid="tool-elapsed"]');
-    await expect(elapsed).toBeVisible({ timeout: 5_000 });
-    await expect(elapsed).toHaveText(/\d/);
+    await expect(row.locator('[data-testid="tool-elapsed"]')).toHaveCount(0);
 
     // E il testo su cui l'umano deve DECIDERE è grande come il corpo della
     // chat, non come il chrome del log: la domanda a 13px, non a 11.
