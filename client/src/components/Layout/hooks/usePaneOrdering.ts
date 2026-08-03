@@ -29,6 +29,7 @@ import { findPreviewInList, replaceInList, consumeTabRestored } from '../../../l
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
+import { reconcilePaneOrder } from './paneOrderReconcile';
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
@@ -181,7 +182,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   });
 
   // 3. Validated ordered IDs (ISSUE 2 guard) — orderedIds must NEVER contain
-  // an ID not in openPanels (topicIds). Returns ref unchanged when no prune.
+  // an ID not in openPanels (topicIds), NOR the same id twice. Returns ref
+  // unchanged when no prune and no dedupe.
   //
   // Strict filter: an entry survives ONLY if its id is in `topicIds`. The
   // earlier code added `|| isBrowserPaneId(id) || isSessionViewerPaneId(id)`
@@ -195,11 +197,17 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   // against `soloTopicIds`) drops the solo'd browser, but the allowance
   // kept the same id alive in `orderedIds` here, leaving the pane
   // duplicated across the standalone tab bar AND the new solo cell.
-  const validatedOrderedIds = useMemo(() => {
-    const openSet = new Set(topicIds);
-    const filtered = orderedIds.filter(id => openSet.has(id));
-    return filtered.length === orderedIds.length ? orderedIds : filtered;
-  }, [orderedIds, topicIds]);
+  //
+  // De-dup by identity (reconcilePaneOrder): `orderedIds` is a persisted second
+  // source over the store's open set — a save/merge/external write that carried
+  // the same id twice used to render one pane as two or three identical tabs
+  // ("3 tab su un solo pane"). The strip must be a pure function of its store:
+  // one id ⇒ one tab. The echo effect below writes the reconciled list back,
+  // healing the persisted order.
+  const validatedOrderedIds = useMemo(
+    () => reconcilePaneOrder(orderedIds, topicIds),
+    [orderedIds, topicIds],
+  );
 
   // 4. Validation echo — must stay co-located with the memo + state (B3).
   useEffect(() => {

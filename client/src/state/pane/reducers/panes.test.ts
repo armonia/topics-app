@@ -860,6 +860,48 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
   });
 });
 
+// ---------------------------------------------------------------------------
+// LOCK: "una identità per pane" — aprire lo STESSO pane due volte non crea una
+// seconda tab. È l'invariante di idempotenza che, insieme al dedup dell'ordine
+// (paneOrderReconcile) e alla degradazione del render (StandaloneChatGroup),
+// garantisce che un'identità = una sola tab. Se questa regressa, riappaiono le
+// "3 tab identiche su un solo pane".
+// ---------------------------------------------------------------------------
+describe("paneReducer — OPEN_PANE idempotente (una identità per pane)", () => {
+  test("aprire due volte lo stesso id nello STESSO gruppo → una sola voce", () => {
+    const state = blankState();
+    const open = () =>
+      paneReducer(state, {
+        type: "OPEN_PANE",
+        payload: { id: "chat:t1", type: "chat", topicId: "t1", groupId: "g1" },
+      });
+    open();
+    open();
+    open();
+    expect(state.groups["g1"].paneIds).toEqual(["chat:t1"]); // non ["chat:t1","chat:t1","chat:t1"]
+    expect(Object.keys(state.panes)).toEqual(["chat:t1"]);
+  });
+
+  test("ri-aprire un id già presente in un ALTRO gruppo lo SPOSTA, non lo duplica", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "chat:t1", type: "chat", topicId: "t1", groupId: "g1" },
+    });
+    // Stessa identità, gruppo diverso (payload con groupId stantìo) → heal: una
+    // sola copia, nel gruppo di destinazione, il vecchio gruppo (vuoto) sparisce.
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "chat:t1", type: "chat", topicId: "t1", groupId: "g2" },
+    });
+    expect(state.groups["g1"]).toBeUndefined(); // svuotato → rimosso
+    expect(state.groups["g2"].paneIds).toEqual(["chat:t1"]);
+    // In nessun gruppo l'id compare due volte.
+    const total = Object.values(state.groups).flatMap((g) => g.paneIds).filter((id) => id === "chat:t1");
+    expect(total).toEqual(["chat:t1"]);
+  });
+});
+
 describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () => {
   const mkPane = (id: string, type = "project") => ({ id, type, title: id }) as unknown as ClosedPaneRecord["pane"];
   const mkRec = (id: string, closedAt: number) =>
