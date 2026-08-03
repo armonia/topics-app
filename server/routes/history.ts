@@ -3,6 +3,7 @@ import { join } from "path";
 import type { AppContext, RouteHandler, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import { getCompactionMarkersBySession } from "../db/compaction-markers";
+import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 
 export interface HistoryDeps {
   matchHistoryRoute: (pathname: string) => string | null;
@@ -21,6 +22,19 @@ export interface HistoryDeps {
 export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHandler {
   const { json, readJSON, loadLocalMessages, appendLocalMessage, isStreaming, getStreamContent, SESSIONS_DIR } = ctx;
   const { matchHistoryRoute, providerForSessionKey } = deps;
+
+  /** Il verdetto del broker, o `unknown` se il provider non sa rispondere. Non
+   *  lancia mai: una diagnosi che fallisce non deve rompere un caricamento. */
+  async function brokerTurnStateFor(sessionKey: string): Promise<BrokerTurnState> {
+    try {
+      const prov = providerForSessionKey(sessionKey) as unknown as {
+        brokerTurnState?: (sk: string) => Promise<BrokerTurnState>;
+      };
+      return (await prov.brokerTurnState?.(sessionKey)) ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
 
   return async function historyRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     const sessionKey = matchHistoryRoute(pathname);
@@ -49,7 +63,24 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     const offset = Number.isFinite(offsetN) ? Math.max(0, Math.trunc(offsetN)) : 0;
 
     const localMsgs = loadLocalMessages(sessionKey);
-    const activeStream = isStreaming(sessionKey);
+    // «Sta streammando?» non si chiede solo alla memoria di QUESTO processo.
+    // `activeStreams` è vuota subito dopo un riavvio del server anche per una
+    // sessione il cui figlio è vivo nel broker, fermo su una domanda a schermo
+    // — e la pulizia qui sotto azzera `partial`, che è il flag da cui il
+    // reattach capisce che c'è un turno da riadottare. Un ⌘R in quella finestra
+    // buttava via il turno. Vedi `historyCleanupPolicy.ts` per la regola.
+    const streamInMemory = !!isStreaming(sessionKey);
+    const brokerState = shouldConsultBroker({ streamInMemory, hasPartialRows: localMsgs.some((m) => m.partial) })
+      ? await brokerTurnStateFor(sessionKey)
+      : null;
+    const activeStream = isTurnStillLive({
+      streamInMemory,
+      hasPartialRows: localMsgs.some((m) => m.partial),
+      brokerState,
+    });
+    if (brokerState === "open") {
+      console.log(`[History] ${sessionKey}: turno APERTO secondo il broker — pulizia saltata (figlio vivo, ${localMsgs.filter((m) => m.partial).length} riga/e parziali intatte)`);
+    }
     // A message is "real" if it has any of: trimmed text content, recorded tool
     // calls, or a populated chronological blocks timeline. Messages with
     // tools-only-no-text were getting nuked by the cleanup pass below — when a
