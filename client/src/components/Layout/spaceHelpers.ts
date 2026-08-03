@@ -32,16 +32,15 @@ export function nextSpaceName(spaces: Record<string, SpaceMeta>): string {
   return `Spazio ${liveSpacesOrdered(spaces).length + 2}`;
 }
 
-/** Detached pop-out windows (`?topic=`) skip every pane-store bridge — the
+/** Detached pop-out windows (`?topics=`) skip every pane-store bridge — the
  *  switcher (and the "Sposta nello Spazio" menu) must not render there
- *  (coherence ruling 3.8). */
-export function isDetachedWindow(): boolean {
-  try {
-    return new URLSearchParams(window.location.search).has('topic');
-  } catch {
-    return false;
-  }
-}
+ *  (coherence ruling 3.8).
+ *
+ *  Ri-esportato da `lib/windowRole`, che è ora l'unica risposta: questa copia
+ *  guardava solo `?topic=` (singolare) e quindi dichiarava NON staccata ogni
+ *  pop-out moderna `?topics=<id,…>` — cioè quasi tutte. Chi importa da qui non
+ *  cambia riga; chi sta in `lib/` importa la fonte. */
+export { isDetachedWindow } from '../../lib/windowRole';
 
 /**
  * Move an app-level pane to another Spazio ("Sposta nello Spazio →"). The

@@ -90,9 +90,31 @@ import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 import { isAgentWorking } from '../lib/board';
+import { tabAckReleasesIntent } from '../lib/tabLink';
 import { useShallow } from 'zustand/react/shallow';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+/** Un intento di focus da PERMALINK di tab (`/tab/…`): il pane id su cui il
+ *  link atterra, e fino a quando può ancora forzare il focus. */
+type TabFocusIntent = { paneId: string; until: number };
+
+/**
+ * Quanto vive un intento di tab. Esiste perché — a differenza del drawer della
+ * board, che risponde `topics:task-opened` quando è davvero aperto — una tab
+ * qualunque NON ha un ack: il permalink instrada su eventi fire-and-forget.
+ * Senza scadenza, un intento mai rilasciato continuerebbe a forzare il focus a
+ * ogni hydrate per il resto della sessione, e strattonerebbe un utente che nel
+ * frattempo è andato altrove. 8s = la stessa finestra di boot entro cui App.tsx
+ * ri-asserisce il deep-link: oltre quella, il boot è finito per definizione.
+ */
+const TAB_INTENT_TTL_MS = 8000;
+
+/** Il pane id dell'intento se è ancora nella sua finestra, altrimenti `null`. */
+function liveTabIntent(intent: TabFocusIntent | null): string | null {
+  if (!intent) return null;
+  return Date.now() <= intent.until ? intent.paneId : null;
+}
 
 const loadSavedPanels = (): string[] => {
   try {
@@ -453,6 +475,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // once the board pane is in the (UNION-preserved) store order.
         const intent = deepLinkFocusRef.current;
         if (intent && storeOrder.includes(intent)) return intent;
+        // Stesso privilegio per un permalink di TAB (`/tab/terminal/<id>` &c.),
+        // che soffre esattamente la stessa rapina: apre la tab e la vede
+        // sparire sotto il reconcile del primo hydrate. Vale solo finché
+        // l'intento è nella sua finestra (TAB_INTENT_TTL_MS) e solo se la pane
+        // è davvero nell'ordine dello store — un intento senza riscontro (es.
+        // una chat che si è aperta dentro un progetto) è semplicemente inerte.
+        const tabIntent = liveTabIntent(deepLinkTabFocusRef.current);
+        if (tabIntent && storeOrder.includes(tabIntent)) return tabIntent;
         if (prev === storeFocus) return prev;
         if (storeFocus && storeOrder.includes(storeFocus)) return storeFocus;
         if (prev && storeOrder.includes(prev)) return prev;
@@ -508,6 +538,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // (only deep-links emit it), released when the drawer actually opens
   // (`topics:task-opened`) or when the user focuses another pane.
   const deepLinkFocusRef = useRef<string | null>(null);
+
+  // Il GEMELLO per un permalink di tab (`/tab/…`). Stessa malattia, stessa
+  // cura, due differenze:
+  //  • il pane id NON è fisso (per la board è sempre `__board__`): lo porta
+  //    l'evento, perché solo chi risolve il permalink sa su cosa atterra —
+  //    `terminal:<sid>`, `project:<enc>`, `browser:<ctx>`, il topicId nudo per
+  //    la chat, `__<type>__` per i panel (lib/tabLink.appPaneIdForTarget);
+  //  • ha una SCADENZA, perché una tab non ha un ack «sono arrivata» come il
+  //    drawer del task — vedi TAB_INTENT_TTL_MS.
+  const deepLinkTabFocusRef = useRef<TabFocusIntent | null>(null);
 
   // ---- Pending focus / project state ----
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null);
@@ -971,14 +1011,39 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // board survives the hydrate storm; the board fires `topics:task-opened` once
   // the drawer actually opens, which releases it (the user is where they asked
   // to be — later hydrates may focus elsewhere normally again).
+  //
+  // `topics:open-tab` / `topics:tab-opened` sono i gemelli per un permalink di
+  // tab: li emette `lib/tabLink.openTabInApp` (arma prima di instradare,
+  // rilascia su ogni vicolo cieco), e App.tsx li usa per la ri-asserzione
+  // debounced del boot. L'intento porta il pane id nell'evento e scade da solo.
   useEffect(() => {
     const onOpenTask = () => { deepLinkFocusRef.current = utilityPanelId('board'); };
     const onTaskOpened = () => { deepLinkFocusRef.current = null; };
+    const onOpenTab = (e: Event) => {
+      const paneId = (e as CustomEvent<{ paneId?: string }>).detail?.paneId;
+      if (paneId) deepLinkTabFocusRef.current = { paneId, until: Date.now() + TAB_INTENT_TTL_MS };
+    };
+    // L'ack di un permalink ha due letture (vedi `TabOpenedDetail` in
+    // lib/tabLink): App.tsx ci spegne la ri-asserzione di boot in OGNI caso,
+    // noi rilasciamo l'intento SOLO se è un vicolo cieco. Su un'apertura
+    // riuscita l'intento va lasciato scadere da sé: è l'unica cosa che tiene la
+    // tab a fuoco mentre il primo hydrate prova a restituire la scena alla pane
+    // di prima — spegnerlo qui vorrebbe dire riaprire il bug che esiste per
+    // chiudere. Lo rilascia comunque un focus DELIBERATO dell'utente
+    // (handleFocusPanel / handleTopicClick), che è la sola cosa che deve batterlo.
+    const onTabOpened = (e: Event) => {
+      const detail = (e as CustomEvent<unknown>).detail;
+      if (tabAckReleasesIntent(detail)) deepLinkTabFocusRef.current = null;
+    };
     window.addEventListener('topics:open-task', onOpenTask as EventListener);
     window.addEventListener('topics:task-opened', onTaskOpened as EventListener);
+    window.addEventListener('topics:open-tab', onOpenTab as EventListener);
+    window.addEventListener('topics:tab-opened', onTabOpened as EventListener);
     return () => {
       window.removeEventListener('topics:open-task', onOpenTask as EventListener);
       window.removeEventListener('topics:task-opened', onTaskOpened as EventListener);
+      window.removeEventListener('topics:open-tab', onOpenTab as EventListener);
+      window.removeEventListener('topics:tab-opened', onTabOpened as EventListener);
     };
   }, []);
 
@@ -1410,8 +1475,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     // A deliberate tab switch releases any pending deep-link focus intent, so a
-    // later hydrate doesn't yank the user back to the board.
+    // later hydrate doesn't yank the user back to the board — o alla tab di un
+    // permalink, che ha lo stesso privilegio e la stessa uscita.
     deepLinkFocusRef.current = null;
+    deepLinkTabFocusRef.current = null;
     const topic = topics[topicId];
     // Project chat / TASK WORKSPACE session → its splittable project pane. A
     // `standalone` non-task topic falls through to the loose-chat funnel.
@@ -1691,8 +1758,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [focusedPanelIdRef]);
 
   const handleFocusPanel = useCallback((topicId: string) => {
-    // A deliberate focus change releases any pending deep-link focus intent.
+    // A deliberate focus change releases any pending deep-link focus intent
+    // (board E permalink di tab: nessuno dei due deve battere una scelta
+    // esplicita dell'utente).
     deepLinkFocusRef.current = null;
+    deepLinkTabFocusRef.current = null;
     // Direct terminal pane ids (e.g. `terminal:<sessionId>`) — produced by
     // the Master sessions endpoint when surfacing Claude Code terminals.
     // These aren't topics, so handleTerminalClick handles them: if the cwd

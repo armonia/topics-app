@@ -6,6 +6,8 @@
  */
 import type { Pane, PaneType } from '../../../types';
 import { generateUUID } from '../../../utils/uuid';
+import { TAB_PANELS, type TabTarget } from '../../../../../shared/tab-link';
+import { parseUtilityPanelType } from './utilityPanelId';
 
 /**
  * Where a pane type can be added from via a tab bar's `+` menu.
@@ -169,6 +171,98 @@ export function pinKeyForPane(pane: Pane): string | undefined {
       return isProjectPaneId(pane.id) ? pane.id : undefined;
     default:
       return undefined;
+  }
+}
+
+/**
+ * Il TARGET DI PERMALINK di un pane (`shared/tab-link`), o `null` se quel pane
+ * non è indirizzabile. Gemella di `pinKeyForPane` e con la stessa filosofia: UNA
+ * funzione per tutti i tipi, così nessuna superficie può dimenticarne uno (la
+ * dimenticanza del browser nel pinning è stata esattamente quel bug).
+ *
+ * ── Perché metà dei tipi torna `null`, e perché è la cosa giusta ─────────────
+ * `file`/`kanban`/`git`/`files`/`session-viewer`/`process-log`/`draft` nascono
+ * con un id `<tipo>:<uuid>` sorteggiato a ogni apertura (`createPaneId`): quel
+ * numero non identifica NIENTE dopo un reload. Per il file l'identità vera è il
+ * CONTENUTO (`filePath` + il progetto che lo ospita) — ed è quella che
+ * emettiamo; per gli altri non esiste affatto, e un link che al reload
+ * successivo aprirebbe un pane a caso è peggio di nessun link. Il `null` è
+ * quindi il GATE della voce di menu «Copia link»: chi chiama non la mostra, e
+ * non c'è modo di produrre un permalink morto.
+ *
+ * ── Perché la chat porta il topicId e non `pane.id` ──────────────────────────
+ * La stessa chat ha due id di pane a seconda della superficie (`<topicId>` nudo
+ * a livello App, `chat:<topicId>` dentro una finestra di progetto). Col pane id
+ * il link aprirebbe una SECONDA tab della stessa chat sulla superficie
+ * sbagliata; col topic la scelta della superficie resta a `openPanel`, che la fa
+ * già (e disarchivia da sé).
+ *
+ * `ctx` porta l'OSPITE del pane, che il pane stesso non conosce: il
+ * `projectPath` della finestra di progetto in cui è montato (obbligatorio per
+ * file/diff, hint di proprietà per il browser) e il `taskId` del drawer che lo
+ * possiede (le tab browser di un task, `taskBrowserLayout`). Nessun campo nuovo
+ * sul `Pane`: uno fuori dalla whitelist di `sanitizeSnapshot` sparirebbe a ogni
+ * round-trip col server.
+ */
+export function tabTargetForPane(
+  pane: Pane,
+  ctx?: { projectPath?: string; taskId?: string },
+): TabTarget | null {
+  if (!pane?.id) return null;
+
+  switch (pane.type) {
+    case 'chat': {
+      // Le bozze (`draft:<uuid>`) non hanno ancora un topic: niente da linkare.
+      const topicId = pane.topicId;
+      return topicId ? { kind: 'chat', key: topicId } : null;
+    }
+    case 'terminal': {
+      // L'id contiene la sessione (`terminal:<sessionId>`); il campo è il
+      // ripiego per i pane legacy costruiti senza passare da createPaneId.
+      const sessionId = getTerminalSessionFromPaneId(pane.id) ?? pane.terminalSessionId;
+      return sessionId ? { kind: 'terminal', key: sessionId } : null;
+    }
+    case 'browser': {
+      const contextId = getBrowserContextFromPaneId(pane.id);
+      if (!contextId) return null;
+      const target: TabTarget = { kind: 'browser', key: contextId };
+      // Hint di PROPRIETÀ, non parte dell'identità: il contextId basta a
+      // risolvere la pane, questi dicono solo dove ri-crearla se la finestra che
+      // la ospitava è chiusa.
+      if (ctx?.projectPath) target.projectPath = ctx.projectPath;
+      if (ctx?.taskId) target.taskId = ctx.taskId;
+      return target;
+    }
+    case 'project': {
+      const projectPath = getProjectPathFromPaneId(pane.id) ?? pane.projectPath;
+      return projectPath ? { kind: 'project', key: projectPath } : null;
+    }
+    case 'file': {
+      // `diffProjectPath` è l'unico progetto che un pane file porta con sé (solo
+      // in vista diff), e per un DIFF è l'AUTORITÀ — viene prima dell'ospite.
+      // Non è teoria: `open-file-diff` è un evento globale senza lo scoping di
+      // progetto che `open-file` ha (shouldHandleOpenFile), quindi un diff
+      // aperto dal Git del progetto B compare anche nella finestra di A. Con
+      // l'ordine invertito, «Copia link» da lì produceva
+      // `{key:'/B/src/x.ts', projectPath:'/A'}`: riaprendolo, il path relativo
+      // non trova il prefisso, `handleOpenDiff` ricompone `/A//B/src/x.ts` e il
+      // pane nasce su un file che non esiste (lato server, `resolveFile`
+      // rispondeva `closed` su un diff vivo). Per un file NORMALE
+      // `diffProjectPath` è assente, quindi l'ospite resta l'unica fonte.
+      const projectPath = pane.diffProjectPath ?? ctx?.projectPath;
+      if (!pane.filePath || !projectPath) return null;
+      return { kind: pane.diff ? 'diff' : 'file', key: pane.filePath, projectPath };
+    }
+    default: {
+      // Utility singleton (`__board__`, `__activity__`, …). `journal` NON è in
+      // TAB_PANELS: `handleOpenAsPage` non lo prevede, quindi il suo link non
+      // aprirebbe niente — meglio nessuna voce.
+      const utility = parseUtilityPanelType(pane.id);
+      if (utility && (TAB_PANELS as readonly string[]).includes(utility)) {
+        return { kind: 'panel', key: utility };
+      }
+      return null;
+    }
   }
 }
 

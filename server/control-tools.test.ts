@@ -78,16 +78,29 @@ function makeDeps() {
 describe("controlTools projection", () => {
   test("exposes exactly the four control tools with required args", () => {
     expect(controlTools.map((t) => t.name)).toEqual([
-      "switch_topic", "new_topic", "create_project", "open_project",
+      "switch_topic", "new_topic", "create_project", "open_project", "resolve_tab",
     ]);
     expect(controlTools.find((t) => t.name === "switch_topic")!.input_schema.required).toEqual(["topic_id"]);
     expect(controlTools.find((t) => t.name === "new_topic")!.input_schema.required).toEqual(["title"]);
     expect(controlTools.find((t) => t.name === "create_project")!.input_schema.required).toEqual(["name"]);
     expect(controlTools.find((t) => t.name === "open_project")!.input_schema.required).toEqual(["ref"]);
+    expect(controlTools.find((t) => t.name === "resolve_tab")!.input_schema.required).toEqual(["ref"]);
   });
 
-  test("isControlTool recognizes the four names and rejects others", () => {
-    for (const n of ["switch_topic", "new_topic", "create_project", "open_project"]) {
+  test("resolve_tab is advertised to the SDK passthrough — that's where links get pasted", () => {
+    // Il gemello del tool MCP. I provider claude/openai non vedono l'MCP: senza
+    // questa voce in `controlTools` (= `sendOptions.tools`) il tool esisterebbe
+    // per gli agenti dispatchati e NON per la chat, cioè al contrario del caso d'uso.
+    const spec = controlTools.find((t) => t.name === "resolve_tab")!;
+    expect(spec).toBeDefined();
+    expect((spec.input_schema.properties as any).ref.type).toBe("string");
+    // Il passthrough è a turno singolo: il modello non riceve il risultato. La
+    // descrizione glielo deve dire, o riassume a memoria un output mai visto.
+    expect(spec.description).toMatch(/do NOT receive it back in this turn/);
+  });
+
+  test("isControlTool recognizes the five names and rejects others", () => {
+    for (const n of ["switch_topic", "new_topic", "create_project", "open_project", "resolve_tab"]) {
       expect(isControlTool(n)).toBe(true);
     }
     expect(isControlTool("browser_open")).toBe(false);
@@ -239,6 +252,79 @@ describe("dispatchControlToolCall — open_project", () => {
       const cur = makeTopic({ id: "cur" });
       h.topics.set("cur", cur);
       await expect(dispatchControlToolCall("open_project", {}, cur, h.deps)).rejects.toThrow(/ref.*required/i);
+    } finally { h.cleanup(); }
+  });
+});
+
+describe("dispatchControlToolCall — resolve_tab", () => {
+  const RESOLVED = {
+    kind: "chat" as const,
+    key: "topic-1",
+    title: "Rifattorizzare il resolver",
+    state: "open" as const,
+    surface: "app" as const,
+    pointers: { topicId: "topic-1", sessionKey: "topic:topic-1" },
+    next: { tool: "read_chat_messages", args: { topic_id: "topic-1" } },
+  };
+
+  test("returns the resolved tab verbatim as JSON — nessun effetto collaterale", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      let seenRef = "";
+      h.deps.resolveTab = (ref) => { seenRef = ref; return RESOLVED; };
+      const text = await dispatchControlToolCall(
+        "resolve_tab", { ref: "  https://127.0.0.1:3333/tab/chat/topic-1  " }, cur, h.deps,
+      );
+      expect(seenRef).toBe("https://127.0.0.1:3333/tab/chat/topic-1"); // trimmato
+      expect(JSON.parse(text)).toEqual(RESOLVED);
+      // Sola lettura: il resolver non deve muovere nulla (né topic, né broadcast).
+      expect(h.broadcasts).toHaveLength(0);
+      expect(h.topics.get("cur")!.projectPath).toBeUndefined();
+    } finally { h.cleanup(); }
+  });
+
+  test("un ref che non è un permalink è 'not a tab permalink', NON 'non esiste'", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      h.deps.resolveTab = () => null;
+      const err = await dispatchControlToolCall("resolve_tab", { ref: "https://example.com/x" }, cur, h.deps)
+        .then(() => null, (e: unknown) => e as ControlToolError);
+      expect(err).toBeInstanceOf(ControlToolError);
+      expect(err!.code).toBe("not_a_tab_link");
+      expect(err!.message).toMatch(/not a tab permalink/i);
+      // La distinzione conta: un «not found» farebbe concludere al modello che la
+      // tab è stata cancellata, che è un'altra cosa.
+      expect(err!.message).not.toMatch(/not found/i);
+    } finally { h.cleanup(); }
+  });
+
+  test("throws bad_args on a missing / blank ref, senza chiamare il resolver", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      let called = false;
+      h.deps.resolveTab = () => { called = true; return RESOLVED; };
+      await expect(dispatchControlToolCall("resolve_tab", {}, cur, h.deps)).rejects.toThrow(/ref.*required/i);
+      await expect(dispatchControlToolCall("resolve_tab", { ref: "   " }, cur, h.deps)).rejects.toThrow(/ref.*required/i);
+      expect(called).toBe(false);
+    } finally { h.cleanup(); }
+  });
+
+  test("senza il resolver iniettato dice 'not wired' invece di inventare una risposta", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      expect(h.deps.resolveTab).toBeUndefined();
+      const err = await dispatchControlToolCall("resolve_tab", { ref: "/task/t-1" }, cur, h.deps)
+        .then(() => null, (e: unknown) => e as ControlToolError);
+      expect(err).toBeInstanceOf(ControlToolError);
+      expect(err!.code).toBe("unavailable");
     } finally { h.cleanup(); }
   });
 });

@@ -50,9 +50,16 @@ describe("server-hydrated guard (post-mortem fix)", () => {
     onServerHydrated(() => { calls++; });
     expect(calls).toBe(0);
     markServerHydrated();
+    // La NOTIFICA è differita di una micro-task (il FLAG no, vedi il test
+    // sopra). Non è un dettaglio: `syncWS.ts` marca e POI dispatcha
+    // `HYDRATE_FROM_SNAPSHOT` nella stessa esecuzione sincrona, quindi un
+    // listener chiamato sul posto girerebbe prima che l'idratazione esista.
+    // Vedi client/src/state/pane/middleware/serverHydrated.test.ts.
+    await Promise.resolve();
     expect(calls).toBe(1);
     // Subsequent marks must NOT re-fire (the set is cleared after first flush).
     markServerHydrated();
+    await Promise.resolve();
     expect(calls).toBe(1);
   });
 
@@ -85,8 +92,10 @@ describe("server-hydrated guard (post-mortem fix)", () => {
     let secondFired = false;
     onServerHydrated(() => { secondFired = true; });
     markServerHydrated();
-    // The throwing listener is caught; the second still fires; flag flips.
-    expect(secondFired).toBe(true);
+    // Il flag è sincrono, la notifica no (vedi sopra).
     expect(hasReceivedServerHydrate()).toBe(true);
+    await Promise.resolve();
+    // The throwing listener is caught; the second still fires.
+    expect(secondFired).toBe(true);
   });
 });
