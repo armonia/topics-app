@@ -139,6 +139,30 @@ describe("summarizeFleet", () => {
     expect(out.cpuCores).toBe(1);
   });
 
+  it("preferisce phys_footprint a rss, e dichiara quale metrica ha usato", () => {
+    // `rss` e footprint divergono in entrambi i versi (rss conta le pagine
+    // condivise una volta per processo; il footprint include il compresso), per
+    // cui il totale deve dire DA DOVE viene invece di lasciarlo indovinare.
+    const withFp = rows.map(r => ({ ...r, footprintKB: Math.round(r.rssKB / 2) }));
+    const out = summarizeFleet(withFp, [{ kind: "pty-bridge", pid: 20 }]);
+    expect(out.memMetric).toBe("footprint");
+    expect(out.memoryMB).toBe(Math.round((30000 + 2000000 + 500000) / 2 / 1024));
+  });
+
+  it("senza footprint ripiega su rss e lo DICE", () => {
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }]);
+    expect(out.memMetric).toBe("rss");
+    expect(out.memoryMB).toBe(Math.round((30000 + 2000000 + 500000) / 1024));
+  });
+
+  it("una copertura parziale è 'mixed', non spacciata per footprint", () => {
+    // Un pid muore fra `ps` e la lettura del footprint: il totale è misto, e
+    // presentarlo come footprint puro sarebbe una piccola bugia.
+    const partial = rows.map(r => (r.pid === 21 ? { ...r, footprintKB: 1000 } : r));
+    const out = summarizeFleet(partial, [{ kind: "pty-bridge", pid: 20 }]);
+    expect(out.memMetric).toBe("mixed");
+  });
+
   it("drops a root that is no longer running", () => {
     const out = summarizeFleet(rows, [
       { kind: "server", pid: 10 },

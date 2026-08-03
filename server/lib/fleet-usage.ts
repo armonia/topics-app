@@ -69,8 +69,15 @@ export interface FleetRootUsage {
 export interface FleetUsage {
   /** Processes counted, including the server itself. */
   processCount: number;
-  /** Sum of `ps rss` over the whole fleet, in MB. */
+  /** Memoria della flotta in MB — `phys_footprint` dove il kernel lo espone
+   *  (stessa metrica della shell e di Monitoraggio Attività), `ps rss` come
+   *  ripiego. Quale delle due lo dice `memMetric`. */
   memoryMB: number;
+  /** Da dove viene `memoryMB`: `footprint` = la metrica buona ovunque,
+   *  `rss` = solo il ripiego, `mixed` = una parte per uno. Esposto perché il
+   *  client possa etichettare il numero invece di far finta che sia sempre lo
+   *  stesso — `rss` sovrastima le pagine condivise di circa il 40%. */
+  memMetric: "footprint" | "rss" | "mixed";
   /** CPU della flotta sulla scala 0-100 dell'INTERA macchina, come la legge
    *  Monitoraggio Attività — non la somma grezza di `ps %cpu`.
    *
@@ -94,6 +101,10 @@ export interface PsRow {
   pid: number;
   ppid: number;
   rssKB: number;
+  /** `phys_footprint` in KB quando il kernel lo sa dire: la stessa metrica della
+   *  shell e di Monitoraggio Attività. Assente ⇒ si usa `rssKB`, che sovrastima
+   *  le pagine condivise. Vedi `procFootprintKB`. */
+  footprintKB?: number;
   /** `ps pcpu`: media sull'INTERA VITA del processo. Ripiego, non la misura. */
   cpu: number;
   /** `ps time`: secondi di CPU consumati finora. La differenza fra due letture,
@@ -160,6 +171,11 @@ export function summarizeFleet(
   const divisor = cpuCores > 0 ? cpuCores : 1;
   const counted = new Set<number>();
   const rootUsages: FleetRootUsage[] = [];
+  // Quale metrica di memoria è finita davvero nel totale. Un insieme misto
+  // (footprint per alcuni pid, rss per altri) si dichiara "mixed" invece di
+  // presentarsi come footprint puro.
+  let sawFootprint = false;
+  let sawRss = false;
 
   for (const root of roots) {
     if (!byPid.has(root.pid)) continue;
@@ -176,7 +192,10 @@ export function summarizeFleet(
       const row = byPid.get(pid);
       if (!row) continue;
       procs++;
-      rssKB += row.rssKB;
+      // Footprint quando c'è, `rss` come ripiego: la stessa riga decide anche
+      // `memMetric` sotto, così il client non deve indovinare cosa sta leggendo.
+      if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
+      rssKB += row.footprintKB ?? row.rssKB;
       cpu += instantCpu ? instantCpu(row) : row.cpu;
     }
     rootUsages.push({
@@ -195,6 +214,7 @@ export function summarizeFleet(
     memoryMB: rootUsages.reduce((a, r) => a + r.memoryMB, 0),
     cpuPercent: Math.round(rootUsages.reduce((a, r) => a + r.cpuPercent, 0) * 10) / 10,
     cpuCores: divisor,
+    memMetric: sawFootprint ? (sawRss ? "mixed" : "footprint") : "rss",
     roots: rootUsages,
   };
 }
@@ -219,6 +239,55 @@ let cached: FleetUsage | null = null;
 let cachedAt = 0;
 const FLEET_TTL_MS = 4000;
 
+/**
+ * `phys_footprint` di un pid in KB — la stessa cifra che Monitoraggio Attività
+ * mostra nella colonna "Memoria", e la stessa che la shell Tauri già usa per la
+ * sua metà (`proc_pid_rusage` in `desktop-tauri/src-tauri/src/lib.rs`).
+ *
+ * IL DIFETTO CHE CHIUDE, misurato il 2026-08-04: la barra sommava il footprint
+ * della shell con la somma di `ps rss` del lato server — DUE METRICHE DIVERSE
+ * presentate come un totale unico. Il punto non è che una sia più bassa: è che
+ * sommarle non significa niente. Misurato sull'albero server (19 processi):
+ * 2,07 GB di `rss` contro 1,17 GB di footprint, il 44% in meno.
+ *
+ * Le due divergono in ENTRAMBI i versi, quindi non aspettarsi un segno fisso:
+ * `rss` conta ogni pagina CONDIVISA una volta per processo (e il lato server è
+ * un albero di processi che condividono lo stesso runtime Bun — di qui il -44%
+ * qui), ma NON conta ciò che il kernel ha compresso o mandato in swap, che il
+ * footprint invece include. Sulla stessa macchina, sommando TUTTI i processi,
+ * il footprint risultava 3x l'`rss` proprio per la memoria compressa.
+ *
+ * `null` quando la piattaforma non sa rispondere (non-macOS, o un Bun senza
+ * FFI): il chiamante ripiega su `rss`, che è impreciso ma esiste ovunque —
+ * meglio la stima vecchia che nessun numero.
+ */
+const procFootprintKB: (pid: number) => number | null = (() => {
+  if (isWindows) return () => null;
+  try {
+    // rusage_info_v2: 16 byte di uuid, poi `uint64_t`; `ri_phys_footprint` è il
+    // settimo dopo l'uuid → offset 16 + 7*8 = 72.
+    const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
+    const lib = dlopen("/usr/lib/libSystem.dylib", {
+      proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
+    });
+    const buf = new BigUint64Array(64);
+    const view = new DataView(buf.buffer);
+    return (pid: number): number | null => {
+      try {
+        // RUSAGE_INFO_V2 = 2. Non-zero = pid morto o non interrogabile.
+        if (lib.symbols.proc_pid_rusage(pid, 2, buf) !== 0) return null;
+        const bytes = view.getBigUint64(72, true);
+        return bytes > 0n ? Number(bytes / 1024n) : null;
+      } catch {
+        return null;
+      }
+    };
+  } catch {
+    // Nessuna FFI: si resta su `rss` senza far rumore.
+    return () => null;
+  }
+})();
+
 /** Lettura precedente dei secondi di CPU per pid: e' la BASE da cui si ricava
  *  la percentuale istantanea. Senza, si potrebbe solo riportare la media di
  *  vita di `ps pcpu`, che e' il difetto che questo modulo aveva. */
@@ -228,7 +297,15 @@ async function snapshot(): Promise<PsRow[]> {
   const proc = Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
-  return parsePsRows(text);
+  const rows = parsePsRows(text);
+  // Footprint dove il kernel lo sa dire; `rssKB` resta il ripiego (vedi
+  // `procFootprintKB`). Si arricchisce QUI, non dentro `parsePsRows`, perche'
+  // quella e' pura e il test la guida con una tabella sintetica.
+  for (const r of rows) {
+    const fp = procFootprintKB(r.pid);
+    if (fp !== null) r.footprintKB = fp;
+  }
+  return rows;
 }
 
 /** CPU % di un pid fra due letture. Un pid mai visto prima non ha una base:
@@ -260,7 +337,7 @@ function finish(
 }
 
 export async function getFleetUsage(): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, roots: [], supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, memMetric: "rss", roots: [], supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;
