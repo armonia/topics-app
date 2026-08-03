@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspens
 import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
+import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -613,6 +614,15 @@ export function ChatInput({
   const [agentMentionPos, setAgentMentionPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [agentMentionStartPos, setAgentMentionStartPos] = useState<number>(-1);
 
+  // C'è una domanda a schermo a cui il testo scritto qui può rispondere?
+  // `sendMessage` in quel caso instrada il testo alla domanda invece di
+  // accodarlo (`state/pendingAsk.ts`): il composer lo deve DIRE, altrimenti
+  // l'invio fa una cosa diversa da quella che il bottone promette.
+  const awaitingAnswer = useMemo(
+    () => canAnswerWithText(findPendingAsk(currentMessages)),
+    [currentMessages],
+  );
+
   // Speech-to-text and TTS hooks
   const { isListening, transcript, isSupported: sttSupported, toggleListening, clearTranscript } = useSpeechToText();
   const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
@@ -1158,7 +1168,7 @@ export function ChatInput({
               onPaste={onPaste}
               aria-label={`Message input for ${topic.name}`}
               aria-describedby="chat-input-hint"
-              placeholder={replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+              placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
               className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-3'} pb-1 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
               style={{ minHeight: '36px', maxHeight: '140px' }}
               rows={1}
@@ -1334,6 +1344,7 @@ export function ChatInput({
                   const action = decideComposerAction({
                     busy: currentStreaming,
                     hasContent,
+                    awaitingAnswer,
                   });
 
                   if (action.kind === 'stop') {
@@ -1351,23 +1362,28 @@ export function ChatInput({
                   }
 
                   const isQueue = action.kind === 'queue';
+                  // Ambra come la domanda a schermo: stesso colore, stessa cosa.
+                  const isAnswer = action.kind === 'answer';
                   const isDisabled = action.kind === 'disabled' || uploading;
 
                   return (
                     <button
                       type="submit"
+                      data-composer-action={action.kind}
                       disabled={isDisabled && !uploading}
                       className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
                         uploading
                           ? 'bg-primary text-white'
-                          : isQueue
-                            ? 'bg-orange-500 text-white hover:bg-orange-600'
-                            : action.kind === 'send'
-                              ? 'bg-primary text-white hover:bg-primary-hover'
-                              : 'bg-transparent text-app-placeholder'
+                          : isAnswer
+                            ? 'bg-amber-500 text-white hover:bg-amber-600'
+                            : isQueue
+                              ? 'bg-orange-500 text-white hover:bg-orange-600'
+                              : action.kind === 'send'
+                                ? 'bg-primary text-white hover:bg-primary-hover'
+                                : 'bg-transparent text-app-placeholder'
                       }`}
-                      title={isQueue ? 'Queue message (Enter)' : 'Send (Enter)'}
-                      aria-label={isQueue ? 'Queue message' : 'Send message'}
+                      title={isAnswer ? 'Rispondi alla domanda (Enter)' : isQueue ? 'Queue message (Enter)' : 'Send (Enter)'}
+                      aria-label={isAnswer ? 'Rispondi alla domanda' : isQueue ? 'Queue message' : 'Send message'}
                     >
                       {uploading ? (
                         <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />

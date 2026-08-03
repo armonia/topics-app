@@ -12,6 +12,7 @@
  *   ─ idle & input has content   → send (submit message)
  *   ─ busy & input empty         → stop (abort the in-flight turn)
  *   ─ busy & input has content   → queue (accoda; will auto-send on stream end)
+ *   ─ domanda a schermo & filled → answer (il testo VA alla domanda)
  *
  * "Busy" is anything that means the agent owns the turn right now:
  * streaming tokens, waiting for the first token after submit (loading),
@@ -30,6 +31,7 @@ export type ComposerAction =
   | { kind: "send" }
   | { kind: "stop" }
   | { kind: "queue" }
+  | { kind: "answer" }
   | { kind: "disabled" };
 
 export interface ComposerActionInput {
@@ -47,9 +49,21 @@ export interface ComposerActionInput {
    * whether the composer has anything in it.
    */
   busy: boolean;
+  /**
+   * C'è una domanda a schermo che il testo libero può rispondere
+   * (`state/pendingAsk.ts`). Vince su "occupato": mentre la domanda è aperta il
+   * turno non riparte da solo, quindi accodare il testo lo lascerebbe fermo
+   * fino allo scadere dell'ask. Il bottone dice "rispondi" perché è ciò che
+   * `sendMessage` fa davvero — instrada a `/api/chat/tool-response`.
+   *
+   * A campo VUOTO resta «ferma»: senza niente da mandare, l'unica azione utile
+   * su un turno appeso è ancora annullarlo.
+   */
+  awaitingAnswer?: boolean;
 }
 
 export function decideComposerAction(input: ComposerActionInput): ComposerAction {
+  if (input.awaitingAnswer && input.hasContent) return { kind: "answer" };
   if (input.busy) {
     return input.hasContent ? { kind: "queue" } : { kind: "stop" };
   }

@@ -32,6 +32,31 @@ describe("decideComposerAction", () => {
     });
   });
 
+  describe("domanda a schermo", () => {
+    test("con testo scritto il bottone RISPONDE, non accoda", () => {
+      // Il caso che ha morso: accodare mentre una domanda aspetta significa
+      // aspettare la fine di un turno che finisce solo rispondendo. Il testo
+      // deve andare alla domanda.
+      expect(decideComposerAction({ busy: true, hasContent: true, awaitingAnswer: true })).toEqual({
+        kind: "answer",
+      });
+    });
+
+    test("a campo vuoto resta «ferma»: non c'è niente da rispondere", () => {
+      expect(decideComposerAction({ busy: true, hasContent: false, awaitingAnswer: true })).toEqual({
+        kind: "stop",
+      });
+    });
+
+    test("domanda che il testo NON può rispondere ⇒ si torna alla coda", () => {
+      // `awaitingAnswer` è già filtrato da `canAnswerWithText`: domande
+      // multiple ed elicitation arrivano qui come false.
+      expect(decideComposerAction({ busy: true, hasContent: true, awaitingAnswer: false })).toEqual({
+        kind: "queue",
+      });
+    });
+  });
+
   test("decision is pure: same input → same output (no hidden state)", () => {
     const probe = { busy: true, hasContent: false };
     const first = decideComposerAction(probe);
