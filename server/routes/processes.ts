@@ -48,6 +48,13 @@ interface ScriptProcess {
      *  a smettere di frugare nella tabella dei processi per una shell che è
      *  morta prima ancora di essere vista. */
     resolveAttempts: number;
+    /** Ultimo sottoalbero noto della shell (pid → lstart), catturato mentre era
+     *  VIVA. È l'unico handle che sopravvive alla sua morte: quando la shell
+     *  esce, i figli che aveva spawnato (server, headless browser) si
+     *  riattaccano a init e l'albero si spezza — ma i loro pid restano quelli, e
+     *  lo start-time distingue la stessa incarnazione da un pid riciclato.
+     *  Serve a spazzarli quando la riga sparisce, invece di lasciarli orfani. */
+    tree?: Map<number, string>;
   };
 }
 
@@ -735,9 +742,27 @@ async function reconcileBackgroundShells(): Promise<boolean> {
 
   for (const sp of shells) {
     const meta = sp.shell!;
-    // Pid noto: l'unica domanda è se è ancora vivo.
+    // Pid noto: la shell è viva finché il suo processo E il CLI padre lo sono.
     if (sp.pid) {
-      if (!isPidAlive(sp.pid)) { finishBackgroundShell(sp, "completed"); changed = true; }
+      const owner = getSessionCliPid(meta.sessionKey) ?? meta.ownerPid;
+      const shellDead = !isPidAlive(sp.pid);
+      const ownerDead = !owner || !isPidAlive(owner);
+      if (shellDead || ownerDead) {
+        // Il processo che ci ancorava è morto. La riga sparisce dal pannello —
+        // ma i figli che la shell aveva spawnato (server, headless browser) NON
+        // muoiono con lei: reparentati a init, fuori da ogni albero, con porte e
+        // RAM ancora occupate e nessun bottone Stop a cui siano agganciati.
+        // Prima di chiudere la riga li spazziamo, usando l'ultimo sottoalbero
+        // catturato mentre la shell era viva.
+        await sweepOrphanedShellTree(meta);
+        finishBackgroundShell(sp, "completed");
+        changed = true;
+        continue;
+      }
+      // Viva: rinfresca lo snapshot del sottoalbero. È l'unico modo per avere i
+      // pid dei nipoti ancora a portata quando la shell morirà — a quel punto
+      // l'albero è già spezzato e non li ritroveremmo più.
+      await captureShellTree(sp.pid, meta);
       continue;
     }
     // L'ancora si rilegge ogni giro invece di fidarsi di quella salvata: lo
@@ -749,8 +774,10 @@ async function reconcileBackgroundShells(): Promise<boolean> {
     // Senza CLI padre vivo non c'è albero in cui cercare, né nessuno che ci
     // dica come è finita: la shell è morta con lui. Chiuderla è la lettura
     // onesta — una riga «running» eterna è una bugia che il pannello non
-    // potrebbe più correggere.
+    // potrebbe più correggere. (Il pid non è mai stato risolto, quindi non
+    // c'è sottoalbero da spazzare: best effort, no-op.)
     if (!owner || !isPidAlive(owner)) {
+      await sweepOrphanedShellTree(meta);
       finishBackgroundShell(sp, "completed");
       changed = true;
       continue;
@@ -805,6 +832,60 @@ async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> 
     }
   } catch { /* ps transitoria: si riprova al ciclo dopo */ }
   return out;
+}
+
+/**
+ * Rinfresca lo snapshot del sottoalbero di una shell viva: pid → lstart di ogni
+ * discendente (la shell stessa esclusa — quella la chiude il CLI). Si spawna una
+ * `ps` solo per i pid comparsi dall'ultimo giro: gli start-time già noti si
+ * riusano, e i pid spariti si scartano. Girando nel ciclo del detector (con
+ * backoff), il costo è una `ps` occasionale per shell viva.
+ */
+export async function captureShellTree(
+  shellPid: number,
+  meta: NonNullable<ScriptProcess["shell"]>,
+): Promise<void> {
+  const tree = await getDescendantPids(shellPid);
+  tree.delete(shellPid);
+  if (!tree.size) { meta.tree = undefined; return; }
+  const prev = meta.tree ?? new Map<number, string>();
+  const missing = [...tree].filter(p => !prev.has(p));
+  const fresh = missing.length ? await getPidStartTimes(missing) : new Map<number, string>();
+  const next = new Map<number, string>();
+  for (const p of tree) {
+    const start = prev.get(p) ?? fresh.get(p);
+    if (start) next.set(p, start);
+  }
+  meta.tree = next.size ? next : undefined;
+}
+
+/**
+ * Spazza l'ultimo sottoalbero noto di una shell il cui ancora (shell o CLI) è
+ * morto: i figli orfani che il pannello non può più raggiungere. SIGTERM subito,
+ * SIGKILL dopo il grace — entrambi SOLO sulla stessa incarnazione: lo start-time
+ * corrente deve combaciare con quello dello snapshot, altrimenti quel pid è
+ * stato riciclato dal sistema per un processo estraneo e non va toccato.
+ * Consuma lo snapshot (uno-shot): niente doppioni se venisse richiamata.
+ */
+export async function sweepOrphanedShellTree(
+  meta: NonNullable<ScriptProcess["shell"]>,
+): Promise<void> {
+  const snapshot = meta.tree;
+  meta.tree = undefined;
+  if (!snapshot || !snapshot.size) return;
+  const pids = [...snapshot.keys()];
+  const now = await getPidStartTimes(pids);
+  const live = pids.filter(p => now.get(p) === snapshot.get(p));
+  if (!live.length) return;
+  for (const p of live) { try { process.kill(p, "SIGTERM"); } catch { /* già morto */ } }
+  setTimeout(async () => {
+    const still = await getPidStartTimes(live);
+    for (const p of live) {
+      if (still.get(p) === snapshot.get(p)) {
+        try { process.kill(p, "SIGKILL"); } catch { /* uscito nel grace */ }
+      }
+    }
+  }, 5000);
 }
 
 // ── Auto-detection of servers started inside Claude PTY sessions ──────────────
@@ -1242,11 +1323,18 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       // of signalling the Claude PTY's group. Remove it immediately so Stop feels
       // instant; the detector confirms on its next cycle.
       const dpid = sp.pid;
+      const shellMeta = sp.source === "shell" ? sp.shell : undefined;
       if (sp.source === "shell") {
         if (!dpid) return false;
         // Una shell finisce fra i «recenti» con l'esito giusto invece di sparire:
         // il pannello è anche il posto dove si legge cosa aveva stampato.
+        // NB: finishBackgroundShell azzererebbe sp.shell più avanti? No — ma lo
+        // snapshot va letto DOPO, quindi lo teniamo in shellMeta qui sopra.
         finishBackgroundShell(sp, "killed");
+        // Fallback: se la shell è già morta, l'albero live sotto è spezzato e i
+        // nipoti reparentati sfuggirebbero al kill del sottoalbero qui sotto.
+        // Lo snapshot catturato mentre era viva li ritrova comunque.
+        if (shellMeta) void sweepOrphanedShellTree(shellMeta);
       }
       else runningScripts.delete(sp.processId);
       if (dpid && isPidAlive(dpid)) {
