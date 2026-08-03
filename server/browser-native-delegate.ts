@@ -35,9 +35,29 @@ interface Pending {
 
 export interface NativeDelegateRegistry {
   /** Mark a contextId as client-executed and store its outbound `send`.
-   *  `owner` identifies WHICH socket registered (the ws object itself works);
-   *  a re-register from a new socket overwrites both send and owner. */
-  register(contextId: string, send: SendFn, owner?: unknown): void;
+   *  `owner` identifies WHICH socket registered (the ws object itself works).
+   *
+   *  NON è più un last-write-wins incondizionato. `unregister` aveva una guardia
+   *  di proprietà e `register` no: chiunque potesse aprire `/ws/browser/:ctx` su
+   *  loopback col contextId di UN'ALTRA pane ne diventava l'esecutore,
+   *  sovrascrivendo la registrazione legittima e ricevendo le sue tool-call —
+   *  fra cui `browser_load_state`, cioè lo stato di sessione e i cookie. Avere
+   *  la guardia sulla rimozione e non sull'aggiunta era un'asimmetria, non una
+   *  decisione.
+   *
+   *  La regola ora: un secondo registrante su un contextId OCCUPATO E VIVO
+   *  viene rifiutato. Vivo lo dice `isOwnerAlive`, che il chiamante inietta
+   *  (per un WS: `readyState === OPEN`) — ed è ciò che tiene in piedi la
+   *  riconnessione, il caso che la guardia di `unregister` esiste per
+   *  proteggere: quando una pane riconnette, il socket vecchio è già chiuso,
+   *  quindi non è vivo e il subentro è legittimo.
+   *
+   *  Senza `isOwnerAlive` non si può distinguere un subentro legittimo da un
+   *  dirottamento: in quel caso si consente (comportamento storico) ma lo si
+   *  LOGGA, così un chiamante non aggiornato si vede.
+   *
+   *  @returns `true` se la registrazione è stata accettata. */
+  register(contextId: string, send: SendFn, owner?: unknown, isOwnerAlive?: () => boolean): boolean;
   /** Drop a contextId (client disconnected / pane closed). Rejects its in-flight ops.
    *  When `owner` is passed and doesn't match the CURRENT registration's owner,
    *  this is a no-op: it means a newer socket already re-registered (reconnect)
@@ -71,7 +91,7 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
   let counter = 0;
   const genOpId = opts.genOpId ?? (() => `op-${++counter}`);
 
-  const senders = new Map<string, { send: SendFn; owner?: unknown }>();
+  const senders = new Map<string, { send: SendFn; owner?: unknown; isOwnerAlive?: () => boolean }>();
   // opId → pending resolver. We resolve (never reject) with an {error} object so a
   // timeout/disconnect surfaces to the agent as a structured tool error, matching
   // how the CDP/Playwright handlers report failures.
@@ -86,8 +106,35 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
   }
 
   return {
-    register(contextId, send, owner) {
-      senders.set(contextId, { send, owner });
+    register(contextId, send, owner, isOwnerAlive) {
+      const current = senders.get(contextId);
+      // Ri-registrazione dello STESSO socket: è un refresh, sempre lecita.
+      const sameOwner =
+        current !== undefined && owner !== undefined && current.owner === owner;
+      if (current && !sameOwner) {
+        // C'è già un esecutore. Subentrare è legittimo solo se quello vecchio
+        // non c'è più (riconnessione: il socket precedente è chiuso).
+        const alive = current.isOwnerAlive?.();
+        if (alive === true) {
+          console.warn(
+            `[native-delegate] registrazione RIFIUTATA su ${contextId}: ` +
+              `un esecutore vivo lo serve già. Un secondo socket che si registra su un ` +
+              `contextId occupato ne dirotterebbe le tool-call (incluso browser_load_state).`,
+          );
+          return false;
+        }
+        if (alive === undefined) {
+          // Nessun modo di sapere se il vecchio è vivo → si consente, come da
+          // comportamento storico, ma non in silenzio: è un chiamante che non
+          // inietta `isOwnerAlive`, e va aggiornato.
+          console.warn(
+            `[native-delegate] subentro su ${contextId} senza prova di liveness del ` +
+              `precedente esecutore: il chiamante non passa isOwnerAlive.`,
+          );
+        }
+      }
+      senders.set(contextId, { send, owner, isOwnerAlive });
+      return true;
     },
     unregister(contextId, owner) {
       // Ownership guard (reconnect race): if the caller identifies itself and a
@@ -164,12 +211,14 @@ export function handleNativeDelegationFrame(
   send: SendFn,
   registry: NativeDelegateRegistry,
   owner?: unknown,
-): 'registered' | 'result' | null {
+  isOwnerAlive?: () => boolean,
+): 'registered' | 'rejected' | 'result' | null {
   if (!raw || typeof raw !== 'object') return null;
   const m = raw as { type?: string; opId?: string; result?: unknown; error?: string };
   if (m.type === 'register_native_executor') {
-    registry.register(contextId, send, owner);
-    return 'registered';
+    // 'rejected' quando un esecutore vivo serve gia questo contextId: chi
+    // chiama deve poterlo dire al socket invece di credersi registrato.
+    return registry.register(contextId, send, owner, isOwnerAlive) ? 'registered' : 'rejected';
   }
   if (m.type === 'browser_op_result' && typeof m.opId === 'string') {
     registry.resolveOp({ opId: m.opId, result: m.result, error: m.error });

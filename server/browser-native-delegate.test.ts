@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect, describe } from 'bun:test';
 import { createNativeDelegateRegistry, handleNativeDelegationFrame, type BrowserOpMessage } from './browser-native-delegate';
 
 test('register / isDelegated / unregister', () => {
@@ -104,4 +104,80 @@ test('handleNativeDelegationFrame: a non-delegation frame falls through (null)',
   expect(handleNativeDelegationFrame({ type: 'agent_active', active: true }, 'ctx', () => {}, r)).toBeNull();
   expect(handleNativeDelegationFrame(null, 'ctx', () => {}, r)).toBeNull();
   expect(handleNativeDelegationFrame('nope', 'ctx', () => {}, r)).toBeNull();
+});
+
+// ── Proprietà sulla REGISTRAZIONE (non solo sulla rimozione) ────────────────
+//
+// L'asimmetria che questi test chiudono: `unregister` aveva una guardia di
+// proprietà e `register` no. Chi poteva aprire /ws/browser/:ctx su loopback col
+// contextId di UN'ALTRA pane ne diventava l'esecutore, sovrascriveva la
+// registrazione legittima e ne riceveva le tool-call — `browser_load_state`
+// compreso, cioè lo stato di sessione e i cookie.
+//
+// La difficoltà vera non è rifiutare: è rifiutare SENZA rompere la
+// riconnessione, che è esattamente il caso per cui la guardia di `unregister`
+// esiste. Da qui la liveness iniettata: un socket chiuso non è un proprietario.
+describe("register — guardia di proprietà", () => {
+  const ALIVE = () => true;
+  const DEAD = () => false;
+
+  test("un secondo socket su un contextId servito da un esecutore VIVO è rifiutato", () => {
+    const r = createNativeDelegateRegistry();
+    const legittimo: BrowserOpMessage[] = [];
+    const intruso: BrowserOpMessage[] = [];
+
+    expect(r.register("ctx1", (m) => legittimo.push(m), "sock-a", ALIVE)).toBe(true);
+    expect(r.register("ctx1", (m) => intruso.push(m), "sock-b", ALIVE)).toBe(false);
+
+    // E il rifiuto deve VALERE: le tool-call continuano ad andare al legittimo.
+    void r.delegateOp("ctx1", "browser_load_state", {});
+    expect(legittimo).toHaveLength(1);
+    expect(intruso).toHaveLength(0);
+  });
+
+  test("la RICONNESSIONE funziona ancora: il socket vecchio è chiuso, il nuovo subentra", () => {
+    const r = createNativeDelegateRegistry();
+    const vecchio: BrowserOpMessage[] = [];
+    const nuovo: BrowserOpMessage[] = [];
+
+    r.register("ctx1", (m) => vecchio.push(m), "sock-a", DEAD);
+    expect(r.register("ctx1", (m) => nuovo.push(m), "sock-b", ALIVE)).toBe(true);
+
+    void r.delegateOp("ctx1", "browser_screenshot", {});
+    expect(nuovo).toHaveLength(1);
+    expect(vecchio).toHaveLength(0);
+  });
+
+  test("lo STESSO socket può ri-registrarsi (refresh), anche se vivo", () => {
+    const r = createNativeDelegateRegistry();
+    r.register("ctx1", () => {}, "sock-a", ALIVE);
+    expect(r.register("ctx1", () => {}, "sock-a", ALIVE)).toBe(true);
+  });
+
+  test("un contextId LIBERO si registra sempre", () => {
+    const r = createNativeDelegateRegistry();
+    expect(r.register("ctx-nuovo", () => {}, "sock-a", ALIVE)).toBe(true);
+    expect(r.isDelegated("ctx-nuovo")).toBe(true);
+  });
+
+  test("dopo unregister il contextId torna libero per chiunque", () => {
+    const r = createNativeDelegateRegistry();
+    r.register("ctx1", () => {}, "sock-a", ALIVE);
+    r.unregister("ctx1", "sock-a");
+    expect(r.register("ctx1", () => {}, "sock-b", ALIVE)).toBe(true);
+  });
+
+  test("senza prova di liveness si consente (comportamento storico), ma il valore lo dice", () => {
+    // Un chiamante non aggiornato non deve rompersi; il subentro viene loggato.
+    const r = createNativeDelegateRegistry();
+    r.register("ctx1", () => {}, "sock-a");
+    expect(r.register("ctx1", () => {}, "sock-b")).toBe(true);
+  });
+
+  test("registrazioni su contextId DIVERSI non si disturbano", () => {
+    const r = createNativeDelegateRegistry();
+    expect(r.register("ctx1", () => {}, "sock-a", ALIVE)).toBe(true);
+    expect(r.register("ctx2", () => {}, "sock-b", ALIVE)).toBe(true);
+    expect(r.size()).toBe(2);
+  });
 });
