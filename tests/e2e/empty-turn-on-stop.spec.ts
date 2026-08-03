@@ -105,7 +105,34 @@ test.describe.serial("Turno vuoto allo stop", () => {
     await expect(page.locator('[data-testid="chat-message"][data-role="user"]').last())
       .toContainText("ciao");
 
+    // …e il composer dice CHI ha fermato il turno. Scartata la bolla vuota, la
+    // pagina è indistinguibile da una risposta mai arrivata: senza il segnale
+    // dello stop qui compariva «la connessione può essersi interrotta», cioè la
+    // rete accusata di una cosa fatta dall'umano un secondo prima.
+    const banner = page.locator('[data-testid="no-reply-banner"]');
+    await expect(banner).toBeVisible({ timeout: 10_000 });
+    await expect(banner).toHaveAttribute("data-reason", "stopped");
+    await expect(banner).toContainText("Turno interrotto");
+    await expect(banner).not.toContainText(/connessione/i);
+
     await unmockChatStream(page);
+  });
+
+  test("una risposta mai arrivata resta un guasto: lì il banner accusa la connessione", async ({ page, chatPage, request }) => {
+    // L'altra metà del banner. Stessa forma in pagina — ultimo messaggio
+    // dell'utente, niente stream — ma nessuno ha premuto stop: qui «la
+    // connessione può essersi interrotta» è la diagnosi giusta, e va detta.
+    await seedMessage(request, { sessionKey, role: "user", content: "e questa chi la risponde?" });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const banner = page.locator('[data-testid="no-reply-banner"]');
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toHaveAttribute("data-reason", "interrupted");
+    await expect(banner).toContainText("Nessuna risposta");
   });
 
   test("mezza frase è lavoro: quella bolla resta", async ({ page, chatPage }) => {

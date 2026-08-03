@@ -47,6 +47,7 @@ export interface ProjectWindowPaneProps {
   getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
+  wasSessionStopped: (sk: string) => boolean;
   stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
@@ -88,7 +89,7 @@ export interface ProjectWindowPaneProps {
 export function ProjectWindowPane({
   projectPath, focusedPanelId,
   onFocusPanel, onClosePanel: _onClosePanel,
-  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
@@ -320,6 +321,7 @@ export function ProjectWindowPane({
             getCompactionMarkers={getCompactionMarkers}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
+            wasSessionStopped={wasSessionStopped}
             stopSession={stopSession}
             sendMessage={wrappedSendMessage}
             editMessage={editMessage}
@@ -463,7 +465,7 @@ export function ProjectWindowPane({
     }
   }, [
     topics, focusedPanelId, projectPath, wrapperPaneId,
-    getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession,
+    getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
     handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic, updatePane,
     windowVisible,

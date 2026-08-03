@@ -210,6 +210,7 @@ interface PanelGridProps {
   getCompactionMarkers?: (sessionKey: string) => CompactionMarker[];
   isSessionLoading: (sessionKey: string) => boolean;
   isSessionStreaming: (sessionKey: string) => boolean;
+  wasSessionStopped: (sessionKey: string) => boolean;
   stopSession: (sessionKey: string) => boolean;
   sendMessage: (sessionKey: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sessionKey: string, messageId: string, newContent: string) => Promise<boolean>;
@@ -285,6 +286,7 @@ export function PanelGrid({
   getCompactionMarkers,
   isSessionLoading,
   isSessionStreaming,
+  wasSessionStopped,
   stopSession,
   sendMessage,
   editMessage,
@@ -2303,6 +2305,7 @@ export function PanelGrid({
         getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
+        wasSessionStopped={wasSessionStopped}
         stopSession={stopSession}
         sendMessage={sendMessage}
         editMessage={editMessage}
@@ -2356,7 +2359,7 @@ export function PanelGrid({
     [
       focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
       getSessionMessages, getCompactionMarkers, isSessionLoading,
-      isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch,
+      isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
       pendingProjectPane, onPendingProjectPaneConsumed, onNewChatInProject,
