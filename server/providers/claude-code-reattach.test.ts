@@ -125,6 +125,48 @@ printf '{"type":"result","result":"final-answer","usage":{"input_tokens":1,"outp
     expect(hB.text).toContain("partial-answer"); // replay rebuilt the partial
   }, 20000);
 
+  /**
+   * La domanda che decide se un figlio sopravvissuto verrà ADOTTATO o UCCISO.
+   *
+   * Il setaccio di boot la faceva al DB (`messages.partial`), che è l'ombra del
+   * turno e si perde; qui la si fa allo store del broker, che è il turno. Il
+   * caso che ha rotto in produzione è il primo: un figlio fermo su una domanda
+   * non emette un byte, quindi «silenzioso» e «finito» si somigliano da fuori —
+   * ma nello store, dopo l'ultimo `result`, c'è il tool_use della domanda.
+   */
+  test("brokerTurnState: 'open' su un turno fermo su una domanda, 'idle' su una sessione a riposo", async () => {
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-parked.sh",
+      `read line
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_parked","name":"mcp__topics__ask_user_question","input":{"questions":[{"question":"Da dove parto?","header":"Coda","options":[{"label":"A"},{"label":"B"}]}]}}]}}\\n'
+sleep 30`));
+    const sessionKey = "topic:reattach-parked";
+    seedTopic(sessionKey, "t-parked");
+
+    const provA = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const hA = makeHandler();
+    provA.sendChat(sessionKey, "hello", hA.handler).catch(() => { /* A muore al riavvio */ });
+
+    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient();
+    await waitFor(async () => ((await bridge.list()).find((s) => s.id === sessionKey)?.endOffset ?? 0) > 0, 8000);
+
+    // "Riavvio": il provider B non ha nessuna memoria del turno — esattamente
+    // la posizione del setaccio di boot quando decide chi uccidere.
+    const provB = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    expect(await provB.brokerTurnState(sessionKey)).toBe("open");
+    // La sonda non lascia tracce: non adotta la sessione né si mette a guidarla.
+    expect(provB.isTurnProcessAlive(sessionKey)).toBe(false);
+    // E si può richiamare: una sonda che consuma la sua risposta sarebbe
+    // peggio di nessuna sonda.
+    expect(await provB.brokerTurnState(sessionKey)).toBe("open");
+
+    // Sessione che ha CHIUSO il suo turno: nessun turno in volo, si può reapare.
+    expect(await provB.brokerTurnState("topic:reattach-done")).toBe("idle");
+    // Sessione che il broker non ha mai visto: idem, e senza esplodere.
+    expect(await provB.brokerTurnState("topic:mai-esistita")).toBe("idle");
+
+    try { bridge.kill(sessionKey); } catch { /* pulizia best-effort */ }
+  }, 20000);
+
   test("completed-while-down: replay carries the result → onDone fires, outcome 'completed', no re-run", async () => {
     setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-done.sh",
       `read line

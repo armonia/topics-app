@@ -506,6 +506,17 @@ export interface AIProvider {
    * sue sessioni può essere in attesa.
    */
   pendingInputSince?(sessionKey: string): number | null;
+  /**
+   * C'è un turno in volo per questa sessione, secondo la fonte AUTORITATIVA del
+   * provider (per claude-code: lo store del broker), indipendentemente da ciò
+   * che il DB ricorda?
+   *
+   * La usa il setaccio di boot prima di UCCIDERE un figlio sopravvissuto: la
+   * riga `partial` in DB è un'ombra che si perde, e su una sessione ferma su
+   * una domanda perderla significa buttare via la domanda. `unknown` non è
+   * `idle`: chi non sa non uccide.
+   */
+  brokerTurnState?(sessionKey: string): Promise<"open" | "idle" | "unknown">;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;

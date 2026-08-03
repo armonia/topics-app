@@ -1877,6 +1877,57 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   /**
+   * C'è un turno IN VOLO in questa sessione, secondo il BROKER?
+   *
+   * La domanda che il setaccio di boot faceva alla persona sbagliata. Fino a
+   * qui l'unico indizio era `messages.partial = 1` nel DB: un'OMBRA del turno,
+   * scritta e cancellata da mezza dozzina di posti diversi (finalizzazione,
+   * timeout, riattacchi, route della storia). Se quell'ombra si perde — ed è
+   * successo — un figlio vivo, fermo su una domanda che nessuno ha ancora
+   * risposto, viene letto come «nessun turno in corso» e ammazzato. Osservato
+   * su topic:ed2070df: la domanda a schermo dalle 19:33 uccisa alle 22:17 dal
+   * reap, con il suo pannello trasformato in un bottone Retry.
+   *
+   * Lo store del broker invece è la COSA, non la sua ombra: è il flusso NDJSON
+   * del figlio, e la sua coda dice se dopo l'ultimo `result` è successo ancora
+   * qualcosa. È la stessa scansione muta che fa la fase 1 di `reattach`, senza
+   * adottare niente e senza emettere un evento verso nessun handler.
+   *
+   * Tre risposte, non due: `unknown` (broker irraggiungibile, scansione
+   * fallita) NON è `idle` — chi decide di uccidere deve avere una prova, non
+   * l'assenza di una risposta.
+   */
+  async brokerTurnState(sessionKey: string): Promise<"open" | "idle" | "unknown"> {
+    if (!USE_AI_BRIDGE) return "unknown";
+    // Sessione già guidata da questo processo: la verità è in memoria, e una
+    // seconda scansione dello store le passerebbe sopra.
+    const existing = this.processes.get(sessionKey);
+    if (existing) return existing.alive && existing.streamHandler ? "open" : "idle";
+
+    const client = getAiBridgeClient();
+    const pp = this.adoptBrokerProcess(sessionKey);
+    pp.replayMute = true;
+    pp.replayTailOpen = false;
+    pp.replayLastResult = undefined;
+    pp.replayAfterLastResultOffset = 0;
+    try {
+      const scan = await client.attach(sessionKey, 0);
+      if (scan.missing || !scan.alive) return "idle";
+      return pp.replayTailOpen ? "open" : "idle";
+    } catch {
+      return "unknown";
+    } finally {
+      // La sonda non lascia niente dietro: nessun pp in mappa (chi adotta
+      // davvero se lo ricostruisce), nessun timer, nessun attacco al daemon.
+      pp.replayMute = false;
+      pp.alive = false;
+      this.cleanupTimers(pp);
+      try { client.detach(sessionKey); } catch { /* daemon andato */ }
+      try { client.unregister(sessionKey); } catch { /* idem */ }
+    }
+  }
+
+  /**
    * Re-attach the broker stream of a LIVE turn, losslessly, from the last byte
    * we consumed. The self-heal for the whole "we stopped hearing a child that
    * is still working" family: a socket reconnect, a daemon that acked a spawn
@@ -1991,8 +2042,15 @@ export class ClaudeCodeProvider implements AIProvider {
       // Empty store (child idle since spawn, or nothing meaningful): nothing
       // to adopt.
       pp.streamHandler = handler;
+      // Un figlio che il broker giura VIVO non è un figlio morto: chiudere qui
+      // il turno con `process-died` era una bugia che si propagava — `alive`
+      // passava a false nella nostra mappa, e da lì `isTurnProcessAlive` e il
+      // setaccio di boot leggevano «morto» su un processo che stava benissimo,
+      // fermo ad aspettare una risposta. Non c'era un turno da adottare: è una
+      // fine normale, non una morte.
+      if (scan.alive) { this.finalizeIdleReattach(pp); return "completed"; }
       this.finalizeDeadReattach(pp);
-      return scan.alive ? "completed" : "dead";
+      return "dead";
     }
 
     // ── Phase 2 · LIVE ──
@@ -2024,6 +2082,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // Case 2: mid-generation — keep reading live until the result event.
     await turnDone;
     return "live";
+  }
+
+  /** Riattacco senza niente da adottare, ma con il figlio VIVO: si scioglie
+   *  l'attesa del chiamante e si chiude la bolla vuota (la route la scarta),
+   *  lasciando il processo per quello che è — vivo e senza turno in corso. */
+  private finalizeIdleReattach(pp: PersistentProcess): void {
+    if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
+    if (pp.streamHandler) {
+      pp.streamHandler.onAborted?.({ turnEnd: { end: "end_turn", detail: "reattach: nessun turno in volo nello store" } });
+      pp.streamHandler = null;
+    }
   }
 
   private finalizeDeadReattach(pp: PersistentProcess): void {
