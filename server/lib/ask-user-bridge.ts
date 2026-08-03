@@ -30,7 +30,18 @@ export interface AskUserBridgeOptions {
   bufferTtlMs?: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 min — matches a patient human
+// 90 min. The point of this panel is that a HUMAN answers it, and a human
+// walks away: 10 min meant a question asked at 12:55 was dead before anyone
+// came back from lunch, and the model resumed with a "cancelled" error nobody
+// had chosen. Two things bound this number:
+//   - BELOW the provider's MAX_LIFETIME_MS (2 h, claude-code.ts): past that the
+//     CLI child is killed outright, so a longer wait would end in a dead
+//     process instead of this clean cancellation.
+//   - ABOVE the turn watchdog's 30-min silence window, which is why that
+//     watchdog now exempts a pending ask (`hasPendingAsk`) — a blocked ask
+//     streams nothing by design, and counting that as "wedged child" would
+//     kill the turn while the panel was still on screen.
+const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 const DEFAULT_BUFFER_TTL_MS = 30 * 1000; // answer that beat the waiter
 
 interface Waiter {

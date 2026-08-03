@@ -79,3 +79,21 @@ describe("ask-user-bridge — lifecycle edges", () => {
     cancelAsk(k); // cleanup
   });
 });
+
+describe("ask-user-bridge — quanto aspetta", () => {
+  test("il default è tarato su un umano che si alza dalla scrivania", async () => {
+    // 90 min: sopra la finestra di silenzio del watchdog (30 min, che ora esenta
+    // le domande in volo) e SOTTO il cap di vita del child (2 h) — oltre quello
+    // il processo viene ucciso e l'attesa finirebbe su un morto invece che su
+    // questa cancellazione pulita.
+    const k = key();
+    const p = waitForAnswer(k); // nessun timeoutMs → default
+    expect(hasPendingAsk(k)).toBe(true);
+    // Non aspettiamo 90 minuti: basta che il default NON sia già scaduto dopo
+    // un tempo in cui i vecchi 10 min sarebbero comunque stati vivi.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(hasPendingAsk(k)).toBe(true);
+    cancelAsk(k, "fine test");
+    await expect(p).rejects.toThrow(/fine test/i);
+  });
+});
