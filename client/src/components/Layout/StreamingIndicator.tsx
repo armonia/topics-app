@@ -32,7 +32,7 @@
  * same loading facade and the same component so they can't drift.
  */
 
-import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -67,7 +67,14 @@ const LIT_GRADIENT =
 // two glyphs share their quiet colour and invert together with the theme.
 const UNLIT_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
-export function GridLoader({ className = '' }: { className?: string }) {
+// L'onda ferma: stesse celle, tutte accese, in ambra e senza animazione. È il
+// glifo dell'ATTESA — un turno sospeso su una domanda è aperto ma non macina, e
+// l'onda che scorre gli darebbe un lavoro che non sta facendo. L'ambra è la
+// stessa tinta del tier 'input' (TIER_INPUT_BG in selectionStyles): dove il
+// fill dice "tocca a te", il glifo dice la stessa cosa.
+const STILL_FILL = 'color-mix(in srgb, var(--color-amber-500, #f59e0b) 88%, transparent)';
+
+export function GridLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
   return (
     <span
       className={`inline-grid ${className}`}
@@ -83,19 +90,21 @@ export function GridLoader({ className = '' }: { className?: string }) {
             height: 3,
             borderRadius: 1.5,
             overflow: 'hidden',
-            background: UNLIT_WASH,
+            background: still ? STILL_FILL : UNLIT_WASH,
           }}
         >
-          <span
-            className="animate-grid-lit"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              borderRadius: 'inherit',
-              background: LIT_GRADIENT,
-              animationDelay: `${slot * SLOT_MS}ms`,
-            }}
-          />
+          {!still && (
+            <span
+              className="animate-grid-lit"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                borderRadius: 'inherit',
+                background: LIT_GRADIENT,
+                animationDelay: `${slot * SLOT_MS}ms`,
+              }}
+            />
+          )}
         </span>
       ))}
     </span>
@@ -122,6 +131,9 @@ interface LoaderSlotProps {
   /** Box size in px (square). Default 16 (the tab-bar slot); the sidebar chat
    *  row passes a larger value for a comfier hit target. */
   size?: number;
+  /** Il turno è aperto ma FERMO ad aspettare una risposta: glifo immobile
+   *  ambra invece dell'onda, e il tooltip lo dice. */
+  waiting?: boolean;
 }
 
 /**
@@ -130,9 +142,10 @@ interface LoaderSlotProps {
  * is what keeps the parent (project) tab loader aligned with the children
  * (chat / terminal / …) tab loaders — they can no longer drift apart.
  */
-function LoaderSlot({ onStop, title, className = '', size = 16 }: LoaderSlotProps) {
-  const tip = title ?? (onStop ? 'Stop' : 'In esecuzione');
+function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false }: LoaderSlotProps) {
+  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : onStop ? 'Stop' : 'In esecuzione');
   const box = { width: size, height: size } as const;
+  const state = waiting ? 'waiting' : 'working';
   if (onStop) {
     return (
       <button
@@ -141,8 +154,9 @@ function LoaderSlot({ onStop, title, className = '', size = 16 }: LoaderSlotProp
         style={box}
         title={tip}
         aria-label={tip}
+        data-loader-state={state}
       >
-        <GridLoader className="group-hover/stop:hidden" />
+        <GridLoader className="group-hover/stop:hidden" still={waiting} />
         <StopGlyph className="hidden group-hover/stop:block" />
       </button>
     );
@@ -153,8 +167,9 @@ function LoaderSlot({ onStop, title, className = '', size = 16 }: LoaderSlotProp
       style={box}
       title={tip}
       aria-label={tip}
+      data-loader-state={state}
     >
-      <GridLoader />
+      <GridLoader still={waiting} />
     </span>
   );
 }
@@ -215,6 +230,10 @@ export function TopicStreamingSpinner({
   quiet,
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
+  // Il turno sospeso è ANCORA aperto (loading resta true, lo stop ha senso), ma
+  // non lavora: cambia il glifo, non l'esistenza dell'indicatore. Prima fuori
+  // dalla chat una domanda a schermo si leggeva identica a un turno che macina.
+  const waiting = useTopicAwaitingInput(topicId);
   if (!streaming) return null;
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
@@ -228,11 +247,12 @@ export function TopicStreamingSpinner({
         className={className}
         size={size}
         quiet={quiet}
+        waiting={waiting}
       />
     );
   }
-  const tip = title ?? (onStop ? 'Stop generating' : 'Streaming');
-  return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} />;
+  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : onStop ? 'Stop generating' : 'Streaming');
+  return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} waiting={waiting} />;
 }
 
 /**
@@ -254,6 +274,7 @@ function LabeledLoader({
   className = '',
   size,
   quiet,
+  waiting = false,
 }: {
   lastUpdate: number | undefined;
   onStop?: () => void;
@@ -261,24 +282,29 @@ function LabeledLoader({
   className?: string;
   size?: number;
   quiet?: boolean;
+  waiting?: boolean;
 }) {
   const now = useSharedNow();
   const { showElapsed, isStale, elapsedMs } = deriveWorkLongevity(lastUpdate, now);
 
   const baseTip = title ?? (onStop ? 'Stop generating' : 'In esecuzione');
   const stopHint = onStop ? ' Passa il mouse per fermare, clicca per aprire.' : '';
-  const tip = isStale
-    ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)} — potrebbe essere ferma o in attesa di un processo in background.${stopHint}`
-    : showElapsed
-      ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
-      : baseTip;
+  // Quando SAPPIAMO che aspetta, lo diciamo: il testo "stale" è una congettura
+  // ("potrebbe essere ferma"), e una congettura non deve coprire un fatto.
+  const tip = waiting
+    ? `Ferma da ${formatElapsedCompact(elapsedMs)} in attesa di una tua risposta.${stopHint}`
+    : isStale
+      ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)} — potrebbe essere ferma o in attesa di un processo in background.${stopHint}`
+      : showElapsed
+        ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
+        : baseTip;
 
   // `quiet`: la cifra esce solo da stale. Il tooltip resta sempre completo — la
   // spiegazione non occupa spazio sulla riga.
   const showNumber = quiet ? isStale : showElapsed;
   // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
   if (!showNumber) {
-    return <LoaderSlot onStop={onStop} title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} />;
+    return <LoaderSlot onStop={onStop} title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} waiting={waiting} />;
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
@@ -290,7 +316,7 @@ function LabeledLoader({
       >
         {formatElapsedCompact(elapsedMs)}
       </span>
-      <LoaderSlot onStop={onStop} title={tip} size={size} className={isStale ? 'opacity-70' : ''} />
+      <LoaderSlot onStop={onStop} title={tip} size={size} className={isStale ? 'opacity-70' : ''} waiting={waiting} />
     </span>
   );
 }

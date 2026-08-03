@@ -436,6 +436,10 @@ export interface WSStreamToolCallMessage {
 export interface WSStreamToolResultMessage {
   type: 'stream:tool_result';
   sessionKey: string;
+  /** Topic della chat che ha generato il tool. Il server lo manda da sempre
+   *  (`broadcastStreamToTopic` in `server/routes/chat.ts`); serve a chi ascolta
+   *  fuori dalla chat, che ragiona per topic e non conosce le sessionKey. */
+  topicId?: string;
   toolCallId: string;
   status?: ToolCall['status'];
   result?: string;

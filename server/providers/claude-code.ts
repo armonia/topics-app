@@ -2910,4 +2910,24 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp) return false;
     return pp.pendingInputs.delete(toolCallId);
   }
+
+  /**
+   * Da quando questa sessione aspetta una risposta, o null se sta lavorando.
+   *
+   * Le domande aperte stanno già in `pendingInputs` con il loro `awaitingSince`
+   * — questo metodo non tiene un secondo registro, legge quello: due contabilità
+   * della stessa cosa divergono sempre, e quella sbagliata sarebbe proprio la
+   * copia. Con più domande aperte vale la più vecchia, cioè l'istante in cui la
+   * sessione ha smesso di lavorare.
+   */
+  pendingInputSince(sessionKey: string): number | null {
+    const pp = this.processes.get(sessionKey);
+    if (!pp || pp.pendingInputs.size === 0) return null;
+    let oldest: number | null = null;
+    for (const entry of pp.pendingInputs.values()) {
+      if (entry.sessionKey !== sessionKey) continue;
+      if (oldest == null || entry.awaitingSince < oldest) oldest = entry.awaitingSince;
+    }
+    return oldest;
+  }
 }

@@ -136,4 +136,68 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     await expect(timer).toHaveAttribute("data-clock", "worked");
     await expect(timer).toHaveAttribute("title", /Lavorato/);
   });
+
+  test("fuori dalla chat il segnale dice «ferma», non «sta lavorando»", async ({ page, chatPage }) => {
+    // Il seguito del guasto sopra, un livello più in là: dentro la chat la
+    // striscia diceva la verità, ma la riga in sidebar e la tab continuavano a
+    // mostrare l'onda del turno che macina. Chi non ha la chat davanti — cioè
+    // il caso in cui la domanda serve DAVVERO — non aveva modo di sapere che
+    // la palla era sua.
+    const ws = await interceptWebSocket(page);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    const history = page
+      .waitForResponse((r) => r.url().includes("/history/"), { timeout: 20_000 })
+      .catch(() => null);
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await history;
+
+    ws.send({ type: "stream:start", sessionKey, topicId, messageId: "msg_awaiting_signal_e2e" });
+
+    // Il turno lavora: c'è almeno un indicatore, e nessuno di essi è in attesa.
+    const working = page.locator('[data-loader-state="working"]');
+    const waiting = page.locator('[data-loader-state="waiting"]');
+    await expect(working.first()).toBeVisible({ timeout: 15_000 });
+    await expect(waiting).toHaveCount(0);
+
+    const toolCallId = "toolu_ask_signal_e2e";
+    ws.send({
+      type: "stream:tool_call",
+      sessionKey,
+      topicId,
+      toolCall: { id: toolCallId, name: "mcp__topics__ask_user_question", args: {}, status: "running" },
+    });
+    ws.send({
+      type: "stream:tool_user_input_required",
+      sessionKey,
+      topicId,
+      toolCallId,
+      schema: {
+        kind: "questions",
+        questions: [
+          { question: "Quale strada?", header: "Strada", options: [{ label: "A" }, { label: "B" }], multiSelect: false },
+        ],
+      },
+    });
+
+    // Il glifo si ferma e il tooltip lo dice a parole. Nessun indicatore deve
+    // restare sull'onda: se ne sopravvivesse uno, una superficie mentirebbe
+    // mentre l'altra dice il vero — che è peggio di mentire e basta.
+    await expect(waiting.first()).toBeVisible({ timeout: 10_000 });
+    await expect(working).toHaveCount(0);
+    await expect(waiting.first()).toHaveAttribute("title", /in attesa di una tua risposta/);
+
+    // A domanda chiusa si torna a lavorare, e con essa l'onda.
+    ws.send({
+      type: "stream:tool_result",
+      sessionKey,
+      topicId,
+      toolCallId,
+      status: "success",
+      result: "ok",
+    });
+    await expect(waiting).toHaveCount(0, { timeout: 10_000 });
+    await expect(working.first()).toBeVisible();
+  });
 });

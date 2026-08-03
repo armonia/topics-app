@@ -14,7 +14,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import { AuraWave } from '../AuraWave';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
-import { useTopicLoading, useTopicWatching } from '@/state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicWatching } from '@/state/signals';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
@@ -128,7 +128,11 @@ export function ChatPanel({
   // the ring and the sidebar dot can never disagree about whether a chat is
   // working. Gated behind the `workingGlow` app setting (default ON); read via
   // the settings-change event so a toggle applies live without a prop drill.
-  const isWorking = useTopicLoading(topic.id);
+  // …meno l'attesa: un turno fermo su una domanda è aperto ma non macina, e
+  // l'alone che pulsa direbbe il contrario proprio mentre la palla è dell'umano.
+  const isLoading = useTopicLoading(topic.id);
+  const isAwaitingInput = useTopicAwaitingInput(topic.id);
+  const isWorking = isLoading && !isAwaitingInput;
   const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
   useEffect(() => {
     const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);

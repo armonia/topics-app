@@ -374,7 +374,7 @@ export interface TerminalRosterEntry {
 
 type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics' | 'watchingTopics';
 
-function setsEqual(a: Set<string>, b: Set<string>): boolean {
+export function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
   for (const v of a) if (!b.has(v)) return false;
   return true;
@@ -970,6 +970,19 @@ export function useTopicLoading(topicId: string | undefined): boolean {
   return useSignalsStore((s) =>
     !!topicId && (s.liveStreamTopics.has(topicId) || s.hydratedStreamTopics.has(topicId) || s.agentActiveTopics.has(topicId)),
   );
+}
+
+/**
+ * Il turno di questo topic è FERMO ad aspettare una risposta — una domanda a
+ * schermo in chat, o un permesso da concedere sul terminale.
+ *
+ * È il gemello «sta lavorando?» di `useTopicLoading`: un turno sospeso è ancora
+ * aperto (quindi loading resta true, e il bottone stop ha ancora senso) ma non
+ * macina niente. Chi disegna un indicatore chiede ENTRAMBI e sceglie il glifo,
+ * invece di far passare per lavoro un'attesa.
+ */
+export function useTopicAwaitingInput(topicId: string | undefined): boolean {
+  return useSignalsStore((s) => !!topicId && s.awaitingInputTopics.has(topicId));
 }
 
 /** A topic's Claude session is in 'watching' phase (Monitor/background-task armed,

@@ -575,7 +575,11 @@ export function useChat() {
           const res = await fetch('/api/topics/streaming');
           if (res.ok) {
             const body = (await res.json()) as { sessions?: { sessionKey?: string; state?: string }[] };
-            serverSaysLive = (body.sessions ?? []).some((x) => x.sessionKey === sessionKey && x.state === 'streaming');
+            // `waiting` è vivo quanto `streaming`: il turno è aperto, ferma solo
+            // ad aspettare una risposta. Ed è silenzioso per definizione — se lo
+            // contassimo come morto, ogni domanda a schermo spegnerebbe la chat
+            // allo scadere del timeout.
+            serverSaysLive = (body.sessions ?? []).some((x) => x.sessionKey === sessionKey && (x.state === 'streaming' || x.state === 'waiting'));
           } else {
             // Server irraggiungibile: NON è una prova di morte. Si riarma e si
             // riprova, invece di spegnere lo stato di un turno che magari corre.
