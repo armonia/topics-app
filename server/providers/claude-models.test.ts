@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FALLBACK_MODELS, scanCliForModelIds, selectCurrentModels } from "./claude-models";
+import { FALLBACK_MODELS, familyOf, newestOfFamily, scanCliForModelIds, selectCurrentModels } from "./claude-models";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -122,5 +122,37 @@ describe("FALLBACK_MODELS", () => {
 
   test("offers the 1M window, which is what the hand-typed list never did", () => {
     expect(FALLBACK_MODELS).toContain("claude-opus-5[1m]");
+  });
+});
+
+describe("newestOfFamily", () => {
+  const LIVE = [
+    "claude-opus-5", "claude-opus-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]",
+    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+  ];
+
+  test("la generazione più recente, non l'ordine della lista", () => {
+    expect(newestOfFamily("opus", LIVE)).toBe("claude-opus-5");
+    expect(newestOfFamily("sonnet", LIVE)).toBe("claude-sonnet-5");
+    expect(newestOfFamily("opus", [...LIVE].reverse())).toBe("claude-opus-5");
+    // 4.10 viene DOPO 4.8: confrontare da stringhe direbbe il contrario.
+    expect(newestOfFamily("opus", ["claude-opus-4-10", "claude-opus-4-8"])).toBe("claude-opus-4-10");
+  });
+
+  test("l'id nudo batte la sua variante [1m], che è una modalità", () => {
+    expect(newestOfFamily("opus", ["claude-opus-5[1m]", "claude-opus-5"])).toBe("claude-opus-5");
+    expect(newestOfFamily("opus", ["claude-opus-5[1m]"])).toBe("claude-opus-5[1m]");
+  });
+
+  test("famiglia assente o lista di altri provider → null, mai un id inventato", () => {
+    expect(newestOfFamily("mythos", LIVE)).toBeNull();
+    expect(newestOfFamily("opus", ["gpt-5-codex", "gemini-2.5-pro"])).toBeNull();
+    expect(newestOfFamily("opus", [])).toBeNull();
+  });
+
+  test("familyOf riconosce la famiglia e tace sul resto", () => {
+    expect(familyOf("claude-opus-5[1m]")).toBe("opus");
+    expect(familyOf("claude-haiku-4-5")).toBe("haiku");
+    expect(familyOf("gpt-4o")).toBeNull();
   });
 });

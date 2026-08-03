@@ -47,7 +47,7 @@ interface ParsedModel {
 }
 
 function parseModelId(id: string): ParsedModel | null {
-  const m = /^claude-(opus|sonnet|haiku|fable)-(\d{1,2})(?:-(\d{1,2}))?(\[1m\])?$/.exec(id);
+  const m = /^claude-(opus|sonnet|haiku|fable)-(\d{1,2})(?:-(\d{1,2}))?(\[1m\])?$/.exec(id.trim());
   if (!m) return null;
   return {
     id,
@@ -57,6 +57,44 @@ function parseModelId(id: string): ParsedModel | null {
     long: Boolean(m[4]),
     bare: m[3] === undefined,
   };
+}
+
+/**
+ * Il modello più recente di una famiglia fra quelli passati, o `null` se quella
+ * famiglia non c'è.
+ *
+ * Sta qui perché è la stessa domanda del resto del file — quale id di questa
+ * famiglia — e perché i chiamanti l'alternativa ce l'avevano già e faceva
+ * danni: scrivere l'id a mano. `claude-opus-4-8` inchiodato nel dispatcher ha
+ * mandato ogni agente su Opus 4.8 per settimane dopo l'arrivo di Opus 5, senza
+ * un errore né un log.
+ *
+ * Le varianti `[1m]` sono lo stesso modello servito con la finestra lunga —
+ * una MODALITÀ, non una capacità superiore — quindi vincono solo se di quella
+ * versione manca l'id nudo: scegliere «il più recente» non deve decidere di
+ * nascosto anche quanta finestra (e quanta spesa) usa una sessione.
+ */
+export function newestOfFamily(family: string, available: readonly string[]): string | null {
+  let best: ParsedModel | null = null;
+  for (const id of available) {
+    const p = parseModelId(id);
+    if (!p || p.family !== family) continue;
+    if (
+      best === null ||
+      p.major > best.major ||
+      (p.major === best.major && p.minor > best.minor) ||
+      (p.major === best.major && p.minor === best.minor && best.long && !p.long)
+    ) {
+      best = p;
+    }
+  }
+  return best?.id ?? null;
+}
+
+/** La famiglia di un id (`claude-opus-5[1m]` → `opus`), o `null` se non è un
+ *  id Claude riconoscibile. */
+export function familyOf(id: string): string | null {
+  return parseModelId(id)?.family ?? null;
 }
 
 /**

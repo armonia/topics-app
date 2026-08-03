@@ -32,7 +32,7 @@ import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
-import { discoverClaudeModels } from "./claude-models";
+import { discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
 
 // ============ Config ============
 
@@ -45,7 +45,20 @@ export interface ClaudeCodeProviderConfig {
 
 // ============ Constants ============
 
-const DEFAULT_MODEL = "claude-sonnet-5";
+/**
+ * Il modello di una CHAT quando nessuno ne ha scelto uno: né il topic, né il
+ * picker, né le impostazioni. Era `claude-sonnet-5`, cioè ogni conversazione
+ * aperta senza toccare il selettore partiva un gradino sotto lo standard
+ * dichiarato ovunque nel repo («l'umano lavora normalmente su opus») — e in
+ * silenzio, perché il picker mostra il modello scelto, non quello ripiegato.
+ *
+ * L'id non è scritto a mano: si prende il più recente della famiglia dalla
+ * lista che il resto del codice già mantiene.
+ */
+const DEFAULT_CHAT_MODEL = newestOfFamily("opus", FALLBACK_MODELS) ?? "claude-opus-5";
+/** I one-shot (auto-titolo, digest, fallback SSE) NON sono lavoro d'agente e
+ *  restano dov'erano: pagarli come una chat non serve a nessuno. */
+const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
 const DEFAULT_PERMISSION_MODE = "bypassPermissions";
 
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
@@ -1355,7 +1368,7 @@ export class ClaudeCodeProvider implements AIProvider {
       .join("\n\n");
 
     // Per-call override (dispatcher classifier forces haiku) → configured model → default.
-    const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
+    const model = options?.model ?? this.config.model ?? DEFAULT_ONESHOT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
@@ -1619,7 +1632,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // are spawn-time CLI flags, so the PATCH handler forces a respawn via
     // refreshSessionConfig when either changes.
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
-    const model = overrides.model ?? this.config.model ?? DEFAULT_MODEL;
+    const model = overrides.model ?? this.config.model ?? DEFAULT_CHAT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     // Spawn IN the topic's resolved working dir (worktree/project) so the CLI's
     // relative-path tools match the "You are working in <path>" awareness block.
