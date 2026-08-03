@@ -102,7 +102,7 @@ test("load_state for a missing handle is a structured error (nothing delegated)"
 
 test("import_chrome dry_run lists hosts server-side without delegating or decrypting", async () => {
   const { registry, seen } = scriptedRegistry({});
-  const hosts = { dryRun: true as const, profile: "Default", totalCookies: 2, hostCount: 1, hosts: [{ domain: ".youtube.com", cookies: 2 }] };
+  const hosts = { dryRun: true as const, browser: "chrome" as const, profile: "Default", totalCookies: 2, hostCount: 1, hosts: [{ domain: ".youtube.com", cookies: 2 }] };
   const out = await nativeStateOp(
     "browser_import_chrome",
     { dry_run: true, domains: ["youtube.com"] },
@@ -125,10 +125,10 @@ test("import_chrome decrypts server-side and delegates only the inject leg", asy
     "ctx",
     {
       registry,
-      decryptChrome: async () => ({ profile: "Default", domains: ["youtube.com"], cookies: cookies as never, decrypted: 2, decryptFailed: 1, skippedEmpty: 0, appBoundEncrypted: 3 }),
+      decryptChrome: async () => ({ browser: "chrome" as const, profile: "Default", domains: ["youtube.com"], cookies: cookies as never, decrypted: 2, decryptFailed: 1, skippedEmpty: 0, appBoundEncrypted: 3 }),
     },
   );
-  expect(out).toEqual({ ok: true, profile: "Default", imported: 2, decryptFailed: 1, skippedEmpty: 0, appBoundEncrypted: 3 });
+  expect(out).toEqual({ ok: true, browser: "chrome", profile: "Default", imported: 2, decryptFailed: 1, skippedEmpty: 0, appBoundEncrypted: 3 });
   expect(seen).toEqual([{ tool: "browser_import_chrome", args: { cookies } }]);
 });
 
