@@ -35,19 +35,31 @@ import { DEFAULT_CONTEXT_WINDOW } from "./context-thresholds";
  * deve stare PRIMA del generico `claude-opus-4` — se no un 4.5 leggerebbe 1M.
  */
 const CONTEXT_WINDOWS: Record<string, number> = {
-  // Claude. Il milione NON è una variante: è la finestra di serie da Opus 4.6 e
-  // Sonnet 4.6 in avanti, e su tutta la generazione 5. Restano a 200k solo i
-  // modelli davvero vecchi e Haiku.
+  // Claude. Il milione È una variante, non la dotazione di serie: la CLI serve
+  // la finestra lunga con l'header beta `context-1m-2025-08-07` e la espone
+  // come un id A PARTE (`claude-opus-5[1m]` accanto a `claude-opus-5`). Un id
+  // nudo, quindi, è da 200k — anche sulla generazione 5.
+  //
+  // Questa tabella diceva il contrario, e il numero sbagliato stava dalla parte
+  // pericolosa: con il denominatore a 1M l'anello del contesto segnava 20%
+  // mentre il turno era pieno, e la compattazione arrivava senza un solo
+  // segnale. Misurato il 3 agosto 2026 sulla CLI 2.1.220, stesso prompt da
+  // ~250k token a ognuno: `claude-opus-5`, `claude-opus-4-8` e
+  // `claude-sonnet-5` → «Prompt is too long»; `claude-opus-5[1m]`,
+  // `claude-opus-4-8[1m]` e `claude-fable-5` → risposta.
+  //
+  // Fable è l'unico a un milione senza chiedere niente: non ha una variante
+  // `[1m]` perché non le serve.
   "claude-fable-5": 1_000_000,
   "claude-mythos-5": 1_000_000,
-  "claude-opus-5": 1_000_000,
-  "claude-opus-4-8": 1_000_000,
-  "claude-opus-4-7": 1_000_000,
-  "claude-opus-4-6": 1_000_000,
+  "claude-opus-5": 200_000,
+  "claude-opus-4-8": 200_000,
+  "claude-opus-4-7": 200_000,
+  "claude-opus-4-6": 200_000,
   "claude-opus-4-5": 200_000,
   "claude-opus-4": 200_000,
-  "claude-sonnet-5": 1_000_000,
-  "claude-sonnet-4-6": 1_000_000,
+  "claude-sonnet-5": 200_000,
+  "claude-sonnet-4-6": 200_000,
   "claude-sonnet-4": 200_000,
   "claude-haiku-3-5": 200_000,
   "claude-haiku-4-5": 200_000,
@@ -141,11 +153,12 @@ export function contextWindowFor(model: string | null | undefined): ContextWindo
 
   // Fallback di famiglia: gli alias corti ("opus", "sonnet") arrivano dal
   // selettore del modello e dalle preferenze, non dal provider. Un alias nudo
-  // significa "l'ultimo di quella famiglia", che oggi è a 1M; solo Haiku è ancora
-  // a 200k.
-  if (lower.includes("haiku")) return { tokens: 200_000, known: true };
-  if (lower.includes("opus") || lower.includes("sonnet")) {
-    return { tokens: 1_000_000, known: true };
+  // significa "l'ultimo di quella famiglia" — e senza il suffisso `[1m]`, che
+  // qui sopra è già stato escluso, l'ultimo di ogni famiglia Claude sta a 200k.
+  // Fable no: quello è a un milione di suo, e non ha un alias corto ambiguo.
+  if (lower.includes("fable") || lower.includes("mythos")) return { tokens: 1_000_000, known: true };
+  if (lower.includes("haiku") || lower.includes("opus") || lower.includes("sonnet")) {
+    return { tokens: 200_000, known: true };
   }
 
   return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };

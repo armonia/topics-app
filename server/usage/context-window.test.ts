@@ -19,14 +19,30 @@ import {
 describe("contextWindowFor", () => {
   it("riconosce i nomi pieni che arrivano dal provider, data compresa", () => {
     expect(contextWindowFor("claude-sonnet-4-5-20250929")).toEqual({ tokens: 200_000, known: true });
-    expect(contextWindowFor("claude-opus-4-6")).toEqual({ tokens: 1_000_000, known: true });
+    expect(contextWindowFor("claude-opus-4-6")).toEqual({ tokens: 200_000, known: true });
     expect(contextWindowFor("gpt-4o-mini")).toEqual({ tokens: 128_000, known: true });
   });
 
+  it("un id Claude NUDO è da 200k, anche sulla generazione 5", () => {
+    // Il milione si chiede: la CLI lo serve con l'header beta
+    // `context-1m-2025-08-07` e lo espone come id separato. Misurato il
+    // 2026-08-03 sulla CLI 2.1.220 mandando lo stesso prompt da ~250k token a
+    // ognuno: questi tre rispondono «Prompt is too long», le loro varianti
+    // `[1m]` rispondono e basta. Scriverli a 1M metteva l'anello del contesto
+    // al 20% su un turno pieno, cioè zero preavviso prima della compattazione.
+    expect(contextWindowFor("claude-opus-5")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("claude-opus-4-8")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("claude-sonnet-5")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("claude-opus-5[1m]")).toEqual({ tokens: 1_000_000, known: true });
+    // Fable è l'eccezione: un milione di serie, nessuna variante da chiedere.
+    expect(contextWindowFor("claude-fable-5")).toEqual({ tokens: 1_000_000, known: true });
+  });
+
   it("gli alias corti del selettore cadono sulla famiglia", () => {
-    expect(contextWindowFor("opus")).toEqual({ tokens: 1_000_000, known: true });
-    expect(contextWindowFor("sonnet")).toEqual({ tokens: 1_000_000, known: true });
+    expect(contextWindowFor("opus")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("sonnet")).toEqual({ tokens: 200_000, known: true });
     expect(contextWindowFor("haiku")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("fable")).toEqual({ tokens: 1_000_000, known: true });
   });
 
   it("la variante a finestra lunga vince sulla famiglia", () => {
@@ -109,7 +125,7 @@ describe("windowModelFor — il suffisso 1M sopravvive al nome nudo della CLI", 
   });
 
   it("senza 1M nella richiesta non inventa niente", () => {
-    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5")).tokens).toBe(1_000_000);
+    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5")).tokens).toBe(200_000);
     expect(windowModelFor(null, "claude-opus-5[1m]")).toBe("claude-opus-5[1m]");
     expect(windowModelFor("claude-opus-5", null)).toBe("claude-opus-5");
     expect(windowModelFor(null, null)).toBeNull();
@@ -125,9 +141,11 @@ describe("windowForMeasure — il denominatore si ricalcola, il numeratore no", 
   });
 
   it("corregge una misura registrata con la finestra sbagliata", () => {
-    // Il caso vero: righe scritte quando la tabella diceva 200k per Sonnet 5.
-    // Il ring mostrava 76% su una sessione che era al 15%.
-    expect(windowForMeasure(measure(), "claude-sonnet-5")).toEqual({ tokens: 1_000_000, known: true });
+    // Il caso vero: righe scritte quando la tabella dava un milione a Sonnet 5,
+    // che invece sta a 200k. L'anello segnava 15% su una sessione al 76% — e
+    // sbagliare da questa parte non si vede finché non arriva la compattazione.
+    expect(windowForMeasure(measure({ windowTokens: 1_000_000 }), "claude-sonnet-5"))
+      .toEqual({ tokens: 200_000, known: true });
   });
 
   it("segue il modello CORRENTE del topic, non quello della misura", () => {

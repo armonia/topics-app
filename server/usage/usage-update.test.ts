@@ -41,11 +41,11 @@ describe("contextTokensFromUsage — il numeratore, uguale per ogni provider", (
 describe("buildContextUpdate — blocco ACP + presentazione", () => {
   it("il blocco è `usage_update` verbatim, con used e size dentro", () => {
     const u = buildContextUpdate({ tokens: 50_000, model: "claude-opus-5" });
-    expect(u.usage).toEqual({ sessionUpdate: "usage_update", used: 50_000, size: 1_000_000 });
+    expect(u.usage).toEqual({ sessionUpdate: "usage_update", used: 50_000, size: 200_000 });
     // La presentazione sta FUORI dal blocco: non è protocollo.
     expect(u.usage).not.toHaveProperty("percent");
     expect(u.usage).not.toHaveProperty("level");
-    expect(u.percent).toBe(5);
+    expect(u.percent).toBe(25);
     expect(u.level).toBe("ok");
     expect(u.estimated).toBe(false);
     expect(u.model).toBe("claude-opus-5");
@@ -94,7 +94,7 @@ describe("buildContextUpdate — blocco ACP + presentazione", () => {
   it("una finestra dichiarata assurda (0, negativa, NaN) non azzera il denominatore", () => {
     for (const w of [0, -1, NaN, null, undefined]) {
       const u = buildContextUpdate({ tokens: 1_000, model: "opus", windowTokens: w as never });
-      expect(u.usage.size).toBe(1_000_000);
+      expect(u.usage.size).toBe(200_000);
     }
   });
 
@@ -117,7 +117,7 @@ describe("contextUpdateFromUsage — la misura persistita, stessa forma", () => 
   it("WS e REST producono lo stesso oggetto per la stessa misura", () => {
     const live = buildContextUpdate({ tokens: 143_000, model: "claude-opus-5" });
     const stored = contextUpdateFromUsage(
-      classifyContext(143_000, { tokens: 1_000_000, known: true }),
+      classifyContext(143_000, { tokens: 200_000, known: true }),
       "claude-opus-5",
     );
     expect(stored).toEqual(live);
