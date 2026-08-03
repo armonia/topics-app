@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { HelpCircle } from 'lucide-react';
 import { formatDurationMs } from './Chat/toolGrouping';
 import { phraseAt } from '../lib/thinkingPhrases';
 import type { WSMessage } from '../types';
@@ -27,11 +28,20 @@ export function TurnActivityIndicator({
   since,
   sessionKey,
   onMessage,
+  awaitingInput,
 }: {
   since?: number;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /**
+   * Il turno è fermo su una domanda all'umano (un tool in `waiting_for_input`).
+   * Tecnicamente il turno è ancora vivo — il messaggio resta `partial` — ma
+   * "sto elaborando" con la frase che ruota e il puntino che pulsa è una bugia:
+   * la palla è dall'altra parte. Qui la riga smette di fare finta di lavorare e
+   * dice quello che sta davvero succedendo, in tono d'attesa.
+   */
+  awaitingInput?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -96,23 +106,54 @@ export function TurnActivityIndicator({
 
   const base = since != null && Number.isFinite(since) ? since : now;
   const elapsed = Math.max(0, now - base);
+  // L'attesa dell'umano vince su "lento": se il turno è fermo su una domanda,
+  // uno stream che non produce token è la normalità, non un sintomo.
+  const state = awaitingInput ? 'waiting' : slow ? 'slow' : 'working';
+  const label =
+    state === 'waiting'
+      ? 'in attesa della tua risposta'
+      : state === 'slow'
+        ? 'stream lento, il provider è ancora connesso'
+        : `${phraseAt(elapsed)}…`;
   return (
     <div
       data-testid="chat-streaming-indicator"
-      data-slow={slow ? 'true' : undefined}
+      data-slow={state === 'slow' ? 'true' : undefined}
+      data-waiting={state === 'waiting' ? 'true' : undefined}
       className="flex items-center gap-2 mt-1 text-[11px] leading-none select-none"
       role="status"
       aria-live="polite"
-      aria-label={slow ? 'Lo stream è lento, il provider è ancora connesso' : 'L’assistente sta elaborando'}
+      aria-label={
+        state === 'waiting'
+          ? 'L’assistente aspetta la tua risposta'
+          : state === 'slow'
+            ? 'Lo stream è lento, il provider è ancora connesso'
+            : 'L’assistente sta elaborando'
+      }
     >
+      {state === 'waiting' ? (
+        // Stessa icona della riga del tool in attesa: chi guarda collega le due
+        // cose senza doverle leggere.
+        <HelpCircle size={11} className="text-amber-500 shrink-0" />
+      ) : (
+        <span
+          className={`turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 ${state === 'slow' ? 'bg-amber-500' : 'bg-primary'}`}
+        />
+      )}
       <span
-        className={`turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 ${slow ? 'bg-amber-500' : 'bg-primary'}`}
-      />
-      <span
-        className={`turn-activity-phrase font-medium ${slow ? 'text-amber-500' : ''}`}
+        // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il
+        // testo con un gradiente in `background-clip` e mette il fill a
+        // trasparente, quindi qualunque colore Tailwind sopra sparirebbe. Negli
+        // stati d'attesa la classe non si mette proprio — così l'ambra si vede
+        // e l'animazione non suggerisce un'attività che non c'è.
+        className={
+          state === 'working'
+            ? 'turn-activity-phrase font-medium'
+            : 'font-medium text-amber-600 dark:text-amber-400'
+        }
         data-testid="turn-phrase"
       >
-        {slow ? 'stream lento, il provider è ancora connesso' : `${phraseAt(elapsed)}…`}
+        {label}
       </span>
       <span className="tabular-nums text-app-text-muted shrink-0" data-testid="turn-timer">· {formatDurationMs(elapsed)}</span>
       {usage && usage.tokens > 0 && (
