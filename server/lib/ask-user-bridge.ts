@@ -24,29 +24,50 @@
  */
 
 export interface AskUserBridgeOptions {
-  /** How long the bridge handler waits before giving up (ms). */
+  /** How long THIS wait blocks before giving up (ms). One poll leg, not the ask. */
   timeoutMs?: number;
   /** How long a delivered-but-unclaimed answer stays buffered (ms). */
   bufferTtlMs?: number;
 }
 
-// 90 min. The point of this panel is that a HUMAN answers it, and a human
-// walks away: 10 min meant a question asked at 12:55 was dead before anyone
-// came back from lunch, and the model resumed with a "cancelled" error nobody
-// had chosen. Two things bound this number:
-//   - BELOW the provider's MAX_LIFETIME_MS (2 h, claude-code.ts): past that the
-//     CLI child is killed outright, so a longer wait would end in a dead
-//     process instead of this clean cancellation.
-//   - ABOVE the turn watchdog's 30-min silence window, which is why that
-//     watchdog now exempts a pending ask (`hasPendingAsk`) — a blocked ask
-//     streams nothing by design, and counting that as "wedged child" would
-//     kill the turn while the panel was still on screen.
-const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
+/**
+ * Why a wait ended without an answer. The route needs to tell these apart:
+ * `timeout` is a poll leg expiring (answer with `pending`, the bridge comes
+ * straight back), while `cancelled`/`superseded` mean the ask itself is over
+ * and the bridge must surface a tool error.
+ */
+export type AskWaitFailure = "timeout" | "cancelled" | "superseded";
+
+export class AskWaitError extends Error {
+  constructor(public readonly code: AskWaitFailure, message: string) {
+    super(message);
+    this.name = "AskWaitError";
+  }
+}
+
+// One POLL LEG, not the ask. Measured the hard way: the first live question
+// died after minutes with "socket connection error" — a single HTTP request
+// held open with zero bytes flowing is exactly what an idle-socket timeout is
+// built to kill, and no server-side patience can save it, because the socket
+// dies on the CLIENT side. So the bridge polls: short legs that always come
+// back, re-armed immediately. 25s is comfortably under any default idle
+// timeout and cheap enough to repeat for an hour and a half.
+const DEFAULT_TIMEOUT_MS = 25 * 1000;
+
+// How long the ASK itself stays alive across those legs. The point of this
+// panel is that a HUMAN answers it, and a human walks away: 10 min meant a
+// question asked at 12:55 was dead before anyone came back from lunch, and the
+// model resumed with a "cancelled" error nobody had chosen. Bounded BELOW the
+// provider's MAX_LIFETIME_MS (2 h, claude-code.ts) — past that the CLI child is
+// killed outright, so a longer wait would end on a dead process instead of this
+// clean cancellation.
+const DEFAULT_ASK_TTL_MS = 90 * 60 * 1000;
+
 const DEFAULT_BUFFER_TTL_MS = 30 * 1000; // answer that beat the waiter
 
 interface Waiter {
   resolve: (answers: Record<string, string>) => void;
-  reject: (err: Error) => void;
+  reject: (err: AskWaitError) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -57,13 +78,47 @@ interface BufferedAnswer {
 
 const waiters = new Map<string, Waiter>();
 const buffered = new Map<string, BufferedAnswer>();
+/**
+ * Asks that are OPEN — the panel is on screen and nobody has answered or
+ * cancelled it. Separate from `waiters` on purpose: with a polling bridge there
+ * are millisecond gaps between legs where no waiter is registered, and during
+ * those gaps the ask is still very much pending. Anything reasoning about "is a
+ * question on screen right now?" (the turn watchdog, the tool-response route)
+ * must read THIS, not the waiter map. Value = when the ask opened, so the TTL
+ * spans the whole ask rather than restarting on every leg.
+ */
+const activeAsks = new Map<string, number>();
 
 /**
- * Called by the bridge tool handler. Resolves with the human's answers when
- * they arrive, or rejects on timeout. If the answer already landed (buffered),
- * resolves immediately. A second ask for the same session supersedes the first
- * (its waiter is rejected) — the CLI only blocks on one at a time, so a lingering
- * waiter is stale.
+ * Open an ask, or confirm the one already open. Called at the top of every poll
+ * leg: the FIRST leg opens it (and stamps the TTL clock), later legs are no-ops
+ * so a poll every 25 seconds can't keep an ask alive forever.
+ *
+ * Returns false when the ask has outlived `ttlMs` — the caller then cancels it
+ * and reports a clean expiry instead of polling into the CLI child's death.
+ */
+export function beginAsk(sessionKey: string, ttlMs = DEFAULT_ASK_TTL_MS, now = Date.now()): boolean {
+  const startedAt = activeAsks.get(sessionKey);
+  if (startedAt === undefined) {
+    activeAsks.set(sessionKey, now);
+    return true;
+  }
+  return now - startedAt < ttlMs;
+}
+
+/** Close an ask: answered, cancelled, or expired. Idempotent. */
+export function endAsk(sessionKey: string): void {
+  activeAsks.delete(sessionKey);
+}
+
+/**
+ * Called by the bridge tool handler, once per poll leg. Resolves with the
+ * human's answers when they arrive, or rejects with an `AskWaitError` whose
+ * `code` says why: `timeout` (this leg expired — come straight back),
+ * `cancelled`, or `superseded`. If the answer already landed while no leg was
+ * registered, resolves immediately from the buffer. A second ask for the same
+ * session supersedes the first — the CLI only blocks on one at a time, so a
+ * lingering waiter is stale.
  */
 export function waitForAnswer(
   sessionKey: string,
@@ -84,13 +139,13 @@ export function waitForAnswer(
   if (existing) {
     clearTimeout(existing.timer);
     waiters.delete(sessionKey);
-    existing.reject(new Error("ask_user_question: superseded by a newer question"));
+    existing.reject(new AskWaitError("superseded", "ask_user_question: superseded by a newer question"));
   }
 
   return new Promise<Record<string, string>>((resolve, reject) => {
     const timer = setTimeout(() => {
       waiters.delete(sessionKey);
-      reject(new Error("ask_user_question: timed out waiting for the human answer"));
+      reject(new AskWaitError("timeout", "ask_user_question: poll leg expired"));
     }, timeoutMs);
     waiters.set(sessionKey, { resolve, reject, timer });
   });
@@ -108,6 +163,9 @@ export function deliverAnswer(
   answers: Record<string, string>,
   opts: AskUserBridgeOptions = {},
 ): boolean {
+  // The ask is over either way — whoever picks the answer up, nobody should
+  // still consider a question to be on screen for this session.
+  endAsk(sessionKey);
   const w = waiters.get(sessionKey);
   if (w) {
     clearTimeout(w.timer);
@@ -115,9 +173,9 @@ export function deliverAnswer(
     w.resolve(answers);
     return true;
   }
-  // No waiter yet: buffer briefly so a bridge handler that registers a beat
-  // later still gets it. We only buffer when a bridge ask is plausibly in
-  // flight — the caller decides whether to invoke this at all.
+  // No waiter registered right now — the normal case in a polling bridge, which
+  // spends a sliver of every cycle between legs. Buffer so the next leg (or a
+  // handler that registers a beat later) still gets it.
   const ttl = opts.bufferTtlMs ?? DEFAULT_BUFFER_TTL_MS;
   const prev = buffered.get(sessionKey);
   if (prev) clearTimeout(prev.timer);
@@ -126,9 +184,16 @@ export function deliverAnswer(
   return true;
 }
 
-/** True when a bridge handler is currently blocked waiting for this session. */
+/**
+ * True when a question is ON SCREEN for this session and still unanswered.
+ *
+ * Deliberately reads `activeAsks`, not `waiters`: a polling bridge has no
+ * waiter registered during the hop between legs, and answering "no question
+ * pending" in that sliver would send the turn watchdog after a healthy turn and
+ * route the human's answer down the stdin path.
+ */
 export function hasPendingAsk(sessionKey: string): boolean {
-  return waiters.has(sessionKey);
+  return activeAsks.has(sessionKey);
 }
 
 /**
@@ -136,11 +201,12 @@ export function hasPendingAsk(sessionKey: string): boolean {
  * blocked handler unblocks with an error instead of hanging to timeout.
  */
 export function cancelAsk(sessionKey: string, reason = "cancelled"): void {
+  endAsk(sessionKey);
   const w = waiters.get(sessionKey);
   if (w) {
     clearTimeout(w.timer);
     waiters.delete(sessionKey);
-    w.reject(new Error(`ask_user_question: ${reason}`));
+    w.reject(new AskWaitError("cancelled", `ask_user_question: ${reason}`));
   }
   const buf = buffered.get(sessionKey);
   if (buf) {

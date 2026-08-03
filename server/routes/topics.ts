@@ -27,7 +27,7 @@ import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
-import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
+import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1867,11 +1867,21 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
     // POST /api/sessions/:sessionKey/ask-user
     //
-    // Long-poll rendez-vous for the `mcp__topics__ask_user_question` bridge
-    // tool. Called by the bridge subprocess when the model asks the human a
-    // question; it BLOCKS here until the human submits the clickable panel
-    // (which posts to /api/chat/tool-response → deliverAnswer). The panel
-    // itself is NOT rendered from here — the CLI also emits a `tool_use` for
+    // One POLL LEG of the rendez-vous for the `mcp__topics__ask_user_question`
+    // bridge tool. Called by the bridge subprocess when the model asks the human
+    // a question; it blocks here for a few seconds and then answers one of three
+    // ways: `{answers}` (the human submitted the panel, via
+    // /api/chat/tool-response → deliverAnswer), `{pending:true}` (nobody has
+    // answered yet — come straight back), or `{cancelled,reason}` (the ask is
+    // over: aborted, superseded, or expired).
+    //
+    // WHY legs instead of one long block: the first live question died after
+    // minutes with a socket connection error. A single request held open with
+    // zero bytes flowing is exactly what an idle-socket timeout kills, and it
+    // dies CLIENT-side, so no amount of server patience helps. Short legs always
+    // come back; `beginAsk` keeps the TTL on the ask itself, not on the leg.
+    //
+    // The panel is NOT rendered from here — the CLI also emits a `tool_use` for
     // this call that the provider's detector turns into
     // `stream:tool_user_input_required`, so the UI is already showing the form
     // by the time we start waiting. We only supply the answer channel.
@@ -1883,14 +1893,23 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!Array.isArray(body?.questions) || body.questions.length === 0) {
           return json({ error: "questions (non-empty array) is required" }, 400);
         }
+        if (!beginAsk(sk)) {
+          // The ask outlived its TTL. Close it here rather than letting the
+          // bridge poll on into the CLI child's own lifetime cap.
+          cancelAsk(sk, "nessuna risposta: la domanda è scaduta");
+          return json({ cancelled: true, reason: "ask_user_question: la domanda è scaduta senza risposta" });
+        }
         try {
           const answers = await waitForAnswer(sk);
           return json({ answers });
         } catch (err: any) {
-          // Timeout / superseded / cancelled: report a clean 200 signal the
-          // bridge maps to a "cancelled" tool error (it never fabricates an
-          // answer). Uses `reason`, not `error`, so the bridge's httpJson
-          // passes it through instead of auto-throwing on `error`.
+          // A leg expiring is the NORMAL case — the human is still reading.
+          // Only a genuinely finished ask (cancelled/superseded) ends the tool.
+          if (err instanceof AskWaitError && err.code === "timeout") {
+            return json({ pending: true });
+          }
+          // Uses `reason`, not `error`, so the bridge's httpJson passes it
+          // through instead of auto-throwing on `error`.
           return json({ cancelled: true, reason: err?.message ?? String(err) });
         }
       }

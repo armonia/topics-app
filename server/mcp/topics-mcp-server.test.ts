@@ -920,6 +920,58 @@ describe("callAskUserQuestion", () => {
       callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl),
     ).rejects.toThrow(/cancelled.*turn aborted/i);
   });
+
+  test("ripolla finché l'umano non risponde: {pending} non è una risposta", async () => {
+    // Il server chiude ogni gamba dopo pochi secondi (un socket tenuto aperto a
+    // vuoto per minuti viene ucciso dal lato client — è successo davvero). Il
+    // bridge deve tornare indietro, non arrendersi.
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls < 3) return new Response(JSON.stringify({ pending: true }), { status: 200 });
+      return new Response(JSON.stringify({ answers: { Auth: "JWT" } }), { status: 200 });
+    });
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+    );
+    expect(calls).toBe(3);
+    expect(JSON.parse(text)).toEqual({ answers: { Auth: "JWT" } });
+  });
+
+  test("un socket caduto viene ritentato, non trasformato in cancellazione", async () => {
+    // L'umano sta ancora guardando il pannello: un errore di trasporto non deve
+    // mai cancellare la sua domanda.
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls === 1) throw new Error("socket hang up");
+      return new Response(JSON.stringify({ answers: { Auth: "OAuth" } }), { status: 200 });
+    });
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+      { backoffMs: [0] },
+    );
+    expect(calls).toBe(2);
+    expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
+  });
+
+  test("se il server non risponde più, si arrende con un messaggio di trasporto", async () => {
+    const fetchImpl = stubFetch(async () => { throw new Error("ECONNREFUSED"); });
+    await expect(
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl, { backoffMs: [0] }),
+    ).rejects.toThrow(/lost contact with topics-app.*ECONNREFUSED/i);
+  });
+
+  test("non gira all'infinito se il server risponde 'pending' per sempre", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ pending: true }), { status: 200 }));
+    await expect(
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl, { maxLegs: 3 }),
+    ).rejects.toThrow(/gave up after 3 poll legs/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
