@@ -175,9 +175,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
   // processi. Ricade sul numero a processo singolo dove `ps` non è usabile.
   const fleet = status?.server.fleet;
   const serverSideMemMB = fleet?.memoryMB ?? serverMemMB;
-  // Titolo = shell + lato server. Le due metà sono misurate DIVERSAMENTE
-  // (footprint contro `ps rss`) e il tooltip lo dice riga per riga, ma una barra
-  // che mostra solo una delle due è il bug che questo sostituisce.
+  // Titolo = shell + lato server. Dal 2026-08-04 le due metà usano la STESSA
+  // metrica (`phys_footprint`, quella di Monitoraggio Attività): prima il lato
+  // server sommava `ps rss` e la somma univa due unità diverse — misurato,
+  // 2,07 GB di rss contro 1,17 di footprint sullo stesso albero. `memMetric`
+  // dice quale metrica è arrivata davvero, perché su una piattaforma senza
+  // `proc_pid_rusage` si ripiega ancora su rss e va detto invece che nascosto.
   const totalMemMB = appMemMB !== null
     ? appMemMB + (serverSideMemMB ?? 0)
     : serverSideMemMB;
@@ -188,7 +191,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
     ? (totalMemMB ?? 0) > (isPartialMem ? 1024 : 3072)
     : (serverSideMemMB ?? 0) > 512;
   const serverSideLine = fleet
-    ? `\n· lato server, ${fleet.processCount} processi: ${fleet.memoryMB} MB (RSS)`
+    ? `\n· lato server, ${fleet.processCount} processi: ${fleet.memoryMB} MB`
+      + (fleet.memMetric === 'footprint' ? '' : fleet.memMetric === 'mixed' ? ' (footprint parziale)' : ' (RSS, stima alta)')
       + fleet.roots
           .filter(r => r.kind !== 'server' && r.memoryMB > 0)
           .map(r => `\n   · ${r.kind}: ${r.memoryMB} MB, ${r.processCount} proc.`)

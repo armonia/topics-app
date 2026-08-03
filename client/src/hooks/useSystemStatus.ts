@@ -49,6 +49,10 @@ export interface SystemStatus {
       cpuPercent: number;
       /** Core logici su cui `cpuPercent` è normalizzato. */
       cpuCores: number;
+      /** Da dove viene `memoryMB`: `footprint` è la metrica buona (la stessa
+       *  della shell e di Monitoraggio Attività); `rss` è il ripiego e
+       *  sovrastima le pagine condivise; `mixed` = copertura parziale. */
+      memMetric: 'footprint' | 'rss' | 'mixed';
       roots: { kind: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number }[];
       supported: boolean;
     };
