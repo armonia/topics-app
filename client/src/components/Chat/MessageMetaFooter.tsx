@@ -83,7 +83,9 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
     parts.push({ text: formatDurationMs(safeLatency) });
   }
   if (total > 0) {
-    parts.push({ text: `${total.toLocaleString()} tokens`, title: tokensTitle });
+    // Compatto: `4.5M`, non `4.531.312`. Il numero esatto resta nel title —
+    // la striscia si legge di sfuggita, la contabilità si legge apposta.
+    parts.push({ text: `${formatTokens(total)} tokens`, title: tokensTitle });
   }
   // Quanti di quei token erano rilettura e quanti roba nuova — IN CHIARO.
   //
@@ -100,7 +102,7 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   // perché è output, non roba letta.
   if (breakdownKnown && prompt > 0) {
     parts.push({
-      text: `${formatTokens(cacheRead, { decimals: 1 })} da cache · ${formatTokens(bd.newTokens, { decimals: 1 })} nuovi`,
+      text: `${formatTokens(cacheRead)} da cache · ${formatTokens(bd.newTokens)} nuovi`,
       title: tokensTitle,
       testId: 'message-token-split',
     });

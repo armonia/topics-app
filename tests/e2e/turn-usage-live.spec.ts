@@ -93,16 +93,16 @@ test.describe("Consumo del turno, live", () => {
     usage(1, 12_000, 300);
     const live = page.getByTestId("turn-usage").first();
     await expect(live).toBeVisible({ timeout: 10000 });
-    // Separatore delle migliaia indipendente dalla locale: il browser di test non
-    // gira per forza in it-IT, e asserire "12.300" lo legherebbe a una locale.
-    await expect(live).toContainText(/12[.,]300/);
+    // Compatto, come ovunque nella chat: `12k`, non `12.300`. Il numero esatto
+    // sta nel title, che è dove si va a guardare la contabilità.
+    await expect(live).toContainText("12k token");
 
     // Secondo frame: il server manda il TOTALE già accumulato, quindi la striscia
     // deve mostrare 26.000, non 12.300 + 26.000. È la differenza fra "il client
     // mostra" e "il client somma", ed è il modo più facile di sbagliare qui.
     usage(2, 25_000, 1_000);
-    await expect(live).toContainText(/26[.,]000/, { timeout: 10000 });
-    await expect(live).not.toContainText(/38[.,]300/);
+    await expect(live).toContainText("26k token", { timeout: 10000 });
+    await expect(live).not.toContainText("38k");
 
     // Il numero di chiamate sta nel title: è ciò che spiega perché i token letti
     // superano la finestra di contesto.
