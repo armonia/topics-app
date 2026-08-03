@@ -73,6 +73,7 @@ import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskModel } from "./server/services/task-model-picker";
+import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
@@ -622,6 +623,11 @@ const taskDispatcher = createTaskDispatcher({
   // empty-snapshot all resolve to opus (the human's default), never a silent
   // downgrade — the picker itself never throws (see task-model-picker.ts).
   pickAutoModel: async (task) => {
+    // L'Opus di ripiego non si scrive a mano: un id fisso qui è come si finisce
+    // a dispatchare agenti su una generazione vecchia per settimane senza che
+    // niente lo segnali. `FALLBACK_MODELS` è la lista che il resto del codice
+    // già mantiene, e serve solo quando lo snapshot non c'è.
+    const staticOpus = newestOfFamily("opus", FALLBACK_MODELS) ?? FALLBACK_MODELS[0]!;
     try {
       const provider = getProvider("claude-code");
       const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
@@ -630,18 +636,18 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      if (availableModels.length === 0) return { model: "claude-opus-4-8" };
+      if (availableModels.length === 0) return { model: staticOpus };
       const model = await pickTaskModel(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
         availableModels,
-        fallback: "claude-opus-4-8",
+        fallback: newestOfFamily("opus", availableModels) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
       return { model };
     } catch {
-      return { model: "claude-opus-4-8" }; // any failure → opus-first, never a silent downgrade
+      return { model: staticOpus }; // any failure → opus-first, never a silent downgrade
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.

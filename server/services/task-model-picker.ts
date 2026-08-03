@@ -19,6 +19,8 @@
 // - Deterministic mapping from the classifier's single-word tier to a concrete
 //   model id, so the prompt stays tiny and cheap.
 
+import { newestOfFamily, familyOf } from "../providers/claude-models";
+
 /** Capability tiers the classifier chooses between (cheap → most capable). */
 export const MODEL_TIERS = ["haiku", "sonnet", "opus", "fable"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
@@ -37,13 +39,21 @@ export function floorTier(tier: ModelTier): ModelTier {
   return MODEL_TIERS.indexOf(tier) < MODEL_TIERS.indexOf(MIN_EXECUTION_TIER) ? MIN_EXECUTION_TIER : tier;
 }
 
-/** Canonical model id for each tier (matches the claude-code snapshot ids). */
-const TIER_TO_MODEL: Record<ModelTier, string> = {
-  haiku: "claude-haiku-4-5",
-  sonnet: "claude-sonnet-5",
-  opus: "claude-opus-4-8",
-  fable: "claude-fable-5",
+/**
+ * Famiglia CLI per ogni tier. È una FAMIGLIA e non un id preciso perché un id
+ * preciso invecchia da solo: qui c'era `claude-opus-4-8` scritto a mano, e ha
+ * continuato a mandare ogni agente dispatchato su Opus 4.8 per tutto il tempo
+ * in cui la CLI offriva già Opus 5 — nessun errore, nessun log, solo una
+ * generazione indietro. La versione la decide l'host: si prende la più recente
+ * fra quelle che annuncia davvero.
+ */
+const TIER_TO_FAMILY: Record<ModelTier, string> = {
+  haiku: "haiku",
+  sonnet: "sonnet",
+  opus: "opus",
+  fable: "fable",
 };
+
 
 export interface PickModelDeps {
   /** One-shot completion (the dispatcher passes claude-code's, forced to haiku). */
@@ -103,16 +113,17 @@ export function parseTier(raw: string): ModelTier | null {
  * nothing maps (caller uses its fallback).
  */
 export function tierToAvailableModel(tier: ModelTier, available: readonly string[]): string | null {
-  const set = new Set(available);
-  const want = TIER_TO_MODEL[tier];
-  if (set.has(want)) return want;
+  const want = newestOfFamily(TIER_TO_FAMILY[tier], available);
+  if (want) return want;
   const idx = MODEL_TIERS.indexOf(tier);
   // Prefer the nearest LOWER tier (cheaper, safer), then fall upward.
   for (let d = 1; d < MODEL_TIERS.length; d++) {
     const lower = MODEL_TIERS[idx - d];
-    if (lower && set.has(TIER_TO_MODEL[lower])) return TIER_TO_MODEL[lower];
+    const lowerId = lower && newestOfFamily(TIER_TO_FAMILY[lower], available);
+    if (lowerId) return lowerId;
     const higher = MODEL_TIERS[idx + d];
-    if (higher && set.has(TIER_TO_MODEL[higher])) return TIER_TO_MODEL[higher];
+    const higherId = higher && newestOfFamily(TIER_TO_FAMILY[higher], available);
+    if (higherId) return higherId;
   }
   return null;
 }
@@ -138,7 +149,7 @@ export async function pickTaskModel(
     // candidate set, so neither a haiku pick NOR a walk-down on a host missing
     // sonnet can ever land an agent on haiku.
     const tier = floorTier(rawTier);
-    const execAvailable = deps.availableModels.filter((m) => m !== TIER_TO_MODEL.haiku);
+    const execAvailable = deps.availableModels.filter((m) => familyOf(m) !== TIER_TO_FAMILY.haiku);
     const model = tierToAvailableModel(tier, execAvailable);
     if (!model) {
       deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
