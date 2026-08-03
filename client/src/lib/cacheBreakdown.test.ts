@@ -86,6 +86,35 @@ describe('cacheBreakdown — le quattro quote sommano al prompt', () => {
   });
 });
 
+describe('cacheBreakdown — riletto contro nuovo, le due voci mostrate', () => {
+  test('le scritture in cache stanno coi NUOVI, e le due voci sommano al prompt', () => {
+    // Erano token freschi, pagati di più (×1,25, ×2 a un'ora) per essere
+    // memorizzati: contarle come cache farebbe sembrare un risparmio quello che
+    // è un anticipo — la stessa scelta che fa `costBreakdown`.
+    const bd = cacheBreakdown({
+      promptTokens: 2_000_000,
+      cacheReadTokens: 1_950_000,
+      cacheCreationTokens: 40_000,
+      cacheCreation1hTokens: 8_000,
+    });
+    expect(bd.newTokens).toBe(2_000 + 40_000 + 8_000);
+    expect(bd.read + bd.newTokens).toBe(2_000_000);
+  });
+
+  test('senza scritture il nuovo è il fresco e basta', () => {
+    const bd = cacheBreakdown({ promptTokens: 12_000, cacheReadTokens: 10_800 });
+    expect(bd.newTokens).toBe(1_200);
+    expect(bd.newTokens).toBe(bd.fresh);
+  });
+
+  test('un turno senza cache è tutto nuovo — misurato, non «non lo sappiamo»', () => {
+    const bd = cacheBreakdown({ promptTokens: 5_000, cacheReadTokens: 0 });
+    expect(bd.known).toBe(true);
+    expect(bd.read).toBe(0);
+    expect(bd.newTokens).toBe(5_000);
+  });
+});
+
 describe('cacheBreakdown — la percentuale', () => {
   test('è la quota di RILETTURA sul totale letto, non sulle scritture', () => {
     const bd = cacheBreakdown({ promptTokens: 1000, cacheReadTokens: 900, cacheCreationTokens: 100 });
