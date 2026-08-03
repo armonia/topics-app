@@ -376,6 +376,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // reconcile finishes; pruning on those used to wipe every restored
   // claude-code tab inside a project AND persist the wipe → sessions lost.
   const seenTerminalSessionIdsRef = useRef<Set<string>>(new Set());
+  /** Sessioni PARCHEGGIATE del progetto: fuori dal roster ma vive come riga
+   *  ripristinabile, quindi le loro tab non vanno potate. Vuoto finché la
+   *  risposta non arriva — e vuoto è il comportamento di prima. */
+  const dormantIdsRef = useRef<ReadonlySet<string>>(new Set());
+  /** Ultimo roster visto, per ripassare il prune se la lista delle dormienti
+   *  arriva dopo (le due fetch non hanno un ordine garantito). */
+  const lastRosterRef = useRef<{ id: string; cwd: string; name: string; type: string }[]>([]);
   useEffect(() => {
     // A roster entry is only usable if it carries a string `id` and `cwd`.
     // The roster can arrive over both the fetch and WS paths from a server
@@ -389,6 +396,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       typeof (s as { cwd?: unknown }).cwd === 'string';
 
     const syncTerminals = (rawSessions: { id: string; cwd: string; name: string; type: string }[]) => {
+      // Tenuto per poter ripassare il prune quando la lista delle dormienti
+      // arriva DOPO il roster (due fetch in volo, nessun ordine garantito).
+      lastRosterRef.current = rawSessions;
       const sessions = rawSessions.filter(isTerminalSession);
       const sessionIds = new Set(sessions.map(s => s.id));
       // Live name from the roster, keyed by session id. The server owns the
@@ -436,7 +446,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // (a dead session restored from a previous run). Keep never-seen ids
           // while the roster is empty/unproven — see terminalReconcile for why
           // this stops a refresh from losing live tabs.
-          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative);
+          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative, dormantIdsRef.current);
         });
         // Relabel existing terminal tabs from the live roster. Returns the same
         // object when unchanged, so the identity check below still short-circuits
@@ -470,19 +480,30 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
     fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
 
+    // Le sessioni PARCHEGGIATE si censiscono, non si rianimano.
+    //
+    // Qui si faceva `POST …/revive` su OGNI sessione dormiente di questo cwd.
+    // Serviva a farle rientrare nel roster prima del prune (una dormiente non è
+    // nella mappa in memoria del server, e per il prune «vista e poi sparita» è
+    // indistinguibile da «chiusa in un'altra finestra»), ma il prezzo era che
+    // aprire un progetto rimetteva in piedi in un colpo solo tutti i processi
+    // che il parcheggio per inattività aveva appena spento: il gesto più comune
+    // che esista annullava il risparmio.
+    //
+    // Ora gli id dormienti si passano al prune, che li tiene perché sono
+    // parcheggiati e non morti. A rianimare ci pensa la pane quando diventa
+    // ATTIVA (SingleTerminalPane, gated su `isActive`): con `--resume`,
+    // esattamente dov'era, scrollback compreso. Montare una tab non richiede una
+    // PTY viva — la richiede metterla a fuoco.
     fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
       .then(r => r.json())
-      .then(async (dormant: { id: string; name: string; cwd: string; type: string }[]) => {
-        const tombstones = getTerminalTombstones();
-        // Revive in parallel — N dormant sessions used to be N awaited
-        // round-trips at mount, serialising the layout's terminal restore.
-        await Promise.all(
-          dormant
-            .filter(d => !tombstones.has(d.id))
-            .map(d =>
-              fetch(`/api/terminal/sessions/${d.id}/revive`, { method: 'POST' }).catch(() => {}),
-            ),
-        );
+      .then((dormant: { id: string }[]) => {
+        if (!Array.isArray(dormant)) return;
+        dormantIdsRef.current = new Set(dormant.map(d => d.id));
+        // Il roster è già arrivato mentre questa risposta era in volo: ripassa
+        // il prune con l'informazione nuova, o le tab parcheggiate sono già
+        // state potate (e la potatura si persiste).
+        syncTerminals(lastRosterRef.current);
       })
       .catch(() => {});
 
