@@ -18,6 +18,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { closeDatabase } from "./db";
 import { createAppContext } from "./utils";
+import { beginAsk, hasPendingAsk } from "./lib/ask-user-bridge";
 import type { AppContext, Topic, ToolCall } from "./types";
 
 let tmpRoot: string;
@@ -151,6 +152,37 @@ describe("message field-ownership on updateMessage", () => {
     const row = ctx.getMessageById(msg.id)!;
     expect(row.toolCalls?.[0]?.status).toBe("success");
     expect(row.toolCalls?.[0]?.result).toBe("ok");
+  });
+
+  test("endStream spegne anche una domanda rimasta a schermo: un pannello vivo su un turno morto non promette niente a nessuno", () => {
+    // Il difetto visto su `topic:ed2070df`: `fix()` finalizzava 'running' e
+    // 'pending', non `waiting_for_input`. Il turno veniva chiuso, ma il tool
+    // della domanda restava in attesa — e `waiting_for_input` è lo stato che
+    // rende il pannello CLICCABILE. Sullo schermo: una domanda che invita a
+    // rispondere accanto al banner «Nessuna risposta ricevuta / Retry», con la
+    // certezza che quel clic non sarebbe arrivato a nessuno, perché il
+    // rendez-vous vive nel processo che ha appena dichiarato morto il turno.
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.startStream(SK, msg.id);
+    ctx.addToolCallToLastMessage(SK, tool("t8", {
+      name: "mcp__topics__ask_user_question",
+      status: "waiting_for_input",
+    }));
+    beginAsk(SK);
+    expect(hasPendingAsk(SK)).toBe(true);
+
+    const interrupted = ctx.endStream(SK);
+
+    expect(interrupted.map(t => t.id)).toEqual(["t8"]);
+    expect(interrupted[0]?.status).toBe("error");
+    expect(interrupted[0]?.error).toMatch(/domanda era ancora a schermo/i);
+    expect(typeof interrupted[0]?.endedAt).toBe("number");
+
+    const row = ctx.getMessageById(msg.id)!;
+    expect(row.toolCalls?.[0]?.status).toBe("error");
+    // …e l'ask è chiusa: chi fosse bloccato sul bridge fallisce pulito invece
+    // di restare appeso a una risposta che non arriverà.
+    expect(hasPendingAsk(SK)).toBe(false);
   });
 
   test("a timeout marker sets content but preserves the tool timeline", () => {

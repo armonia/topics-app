@@ -6,6 +6,9 @@ import {
   cancelAsk,
   beginAsk,
   endAsk,
+  pendingAskAgeMs,
+  pendingAskVerdict,
+  ASK_TTL_MS,
   AskWaitError,
 } from "./ask-user-bridge";
 
@@ -134,5 +137,58 @@ describe("ask-user-bridge — quanto aspetta", () => {
     expect(beginAsk(k, undefined, t0 + 89 * 60 * 1000)).toBe(true);
     expect(beginAsk(k, undefined, t0 + 91 * 60 * 1000)).toBe(false);
     endAsk(k);
+  });
+});
+
+describe("ask-user-bridge — il turno parcheggiato non è un turno morto", () => {
+  /**
+   * La regressione vera, misurata su `topic:ed2070df`: la domanda è comparsa,
+   * l'umano non ha cliccato, e TRE MINUTI dopo lo sweeper degli stream fermi
+   * (server.ts, `STALE_STREAM_TIMEOUT_MS`) ha chiuso il turno con «nessuna
+   * attività per 3 minuti». Il watchdog del provider (30 min) aveva già la sua
+   * esenzione per le domande in volo; lo sweeper no — e lui scatta dieci volte
+   * prima. Risultato a schermo: un pannello ancora cliccabile, con 22 minuti
+   * sul cronometro, accanto a un bottone Retry.
+   *
+   * `pendingAskVerdict` è quella regola, isolata: silenzio LEGITTIMO finché la
+   * domanda è viva e il figlio pure, e non un secondo di più.
+   */
+  test("una domanda giovane con il figlio vivo rimanda l'orologio, non uccide il turno", () => {
+    expect(pendingAskVerdict({ askAgeMs: 3 * 60 * 1000, childAlive: true })).toBe("defer");
+    // 22 minuti — il caso della schermata — sono ancora attesa legittima.
+    expect(pendingAskVerdict({ askAgeMs: 22 * 60 * 1000, childAlive: true })).toBe("defer");
+  });
+
+  test("senza domanda in ballo lo sweeper resta padrone a casa sua", () => {
+    expect(pendingAskVerdict({ askAgeMs: null, childAlive: true })).toBe("none");
+    expect(pendingAskVerdict({ askAgeMs: null, childAlive: false })).toBe("none");
+  });
+
+  test("se il figlio muore sotto il pannello la domanda si chiude: nessuno la onorerà", () => {
+    // È il ramo che impedisce all'esenzione di essere eterna. Con il figlio
+    // morto non arriva più nessuna gamba di poll, quindi il TTL — che vive
+    // sulle gambe — non scadrebbe mai da solo.
+    expect(pendingAskVerdict({ askAgeMs: 1_000, childAlive: false })).toBe("close-ask");
+  });
+
+  test("un provider che non sa rispondere vale VIVO: si sbaglia dalla parte di non uccidere", () => {
+    expect(pendingAskVerdict({ askAgeMs: 1_000, childAlive: undefined })).toBe("defer");
+  });
+
+  test("oltre il TTL la domanda si chiude anche con il figlio vivo", () => {
+    expect(pendingAskVerdict({ askAgeMs: ASK_TTL_MS - 1, childAlive: true })).toBe("defer");
+    expect(pendingAskVerdict({ askAgeMs: ASK_TTL_MS, childAlive: true })).toBe("close-ask");
+  });
+
+  test("pendingAskAgeMs misura la domanda, non la gamba: le gambe successive non la ringiovaniscono", () => {
+    const k = key();
+    const t0 = 9_000_000;
+    expect(pendingAskAgeMs(k, t0)).toBeNull();
+    beginAsk(k, undefined, t0);
+    expect(pendingAskAgeMs(k, t0 + 60_000)).toBe(60_000);
+    beginAsk(k, undefined, t0 + 60_000); // una gamba più tardi
+    expect(pendingAskAgeMs(k, t0 + 120_000)).toBe(120_000);
+    endAsk(k);
+    expect(pendingAskAgeMs(k, t0 + 120_000)).toBeNull();
   });
 });

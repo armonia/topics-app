@@ -63,6 +63,13 @@ const DEFAULT_TIMEOUT_MS = 25 * 1000;
 // clean cancellation.
 const DEFAULT_ASK_TTL_MS = 90 * 60 * 1000;
 
+/**
+ * The ask TTL, for callers that must reason about the SAME window from
+ * outside — notably the stale-stream sweeper, which has to know how long a
+ * silent-by-design turn is allowed to stay silent.
+ */
+export const ASK_TTL_MS = DEFAULT_ASK_TTL_MS;
+
 const DEFAULT_BUFFER_TTL_MS = 30 * 1000; // answer that beat the waiter
 
 interface Waiter {
@@ -194,6 +201,55 @@ export function deliverAnswer(
  */
 export function hasPendingAsk(sessionKey: string): boolean {
   return activeAsks.has(sessionKey);
+}
+
+/**
+ * How long the open ask has been on screen, or `null` if none is open.
+ *
+ * `hasPendingAsk` answers "is there a question?"; this answers "and for how
+ * long?", which is what anyone SUPPRESSING a safety net needs to know. The
+ * stale-stream sweeper is the case: it must not kill a turn that is silent
+ * because it's waiting on a human, but it must not be suppressed forever
+ * either — if the CLI child dies while the panel is up, no further poll leg
+ * ever arrives, so nothing inside this module would notice the ask is moot.
+ * Bounding the exemption by this age gives the sweeper its teeth back.
+ */
+export function pendingAskAgeMs(sessionKey: string, now = Date.now()): number | null {
+  const startedAt = activeAsks.get(sessionKey);
+  return startedAt === undefined ? null : now - startedAt;
+}
+
+/**
+ * What a stale-turn sweeper should do about the ask on this session.
+ *
+ * Pulled out as a pure rule, like `turnWatchdogDecision` in the provider, so
+ * it can be tested without a stream map and a CLI child:
+ *
+ *   - `"none"`     no question is open — the sweeper's normal rules apply.
+ *   - `"defer"`    the silence is the question. Push the activity clock
+ *                  forward instead of declaring the turn dead: the child is
+ *                  blocked on the bridge's JSON-RPC response and produces
+ *                  nothing by design until the human clicks.
+ *   - `"close-ask"` the question can no longer be honoured — the child died
+ *                  under it, or it has outlived its TTL. Cancel it (so anyone
+ *                  blocked fails cleanly) and let the turn be finalized. This
+ *                  is the branch that keeps `defer` from being permanent: with
+ *                  a dead child no further poll leg arrives, so nothing else
+ *                  in this module would ever notice the ask is moot.
+ *
+ * `childAlive: undefined` means the provider can't say; that's treated as
+ * alive, because killing a healthy parked turn is the failure we're fixing and
+ * guessing "dead" would reintroduce it.
+ */
+export function pendingAskVerdict(opts: {
+  askAgeMs: number | null;
+  askTtlMs?: number;
+  childAlive?: boolean;
+}): "none" | "defer" | "close-ask" {
+  if (opts.askAgeMs === null) return "none";
+  if (opts.askAgeMs >= (opts.askTtlMs ?? DEFAULT_ASK_TTL_MS)) return "close-ask";
+  if (opts.childAlive === false) return "close-ask";
+  return "defer";
 }
 
 /**

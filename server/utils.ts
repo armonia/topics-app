@@ -20,6 +20,7 @@ import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
+import { cancelAsk } from "./lib/ask-user-bridge";
 import type { OutboundMessage } from "../shared/ws-outbound";
 
 /**
@@ -1176,6 +1177,14 @@ export function createAppContext(baseDir: string): AppContext {
    * broadcast `stream:tool_result` to live clients (the DB write alone only
    * fixes a later reload). Parse → map → serialize (never a substring REPLACE,
    * which would clobber a literal `"status":"running"` inside args/result).
+   *
+   * `waiting_for_input` counts as interrupted too, and it's the nastier case:
+   * a tool left in that state renders a CLICKABLE question panel. If the turn
+   * is over, there is nobody left to receive the click — the panel promises
+   * something the process can no longer honour. Observed on topic:ed2070df: a
+   * panel still inviting an answer 22 minutes after its turn had been closed,
+   * with a Retry banner right underneath. The ask is cancelled here for the
+   * same reason: whoever is blocked on it must fail, not hang.
    */
   function endStream(sessionKey: string): ToolCall[] {
     const stream = activeStreams.get(sessionKey);
@@ -1189,6 +1198,13 @@ export function createAppContext(baseDir: string): AppContext {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
+            return true;
+          }
+          if (tc && tc.status === 'waiting_for_input') {
+            tc.status = 'error';
+            if (tc.endedAt == null) tc.endedAt = endedAt;
+            if (!tc.error) tc.error = 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+            cancelAsk(sessionKey, 'il turno è terminato mentre la domanda era a schermo');
             return true;
           }
           return false;
