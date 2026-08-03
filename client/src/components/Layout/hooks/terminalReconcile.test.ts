@@ -84,3 +84,41 @@ describe("shouldKeepRestoredTerminalPane", () => {
     expect(kept).toEqual(["t-live"]);
   });
 });
+
+// ── Parcheggio per inattività: dormiente ≠ morta ────────────────────────────
+//
+// Il caso che rompeva il parcheggio prima che questo parametro esistesse: una
+// sessione parcheggiata esce dalla mappa in memoria del server (la sua PTY
+// muore) ma la riga resta `dormant` e riparte con --resume. Per la regola
+// "vista e poi sparita" è identica a una chiusa altrove: veniva potata, e il
+// layout persisteva la potatura. Cioè il parcheggio si mangiava le tab che
+// stava parcheggiando.
+describe("shouldKeepRestoredTerminalPane — sessioni parcheggiate", () => {
+  test("una sessione VISTA e poi parcheggiata si tiene (non è un cadavere)", () => {
+    const roster = set("altra");        // la parcheggiata non c'è più nel roster
+    const seen = set("s1", "altra");    // ma era stata vista in questa sessione
+    // Senza l'informazione "è dormiente": potata.
+    expect(shouldKeepRestoredTerminalPane("s1", roster, seen, true)).toBe(false);
+    // Con: tenuta. La pane la rianimerà quando diventa attiva.
+    expect(shouldKeepRestoredTerminalPane("s1", roster, seen, true, set("s1"))).toBe(true);
+  });
+
+  test("una sessione MAI vista ma dormiente si tiene, anche con roster autorevole", () => {
+    // Riavvio dell'app: la tab arriva dal layout salvato, il roster è popolato
+    // e non la elenca — ma la riga dormiente esiste, quindi è ripristinabile.
+    expect(shouldKeepRestoredTerminalPane("s1", set("altra"), new Set(), true, set("s1"))).toBe(true);
+  });
+
+  test("un cadavere vero resta un cadavere: non è nel roster NE' fra le dormienti", () => {
+    expect(shouldKeepRestoredTerminalPane("morta", set("viva"), set("morta", "viva"), true, set("parcheggiata"))).toBe(false);
+  });
+
+  test("insieme dormienti vuoto (risposta non ancora arrivata) = comportamento di prima", () => {
+    expect(shouldKeepRestoredTerminalPane("s1", set("altra"), set("s1"), true, new Set())).toBe(false);
+    expect(shouldKeepRestoredTerminalPane("s1", set("s1"), set("s1"), true, new Set())).toBe(true);
+  });
+
+  test("il roster batte tutto: una sessione viva si tiene comunque", () => {
+    expect(shouldKeepRestoredTerminalPane("s1", set("s1"), set("s1"), true, set("s1"))).toBe(true);
+  });
+});

@@ -35,6 +35,23 @@
  * roster, so it never transitions to seen-then-gone, and it waited on a roster
  * that would never contain it — surfacing as a permanent "dead session" tab in
  * the project window and its sidebar row.
+ *
+ * DORMANT is a third state, and it breaks (a) if you forget it. The roster is
+ * built from the server's IN-MEMORY session map, and a parked session
+ * (`TOPICS_TERMINAL_IDLE_PARK_MS`, lib/terminal-idle-park.ts) leaves that map
+ * when its PTY dies — while its DB row survives as `dormant`, resumable with
+ * `--resume` exactly where it was. To rule (a) that looks identical to "closed
+ * in another window": seen, then gone. So parking a session would DELETE its
+ * tab, and the layout would persist the deletion — the parking mechanism
+ * eating the very thing it was parking.
+ *
+ * That is why the project layout used to revive every dormant session of the
+ * project's cwd at mount: it forced them back into the roster BEFORE this
+ * decision ran. It worked, and it made parking pointless (open a project → all
+ * its parked processes come back at once). The honest fix is here instead:
+ * dormant ids are passed in, and a dormant session is KEPT — it is parked, not
+ * gone. The pane revives it lazily, only when it becomes active
+ * (SingleTerminalPane, gated on `isActive`).
  */
 
 /**
@@ -45,16 +62,28 @@
  *                             up and answering (a NON-EMPTY roster). Defaults to
  *                             false so existing callers keep the never-seen
  *                             grace until they opt in.
+ * @param dormantIds           session ids the server reports as PARKED
+ *                             (`GET /api/terminal/sessions/dormant`). Absent
+ *                             from the roster by construction, but alive as a
+ *                             resumable row. Defaults to empty so existing
+ *                             callers are unaffected.
  * @returns true to keep the pane, false to prune it.
  */
+const NO_IDS: ReadonlySet<string> = new Set<string>();
+
 export function shouldKeepRestoredTerminalPane(
   sessionId: string,
   rosterIds: ReadonlySet<string>,
   seenIds: ReadonlySet<string>,
   rosterAuthoritative = false,
+  dormantIds: ReadonlySet<string> = NO_IDS,
 ): boolean {
   // Present now → keep.
   if (rosterIds.has(sessionId)) return true;
+  // Parked → keep. Must come BEFORE the seen-then-gone rule: to that rule a
+  // parked session is indistinguishable from one closed elsewhere, and pruning
+  // it would make the idle-park mechanism delete the tabs it is parking.
+  if (dormantIds.has(sessionId)) return true;
   // Seen-then-gone → prune (genuinely closed in another window).
   if (seenIds.has(sessionId)) return false;
   // Never seen: keep while the roster is unproven (server mid-restart / partial
