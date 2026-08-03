@@ -885,7 +885,9 @@ describe("callAskUserQuestion", () => {
     );
     expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/ask-user");
     expect(seen.init?.method).toBe("POST");
-    expect(JSON.parse(String(seen.init?.body))).toEqual({ questions });
+    // `legMs` travels with the questions: the bridge picks how long a leg may
+    // block, because it's the bridge's socket that an idle timeout would kill.
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ questions, legMs: 25_000 });
     // The result the model reads mirrors the built-in AskUserQuestion shape.
     expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
   });

@@ -1889,10 +1889,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/ask-user");
       if (bySession && method === "POST") {
         const sk = decodeURIComponent(bySession.sessionKey);
-        const body = (await readJSON(req)) as { questions?: unknown } | null;
+        const body = (await readJSON(req)) as { questions?: unknown; legMs?: unknown } | null;
         if (!Array.isArray(body?.questions) || body.questions.length === 0) {
           return json({ error: "questions (non-empty array) is required" }, 400);
         }
+        // The CALLER picks the leg length: it's the one whose socket dies, so it
+        // knows its own idle budget. Clamped so a bad value can't turn this back
+        // into the long-poll that broke, nor into a busy loop.
+        const legMs = typeof body.legMs === "number" && Number.isFinite(body.legMs)
+          ? Math.min(Math.max(body.legMs, 100), 60_000)
+          : undefined;
         if (!beginAsk(sk)) {
           // The ask outlived its TTL. Close it here rather than letting the
           // bridge poll on into the CLI child's own lifetime cap.
@@ -1900,7 +1906,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           return json({ cancelled: true, reason: "ask_user_question: la domanda è scaduta senza risposta" });
         }
         try {
-          const answers = await waitForAnswer(sk);
+          const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.

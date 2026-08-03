@@ -1165,6 +1165,12 @@ export async function callCommentTask(
   return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}${suffix}`;
 }
 
+/**
+ * How long ONE poll leg may block server-side. We send it rather than let the
+ * server choose because it's OUR socket that dies: 25s is comfortably under any
+ * default idle timeout, and the server clamps whatever we ask for.
+ */
+const ASK_LEG_MS = 25_000;
 /** How many consecutive transport failures a single ask tolerates. */
 const ASK_MAX_TRANSPORT_RETRIES = 5;
 /** Backoff between transport retries (ms). Grows linearly, capped by the array. */
@@ -1205,10 +1211,11 @@ export async function callAskUserQuestion(
   toolArgs: { questions?: unknown },
   fetchImpl: typeof fetch = fetch,
   /** Retry/backoff knobs — overridden by tests so they don't sleep for real. */
-  opts: { backoffMs?: number[]; maxLegs?: number } = {},
+  opts: { backoffMs?: number[]; maxLegs?: number; legMs?: number } = {},
 ): Promise<string> {
   const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
   const maxLegs = opts.maxLegs ?? ASK_MAX_LEGS;
+  const legMs = opts.legMs ?? ASK_LEG_MS;
   if (!Array.isArray(toolArgs?.questions) || toolArgs.questions.length === 0) {
     throw new Error("ask_user_question: 'questions' (non-empty array) is required");
   }
@@ -1216,7 +1223,7 @@ export async function callAskUserQuestion(
   // (ask-user-detector.ts) is the single source of truth for clamping options,
   // dropping malformed questions, and the raw fallback. We just forward.
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/ask-user`;
-  const payload = { questions: toolArgs.questions };
+  const payload = { questions: toolArgs.questions, legMs };
 
   let transportFailures = 0;
   for (let leg = 0; leg < maxLegs; leg++) {
