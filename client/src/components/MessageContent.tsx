@@ -1037,6 +1037,16 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // already memoized so this dependency is stable.
   const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
 
+  // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
+  // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
+  // l'indicatore dice la verità in tutti e due i rami di render.
+  const awaitingInput = useMemo(() => {
+    const inBlocks = (blocks ?? []).some(
+      (b) => b.kind === 'tool' && b.toolCall.status === 'waiting_for_input',
+    );
+    return inBlocks || (toolCalls ?? []).some((tc) => tc.status === 'waiting_for_input');
+  }, [blocks, toolCalls]);
+
   // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.
   //
   // Stava dentro il ramo di render, quindi si rifaceva a ogni render — e con
@@ -1172,7 +1182,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} />}
+        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput} />}
 
         {!partial && (
           <MessageMetaFooter
@@ -1256,7 +1266,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Live turn-activity indicator (playful phrase + timer) — covers empty
           placeholder and mid-stream alike. */}
-      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} />}
+      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput} />}
 
       {/* Per-message footer (latency + tokens + cost). Hidden until streaming
            ends and at least one metric is reported by the provider. */}
