@@ -14,7 +14,8 @@ import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
-import { createTopicsRouter } from "./server/routes/topics";
+import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
+import { archiveTopicFully } from "./server/services/archive-topic";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createRemoteRouter } from "./server/routes/remote";
 import { createMediaRouter } from "./server/routes/media";
@@ -717,13 +718,24 @@ const taskDispatcher = createTaskDispatcher({
     return worktreeDiffStat(wt.absPath);
   },
   worktreeBranch: (worktreeId) => ctx.worktreeStore.get(worktreeId)?.branchName ?? null,
+  // Potatura dei topic dei tentativi a fine task. Passa dal servizio condiviso,
+  // non da una terza implementazione: qui si archiviava e basta, e ogni task
+  // dispacciato lasciava dietro un badge di non letti su una conversazione non
+  // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
   archiveTopic: (topicId) => {
-    const topic = ctx.getTopicById(topicId);
-    if (!topic || topic.archived) return;
-    topic.archived = true;
-    topic.updatedAt = new Date().toISOString();
-    ctx.saveSingleTopic(topic);
-    ctx.broadcastToAll({ type: "topic:archived", topic });
+    const res = archiveTopicFully({
+      getTopicById: ctx.getTopicById,
+      saveSingleTopic: ctx.saveSingleTopic,
+      loadUnread: ctx.loadUnread,
+      saveUnread: ctx.saveUnread,
+      broadcastToAll: ctx.broadcastToAll,
+      purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
+    }, topicId);
+    // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
+    // può fermare la potatura (il task è finito comunque).
+    if (res.purgeError) {
+      console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
+    }
   },
   createWorktree: async (projectStoreId) => {
     const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
