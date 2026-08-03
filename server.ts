@@ -1157,9 +1157,13 @@ const wsHeartbeatTimer = setInterval(() => {
 // sweep reaped a mid-turn child after a double reload). The adopted turn's
 // leftovers are cleared by the sweep when the turn ends.
 const midTurnAtBoot = new Set<string>();
+/** Le sessioni di chat il cui figlio è ANCORA VIVO nel broker a questo boot.
+ *  Serve oltre al setaccio dei parziali: un figlio vivo può ancora consegnare
+ *  il tool che ha in corso, quindi quel tool non è un orfano da bollare come
+ *  interrotto (vedi finalizeOrphanedRunningTools). */
+const liveBrokerChatSessions = new Set<string>();
 {
   console.log("[Startup] Checking for stale partial messages...");
-  let liveBrokerChatSessions = new Set<string>();
   // `listConfirmed` = we got an AUTHORITATIVE alive-set from the broker. This is
   // the load-bearing invariant of reload-survival: resetting a partial row to
   // partial=0 is what later mints the "interrotto" marker, so we only do it for
@@ -1175,9 +1179,8 @@ const midTurnAtBoot = new Set<string>();
       try {
         await getAiBridgeClient().ensureConnected();
         const sessions = await getAiBridgeClient().list();
-        liveBrokerChatSessions = new Set(
-          sessions.filter((s) => s.alive && s.id.startsWith("topic:")).map((s) => s.id),
-        );
+        liveBrokerChatSessions.clear();
+        for (const s of sessions) if (s.alive && s.id.startsWith("topic:")) liveBrokerChatSessions.add(s.id);
         listConfirmed = true;
       } catch {
         await new Promise((r) => setTimeout(r, 250)); // daemon still coming up — retry
@@ -2209,13 +2212,13 @@ function finalizeOrphanedRunningTools() {
     // e il suo timer non lo sta guardando nessuno. L'indice
     // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
     const rows = db.prepare(
-      `SELECT id, content, tool_calls, blocks FROM messages
+      `SELECT id, session_key, content, tool_calls, blocks FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0 AND (
          tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
          OR tool_calls LIKE '%"status":"waiting_for_input"%'
          OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%'
          OR blocks LIKE '%"status":"waiting_for_input"%')`
-    ).all() as Array<{ id: string; content: string | null; tool_calls: string | null; blocks: string | null }>;
+    ).all() as Array<{ id: string; session_key: string | null; content: string | null; tool_calls: string | null; blocks: string | null }>;
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
     const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
@@ -2243,7 +2246,15 @@ function finalizeOrphanedRunningTools() {
       }
       return false;
     };
+    let spared = 0;
     for (const r of rows) {
+      // Il figlio di questa sessione è ancora VIVO nel broker: quel tool può
+      // ancora consegnare, e una DOMANDA a schermo può ancora essere risposta.
+      // Bollarlo «interrotto» qui era il modo in cui una domanda viva diventava
+      // un ⚠️ con il bottone Retry al primo hot-reload che perdeva il flag
+      // `partial` (topic:ed2070df, 3 agosto). Chi è davvero morto lo dirà il
+      // prossimo boot, quando il broker non lo elencherà più.
+      if (r.session_key && liveBrokerChatSessions.has(r.session_key)) { spared++; continue; }
       let changed = false;
       let tcStr = r.tool_calls, blStr = r.blocks;
       // The client renders tool state from `blocks` (the chronological timeline)
@@ -2273,6 +2284,7 @@ function finalizeOrphanedRunningTools() {
       }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
+    if (spared > 0) console.log(`[boot] left ${spared} message(s) alone: their broker child is still alive`);
     // Second pass: an assistant turn already finalized as interrupted (its tool
     // carries the "Interrotto" marker) but with no final prose renders as a bare
     // unexplained error X. Give it the explanation. Idempotent — once content is
@@ -2450,8 +2462,33 @@ async function reattachSurvivingChatTurns(): Promise<void> {
   for (const s of live) {
     if (dispatcherClaimed.has(s.id)) continue; // the dispatcher's reconcile owns it
     const topic = ctx.getTopicBySessionKey(s.id);
-    if (topic && !topic.archived && midTurnAtBoot.has(s.id)) {
-      console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
+    const adoptable = !!topic && !topic.archived;
+    // Il DB dice «nessun turno»? Non basta per uccidere. `partial` è l'OMBRA
+    // del turno, non il turno: si perde in tutti i modi (finalizzazioni,
+    // riattacchi, la route della storia), e quando si perde su una sessione
+    // ferma su una DOMANDA il reap ammazza la domanda — pannello vivo che
+    // diventa un bottone Retry, osservato su topic:ed2070df. Lo store del
+    // broker sa la verità: prima di uccidere, gliela si chiede.
+    let brokerSays: "open" | "idle" | "unknown" = "unknown";
+    if (adoptable && !midTurnAtBoot.has(s.id)) {
+      try {
+        const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+        brokerSays = (await prov?.brokerTurnState?.(s.id)) ?? "unknown";
+      } catch (err) {
+        console.warn(`[chat-reattach] broker turn probe failed for ${s.id} (skipping reap for safety):`, err);
+        brokerSays = "unknown";
+      }
+      if (brokerSays === "unknown") {
+        // Nessuna prova di inattività: si lascia stare. Costa un figlio vivo
+        // fino al prossimo boot, che è incomparabilmente meno di un turno vivo
+        // ucciso per un dubbio.
+        console.warn(`[chat-reattach] leaving ${s.id} alone: the broker could not tell whether a turn is in flight`);
+        continue;
+      }
+    }
+    if (adoptable && (midTurnAtBoot.has(s.id) || brokerSays === "open")) {
+      const why = midTurnAtBoot.has(s.id) ? "partial in DB" : "store del broker aperto";
+      console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id} (${why})`);
       runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
         // Il turno adottato finisce comunque: se non è finito bene, il log dice
         // PERCHÉ invece di tacere (0.4).
@@ -2473,7 +2510,13 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       const prov = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
     } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
-    console.log(`[chat-reattach] reaping idle broker session ${s.id} (${topic ? (topic.archived ? "archived topic" : "no in-flight turn") : "topic gone"})`);
+    // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap
+    // si rivelerà di nuovo sbagliato, il log deve dire da quale delle due fonti
+    // è arrivata la bugia, non solo che qualcuno è stato ucciso.
+    const why = topic
+      ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
+      : "topic gone";
+    console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }
