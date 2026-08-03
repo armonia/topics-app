@@ -20,7 +20,9 @@ import {
   getSessionKeyFromViewerPaneId,
   sessionKeyForPaneId,
   pinKeyForPane,
+  tabTargetForPane,
 } from "./paneConfig";
+import { utilityPanelId } from "./utilityPanelId";
 
 describe("createPaneId — per-type branching", () => {
   test("chat with a key builds a stable chat:<key> id (no random suffix)", () => {
@@ -228,6 +230,93 @@ describe("pinKeyForPane — one canonical pin key per tab type", () => {
     for (const type of ["file", "git", "activity", "journal", "agents", "dashboard"] as Pane["type"][]) {
       expect(pinKeyForPane(pane({ id: `${type}:x`, type }))).toBeUndefined();
     }
+  });
+});
+
+describe("tabTargetForPane — un permalink per tab, o NIENTE", () => {
+  const pane = (p: Partial<Pane> & { id: string; type: Pane["type"] }): Pane => p as Pane;
+
+  test("chat → il TOPIC, da entrambe le superfici (l'id della pane cambia, il topic no)", () => {
+    const topicId = "topic-9";
+    // A livello App l'id è il topic nudo; dentro un progetto è `chat:<topicId>`.
+    expect(tabTargetForPane(pane({ id: topicId, type: "chat", topicId })))
+      .toEqual({ kind: "chat", key: topicId });
+    expect(tabTargetForPane(pane({ id: createPaneId("chat", topicId), type: "chat", topicId })))
+      .toEqual({ kind: "chat", key: topicId });
+  });
+
+  test("chat senza topicId (bozza) → null: non c'è ancora niente da indirizzare", () => {
+    expect(tabTargetForPane(pane({ id: createDraftPaneId(), type: "chat" }))).toBeNull();
+  });
+
+  test("terminal → la sessione, dall'id o dal campo per i pane legacy", () => {
+    expect(tabTargetForPane(pane({ id: createPaneId("terminal", "sess-7"), type: "terminal" })))
+      .toEqual({ kind: "terminal", key: "sess-7" });
+    expect(tabTargetForPane(pane({ id: "terminal-legacy", type: "terminal", terminalSessionId: "sess-8" })))
+      .toEqual({ kind: "terminal", key: "sess-8" });
+    expect(tabTargetForPane(pane({ id: "terminal-legacy", type: "terminal" }))).toBeNull();
+  });
+
+  test("browser → il contextId; projectPath/taskId entrano SOLO dal contesto di chi chiama", () => {
+    const id = createPaneId("browser", "ctx-42");
+    expect(tabTargetForPane(pane({ id, type: "browser" }))).toEqual({ kind: "browser", key: "ctx-42" });
+    expect(tabTargetForPane(pane({ id, type: "browser" }), { projectPath: "/work/x" }))
+      .toEqual({ kind: "browser", key: "ctx-42", projectPath: "/work/x" });
+    expect(tabTargetForPane(pane({ id, type: "browser" }), { taskId: "task-3" }))
+      .toEqual({ kind: "browser", key: "ctx-42", taskId: "task-3" });
+  });
+
+  test("project → il path, decodificato dall'id", () => {
+    expect(tabTargetForPane(pane({ id: createPaneId("project", "/Users/x/my.app"), type: "project" })))
+      .toEqual({ kind: "project", key: "/Users/x/my.app" });
+  });
+
+  test("file/diff → si indirizza il CONTENUTO: l'id `file:<uuid>` è sorteggiato a ogni apertura", () => {
+    const a = createPaneId("file");
+    const b = createPaneId("file");
+    expect(a).not.toBe(b); // ecco perché l'id non può essere la chiave
+    expect(tabTargetForPane(pane({ id: a, type: "file", filePath: "/work/x/src/a.ts" }), { projectPath: "/work/x" }))
+      .toEqual({ kind: "file", key: "/work/x/src/a.ts", projectPath: "/work/x" });
+    // In vista diff il progetto ce l'ha il pane stesso (`diffProjectPath`).
+    expect(tabTargetForPane(pane({ id: "diff:src/a.ts", type: "file", filePath: "/work/x/src/a.ts", diff: true, diffProjectPath: "/work/x" })))
+      .toEqual({ kind: "diff", key: "/work/x/src/a.ts", projectPath: "/work/x" });
+  });
+
+  test("diff: il progetto è quello del DIFF, non quello della finestra che lo ospita", () => {
+    // `open-file-diff` è un evento globale e non ha lo scoping di progetto che
+    // `open-file` ha (shouldHandleOpenFile): un diff aperto dal Git del progetto
+    // B compare ANCHE nella finestra di A, e lì il contesto del link dice `/A`.
+    // Se vincesse il contesto, «Copia link» produrrebbe
+    // `{key:'/B/src/x.ts', projectPath:'/A'}` — riaprendolo, `handleOpenDiff`
+    // ricompone `/A//B/src/x.ts` e il pane nasce su un file inesistente.
+    expect(
+      tabTargetForPane(
+        pane({ id: "diff:src/x.ts", type: "file", filePath: "/B/src/x.ts", diff: true, diffProjectPath: "/B" }),
+        { projectPath: "/A" },
+      ),
+    ).toEqual({ kind: "diff", key: "/B/src/x.ts", projectPath: "/B" });
+  });
+
+  test("file senza progetto ospite → null: non sarebbe risolvibile", () => {
+    expect(tabTargetForPane(pane({ id: createPaneId("file"), type: "file", filePath: "/work/x/src/a.ts" }))).toBeNull();
+    expect(tabTargetForPane(pane({ id: createPaneId("file"), type: "file" }), { projectPath: "/work/x" })).toBeNull();
+  });
+
+  test("utility → il pannello, ma solo quelli indirizzabili (`journal` non lo è)", () => {
+    for (const type of ["board", "agents", "dashboard", "activity", "cron"] as const) {
+      expect(tabTargetForPane(pane({ id: utilityPanelId(type), type })))
+        .toEqual({ kind: "panel", key: type });
+    }
+    // `journal` esiste come utility ma `handleOpenAsPage` non lo prevede: un
+    // link che non apre niente è peggio di nessun link.
+    expect(tabTargetForPane(pane({ id: utilityPanelId("journal"), type: "journal" }))).toBeNull();
+  });
+
+  test("i tipi con id casuale non sono indirizzabili — il null È il gate della voce di menu", () => {
+    for (const type of ["kanban", "git", "files", "session-viewer", "process-log"] as Pane["type"][]) {
+      expect(tabTargetForPane(pane({ id: createPaneId(type), type }))).toBeNull();
+    }
+    expect(tabTargetForPane(pane({ id: createDraftPaneId(), type: "chat" }))).toBeNull();
   });
 });
 

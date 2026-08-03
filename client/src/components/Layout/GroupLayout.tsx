@@ -1,6 +1,6 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
-import { PaneTabBar } from './PaneTabBar';
+import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
@@ -89,6 +89,13 @@ interface GroupLayoutProps {
    *  task drawer's derived Thread/Piano/media surfaces). Forwarded to each
    *  PaneTabBar. Default undefined: every tab stays closable (app unchanged). */
   nonClosablePaneIds?: Set<string>;
+  /**
+   * Chi ospita queste tab, per «Copia link» nel menu della tab: il progetto
+   * (ProjectWindow) o il task del cui drawer questa è la superficie
+   * (useTaskBrowserGroupLayout). Inoltrato tale e quale a ogni PaneTabBar —
+   * vedi TabLinkContext, che spiega perché non è un campo del Pane.
+   */
+  linkContext?: TabLinkContext;
 }
 
 
@@ -98,7 +105,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, onContextRingClick, onStopStreaming,
-  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser, nonClosablePaneIds,
+  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser, nonClosablePaneIds, linkContext,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -882,6 +889,7 @@ export function GroupLayout({
             onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
             tabNotifications={groupNotifications}
             nonClosablePaneIds={nonClosablePaneIds}
+            linkContext={linkContext}
           />
           </div>
         </div>
@@ -1098,6 +1106,7 @@ export function GroupLayout({
               onPinPane={onPinPane ? (paneId) => { const gid = groupIdOfPane(paneId); if (gid) onPinPane(gid, paneId); } : undefined}
               tabNotifications={notifications}
               nonClosablePaneIds={nonClosablePaneIds}
+              linkContext={linkContext}
             />
           </div>
         </div>

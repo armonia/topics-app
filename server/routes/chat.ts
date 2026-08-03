@@ -51,6 +51,8 @@ import {
   ControlToolError,
   type ControlDispatchDeps,
 } from "../control-tools";
+import { resolveTabRef } from "../lib/tab-resolver";
+import { tabResolverDeps } from "../lib/tab-resolver-deps";
 import {
   adaptEnvelope,
   assembleTopicContext,
@@ -192,6 +194,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   // topic). Reuses the SAME closure-local project helpers + AppContext topic
   // ops the Layer-1 endpoints use, so a claude/openai tool call and an MCP tool
   // call land on identical side-effects + broadcasts.
+  //
+  // `resolveTab` chiude sulle STESSE deps della rotta `GET /api/tabs/resolve`
+  // (`lib/tab-resolver-deps.ts`): l'agente via MCP e la chat SDK devono
+  // rispondere la stessa cosa sullo stesso link, e il resolver è di sola lettura
+  // — non tocca `ui_state`, non riflette niente nella history.
+  const tabDeps = tabResolverDeps(ctx, browserService);
   const controlDispatchDeps: ControlDispatchDeps = {
     getTopicById: ctx.getTopicById,
     loadTopics: ctx.loadTopics,
@@ -201,6 +209,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveProjectRef,
     bindTopicToProject,
     workspaceDir: WORKSPACE_DIR,
+    resolveTab: (ref) => resolveTabRef(ref, tabDeps),
   };
 
   return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {

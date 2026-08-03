@@ -82,6 +82,7 @@ import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
+import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isAuthGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
@@ -985,6 +986,8 @@ const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
+// Risoluzione dei permalink alle tab (`/tab/…`) — SOLA LETTURA.
+const tabsRouter = createTabsRouter(ctx, browserService);
 // Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
 // che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
 const e2eRouter = createE2eRouter(ctx);
@@ -1614,6 +1617,7 @@ const server = Bun.serve<WSData>({
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
+        || await tabsRouter(req, url, pathname, method)
         || await claudeHooksRouter(req, url, pathname, method)
         || await e2eRouter(req, url, pathname, method)
 ;
