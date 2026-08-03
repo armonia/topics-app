@@ -157,8 +157,8 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       // Le scritture stanno coi nuovi: erano token freschi, pagati DI PIÙ per
       // essere memorizzati — contarle come cache spaccerebbe per risparmio un
       // anticipo. Le due voci sommano al prompt: 900k + 100k = 1M.
-      await expect(split).toContainText("900.0k da cache");
-      await expect(split).toContainText("100.0k nuovi");
+      await expect(split).toContainText("900k da cache");
+      await expect(split).toContainText("100k nuovi");
       // La striscia intera, come si legge: è una UI STATICA, quindi la prova
       // durevole è un'immagine e non un video.
       await page.locator('[data-testid="message-meta-footer"]').last()

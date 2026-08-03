@@ -4,6 +4,7 @@ import { formatDurationMs } from './Chat/toolGrouping';
 import { turnClock } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
 import { cacheBreakdown } from '../lib/cacheBreakdown';
+import { formatTokens } from '../lib/formatTokens';
 import type { WSMessage } from '../types';
 
 /**
@@ -256,7 +257,7 @@ export function TurnActivityIndicator({
           // spazio per mandarlo a capo.
           title={liveUsageTitle(usage)}
         >
-          · {usage.tokens.toLocaleString()} token
+          · {formatTokens(usage.tokens)} token
           {usage.costCents != null && usage.costCents > 0
             ? ` · ${usage.costCents / 100 >= 1 ? `$${(usage.costCents / 100).toFixed(2)}` : `$${(usage.costCents / 100).toFixed(4)}`}`
             : ''}
