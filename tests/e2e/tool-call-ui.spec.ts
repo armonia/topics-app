@@ -124,6 +124,50 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     await expect(oldBadge).toHaveCount(0);
   });
 
+  test("la striscia dice IN CHIARO quanti token erano rilettura e quanti nuovi", async ({ page, request }) => {
+    // La contabilità c'era, ma solo nel `title`: dietro un hover che su una
+    // striscia di metadati nessuno va a cercare. In chiaro restava il costo
+    // della cache — la conseguenza — e non la causa.
+    const fresh = await createTopic(request, "Token Split " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "Hi",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u.id,
+        content: "Turno lungo.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        usagePromptTokens: 1_000_000,
+        usageCompletionTokens: 4_000,
+        costCents: 40,
+        cacheReadTokens: 900_000,
+        cacheCreationTokens: 60_000,
+        cacheCreation1hTokens: 10_000,
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const split = page.locator('[data-testid="message-token-split"]').last();
+      await expect(split).toBeVisible({ timeout: 15_000 });
+      // 900k riletti; nuovi = 30k freschi + 60k scritti + 10k a un'ora = 100k.
+      // Le scritture stanno coi nuovi: erano token freschi, pagati DI PIÙ per
+      // essere memorizzati — contarle come cache spaccerebbe per risparmio un
+      // anticipo. Le due voci sommano al prompt: 900k + 100k = 1M.
+      await expect(split).toContainText("900.0k da cache");
+      await expect(split).toContainText("100.0k nuovi");
+      // La striscia intera, come si legge: è una UI STATICA, quindi la prova
+      // durevole è un'immagine e non un video.
+      await page.locator('[data-testid="message-meta-footer"]').last()
+        .screenshot({ path: "test-results/message-token-split.png" });
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
   test("footer hidden when no usage data is present", async ({ page, request }) => {
     // Fresh topic so we can seed a footer-less assistant message.
     const fresh = await createTopic(request, "Footer Hidden " + Date.now());

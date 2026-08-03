@@ -1,5 +1,6 @@
 import { formatDurationMs, formatCostCents } from './toolGrouping';
 import { safeNum, cacheBreakdown, costBreakdown } from '../../lib/cacheBreakdown';
+import { formatTokens } from '../../lib/formatTokens';
 
 interface Props {
   latencyMs?: number | null;
@@ -42,12 +43,12 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   const prompt = safeNum(promptTokens);
   const completion = safeNum(completionTokens);
   const total = prompt + completion;
-  const parts: Array<{ text: string; title?: string }> = [];
+  const parts: Array<{ text: string; title?: string; testId?: string }> = [];
   // Il totale è dominato dai token LETTI, e in un turno agentico lungo quelli
   // sono lo stesso prompt riletto dalla cache a ogni chiamata al modello: si
   // arriva a milioni su una finestra da 200k, e senza spiegazione sembra un
-  // conteggio rotto. Il dettaglio sta nel title invece che in una terza voce:
-  // la striscia deve restare una riga sola.
+  // conteggio rotto. Il title ne è la CONTABILITÀ per esteso; le due voci
+  // grosse — riletto e nuovo — stanno anche in chiaro, nella voce qui sotto.
   // Lo scorporo è NOTO solo se il provider l'ha riportato: `undefined` significa
   // "non lo sappiamo", e in quel caso si torna a spiegare a parole invece di
   // inventare uno zero (che direbbe "nessuna cache", cosa diversa e falsa).
@@ -83,6 +84,26 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   }
   if (total > 0) {
     parts.push({ text: `${total.toLocaleString()} tokens`, title: tokensTitle });
+  }
+  // Quanti di quei token erano rilettura e quanti roba nuova — IN CHIARO.
+  //
+  // La contabilità c'era già, ma solo nel `title`: dietro un hover, su una
+  // striscia di metadati che nessuno pensa di sorvolare. Restava visibile solo
+  // il costo della cache, cioè la conseguenza, mentre la domanda che si fa
+  // guardando un turno da un milione di token è la causa: quanto stavo
+  // rileggendo e quanto era nuovo.
+  //
+  // Le SCRITTURE stanno coi nuovi, come nello scorporo del costo: erano token
+  // freschi, pagati di più per tenerli in cache: metterle dalla parte della
+  // cache farebbe sembrare un risparmio un anticipo. Così le due voci sommano
+  // esatte a `prompt`, e la terza voce del title (i prodotti) resta fuori
+  // perché è output, non roba letta.
+  if (breakdownKnown && prompt > 0) {
+    parts.push({
+      text: `${formatTokens(cacheRead, { decimals: 1 })} da cache · ${formatTokens(bd.newTokens, { decimals: 1 })} nuovi`,
+      title: tokensTitle,
+      testId: 'message-token-split',
+    });
   }
   // La quota di cache, in COSTO e non in percentuale di token.
   //
@@ -123,7 +144,7 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
       {parts.map((p, i) => (
         <span key={i} className="flex items-center gap-1.5">
           {i > 0 && <span className="text-app-text-muted/60">·</span>}
-          <span {...(p.title ? { title: p.title } : {})}>{p.text}</span>
+          <span {...(p.title ? { title: p.title } : {})} {...(p.testId ? { 'data-testid': p.testId } : {})}>{p.text}</span>
         </span>
       ))}
     </div>

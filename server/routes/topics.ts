@@ -2322,8 +2322,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         : ((db.prepare(`SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`).get(body.sessionKey) as any)?.id ?? null);
       try {
         db.prepare(`
-          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
-          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
+          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens)
+          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens)
         `).run({
           $id: id,
           $session_key: body.sessionKey,
@@ -2345,6 +2345,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           $usage_prompt_tokens: typeof body.usagePromptTokens === "number" ? body.usagePromptTokens : null,
           $usage_completion_tokens: typeof body.usageCompletionTokens === "number" ? body.usageCompletionTokens : null,
           $cost_cents: typeof body.costCents === "number" ? body.costCents : null,
+          // Lo SCORPORO della cache. `null` non è 0: assente vuol dire "il
+          // provider non l'ha riportato" e la striscia lo dice a parole, 0 vuol
+          // dire misurato-nessuna-cache. Senza queste tre colonne non c'era modo
+          // di provare da un test la parte di UI che le mostra.
+          $cache_read_tokens: typeof body.cacheReadTokens === "number" ? body.cacheReadTokens : null,
+          $cache_creation_tokens: typeof body.cacheCreationTokens === "number" ? body.cacheCreationTokens : null,
+          $cache_creation_1h_tokens: typeof body.cacheCreation1hTokens === "number" ? body.cacheCreation1hTokens : null,
         });
         return json({ ok: true, id });
       } catch (err: any) {

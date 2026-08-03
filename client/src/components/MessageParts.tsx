@@ -3,7 +3,34 @@ import { HelpCircle } from 'lucide-react';
 import { formatDurationMs } from './Chat/toolGrouping';
 import { turnClock } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
+import { cacheBreakdown } from '../lib/cacheBreakdown';
 import type { WSMessage } from '../types';
+
+/**
+ * Il title del contatore vivo: quante chiamate, e da dove vengono quei token.
+ *
+ * Le chiamate spiegano perché il numero supera la finestra di contesto; lo
+ * scorporo spiega che quasi tutto è lo STESSO prompt riletto. Le due voci
+ * sommano a `promptTokens`, con le scritture in cache contate coi nuovi —
+ * erano token freschi, pagati di più per essere memorizzati.
+ */
+function liveUsageTitle(u: {
+  calls: number;
+  promptTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheCreation1hTokens?: number;
+}): string {
+  const calls = `${u.calls} chiamat${u.calls === 1 ? 'a' : 'e'} al modello finora — i token letti comprendono il prompt riletto a ogni chiamata`;
+  const bd = cacheBreakdown({
+    promptTokens: u.promptTokens,
+    cacheReadTokens: u.cacheReadTokens,
+    cacheCreationTokens: u.cacheCreationTokens,
+    cacheCreation1hTokens: u.cacheCreation1hTokens,
+  });
+  if (!bd.known) return calls;
+  return `${calls}\n\n${bd.read.toLocaleString()} riletti dalla cache · ${bd.newTokens.toLocaleString()} nuovi`;
+}
 
 // The old ToolCallBadge (colored bordered pill + raw JSON args) lived here.
 // Every tool render — blocks timeline, legacy bucket AND inline contentOffset
@@ -76,13 +103,21 @@ export function TurnActivityIndicator({
   // un turno agentico da otto tool call non si vedeva muovere niente, e l'unica
   // cosa viva era il cronometro. Il server manda i totali GIA' accumulati
   // (`stream:usage`), quindi qui non si fa aritmetica: si mostra.
-  const [usage, setUsage] = useState<{ calls: number; tokens: number; costCents?: number } | null>(null);
+  const [usage, setUsage] = useState<{
+    calls: number; tokens: number; costCents?: number;
+    // Lo scorporo della cache arriva nello stesso frame: si tiene, così il
+    // title puo' dire quanto di quel numero era rilettura invece di lasciare
+    // "un milione di token" senza spiegazione.
+    promptTokens?: number; cacheReadTokens?: number;
+    cacheCreationTokens?: number; cacheCreation1hTokens?: number;
+  } | null>(null);
   useEffect(() => {
     if (!onMessage || !sessionKey) return;
     return onMessage((msg: WSMessage) => {
       const m = msg as {
         type?: string; sessionKey?: string;
         calls?: number; promptTokens?: number; completionTokens?: number; costCents?: number;
+        cacheReadTokens?: number; cacheCreationTokens?: number; cacheCreation1hTokens?: number;
       };
       if (m.sessionKey !== sessionKey) return;
       if (m.type === 'stream:slow') setSlow(true);
@@ -92,6 +127,10 @@ export function TurnActivityIndicator({
           calls: m.calls ?? 0,
           tokens: (m.promptTokens ?? 0) + (m.completionTokens ?? 0),
           costCents: m.costCents,
+          promptTokens: m.promptTokens,
+          cacheReadTokens: m.cacheReadTokens,
+          cacheCreationTokens: m.cacheCreationTokens,
+          cacheCreation1hTokens: m.cacheCreation1hTokens,
         });
       }
     });
@@ -209,10 +248,13 @@ export function TurnActivityIndicator({
         <span
           className="tabular-nums text-app-text-muted shrink-0"
           data-testid="turn-usage"
-          // `calls` sta nel title e non nella riga: e' il numero che SPIEGA
-          // perche' i token letti superano la finestra di contesto (lo stesso
-          // prompt riletto N volte), ma la striscia deve restare una riga.
-          title={`${usage.calls} chiamat${usage.calls === 1 ? 'a' : 'e'} al modello finora — i token letti comprendono il prompt riletto a ogni chiamata`}
+          // `calls` e lo scorporo della cache stanno nel title e non nella riga:
+          // sono i numeri che SPIEGANO perche' i token letti superano la
+          // finestra di contesto (lo stesso prompt riletto N volte), ma la
+          // striscia deve restare una riga. A turno finito lo scorporo passa in
+          // chiaro nella striscia del messaggio (`MessageMetaFooter`), dove c'e'
+          // spazio per mandarlo a capo.
+          title={liveUsageTitle(usage)}
         >
           · {usage.tokens.toLocaleString()} token
           {usage.costCents != null && usage.costCents > 0

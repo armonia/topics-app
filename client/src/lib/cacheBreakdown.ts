@@ -46,6 +46,16 @@ export interface CacheBreakdown {
   write1h: number;
   /** Il resto: `prompt - read - write5m - write1h`, mai negativo. */
   fresh: number;
+  /**
+   * Token NON riletti: `fresh + write5m + write1h`. Con `read` sommano esatti a
+   * `prompt`, ed è la coppia che si mostra quando lo spazio è due numeri e non
+   * quattro.
+   *
+   * Le scritture stanno di qua, come nello scorporo del costo: erano token
+   * freschi, pagati DI PIÙ (×1,25, ×2 a un'ora) per essere memorizzati.
+   * Contarle come cache farebbe sembrare un risparmio quello che è un anticipo.
+   */
+  newTokens: number;
   /** Quota di rilettura sul totale letto, in percentuale intera. 0 se prompt è 0. */
   pct: number;
 }
@@ -148,5 +158,5 @@ export function cacheBreakdown(args: {
   const write1h = safeNum(args.cacheCreation1hTokens);
   const fresh = Math.max(0, prompt - read - write5m - write1h);
   const pct = prompt > 0 ? Math.round((read / prompt) * 100) : 0;
-  return { known, read, write5m, write1h, fresh, pct };
+  return { known, read, write5m, write1h, fresh, newTokens: fresh + write5m + write1h, pct };
 }

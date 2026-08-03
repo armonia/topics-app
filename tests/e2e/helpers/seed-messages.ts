@@ -46,6 +46,10 @@ export interface SeedMessageOpts {
   usagePromptTokens?: number;
   usageCompletionTokens?: number;
   costCents?: number;
+  /** Scorporo della cache. Assente ≠ 0: assente = "non riportato dal provider". */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheCreation1hTokens?: number;
 }
 
 /** Seed a message directly into the test server's database */
