@@ -247,6 +247,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
         domains: { type: "array", items: { type: "string" }, description: 'Hostnames to import, e.g. ["youtube.com"]. Required unless dry_run.' },
         dry_run: { type: "boolean", description: "Only list importable hosts + counts (no Keychain prompt, no values)." },
         profile: { type: "string", description: "Chrome profile directory name (default 'Default')." },
+        browser: { type: "string", enum: ["chrome", "dia", "arc", "chromium"], description: "Which Chromium-family browser to read cookies from (default 'chrome'). Use this when the user is signed in on a different browser — e.g. Dia." },
       },
       required: [],
     },
