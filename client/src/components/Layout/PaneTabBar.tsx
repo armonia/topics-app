@@ -873,7 +873,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // tab disagree with the sidebar project row (which never suppresses the
         // rollup): same project, two different numbers. Keep the rollup visible
         // on the selected project tab so the two surfaces always match.
-        const suppressOnSelect = isSelected && pane.type !== 'project';
+        // `isFullyActive`, non `isSelected`: la soppressione deve valere per «la
+        // stai guardando», e `isSelected` dice solo «e' l'attiva DEL SUO GRUPPO».
+        // In split view ogni gruppo ha la sua attiva, quindi il badge spariva
+        // anche dai gruppi che non hai davanti — mentre la riga di sidebar dello
+        // stesso soggetto continuava a mostrarlo: due superfici in disaccordo,
+        // che e' proprio l'invariante che questi helper esistono per difendere.
+        // Stessa cosa quando l'app perde il fuoco: tornavi e la tab che avevi
+        // lasciato era muta.
+        const suppressOnSelect = isFullyActive && pane.type !== 'project';
         const badgeCount = !suppressOnSelect && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
