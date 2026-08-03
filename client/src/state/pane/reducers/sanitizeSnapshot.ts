@@ -82,6 +82,13 @@ function sanitizePane(raw: unknown): Pane | null {
   if (!isPlainObject(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (!isKnownPaneType(raw.type)) return null;
+  // NOTE: a chat pane's `topicId` is OPTIONAL by design (types.ts) — the pane
+  // id is `chat:<topicId>` and the topic is derived from the id, so a valid
+  // pane may carry no separate `topicId` field. Do NOT drop chat panes here for
+  // a missing topicId: the identity lives in the id, and the case where that
+  // topic no longer resolves is a RENDER concern (degrade to an error tab, see
+  // StandaloneChatGroup), not a store-admission one. Dropping at the door would
+  // silently erase legitimate panes on hydrate.
   // Strip `scrollOffset` — device-local per CONTEXT.md. Every other field in
   // the Pane shape (types.ts) must be whitelisted here, otherwise a server
   // round-trip silently erases it. Review-round-12 B1: legacy fields

@@ -468,3 +468,53 @@ describe("entity-ref invariant — group refs without a pane record", () => {
     expect(clean.groups!["group:default"].paneIds).toEqual(["p1"]);
   });
 });
+
+describe("sanitizeSnapshot — una identità per pane", () => {
+  test("le pane NON-chat non richiedono topicId", () => {
+    const clean = sanitizeSnapshot({
+      panes: {
+        "terminal:t1": { id: "terminal:t1", type: "terminal" },
+        "browser:b1": { id: "browser:b1", type: "browser", url: "https://x" },
+        "project:p": { id: "project:p", type: "project", projectPath: "/p" },
+      },
+      server_seq: 3,
+    })!;
+    expect(Object.keys(clean.panes!).sort()).toEqual(["browser:b1", "project:p", "terminal:t1"]);
+  });
+
+  test("una chat SENZA topicId esplicito sopravvive: l'identità è nell'id (chat:<topicId>)", () => {
+    // topicId è opzionale per design (types.ts). Il sanitizer NON deve droppare
+    // una chat per topicId assente — è l'id a portare l'identità, e il caso in
+    // cui il topic non risolve è un problema di RENDER (StandaloneChatGroup
+    // degrada a tab d'errore), non di ammissione allo store.
+    const clean = sanitizeSnapshot({
+      panes: {
+        "chat:t1": { id: "chat:t1", type: "chat", title: "A" },
+      },
+      server_seq: 3,
+    })!;
+    expect(Object.keys(clean.panes!)).toEqual(["chat:t1"]);
+  });
+
+  test("OSSERVATO: 2 pane valide restano 2 (niente terza tab dal nulla)", () => {
+    const board = "__board__";
+    const project = "project:%2FUsers%2Fzorahrel%2FProjects%2Ftopics-app";
+    const clean = sanitizeSnapshot({
+      panes: {
+        [board]: { id: board, type: "board" },
+        [project]: { id: project, type: "project", projectPath: "/Users/zorahrel/Projects/topics-app" },
+      },
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: [board, project],
+          splitRatio: 0.5,
+          splitAxis: "horizontal",
+        },
+      },
+      server_seq: 9,
+    })!;
+    expect(Object.keys(clean.panes!).sort()).toEqual([board, project].sort());
+    expect(clean.groups!["group:default"].paneIds).toEqual([board, project]);
+  });
+});
