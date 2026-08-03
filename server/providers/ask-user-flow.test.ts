@@ -23,6 +23,7 @@
 import { describe, expect, test } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { SidechainTracker } from "./claude/sidechain-tracker";
+import { beginAsk, hasPendingAsk } from "../lib/ask-user-bridge";
 import type { StreamHandler } from "./types";
 import type { UserInputSchema } from "../types";
 
@@ -231,6 +232,50 @@ describe("claude-code provider · ask-user-tool flow", () => {
         submittedAt: "2026-05-11T00:00:00Z",
       }),
     ).rejects.toThrow(/no live process/);
+  });
+
+  test("il tool_result della domanda chiude l'ask anche quando è un ERRORE", () => {
+    // Il caso vero: il client MCP ha mollato la chiamata dopo mezz'ora («nessuna
+    // risposta né progress per 1800s») e il risultato è arrivato come errore.
+    // Nessuno aveva risposto, quindi `deliverAnswer` — che di solito chiude
+    // l'ask — non è mai passato di qui: il bridge continuava a giurare che una
+    // domanda fosse a schermo per un pannello che non esisteva più. E quella
+    // bugia è tossica, perché sia il watchdog del turno sia lo sweeper degli
+    // stream fermi si fanno da parte proprio davanti a un ask pendente.
+    const sessionKey = "topic:ask-morto";
+    const { provider, pp } = makeProviderWithStubProcess(sessionKey);
+    const { handler } = makeHandler();
+    pp.streamHandler = handler;
+
+    beginAsk(sessionKey);
+    (provider as any).handleStreamEvent(pp, {
+      type: "assistant",
+      message: {
+        content: [{
+          type: "tool_use",
+          id: "toolu_ask",
+          name: "mcp__topics__ask_user_question",
+          input: { questions: [{ question: "Quale?", header: "H", options: [{ label: "A" }] }] },
+        }],
+      },
+    });
+    expect(pp.pendingInputs.has("toolu_ask")).toBe(true);
+    expect(hasPendingAsk(sessionKey)).toBe(true);
+
+    (provider as any).handleStreamEvent(pp, {
+      type: "user",
+      message: {
+        content: [{
+          type: "tool_result",
+          tool_use_id: "toolu_ask",
+          is_error: true,
+          content: "ask_user_question: no response and no progress for 1800s",
+        }],
+      },
+    });
+
+    expect(pp.pendingInputs.has("toolu_ask")).toBe(false);
+    expect(hasPendingAsk(sessionKey)).toBe(false);
   });
 
   test("abort() clears pendingInputs so a late resume after cancel can't sneak in", async () => {
