@@ -27,7 +27,7 @@ interface ChatPanelProps {
   topic: Topic; isFocused: boolean; onFocus: () => void; onClose: () => void;
   onDragStart: (e: React.DragEvent) => void; onToggleSidebar?: () => void; isDragOver: boolean;
   getSessionMessages: (sk: string) => ChatMessage[]; getCompactionMarkers?: (sk: string) => CompactionMarker[]; isSessionLoading: (sk: string) => boolean;
-  isSessionStreaming: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  isSessionStreaming: (sk: string) => boolean; wasSessionStopped: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   /**
    * Abort the in-flight assistant turn for `sessionKey`. Returns true iff
    * the chat was a brand-new throwaway (one-user-message thread) — the
@@ -68,7 +68,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   topic, isFocused, onFocus, onClose, onDragStart, onToggleSidebar, isDragOver,
-  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   onOpenSessionViewer,
@@ -263,6 +263,7 @@ export function ChatPanel({
                 getCompactionMarkers={getCompactionMarkers}
                 isSessionLoading={isSessionLoading}
                 isSessionStreaming={isSessionStreaming}
+                wasSessionStopped={wasSessionStopped}
                 stopSession={stopSession}
                 sendMessage={sendMessage}
                 editMessage={editMessage}

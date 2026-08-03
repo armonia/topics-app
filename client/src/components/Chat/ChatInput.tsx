@@ -338,6 +338,8 @@ interface ChatInputProps {
   topic: Topic;
   currentMessages: ChatMessage[];
   currentStreaming: boolean;
+  /** Il turno l'ha fermato l'umano (e non ne è ripartito un altro). */
+  stoppedByUser?: boolean;
   message: string;
   setMessage: (v: string) => void;
   pendingFiles: File[];
@@ -412,6 +414,7 @@ export function ChatInput({
   topic,
   currentMessages,
   currentStreaming,
+  stoppedByUser = false,
   message,
   setMessage,
   pendingFiles,
@@ -943,17 +946,45 @@ export function ChatInput({
         </div>
       )}
 
+      {/* Nessuna risposta dopo un messaggio tuo. La CAUSA non si legge dalla
+          pagina: uno stop precoce cancella la bolla vuota e lascia esattamente
+          la stessa forma di un turno mai arrivato. Senza distinguerle, premere
+          «ferma» faceva comparire «la connessione può essersi interrotta» —
+          il composer accusava la rete di una cosa che avevi appena fatto tu.
+          Il caso «il turno è ancora vivo» non passa di qui: `currentStreaming`
+          lo tiene acceso anche dopo un reload (vedi reconcileServerStreams). */}
       {!currentStreaming && currentMessages.length > 0 && currentMessages[currentMessages.length - 1]?.role === 'user' && (
-        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 flex items-center gap-2 flex-shrink-0`}>
+        <div
+          data-testid="no-reply-banner"
+          data-reason={stoppedByUser ? 'stopped' : 'interrupted'}
+          className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
+            stoppedByUser
+              ? 'bg-app-hover border border-app-border-light'
+              : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40'
+          }`}
+        >
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">No response received</div>
-            <div className="text-[11px] text-amber-600 dark:text-amber-500">The connection may have been interrupted</div>
+            {stoppedByUser ? (
+              <>
+                <div className="text-[11px] text-app-text font-medium">Turno interrotto</div>
+                <div className="text-[11px] text-app-text-muted">L'hai fermato tu — il messaggio è ancora qui</div>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">Nessuna risposta</div>
+                <div className="text-[11px] text-amber-600 dark:text-amber-500">La connessione può essersi interrotta</div>
+              </>
+            )}
           </div>
           <button
             onClick={() => { const lastMsg = currentMessages[currentMessages.length - 1]; if (lastMsg?.content) sendMessageDirect(lastMsg.content); }}
-            className="px-3 py-1.5 text-[11px] bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors flex items-center gap-1"
+            className={`px-3 py-1.5 text-[11px] rounded-md transition-colors flex items-center gap-1 ${
+              stoppedByUser
+                ? 'bg-app-border text-app-text hover:bg-app-border-light'
+                : 'bg-amber-500 text-white hover:bg-amber-600'
+            }`}
           >
-            <span>↻</span> Retry
+            <span>↻</span> {stoppedByUser ? 'Riprendi' : 'Riprova'}
           </button>
         </div>
       )}

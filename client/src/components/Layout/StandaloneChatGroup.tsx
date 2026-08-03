@@ -70,6 +70,7 @@ interface StandaloneChatGroupProps {
   getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
+  wasSessionStopped: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -146,7 +147,7 @@ interface StandaloneChatGroupProps {
 export function StandaloneChatGroup({
   topicIds, focusedPanelId,
   onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
-  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, stopSession,
@@ -686,6 +687,7 @@ export function StandaloneChatGroup({
           getCompactionMarkers={getCompactionMarkers}
           isSessionLoading={isSessionLoading}
           isSessionStreaming={isSessionStreaming}
+          wasSessionStopped={wasSessionStopped}
           stopSession={stopSession}
           sendMessage={sendMessage}
           editMessage={editMessage}
@@ -762,6 +764,7 @@ export function StandaloneChatGroup({
         getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
+        wasSessionStopped={wasSessionStopped}
         stopSession={stopSession}
         sendMessage={wrappedSendMessage}
         editMessage={editMessage}

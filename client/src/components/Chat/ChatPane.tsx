@@ -60,6 +60,8 @@ export interface ChatPaneProps {
   getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
+  /** Vero se il turno l'ha fermato l'umano: cambia cosa dice il composer quando non arriva risposta. */
+  wasSessionStopped: (sk: string) => boolean;
   /**
    * Stop the in-flight assistant turn for this session. Threaded down to
    * `ChatInput` so the unified composer button can present "Stop" when the
@@ -95,7 +97,7 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 
 function ChatPaneComponent({
   topic, isFocused,
-  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch, onOpenSessionViewer,
@@ -330,6 +332,7 @@ function ChatPaneComponent({
   }, [currentMarkers]);
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
+  const currentStoppedByUser = wasSessionStopped(topic.sessionKey);
 
   // Picker keeps a simple local override per pane. On first paint we seed it
   // from the topic's persisted `provider`/`model` (set previously via PATCH);
@@ -1010,7 +1013,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+        <ChatInput isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre
@@ -1051,6 +1054,7 @@ const RESOLVED_KEYS = new Set<keyof ChatPaneProps>([
   'getSessionMessages',
   'isSessionLoading',
   'isSessionStreaming',
+  'wasSessionStopped',
 ]);
 function chatPanePropsEqual(prev: ChatPaneProps, next: ChatPaneProps): boolean {
   const keys = new Set<keyof ChatPaneProps>([
@@ -1066,7 +1070,8 @@ function chatPanePropsEqual(prev: ChatPaneProps, next: ChatPaneProps): boolean {
   return (
     prev.getSessionMessages(sk) === next.getSessionMessages(sk) &&
     prev.isSessionLoading(sk) === next.isSessionLoading(sk) &&
-    prev.isSessionStreaming(sk) === next.isSessionStreaming(sk)
+    prev.isSessionStreaming(sk) === next.isSessionStreaming(sk) &&
+    prev.wasSessionStopped(sk) === next.wasSessionStopped(sk)
   );
 }
 

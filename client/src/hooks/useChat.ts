@@ -474,6 +474,17 @@ export function useChat() {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
+  /**
+   * Sessioni fermate a mano, finché non riparte un turno.
+   *
+   * Senza questo, «ferma» e «la connessione è caduta» arrivano al composer
+   * identici — ultimo messaggio dell'utente, nessuno stream — e il banner
+   * accusava la rete di una cosa che aveva fatto l'umano un secondo prima. Non
+   * si deduce dai messaggi: uno stop precoce cancella la bolla vuota
+   * (`dropEmptyTurn`) e lascia in pagina esattamente la stessa forma di un
+   * turno mai arrivato.
+   */
+  const [stoppedByUser, setStoppedByUser] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [gatewayConnected, setGatewayConnected] = useState(true); // Assume connected until told otherwise
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
@@ -483,6 +494,15 @@ export function useChat() {
   // messages not sent" col retry deve sopravvivere al reload, altrimenti la
   // scadenza equivale a buttare via il messaggio senza dirlo.
   const [expiredMessages, setExpiredMessages] = useState<QueuedMessage[]>(getExpiredQueue);
+  /**
+   * Un turno riparte: streaming acceso e lo stop precedente non conta più.
+   * Sta qui in alto perché la usa anche il gestore degli eventi WS, che è
+   * dichiarato prima di metà di questo file.
+   */
+  const beginStreaming = useCallback((sessionKey: string) => {
+    setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+    setStoppedByUser(prev => (prev[sessionKey] ? { ...prev, [sessionKey]: false } : prev));
+  }, []);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -967,7 +987,7 @@ export function useChat() {
 
     switch (event.type) {
       case 'stream:start':
-        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey); // Start timeout watchdog
         // Only create assistant placeholder if there isn't already a partial one
         // (sendMessage creates one via SSE, so WS broadcast to OTHER windows only)
@@ -1320,7 +1340,7 @@ export function useChat() {
         // state. The merge logic (which carries toolCalls + blocks from
         // the DB partial row through to the client) lives in
         // `streamCatchupMerge.ts` so it can be unit-tested without React.
-        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
         if (event.isThinking) {
           setThinking(prev => ({ ...prev, [sessionKey]: true }));
@@ -1357,7 +1377,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker, beginStreaming]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1435,7 +1455,7 @@ export function useChat() {
         { role: 'user', content }
       ];
 
-      setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+      beginStreaming(sessionKey);
 
       // Create placeholder assistant message immediately for inline loading
       addMessage(sessionKey, {
@@ -1766,7 +1786,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
 
   /**
    * Fa partire il messaggio in cima alla coda, se è il momento.
@@ -1897,6 +1917,11 @@ export function useChat() {
     return thinking[sessionKey] || false;
   }, [thinking]);
 
+  /** Vero se il turno di questa sessione l'ha fermato l'umano e non ne è ancora partito un altro. */
+  const wasSessionStopped = useCallback((sessionKey: string): boolean => {
+    return stoppedByUser[sessionKey] || false;
+  }, [stoppedByUser]);
+
   /** Stop streaming. Returns true if this was the first message (chat can be discarded). */
   const stopSession = useCallback((sessionKey: string): boolean => {
     // PRIMA di tutto il resto: «ferma» vuol dire fermo. L'abort qui sotto fa
@@ -1907,6 +1932,10 @@ export function useChat() {
     // messaggio successivo. La coda resta dov'è, visibile nel badge del
     // composer: si corregge, si butta o riparte scrivendo il messaggio dopo.
     holdQueue(sessionKey);
+    // Chi ha fermato il turno lo sa solo questa riga: da qui in poi la pagina è
+    // indistinguibile da una risposta mai arrivata, e il composer accusava la
+    // connessione al posto tuo.
+    setStoppedByUser(prev => ({ ...prev, [sessionKey]: true }));
     const controller = abortControllersRef.current[sessionKey];
     if (controller) {
       controller.abort();
@@ -2026,7 +2055,7 @@ export function useChat() {
 
       // Restore streaming state from server (for cross-device sync)
       if (response.isStreaming) {
-        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        beginStreaming(sessionKey);
         if (response.streamState?.isThinking) {
           setThinking(prev => ({ ...prev, [sessionKey]: true }));
         }
@@ -2073,7 +2102,7 @@ export function useChat() {
       inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
     }
-  }, [resetStreamTimeout]);
+  }, [resetStreamTimeout, beginStreaming]);
 
   useEffect(() => { loadHistoryRef.current = loadHistory; }, [loadHistory]);
 
@@ -2103,7 +2132,7 @@ export function useChat() {
 
     try {
       setError(null);
-      setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+      beginStreaming(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
       const stream = await openStream(abortController.signal);
@@ -2215,7 +2244,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
+  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
@@ -2563,6 +2592,7 @@ export function useChat() {
     isSessionStreaming,
     reconcileServerStreams,
     isSessionThinking,
+    wasSessionStopped,
     isSessionCached,
     loadHistory,
     appendMediaToLastAssistant,

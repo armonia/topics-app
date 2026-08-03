@@ -407,6 +407,7 @@ function App() {
     addMessageFromWS,
     isSessionLoading,
     isSessionStreaming,
+    wasSessionStopped,
     reconcileServerStreams,
     loadHistory,
     appendMediaToLastAssistant,
@@ -1153,6 +1154,7 @@ function App() {
           getCompactionMarkers={getCompactionMarkers}
           isSessionLoading={isSessionLoading}
           isSessionStreaming={isSessionStreaming}
+          wasSessionStopped={wasSessionStopped}
           stopSession={stopSession}
           sendMessage={sendMessage}
           editMessage={editMessage}
