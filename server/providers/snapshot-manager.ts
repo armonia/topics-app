@@ -146,6 +146,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         binaryPath: diag?.binaryPath,
         version: diag?.version,
         models,
+        defaultModel: provider.defaultModel?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: effortTierFor(name),

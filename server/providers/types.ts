@@ -554,6 +554,17 @@ export interface AIProvider {
   /** List available models for this provider (for the picker UI) */
   listModels?(): Promise<string[]>;
 
+  /**
+   * Il modello su cui parte una sessione che NON ha scelto niente.
+   *
+   * Senza questo la UI tirava a indovinare — mostrava `models[0]` — e indovinava
+   * male: la lista guida con l'id nudo (`claude-opus-5`) mentre lo spawn usa da
+   * sempre il suo gemello a finestra lunga. Risultato: il badge diceva 200k su
+   * una sessione da un milione, cioè la stessa bugia che il badge esiste per
+   * evitare. Chi conosce il default è il provider, non il picker.
+   */
+  defaultModel?(): string | null;
+
   // --- Event routing ---
 
   /**

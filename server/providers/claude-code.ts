@@ -32,7 +32,7 @@ import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
-import { discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
+import { cachedClaudeModels, discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
 
 // ============ Config ============
 
@@ -52,10 +52,20 @@ export interface ClaudeCodeProviderConfig {
  * dichiarato ovunque nel repo («l'umano lavora normalmente su opus») — e in
  * silenzio, perché il picker mostra il modello scelto, non quello ripiegato.
  *
- * L'id non è scritto a mano: si prende il più recente della famiglia dalla
- * lista che il resto del codice già mantiene.
+ * Opus più recente **con la finestra da 1M**, non da 200k: un id nudo è da 200k
+ * anche sulla generazione 5, e il default deve essere la finestra grande (scelta
+ * esplicita di Attilio, 3 agosto 2026). L'id non è scritto a mano — famiglia +
+ * `preferLong` sulla lista che la CLI annuncia davvero, con `FALLBACK_MODELS`
+ * solo a cache fredda.
  */
-const DEFAULT_CHAT_MODEL = newestOfFamily("opus", FALLBACK_MODELS) ?? "claude-opus-5";
+function defaultChatModel(): string {
+  const available = cachedClaudeModels() ?? FALLBACK_MODELS;
+  return (
+    newestOfFamily("opus", available, { preferLong: true })
+    ?? newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true })
+    ?? "claude-opus-5[1m]"
+  );
+}
 /** I one-shot (auto-titolo, digest, fallback SSE) NON sono lavoro d'agente e
  *  restano dov'erano: pagarli come una chat non serve a nessuno. */
 const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
@@ -1600,14 +1610,20 @@ export class ClaudeCodeProvider implements AIProvider {
     // entry for the 1M variants (`claude-opus-5[1m]`). Cached per CLI version;
     // falls back to a static shortlist if the scan finds nothing.
     const all = await discoverClaudeModels(resolveCliPath());
-    // Surface the configured model first so the snapshot's effective default
-    // (clients use models[0]) reflects the user's settings.json choice. We
-    // tolerate an unknown model by inserting it at the head — it lets the
-    // user pin a future Anthropic model without a code change.
+    // Surface the configured model first so it leads the picker's list. Qual è
+    // il default NON si deduce più da qui: lo dichiara `defaultModel()`, perché
+    // `models[0]` è l'id nudo mentre lo spawn parte sul suo gemello `[1m]`. Si
+    // tollera un modello sconosciuto mettendolo in testa — lascia appuntare un
+    // modello Anthropic futuro senza toccare il codice.
     const preferred = this.config.model;
     if (!preferred) return all;
     const rest = all.filter((m) => m !== preferred);
     return [preferred, ...rest];
+  }
+
+  /** Lo stesso id che userebbe uno spawn adesso: vedi `defaultChatModel()`. */
+  defaultModel(): string {
+    return this.config.model ?? defaultChatModel();
   }
 
   // ============ Process Pool Internals ============
@@ -1632,7 +1648,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // are spawn-time CLI flags, so the PATCH handler forces a respawn via
     // refreshSessionConfig when either changes.
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
-    const model = overrides.model ?? this.config.model ?? DEFAULT_CHAT_MODEL;
+    const model = overrides.model ?? this.config.model ?? defaultChatModel();
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     // Spawn IN the topic's resolved working dir (worktree/project) so the CLI's
     // relative-path tools match the "You are working in <path>" awareness block.

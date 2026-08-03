@@ -121,6 +121,12 @@ export interface ProviderSnapshotEntry {
   binaryPath?: string;
   version?: string;
   models: string[];
+  /**
+   * Il modello che questo provider usa quando la sessione non ne sceglie uno.
+   * NON è `models[0]`: la lista guida con l'id nudo mentre il default può essere
+   * la sua variante a finestra lunga. Assente se il provider non lo dichiara.
+   */
+  defaultModel?: string;
   requirements: ProviderRequirement[];
   lastError?: string;
   /**

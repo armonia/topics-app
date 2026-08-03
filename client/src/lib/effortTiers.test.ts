@@ -49,6 +49,22 @@ describe('resolveEffectiveProvider', () => {
     expect(resolveEffectiveProvider(entries, null, 'openclaw')).toEqual({ provider: 'codex', model: 'gpt-5-codex' });
   });
 
+  it('il default DICHIARATO dal provider batte il primo della lista', () => {
+    // Il caso vero: la lista guida con l'id nudo (200k) ma lo spawn parte sul
+    // gemello a finestra lunga. Dedurre il default da `models[0]` faceva
+    // scrivere 200k sul badge di una sessione da un milione.
+    const withDefault = [
+      entry({
+        name: 'claude-code',
+        isDefault: true,
+        models: ['claude-opus-5', 'claude-opus-5[1m]'],
+        defaultModel: 'claude-opus-5[1m]',
+      }),
+    ];
+    expect(resolveEffectiveProvider(withDefault, null))
+      .toEqual({ provider: 'claude-code', model: 'claude-opus-5[1m]' });
+  });
+
   it('null se nessun provider pronto ha modelli', () => {
     expect(resolveEffectiveProvider([entry({ name: 'a', models: [] })], null)).toBeNull();
     expect(resolveEffectiveProvider([], null)).toBeNull();

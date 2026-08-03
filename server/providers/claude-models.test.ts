@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { FALLBACK_MODELS, familyOf, newestOfFamily, scanCliForModelIds, selectCurrentModels } from "./claude-models";
+import {
+  FALLBACK_MODELS,
+  familyOf,
+  longVariantOf,
+  newestOfFamily,
+  scanCliForModelIds,
+  selectCurrentModels,
+} from "./claude-models";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -144,6 +151,18 @@ describe("newestOfFamily", () => {
     expect(newestOfFamily("opus", ["claude-opus-5[1m]"])).toBe("claude-opus-5[1m]");
   });
 
+  test("preferLong: la finestra da 1M dove l'host la serve, l'id nudo dove no", () => {
+    expect(newestOfFamily("opus", LIVE, { preferLong: true })).toBe("claude-opus-5[1m]");
+    // Sonnet 5 non ha un gemello `[1m]` nella tabella del binario, ma la FAMIGLIA
+    // sì (`claude-sonnet-4-6[1m]`) — e `claude-sonnet-5[1m]` risponde davvero.
+    expect(newestOfFamily("sonnet", [...LIVE, "claude-sonnet-4-6[1m]"], { preferLong: true }))
+      .toBe("claude-sonnet-5[1m]");
+    // Haiku: il beta non lo copre (400 «long context beta is not yet available»).
+    expect(newestOfFamily("haiku", LIVE, { preferLong: true })).toBe("claude-haiku-4-5");
+    // Fable il milione ce l'ha già nudo: niente suffisso da inventare.
+    expect(newestOfFamily("fable", LIVE, { preferLong: true })).toBe("claude-fable-5");
+  });
+
   test("famiglia assente o lista di altri provider → null, mai un id inventato", () => {
     expect(newestOfFamily("mythos", LIVE)).toBeNull();
     expect(newestOfFamily("opus", ["gpt-5-codex", "gemini-2.5-pro"])).toBeNull();
@@ -154,5 +173,32 @@ describe("newestOfFamily", () => {
     expect(familyOf("claude-opus-5[1m]")).toBe("opus");
     expect(familyOf("claude-haiku-4-5")).toBe("haiku");
     expect(familyOf("gpt-4o")).toBeNull();
+  });
+});
+
+describe("longVariantOf", () => {
+  const LIVE = [
+    "claude-opus-5", "claude-opus-5[1m]", "claude-sonnet-5", "claude-sonnet-4-6",
+    "claude-sonnet-4-6[1m]", "claude-haiku-4-5", "claude-fable-5",
+  ];
+
+  test("la famiglia che annuncia un [1m] lo prende anche sulla versione più nuova", () => {
+    expect(longVariantOf("claude-opus-5", LIVE)).toBe("claude-opus-5[1m]");
+    expect(longVariantOf("claude-sonnet-5", LIVE)).toBe("claude-sonnet-5[1m]");
+  });
+
+  test("la famiglia che non lo annuncia resta nuda: il suffisso sarebbe un 400", () => {
+    expect(longVariantOf("claude-haiku-4-5", LIVE)).toBe("claude-haiku-4-5");
+    expect(longVariantOf("claude-fable-5", LIVE)).toBe("claude-fable-5");
+  });
+
+  test("id già lungo, id di altri provider e stringhe non-modello passano intatti", () => {
+    expect(longVariantOf("claude-opus-5[1m]", LIVE)).toBe("claude-opus-5[1m]");
+    expect(longVariantOf("gpt-5-codex", LIVE)).toBe("gpt-5-codex");
+    expect(longVariantOf("", LIVE)).toBe("");
+  });
+
+  test("lista vuota: nessuna prova che l'host regga il milione → id nudo", () => {
+    expect(longVariantOf("claude-opus-5", [])).toBe("claude-opus-5");
   });
 });
