@@ -1165,21 +1165,50 @@ export async function callCommentTask(
   return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}${suffix}`;
 }
 
+/** How many consecutive transport failures a single ask tolerates. */
+const ASK_MAX_TRANSPORT_RETRIES = 5;
+/** Backoff between transport retries (ms). Grows linearly, capped by the array. */
+const ASK_RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
+/** Hard cap on poll legs, so a wedged server can't spin here forever. */
+const ASK_MAX_LEGS = 500;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+interface AskLegResponse {
+  answers?: Record<string, string>;
+  metadata?: unknown;
+  pending?: boolean;
+  cancelled?: boolean;
+  reason?: string;
+}
+
 /**
  * Ask the human a multiple-choice question in the chat and BLOCK until they
- * answer. Unlike every other bridge tool, this one intentionally long-polls:
- * the CLI is blocked on our JSON-RPC response, and the topics-app endpoint
- * `/api/mcp/ask-user` holds the HTTP request open until the human submits the
- * panel (see server/lib/ask-user-bridge.ts). The returned JSON string is the
- * answers map the model reads — mirroring the built-in AskUserQuestion result
- * shape (`{answers, metadata?}`), so a model that has seen the real tool reads
- * it the same way.
+ * answer. Unlike every other bridge tool, this one POLLS: the CLI is blocked on
+ * our JSON-RPC response, and the answer may take minutes (it's a human), but a
+ * single HTTP request held open with zero bytes flowing is exactly what an idle
+ * socket timeout kills — and it dies on THIS side, so the server can't save it.
+ * That's not theory: the first live question died after minutes with a socket
+ * connection error. So we send short legs; each returns `{pending:true}` while
+ * the panel is still on screen and we come straight back. The ask's own TTL
+ * lives server-side (`beginAsk`), so polling can't keep a dead question alive.
+ *
+ * Transport failures are retried with backoff rather than surfaced: a dropped
+ * socket must not cancel a question the human is still looking at.
+ *
+ * The returned JSON string is the answers map the model reads — mirroring the
+ * built-in AskUserQuestion result shape (`{answers, metadata?}`), so a model
+ * that has seen the real tool reads it the same way.
  */
 export async function callAskUserQuestion(
   args: ParsedArgs,
   toolArgs: { questions?: unknown },
   fetchImpl: typeof fetch = fetch,
+  /** Retry/backoff knobs — overridden by tests so they don't sleep for real. */
+  opts: { backoffMs?: number[]; maxLegs?: number } = {},
 ): Promise<string> {
+  const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
+  const maxLegs = opts.maxLegs ?? ASK_MAX_LEGS;
   if (!Array.isArray(toolArgs?.questions) || toolArgs.questions.length === 0) {
     throw new Error("ask_user_question: 'questions' (non-empty array) is required");
   }
@@ -1187,18 +1216,43 @@ export async function callAskUserQuestion(
   // (ask-user-detector.ts) is the single source of truth for clamping options,
   // dropping malformed questions, and the raw fallback. We just forward.
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/ask-user`;
-  // NB: the cancelled signal uses `reason`, NOT `error` — httpJson auto-throws
-  // on a top-level `error` field, which would bypass the clean message below.
-  const body = await httpJson<{ answers?: Record<string, string>; metadata?: unknown; cancelled?: boolean; reason?: string }>(
-    args, "POST", path, { questions: toolArgs.questions }, fetchImpl,
-  );
-  if (!body || body.cancelled) {
-    throw new Error(`ask_user_question: cancelled before the human answered${body?.reason ? ` (${body.reason})` : ""}`);
+  const payload = { questions: toolArgs.questions };
+
+  let transportFailures = 0;
+  for (let leg = 0; leg < maxLegs; leg++) {
+    let body: AskLegResponse | null | undefined;
+    try {
+      // NB: the cancelled signal uses `reason`, NOT `error` — httpJson
+      // auto-throws on a top-level `error` field, which would bypass the clean
+      // message below.
+      body = await httpJson<AskLegResponse>(args, "POST", path, payload, fetchImpl);
+      transportFailures = 0;
+    } catch (err) {
+      // Could be a dropped socket (retry — the panel is still up) or a real
+      // server rejection (give up once we've clearly exhausted the benefit of
+      // the doubt). We can't reliably tell them apart through httpJson, so we
+      // bound the retries and report the last error if they run out.
+      transportFailures++;
+      if (transportFailures > ASK_MAX_TRANSPORT_RETRIES) {
+        throw new Error(
+          `ask_user_question: lost contact with topics-app after ${transportFailures} attempts (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      await sleep(backoff[Math.min(transportFailures - 1, backoff.length - 1)] ?? 0);
+      continue;
+    }
+
+    if (!body) throw new Error("ask_user_question: empty response from topics-app");
+    if (body.cancelled) {
+      throw new Error(`ask_user_question: cancelled before the human answered${body.reason ? ` (${body.reason})` : ""}`);
+    }
+    if (body.pending) continue; // nobody has answered yet — next leg
+    return JSON.stringify({
+      answers: body.answers ?? {},
+      ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+    });
   }
-  return JSON.stringify({
-    answers: body.answers ?? {},
-    ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
-  });
+  throw new Error(`ask_user_question: gave up after ${maxLegs} poll legs without an answer`);
 }
 
 /**
