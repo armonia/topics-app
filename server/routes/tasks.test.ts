@@ -281,11 +281,26 @@ describe("board router (human, project-scoped)", () => {
   });
 
   test("human create + PATCH to done (no review gate for humans)", async () => {
-    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ship" }))!.json();
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ship", status: "todo" }))!.json();
     expect(t.status).toBe("todo");
     const done = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "done" }))!;
     expect(done.status).toBe(200);
     expect((await done.json()).status).toBe("done");
+  });
+
+  // I due rami del default di creazione via API. `todo` è la coda di
+  // esecuzione: un task che ci nasce fa partire un agente entro pochi secondi
+  // su un board con auto-dispatch. Un chiamante esterno (MCP, script,
+  // integrazione) che scrive un task sta ANNOTANDO — il "vai" deve essere
+  // scritto, non dedotto dal silenzio.
+  test("POST senza status → backlog (annotare non è ordinare)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "solo un appunto" }))!.json();
+    expect(t.status).toBe("backlog");
+  });
+
+  test("POST con status todo esplicito → todo (il «vai» si scrive)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "vai", status: "todo" }))!.json();
+    expect(t.status).toBe("todo");
   });
 
   test("review approve moves review → done", async () => {

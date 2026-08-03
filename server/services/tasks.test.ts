@@ -102,12 +102,20 @@ describe("create", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
 
-  test("creates a todo with incrementing kanban_order", () => {
+  test("senza status nasce in BACKLOG, con kanban_order incrementale", () => {
     const t1 = s.create({ projectId: PID, text: "one" });
     const t2 = s.create({ projectId: PID, text: "two" });
-    expect(t1.status).toBe("todo");
+    // `todo` è la coda di esecuzione: nascerci fa partire un agente. Chi crea
+    // senza dire dove sta annotando, non dando un via — quindi il default deve
+    // essere la colonna che non esegue.
+    expect(t1.status).toBe("backlog");
     expect(t1.kanbanOrder).toBe(1);
     expect(t2.kanbanOrder).toBe(2);
+  });
+
+  test("«vai» si scrive: status todo esplicito resta todo", () => {
+    const t = s.create({ projectId: PID, text: "one", status: "todo" });
+    expect(t.status).toBe("todo");
   });
 
   test("idempotencyKey returns the same task, no duplicate", () => {
@@ -232,7 +240,7 @@ describe("review gate (KANBAN-05)", () => {
   });
 
   test("status events (kind='status') do NOT satisfy the mute-delivery gate", () => {
-    const t = s.create({ projectId: PID, text: "work" });
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
     // The agent moving the task writes a status event AUTHORED by the agent —
     // it's history, not a delivery summary.
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
@@ -1089,8 +1097,8 @@ describe("blocked-by dependency", () => {
   beforeEach(() => { db = freshDb(); s = svc(db); });
 
   test("claim refuses a todo whose blocker is still open; unblocks at done", () => {
-    const a = s.create({ projectId: PID, text: "blocker" });
-    const b = s.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    const a = s.create({ projectId: PID, text: "blocker", status: "todo" });
+    const b = s.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id, status: "todo" });
     expect(b.blockedByTaskId).toBe(a.id);
     expect(s.isDispatchBlocked(b.id)).toBe(true);
     expect(s.claim({ taskId: b.id, cap: 5, maxAttempts: 3 })).toBeNull();
