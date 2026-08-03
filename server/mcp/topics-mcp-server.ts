@@ -246,6 +246,42 @@ const TOOLS = [
     },
   },
   {
+    name: "ask_user_question",
+    description:
+      "Ask the HUMAN a multiple-choice question IN THIS CHAT and BLOCK until they answer — the reply comes back to you as this tool's result, no new user message. Use it when you need a decision to proceed (which approach, which option, yes/no with context) and want a clickable panel instead of a free-text prompt. Renders natively in the chat thread: each question shows its options as buttons plus an always-present 'Other' free-text. 1–4 questions per call, 2–4 options each. This is the in-chat panel — it is NOT the board quick-reply (that's comment_task with options). Prefer this over asking in prose when the answer is a choice.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          description: "1–4 questions to ask together (rendered as one panel).",
+          items: {
+            type: "object",
+            properties: {
+              question: { type: "string", description: "The question text shown to the human." },
+              header: { type: "string", description: "Very short label/category (≤12 chars) shown above the question." },
+              multiSelect: { type: "boolean", description: "Allow selecting more than one option (default false = single choice)." },
+              options: {
+                type: "array",
+                description: "2–4 mutually-exclusive choices. An 'Other' free-text is added automatically — do not add your own.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", description: "Short button label." },
+                    description: { type: "string", description: "Optional one-line explanation of this choice." },
+                  },
+                  required: ["label"],
+                },
+              },
+            },
+            required: ["question", "options"],
+          },
+        },
+      },
+      required: ["questions"],
+    },
+  },
+  {
     name: "move_session_to_project",
     description:
       "Low-level: move THIS Claude Code terminal tab into a project window by ABSOLUTE PATH, de-duplicated (one tool call, not manual ui_state edits). Adds the tab to the project's membership AND removes it from the standalone app-level store, so it ends up inside the project only — never duplicated inside-and-outside. Opens/focuses the project window. Prefer open_project (resolves a project by name/slug) or create_project (scaffolds a new one) — reach for this only when you already have the exact absolute path.",
@@ -1130,6 +1166,42 @@ export async function callCommentTask(
 }
 
 /**
+ * Ask the human a multiple-choice question in the chat and BLOCK until they
+ * answer. Unlike every other bridge tool, this one intentionally long-polls:
+ * the CLI is blocked on our JSON-RPC response, and the topics-app endpoint
+ * `/api/mcp/ask-user` holds the HTTP request open until the human submits the
+ * panel (see server/lib/ask-user-bridge.ts). The returned JSON string is the
+ * answers map the model reads — mirroring the built-in AskUserQuestion result
+ * shape (`{answers, metadata?}`), so a model that has seen the real tool reads
+ * it the same way.
+ */
+export async function callAskUserQuestion(
+  args: ParsedArgs,
+  toolArgs: { questions?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (!Array.isArray(toolArgs?.questions) || toolArgs.questions.length === 0) {
+    throw new Error("ask_user_question: 'questions' (non-empty array) is required");
+  }
+  // Shape validation is intentionally light here — the server-side detector
+  // (ask-user-detector.ts) is the single source of truth for clamping options,
+  // dropping malformed questions, and the raw fallback. We just forward.
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/ask-user`;
+  // NB: the cancelled signal uses `reason`, NOT `error` — httpJson auto-throws
+  // on a top-level `error` field, which would bypass the clean message below.
+  const body = await httpJson<{ answers?: Record<string, string>; metadata?: unknown; cancelled?: boolean; reason?: string }>(
+    args, "POST", path, { questions: toolArgs.questions }, fetchImpl,
+  );
+  if (!body || body.cancelled) {
+    throw new Error(`ask_user_question: cancelled before the human answered${body?.reason ? ` (${body.reason})` : ""}`);
+  }
+  return JSON.stringify({
+    answers: body.answers ?? {},
+    ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+  });
+}
+
+/**
  * Tool dispatch registry. Each handler returns the human-readable text that
  * becomes the tool result's `content[0].text`. Adding a tool = one entry here
  * + one entry in TOOLS, nothing else.
@@ -1160,6 +1232,7 @@ const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
   comment_task: (a, t) => callCommentTask(a, t),
+  ask_user_question: (a, t) => callAskUserQuestion(a, t as { questions?: unknown }),
   wait_for_condition: (a, t) => callWaitForCondition(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
   spawn_agent: (a, t) => callSpawnAgent(a, t as { prompt?: unknown; name?: unknown; cwd?: unknown }),

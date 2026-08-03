@@ -2836,4 +2836,17 @@ export class ClaudeCodeProvider implements AIProvider {
       throw new Error(`claude-code: stdin write failed — ${err?.message ?? err}`);
     }
   }
+
+  /**
+   * Forget a pending user-input entry without touching stdin. The Topics MCP
+   * bridge tool answers through its own JSON-RPC response (see
+   * server/lib/ask-user-bridge.ts), so the CLI is NOT sitting on stdin for a
+   * `tool_result` line — writing one would desync the transcript. We only need
+   * to clear `pendingInputs` so a reattach replay won't re-open the form.
+   */
+  clearPendingInput(sessionKey: string, toolCallId: string): boolean {
+    const pp = this.processes.get(sessionKey);
+    if (!pp) return false;
+    return pp.pendingInputs.delete(toolCallId);
+  }
 }

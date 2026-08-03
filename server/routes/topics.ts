@@ -27,6 +27,7 @@ import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
+import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1864,6 +1865,37 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/sessions/:sessionKey/ask-user
+    //
+    // Long-poll rendez-vous for the `mcp__topics__ask_user_question` bridge
+    // tool. Called by the bridge subprocess when the model asks the human a
+    // question; it BLOCKS here until the human submits the clickable panel
+    // (which posts to /api/chat/tool-response → deliverAnswer). The panel
+    // itself is NOT rendered from here — the CLI also emits a `tool_use` for
+    // this call that the provider's detector turns into
+    // `stream:tool_user_input_required`, so the UI is already showing the form
+    // by the time we start waiting. We only supply the answer channel.
+    {
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/ask-user");
+      if (bySession && method === "POST") {
+        const sk = decodeURIComponent(bySession.sessionKey);
+        const body = (await readJSON(req)) as { questions?: unknown } | null;
+        if (!Array.isArray(body?.questions) || body.questions.length === 0) {
+          return json({ error: "questions (non-empty array) is required" }, 400);
+        }
+        try {
+          const answers = await waitForAnswer(sk);
+          return json({ answers });
+        } catch (err: any) {
+          // Timeout / superseded / cancelled: report a clean 200 signal the
+          // bridge maps to a "cancelled" tool error (it never fabricates an
+          // answer). Uses `reason`, not `error`, so the bridge's httpJson
+          // passes it through instead of auto-throwing on `error`.
+          return json({ cancelled: true, reason: err?.message ?? String(err) });
+        }
+      }
+    }
+
     // POST /api/sessions/:sessionKey/{switch-topic,new-topic,create-project,open-project}
     //
     // Tool-shaped successors to the {{TOPIC_SWITCH/TOPIC_NEW/PROJECT_CREATE/
@@ -2302,6 +2334,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
+      // If a `mcp__topics__ask_user_question` bridge handler is blocked waiting
+      // for this session's human answer, unblock it with an error so the CLI
+      // turn tears down now instead of hanging on the 10-min ask timeout.
+      cancelAsk(sessionKey, "turn aborted");
+
       // `clearMessages` is the client's hint that this was a brand-new chat
       // whose first message was canceled before the AI could reply, so the
       // chat itself can be discarded. The client computes this from its own
@@ -2387,6 +2424,46 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (!sessionKey || !toolCallId || !response || typeof response.kind !== 'string') {
         return errorResponse(400, "sessionKey, toolCallId, and response{kind,...} required");
       }
+
+      // --- Bridge ask path: mcp__topics__ask_user_question ---
+      // The Topics MCP bridge tool answers through the bridge subprocess'
+      // OWN JSON-RPC response (see server/lib/ask-user-bridge.ts), NOT via a
+      // stdin `tool_result` line. A blocked bridge handler for this session
+      // means THIS session's pending input IS the bridge ask (the CLI blocks
+      // the turn on one ask at a time), so route the answer to the rendez-vous
+      // and skip the provider stdin path entirely. Without this, the answer
+      // would be written to stdin AND returned by the bridge — a double result
+      // that desyncs the transcript.
+      if (response.kind === 'questions' && hasPendingAsk(sessionKey)) {
+        const submittedAt = new Date().toISOString();
+        const answers = (response.answers || {}) as Record<string, string>;
+        const normalised = {
+          kind: 'questions' as const,
+          answers,
+          metadata: response.metadata as Record<string, unknown> | undefined,
+          submittedAt,
+        };
+        const topic = getTopicBySessionKey(sessionKey);
+        // Unblock the bridge handler → it returns the answers as its tool
+        // result → the CLI resumes the turn.
+        deliverAnswer(sessionKey, answers);
+        // Forget the provider's pending entry so a reattach REPLAY won't
+        // re-open the panel for an already-answered question. We intentionally
+        // do NOT call resumeWithToolResponse — the bridge return is the result.
+        try { resolveProvider(topic).clearPendingInput?.(sessionKey, toolCallId); } catch { /* provider gone; nothing to clear */ }
+        updateToolCallFields(sessionKey, toolCallId, {
+          status: 'running',
+          userResponse: normalised,
+        });
+        broadcastToAll({
+          type: 'stream:tool_update',
+          sessionKey,
+          topicId: topic?.id,
+          toolCallId,
+        });
+        return json({ ok: true, submittedAt });
+      }
+
       // Provider lookup mirrors abort: O(1) by sessionKey instead of a topics scan.
       const topic = getTopicBySessionKey(sessionKey);
       const provider = resolveProvider(topic);

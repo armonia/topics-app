@@ -448,6 +448,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
+  // Mobile-only affordance: the toolbar strip below scrolls horizontally with
+  // a hidden scrollbar, so without a visible cue the actions past the right
+  // edge are only discoverable by swiping blind. Tracks live scroll position
+  // to fade out once the strip reaches its end.
+  const toolbarScrollRef = useRef<HTMLDivElement>(null);
+  const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
   // Provider model list for the board-default picker (settings panel). Seeded
   // from the snapshot and kept live — same source the composer's picker uses.
   const [claudeModels, setClaudeModels] = useState<string[]>(
@@ -788,6 +794,22 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return subscribePopstateTask((target) => setSelectedId(target?.taskId ?? null));
   }, [global]);
 
+  useEffect(() => {
+    const el = toolbarScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      setToolbarOverflowRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 1);
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [tasks, filters, mode, unlandedTasks.length]);
+
   if (loading) {
     return <div className="flex h-full items-center justify-center text-app-text-secondary"><Loader2 className="h-5 w-5 animate-spin" /></div>;
   }
@@ -797,8 +819,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       {/* Header: a project/all toggle inside a project, a static label globally.
           On phone the toolbar is too dense to fit — it becomes a single
           horizontally-scrollable strip (no wrap, hidden scrollbar) so nothing is
-          clipped; on desktop it sits inline with the trailing actions ml-auto'd. */}
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-app-border px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
+          clipped; on desktop it sits inline with the trailing actions ml-auto'd.
+          The fade+chevron below is the mobile-only affordance that the strip
+          continues past the right edge — it tracks live scroll position and
+          disappears once fully scrolled. */}
+      <div className="relative shrink-0 border-b border-app-border">
+      <div ref={toolbarScrollRef} className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
             <button
@@ -844,6 +870,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             ><Settings className="h-3.5 w-3.5" /></button>
           )}
         </div>
+      </div>
+      {toolbarOverflowRight && (
+        <div
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-8 items-center justify-end bg-gradient-to-l from-app-bg to-transparent sm:hidden"
+          data-testid="toolbar-overflow-affordance"
+        >
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+        </div>
+      )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       {showSettings && hasProject && (
