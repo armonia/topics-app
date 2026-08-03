@@ -1069,11 +1069,30 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // streaming flags against this authoritative registry (self-heal a
       // spinner stuck after a lost stream:end). topicId stays for the
       // hydratedStreamTopics mapping.
-      const sessions: { topicId: string; sessionKey: string; state: "streaming" }[] = [];
+      // «Sta lavorando» e «aspetta te» sono due cose diverse, e da fuori la chat
+      // si vedevano uguali: stesso pallino, stessa parola. Un turno fermo su una
+      // domanda non macina niente — chiamarlo streaming manda a controllare un
+      // agente che in realtà sta aspettando noi da mezz'ora. `awaitingSince` è
+      // l'istante in cui ha smesso di lavorare, così chi disegna può dire da
+      // quanto senza tenere un proprio cronometro.
+      const sessions: {
+        topicId: string;
+        sessionKey: string;
+        state: "streaming" | "waiting";
+        awaitingSince?: number;
+      }[] = [];
       for (const topic of Object.values(data.topics)) {
-        if (topic.sessionKey && isStreaming(topic.sessionKey)) {
-          sessions.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "streaming" });
-        }
+        if (!topic.sessionKey || !isStreaming(topic.sessionKey)) continue;
+        let awaitingSince: number | null = null;
+        // Un provider che non sa sospendersi non espone il metodo, e un provider
+        // morto non deve far fallire lo scatto di tutti gli altri.
+        try { awaitingSince = resolveProvider(topic).pendingInputSince?.(topic.sessionKey) ?? null; } catch { /* provider gone */ }
+        sessions.push({
+          topicId: topic.id,
+          sessionKey: topic.sessionKey,
+          state: awaitingSince != null ? "waiting" : "streaming",
+          ...(awaitingSince != null ? { awaitingSince } : {}),
+        });
       }
       return json({ sessions });
     }

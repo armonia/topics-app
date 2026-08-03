@@ -493,6 +493,19 @@ export interface AIProvider {
    * Returns true if an entry existed and was cleared.
    */
   clearPendingInput?(sessionKey: string, toolCallId: string): boolean;
+  /**
+   * Da quando questa sessione è ferma ad aspettare una risposta (ms epoch), o
+   * null se sta lavorando.
+   *
+   * Serve a chi guarda da FUORI la chat: la sidebar e il registro degli stream
+   * mostravano lo stesso pallino di un turno che macina, mentre lo stato vero è
+   * «sospeso, la palla è tua». Se ci sono più domande aperte vale la più
+   * vecchia — è da lì che la sessione ha smesso di lavorare.
+   *
+   * Il provider che non sa sospendersi lascia questo undefined: nessuna delle
+   * sue sessioni può essere in attesa.
+   */
+  pendingInputSince?(sessionKey: string): number | null;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;

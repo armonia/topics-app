@@ -3,11 +3,14 @@
  * input. Mounted once at App level. Keeping all population here means there's
  * one wiring diagram to reason about, and consumers only ever read the facade.
  */
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
-import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, useSignalsStore, type TerminalPhaseLite } from './signals';
+import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, deriveWatchingTopics } from './signals';
+
+/** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
+const EMPTY_TOPIC_SET: Set<string> = new Set();
 
 interface Args {
   topics: Record<string, Topic>;
@@ -25,6 +28,20 @@ interface Args {
 }
 
 export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, terminalSessions, isSessionStreaming, reconcileServerStreams, onWSMessage }: Args) {
+  // Chat FERME ad aspettare una risposta (ask_user_question a schermo), come le
+  // riporta il server nello snapshot degli stream. Fuori dalla chat il turno
+  // sospeso si leggeva come uno che macina: stesso pallino, stesso spinner.
+  // Confluisce nell'insieme 'input' qui sotto, quello ambra del «tocca a te».
+  const [askWaitingTopics, setAskWaitingTopics] = useState(EMPTY_TOPIC_SET);
+  // Specchio per i gestori WS: leggono l'insieme corrente senza rilegarsi a
+  // ogni cambio (l'effetto della poll si monta una volta sola).
+  const askWaitingRef = useRef(askWaitingTopics);
+  const setAskWaiting = useCallback((next: Set<string>) => {
+    if (setsEqual(next, askWaitingRef.current)) return;
+    askWaitingRef.current = next;
+    setAskWaitingTopics(next);
+  }, []);
+
   // Agent sessions active → by topic.
   useEffect(() => {
     const ids = new Set<string>();
@@ -55,8 +72,13 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
     // appena finito un nuovo turno resterebbe "vista" — cioè muta.
     signalsActions.applyNewAttention(awaiting);
     signalsActions.setAwaitingFeedbackTopics(awaiting);
-    signalsActions.setAwaitingInputTopics(deriveAwaitingInputTopics(topics, claudeSessions));
-  }, [topics, claudeSessions]);
+    // Due sorgenti, un solo insieme: le fasi del terminale (awaiting-approval) e
+    // le chat sospese su una domanda. Per chi guarda la sidebar è la stessa cosa
+    // — la palla è sua — quindi è giusto che sia lo stesso colore.
+    const input = deriveAwaitingInputTopics(topics, claudeSessions);
+    for (const id of askWaitingTopics) input.add(id);
+    signalsActions.setAwaitingInputTopics(input);
+  }, [topics, claudeSessions, askWaitingTopics]);
 
   // Claude "watching" phases (Monitor armed) → muted aura by topic.
   useEffect(() => {
@@ -100,12 +122,18 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
         if (cancelled) return;
         const ids = new Set<string>();
         const sessionKeys = new Set<string>();
+        const waiting = new Set<string>();
         for (const s of body.sessions ?? []) {
-          if (s.state !== 'streaming') continue;
+          // `waiting` è un turno APERTO, non uno finito: va tenuto qui dentro o
+          // il self-heal qui sotto spegnerebbe la chat ferma su una domanda.
+          // Cambia solo come la si racconta, non se è viva.
+          if (s.state !== 'streaming' && s.state !== 'waiting') continue;
           if (s.topicId) ids.add(s.topicId);
           if (s.sessionKey) sessionKeys.add(s.sessionKey);
+          if (s.state === 'waiting' && s.topicId) waiting.add(s.topicId);
         }
         signalsActions.setHydratedStreamTopics(ids);
+        setAskWaiting(waiting);
         // Self-heal: this server snapshot is authoritative, so any chat we still
         // show as streaming but the server doesn't is an orphaned flag (lost
         // stream:end). reconcileServerStreams clears it after ≥2 such polls.
@@ -114,16 +142,54 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
     };
     refresh();
     const interval = setInterval(refresh, 15_000);
+    // Domande aperte per topic (topicId → toolCallId). Un topic può averne più
+    // di una in volo: si spegne l'attesa quando si chiude l'ULTIMA, non la prima.
+    const openAsks = new Map<string, Set<string>>();
     let pending = false;
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      setTimeout(() => { pending = false; refresh(); }, 400);
+    };
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'stream:start' || msg.type === 'stream:end') {
-        if (pending) return;
-        pending = true;
-        setTimeout(() => { pending = false; refresh(); }, 400);
+        // Turno finito ⇒ nessuna domanda può essergli sopravvissuta. Si spegne
+        // subito invece di aspettare la poll: 400ms di "ti aspetta" su una chat
+        // che ha già chiuso sono 400ms di bugia.
+        if (msg.type === 'stream:end' && msg.topicId && openAsks.delete(msg.topicId)) {
+          const next = new Set(askWaitingRef.current);
+          next.delete(msg.topicId);
+          setAskWaiting(next);
+        }
+        schedule();
+        return;
+      }
+      // La domanda a schermo accende il segnale SUBITO: aspettare la poll
+      // vorrebbe dire fino a 15s di sidebar che dice "sta lavorando" mentre in
+      // realtà aspetta te. La poll poi conferma (o corregge).
+      if (msg.type === 'stream:tool_user_input_required' && msg.topicId) {
+        let open = openAsks.get(msg.topicId);
+        if (!open) { open = new Set(); openAsks.set(msg.topicId, open); }
+        open.add(msg.toolCallId);
+        setAskWaiting(new Set(askWaitingRef.current).add(msg.topicId));
+        return;
+      }
+      // …e si spegne allo stesso modo: quando il tool che aspettava si chiude.
+      // Si tiene il conto delle domande aperte per topic invece di richiedere la
+      // fotografia al server, perché una poll in più qui alimenterebbe il
+      // self-heal (due giri "assente" e spegne uno stream vivo) — e comunque il
+      // giro dei 15s è già lì a fare da giudice.
+      if (msg.type === 'stream:tool_result' && msg.topicId) {
+        const open = openAsks.get(msg.topicId);
+        if (!open?.delete(msg.toolCallId) || open.size > 0) return;
+        openAsks.delete(msg.topicId);
+        const next = new Set(askWaitingRef.current);
+        next.delete(msg.topicId);
+        setAskWaiting(next);
       }
     });
     return () => { cancelled = true; clearInterval(interval); unsub(); };
-  }, [onWSMessage, reconcileServerStreams]);
+  }, [onWSMessage, reconcileServerStreams, setAskWaiting]);
 
   // Server-tracked pty activity → terminal busy (loading) + claude-code
   // finished (notification). Works for every session, mounted or not.
