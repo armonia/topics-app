@@ -2089,14 +2089,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const target = resolveBrowserContext(byTopic, bySession);
         if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
 
-        const body = (await readJSON(req)) as { domains?: unknown; profile?: unknown; dry_run?: unknown } | null;
+        const body = (await readJSON(req)) as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown } | null;
         const domains = Array.isArray(body?.domains) ? body.domains.map(String) : [];
         const profile = typeof body?.profile === "string" ? body.profile : undefined;
         const dryRun = !!body?.dry_run;
+        // Which Chromium-family browser to read from (chrome default). Validated
+        // downstream against a closed registry — an unknown id degrades to chrome.
+        const browser = typeof body?.browser === "string" ? body.browser : undefined;
         try {
           const result = await dispatchBrowserToolCallByContext(
             "browser_import_chrome",
-            { domains, profile, dry_run: dryRun },
+            { domains, profile, dry_run: dryRun, browser },
             target.contextId,
             browserService,
           ) as { error?: string };
