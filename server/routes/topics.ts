@@ -2025,7 +2025,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         mkdirSync(targetDir, { recursive: true });
         writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
         if (cur) {
-          bindTopicToProject(cur.id, targetDir, { focus: true });
+          if (!bindTopicToProject(cur.id, targetDir, { focus: true })) {
+            return json({ error: "topic not found for this session", code: "project_created_unbound", projectPath: targetDir }, 404);
+          }
         } else if (term) {
           // Terminal tab: move the pane into the freshly-scaffolded project and
           // focus it (same focus semantics as the chat bind, via open-project).
@@ -2050,7 +2052,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const dir = resolveProjectRef(ref, { trustRawPaths: false });
         if (!dir) return json({ error: "project not found (must be a project Topics already knows)" }, 404);
         if (cur) {
-          bindTopicToProject(cur.id, dir, { focus: true });
+          if (!bindTopicToProject(cur.id, dir, { focus: true })) {
+            return json({ error: "topic not found for this session" }, 404);
+          }
         } else if (term) {
           // Terminal tab: move the pane into the project and focus it (the
           // open-project broadcast gives the same focus semantics as the bind).
