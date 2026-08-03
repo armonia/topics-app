@@ -902,6 +902,63 @@ describe("paneReducer — OPEN_PANE idempotente (una identità per pane)", () =>
   });
 });
 
+// ---------------------------------------------------------------------------
+// LOCK: "una chiusura = ESATTAMENTE un pane rimosso — mai zero, mai due".
+// Reperto (03/08): con la strip che mostrava 3 tab per 2 pane nello store, il
+// menu «Chiudi ora» al primo click non chiudeva nulla (solo badge azzerato) e
+// al secondo ne chiudeva DUE. La chiusura è per IDENTITÀ (`onCloseImmediate` →
+// CLOSE_PANE(paneId)), quindi il bersaglio è univoco SOLO se la strip è 1:1 con
+// lo store — cosa che il dedup dell'ordine (paneOrderReconcile) garantisce. Qui
+// blocchiamo l'invariante lato reducer: chiudere l'identità X rimuove X e SOLO
+// X, e una membership duplicata corrotta CONVERGE a zero senza toccare i pari.
+// ---------------------------------------------------------------------------
+describe("paneReducer — CLOSE_PANE: una chiusura = un pane (mai zero, mai due)", () => {
+  const seedTwo = () => {
+    const state = blankState();
+    paneReducer(state, { type: "OPEN_PANE", payload: { id: "A", type: "chat", topicId: "A", groupId: "g1" } });
+    paneReducer(state, { type: "OPEN_PANE", payload: { id: "B", type: "chat", topicId: "B", groupId: "g1" } });
+    return state;
+  };
+
+  test("chiudere X rimuove ESATTAMENTE X (mai zero) e lascia il fratello INTATTO (mai due)", () => {
+    const state = seedTwo();
+    paneReducer(state, { type: "CLOSE_PANE", payload: { id: "A", groupId: "g1", groupIndex: 0 } });
+    // Mai zero: A c'era → è sparito, sia dall'entità che dal gruppo.
+    expect(state.panes["A"]).toBeUndefined();
+    expect(state.groups["g1"].paneIds).toEqual(["B"]);
+    // Mai due: B non è stato toccato (entità + membership).
+    expect(state.panes["B"]).toBeDefined();
+  });
+
+  test("membership DUPLICATA corrotta (2 tab, 1 identità): due chiusure CONVERGONO, il pari resta", () => {
+    // Lo stato osservato: la strip mostra la stessa identità due volte mentre lo
+    // store ne ha una. Simuliamo la corruzione iniettando A due volte nel gruppo.
+    const state = seedTwo();
+    state.groups["g1"].paneIds = ["A", "A", "B"]; // 2 "tab" A, 1 entità A
+
+    // 1° «Chiudi ora» su A: toglie UNA occorrenza + l'entità. Resta un ref
+    // orfano (entity-less) — è il "primo click che sembra non chiudere".
+    paneReducer(state, { type: "CLOSE_PANE", payload: { id: "A", groupId: "g1", groupIndex: 0 } });
+    expect(state.panes["A"]).toBeUndefined();
+    expect(state.groups["g1"].paneIds).toEqual(["A", "B"]); // un ref A ancora lì
+
+    // 2° «Chiudi ora» su A: nessuna entità → ramo PURGE, elimina OGNI ref di A.
+    // Rimuove i ref della STESSA identità, non due identità distinte.
+    paneReducer(state, { type: "CLOSE_PANE", payload: { id: "A", groupId: "g1", groupIndex: 0 } });
+    expect(state.groups["g1"].paneIds).toEqual(["B"]); // A del tutto sparito
+    // Il pari B non è mai stato sfiorato: nessun danno collaterale.
+    expect(state.panes["B"]).toBeDefined();
+  });
+
+  test("chiudere un id ASSENTE dal gruppo non rimuove nessun pane (mai un pari a caso)", () => {
+    const state = seedTwo();
+    // id inesistente: né entità né ref. Non deve rimuovere A o B.
+    paneReducer(state, { type: "CLOSE_PANE", payload: { id: "ghost", groupId: "g1", groupIndex: 0 } });
+    expect(state.groups["g1"].paneIds).toEqual(["A", "B"]);
+    expect(Object.keys(state.panes).sort()).toEqual(["A", "B"]);
+  });
+});
+
 describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () => {
   const mkPane = (id: string, type = "project") => ({ id, type, title: id }) as unknown as ClosedPaneRecord["pane"];
   const mkRec = (id: string, closedAt: number) =>
