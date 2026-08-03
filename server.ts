@@ -16,6 +16,8 @@ import {
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
+import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
+import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createRemoteRouter } from "./server/routes/remote";
 import { createMediaRouter } from "./server/routes/media";
@@ -155,6 +157,33 @@ if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
 
 // Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
+
+// Da dove `browser_upload` può leggere. Prima da nessun posto in particolare:
+// prendeva il path della tool-call e apriva il file, punto — quindi una chiamata
+// con un path sbagliato faceva leggere al server un file arbitrario dell'utente
+// e lo caricava su una pagina raggiungibile.
+//
+// Le radici sono quelle che hanno un senso per un upload: dove gli agenti
+// depositano i propri artefatti, la cartella uploads del server, e i progetti
+// REGISTRATI (che sono cartelle dichiarate dall'utente — così il caso d'uso vero,
+// caricare un documento del progetto su cui si lavora, continua a funzionare).
+// `TOPICS_UPLOAD_ROOTS` (separate da `:`) è la valvola esplicita per il resto.
+//
+// Ricalcolate a ogni chiamata: registrare un progetto nuovo deve bastare, senza
+// riavviare il server.
+setUploadRootsProvider(() =>
+  uploadAllowedRoots({
+    mediaDirs: [
+      join(homedir(), ".topics/media"),
+      join(homedir(), ".topics/workspace"),
+      join(ctx.OPENCLAW_DIR, "media"),
+      join(ctx.OPENCLAW_DIR, "workspace"),
+    ],
+    uploadsDir: ctx.UPLOADS_DIR,
+    projectPaths: ctx.projectStore.list().map((p) => p.path).filter(Boolean),
+    extraRoots: parseExtraRoots(process.env.TOPICS_UPLOAD_ROOTS),
+  }),
+);
 const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
   loadTopics, loadUnread, saveUnread,
   activeStreams, getMessageById, getMimeType, logRequest, db } = ctx;

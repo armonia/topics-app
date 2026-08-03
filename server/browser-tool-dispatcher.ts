@@ -33,6 +33,22 @@ import {
 import type { BrowserActAction } from "./browser-tools";
 import { describeImage, pointObject } from "./integrations/moondream-client";
 import { basename, extname } from "node:path";
+import { realpathSync } from "node:fs";
+import { checkUploadPath } from "./lib/upload-allowlist";
+
+/**
+ * Le radici da cui `browser_upload` può leggere. Le fornisce il boot del server
+ * (`setUploadRootsProvider` in server.ts), che è l'unico posto che conosce
+ * UPLOADS_DIR, le cartelle media e i progetti registrati.
+ *
+ * Non wired ⇒ nessuna radice ⇒ si RIFIUTA. Fail-closed di proposito: un
+ * provider dimenticato deve rompere l'upload in modo evidente, non riaprire in
+ * silenzio la lettura dell'intero disco.
+ */
+let uploadRootsProvider: (() => string[]) | null = null;
+export function setUploadRootsProvider(fn: () => string[]): void {
+  uploadRootsProvider = fn;
+}
 
 export type ToolCallArgs = Record<string, unknown>;
 
@@ -53,9 +69,19 @@ const MIME_BY_EXT: Record<string, string> = {
 
 /** Read + base64-encode the agent-supplied upload file ONCE (both the Tauri
  *  native-delegate path and the CDP/Playwright path need the bytes, not the path,
- *  since neither the WKWebView nor the page can read local disk). Existence +
- *  size-capped; the browser REST bridge is gateway-token gated, and the
- *  passthrough path is the user's own trusted session. */
+ *  since neither the WKWebView nor the page can read local disk).
+ *
+ *  CONFINATO a un'allowlist di radici (lib/upload-allowlist.ts). Prima non lo
+ *  era, e il commento che stava qui giustificava la cosa con «the browser REST
+ *  bridge is gateway-token gated» — ma il gate fida il loopback SENZA token, per
+ *  disegno, quindi sul percorso locale quella mitigazione non esisteva. Il
+ *  risultato era che una tool-call con un path qualsiasi faceva leggere al
+ *  server un file arbitrario dell'utente e lo caricava su una pagina
+ *  raggiungibile (`~/.ssh/id_rsa` sta sotto il cap dei 25 MB).
+ *
+ *  Il confronto gira sul path REALE (`realpathSync`): senza risolvere, un
+ *  symlink piazzato dentro una radice consentita porterebbe fuori con un path
+ *  che a stringa è impeccabile. */
 async function readUploadFile(args: ToolCallArgs): Promise<UploadFile | { error: string }> {
   const path = typeof args.path === "string" ? args.path.trim() : "";
   if (!path) return { error: "browser_upload: 'path' (string) is required" };
@@ -63,6 +89,13 @@ async function readUploadFile(args: ToolCallArgs): Promise<UploadFile | { error:
   try {
     const f = Bun.file(path);
     if (!(await f.exists())) return { error: `browser_upload: file not found: ${path}` };
+    // Risoluzione PRIMA del controllo, e su un file che esiste già (altrimenti
+    // realpathSync solleva e diremmo "fuori radice" per un file mancante).
+    let realPath: string;
+    try { realPath = realpathSync(path); }
+    catch { return { error: `browser_upload: file not found: ${path}` }; }
+    const verdict = checkUploadPath(realPath, uploadRootsProvider?.() ?? []);
+    if (!verdict.ok) return { error: verdict.error };
     if (f.size > UPLOAD_MAX_BYTES)
       return { error: `browser_upload: file too large (${f.size} bytes > ${UPLOAD_MAX_BYTES})` };
     const dataB64 = Buffer.from(await f.arrayBuffer()).toString("base64");
