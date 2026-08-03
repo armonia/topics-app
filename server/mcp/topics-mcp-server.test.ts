@@ -491,6 +491,77 @@ describe("handleMessage", () => {
     }
   });
 
+  test("tools/call inoltra il progressToken del client fino alle gambe dell'ask", async () => {
+    // Il ponte fra le due metà del fix: il client dice «tienimi aggiornato»
+    // mettendo un `_meta.progressToken` sulla chiamata, e ogni gamba pendente
+    // deve tornargli indietro come `notifications/progress` — senza id, perché
+    // nessuno la sta aspettando. Senza questo giro, il pannello muore al
+    // timeout del client mentre l'umano sta ancora leggendo.
+    const orig = globalThis.fetch;
+    let calls = 0;
+    (globalThis as any).fetch = stubFetch(async () => {
+      calls++;
+      if (calls < 3) return new Response(JSON.stringify({ pending: true }), { status: 200 });
+      return new Response(JSON.stringify({ answers: { Q: "A" } }), { status: 200 });
+    });
+    const emitted: any[] = [];
+    try {
+      const resp = await handleMessage(
+        {
+          jsonrpc: "2.0",
+          id: 11,
+          method: "tools/call",
+          params: {
+            name: "ask_user_question",
+            arguments: { questions: [{ question: "Q", options: [{ label: "A" }] }] },
+            _meta: { progressToken: "tok-1" },
+          },
+        },
+        ARGS,
+        (m) => emitted.push(m),
+      );
+      expect((resp!.result as any).isError).toBeUndefined();
+      expect(emitted).toHaveLength(2);
+      expect(emitted[0].method).toBe("notifications/progress");
+      expect(emitted[0].params.progressToken).toBe("tok-1");
+      expect(emitted[0].params.progress).toBe(1);
+      expect(emitted[1].params.progress).toBe(2);
+      // Nessun `id`: è una notifica, non una risposta a qualcosa.
+      expect(emitted[0].id).toBeUndefined();
+      // Nessun `total`: non siamo "al 40%" di un umano che decide.
+      expect(emitted[0].params.total).toBeUndefined();
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("senza progressToken la chiamata funziona lo stesso e non emette niente", async () => {
+    const orig = globalThis.fetch;
+    let calls = 0;
+    (globalThis as any).fetch = stubFetch(async () => {
+      calls++;
+      if (calls < 2) return new Response(JSON.stringify({ pending: true }), { status: 200 });
+      return new Response(JSON.stringify({ answers: { Q: "A" } }), { status: 200 });
+    });
+    const emitted: any[] = [];
+    try {
+      const resp = await handleMessage(
+        {
+          jsonrpc: "2.0",
+          id: 12,
+          method: "tools/call",
+          params: { name: "ask_user_question", arguments: { questions: [{ question: "Q", options: [{ label: "A" }] }] } },
+        },
+        ARGS,
+        (m) => emitted.push(m),
+      );
+      expect((resp!.result as any).isError).toBeUndefined();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("tools/call forwards a browser tool's contextId override in the request body", async () => {
     // The bridge forwards toolArgs verbatim, so a contextId targeting another tab
     // rides in the POST body to /browser/get-text (the REST route extracts it).
@@ -973,6 +1044,27 @@ describe("callAskUserQuestion", () => {
     await expect(
       callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl, { maxLegs: 3 }),
     ).rejects.toThrow(/gave up after 3 poll legs/i);
+  });
+
+  test("ogni gamba senza risposta dice 'ci sono ancora': il silenzio è ciò che ammazza la domanda", async () => {
+    // Il difetto vero: il pannello sopravviveva al socket e allo sweeper, ma il
+    // CLIENT MCP chiudeva la chiamata dopo 30 minuti «senza risposta né
+    // progress». Il progress è l'unica cosa che riazzera quel timer, quindi ogni
+    // gamba pendente ne deve emettere uno — e nessuno quando l'umano risponde.
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls < 4) return new Response(JSON.stringify({ pending: true }), { status: 200 });
+      return new Response(JSON.stringify({ answers: { Auth: "JWT" } }), { status: 200 });
+    });
+    const progress: number[] = [];
+    await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+      { onProgress: (leg) => progress.push(leg) },
+    );
+    expect(progress).toEqual([1, 2, 3]);
   });
 });
 

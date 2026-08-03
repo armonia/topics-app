@@ -41,6 +41,17 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
+/**
+ * A server→client message with no id: nothing comes back and nothing is waiting
+ * for it. Used for `notifications/progress`, which is the ONLY thing that keeps
+ * a long tool call alive — see `emitProgress`.
+ */
+interface JsonRpcNotification {
+  jsonrpc: "2.0";
+  method: string;
+  params?: Record<string, unknown>;
+}
+
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 
 const TOOLS = [
@@ -482,8 +493,43 @@ export function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
-function send(msg: JsonRpcResponse): void {
+function send(msg: JsonRpcResponse | JsonRpcNotification): void {
   process.stdout.write(JSON.stringify(msg) + "\n");
+}
+
+/**
+ * Build a `notifications/progress` frame for a tool call the client asked to be
+ * kept informed about (`params._meta.progressToken`).
+ *
+ * WHY this exists — the third clock over `ask_user_question`. The panel already
+ * survives the socket (short poll legs) and the server's stale-stream sweeper
+ * (the ask exemption). The one left was the MCP CLIENT's own patience: Claude
+ * Code times a tool call out after 30 minutes of hearing NOTHING, and killed a
+ * live question with "no response and no progress for 1800s". Its own wording is
+ * the fix — the timer resets on progress. So every poll leg says "still here",
+ * and the panel lives to the ask's real TTL instead of an unrelated 30-minute
+ * cap.
+ *
+ * `total` is deliberately omitted: we are not 40% of the way to a human
+ * answering. Indeterminate progress is the honest shape, and the spec allows it.
+ */
+function progressNotification(
+  progressToken: string | number,
+  progress: number,
+  message?: string,
+): JsonRpcNotification {
+  return {
+    jsonrpc: "2.0",
+    method: "notifications/progress",
+    params: { progressToken, progress, ...(message ? { message } : {}) },
+  };
+}
+
+/** The client's progress token for this request, if it asked for progress. */
+function progressTokenOf(params: Record<string, unknown> | undefined): string | number | undefined {
+  const meta = (params as { _meta?: { progressToken?: unknown } } | undefined)?._meta;
+  const token = meta?.progressToken;
+  return typeof token === "string" || typeof token === "number" ? token : undefined;
 }
 
 function error(id: number | string | null, code: number, message: string, data?: unknown): JsonRpcResponse {
@@ -1211,7 +1257,17 @@ export async function callAskUserQuestion(
   toolArgs: { questions?: unknown },
   fetchImpl: typeof fetch = fetch,
   /** Retry/backoff knobs — overridden by tests so they don't sleep for real. */
-  opts: { backoffMs?: number[]; maxLegs?: number; legMs?: number } = {},
+  opts: {
+    backoffMs?: number[];
+    maxLegs?: number;
+    legMs?: number;
+    /**
+     * Called once per leg while nobody has answered yet. In production this
+     * emits `notifications/progress`, which is what stops the MCP client from
+     * timing the call out under a question the human is still reading.
+     */
+    onProgress?: (leg: number) => void;
+  } = {},
 ): Promise<string> {
   const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
   const maxLegs = opts.maxLegs ?? ASK_MAX_LEGS;
@@ -1253,7 +1309,13 @@ export async function callAskUserQuestion(
     if (body.cancelled) {
       throw new Error(`ask_user_question: cancelled before the human answered${body.reason ? ` (${body.reason})` : ""}`);
     }
-    if (body.pending) continue; // nobody has answered yet — next leg
+    if (body.pending) {
+      // Nobody has answered yet. Say so OUT LOUD: silence is what the client
+      // reads as a hung tool, and 25s of it is the only currency that buys the
+      // question more time.
+      opts.onProgress?.(leg + 1);
+      continue; // next leg
+    }
     return JSON.stringify({
       answers: body.answers ?? {},
       ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
@@ -1274,7 +1336,7 @@ export async function callAskUserQuestion(
  */
 const TOOL_HANDLERS: Record<
   string,
-  (args: ParsedArgs, toolArgs: Record<string, unknown>) => Promise<string>
+  (args: ParsedArgs, toolArgs: Record<string, unknown>, ctx?: ToolCallContext) => Promise<string>
 > = {
   open_browser_pane: async (a, t) => {
     const r = await callOpenBrowserPane(a, t as { url?: unknown });
@@ -1293,7 +1355,12 @@ const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
   comment_task: (a, t) => callCommentTask(a, t),
-  ask_user_question: (a, t) => callAskUserQuestion(a, t as { questions?: unknown }),
+  ask_user_question: (a, t, ctx) =>
+    callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa della risposta dell'umano")
+        : undefined,
+    }),
   wait_for_condition: (a, t) => callWaitForCondition(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
   spawn_agent: (a, t) => callSpawnAgent(a, t as { prompt?: unknown; name?: unknown; cwd?: unknown }),
@@ -1316,9 +1383,20 @@ for (const [endpoint, toolName] of Object.entries(BRIDGED_BROWSER_ENDPOINTS)) {
   TOOL_HANDLERS[toolName] = (a, t) => callBrowserBridge(a, t, endpoint);
 }
 
+/**
+ * What a tool handler may do BESIDES returning its result. Only long-blocking
+ * tools need it; everything else ignores the argument entirely.
+ */
+export interface ToolCallContext {
+  /** Report "still working" to the client. No-op when it asked for no progress. */
+  onProgress?: (progress: number, message?: string) => void;
+}
+
 export async function handleMessage(
   raw: JsonRpcRequest,
   args: ParsedArgs,
+  /** Server→client notifications (progress). Defaults to stdout, patched by tests. */
+  emit: (msg: JsonRpcNotification) => void = send,
 ): Promise<JsonRpcResponse | null> {
   const { id = null, method, params } = raw;
 
@@ -1361,8 +1439,12 @@ export async function handleMessage(
       if (!handler) {
         return error(id, -32601, `Unknown tool: ${name}`);
       }
+      const progressToken = progressTokenOf(params);
+      const ctx: ToolCallContext = progressToken === undefined
+        ? {}
+        : { onProgress: (progress, message) => emit(progressNotification(progressToken, progress, message)) };
       try {
-        const text = await handler(args, toolArgs);
+        const text = await handler(args, toolArgs, ctx);
         return {
           jsonrpc: "2.0",
           id,

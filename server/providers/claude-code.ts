@@ -27,7 +27,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
-import { hasPendingAsk } from "../lib/ask-user-bridge";
+import { hasPendingAsk, endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -178,7 +178,7 @@ const ENV_BLOCKLIST_PATTERNS = [
 
 const ENV_BLOCKLIST_EXCEPTIONS = new Set(["ANTHROPIC_API_KEY"]);
 
-function buildSafeEnv(): Record<string, string> {
+export function buildSafeEnv(): Record<string, string> {
   const env: Record<string, string> = {};
 
   for (const key of ENV_ALLOWLIST) {
@@ -194,6 +194,17 @@ function buildSafeEnv(): Record<string, string> {
   }
 
   env.JARVIS_SPAWN = "1";
+
+  // The CLI's own patience with an MCP tool call. Its default (30 min) is
+  // SHORTER than how long a question is allowed to stay on screen (ASK_TTL_MS,
+  // 90 min), so a human who took a long lunch came back to "no response and no
+  // progress for 1800s" and a question that had died under them. The bridge now
+  // emits `notifications/progress` on every poll leg, which resets this timer in
+  // a client that honours it — this is the belt for one that doesn't, and it
+  // costs nothing elsewhere: a genuinely wedged tool is still reaped by the
+  // 30-minute turn watchdog, which only stands down for a PENDING ASK.
+  env.MCP_TOOL_TIMEOUT = String(ASK_TTL_MS + 5 * 60_000);
+
   return env;
 }
 
@@ -2497,7 +2508,17 @@ export class ClaudeCodeProvider implements AIProvider {
           // A result for this tool means any user-input request it represented
           // is answered — drop it so that after a reattach REPLAY, pendingInputs
           // holds EXACTLY the questions still awaiting a human (Case 3).
-          pp.pendingInputs.delete(toolId);
+          if (pp.pendingInputs.delete(toolId)) {
+            // …and the bridge must agree. `deliverAnswer` already closes the ask
+            // on the happy path, but a result can also arrive because the tool
+            // FAILED — the MCP client gave up, the bridge lost the server. Then
+            // nothing had closed it, so `hasPendingAsk` kept claiming a question
+            // was on screen for a panel that no longer existed: the turn
+            // watchdog and the stale-stream sweeper both stand down for a
+            // pending ask, so a stuck one would have made them blind. Idempotent
+            // — a no-op when the answer already closed it.
+            endAsk(pp.sessionKey);
+          }
         }
       }
     }
