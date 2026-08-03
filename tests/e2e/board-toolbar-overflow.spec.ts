@@ -127,19 +127,26 @@ test.describe("Kanban board toolbar — mobile overflow affordance", () => {
     }
   });
 
-  // Regression: the column scroll body inherited the global `* { scrollbar-width:
-  // thin }` (index.css) which paints a native macOS bar ON TOP of the app's
-  // custom ::-webkit-scrollbar thumb — two overlapping bars on hover/scroll.
-  // The `scrollbar-topbar` utility sets `scrollbar-width: none`, killing the
-  // native one. Measured on the DOM (computed style), not by eye.
-  test("COLUMN-SCROLLBAR-01: la colonna non espone la scrollbar nativa (scrollbar-width: none)", async ({ page }) => {
+  // Regression: the column scroll body showed TWO overlapping scrollbars on
+  // hover — the app's standard thin bar AND the legacy ::-webkit-scrollbar,
+  // both drawn by dual-render engines (macOS "show while scrolling").
+  // `scrollbar-standard` keeps the standard bar as the single indicator and
+  // zeroes the webkit one. Measured on the DOM, not by eye:
+  //   - scrollbar-width stays `thin` (an indicator survives — NOT `none`, which
+  //     would leave the column with no scroll cue at all).
+  //   - the ::-webkit-scrollbar computed width is 0 (no second bar).
+  test("COLUMN-SCROLLBAR-01: la colonna tiene UNA sola barra (standard thin, webkit azzerata)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
 
     const body = page.getByTestId("kanban-board").locator('[data-testid^="kanban-column-body-"]').first();
     await expect(body).toBeVisible({ timeout: 10000 });
-    const scrollbarWidth = await body.evaluate((el) => getComputedStyle(el).scrollbarWidth);
-    expect(scrollbarWidth, "la colonna deve sopprimere la barra nativa").toBe("none");
+    const m = await body.evaluate((el) => ({
+      width: getComputedStyle(el).scrollbarWidth,
+      webkit: getComputedStyle(el, "::-webkit-scrollbar").width,
+    }));
+    expect(m.width, "l'indicatore standard deve sopravvivere (non 'none')").toBe("thin");
+    expect(m.webkit, "la barra webkit legacy deve essere azzerata").toBe("0px");
   });
 });
