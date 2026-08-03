@@ -20,7 +20,6 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
 import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
 import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, type TaskBrowserTab } from '../../state/taskBrowserTabs';
-import { mediaPaneIdFor } from './constants';
 import {
   usePersistedTaskLayout,
   taskBrowserLayout,
@@ -41,7 +40,7 @@ function isLoginWall(url: string): boolean {
 // pane-store-v2; they live only in this task's tiling descriptor.
 const threadPaneId = (taskId: string) => `thread:${taskId}`;
 const planPaneId = (taskId: string) => `plan:${taskId}`;
-const mediaPaneId = mediaPaneIdFor;
+const mediaPaneId = (path: string) => `media:${path}`;
 const isBrowserPane = (paneId: string) => paneId.startsWith('browser:');
 
 /** Only browser tabs (agent-opened / seeded output) and the Thread may claim
@@ -73,9 +72,7 @@ export interface TaskBrowserGroupLayout {
   /** Hard-remove a parked browser tab (tray trash). */
   removeTab: (contextId: string) => void;
   /** Activate a pane in whichever group hosts it (thread-attachment click). */
-  /** Porta davanti una pane. `false` se quella pane non c'è (ancora): chi
-   *  apre il drawer su una tab precisa deve poter riprovare al fetch dopo. */
-  focusPane: (paneId: string) => boolean;
+  focusPane: (paneId: string) => void;
   /** Seed the first browser tab from a url only when the task has no tabs yet. */
   seedFromUrl: (url: string, title?: string) => Promise<void>;
   /** Park the lone auto-seeded output tab (a screenshot supersedes the live,
@@ -201,9 +198,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   // Activate a pane in whichever group hosts it (thread-attachment preview click).
   const focusPane = useCallback((paneId: string) => {
     const g = reconciled.groups.find((gr) => gr.paneIds.includes(paneId));
-    if (!g) return false;
-    taskBrowserLayout.activatePane(taskId, g.id, paneId);
-    return true;
+    if (g) taskBrowserLayout.activatePane(taskId, g.id, paneId);
   }, [taskId, reconciled.groups]);
   /** Open a first browser tab from a url (e.g. the review output_url) ONLY when
    *  the task has no browser tabs yet. Hydrates first so it never double-seeds. */

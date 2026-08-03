@@ -1,9 +1,20 @@
 import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, PanelTop, X } from 'lucide-react';
+import { Maximize2, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
-import { isVideoPath } from '../../lib/mediaKind';
 import { useModalDialog } from '../../hooks/useModalDialog';
+
+// Extensions that render as a <video> instead of an <img>. Tolerates a trailing
+// query/hash (the check runs on the raw stored path — a bare filesystem path —
+// so the suffix guard is defensive).
+const VIDEO_RE = /\.(webm|mp4|mov|m4v)(\?|#|$)/i;
+
+/** True when the preview media path is a video clip (a review recording).
+ *  Local to this module (the only caller is the Lightbox below) — keeping it
+ *  unexported lets react-refresh treat the file as component-only. */
+function isVideoMedia(path: string | null | undefined): boolean {
+  return !!path && VIDEO_RE.test(path);
+}
 
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
@@ -68,26 +79,17 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
  * `drawer` — modest thumbnail + an expand affordance that opens the evidence in
  *            a full-window LIGHTBOX (image or video), reviewed big without
  *            leaving the app.
- *
- * `onOpenTab`, quando c'è, aggiunge in hover il gesto che mancava: aprire
- * l'anteprima come TAB del task, accanto a Thread. Il lightbox va bene per
- * un'occhiata; una tab resta lì mentre leggi il thread, si affianca in split e
- * la ritrovi tornando sul task — che è come si guarda un'evidenza di review.
  */
-export function PreviewMedia({ path, variant, onOpenTab }: {
-  path: string;
-  variant: 'card' | 'drawer';
-  onOpenTab?: () => void;
-}) {
+export function PreviewMedia({ path, variant }: { path: string; variant: 'card' | 'drawer' }) {
   const [lightbox, setLightbox] = useState(false);
   const url = getMediaUrl(path);
-  const video = isVideoPath(path);
+  const video = isVideoMedia(path);
   const expandable = variant === 'drawer';
   const openLightbox = useCallback(() => setLightbox(true), []);
 
   const mediaCls = variant === 'card'
     ? 'block w-full max-h-36 rounded border border-app-border object-cover object-top'
-    : 'block w-full max-h-[50vh] rounded border border-app-border bg-black/20 object-contain';
+    : 'block w-full max-h-52 rounded border border-app-border bg-black/20 object-contain';
 
   const media = video ? (
     <video
@@ -115,28 +117,13 @@ export function PreviewMedia({ path, variant, onOpenTab }: {
   return (
     <div className={`group/preview relative ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}>
       {media}
-      {/* I gesti stanno nello stesso angolo, in colonna: "apri come tab" per
-          primo perché è quello che porta l'evidenza dentro il flusso di lavoro.
-          stopPropagation: sulla card il click nudo apre il drawer, e qui NON
-          vogliamo tutte e due le cose insieme. */}
-      <div className="absolute right-1.5 top-1.5 flex gap-1">
-        {onOpenTab && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenTab(); }}
-            title="Apri l'anteprima in una tab"
-            aria-label="Apri l'anteprima in una tab"
-            data-testid="preview-open-tab"
-            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
-          ><PanelTop className="h-3.5 w-3.5" /></button>
-        )}
-        {expandable && (
-          <button
-            onClick={(e) => { e.stopPropagation(); openLightbox(); }}
-            title="Apri a grandezza piena"
-            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
-          ><Maximize2 className="h-3.5 w-3.5" /></button>
-        )}
-      </div>
+      {expandable && (
+        <button
+          onClick={openLightbox}
+          title="Apri a grandezza piena"
+          className="absolute right-1.5 top-1.5 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
+        ><Maximize2 className="h-3.5 w-3.5" /></button>
+      )}
       {lightbox && expandable && <Lightbox url={url} video={video} onClose={() => setLightbox(false)} />}
     </div>
   );

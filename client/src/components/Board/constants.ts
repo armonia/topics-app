@@ -17,7 +17,7 @@ export const COMPACT_MD_CLS =
   '[&_p]:my-0.5 [&_p]:break-words [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
   '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:break-words [&_li]:marker:text-app-text-muted ' +
   '[&_h1]:font-semibold [&_h1]:text-[13px] [&_h2]:font-semibold [&_h2]:text-[13px] [&_h3]:font-semibold [&_h3]:text-xs [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
-  '[&_code]:text-xs md:[&_code]:text-[11px] [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
+  '[&_code]:text-[11px] [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
 
 // A PLAN is a document, not a chat bubble: this reading typography gives it a
 // roomy vertical rhythm, section-divider headings, and prominent numbered steps
@@ -112,15 +112,3 @@ export const EFFORTS = EFFORT_TIERS;
 /** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
  *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */
 export const FANOUT_CHOICES = Array.from({ length: MAX_FANOUT }, (_, i) => i + 1);
-
-/**
- * Aprire un task dalla board. `focusPaneId` è opzionale e dice QUALE tab del
- * task deve stare davanti all'apertura — serve al gesto «apri l'anteprima in
- * una tab» partendo dalla card: senza, il drawer si apre sempre sul Thread e
- * l'artefatto appena cliccato lo dovresti ricercare a mano.
- */
-export type OpenTask = (id: string, focusPaneId?: string) => void;
-
-/** Pane id dell'allegato `path` dentro il gruppo di tab del task. Unica fonte:
- *  la costruisce `useTaskBrowserGroupLayout`, la consumano card e drawer. */
-export const mediaPaneIdFor = (path: string): string => `media:${path}`;

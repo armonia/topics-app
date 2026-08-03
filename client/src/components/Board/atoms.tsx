@@ -19,7 +19,7 @@ export function TaskIdChip({ id }: { id: string }) {
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
       }}
       title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
-      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-xs leading-none text-app-text-muted hover:bg-white/10 hover:text-app-text-heading md:text-[10px]"
+      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-app-text-muted hover:bg-white/10 hover:text-app-text-heading"
     >{copied ? 'copiato ✓' : memorableId(id)}</button>
   );
 }
@@ -69,7 +69,7 @@ export function DispatchChip({ state, error }: { state: string; error?: string |
   const Icon = chip.Icon;
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${chip.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${chip.cls}`}
       title={chip.title ?? error ?? undefined}
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
