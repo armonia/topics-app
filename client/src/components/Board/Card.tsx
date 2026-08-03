@@ -225,7 +225,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           crushing the eyebrow. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary">
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-xs md:text-[11px] text-app-text-secondary">
             {showProject && !unassigned && (
               <>
                 {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
@@ -239,7 +239,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {(live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           ) : (!task.dispatchState && task.dispatchError) ? (
-            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
           ) : null}
           {live && task.dispatchState === 'working' ? (
             <LiveEffortChip usage={live} />
@@ -252,7 +252,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={(task.agentMs > 0 || task.agentTokens > 0)
                 ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
                 : `Modello: ${fmtModel(task.model)}`}
-              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary"
+              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
             >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)}` : ''}`}</span>
           ) : null}
           {hasOpenTab && (
@@ -278,7 +278,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
         {showPriority && (
           <span
             title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
-            className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-[10px] ${
+            className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-xs md:text-[10px] ${
               task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
             }`}
           >
@@ -308,7 +308,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {checklist.length > 5 && (
             <button
               onClick={() => onOpen(task.id)}
-              className="px-0.5 text-[11px] text-app-text-secondary hover:text-app-text"
+              className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
             >+{checklist.length - 5}… Vedi tutti</button>
           )}
         </div>
@@ -316,7 +316,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
         <div className="mt-1">
           <span
             title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading"
+            className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -329,7 +329,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       )}
       {!isAgentReview && (
         <div
-          className="mt-1 text-[10px] text-app-text-muted"
+          className="mt-1 text-xs md:text-[10px] text-app-text-muted"
           title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
         >{fmtUpdatedAt(task.updatedAt)}</div>
       )}
@@ -340,47 +340,47 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           {blocker && blocker.status !== 'done' && (
             <span
               title={`In attesa di: ${blocker.text}`}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300"
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
           )}
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
               title={parentTitle ? `Sottotask di: ${parentTitle}` : 'Apri il task padre'}
-              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? 'padre'}</button>
           )}
           {task.userCommentCount > 0 && (
             <span
               title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {systemDelivered && (
             <span
               title={systemDeliveryNote(task.deliveredReason)}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato'}</span>
           )}
           {notLanded && (
             <span
               title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Landa il branch prima che venga potato.`}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300"
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> non su main</span>
           )}
           {checksRed && (
             <span
               title={`Checks pre-review ROSSI: ${(task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || 'un comando è fallito'}`}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300"
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> checks rossi</span>
           )}
           {task.planFirst && (
             <span
               title="L'agent consegna prima un piano da approvare"
-              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
+              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
             >piano</span>
           )}
-          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
+          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
         </div>
       )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
@@ -421,7 +421,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ) : null}
           {/* Update time trails the agent's last word (the card body's true tail). */}
           <div
-            className="text-[10px] text-app-text-muted"
+            className="text-xs md:text-[10px] text-app-text-muted"
             title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
           >{fmtUpdatedAt(task.updatedAt)}</div>
           {pending && pending.options.length > 0 && (
@@ -516,7 +516,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   return (
     <span
       title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
-      className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300 tabular-nums"
+      className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
       {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}
