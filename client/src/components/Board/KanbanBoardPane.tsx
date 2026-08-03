@@ -24,7 +24,7 @@ import {
 } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage } from './constants';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
@@ -447,14 +447,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
-  // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
-  // Si azzera a ogni altra apertura: vale per QUEL click, non è uno stato.
-  const [pendingPaneId, setPendingPaneId] = useState<string | null>(null);
-  const openTask = useCallback<OpenTask>((id, focusPaneId) => {
-    setSelectedId(id);
-    setPendingPaneId(focusPaneId ?? null);
-  }, []);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   // Mobile-only affordance: the toolbar strip below scrolls horizontally with
   // a hidden scrollbar, so without a visible cue the actions past the right
@@ -915,7 +907,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   key={status}
                   status={status}
                   tasks={byStatus[status]}
-                  onOpen={openTask}
+                  onOpen={setSelectedId}
                   onCreate={(text) => create(status, text)}
                   canCreate={mode === 'project'}
                   showProject={mode === 'all'}
@@ -967,9 +959,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             bump={selected.updatedAt}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}
-            onOpenTask={openTask}
+            onOpenTask={setSelectedId}
             onOpenTopic={onOpenTopic}
-            focusPaneId={pendingPaneId ?? undefined}
           />
         )}
       </div>
