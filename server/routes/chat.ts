@@ -76,6 +76,7 @@ import {
 // con due server in volo), e quello puo' ancora portarla. Toglierlo qui
 // riesumerebbe l'annotazione nel contenuto finale.
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
+import { createHumanWaitLedger } from "../lib/human-wait";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
@@ -654,6 +655,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
           const trackedToolCallIds: string[] = [];
+          // Il tempo passato fermi su una domanda: si apre in `onUserInputRequired`,
+          // si chiude quando quel tool consegna il risultato, e alla fine si
+          // sottrae da `latencyMs`. Senza, la durata scritta sotto il messaggio è
+          // il tempo che ci ha messo una persona a rispondere. Vedi lib/human-wait.ts.
+          const humanWait = createHumanWaitLedger();
           // Chronological content timeline. Each event from the provider is
           // appended in arrival order; consecutive same-kind text/thinking
           // deltas grow the trailing block, while tool calls always start a
@@ -1228,7 +1234,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             }
 
-            const latencyMs = Date.now() - requestStartMs;
+            // Una domanda ancora aperta a fine turno (tipico dello «ferma»
+            // premuto col pannello a schermo) è attesa fino all'ultimo istante.
+            humanWait.closeAll(Date.now());
+            // La durata che resterà scritta sotto il messaggio è il LAVORO, non
+            // il tempo che ci ha messo una persona a rispondere: un turno da otto
+            // secondi non deve essere archiviato come «43m» perché la domanda è
+            // arrivata durante il pranzo. Vedi lib/human-wait.ts.
+            const latencyMs = Math.max(0, Date.now() - requestStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
@@ -1609,6 +1622,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // suspended naturally because `trackedToolCallIds` still
               // contains this id — see the `running` invariant in
               // `stream-timer.test.ts`.
+              // Da qui in poi il turno non lavora: aspetta noi. Il cronometro
+              // dell'attesa parte, e quel pezzo non finirà nella durata del turno.
+              humanWait.open(toolCallId, Date.now());
               updateToolCallFields(sessionKey, toolCallId, {
                 status: 'waiting_for_input',
                 userInputSchema: schema,
@@ -1654,6 +1670,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             onToolResult: (toolCallId: string, result: string, isError?: boolean) => {
               resetStreamTimer();
+              // Se questo tool stava aspettando una risposta, l'attesa finisce
+              // qui: da adesso è di nuovo lavoro. Sui tool che non hanno mai
+              // chiesto niente non fa nulla.
+              humanWait.close(toolCallId, Date.now());
               const status = isError ? 'error' : 'success';
               console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} ${status} for ${sessionKey}`);
 
