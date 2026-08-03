@@ -649,14 +649,15 @@ export async function handleBrowserPoint(
 export async function handleBrowserImportChrome(
   _service: BrowserService,
   _contextId: string,
-  args: { domains?: string[]; profile?: string; dry_run?: boolean }
+  args: { domains?: string[]; profile?: string; dry_run?: boolean; browser?: string }
 ): Promise<unknown> {
   const domains = Array.isArray(args?.domains) ? args.domains.map(String) : [];
   const profile = typeof args?.profile === "string" && args.profile ? args.profile : "Default";
   const dryRun = !!args?.dry_run;
+  const browser = typeof args?.browser === "string" ? args.browser : undefined;
 
   if (dryRun) {
-    return listChromeCookieHosts({ domains, profile });
+    return listChromeCookieHosts({ domains, profile, browser });
   }
   if (!domains.length) {
     throw new Error(

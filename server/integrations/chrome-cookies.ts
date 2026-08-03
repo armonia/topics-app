@@ -50,8 +50,27 @@ type Row = {
   samesite: number;
 };
 
-function cookiesDbPath(profile: string): string {
-  return join(homedir(), "Library/Application Support/Google/Chrome", profile, "Cookies");
+/**
+ * Chromium-family browsers share the cookie format and the "v10" scheme, but each
+ * ships its own profile root and its own Keychain entry. Closed registry on purpose:
+ * the key ends up in a filesystem path AND in a `security` argv, so callers pick a
+ * known id — arbitrary strings never reach either.
+ */
+export const COOKIE_BROWSERS = {
+  chrome: { label: "Google Chrome", root: "Library/Application Support/Google/Chrome", keychain: "Chrome Safe Storage" },
+  dia: { label: "Dia", root: "Library/Application Support/Dia/User Data", keychain: "Dia Safe Storage" },
+  arc: { label: "Arc", root: "Library/Application Support/Arc/User Data", keychain: "Arc Safe Storage" },
+  chromium: { label: "Chromium", root: "Library/Application Support/Chromium", keychain: "Chromium Safe Storage" },
+} as const;
+
+export type CookieBrowser = keyof typeof COOKIE_BROWSERS;
+
+export function isCookieBrowser(v: unknown): v is CookieBrowser {
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(COOKIE_BROWSERS, v);
+}
+
+function cookiesDbPath(profile: string, browser: CookieBrowser): string {
+  return join(homedir(), COOKIE_BROWSERS[browser].root, profile, "Cookies");
 }
 
 // Snapshot into a fresh 0700 temp dir (mkdtemp creates it owner-only) — the copy
@@ -78,8 +97,8 @@ async function queryRows(dbPath: string, domains: string[]): Promise<Row[]> {
   return out ? (JSON.parse(out) as Row[]) : [];
 }
 
-async function keychainKey(): Promise<Buffer> {
-  const { stdout } = await pExecFile("security", ["find-generic-password", "-ws", "Chrome Safe Storage"]);
+async function keychainKey(browser: CookieBrowser): Promise<Buffer> {
+  const { stdout } = await pExecFile("security", ["find-generic-password", "-ws", COOKIE_BROWSERS[browser].keychain]);
   const pw = stdout.toString().replace(/\n$/, "");
   return pbkdf2Sync(pw, "saltysalt", 1003, 16, "sha1");
 }
@@ -126,15 +145,18 @@ function toCdpCookie(row: Row, key: Buffer): CdpCookieParam | null {
   return { ...base, url: `${scheme}://${row.host_key}${path.startsWith("/") ? path : "/" + path}` };
 }
 
-function sanitizeInputs(domains: string[], profile: string) {
+function sanitizeInputs(domains: string[], profile: string, browser?: string) {
   const cleanDomains = (domains || []).map((d) => String(d).replace(/[^a-zA-Z0-9.\-]/g, "")).filter(Boolean);
   const cleanProfile = String(profile || "Default").replace(/[^a-zA-Z0-9 _-]/g, "") || "Default";
-  return { cleanDomains, cleanProfile };
+  // Unknown ids fall back to chrome rather than throwing: an unsupported browser
+  // must not become a way to probe the filesystem through the error message.
+  const cleanBrowser: CookieBrowser = isCookieBrowser(browser) ? browser : "chrome";
+  return { cleanDomains, cleanProfile, cleanBrowser };
 }
 
-async function readRows(domains: string[], profile: string): Promise<Row[]> {
-  const src = cookiesDbPath(profile);
-  if (!existsSync(src)) throw new Error(`no Chrome Cookies DB for profile '${profile}' at ${src}`);
+async function readRows(domains: string[], profile: string, browser: CookieBrowser): Promise<Row[]> {
+  const src = cookiesDbPath(profile, browser);
+  if (!existsSync(src)) throw new Error(`no ${COOKIE_BROWSERS[browser].label} Cookies DB for profile '${profile}' at ${src}`);
   const read = async (): Promise<Row[]> => {
     const { dst, dir } = snapshotDb(src);
     try { return await queryRows(dst, domains); }
@@ -145,21 +167,21 @@ async function readRows(domains: string[], profile: string): Promise<Row[]> {
 }
 
 /** Dry-run: which hosts/counts WOULD be imported. No Keychain prompt, no values. */
-export async function listChromeCookieHosts({ domains = [], profile = "Default" }: { domains?: string[]; profile?: string } = {}) {
-  const { cleanDomains, cleanProfile } = sanitizeInputs(domains, profile);
-  const rows = await readRows(cleanDomains, cleanProfile);
+export async function listChromeCookieHosts({ domains = [], profile = "Default", browser }: { domains?: string[]; profile?: string; browser?: string } = {}) {
+  const { cleanDomains, cleanProfile, cleanBrowser } = sanitizeInputs(domains, profile, browser);
+  const rows = await readRows(cleanDomains, cleanProfile, cleanBrowser);
   const m = new Map<string, number>();
   for (const r of rows) m.set(r.host_key, (m.get(r.host_key) || 0) + 1);
   const hosts = [...m.entries()].map(([domain, cookies]) => ({ domain, cookies })).sort((a, b) => b.cookies - a.cookies);
-  return { dryRun: true as const, profile: cleanProfile, totalCookies: rows.length, hostCount: hosts.length, hosts };
+  return { dryRun: true as const, browser: cleanBrowser, profile: cleanProfile, totalCookies: rows.length, hostCount: hosts.length, hosts };
 }
 
 /**
  * Decrypt matching Chrome cookies into CDP `Network.setCookies` params. Pure (no
  * filesystem writes, no network). Triggers the Keychain consent prompt.
  */
-export async function decryptChromeCookies({ domains = [], profile = "Default" }: { domains?: string[]; profile?: string } = {}) {
-  const { cleanDomains, cleanProfile } = sanitizeInputs(domains, profile);
+export async function decryptChromeCookies({ domains = [], profile = "Default", browser }: { domains?: string[]; profile?: string; browser?: string } = {}) {
+  const { cleanDomains, cleanProfile, cleanBrowser } = sanitizeInputs(domains, profile, browser);
   // Consent-model invariant: decryption is scoped to the domains the user
   // asked for. The caller already requires a non-empty `domains`, but the
   // sanitizer can collapse every entry to "" (e.g. an IDN/Unicode domain like
@@ -172,9 +194,9 @@ export async function decryptChromeCookies({ domains = [], profile = "Default" }
       "Pass ASCII hostnames (punycode for IDN, e.g. xn--mnchen-3ya.de).",
     );
   }
-  const rows = await readRows(cleanDomains, cleanProfile);
-  if (!rows.length) return { profile: cleanProfile, domains: cleanDomains, cookies: [] as CdpCookieParam[], decrypted: 0, decryptFailed: 0, skippedEmpty: 0, appBoundEncrypted: 0 };
-  const key = await keychainKey();
+  const rows = await readRows(cleanDomains, cleanProfile, cleanBrowser);
+  if (!rows.length) return { browser: cleanBrowser, profile: cleanProfile, domains: cleanDomains, cookies: [] as CdpCookieParam[], decrypted: 0, decryptFailed: 0, skippedEmpty: 0, appBoundEncrypted: 0 };
+  const key = await keychainKey(cleanBrowser);
   const cookies: CdpCookieParam[] = [];
   let decryptFailed = 0, skippedEmpty = 0, appBoundEncrypted = 0;
   for (const r of rows) {
@@ -186,5 +208,5 @@ export async function decryptChromeCookies({ domains = [], profile = "Default" }
     if (c.value === "") { skippedEmpty++; continue; }
     cookies.push(c);
   }
-  return { profile: cleanProfile, domains: cleanDomains, cookies, decrypted: cookies.length, decryptFailed, skippedEmpty, appBoundEncrypted };
+  return { browser: cleanBrowser, profile: cleanProfile, domains: cleanDomains, cookies, decrypted: cookies.length, decryptFailed, skippedEmpty, appBoundEncrypted };
 }

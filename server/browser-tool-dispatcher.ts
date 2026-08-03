@@ -328,7 +328,7 @@ export async function dispatchBrowserToolCallByContext(
       return handleBrowserPoint(browserService, contextId, args as { description: string });
     case "browser_import_chrome":
       // Args validated by handler
-      return handleBrowserImportChrome(browserService, contextId, args as { domains?: string[]; profile?: string; dry_run?: boolean });
+      return handleBrowserImportChrome(browserService, contextId, args as { domains?: string[]; profile?: string; dry_run?: boolean; browser?: string });
     case "browser_status":
       return handleBrowserStatus(browserService, contextId);
     default:

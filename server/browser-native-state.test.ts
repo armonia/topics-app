@@ -132,6 +132,49 @@ test("import_chrome decrypts server-side and delegates only the inject leg", asy
   expect(seen).toEqual([{ tool: "browser_import_chrome", args: { cookies } }]);
 });
 
+test("import_chrome forwards the chosen browser to both the dry-run and decrypt legs", async () => {
+  const { registry } = scriptedRegistry({ browser_import_chrome: { result: { ok: true, imported: 1 } } });
+
+  let dryArgs: unknown = null;
+  await nativeStateOp(
+    "browser_import_chrome",
+    { dry_run: true, browser: "dia" },
+    "ctx",
+    { registry, listChromeHosts: async (a: unknown) => { dryArgs = a; return { hosts: [] }; } } as never,
+  );
+  expect((dryArgs as { browser?: string }).browser).toBe("dia");
+
+  let decArgs: unknown = null;
+  const out = await nativeStateOp(
+    "browser_import_chrome",
+    { domains: ["dash.cloudflare.com"], browser: "dia" },
+    "ctx",
+    {
+      registry,
+      decryptChrome: async (a: unknown) => {
+        decArgs = a;
+        return { browser: "dia", profile: "Profile 1", domains: ["dash.cloudflare.com"], cookies: [{ name: "s", value: "v", secure: true, httpOnly: true, url: "https://dash.cloudflare.com/" }] as never, decrypted: 1, decryptFailed: 0, skippedEmpty: 0, appBoundEncrypted: 0 };
+      },
+    } as never,
+  );
+  expect((decArgs as { browser?: string }).browser).toBe("dia");
+  // The reply names the browser the cookies actually came from, so a caller can
+  // tell a chrome fallback from the browser it asked for.
+  expect(out).toMatchObject({ ok: true, browser: "dia", profile: "Profile 1", imported: 1 });
+});
+
+test("import_chrome without a browser stays on the chrome default", async () => {
+  const { registry } = scriptedRegistry({});
+  let dryArgs: unknown = null;
+  await nativeStateOp(
+    "browser_import_chrome",
+    { dry_run: true },
+    "ctx",
+    { registry, listChromeHosts: async (a: unknown) => { dryArgs = a; return { hosts: [] }; } } as never,
+  );
+  expect((dryArgs as { browser?: string }).browser).toBeUndefined();
+});
+
 test("import_chrome without domains (and not dry_run) throws (dispatcher contract)", async () => {
   const { registry } = scriptedRegistry({});
   await expect(nativeStateOp("browser_import_chrome", {}, "ctx", { registry })).rejects.toThrow('"domains" (non-empty array) is required');
