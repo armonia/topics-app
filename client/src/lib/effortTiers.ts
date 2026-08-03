@@ -44,7 +44,11 @@ export function resolveEffectiveProvider(
     ready.find((e) => e.isDefault) ??
     ready[0];
   if (!candidate || candidate.models.length === 0) return null;
-  return { provider: candidate.name, model: candidate.models[0] };
+  // Il default lo DICHIARA il provider; `models[0]` è solo il ripiego per chi
+  // non lo dichiara. Dedurlo dalla lista sbagliava proprio dove conta: la lista
+  // guida con l'id nudo (`claude-opus-5`, 200k) mentre lo spawn parte da sempre
+  // sul gemello a finestra lunga, e il badge mostrava la finestra dell'altro.
+  return { provider: candidate.name, model: candidate.defaultModel ?? candidate.models[0] };
 }
 
 /**

@@ -56,9 +56,14 @@ export function unknownPricedModels(): string[] {
  * Normalizza un id di modello prima del match.
  *
  * Il suffisso di finestra — `claude-opus-5[1m]` — fa parte dell'id che la CLI
- * riporta, non del nome del modello, e il prezzo non cambia con la finestra
- * (1M è di serie). Senza toglierlo la chiave esatta non matcha mai e si finisce
- * nel ripiego. Stessa normalizzazione di `shared/context-window.ts`.
+ * riporta, non del nome del modello: senza toglierlo la chiave esatta non matcha
+ * mai e si finisce nel ripiego. Stessa normalizzazione di
+ * `shared/context-window.ts`.
+ *
+ * Il modello è lo STESSO, quindi la tariffa è la stessa. Non è modellato il
+ * sovrapprezzo che il beta 1M applica alle richieste sopra i 200k token: qui si
+ * lavora ad abbonamento, dove quel numero non è denaro ma un promemoria, e una
+ * soglia inventata a metà sarebbe meno vera di una tariffa piatta.
  */
 function normalizeModel(model: string): string {
   return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, '').trim();

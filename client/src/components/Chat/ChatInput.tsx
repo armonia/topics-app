@@ -45,7 +45,7 @@ const SLASH_COMMANDS = [
   // menu overflow, che è sempre raggiungibile.
   { cmd: '/compact', label: 'Compact', description: 'Compatta il contesto ora (riassume la storia e libera spazio)', icon: ChevronsDownUp },
   { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
-  { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-4-8)', icon: Cpu },
+  { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-5[1m])', icon: Cpu },
   { cmd: '/effort', label: 'Effort', description: 'Set reasoning effort (low|medium|high|xhigh|max)', icon: Brain },
   { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning (openclaw) / → /effort on claude-code', icon: Brain },
   { cmd: '/agents', label: 'Agents', description: 'List agent profiles', icon: Users },

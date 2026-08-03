@@ -3,10 +3,12 @@ import { parseTier, tierToAvailableModel, pickTaskModel, floorTier } from "./tas
 
 // La lista come la annuncia davvero la CLI: due generazioni per famiglia, e
 // accanto a ognuna la sua variante a finestra lunga. Il tier deve scegliere la
-// PIÙ RECENTE, e nella sua forma nuda.
+// generazione PIÙ RECENTE, e — dove l'host serve il milione — nella sua forma
+// lunga: un agente dispatchato legge file veri, e 200k se li mangia a metà task.
 const ALL = [
   "claude-opus-5", "claude-opus-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]",
-  "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+  "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]",
+  "claude-haiku-4-5", "claude-fable-5",
 ];
 
 describe("parseTier", () => {
@@ -45,16 +47,17 @@ describe("tierToAvailableModel", () => {
   test("il tier prende la generazione PIÙ RECENTE della famiglia", () => {
     // Qui c'era `claude-opus-4-8` scritto a mano: la CLI offriva già Opus 5 e
     // ogni agente dispatchato è partito una generazione indietro, in silenzio.
-    expect(tierToAvailableModel("opus", ALL)).toBe("claude-opus-5");
-    expect(tierToAvailableModel("sonnet", ALL)).toBe("claude-sonnet-5");
+    expect(tierToAvailableModel("opus", ALL)).toBe("claude-opus-5[1m]");
+    expect(tierToAvailableModel("sonnet", ALL)).toBe("claude-sonnet-5[1m]");
   });
 
-  test("fra un id e la sua variante [1m] vince quello NUDO", () => {
-    // `[1m]` è una modalità di servizio (finestra + spesa), non un gradino di
-    // capacità: la finestra lunga si sceglie, non capita per caso.
-    expect(tierToAvailableModel("opus", ["claude-opus-5[1m]", "claude-opus-5"])).toBe("claude-opus-5");
-    // …ma se di quella versione esiste solo la variante lunga, si prende quella.
-    expect(tierToAvailableModel("opus", ["claude-opus-5[1m]"])).toBe("claude-opus-5[1m]");
+  test("la finestra da 1M dove l'host la annuncia, l'id nudo dove no", () => {
+    expect(tierToAvailableModel("opus", ["claude-opus-5[1m]", "claude-opus-5"])).toBe("claude-opus-5[1m]");
+    // Nessun `[1m]` in lista per quella famiglia = nessuna prova che l'host lo
+    // regga: appenderlo alla cieca è il 400 di `claude-haiku-4-5[1m]`.
+    expect(tierToAvailableModel("opus", ["claude-opus-5"])).toBe("claude-opus-5");
+    // Fable il milione ce l'ha già nudo.
+    expect(tierToAvailableModel("fable", ALL)).toBe("claude-fable-5");
   });
   test("degrades DOWN to the nearest available (cheaper) tier first", () => {
     // fable missing → opus (nearest lower)
@@ -80,7 +83,7 @@ describe("pickTaskModel", () => {
       { text: "refactor del layout engine" },
       { ...base, complete: async () => "opus" },
     );
-    expect(m).toBe("claude-opus-5");
+    expect(m).toBe("claude-opus-5[1m]");
   });
 
   test("unparsable answer → fallback", async () => {
@@ -117,7 +120,7 @@ describe("pickTaskModel", () => {
 
   test("execution floor: a haiku pick is clamped UP to sonnet (haiku is judge-only)", async () => {
     const m = await pickTaskModel({ text: "bump versione" }, { ...base, complete: async () => "haiku" });
-    expect(m).toBe("claude-sonnet-5");
+    expect(m).toBe("claude-sonnet-5[1m]");
   });
 
   test("execution floor: haiku pick on a host without sonnet resolves to opus, NEVER haiku", async () => {

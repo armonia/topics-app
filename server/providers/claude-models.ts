@@ -22,9 +22,10 @@ import { createReadStream, statSync } from "fs";
 
 /** Used when the scan cannot run or comes back empty. Newest-known-first. */
 export const FALLBACK_MODELS = [
-  "claude-opus-5[1m]",
   "claude-opus-5",
+  "claude-opus-5[1m]",
   "claude-sonnet-5",
+  "claude-sonnet-5[1m]",
   "claude-haiku-4-5",
   "claude-fable-5",
 ];
@@ -69,12 +70,15 @@ function parseModelId(id: string): ParsedModel | null {
  * mandato ogni agente su Opus 4.8 per settimane dopo l'arrivo di Opus 5, senza
  * un errore né un log.
  *
- * Le varianti `[1m]` sono lo stesso modello servito con la finestra lunga —
- * una MODALITÀ, non una capacità superiore — quindi vincono solo se di quella
- * versione manca l'id nudo: scegliere «il più recente» non deve decidere di
- * nascosto anche quanta finestra (e quanta spesa) usa una sessione.
+ * Le varianti `[1m]` sono lo stesso modello servito con la finestra lunga — una
+ * MODALITÀ, non una capacità superiore. Di default vince l'id nudo; con
+ * `preferLong` vince la finestra da un milione (vedi `longVariantOf`).
  */
-export function newestOfFamily(family: string, available: readonly string[]): string | null {
+export function newestOfFamily(
+  family: string,
+  available: readonly string[],
+  opts?: { preferLong?: boolean },
+): string | null {
   let best: ParsedModel | null = null;
   for (const id of available) {
     const p = parseModelId(id);
@@ -88,7 +92,39 @@ export function newestOfFamily(family: string, available: readonly string[]): st
       best = p;
     }
   }
-  return best?.id ?? null;
+  if (!best) return null;
+  return opts?.preferLong ? longVariantOf(best.id, available) : best.id;
+}
+
+/**
+ * L'id con la finestra da 1M corrispondente a `id`, se questo host la può
+ * servire; altrimenti `id` invariato.
+ *
+ * Non basta appendere `[1m]` a tutto: il suffisso è servito dal beta
+ * `context-1m-2025-08-07`, che NON copre ogni famiglia. Misurato il 3 agosto
+ * 2026 sulla CLI 2.1.220: `claude-opus-5[1m]` e `claude-sonnet-5[1m]`
+ * rispondono a un prompt da 250k token, mentre `claude-haiku-4-5[1m]` muore con
+ * un 400 «The long context beta is not yet available for this subscription» —
+ * cioè a turno già partito, come errore in faccia all'umano.
+ *
+ * Quindi la domanda «questa famiglia regge il milione?» non si risponde con una
+ * lista scritta a mano (che invecchia come è già invecchiato `claude-opus-4-8`
+ * inchiodato nel dispatcher): si guarda se la CLI annuncia ALMENO UN id `[1m]`
+ * di quella famiglia. Se lo annuncia, la finestra lunga è disponibile e la si
+ * chiede anche per la versione più recente, che il suo gemello `[1m]` può non
+ * averlo ancora nella tabella del binario (`claude-sonnet-5[1m]` funziona pur
+ * non comparendo nello scan). Se non lo annuncia — haiku, e fable che il
+ * milione ce l'ha già di suo — si resta sull'id nudo.
+ */
+export function longVariantOf(id: string, available: readonly string[]): string {
+  const p = parseModelId(id);
+  if (!p) return id;
+  if (p.long) return id;
+  const familySupportsLong = available.some((other) => {
+    const q = parseModelId(other);
+    return q?.family === p.family && q.long;
+  });
+  return familySupportsLong ? `${p.id}[1m]` : p.id;
 }
 
 /** La famiglia di un id (`claude-opus-5[1m]` → `opus`), o `null` se non è un
@@ -267,6 +303,19 @@ export async function discoverClaudeModels(cliPath: string): Promise<string[]> {
   });
 
   return inflight;
+}
+
+/**
+ * La lista già scoperta, senza aspettare (e senza far partire) uno scan.
+ *
+ * Serve a chi decide un default in un punto SINCRONO — lo spawn di una chat —
+ * e che altrimenti dovrebbe ripiegare per sempre su `FALLBACK_MODELS`, cioè su
+ * una lista scritta a mano: esattamente il modo in cui questo repo è rimasto su
+ * Opus 4.8 per settimane. Con la cache calda (la popola il primo `/api/providers`)
+ * il default segue la CLI installata; a freddo il chiamante usa il fallback.
+ */
+export function cachedClaudeModels(): string[] | null {
+  return cache?.models ?? null;
 }
 
 // Niente `resetClaudeModelCache()`: era nato come test seam e nessun test l'ha

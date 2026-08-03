@@ -626,8 +626,9 @@ const taskDispatcher = createTaskDispatcher({
     // L'Opus di ripiego non si scrive a mano: un id fisso qui è come si finisce
     // a dispatchare agenti su una generazione vecchia per settimane senza che
     // niente lo segnali. `FALLBACK_MODELS` è la lista che il resto del codice
-    // già mantiene, e serve solo quando lo snapshot non c'è.
-    const staticOpus = newestOfFamily("opus", FALLBACK_MODELS) ?? FALLBACK_MODELS[0]!;
+    // già mantiene, e serve solo quando lo snapshot non c'è. `preferLong`: la
+    // finestra da un milione dove l'host la serve, non i 200k di un id nudo.
+    const staticOpus = newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true }) ?? FALLBACK_MODELS[0]!;
     try {
       const provider = getProvider("claude-code");
       const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
@@ -642,7 +643,7 @@ const taskDispatcher = createTaskDispatcher({
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
         availableModels,
-        fallback: newestOfFamily("opus", availableModels) ?? staticOpus,
+        fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
       return { model };

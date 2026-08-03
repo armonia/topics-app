@@ -31,7 +31,7 @@ const SLASH_COMMANDS_HELP = [
   '/context — Show context-window usage (tokens, budget, sources)',
   '/compact — Compatta il contesto ora (riassume la storia e libera spazio)',
   '/clear — Clear conversation',
-  '/model — Change model (e.g. /model claude-opus-4-8)',
+  '/model — Change model (e.g. /model claude-opus-5[1m])',
   '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
   '/reasoning — Toggle reasoning (openclaw) / → /effort on claude-code',
   '/agents — List all agent profiles',

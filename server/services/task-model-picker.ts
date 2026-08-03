@@ -113,16 +113,20 @@ export function parseTier(raw: string): ModelTier | null {
  * nothing maps (caller uses its fallback).
  */
 export function tierToAvailableModel(tier: ModelTier, available: readonly string[]): string | null {
-  const want = newestOfFamily(TIER_TO_FAMILY[tier], available);
+  // `preferLong`: un agente dispatchato lavora su un repo vero e legge file veri
+  // — la finestra da 200k di un id nudo la esaurisce e lo manda in compattazione
+  // a metà task. Dove l'host serve il milione, lo si prende (`longVariantOf`
+  // lascia stare le famiglie che non lo reggono).
+  const pick = (t: ModelTier | undefined) =>
+    t ? newestOfFamily(TIER_TO_FAMILY[t], available, { preferLong: true }) : null;
+  const want = pick(tier);
   if (want) return want;
   const idx = MODEL_TIERS.indexOf(tier);
   // Prefer the nearest LOWER tier (cheaper, safer), then fall upward.
   for (let d = 1; d < MODEL_TIERS.length; d++) {
-    const lower = MODEL_TIERS[idx - d];
-    const lowerId = lower && newestOfFamily(TIER_TO_FAMILY[lower], available);
+    const lowerId = pick(MODEL_TIERS[idx - d]);
     if (lowerId) return lowerId;
-    const higher = MODEL_TIERS[idx + d];
-    const higherId = higher && newestOfFamily(TIER_TO_FAMILY[higher], available);
+    const higherId = pick(MODEL_TIERS[idx + d]);
     if (higherId) return higherId;
   }
   return null;
