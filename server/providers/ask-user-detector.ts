@@ -35,8 +35,14 @@ export interface ToolUseLike {
  * otherwise `null`. See module docstring for the recognised cases.
  */
 export function detectUserInputRequest(toolUse: ToolUseLike): UserInputSchema | null {
-  // --- Claude Agent SDK: AskUserQuestion ---
-  if (toolUse.name === "AskUserQuestion") {
+  // --- Claude Agent SDK: AskUserQuestion, and the Topics MCP bridge tool ---
+  // The SDK's built-in `AskUserQuestion` is only registered in the CLI's
+  // INTERACTIVE mode; Topics spawns the CLI headless (`--print` stream-json)
+  // where it is absent, so the model can never emit it. The Topics bridge
+  // re-exposes the exact same contract as `mcp__topics__ask_user_question`
+  // (see server/mcp/topics-mcp-server.ts) — same `questions` input shape — so
+  // it renders through the identical `kind: "questions"` panel. Match either.
+  if (toolUse.name === "AskUserQuestion" || toolUse.name.endsWith("__ask_user_question")) {
     const input = toolUse.input as { questions?: unknown } | undefined;
     if (!input || !Array.isArray(input.questions) || input.questions.length === 0) {
       // Malformed: fall through to raw so the user can still answer.

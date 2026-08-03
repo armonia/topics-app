@@ -27,6 +27,7 @@ import {
   callGetTask,
   callUpdateTask,
   callCommentTask,
+  callAskUserQuestion,
   callSpawnAgent,
   callSendToAgent,
   callReadAgent,
@@ -405,6 +406,7 @@ describe("handleMessage", () => {
       "update_task",
       "wait_for_condition",
       "comment_task",
+      "ask_user_question",
       "move_session_to_project",
       "spawn_agent",
       "send_to_agent",
@@ -857,6 +859,66 @@ describe("callCommentTask", () => {
     // Non-string / blank entries dropped; the content stays the PLAIN question.
     expect(seen.init?.body).toBe(JSON.stringify({ content: "Quale approccio?", options: ["A", "B"] }));
     expect(text).toContain("2 quick-reply options");
+  });
+});
+
+describe("callAskUserQuestion", () => {
+  const questions = [
+    {
+      question: "Which auth method?",
+      header: "Auth",
+      options: [{ label: "OAuth" }, { label: "JWT" }],
+    },
+  ];
+
+  test("POSTs the questions to the session ask-user endpoint and returns the answers JSON", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ answers: { Auth: "OAuth" } }), { status: 200 });
+    });
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "topic:abc" },
+      { questions },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/ask-user");
+    expect(seen.init?.method).toBe("POST");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ questions });
+    // The result the model reads mirrors the built-in AskUserQuestion shape.
+    expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
+  });
+
+  test("carries metadata through when the server returns it", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ answers: { Q: "A" }, metadata: { other: "free text" } }), { status: 200 }),
+    );
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+    );
+    expect(JSON.parse(text)).toEqual({ answers: { Q: "A" }, metadata: { other: "free text" } });
+  });
+
+  test("throws when questions is missing or empty", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/questions.*required/i);
+    await expect(
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions: [] }, fetchImpl),
+    ).rejects.toThrow(/questions.*required/i);
+  });
+
+  test("a cancelled ask surfaces as a tool error (never a fabricated answer)", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ cancelled: true, reason: "turn aborted" }), { status: 200 }),
+    );
+    await expect(
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl),
+    ).rejects.toThrow(/cancelled.*turn aborted/i);
   });
 });
 
