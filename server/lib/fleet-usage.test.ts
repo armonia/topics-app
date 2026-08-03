@@ -163,6 +163,77 @@ describe("summarizeFleet", () => {
     expect(out.memMetric).toBe("mixed");
   });
 
+  it("attribuisce due sessioni distinte dentro lo stesso pty-bridge", () => {
+    // `roots` sa solo dire «il pty-bridge tiene N MB»; qui si chiede QUANTO ne
+    // tiene ciascuna sessione.
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+      { sessionId: "s-b", name: "B", pid: 40 },
+    ]);
+    const a = out.sessions.find(s => s.sessionId === "s-a")!;
+    const b = out.sessions.find(s => s.sessionId === "s-b")!;
+    // 21 porta con sé il figlio 22; 40 è da solo.
+    expect(a.processCount).toBe(2);
+    expect(a.memoryMB).toBe(Math.round((2000000 + 500000) / 1024));
+    expect(b.processCount).toBe(1);
+    expect(b.memoryMB).toBe(Math.round(540000 / 1024));
+  });
+
+  it("i totali di flotta NON cambiano quando si attribuiscono le sessioni", () => {
+    // Il punto più importante: l'attribuzione è una LENTE su processi già
+    // contati. Se togliesse pid ai root, la barra cambierebbe numero per un
+    // dettaglio che doveva solo spiegarla.
+    const roots = [{ kind: "server" as const, pid: 10 }, { kind: "pty-bridge" as const, pid: 20 }];
+    const senza = summarizeFleet(rows, roots);
+    const con = summarizeFleet(rows, roots, undefined, 1, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+      { sessionId: "s-b", name: "B", pid: 22 },
+    ]);
+    expect(con.processCount).toBe(senza.processCount);
+    expect(con.memoryMB).toBe(senza.memoryMB);
+    expect(con.cpuPercent).toBe(senza.cpuPercent);
+    expect(con.roots).toEqual(senza.roots);
+    expect(senza.sessions).toEqual([]);
+  });
+
+  it("un pid raggiungibile da due sessioni è fatturato a una sola", () => {
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+      { sessionId: "s-nested", name: "figlio di A", pid: 22 },
+    ]);
+    const tot = out.sessions.reduce((a, s) => a + s.processCount, 0);
+    expect(tot).toBe(2); // 21 e 22 contati una volta ciascuno, non 3
+  });
+
+  it("una sessione il cui processo è già morto non compare", () => {
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [
+      { sessionId: "s-morta", name: "chiusa", pid: 99999 },
+    ]);
+    expect(out.sessions).toEqual([]);
+  });
+
+  it("una sessione senza base CPU è 'non misurata', non zero", () => {
+    // La regola che il modulo applica già ai pid nuovi: uno 0 direbbe «ferma»,
+    // e di una sessione appena avviata non lo sappiamo.
+    const nessunaBase = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => null, 1, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+    ]);
+    expect(nessunaBase.sessions[0].cpuPercent).toBeNull();
+
+    const ferma = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => 0, 1, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+    ]);
+    expect(ferma.sessions[0].cpuPercent).toBe(0);
+  });
+
+  it("la CPU di sessione è normalizzata sui core come tutto il resto", () => {
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => 24, 12, [
+      { sessionId: "s-a", name: "A", pid: 21 },
+    ]);
+    // due processi (21 + 22) × 24% per-core ÷ 12 core = 4
+    expect(out.sessions[0].cpuPercent).toBe(4);
+  });
+
   it("drops a root that is no longer running", () => {
     const out = summarizeFleet(rows, [
       { kind: "server", pid: 10 },

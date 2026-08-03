@@ -17,7 +17,7 @@ import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { registerFleetSocket } from "../lib/fleet-usage";
+import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
@@ -249,6 +249,23 @@ export function getTerminalSessionById(id: string): TerminalSession | undefined 
  * command still shows up in the Processes panel. Shell sessions are excluded:
  * the feature targets servers Claude launches.
  */
+/**
+ * Ogni sessione PTY viva col pid di testa del suo albero, per l'attribuzione
+ * delle risorse (`lib/fleet-usage.ts`).
+ *
+ * Diversa da `getClaudeSessionsForDetection`, che filtra le sole sessioni Claude
+ * perché il rilevatore di porte cerca i server che Claude avvia: qui serve TUTTO
+ * ciò che consuma, e una shell aperta consuma quanto il resto.
+ */
+export function getFleetSessionRefs(): { sessionId: string; name: string; pid: number }[] {
+  const out: { sessionId: string; name: string; pid: number }[] = [];
+  for (const s of sessions.values()) {
+    if (!s.ptyPid || s.ptyPid <= 0) continue;
+    out.push({ sessionId: s.id, name: s.name, pid: s.ptyPid });
+  }
+  return out;
+}
+
 export function getClaudeSessionsForDetection(): { ptyPid: number; cwd: string; sessionId: string; name: string }[] {
   const out: { ptyPid: number; cwd: string; sessionId: string; name: string }[] = [];
   for (const s of sessions.values()) {
@@ -413,6 +430,10 @@ const SOCKET_PATH = getSocketPath();
 // underneath it, which is where most of Topics' RAM actually lives. Declaring the
 // socket lets /api/system/status resolve it by command line. See server/lib/fleet-usage.ts.
 registerFleetSocket("pty-bridge", SOCKET_PATH);
+// Le sessioni vive col loro pid di testa, per l'attribuzione per-sessione.
+// Registrata come funzione, non come snapshot: l'insieme cambia a ogni
+// create/exit e va letto al momento del campionamento, non a import time.
+registerFleetSessionSource(getFleetSessionRefs);
 
 /**
  * Append-only stderr sink for the detached bridge, parked next to its socket so

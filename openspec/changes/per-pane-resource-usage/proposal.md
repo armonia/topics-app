@@ -20,6 +20,27 @@ attaccarlo è emerso che **il dato non esiste**, su nessuno dei due lati:
 Quindi non è un tooltip da aggiungere: è una **mappa pane → processi** da costruire su
 entrambi i lati, e poi da esporre. Da qui una change invece di un ritocco.
 
+### Cosa è attribuibile, e cosa no
+
+Non tutte le pane hanno un processo, e questa è la parte che decide la forma della
+feature invece di essere un dettaglio:
+
+| Pane | Processo proprio | Attribuibile |
+|---|---|---|
+| terminale / sessione Claude | sì, albero PTY col pid di testa | **sì** — il bridge lo riporta già |
+| browser | sì, webview nativa (`WebviewBuilder::new(&label…)`) | **sì**, una volta legato il `label` al pid |
+| topic, kanban, chat, file, editor, session-viewer | **no** — componenti React nell'unico renderer | **no** |
+
+Per l'ultima riga non esiste una misura: sono tutte lo stesso processo, e nessun `ps`
+può separare due componenti che condividono un renderer. L'unica cosa onesta è che
+quelle pane **dichiarino di non avere un processo proprio**, distinto sia da "non
+misurato" sia da uno zero. Una quota stimata (per nodi DOM, per superficie, per quota
+parte del renderer) sarebbe un numero inventato con l'aria di una misura, ed è
+esplicitamente esclusa (RES-ATTR-05).
+
+Il risultato utile resta: le pane che pesano davvero — terminali con dentro un `claude`,
+e browser con dentro un sito — sono esattamente quelle che un processo ce l'hanno.
+
 Il momento è quello giusto perché le due metriche sono appena state rese confrontabili:
 la CPU è normalizzata sui core (scala 0-100 della macchina) e la memoria usa
 `phys_footprint` da entrambi i lati. Un numero per-pane costruito prima di questi due
