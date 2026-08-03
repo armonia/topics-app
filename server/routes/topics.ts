@@ -23,6 +23,7 @@ import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
+import { archiveTopicFully } from "../services/archive-topic";
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
@@ -253,8 +254,11 @@ function mutateAllUiState(
   return { ok: true };
 }
 
-/** Archive/delete: strip the topic from every ui_state record + tombstone it. */
-function purgeTopicFromUiState(
+/** Archive/delete: strip the topic from every ui_state record + tombstone it.
+ *  Esportata perché `archiveTopicFully` (services/archive-topic.ts) la riceve
+ *  iniettata: il servizio non può importare da `routes/` senza invertire gli
+ *  strati, ma questo è il passo 3 dell'archiviazione e deve restare uno solo. */
+export function purgeTopicFromUiState(
   db: import("bun:sqlite").Database,
   broadcastToAll: (msg: any) => void,
   topicId: string,
@@ -1501,30 +1505,29 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!topic) return json({ error: "not found" }, 404);
         let archive = true;
         try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
-        topic.archived = archive;
+        if (archive) {
+          // Un solo posto sa cosa vuol dire "archiviato": flag + unread a zero
+          // + purge da ui_state. Lo stesso servizio che usa il dispatcher, così
+          // i due percorsi non possono più divergere (services/archive-topic.ts).
+          const res = archiveTopicFully({
+            getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
+            purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
+          }, params.id);
+          // Bug #12: if the purge fails we return 500 — topic is archived but
+          // ui_state is stale, so client-side reload will see a phantom id.
+          if (res.purgeError) {
+            return json({ error: "topic archived but ui_state purge failed", details: res.purgeError, topic: res.topic }, 500);
+          }
+          return json(res.topic);
+        }
+        // Unarchive is a REOPEN: retract the close markers the purge left, or
+        // the client's hydrate strip would delete the tab on every load and
+        // the chat would be permanently un-openable.
+        topic.archived = false;
         topic.updatedAt = new Date().toISOString();
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:archived", topic });
-        // Reset unread when archiving
-        if (archive) {
-          const unread = loadUnread();
-          unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-          saveUnread(unread);
-          broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
-          // Purge this topic id from every client's persisted openChatTopicIds
-          // so reloads don't fail validation on a phantom id.
-          // Bug #12: if the purge fails we return 500 — topic is archived but
-          // ui_state is stale, so client-side reload will see a phantom id.
-          const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, params.id);
-          if (!purgeResult.ok) {
-            return json({ error: "topic archived but ui_state purge failed", details: purgeResult.error, topic }, 500);
-          }
-        } else {
-          // Unarchive is a REOPEN: retract the close markers the purge left, or
-          // the client's hydrate strip would delete the tab on every load and
-          // the chat would be permanently un-openable.
-          restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
-        }
+        restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
         return json(topic);
       }
     }
