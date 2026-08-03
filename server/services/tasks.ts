@@ -692,7 +692,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!text) throw new TaskServiceError("invalid_input", "task text is required");
       if (!input.projectId) throw new TaskServiceError("invalid_input", "projectId is required");
 
-      const status = input.status ?? "todo";
+      // Default `backlog`, NON `todo`. `todo` è la coda di esecuzione: un task
+      // che ci nasce fa partire un agente entro pochi secondi su un board con
+      // auto-dispatch. Chi crea un task senza dire dove (MCP, uno script, una
+      // integrazione) sta ANNOTANDO, non dando un via — e il default lo
+      // trasformava in un ordine di esecuzione. Misurato il 03/08: tre task
+      // creati da chat, tre agenti dispacciati in meno di 20 secondi; due si
+      // sono fermati solo perché quei progetti non erano repo git, cioè per
+      // caso e non per una guardia.
+      //
+      // "Vai" ora si scrive: `status: "todo"` esplicito. L'interfaccia lo passa
+      // già sempre (si crea trascinando nella colonna, che È lo status), quindi
+      // il cambio tocca solo i chiamanti esterni — esattamente il caso da
+      // correggere.
+      const status = input.status ?? "backlog";
       if (!STATUSES.includes(status)) throw new TaskServiceError("invalid_input", `invalid status "${status}"`);
       if (status === "done") throw new TaskServiceError("invalid_transition", "cannot create a task already done");
 

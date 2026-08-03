@@ -1007,8 +1007,8 @@ describe("blocked-by + context reuse", () => {
   it("a blocked todo WAITS: no claim, no queued chip; onBlockerDone dispatches it", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    const a = h.svc.create({ projectId: PID, text: "blocker" });
-    const b = h.svc.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    const a = h.svc.create({ projectId: PID, status: "todo", text: "blocker" });
+    const b = h.svc.create({ projectId: PID, status: "todo", text: "dependent", blockedByTaskId: a.id });
     // Blocker parked out of the way (only b is an eligible todo).
     h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "backlog" } });
     await h.dispatcher.tick(PID);
@@ -1031,8 +1031,8 @@ describe("blocked-by + context reuse", () => {
   it("reuseBlockerContext rides the blocker's topic (no fresh topic/worktree)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    const a = h.svc.create({ projectId: PID, text: "blocker" });
-    const b = h.svc.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id, reuseBlockerContext: true });
+    const a = h.svc.create({ projectId: PID, status: "todo", text: "blocker" });
+    const b = h.svc.create({ projectId: PID, status: "todo", text: "dependent", blockedByTaskId: a.id, reuseBlockerContext: true });
     h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "backlog" } });
     // The blocker worked in its own topic and was approved to done.
     h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-blocker')");
@@ -1053,7 +1053,7 @@ describe("blocked-by + context reuse", () => {
   it("passes the task's model override to the fresh agent topic", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    h.svc.create({ projectId: PID, text: "with model", model: "claude-fable-5" });
+    h.svc.create({ projectId: PID, status: "todo", text: "with model", model: "claude-fable-5" });
     await h.dispatcher.tick(PID);
     await flush();
     expect((h.topicsCreated[0] as any).model).toBe("claude-fable-5");
@@ -1065,7 +1065,7 @@ describe("blocked-by + context reuse", () => {
       pickAutoModel: async (t) => { picked.push(t.text); return { model: "claude-opus-4-8" }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    h.svc.create({ projectId: PID, text: "refactor pesante" }); // model null = auto
+    h.svc.create({ projectId: PID, status: "todo", text: "refactor pesante" }); // model null = auto
     await h.dispatcher.tick(PID);
     await flush();
     expect(picked).toEqual(["refactor pesante"]);
@@ -1078,7 +1078,7 @@ describe("blocked-by + context reuse", () => {
       pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8" }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    h.svc.create({ projectId: PID, text: "chosen", model: "claude-haiku-4-5" });
+    h.svc.create({ projectId: PID, status: "todo", text: "chosen", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(called).toBe(false);
@@ -1088,7 +1088,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: a null pick keeps the provider default (undefined model, dispatch not blocked)", async () => {
     const h = harness({ pickAutoModel: async () => ({ model: null }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    h.svc.create({ projectId: PID, text: "auto" });
+    h.svc.create({ projectId: PID, status: "todo", text: "auto" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.task(h.svc.list({ scope: "project", projectId: PID })[0].id)!.status).toBe("in_progress");
@@ -1098,7 +1098,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: a vague task still selects a model but never flips plan-first (opt-in only)", async () => {
     const h = harness({ pickAutoModel: async () => ({ model: "claude-sonnet-5" }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    const created = h.svc.create({ projectId: PID, text: "sistema la roba" }); // vague, model auto
+    const created = h.svc.create({ projectId: PID, status: "todo", text: "sistema la roba" }); // vague, model auto
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task(created.id)!;
@@ -1116,7 +1116,7 @@ describe("blocked-by + context reuse", () => {
     let called = false;
     const h = harness({ pickAutoModel: async () => { called = true; return { model: "x" }; } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    const created = h.svc.create({ projectId: PID, text: "chiaro", model: "claude-haiku-4-5" });
+    const created = h.svc.create({ projectId: PID, status: "todo", text: "chiaro", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(called).toBe(false);
@@ -1132,7 +1132,7 @@ describe("priority", () => {
     // wins this tick and priority ordering — not the cap — decides which.
     h.svc.setGlobalCap({ auto: false, max: 1 });
     seedTask(h.db, { id: "old-low", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
-    const urgent = h.svc.create({ projectId: PID, text: "fuoco", priority: 4 });
+    const urgent = h.svc.create({ projectId: PID, status: "todo", text: "fuoco", priority: 4 });
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.task(urgent.id)!.status).toBe("in_progress"); // newer but urgent wins
@@ -1142,14 +1142,14 @@ describe("priority", () => {
   it("kickoff asks the agent to set the priority ONLY when nobody chose one", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
-    const auto = h.svc.create({ projectId: PID, text: "senza priorità" });
+    const auto = h.svc.create({ projectId: PID, status: "todo", text: "senza priorità" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.turns[0].content).toContain("Priorità automatica");
     h.finishTurn(); await flush();
     const h2 = harness();
     h2.svc.updateBoardSettings(PID, { autoDispatch: true });
-    h2.svc.create({ projectId: PID, text: "scelta umana", priority: 3 });
+    h2.svc.create({ projectId: PID, status: "todo", text: "scelta umana", priority: 3 });
     await h2.dispatcher.tick(PID);
     await flush();
     expect(h2.turns[0].content).not.toContain("Priorità automatica");
