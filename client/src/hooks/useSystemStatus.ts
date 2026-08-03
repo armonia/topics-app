@@ -44,7 +44,11 @@ export interface SystemStatus {
       processCount: number;
       memoryMB: number;
       /** Sum of `ps %cpu`; > 100 is normal on a multi-core box. */
+      /** Scala 0-100 dell'INTERA macchina (già diviso per i core lato server),
+       *  non la somma per-core di `ps`. Confrontabile con la CPU di sistema. */
       cpuPercent: number;
+      /** Core logici su cui `cpuPercent` è normalizzato. */
+      cpuCores: number;
       roots: { kind: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number }[];
       supported: boolean;
     };

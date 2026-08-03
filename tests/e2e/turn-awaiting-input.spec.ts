@@ -103,19 +103,19 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
 
     await expect(strip).toHaveAttribute("data-waiting", "true", { timeout: 10_000 });
     await expect(page.getByTestId("turn-phrase").first()).toHaveText("in attesa della tua risposta");
-    // Il cronometro resta, ma cambia MESTIERE: adesso conta da quanto la palla è
-    // nostra, non da quanto è aperto il turno. Era il numero che l'umano ha visto
-    // scorrere durante l'attesa e ha chiamato brutto — non era brutto, contava la
-    // cosa sbagliata. Il totale grezzo resta nel `title`.
+    // Il cronometro resta ma SI FERMA: mostra il lavoro, che durante un'attesa
+    // per costruzione non cresce. Prima contava l'attesa — vero, ma pur sempre
+    // un numero che corre mentre si legge una domanda, e l'umano l'ha chiamato
+    // brutto tre volte. Da quanto aspetta, e il totale grezzo, nel `title`.
     const timer = page.getByTestId("turn-timer").first();
     await expect(timer).toBeVisible();
-    await expect(timer).toHaveAttribute("data-clock", "waiting");
+    await expect(timer).toHaveAttribute("data-clock", "worked");
     await expect(timer).toHaveAttribute("title", /in attesa di te/);
-
-    // Un'attesa vera dura più di un battito del cronometro: qui se ne aspetta
-    // uno, altrimenti il test chiuderebbe la domanda nello stesso secondo in cui
-    // l'ha aperta e misurerebbe zero — cioè niente.
-    await page.waitForTimeout(1_500);
+    // La prova che sta fermo: due letture a due secondi di distanza, stesso
+    // testo. Un cronometro che gira le avrebbe fatte diverse.
+    const primaLettura = await timer.textContent();
+    await page.waitForTimeout(2_200);
+    expect(await timer.textContent()).toBe(primaLettura);
 
     // La domanda si chiude ⇒ il turno riparte davvero, e la striscia deve
     // tornare quella di prima. Senza questo, lo stato d'attesa resterebbe

@@ -7,10 +7,16 @@
  * una cosa da otto secondi. È il numero che l'umano ha visto scorrere e ha
  * chiamato brutto: non era brutto, era falso.
  *
- * Qui si separano. Mentre la domanda è aperta il cronometro conta L'ATTESA — è
- * quello il dato utile in quel momento, «è da sei minuti che aspetta te». Quando
- * il turno riparte torna a contare il lavoro, con le attese sottratte, e il
- * totale grezzo resta nel `title` per chi lo cerca.
+ * Qui si separano — e mentre la domanda è aperta il numero SI FERMA.
+ *
+ * Il primo tentativo lasciava girare il cronometro sull'attesa («è da sei minuti
+ * che aspetta te»), che è vero ma non è quello che serve: un numero che scorre
+ * dice «sta succedendo qualcosa», e mentre la domanda è a schermo non sta
+ * succedendo niente — la palla è dell'umano, e vedere i secondi correre mentre
+ * si legge una domanda mette fretta senza informare. Quindi durante l'attesa il
+ * numero mostrato è il LAVORO, che per costruzione non cresce (ogni millisecondo
+ * nuovo è attesa, e l'attesa si sottrae): resta lì fermo finché non si risponde.
+ * Da quanto aspetta, e il totale grezzo, restano nel `title` per chi li cerca.
  *
  * Modulo puro: prende millisecondi, restituisce millisecondi e una frase. Chi lo
  * chiama tiene i cronometri (`MessageParts.tsx`).
@@ -47,11 +53,15 @@ export function turnClock({ elapsedMs, waitedMs, waitingMs }: TurnClockInput): T
   const workedMs = total - totalWaitedMs;
 
   if (open != null) {
+    // `workedMs` e non `open`: entrambi gli orologi si leggono dallo STESSO
+    // istante, quindi il lavoro qui è una costante (`inizio attesa - inizio
+    // turno - attese precedenti`) e il numero a schermo sta fermo. È la
+    // proprietà che si sta cercando, non un effetto collaterale.
     return {
-      primaryMs: open,
+      primaryMs: workedMs,
       workedMs,
       totalWaitedMs,
-      title: `Ferma da ${formatDurationMs(open)} in attesa di te — turno aperto da ${formatDurationMs(total)}, lavorato ${formatDurationMs(workedMs)}`,
+      title: `Ferma da ${formatDurationMs(open)} in attesa di te — lavorato ${formatDurationMs(workedMs)}, turno aperto da ${formatDurationMs(total)}`,
     };
   }
   if (totalWaitedMs > 0) {

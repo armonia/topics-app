@@ -29,7 +29,13 @@
  * shell's, so the client labels the two separately instead of pretending one sum.
  */
 
+import { cpus } from "node:os";
+
 const isWindows = process.platform === "win32";
+
+/** Core logici della macchina, letti una volta: non cambiano a runtime, e
+ *  `cpus()` è una syscall che non ha senso rifare a ogni campionamento. */
+const CPU_CORES = Math.max(1, cpus().length);
 
 /** Sidecars that hold the server-side fleet. Kept as a closed union so a typo
  *  in a registration site is a type error, not a silently missing 4 GB. */
@@ -65,8 +71,18 @@ export interface FleetUsage {
   processCount: number;
   /** Sum of `ps rss` over the whole fleet, in MB. */
   memoryMB: number;
-  /** Sum of `ps %cpu`; > 100 is normal and correct on a multi-core box. */
+  /** CPU della flotta sulla scala 0-100 dell'INTERA macchina, come la legge
+   *  Monitoraggio Attività — non la somma grezza di `ps %cpu`.
+   *
+   *  `ps` conta per CORE: 100% = un core saturo, e su questa macchina il
+   *  massimo è 1200%. Affiancata alla CPU di sistema (0-100) quella scala si
+   *  legge male: "170%" accanto a un Mac al 30% sembra una contraddizione,
+   *  mentre sono 1,7 core su 12 = il 14% della macchina. Si divide una volta
+   *  qui, alla sorgente, così ogni consumatore parla la stessa lingua.
+   *  `cpuCores` resta esposto per poter risalire al numero per-core. */
   cpuPercent: number;
+  /** Core logici su cui è normalizzato `cpuPercent` (`os.cpus().length`). */
+  cpuCores: number;
   /** Per-root split, so the dropdown can say WHERE the memory is. */
   roots: FleetRootUsage[];
   /** False when the platform has no usable `ps` (Windows) — the client then
@@ -127,6 +143,10 @@ export function summarizeFleet(
   /** CPU % ISTANTANEA di un pid. Assente = si ripiega su `ps pcpu` (media di
    *  vita), che e' cio' che faceva prima e va bene solo come ultima risorsa. */
   instantCpu?: (row: PsRow) => number,
+  /** Core logici su cui normalizzare la CPU. Default 1 = scala `ps` grezza
+   *  (per-core), che è ciò che i test qui sotto verificano; `getFleetUsage`
+   *  passa `os.cpus().length` per restituire la scala 0-100 della macchina. */
+  cpuCores = 1,
 ): Omit<FleetUsage, "supported"> {
   const byPid = new Map<number, PsRow>();
   const children = new Map<number, number[]>();
@@ -136,6 +156,8 @@ export function summarizeFleet(
     if (arr) arr.push(r.pid); else children.set(r.ppid, [r.pid]);
   }
 
+  // Una macchina senza core dichiarati non deve produrre Infinity/NaN.
+  const divisor = cpuCores > 0 ? cpuCores : 1;
   const counted = new Set<number>();
   const rootUsages: FleetRootUsage[] = [];
 
@@ -162,7 +184,9 @@ export function summarizeFleet(
       pid: root.pid,
       processCount: procs,
       memoryMB: Math.round(rssKB / 1024),
-      cpuPercent: Math.round(cpu * 10) / 10,
+      // Normalizzato qui, sul singolo root: il totale è la somma dei root, che
+      // resterebbe per-core se dividessimo solo là.
+      cpuPercent: Math.round((cpu / divisor) * 10) / 10,
     });
   }
 
@@ -170,6 +194,7 @@ export function summarizeFleet(
     processCount: rootUsages.reduce((a, r) => a + r.processCount, 0),
     memoryMB: rootUsages.reduce((a, r) => a + r.memoryMB, 0),
     cpuPercent: Math.round(rootUsages.reduce((a, r) => a + r.cpuPercent, 0) * 10) / 10,
+    cpuCores: divisor,
     roots: rootUsages,
   };
 }
@@ -226,7 +251,7 @@ function finish(
   nowMs: number,
 ): FleetUsage {
   const usage = {
-    ...summarizeFleet(rows, resolveFleetRoots(rows, process.pid), makeInstantCpu(base, nowMs)),
+    ...summarizeFleet(rows, resolveFleetRoots(rows, process.pid), makeInstantCpu(base, nowMs), CPU_CORES),
     supported: true,
   };
   cached = usage;
@@ -235,7 +260,7 @@ function finish(
 }
 
 export async function getFleetUsage(): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, roots: [], supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, roots: [], supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;

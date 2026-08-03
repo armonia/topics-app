@@ -186,19 +186,16 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           </span>
         )}
         <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
-          {/* Real-usage duration: live ticking elapsed while the call is still
-              open — running (the agent is inside the tool) OR waiting on the
-              human, which is just as much elapsed time and used to render
-              nothing at all: `isRunning` was false and `endedAt` unset, so the
-              row silently lost its clock exactly when it mattered most.
-              Settled span once the result lands. Legacy rows without
-              timestamps show nothing. */}
-          {(isRunning || isWaiting) && typeof toolCall.startedAt === 'number' && (
-            <ElapsedTimer
-              since={toolCall.startedAt}
-              tone={isWaiting ? 'text-amber-600 dark:text-amber-400' : undefined}
-              title={isWaiting ? "Da quanto l'agente aspetta la tua risposta" : undefined}
-            />
+          {/* Cronometro vivo SOLO mentre l'agente è davvero dentro al tool.
+              In `waiting_for_input` non gira niente: la palla è dell'umano, e
+              un contatore che scorre mentre si legge una domanda mette fretta
+              senza dire niente di nuovo (l'attesa la annuncia già il cerchietto
+              ambra qui accanto, col suo titolo). Stessa scelta del cronometro
+              del turno, che durante l'attesa mostra il lavoro e sta fermo.
+              Durata definitiva una volta che il risultato è arrivato; le righe
+              vecchie senza timestamp non mostrano niente. */}
+          {isRunning && typeof toolCall.startedAt === 'number' && (
+            <ElapsedTimer since={toolCall.startedAt} />
           )}
           {!isRunning && !isWaiting && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
             <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-duration">
@@ -218,7 +215,17 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               the user. Show a help-circle accent instead, matching the
               banner inside the form. Falls back to spinner for the
               pending/running cases that still mean the agent is busy. */}
-          {isWaiting && <HelpCircle size={11} className="text-amber-500" />}
+          {isWaiting && (
+            <HelpCircle
+              size={11}
+              className="text-amber-500"
+              // Niente durata qui: senza un tick la si scriverebbe una volta e
+              // resterebbe ferma su un valore vecchio — un numero sbagliato è
+              // peggio di nessun numero. Da quanto aspetta lo dice il titolo del
+              // cronometro del turno, che un tick ce l'ha.
+              aria-label="In attesa della tua risposta"
+            />
+          )}
           {isRunning && <Loader2 size={11} className="animate-spin text-primary" />}
           {status === 'success' && <Check size={11} className="text-green-500" />}
           {status === 'error' && <X size={11} className="text-red-500" />}
