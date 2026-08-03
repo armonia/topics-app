@@ -92,6 +92,7 @@ import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
+import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -2211,7 +2212,9 @@ function finalizeOrphanedRunningTools() {
       `SELECT id, content, tool_calls, blocks FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0 AND (
          tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
-         OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%')`
+         OR tool_calls LIKE '%"status":"waiting_for_input"%'
+         OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%'
+         OR blocks LIKE '%"status":"waiting_for_input"%')`
     ).all() as Array<{ id: string; content: string | null; tool_calls: string | null; blocks: string | null }>;
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
@@ -2223,6 +2226,18 @@ function finalizeOrphanedRunningTools() {
         tc.status = "error";
         if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
         if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
+        tools++;
+        return true;
+      }
+      // Una domanda rimasta a schermo su un turno GIÀ chiuso (`partial = 0`,
+      // vedi la query) è un pannello cliccabile che non consegna più niente:
+      // il rendez-vous vive in memoria e questo processo è appena partito.
+      // I turni ripresi dopo un riavvio non passano di qui — il loro messaggio
+      // è ancora `partial = 1` e la prima gamba di poll riapre l'ask da sola.
+      if (tc && tc.status === "waiting_for_input") {
+        tc.status = "error";
+        if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
+        if (!tc.error) tc.error = "Interrotto: la sessione si è chiusa mentre la domanda era a schermo";
         tools++;
         return true;
       }
@@ -2299,6 +2314,38 @@ const staleStreamTimer = setInterval(() => {
     if (!partial || partial.partial !== true) {
       activeStreams.delete(sessionKey);
       continue;
+    }
+    // Un turno fermo su una domanda all'umano è silenzioso PER DESIGN: il
+    // figlio è bloccato sulla risposta JSON-RPC del bridge e non produce un
+    // byte finché nessuno clicca. Questo sweeper contava quel silenzio come
+    // morte e a 3 minuti chiudeva il turno con "nessuna attività per 3 minuti"
+    // — lasciando però il pannello cliccabile, perché `endStream` finalizza i
+    // tool 'running' e non i `waiting_for_input`. Risultato osservato su
+    // topic:ed2070df: una domanda a schermo da 22 minuti accanto a un bottone
+    // Retry, cioè un pannello vivo su un turno che non esisteva più.
+    //
+    // Il watchdog del provider (claude-code.ts, 30 min) ha già esattamente
+    // questa esenzione; qui mancava. L'esenzione è a tempo — l'età della
+    // domanda, non un "per sempre" — e vale solo finché il provider giura che
+    // il figlio è VIVO: se muore mentre il pannello è su, nessuna gamba di
+    // poll arriva più e niente, dentro il bridge, se ne accorgerebbe.
+    const askAge = pendingAskAgeMs(sessionKey);
+    if (askAge !== null) {
+      const askProv = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
+      const verdict = pendingAskVerdict({
+        askAgeMs: askAge,
+        askTtlMs: ASK_TTL_MS,
+        childAlive: askProv?.isTurnProcessAlive?.(sessionKey),
+      });
+      if (verdict === "defer") {
+        ctx.updateStreamActivity(sessionKey);
+        continue;
+      }
+      // La domanda non è più onorabile (figlio morto sotto il pannello, o TTL
+      // scaduto): chiudila — così chi è bloccato fallisce pulito — e lascia
+      // che il turno venga finalizzato qui sotto come ogni altro stream morto.
+      console.warn(`[StaleStream] ${sessionKey} aveva una domanda a schermo non più onorabile — chiudo l'ask e finalizzo`);
+      cancelAsk(sessionKey, "il processo del turno è morto mentre la domanda era a schermo");
     }
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
