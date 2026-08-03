@@ -54,7 +54,12 @@ export type ParkRefusal =
   | "watched"
   | "phase-active"
   | "idle-unknown"
-  | "too-recent";
+  | "too-recent"
+  // Deciso dal chiamante, non da `decidePark`: un sotto-agente lo governa il suo
+  // orchestratore. Sta nell'union perche' finisce nella stessa lista di rifiuti,
+  // e un motivo che non ha etichetta e' un motivo che il log stampa come
+  // `undefined`.
+  | "sub-agent";
 
 /**
  * Le fasi in cui un turno è VIVO. Parcheggiare qui è il guasto già successo.
@@ -104,7 +109,28 @@ export function refusalLabel(reason: ParkRefusal): string {
     case "phase-active": return "turno in corso";
     case "idle-unknown": return "inattivita' non misurata";
     case "too-recent": return "ferma da troppo poco";
+    case "sub-agent": return "sotto-agente (lo governa l'orchestratore)";
   }
+}
+
+/**
+ * Il riepilogo in prosa di una passata di parcheggio: «3 non parcheggiate — 2
+ * turno in corso, 1 qualcuno la sta guardando».
+ *
+ * Aggrega per MOTIVO invece di elencare le sessioni: la riga resta lunga uguale
+ * con tre PTY o con trenta, ed e' la forma che si puo' lasciare accesa. Senza,
+ * i motivi esistevano solo come stringhe dentro un array di ritorno che nessuno
+ * stampava — e una passata che non parcheggia niente sembrava indistinguibile da
+ * una passata che non ha nemmeno guardato.
+ */
+export function summarizeRefusals(skipped: ReadonlyArray<{ reason: ParkRefusal }>): string {
+  if (skipped.length === 0) return "";
+  const perMotivo = new Map<ParkRefusal, number>();
+  for (const s of skipped) perMotivo.set(s.reason, (perMotivo.get(s.reason) ?? 0) + 1);
+  const voci = [...perMotivo.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => `${n} ${refusalLabel(reason)}`);
+  return `${skipped.length} non parcheggiate — ${voci.join(", ")}`;
 }
 
 /**

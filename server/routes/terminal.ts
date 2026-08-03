@@ -18,7 +18,8 @@ import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/op
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket } from "../lib/fleet-usage";
-import { decidePark, idleParkThresholdMs } from "../lib/terminal-idle-park";
+import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
+import type { ParkRefusal } from "../lib/terminal-idle-park";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -1875,7 +1876,10 @@ export interface ParkSweepResult {
 
 export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
   const parked: string[] = [];
-  const skipped: Array<{ id: string; reason: string }> = [];
+  // `ParkRefusal` e non `string`: il motivo finisce in un log che lo traduce in
+  // prosa (`refusalLabel`), e con `string` un motivo nuovo scritto a mano si
+  // stamperebbe come `undefined` invece di rompere la compilazione.
+  const skipped: Array<{ id: string; reason: ParkRefusal }> = [];
   for (const [id, s] of sessions) {
     const activity = terminalActivity.get(id);
     const phase = s.claudeSessionId ? (_tracker?.getSession(s.claudeSessionId)?.phase ?? null) : null;
@@ -1919,6 +1923,13 @@ export function parkIdleClaudeSessions(thresholdMs: number): ParkSweepResult {
     // — lo fa il percorso di uscita quando il bridge conferma la morte della
     // PTY. Non lo si anticipa qui: due strade che scrivono lo stesso stato sono
     // due strade che possono divergere.
+  }
+  // Una passata che non parcheggia niente deve dire PERCHE'. I motivi c'erano
+  // gia' — raccolti in `skipped` e restituiti — ma vivevano solo come stringhe
+  // in un valore di ritorno che nessuno stampava: dal log, «non ha parcheggiato»
+  // e «non ha nemmeno guardato» erano la stessa cosa.
+  if (skipped.length > 0) {
+    console.log(`[Terminal] Passata di parcheggio: ${summarizeRefusals(skipped)}.`);
   }
   return { parked, skipped };
 }

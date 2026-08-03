@@ -21,6 +21,16 @@ export interface SystemStatus {
      *  self-reload on each rebuild. Drives the quiet "auto-update" badge. */
     devReload?: boolean;
     /**
+     * I modelli visti girare e NON presenti nella tabella prezzi del server.
+     *
+     * I loro turni vengono contati a costo ZERO, che e' indistinguibile da «non
+     * e' costato niente»: e' la stessa forma di guasto che ha tenuto ogni Opus
+     * tariffato al triplo per mesi senza che niente lo dicesse. Un modello nuovo
+     * non e' un errore — ma deve VEDERSI, o il totale della spesa mente in
+     * silenzio. Vuoto/assente = tutto tariffato.
+     */
+    unpricedModels?: string[];
+    /**
      * The WHOLE server side: this process plus the detached sidecars (pty-bridge,
      * ai-bridge, WebRTC) and every process under them — the `claude` CLIs, MCP
      * servers and headless Chromes that hold most of Topics' RAM. `memoryMB`
