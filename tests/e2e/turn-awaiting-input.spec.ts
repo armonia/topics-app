@@ -103,8 +103,19 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
 
     await expect(strip).toHaveAttribute("data-waiting", "true", { timeout: 10_000 });
     await expect(page.getByTestId("turn-phrase").first()).toHaveText("in attesa della tua risposta");
-    // Il cronometro resta: quanto dura il turno è vero anche mentre aspetta noi.
-    await expect(page.getByTestId("turn-timer").first()).toBeVisible();
+    // Il cronometro resta, ma cambia MESTIERE: adesso conta da quanto la palla è
+    // nostra, non da quanto è aperto il turno. Era il numero che l'umano ha visto
+    // scorrere durante l'attesa e ha chiamato brutto — non era brutto, contava la
+    // cosa sbagliata. Il totale grezzo resta nel `title`.
+    const timer = page.getByTestId("turn-timer").first();
+    await expect(timer).toBeVisible();
+    await expect(timer).toHaveAttribute("data-clock", "waiting");
+    await expect(timer).toHaveAttribute("title", /in attesa di te/);
+
+    // Un'attesa vera dura più di un battito del cronometro: qui se ne aspetta
+    // uno, altrimenti il test chiuderebbe la domanda nello stesso secondo in cui
+    // l'ha aperta e misurerebbe zero — cioè niente.
+    await page.waitForTimeout(1_500);
 
     // La domanda si chiude ⇒ il turno riparte davvero, e la striscia deve
     // tornare quella di prima. Senza questo, lo stato d'attesa resterebbe
@@ -119,5 +130,10 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     });
     await expect(strip).not.toHaveAttribute("data-waiting", "true", { timeout: 10_000 });
     await expect(page.getByTestId("turn-phrase").first()).not.toHaveText("in attesa della tua risposta");
+    // A domanda chiusa il cronometro torna a contare il LAVORO, con l'attesa
+    // sottratta: il tempo che ci ha messo l'umano non diventa merito o colpa
+    // dell'agente.
+    await expect(timer).toHaveAttribute("data-clock", "worked");
+    await expect(timer).toHaveAttribute("title", /Lavorato/);
   });
 });
