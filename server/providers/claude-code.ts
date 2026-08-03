@@ -27,6 +27,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
+import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -51,6 +52,33 @@ const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
 const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000;      // 2 hours
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
+
+/**
+ * Should the turn watchdog give up on this turn, or wait longer?
+ *
+ * Pulled out of the timer callback so the rule is testable without spawning a
+ * CLI: the callback only owes it `setTimeout`.
+ *
+ * The watchdog measures SILENCE, not elapsed time — a turn that keeps streaming
+ * is never killed however long it runs. The one silence that is legitimate is a
+ * pending `mcp__topics__ask_user_question`: the CLI is blocked on the bridge's
+ * JSON-RPC response and streams nothing BY DESIGN until the human clicks the
+ * panel, so the idle clock is measuring the human's thinking time. Counting
+ * that as a wedged child would kill a perfectly healthy turn 30 min after the
+ * question appeared — well inside "answered it after lunch". The ask carries
+ * its own (long) timeout and `cancelAsk` unblocks it on abort, so deferring
+ * here cannot hang forever.
+ */
+export function turnWatchdogDecision(opts: {
+  pendingAsk: boolean;
+  idleMs: number;
+  windowMs: number;
+}): { action: "reject" } | { action: "rearm"; delayMs: number } {
+  if (opts.pendingAsk) return { action: "rearm", delayMs: opts.windowMs };
+  const remaining = opts.windowMs - opts.idleMs;
+  if (remaining <= 0) return { action: "reject" };
+  return { action: "rearm", delayMs: remaining };
+}
 const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
 // Heartbeat (Fix B in stream-timeout-resilience):
 //   Re-emit `onSubAgentUpdate` snapshots when the provider has gone quiet
@@ -1166,15 +1194,27 @@ export class ClaudeCodeProvider implements AIProvider {
     // exact "chat stuck/dead before reaching the end" class. Self-reschedules
     // for the time remaining until 30 min of continuous silence; the handle is
     // cleared on settle so an active session never accumulates pending timers.
+    //
+    // ONE silence is legitimate and must not count: a pending
+    // `mcp__topics__ask_user_question`. The CLI is then blocked on the bridge's
+    // JSON-RPC response — by design it streams nothing until the human clicks
+    // the panel, so the idle clock measures the HUMAN's thinking time, not a
+    // wedged child. Without this exemption the watchdog would kill a perfectly
+    // healthy turn 30 min after the question appeared, which is well within
+    // "answered it after lunch".
     let messageTimeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       const arm = () => {
-        const remaining = MESSAGE_TIMEOUT_MS - (Date.now() - pp.lastEventAt);
-        if (remaining <= 0) {
+        const d = turnWatchdogDecision({
+          pendingAsk: hasPendingAsk(sessionKey),
+          idleMs: Date.now() - pp.lastEventAt,
+          windowMs: MESSAGE_TIMEOUT_MS,
+        });
+        if (d.action === "reject") {
           reject(new Error("TIMEOUT"));
           return;
         }
-        messageTimeout = setTimeout(arm, remaining);
+        messageTimeout = setTimeout(arm, d.delayMs);
       };
       messageTimeout = setTimeout(arm, MESSAGE_TIMEOUT_MS);
     });
