@@ -483,6 +483,16 @@ export interface AIProvider {
     toolCallId: string,
     response: import("../../shared/types").ToolUserResponse,
   ): Promise<void>;
+  /**
+   * Drop a pending user-input entry WITHOUT writing to stdin. Used when the
+   * answer is delivered out-of-band — i.e. the Topics MCP bridge tool
+   * (`mcp__topics__ask_user_question`), whose result returns through the
+   * bridge's own JSON-RPC response, not through a `tool_result` line. The
+   * route still needs the provider to forget the pending entry so a reattach
+   * REPLAY doesn't re-surface a form for an already-answered question.
+   * Returns true if an entry existed and was cleared.
+   */
+  clearPendingInput?(sessionKey: string, toolCallId: string): boolean;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;

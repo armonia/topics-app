@@ -35,6 +35,30 @@ describe("detectUserInputRequest — AskUserQuestion happy path", () => {
     });
   });
 
+  test("the Topics MCP bridge tool maps to the SAME questions panel", () => {
+    // The CLI drops built-in AskUserQuestion in headless mode, so Topics
+    // re-exposes it as mcp__topics__ask_user_question with an identical input
+    // shape. The detector must route it through kind=questions, not the
+    // generic mcp__ elicitation branch (which would render typed fields).
+    const result = detectUserInputRequest({
+      name: "mcp__topics__ask_user_question",
+      input: {
+        questions: [
+          {
+            question: "Tema?",
+            header: "Tema",
+            options: [{ label: "Chiaro" }, { label: "Scuro" }],
+          },
+        ],
+      },
+    });
+    expect(result?.kind).toBe("questions");
+    if (result?.kind === "questions") {
+      expect(result.questions[0].question).toBe("Tema?");
+      expect(result.questions[0].options).toHaveLength(2);
+    }
+  });
+
   test("propagates multiSelect when truthy", () => {
     const result = detectUserInputRequest({
       name: "AskUserQuestion",

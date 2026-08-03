@@ -58,7 +58,10 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           so the column FRAME reaches the bottom of the pane, while a full column's
           last card can still scroll clear of the floating "Descrivi un task" box.
           On a short column it is invisible slack below the already-empty area. */}
-      <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-16">
+      {/* scrollbar-standard keeps the app's standard thin hover scrollbar as the
+          single indicator and zeroes the legacy ::-webkit-scrollbar, so the
+          native bar no longer renders ON TOP of it (the "double bar" on hover). */}
+      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pb-16 scrollbar-standard">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card

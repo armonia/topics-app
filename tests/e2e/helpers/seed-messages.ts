@@ -10,6 +10,10 @@ export interface SeedToolCall {
   status?: "pending" | "running" | "success" | "error" | "waiting_for_input";
   result?: string;
   error?: string;
+  /** Persisted verbatim by the seed endpoint. With status "waiting_for_input"
+   *  this drives the clickable <ToolInputForm> panel on load (AskUserQuestion /
+   *  the mcp__topics__ask_user_question bridge tool). */
+  userInputSchema?: unknown;
   contentOffset?: number;
   /** Real-usage window bounds (epoch ms) — drive duration rendering. */
   startedAt?: number;

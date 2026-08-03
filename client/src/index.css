@@ -22,6 +22,19 @@
   &::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 }
 
+/* Column scroll body — keep the app's STANDARD thin hover scrollbar (the global
+   `*` rules below) as the single indicator, and zero out the legacy
+   `::-webkit-scrollbar` so dual-render engines (macOS "show scrollbars while
+   scrolling") don't paint a SECOND native bar over it. `!important` is needed
+   because the global `::-webkit-scrollbar { width: 4px }` (further down) is
+   UNLAYERED and would otherwise beat this layered utility. Not `scrollbar-width:
+   none`: on engines where `scrollbar-width` wins over the webkit pseudo, `none`
+   would leave the column with NO indicator at all. */
+@utility scrollbar-standard {
+  scrollbar-width: thin;
+  &::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+}
+
 /* Topbar tabs — fully hidden by default, ghost 3px thumb only on direct hover */
 @utility scrollbar-topbar {
   scrollbar-width: none;
