@@ -118,6 +118,7 @@ const TOOLS = [
         domains: { type: "array", items: { type: "string" }, description: 'Hostnames to import cookies for, e.g. ["youtube.com","github.com"]. Required unless dry_run is true.' },
         dry_run: { type: "boolean", description: "If true, only list importable hosts + counts (no Keychain prompt, no values)." },
         profile: { type: "string", description: "Chrome profile directory name (default 'Default')." },
+        browser: { type: "string", enum: ["chrome", "dia", "arc", "chromium"], description: "Which Chromium-family browser to read cookies from (default 'chrome'). Use this when the user is signed in on a different browser — e.g. Dia." },
       },
       required: [],
     },
@@ -621,14 +622,15 @@ export async function callFocusBrowserTab(
 
 export async function callImportChrome(
   args: ParsedArgs,
-  toolArgs: { domains?: unknown; profile?: unknown; dry_run?: unknown },
+  toolArgs: { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   const domains = Array.isArray(toolArgs?.domains) ? toolArgs.domains.map(String) : [];
   const profile = typeof toolArgs?.profile === "string" ? toolArgs.profile : undefined;
   const dryRun = !!toolArgs?.dry_run;
+  const browser = typeof toolArgs?.browser === "string" ? toolArgs.browser : undefined;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/import-chrome`;
-  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { domains, profile, dry_run: dryRun }, fetchImpl);
+  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { domains, profile, dry_run: dryRun, browser }, fetchImpl);
   return JSON.stringify(body ?? {}, null, 2);
 }
 
@@ -1345,7 +1347,7 @@ const TOOL_HANDLERS: Record<
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),
   browser_focus_tab: (a, t) => callFocusBrowserTab(a, t as { contextId?: unknown }),
-  import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
+  import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),

@@ -124,17 +124,19 @@ export async function nativeStateOp(
   // gate. dry_run never touches the Keychain.
   const domains = Array.isArray(args?.domains) ? (args.domains as unknown[]).map(String) : [];
   const profile = typeof args?.profile === "string" && args.profile ? args.profile : "Default";
+  // Which Chromium-family browser to read the store from (chrome when absent).
+  const browser = typeof args?.browser === "string" ? args.browser : undefined;
   if (args?.dry_run) {
-    return (deps.listChromeHosts ?? listChromeCookieHosts)({ domains, profile });
+    return (deps.listChromeHosts ?? listChromeCookieHosts)({ domains, profile, browser });
   }
   if (!domains.length) {
     throw new Error(
       'browser_import_chrome: "domains" (non-empty array) is required, e.g. ["youtube.com"]. Use dry_run:true to list importable hosts first.'
     );
   }
-  console.log(`[BrowserTools] browser_import_chrome(${contextId}, domains=${domains.join(",")}) [native]`);
-  const { cookies, decrypted, decryptFailed, skippedEmpty, appBoundEncrypted, profile: p } =
-    await (deps.decryptChrome ?? decryptChromeCookies)({ domains, profile });
+  console.log(`[BrowserTools] browser_import_chrome(${contextId}, browser=${browser ?? "chrome"}, domains=${domains.join(",")}) [native]`);
+  const { cookies, decrypted, decryptFailed, skippedEmpty, appBoundEncrypted, profile: p, browser: b } =
+    await (deps.decryptChrome ?? decryptChromeCookies)({ domains, profile, browser });
   if (!cookies.length) {
     return { ok: true, imported: 0, note: "no matching cookies (none found, all expired, or App-Bound encrypted)", appBoundEncrypted };
   }
@@ -145,6 +147,7 @@ export async function nativeStateOp(
   const injected = (res as { imported?: unknown } | null)?.imported;
   const out: Record<string, unknown> = {
     ok: true,
+    browser: b,
     profile: p,
     imported: typeof injected === "number" ? injected : decrypted,
     decryptFailed,
