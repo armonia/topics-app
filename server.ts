@@ -1897,7 +1897,28 @@ const server = Bun.serve<WSData>({
             (m) => { try { ws.send(JSON.stringify(m)); } catch {} },
             nativeDelegateRegistry,
             ws, // owner — lets unregister() skip stale-socket cleanups after a re-register
+            // Liveness del proprietario corrente: e' cio' che distingue una
+            // RICONNESSIONE (socket vecchio gia' chiuso -> subentro lecito) da un
+            // DIROTTAMENTO (un secondo processo locale che si registra sul
+            // contextId di una pane ancora servita, e ne intercetterebbe le
+            // tool-call, browser_load_state compreso).
+            () => ws.readyState === 1 /* OPEN */,
           );
+          if (delegated === 'rejected') {
+            // Un esecutore vivo serve gia' questo contextId. Dirlo al socket e
+            // chiuderlo: un client che si crede registrato e non lo e' resterebbe
+            // in attesa di tool-call che non arriveranno mai, e la diagnosi
+            // sarebbe "il browser non risponde" invece di "sei il secondo".
+            try {
+              ws.send(JSON.stringify({
+                type: "register_native_executor_rejected",
+                contextId: ctxId,
+                reason: "un esecutore nativo vivo serve gia' questo contextId",
+              }));
+            } catch { /* socket gia' andato */ }
+            try { ws.close(1008, "native executor already registered"); } catch {}
+            return;
+          }
           if (delegated === 'registered') {
             // A native pane runs ops itself — it never views server frames, so tear
             // down the screencast the open handler auto-started (no wasted headless
