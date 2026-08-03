@@ -10,6 +10,7 @@ import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
+import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import {
   claimHead as claimQueuedTurn,
   decideSend,
@@ -1803,6 +1804,36 @@ export function useChat() {
    * altro posto (`state/chatQueue.ts` → `decideSend`).
    */
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+    // Una domanda a schermo si risponde anche SCRIVENDO, non solo dal pannello.
+    //
+    // Il turno parcheggiato su un ask resta "in volo": `/api/chat` risponde 409
+    // e il ramo qui sotto accoderebbe: il messaggio aspetterebbe la fine di un
+    // turno che finisce solo rispondendo. Lo stallo dura fino allo scadere
+    // dell'ask (90 min) o a uno «ferma» — e nel frattempo l'umano crede di aver
+    // risposto. Qui il testo prende la strada del pannello (`tool-response`),
+    // che è la strada che sblocca davvero il turno.
+    //
+    // `answerFromText` dice di no quando la domanda ha una forma che la prosa
+    // non riempie (domande multiple, elicitation): lì si torna al giro normale
+    // e il pannello resta l'unica strada, come prima.
+    const ask = findPendingAsk(messagesRef.current[sessionKey]);
+    const answer = ask ? answerFromText(ask, content) : null;
+    if (ask && answer) {
+      try {
+        await chatApi.toolResponse(sessionKey, ask.toolCallId, answer);
+        return true;
+      } catch (e) {
+        // 404 = qualcuno ha già risposto (l'altra finestra, o il pannello):
+        // il turno è ripartito, quindi il testo è un messaggio normale e
+        // prosegue per la sua strada. Gli altri errori li vede l'umano.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/no pending input/i.test(msg)) {
+          setError(`Risposta non consegnata: ${msg}`);
+          return false;
+        }
+      }
+    }
+
     const busy = isSendLocked(sessionKey) || !!streamingRef.current[sessionKey];
     const decision = decideSend({ busy, queued: getTurnQueue(sessionKey).length });
 
