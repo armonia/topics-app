@@ -79,6 +79,9 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
           name: "mcp__topics__ask_user_question",
           args: { questions: [{ question, header: "Scelta", options }] },
           status: "waiting_for_input",
+          // Il turno è partito qualche secondo fa: la riga deve mostrare da
+          // quanto l'agente aspetta (vedi il test sull'orologio più sotto).
+          startedAt: Date.now() - 4_000,
           // Persisted verbatim → drives the clickable panel on load.
           userInputSchema: {
             kind: "questions",
@@ -150,6 +153,22 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await expect(form.getByText("JWT")).toBeVisible();
     // The always-present "Other" free-text escape hatch.
     await expect(form.getByText("Other")).toBeVisible();
+
+    // La riga NON smette di essere una riga di tool solo perché aspetta: il
+    // suo orologio continua a girare, ed è la cosa più utile che possa dire
+    // ("l'agente è fermo su di te da tot"). Prima mostrava il nulla — né il
+    // cronometro (`isRunning` è falso) né la durata finale (`endedAt` non
+    // c'è ancora).
+    const row = page.locator(`[data-testid="tool-call-row-${toolCallId}"]`);
+    const elapsed = row.locator('[data-testid="tool-elapsed"]');
+    await expect(elapsed).toBeVisible({ timeout: 5_000 });
+    await expect(elapsed).toHaveText(/\d/);
+
+    // E il testo su cui l'umano deve DECIDERE è grande come il corpo della
+    // chat, non come il chrome del log: la domanda a 13px, non a 11.
+    const legend = form.locator("legend").first();
+    await expect(legend).toHaveCSS("font-size", "13px");
+    await expect(form.locator("label").first()).toHaveCSS("font-size", "13px");
 
     // Un umano legge prima di scegliere: qui è anche il tempo che rende il
     // video guardabile, e attraversa più di una gamba di poll del bridge.

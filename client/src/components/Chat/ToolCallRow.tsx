@@ -9,11 +9,17 @@ import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGr
 import { chatApi } from '../../lib/api';
 
 /**
- * Live elapsed readout for a running call — ticks every second from `since`.
- * The "hot" signal that the agent is actually inside this tool. Hidden for
- * the first ~second so instant tools don't blink a "0.9s" in and out.
+ * Live elapsed readout for a call that hasn't settled — ticks every second
+ * from `since`. The "hot" signal that time is really passing inside this
+ * tool. Hidden for the first ~second so instant tools don't blink a "0.9s"
+ * in and out.
+ *
+ * It also runs while the tool is `waiting_for_input`: there the clock is
+ * measuring the HUMAN, and that number is the most useful thing in the row
+ * ("this agent has been blocked on me for 4m"). `tone` recolours it so the
+ * two readings aren't confused.
  */
-export function ElapsedTimer({ since }: { since: number }) {
+export function ElapsedTimer({ since, tone, title }: { since: number; tone?: string; title?: string }) {
   // Elapsed lives in state and is advanced by the interval — render stays
   // pure (no Date.now() during render, react-hooks/purity).
   const [ms, setMs] = useState(0);
@@ -25,7 +31,11 @@ export function ElapsedTimer({ since }: { since: number }) {
   }, [since]);
   if (ms < 900) return null;
   return (
-    <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-elapsed">
+    <span
+      className={`text-[10px] tabular-nums ${tone ?? 'text-app-text-muted'}`}
+      data-testid="tool-elapsed"
+      title={title}
+    >
       {formatDurationMs(ms)}
     </span>
   );
@@ -87,6 +97,15 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const isRunning = status === 'pending' || status === 'running';
   const isWaiting = status === 'waiting_for_input';
   const isError = status === 'error';
+
+  // True when the whole point of the call is the question — the SDK's
+  // `AskUserQuestion` or its Topics MCP bridge twin (see
+  // server/providers/ask-user-detector.ts, which matches the same two names).
+  // For those the args and the form are the same content, so the row shows
+  // the form alone; every other suspended tool keeps its card too.
+  const askIsTheWholeCall =
+    toolCall.userInputSchema?.kind === 'questions' &&
+    (toolCall.name === 'AskUserQuestion' || toolCall.name.endsWith('__ask_user_question'));
 
   // Auto-open rows that NEED to be open: sub-agent (action log is the
   // primary signal), waiting_for_input (the form is the row's whole
@@ -167,13 +186,21 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           </span>
         )}
         <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
-          {/* Real-usage duration: live ticking elapsed while running (the
-              "hot" signal the agent is inside this tool), settled span once
-              the result lands. Legacy rows without timestamps show nothing. */}
-          {isRunning && typeof toolCall.startedAt === 'number' && (
-            <ElapsedTimer since={toolCall.startedAt} />
+          {/* Real-usage duration: live ticking elapsed while the call is still
+              open — running (the agent is inside the tool) OR waiting on the
+              human, which is just as much elapsed time and used to render
+              nothing at all: `isRunning` was false and `endedAt` unset, so the
+              row silently lost its clock exactly when it mattered most.
+              Settled span once the result lands. Legacy rows without
+              timestamps show nothing. */}
+          {(isRunning || isWaiting) && typeof toolCall.startedAt === 'number' && (
+            <ElapsedTimer
+              since={toolCall.startedAt}
+              tone={isWaiting ? 'text-amber-600 dark:text-amber-400' : undefined}
+              title={isWaiting ? "Da quanto l'agente aspetta la tua risposta" : undefined}
+            />
           )}
-          {!isRunning && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
+          {!isRunning && !isWaiting && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
             <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
@@ -201,9 +228,15 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking
               the user, the regular ToolCardBody (args/result preview) is
-              not the primary signal — the form is. We still render the
-              args summary above for context. */}
+              not the primary signal — the form is. But it isn't a REPLACEMENT
+              either: a tool that suspends mid-work (an MCP elicitation raised
+              from inside a real call) still needs its usual card, because
+              those args are the context you answer FROM. The single exception
+              is the ask tool itself — its args *are* the questions, so echoing
+              them above the radios would just say everything twice. */}
           {isWaiting && toolCall.userInputSchema && sessionKey ? (
+            <>
+            {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} />}
             <ToolInputForm
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
@@ -216,6 +249,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
                 await chatApi.toolResponse(sessionKey, toolCall.id, response);
               }}
             />
+            </>
           ) : isWaiting && !sessionKey ? (
             <div className="text-[11px] text-amber-600 bg-amber-500/10 rounded px-2 py-1">
               The agent is asking for input but this view has no session context. Reload to answer.

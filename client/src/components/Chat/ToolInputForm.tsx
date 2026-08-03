@@ -168,31 +168,36 @@ function QuestionsForm({
         for (const q of questions) resolved[q.question] = resolveAnswerFor(q);
         onSubmit({ kind: 'questions', answers: resolved, submittedAt: '' });
       }}
-      className="space-y-3 bg-app-hover/30 rounded-md px-3 py-2.5 mt-1.5"
+      className="space-y-3 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>L'agente attende la tua risposta</span>
       </div>
       {questions.map((q, qIdx) => {
         const inputType = q.multiSelect ? 'checkbox' : 'radio';
         return (
-        <fieldset key={`${toolCallId}-q-${qIdx}`} className="space-y-1">
-          <legend className="text-[11px] font-medium text-app-text">
+        <fieldset key={`${toolCallId}-q-${qIdx}`} className="space-y-1.5">
+          {/* Type scale: the question and its options are the CHAT's content —
+              something to read and act on — so they sit at the message body
+              size (13px, see MessageBubble), not at the 10-11px log chrome the
+              surrounding tool row uses. Only the eyebrow/header/hint stay
+              small, because those are labels about the content, not content. */}
+          <legend className="text-[13px] leading-snug font-medium text-app-text">
             {q.question}
             {q.header && (
-              <span className="ml-2 text-[11px] uppercase tracking-wide text-app-text-muted">
+              <span className="ml-2 text-[10.5px] uppercase tracking-wide text-app-text-muted">
                 {q.header}
               </span>
             )}
             {q.multiSelect && (
-              <span className="ml-2 text-[10px] normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
+              <span className="ml-2 text-[10.5px] normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
             )}
           </legend>
-          <div className="space-y-0.5 pl-1">
+          <div className="space-y-0.5">
             {q.options.map((opt, oIdx) => (
-              <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-[11px] cursor-pointer hover:bg-app-hover rounded px-1 py-0.5">
+              <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
                 <input
                   type={inputType}
                   name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
@@ -200,18 +205,20 @@ function QuestionsForm({
                   checked={picked(q.question, opt.label)}
                   onChange={() => toggle(q, opt.label)}
                   disabled={submitting}
-                  className="mt-0.5"
+                  className="mt-[3px]"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-app-text">{opt.label}</div>
+                  {/* Wraps instead of truncating: the description is often the
+                      only thing that distinguishes two options. */}
                   {opt.description && (
-                    <div className="text-[11px] text-app-text-muted truncate">{opt.description}</div>
+                    <div className="text-[12px] leading-snug text-app-text-muted">{opt.description}</div>
                   )}
                 </div>
               </label>
             ))}
             {/* "Other" — always available; mirrors the SDK contract. */}
-            <label className="flex items-start gap-2 text-[11px] cursor-pointer hover:bg-app-hover rounded px-1 py-0.5">
+            <label className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
               <input
                 type={inputType}
                 name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
@@ -219,7 +226,7 @@ function QuestionsForm({
                 checked={picked(q.question, OTHER)}
                 onChange={() => toggle(q, OTHER)}
                 disabled={submitting}
-                className="mt-0.5"
+                className="mt-[3px]"
               />
               <div className="flex-1 min-w-0">
                 <div className="text-app-text">Other</div>
@@ -230,7 +237,7 @@ function QuestionsForm({
                     disabled={submitting}
                     rows={2}
                     placeholder="Type your answer…"
-                    className="mt-1 w-full text-[11px] bg-surface border border-app-border rounded px-2 py-1 resize-none"
+                    className="mt-1 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
                   />
                 )}
               </div>
@@ -240,15 +247,15 @@ function QuestionsForm({
         );
       })}
       {error && (
-        <div className="text-[11px] text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
+        <div className="text-[12px] text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
       <div className="flex justify-end">
         <button
           type="submit"
           disabled={!allAnswered || submitting}
-          className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
-          {submitting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? 'Sending…' : 'Send'}
         </button>
       </div>
@@ -285,21 +292,21 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
           catch { parsed = jsonText; /* fall back to raw string */ }
           onSubmit(parsed);
         }}
-        className="space-y-2 bg-app-hover/30 rounded-md px-3 py-2.5 mt-1.5"
+        className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       >
-        {message && <div className="text-[11px] text-app-text-muted">{message}</div>}
+        {message && <div className="text-[13px] leading-snug text-app-text">{message}</div>}
         <textarea
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           disabled={submitting}
           rows={4}
           placeholder="JSON value (or plain text)…"
-          className="w-full text-[11px] font-mono bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+          className="w-full text-[12.5px] font-mono bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
         />
-        {error && <div className="text-[11px] text-red-500">{error}</div>}
+        {error && <div className="text-[12px] text-red-500">{error}</div>}
         <div className="flex justify-end">
-          <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-            {submitting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+          <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+            {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
             {submitting ? 'Sending…' : 'Send'}
           </button>
         </div>
@@ -321,12 +328,12 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
         if (!allRequiredFilled || submitting) return;
         onSubmit(values);
       }}
-      className="space-y-2 bg-app-hover/30 rounded-md px-3 py-2.5 mt-1.5"
+      className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      {message && <div className="text-[11px] text-app-text-muted">{message}</div>}
+      {message && <div className="text-[13px] leading-snug text-app-text">{message}</div>}
       {fields.map((f) => (
-        <label key={f.name} className="block text-[11px]">
+        <label key={f.name} className="block text-[13px]">
           <span className="text-app-text">
             {f.name}
             {f.required && <span className="text-red-500 ml-0.5">*</span>}
@@ -344,7 +351,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
               value={(values[f.name] as string) || ''}
               onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
               disabled={submitting}
-              className="mt-0.5 w-full text-[11px] bg-surface border border-app-border rounded px-2 py-1"
+              className="mt-0.5 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5"
             >
               <option value="">—</option>
               {f.enum!.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
@@ -361,15 +368,15 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
                 }));
               }}
               disabled={submitting}
-              className="mt-0.5 w-full text-[11px] bg-surface border border-app-border rounded px-2 py-1"
+              className="mt-0.5 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5"
             />
           )}
         </label>
       ))}
-      {error && <div className="text-[11px] text-red-500">{error}</div>}
+      {error && <div className="text-[12px] text-red-500">{error}</div>}
       <div className="flex justify-end">
-        <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+        <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? 'Sending…' : 'Send'}
         </button>
       </div>
@@ -434,9 +441,9 @@ function RawForm({
         if (submitting || !text.trim()) return;
         onSubmit(text);
       }}
-      className="space-y-2 bg-app-hover/30 rounded-md px-3 py-2.5 mt-1.5"
+      className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
     >
-      <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>L'agente attende la tua risposta</span>
       </div>
@@ -446,12 +453,12 @@ function RawForm({
         disabled={submitting}
         rows={3}
         placeholder="Your answer…"
-        className="w-full text-[11px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+        className="w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
       />
-      {error && <div className="text-[11px] text-red-500">{error}</div>}
+      {error && <div className="text-[12px] text-red-500">{error}</div>}
       <div className="flex justify-end">
-        <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+        <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? 'Sending…' : 'Send'}
         </button>
       </div>
