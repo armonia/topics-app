@@ -89,20 +89,30 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     });
   }
 
-  /** Register a real bridge waiter (as the MCP subprocess would) and return the
-   *  promise that resolves with the answers the human submits. Fire-and-hold:
-   *  the endpoint long-polls inside waitForAnswer until deliverAnswer runs. */
+  /**
+   * Drive the ask exactly as the MCP bridge subprocess does: POST a poll leg,
+   * and come straight back while the server answers `{pending:true}`. Legs are
+   * short on purpose — the defect this guards against is a leg EXPIRING under a
+   * human who is still reading, so the tests deliberately cross that boundary
+   * instead of racing to answer inside one leg.
+   */
   function registerBridgeAsk(
     request: import("@playwright/test").APIRequestContext,
     questions: unknown,
-  ): Promise<{ answers?: Record<string, string>; cancelled?: boolean }> {
-    return request
-      .post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, {
-        data: { questions },
-        ignoreHTTPSErrors: true,
-        timeout: 60_000,
-      })
-      .then((r) => r.json() as Promise<{ answers?: Record<string, string>; cancelled?: boolean }>);
+    legMs = 800,
+  ): Promise<{ answers?: Record<string, string>; cancelled?: boolean; legs: number }> {
+    return (async () => {
+      for (let legs = 1; legs <= 200; legs++) {
+        const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, {
+          data: { questions, legMs },
+          ignoreHTTPSErrors: true,
+          timeout: 60_000,
+        });
+        const body = (await r.json()) as { answers?: Record<string, string>; cancelled?: boolean; pending?: boolean };
+        if (!body.pending) return { ...body, legs };
+      }
+      throw new Error("il bridge ha pollato 200 volte senza risposta");
+    })();
   }
 
   test("scelta singola: clic → Send → la risposta torna al bridge e il turno riprende", async ({ page, chatPage, request }) => {
@@ -141,8 +151,13 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     // The always-present "Other" free-text escape hatch.
     await expect(form.getByText("Other")).toBeVisible();
 
+    // Un umano legge prima di scegliere: qui è anche il tempo che rende il
+    // video guardabile, e attraversa più di una gamba di poll del bridge.
+    await page.waitForTimeout(2000);
+
     // Pick OAuth and send.
     await form.locator('input[type="radio"][value="OAuth"]').check();
+    await page.waitForTimeout(600);
     await form.getByRole("button", { name: /Send/ }).click();
 
     // THE contract: the answer returns to the model as the tool's result —
@@ -150,6 +165,9 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     const result = await bridge;
     expect(result.cancelled).toBeFalsy();
     expect(result.answers).toEqual({ [question]: "OAuth" });
+    // …e ci è arrivata DOPO che almeno una gamba era già scaduta: è la
+    // giuntura su cui è morta la prima domanda vera.
+    expect(result.legs).toBeGreaterThan(1);
 
     // Simulate the CLI resuming: emit the tool_result the model would produce.
     expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
@@ -164,6 +182,7 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
 
     // The panel is gone — the turn moved on.
     await expect(form).toBeHidden({ timeout: 10_000 });
+    await page.waitForTimeout(800); // il video mostra la chat che riparte
   });
 
   test('"Other": il testo libero torna al bridge come risposta', async ({ page, chatPage, request }) => {
@@ -195,5 +214,40 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     const result = await bridge;
     expect(result.cancelled).toBeFalsy();
     expect(result.answers).toEqual({ [question]: "DuckDB, per l'analitica" });
+  });
+
+  test("l'umano si alza dalla scrivania: il pannello sopravvive a decine di gambe scadute", async ({ page, chatPage, request }) => {
+    // La regressione del difetto vero. La prima domanda in produzione è morta
+    // dopo minuti con un errore di socket: una sola richiesta HTTP tenuta aperta
+    // a byte zero. Ora le gambe scadono in continuazione e la domanda resta
+    // viva — qui ne facciamo scadere una ventina prima di rispondere.
+    const toolCallId = "toolu_ask_slow";
+    const question = "Quale runtime?";
+    const options = [{ label: "Bun" }, { label: "Node" }];
+    await seedAsk(request, toolCallId, question, options);
+
+    const bridge = registerBridgeAsk(request, [{ question, header: "Scelta", options }], 150);
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+
+    // Nessuno tocca niente per un bel po': ~20 gambe da 150 ms.
+    await page.waitForTimeout(3000);
+    // Il pannello è ancora lì, cliccabile, e nessuno ha inventato una risposta.
+    await expect(form).toBeVisible();
+    await expect(form.getByRole("button", { name: /Send/ })).toBeVisible();
+
+    await form.locator('input[type="radio"][value="Bun"]').check();
+    await form.getByRole("button", { name: /Send/ }).click();
+
+    const result = await bridge;
+    expect(result.cancelled).toBeFalsy();
+    expect(result.answers).toEqual({ [question]: "Bun" });
+    expect(result.legs).toBeGreaterThan(5);
   });
 });
