@@ -320,15 +320,21 @@ export function StandaloneChatGroup({
   const { getBadgeCount, getProjectBadgeCount, clearPane } = useTabNotifications();
   const tabNotifications = useMemo(() => {
     const map = new Map<string, number>();
+    // «La stai guardando» = attiva E in un gruppo che ha il fuoco: la stessa
+    // espressione che `PaneTabBar` riceve come `groupIsFocused` e con cui decide
+    // di sopprimere il badge. Passare la sola `pane.id === activePaneId` faceva
+    // scattare la scorciatoia di `getBadgeCount` (solo attenzione Claude, senza
+    // unread) anche su una superficie che non hai davanti.
+    const gruppoAFuoco = !focusedPanelId || validatedOrderedIds.includes(focusedPanelId);
     for (const pane of panes) {
       const count =
         pane.type === 'project' && pane.projectPath
           ? getProjectBadgeCount(pane.projectPath)
-          : getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId);
+          : getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId && gruppoAFuoco);
       if (count > 0) map.set(pane.id, count);
     }
     return map;
-  }, [panes, getBadgeCount, getProjectBadgeCount, activePaneId]);
+  }, [panes, getBadgeCount, getProjectBadgeCount, activePaneId, validatedOrderedIds, focusedPanelId]);
 
   // Keep-alive: le pane visitate restano montate attraverso gli switch di tab,
   // così non si perdono scroll, cache di cronologia, buffer del terminale,
@@ -523,7 +529,12 @@ export function StandaloneChatGroup({
       className="flex-1 py-1 pr-0 min-w-0 app-drag-region"
       panes={panes}
       activePaneId={activePaneId}
-      groupIsFocused={validatedOrderedIds.includes(focusedPanelId || '')}
+      // Nessun pannello a fuoco = questa superficie e' comunque quella che hai
+      // davanti: qui il gruppo e' UNO, e `focusedPanelId` resta null finche' non
+      // clicchi. Trattarlo come «non a fuoco» diceva che non stai guardando
+      // niente — e da quel giudizio dipende sia il rilievo della tab attiva sia
+      // la soppressione del suo badge.
+      groupIsFocused={!focusedPanelId || validatedOrderedIds.includes(focusedPanelId)}
       onActivate={(paneId) => {
         clearPane(paneId); // clear non-chat badge on tab activation
         onFocusPanel(paneId);

@@ -788,12 +788,25 @@ export function GroupLayout({
       .map(id => paneMap.get(id))
       .filter((p): p is Pane => !!p && !seenPaneIds.has(p.id));
     for (const p of groupPanes) seenPaneIds.add(p.id);
+    // `focusedGroupId` e' null finche' non si clicca (e all'apertura di una
+    // finestra senza fuoco persistito). Trattarlo come «nessun gruppo a fuoco»
+    // direbbe che l'utente non sta guardando niente, e da quel giudizio dipende
+    // il rilievo della tab attiva e la soppressione del suo badge. La convenzione
+    // «senza fuoco vale il primo gruppo» esiste gia' qui sopra (la scelta della
+    // pane residente): questa la riusa invece di inventarne una seconda.
+    const isFocusedGroup = (focusedGroupId ?? groups[0]?.id ?? null) === gid;
     const groupNotifications = new Map<string, number>();
     for (const p of groupPanes) {
-      const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);
+      // `isActive` qui vuol dire «l'utente la sta guardando», non «e' l'attiva
+      // del suo gruppo»: in split view ogni gruppo ha la sua attiva, e passare
+      // la seconda faceva scattare la scorciatoia di `getBadgeCount` (che
+      // restituisce la sola attenzione Claude, senza gli unread) anche per i
+      // gruppi che non hai davanti. Stesso predicato che usa `PaneTabBar` per
+      // sopprimere il badge.
+      const guardata = p.id === group.activePaneId && isFocusedGroup && isAppFocused;
+      const c = getBadgeCount(p.id, p.topicId, guardata);
       if (c > 0) groupNotifications.set(p.id, c);
     }
-    const isFocusedGroup = focusedGroupId === gid;
     // Tri-state for the active tab + content ring:
     //  - fully focused: project is App-focused AND this is the focused group
     //  - dimmed-active: this is the focused group inside the project, but
@@ -1053,7 +1066,8 @@ export function GroupLayout({
 
     const notifications = new Map<string, number>();
     for (const p of flatPanes) {
-      const c = getBadgeCount(p.id, p.topicId, p.id === activePaneId);
+      // Vista piatta: un solo gruppo, quindi «guardata» = attiva E app a fuoco.
+      const c = getBadgeCount(p.id, p.topicId, p.id === activePaneId && isAppFocused);
       if (c > 0) notifications.set(p.id, c);
     }
 
