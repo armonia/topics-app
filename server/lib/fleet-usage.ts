@@ -22,11 +22,17 @@
  * registers its socket path here at import time; one `ps` snapshot then resolves
  * pid + descendants for each root.
  *
- * METRIC HONESTY: this sums `ps rss`, not the phys_footprint the shell reports.
- * RSS over-counts pages shared between processes and under-counts what the OS has
- * compressed or swapped out. It is the portable number (`ps` exists everywhere the
- * server runs) and the right order of magnitude; it is NOT the same metric as the
- * shell's, so the client labels the two separately instead of pretending one sum.
+ * METRIC HONESTY (rivisto 2026-08-04): si somma `phys_footprint` — la STESSA
+ * metrica della shell e della colonna "Memoria" di Monitoraggio Attività — con
+ * `ps rss` come solo ripiego dove il kernel non risponde, e `memMetric` dice
+ * quale delle due è finita nel totale. Prima erano due metriche diverse sommate
+ * fra loro; vedi `procFootprintKB` per la misura che l'ha motivato.
+ *
+ * ATTRIBUZIONE: `roots` risponde «quanto tiene ciascun sidecar», `sessions`
+ * «quanto ne tiene ciascuna sessione PTY dentro il pty-bridge». Le pane che NON
+ * hanno un processo proprio (topic, kanban, chat, file: componenti React dentro
+ * l'unico renderer) non sono attribuibili qui e non compaiono — nessun `ps` può
+ * separarle, perché condividono lo stesso processo.
  */
 
 import { cpus } from "node:os";
@@ -53,9 +59,31 @@ export function registerFleetSocket(kind: FleetKind, socketPath: string): void {
   if (socketPath) sockets.set(kind, socketPath);
 }
 
+/** Una sessione PTY e il pid di testa del suo albero. Il bridge lo riporta già
+ *  su create e reconcile (`routes/terminal.ts`), quindi non c'è niente di nuovo
+ *  da tracciare: va solo passato di qua. */
+export interface FleetSessionRef {
+  sessionId: string;
+  name: string;
+  pid: number;
+}
+
+/** Da dove arrivano le sessioni al momento del campionamento.
+ *
+ *  È un seam, non un import diretto, per la stessa ragione per cui i sidecar si
+ *  registrano da soli: `routes/terminal.ts` importa già questo modulo, e
+ *  importarlo all'indietro chiuderebbe il ciclo. Assente ⇒ nessuna attribuzione
+ *  per sessione, e tutto il resto continua a funzionare come prima. */
+let sessionSource: (() => FleetSessionRef[]) | null = null;
+
+export function registerFleetSessionSource(fn: () => FleetSessionRef[]): void {
+  sessionSource = fn;
+}
+
 /** Test seam: forget every registration (unit tests register their own). */
 export function _resetFleetSockets(): void {
   sockets.clear();
+  sessionSource = null;
 }
 
 export interface FleetRootUsage {
@@ -64,6 +92,20 @@ export interface FleetRootUsage {
   processCount: number;
   memoryMB: number;
   cpuPercent: number;
+}
+
+export interface FleetSessionUsage {
+  sessionId: string;
+  name: string;
+  /** Pid di testa dell'albero della sessione. */
+  pid: number;
+  processCount: number;
+  memoryMB: number;
+  /** `null` = NON MISURATA, che non è la stessa cosa di zero. Una sessione
+   *  appena avviata non ha ancora un delta di CPU da cui ricavare una
+   *  percentuale; dichiararla `0` la farebbe passare per ferma. Stessa regola
+   *  che `makeInstantCpu` applica ai pid senza base. */
+  cpuPercent: number | null;
 }
 
 export interface FleetUsage {
@@ -92,6 +134,11 @@ export interface FleetUsage {
   cpuCores: number;
   /** Per-root split, so the dropdown can say WHERE the memory is. */
   roots: FleetRootUsage[];
+  /** Ripartizione per SESSIONE dentro il pty-bridge. `roots` sa dire «il
+   *  pty-bridge tiene 1,2 GB su 14 processi»; questo sa dire quanto ne tiene
+   *  ciascuna sessione. Vuoto quando nessuna sorgente è registrata (o nessuna
+   *  sessione è viva), e i totali non ne dipendono. */
+  sessions: FleetSessionUsage[];
   /** False when the platform has no usable `ps` (Windows) — the client then
    *  keeps showing the single-process figure instead of a confident wrong one. */
   supported: boolean;
@@ -152,12 +199,17 @@ export function summarizeFleet(
   rows: PsRow[],
   roots: { kind: FleetKind | "server"; pid: number }[],
   /** CPU % ISTANTANEA di un pid. Assente = si ripiega su `ps pcpu` (media di
-   *  vita), che e' cio' che faceva prima e va bene solo come ultima risorsa. */
-  instantCpu?: (row: PsRow) => number,
+   *  vita), che e' cio' che faceva prima e va bene solo come ultima risorsa.
+   *  `null` = pid senza base, quindi NON MISURATO: conta 0 nei totali (come ha
+   *  sempre fatto) ma le sessioni lo distinguono da uno zero vero. */
+  instantCpu?: (row: PsRow) => number | null,
   /** Core logici su cui normalizzare la CPU. Default 1 = scala `ps` grezza
    *  (per-core), che è ciò che i test qui sotto verificano; `getFleetUsage`
    *  passa `os.cpus().length` per restituire la scala 0-100 della macchina. */
   cpuCores = 1,
+  /** Sessioni da attribuire dentro l'albero già coperto dai root. Vuoto =
+   *  nessuna attribuzione, e ogni altro numero resta identico. */
+  sessions: FleetSessionRef[] = [],
 ): Omit<FleetUsage, "supported"> {
   const byPid = new Map<number, PsRow>();
   const children = new Map<number, number[]>();
@@ -196,7 +248,7 @@ export function summarizeFleet(
       // `memMetric` sotto, così il client non deve indovinare cosa sta leggendo.
       if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
       rssKB += row.footprintKB ?? row.rssKB;
-      cpu += instantCpu ? instantCpu(row) : row.cpu;
+      cpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
     }
     rootUsages.push({
       kind: root.kind,
@@ -209,6 +261,44 @@ export function summarizeFleet(
     });
   }
 
+  // Le sessioni si calcolano in un passaggio SEPARATO, con un proprio insieme
+  // di pid già fatturati. Riusare `counted` dei root sottrarrebbe processi ai
+  // root stessi (le sessioni vivono DENTRO l'albero del pty-bridge): i totali
+  // di flotta devono restare esattamente quelli di prima, e questa parte è
+  // solo una lente su una porzione già contata.
+  const sessionUsages: FleetSessionUsage[] = [];
+  const billed = new Set<number>();
+  for (const s of sessions) {
+    if (!byPid.has(s.pid)) continue; // sessione registrata ma processo già morto
+    let procs = 0, memKB = 0, cpu = 0, measured = 0;
+    const stack = [s.pid];
+    const seenHere = new Set<number>();
+    while (stack.length) {
+      const pid = stack.pop()!;
+      if (seenHere.has(pid)) continue;
+      seenHere.add(pid);
+      for (const c of children.get(pid) ?? []) stack.push(c);
+      if (billed.has(pid)) continue; // una sessione annidata in un'altra non raddoppia
+      billed.add(pid);
+      const row = byPid.get(pid);
+      if (!row) continue;
+      procs++;
+      memKB += row.footprintKB ?? row.rssKB;
+      const c = instantCpu ? instantCpu(row) : row.cpu;
+      if (c !== null) { cpu += c; measured++; }
+    }
+    sessionUsages.push({
+      sessionId: s.sessionId,
+      name: s.name,
+      pid: s.pid,
+      processCount: procs,
+      memoryMB: Math.round(memKB / 1024),
+      // Nessun pid con una base ⇒ non misurata. Uno `0` qui direbbe «ferma»,
+      // che di una sessione appena avviata non lo sappiamo.
+      cpuPercent: measured > 0 ? Math.round((cpu / divisor) * 10) / 10 : null,
+    });
+  }
+
   return {
     processCount: rootUsages.reduce((a, r) => a + r.processCount, 0),
     memoryMB: rootUsages.reduce((a, r) => a + r.memoryMB, 0),
@@ -216,6 +306,7 @@ export function summarizeFleet(
     cpuCores: divisor,
     memMetric: sawFootprint ? (sawRss ? "mixed" : "footprint") : "rss",
     roots: rootUsages,
+    sessions: sessionUsages,
   };
 }
 
@@ -308,15 +399,19 @@ async function snapshot(): Promise<PsRow[]> {
   return rows;
 }
 
-/** CPU % di un pid fra due letture. Un pid mai visto prima non ha una base:
- *  contribuisce 0 per questa finestra invece di ereditare la media di vita —
- *  un processo appena nato non ha ancora consumato niente NELLA finestra. */
+/** CPU % di un pid fra due letture. Un pid mai visto prima non ha una base e
+ *  restituisce `null` — NON MISURATO, che non è «misurato, zero»: un processo
+ *  appena nato non ha ancora un delta da cui ricavare una percentuale.
+ *
+ *  I totali continuano a trattarlo come 0 (era già così, e sommare «non lo so»
+ *  non ha senso), ma l'attribuzione per sessione se ne accorge e lo dichiara
+ *  invece di far passare una sessione appena avviata per ferma. */
 function makeInstantCpu(base: { at: number; byPid: Map<number, number> } | null, nowMs: number) {
   const dt = base ? (nowMs - base.at) / 1000 : 0;
   if (!base || dt <= 0) return undefined;
-  return (row: PsRow): number => {
+  return (row: PsRow): number | null => {
     const before = base.byPid.get(row.pid);
-    if (before === undefined) return 0;
+    if (before === undefined) return null;
     const d = row.cpuSeconds - before;
     return d > 0 ? (d / dt) * 100 : 0;
   };
@@ -328,7 +423,15 @@ function finish(
   nowMs: number,
 ): FleetUsage {
   const usage = {
-    ...summarizeFleet(rows, resolveFleetRoots(rows, process.pid), makeInstantCpu(base, nowMs), CPU_CORES),
+    ...summarizeFleet(
+      rows,
+      resolveFleetRoots(rows, process.pid),
+      makeInstantCpu(base, nowMs),
+      CPU_CORES,
+      // Una sorgente che esplode non deve portarsi dietro tutta la misura: senza
+      // sessioni si perde la lente, non il totale.
+      (() => { try { return sessionSource?.() ?? []; } catch { return []; } })(),
+    ),
     supported: true,
   };
   cached = usage;
@@ -337,7 +440,7 @@ function finish(
 }
 
 export async function getFleetUsage(): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, memMetric: "rss", roots: [], supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES, memMetric: "rss", roots: [], sessions: [], supported: false };
   if (isWindows) return unsupported;
   const now = Date.now();
   if (cached && now - cachedAt < FLEET_TTL_MS) return cached;
