@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { decidePark, idleParkThresholdMs, type ParkCandidate } from "./terminal-idle-park";
+import { decidePark, idleParkThresholdMs, refusalLabel, summarizeRefusals, type ParkCandidate, type ParkRefusal } from "./terminal-idle-park";
 
 /**
  * Ogni test qui è un modo in cui parcheggiare farebbe DANNO.
@@ -183,5 +183,42 @@ describe("idleParkThresholdMs", () => {
   test("sotto il minuto si alza al minuto", () => {
     // Con dieci secondi si parcheggerebbe una sessione fra un comando e l'altro.
     expect(idleParkThresholdMs({ TOPICS_TERMINAL_IDLE_PARK_MS: "10000" })).toBe(60_000);
+  });
+});
+
+
+describe("il riepilogo dei rifiuti — una passata deve dire PERCHE'", () => {
+  test("aggrega per motivo e mette prima il piu' frequente", () => {
+    // Aggregato e non elencato: la riga resta lunga uguale con tre PTY o con
+    // trenta, ed e' l'unica forma che si puo' lasciare accesa in un log.
+    const riga = summarizeRefusals([
+      { reason: "phase-active" },
+      { reason: "watched" },
+      { reason: "phase-active" },
+    ]);
+    expect(riga).toBe("3 non parcheggiate — 2 turno in corso, 1 qualcuno la sta guardando");
+  });
+
+  test("niente da dire quando non c'e' niente da dire", () => {
+    expect(summarizeRefusals([])).toBe("");
+  });
+
+  test("OGNI motivo ha la sua etichetta: nessuno si stampa come `undefined`", () => {
+    // E' il motivo per cui `skipped` e' tipato `ParkRefusal` e non `string`:
+    // aggiungere un motivo senza etichetta deve rompere la compilazione, non
+    // produrre una riga di log rotta a runtime.
+    const tutti: ParkRefusal[] = [
+      "not-resumable-type", "no-resume-id", "no-transcript", "busy",
+      "watched", "phase-active", "idle-unknown", "too-recent", "sub-agent",
+    ];
+    for (const r of tutti) {
+      expect(refusalLabel(r), `il motivo "${r}" non ha etichetta`).toBeTruthy();
+    }
+  });
+
+  test("«sotto-agente» e' un rifiuto come gli altri, deciso dal chiamante", () => {
+    // Non lo produce `decidePark` ma il chiamante, e finisce nella stessa lista:
+    // fuori dall'union sarebbe l'unico motivo senza prosa.
+    expect(summarizeRefusals([{ reason: "sub-agent" }])).toContain("orchestratore");
   });
 });

@@ -4,6 +4,7 @@ import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getFleetUsage } from "../lib/fleet-usage";
+import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 
@@ -260,6 +261,13 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           // status-bar badge — works in the prod-minified bundle (unlike the
           // Vite-only `import.meta.env.DEV` badge). See startDevBundleReload.
           devReload: existsSync(join(ctx.STATE_DIR, "topics-dev.json")),
+          // I modelli visti girare e NON presenti nella tabella prezzi. I loro
+          // turni vengono contati a costo zero, che e' indistinguibile da «non
+          // e' costato niente»: e' lo stesso guasto che teneva ogni Opus
+          // tariffato al triplo senza che nessuno se ne accorgesse, e l'unico
+          // modo perche' si veda e' che qualcosa lo DICA. Vuoto = tutto
+          // tariffato.
+          unpricedModels: unknownPricedModels(),
         },
         cpu: {
           cores,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare, Layers } from 'lucide-react';
+import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare, Layers, DollarSign } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
@@ -95,6 +95,21 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
 
           {/* Memory lives in the PerfSection block above (full per-process
               breakdown + server RSS) — not repeated here. */}
+
+          {/* Modelli senza prezzo. Compare SOLO quando ce n'e' uno: e' un
+              avviso, non un contatore, e uno «0» permanente sarebbe rumore che
+              si impara a ignorare. I turni di quei modelli vengono contati a
+              costo zero — indistinguibile da «gratis» — quindi il totale della
+              spesa e' in difetto finche' la riga resta. */}
+          {(status.server.unpricedModels?.length ?? 0) > 0 && (
+            <StatusRow
+              icon={<DollarSign size={12} />}
+              label="Modelli senza prezzo"
+              value={`${status.server.unpricedModels!.length}`}
+              detail={status.server.unpricedModels!.join(', ')}
+              color="yellow"
+            />
+          )}
 
           {/* Cron Jobs — OpenClaw only */}
           {openclawAvailable && (
