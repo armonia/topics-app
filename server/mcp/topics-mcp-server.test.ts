@@ -1034,9 +1034,57 @@ describe("callAskUserQuestion", () => {
 
   test("se il server non risponde più, si arrende con un messaggio di trasporto", async () => {
     const fetchImpl = stubFetch(async () => { throw new Error("ECONNREFUSED"); });
+    let t = 0;
     await expect(
-      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl, { backoffMs: [0] }),
+      callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions }, fetchImpl, {
+        backoffMs: [0], transportGraceMs: 1_000, now: () => (t += 400),
+      }),
     ).rejects.toThrow(/lost contact with topics-app.*ECONNREFUSED/i);
+  });
+
+  test("un riavvio del server non ammazza la domanda: si ritenta finché non torna su", async () => {
+    // Il caso reale, misurato: qualcuno salva un file sotto `server/`, il
+    // watcher fa un hot-reload graceful e fra SIGTERM, grazia dei provider,
+    // rilancio e boot passano ~20 secondi. Il vecchio budget era un CONTEGGIO
+    // (5 tentativi ≈ 15,5s): la domanda moriva con «lost contact» mentre
+    // l'umano la stava ancora leggendo. Il rendez-vous si ricrea da solo alla
+    // prima gamba che riesce, quindi ritentare è tutto ciò che serve.
+    let calls = 0;
+    let clock = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      // 12 gambe a vuoto ≈ un riavvio lento: prima si arrendeva alla sesta.
+      if (calls <= 12) throw new Error("ECONNREFUSED");
+      return new Response(JSON.stringify({ answers: { Auth: "OAuth" } }), { status: 200 });
+    });
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+      { backoffMs: [0], now: () => (clock += 2_000) }, // 2s di orologio per tentativo
+    );
+    expect(calls).toBe(13);
+    expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
+  });
+
+  test("il budget è a TEMPO e riparte da capo dopo ogni risposta buona", async () => {
+    // Due cadute separate da una gamba andata a buon fine non si sommano: è la
+    // differenza fra «il server è giù» e «la rete ogni tanto singhiozza».
+    let calls = 0;
+    let clock = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls === 1 || calls === 3) throw new Error("socket hang up");
+      if (calls === 2) return new Response(JSON.stringify({ pending: true }), { status: 200 });
+      return new Response(JSON.stringify({ answers: { Auth: "JWT" } }), { status: 200 });
+    });
+    const text = await callAskUserQuestion(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { questions },
+      fetchImpl,
+      { backoffMs: [0], transportGraceMs: 1_000, now: () => (clock += 900) },
+    );
+    expect(JSON.parse(text)).toEqual({ answers: { Auth: "JWT" } });
   });
 
   test("non gira all'infinito se il server risponde 'pending' per sempre", async () => {

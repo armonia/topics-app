@@ -1189,7 +1189,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             }
 
-            if (reason === "done" && !fullContent.trim() && trackedToolCallIds.length === 0) {
+            // «Nessuna risposta» solo se davvero non è arrivato NIENTE — e
+            // "niente" si misura sulla RIGA, non su questa gamba HTTP.
+            //
+            // `trackedToolCallIds` conta i tool visti da QUESTO handler: su una
+            // riadozione dopo un hot-reload il replay è muto, quindi resta vuoto
+            // anche quando la riga in DB porta un turno intero di tool. Bastava
+            // quello per riscrivere il messaggio col cartello di guasto: è così
+            // che un pannello `ask_user_question` ancora a schermo è sparito,
+            // sostituito da «No response received» (topic:ed2070df, 4 agosto).
+            // La riga sa la verità: se ha dei tool, il turno ha prodotto qualcosa.
+            const rowHasTools = (() => {
+              if (trackedToolCallIds.length > 0) return true;
+              try {
+                const row = ctx.db.prepare("SELECT tool_calls FROM messages WHERE id = ?").get(partialMsg.id) as { tool_calls?: string | null } | undefined;
+                if (!row?.tool_calls) return false;
+                const parsed = JSON.parse(row.tool_calls);
+                return Array.isArray(parsed) && parsed.length > 0;
+              } catch { return false; }
+            })();
+            if (reason === "done" && !fullContent.trim() && !rowHasTools) {
               const emptyErrorMsg = "⚠️ No response received. The AI service may be temporarily unavailable. Please try again.";
               fullContent = emptyErrorMsg;
               console.warn(`[StreamWS] Empty response for ${sessionKey}`);

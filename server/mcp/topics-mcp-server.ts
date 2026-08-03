@@ -1219,10 +1219,25 @@ export async function callCommentTask(
  * default idle timeout, and the server clamps whatever we ask for.
  */
 const ASK_LEG_MS = 25_000;
-/** How many consecutive transport failures a single ask tolerates. */
-const ASK_MAX_TRANSPORT_RETRIES = 5;
-/** Backoff between transport retries (ms). Grows linearly, capped by the array. */
-const ASK_RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
+/**
+ * Per quanto si continua a ritentare quando il server non risponde.
+ *
+ * Era un CONTEGGIO — cinque tentativi, che con il backoff qui sotto fanno
+ * 15,5 secondi — e quel numero era più corto di un riavvio del server. Il caso
+ * reale: qualcuno salva un file sotto `server/`, il watcher fa un hot-reload
+ * graceful, e fra SIGTERM, finestra di grazia dei provider, rilancio e boot
+ * passano tranquillamente venti secondi. La domanda a schermo moriva lì —
+ * «lost contact with topics-app» — pur avendo un figlio vivo dall'altra parte
+ * e un umano che stava ancora leggendo.
+ *
+ * Un budget a TEMPO invece che a colpi: 90 secondi coprono un riavvio lento con
+ * margine, e non allungano la vita della domanda oltre il suo TTL (`beginAsk`),
+ * che resta l'unico limite vero. Il rendez-vous si ricrea da solo alla prima
+ * gamba che riesce, quindi ritentare è davvero tutto ciò che serve.
+ */
+const ASK_TRANSPORT_GRACE_MS = 90_000;
+/** Backoff fra un ritentativo e l'altro (ms). Cresce, poi si stabilizza. */
+const ASK_RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 5000];
 /** Hard cap on poll legs, so a wedged server can't spin here forever. */
 const ASK_MAX_LEGS = 500;
 
@@ -1263,6 +1278,10 @@ export async function callAskUserQuestion(
     backoffMs?: number[];
     maxLegs?: number;
     legMs?: number;
+    /** Finestra di grazia per i guasti di trasporto (ms). I test la accorciano. */
+    transportGraceMs?: number;
+    /** Orologio iniettabile: i test misurano la finestra senza dormirci dentro. */
+    now?: () => number;
     /**
      * Called once per leg while nobody has answered yet. In production this
      * emits `notifications/progress`, which is what stops the MCP client from
@@ -1272,6 +1291,8 @@ export async function callAskUserQuestion(
   } = {},
 ): Promise<string> {
   const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
+  const transportGraceMs = opts.transportGraceMs ?? ASK_TRANSPORT_GRACE_MS;
+  const now = opts.now ?? Date.now;
   const maxLegs = opts.maxLegs ?? ASK_MAX_LEGS;
   const legMs = opts.legMs ?? ASK_LEG_MS;
   if (!Array.isArray(toolArgs?.questions) || toolArgs.questions.length === 0) {
@@ -1283,7 +1304,11 @@ export async function callAskUserQuestion(
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/ask-user`;
   const payload = { questions: toolArgs.questions, legMs };
 
+  // Quando è cominciata la serie di guasti IN CORSO (`null` = si sta parlando).
+  // Il conteggio serve solo a scegliere il backoff; a decidere quando arrendersi
+  // è il tempo, perché è il tempo la cosa che un riavvio del server consuma.
   let transportFailures = 0;
+  let firstFailureAt: number | null = null;
   for (let leg = 0; leg < maxLegs; leg++) {
     let body: AskLegResponse | null | undefined;
     try {
@@ -1292,15 +1317,18 @@ export async function callAskUserQuestion(
       // message below.
       body = await httpJson<AskLegResponse>(args, "POST", path, payload, fetchImpl);
       transportFailures = 0;
+      firstFailureAt = null;
     } catch (err) {
       // Could be a dropped socket (retry — the panel is still up) or a real
       // server rejection (give up once we've clearly exhausted the benefit of
       // the doubt). We can't reliably tell them apart through httpJson, so we
       // bound the retries and report the last error if they run out.
       transportFailures++;
-      if (transportFailures > ASK_MAX_TRANSPORT_RETRIES) {
+      if (firstFailureAt === null) firstFailureAt = now();
+      const downMs = now() - firstFailureAt;
+      if (downMs > transportGraceMs) {
         throw new Error(
-          `ask_user_question: lost contact with topics-app after ${transportFailures} attempts (${err instanceof Error ? err.message : String(err)})`,
+          `ask_user_question: lost contact with topics-app for ${Math.round(downMs / 1000)}s over ${transportFailures} attempts (${err instanceof Error ? err.message : String(err)})`,
         );
       }
       await sleep(backoff[Math.min(transportFailures - 1, backoff.length - 1)] ?? 0);
