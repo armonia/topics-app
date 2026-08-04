@@ -52,6 +52,30 @@ import { isDetachedWindow } from './windowRole';
  *  che ha in mano non porta da nessuna parte. */
 export const DEAD_TAB_MESSAGE = 'Questa tab non esiste più';
 
+/** Detto quando la verifica non è riuscita e si apre lo stesso.
+ *
+ *  Perché avvisare anche qui: il caso benigno (`missing`) parlava all'utente,
+ *  mentre quello che può lasciare una pane FANTASMA persistita e sincronizzata
+ *  su ogni device produceva solo un `console.warn` — cioè niente, per chi usa
+ *  l'app. L'asimmetria era al contrario di come dovrebbe essere. */
+export const UNVERIFIED_TAB_MESSAGE =
+  'Non ho potuto verificare questa tab: la apro lo stesso';
+
+/** Quanto si aspetta prima del SECONDO tentativo di verifica.
+ *
+ *  La finestra tipica di indisponibilità è il ricarico del server — su questa
+ *  macchina `TOPICS_SERVER_WATCH=1` lo fa a ogni salvataggio in `server/`, con
+ *  2s di debounce. Un solo ritentativo dopo ~1,5s trasforma quasi tutti gli
+ *  `unavailable` in una risposta VERA, senza trasformare un server davvero giù
+ *  in un'attesa lunga: il tentativo è uno, non una catena. */
+const VERIFY_RETRY_DELAY_MS = 1500;
+let verifyRetryDelayMs = VERIFY_RETRY_DELAY_MS;
+
+/** Solo per i test: accorcia l'attesa fra i due tentativi. */
+export function __setTabLinkRetryDelayForTests(ms: number): void {
+  verifyRetryDelayMs = ms;
+}
+
 /** Quanti giri di retry, e a che passo, per i target che hanno bisogno che una
  *  finestra di progetto si monti prima di poterli ricevere. ~2s complessivi:
  *  abbastanza per un mount, poco abbastanza da non inseguire l'utente che nel
@@ -351,6 +375,22 @@ async function askServerIfSubjectExists(ref: string): Promise<SubjectCheck> {
   return body.state === 'unknown' ? 'missing' : 'exists';
 }
 
+/**
+ * Chiede al server, e se la risposta non dice niente sul soggetto RIPROVA una
+ * volta sola.
+ *
+ * Un `unavailable` quasi sempre non parla del link: parla del server che si sta
+ * ricaricando in quel secondo. Riprovare una volta lo distingue da un server
+ * davvero giù, e costa 1,5s solo nel caso in cui prima si sarebbe sbagliato.
+ * Un `missing` NON si riprova: è una risposta, e ripeterla non la cambia.
+ */
+async function askOnceThenRetry(ref: string): Promise<SubjectCheck> {
+  const first = await askServerIfSubjectExists(ref).catch(() => 'unavailable' as const);
+  if (first !== 'unavailable') return first;
+  await new Promise((r) => setTimeout(r, verifyRetryDelayMs));
+  return askServerIfSubjectExists(ref).catch(() => 'unavailable' as const);
+}
+
 /** Il soggetto di questo target esiste, secondo il server? */
 function subjectExists(subject: TabTarget): Promise<SubjectCheck> {
   const ref = buildTabPath(subject);
@@ -360,8 +400,7 @@ function subjectExists(subject: TabTarget): Promise<SubjectCheck> {
   if (!ref) return Promise.resolve<SubjectCheck>('missing');
   const cached = knownSubjects.get(ref);
   if (cached) return cached;
-  const pending = askServerIfSubjectExists(ref)
-    .catch(() => 'unavailable' as const)
+  const pending = askOnceThenRetry(ref)
     .then((outcome) => {
       // In cache resta SOLO un sì confermato: vedi `knownSubjects`.
       if (outcome !== 'exists') knownSubjects.delete(ref);
@@ -397,6 +436,10 @@ function routeIfSubjectExists(
       return;
     }
     if (outcome === 'unavailable') {
+      // Si apre lo stesso (rifiutare romperebbe i link BUONI a ogni ricarico del
+      // server), ma ora l'utente lo SA: se compare una pane che non si aspettava,
+      // ha già in mano il motivo invece di trovarselo solo in console.
+      opts?.notify?.(UNVERIFIED_TAB_MESSAGE);
       console.warn('[tabLink] verifica di esistenza non disponibile, instrado comunque:', buildTabPath(subject));
     }
     route();
