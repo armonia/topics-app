@@ -100,45 +100,15 @@ const floating = () => (state) => {
 };
 
 /**
- * Reshape the window: acme-web takes `row` of the height, its split at `col`.
- * Same gesture the app ships — mousedown on the divider, mousemoves on window,
- * mouseup (Layout/SplitTree.tsx) — so nothing here depends on internals a
- * refactor would move.
+ * Switch to a group. The demo seeds three (Principale = acme-web alone,
+ * Progetti = three project windows, Agenti = the standalone Agents +
+ * Dashboard panes), and the chips are the app's own SpaceSwitcher — so this is
+ * one real click, not a layout the script builds by hand. It replaced a pair
+ * of divider drags: a group already holds exactly what the shot is about.
  */
-async function shape(page, row, col) {
-  await page.evaluate(async ({ row, col }) => {
-    const box = (el) => el.getBoundingClientRect();
-    const fire = (t, type, x, y, buttons) => t.dispatchEvent(new MouseEvent(type, {
-      bubbles: true, cancelable: true, composed: true, view: window,
-      clientX: x, clientY: y, screenX: x, screenY: y, button: 0, buttons: buttons || 0, detail: 1,
-    }));
-    const drag = async (el, dx, dy) => {
-      const b = box(el);
-      const px = b.left + b.width / 2, py = b.top + b.height / 2;
-      fire(el, 'mousedown', px, py, 1);
-      for (let i = 1; i <= 10; i++) {
-        fire(window, 'mousemove', px + (dx * i) / 10, py + (dy * i) / 10, 1);
-        await new Promise((r) => setTimeout(r, 12));
-      }
-      fire(window, 'mouseup', px + dx, py + dy, 0);
-    };
-
-    const rowD = Array.from(document.querySelectorAll('[data-split-divider="col"]'))
-      .find((e) => !e.closest('[data-testid="project-window"]'));
-    if (rowD && row != null) {
-      const p = box(rowD.parentElement);
-      await drag(rowD, 0, Math.round(p.top + p.height * row - box(rowD).top));
-    }
-    await new Promise((r) => setTimeout(r, 400));
-    const t = document.querySelector('[data-pane-id="terminal:cc1"]');
-    const win = t && t.closest('[data-testid="project-window"]');
-    const innerD = win && win.querySelector('[data-split-divider="row"]');
-    if (innerD && col != null) {
-      const p = box(innerD.parentElement);
-      await drag(innerD, Math.round(p.left + p.width * col - box(innerD).left), 0);
-    }
-  }, { row, col });
-  await page.waitForTimeout(900);
+async function useGroup(page, spaceId) {
+  await page.locator(`[role="tab"][data-space-id="${spaceId}"]`).first().click({ timeout: 8000 });
+  await page.waitForTimeout(1400);
 }
 
 const activate = async (page, paneId) => {
@@ -166,9 +136,10 @@ async function shotOf(page, selector, file, pad = 16) {
 /* ---- the six ------------------------------------------------------------- */
 
 const SHOTS = {
-  /** The whole window: three projects open at once, sidebar included. */
+  /** The whole window: the Progetti group, three projects open at once. */
   async organize(browser, base) {
     const { ctx, page } = await boot(browser, { width: 1240, height: 780, dsf: 1.6 }, base);
+    await useGroup(page, 'space:projects');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(700);
     await page.screenshot({ path: join(OUT, 'organize.png'), scale: 'device' });
@@ -180,7 +151,6 @@ const SHOTS = {
   /** One card: the Claude Code session, with its own tab bar and corners. */
   async run(browser, base) {
     const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
-    await shape(page, 0.86, 0.62);
     await activate(page, 'terminal:cc1');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(700);
@@ -192,11 +162,11 @@ const SHOTS = {
   /** One card: the dashboard. */
   async see(browser, base) {
     const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
-    await shape(page, 0.86, 0.26);
-    await activate(page, 'dashboard:c1');
+    await useGroup(page, 'space:agents');
+    await activate(page, '__dashboard__');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(900);
-    const size = await shotOf(page, '[data-pane-id="dashboard:c1"] >> xpath=ancestor::*[@data-group-cell][1]', 'see.png');
+    const size = await shotOf(page, '[data-pane-id="__dashboard__"] >> xpath=ancestor::*[@data-panel-cell][1]', 'see.png');
     await ctx.close();
     return size;
   },
@@ -204,7 +174,6 @@ const SHOTS = {
   /** One card: the board, with a task in flight. */
   async ship(browser, base) {
     const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
-    await shape(page, 0.86, 0.26);
     await activate(page, 'kanban:c1');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(900);
@@ -216,7 +185,7 @@ const SHOTS = {
   /** The whole app at phone width — a real 390pt viewport, not a mock frame. */
   async reach(browser, base) {
     const { ctx, page } = await boot(browser, { width: 390, height: 844, dsf: 2 }, base);
-    await activate(page, 'agents:c1').catch(() => {});
+    await useGroup(page, 'space:agents').catch(() => {});
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(OUT, 'reach.png'), scale: 'device' });
     const kb = await toWebp(join(OUT, 'reach.png'));
