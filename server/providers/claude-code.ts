@@ -975,6 +975,16 @@ interface PersistentProcess {
    *  tool, sub-agent). Used by the heartbeat to decide whether to fire. */
   lastEventAt: number;
   /**
+   * Che COSA era l'ultimo evento arrivato (`assistant`, `system/compact_boundary`,
+   * `tool_result`…). Non serve al watchdog: serve a chi legge il log quando il
+   * watchdog uccide. «Nessuna attività per 30 minuti» non dice se il figlio era
+   * piantato o stava compattando — e i due casi vogliono due risposte opposte
+   * (uccidere è giusto nel primo, è un turno sano buttato via nel secondo).
+   * Misurato il 03/08: 7 turni troncati in un giorno su 5 topic, 4 dei quali con
+   * questo messaggio, uno subito dopo un `/compact`.
+   */
+  lastEventKind?: string;
+  /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
    * topics-app DB *does* contain prior user/assistant turns for this
@@ -1297,8 +1307,14 @@ export class ClaudeCodeProvider implements AIProvider {
       }
 
       if (errMsg === "TIMEOUT") {
+        // Il log porta i due fatti che servono a distinguere un figlio piantato
+        // da uno che stava lavorando in silenzio: da quanto tace davvero, e cosa
+        // aveva detto per ultimo. Senza, ogni kill è indistinguibile dagli altri
+        // e la diagnosi resta un'ipotesi.
+        const idleMin = Math.round((Date.now() - pp.lastEventAt) / 60000);
         console.warn(
-          `[claude-code] No model activity for ${Math.round(MESSAGE_TIMEOUT_MS / 60000)}min on ${sessionKey} — child appears wedged, killing process`,
+          `[claude-code] No model activity for ${Math.round(MESSAGE_TIMEOUT_MS / 60000)}min on ${sessionKey} — child appears wedged, killing process ` +
+          `(silenzio reale ${idleMin} min, ultimo evento: ${pp.lastEventKind ?? "nessuno"})`,
         );
         this.killProcess(pp);
         this.processes.delete(sessionKey);
@@ -2262,6 +2278,7 @@ export class ClaudeCodeProvider implements AIProvider {
         const marker = parseCompactBoundary(event);
         if (marker) {
           pp.lastEventAt = Date.now();
+          pp.lastEventKind = "system/compact_boundary";
           handler?.onCompaction?.(marker);
         }
       }
@@ -2292,6 +2309,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // Includes partial-message input deltas: a model spending 30s writing a
     // big Edit input is ACTIVE, and the watchdog must see it as such.
     pp.lastEventAt = Date.now();
+    // E COSA era: solo per il log del watchdog, che senza questo non puo'
+    // distinguere un figlio piantato da uno che taceva per un motivo.
+    pp.lastEventKind = event.subtype ? `${event.type}/${event.subtype}` : String(event.type ?? "?");
 
     // Partial-message stream events (`--include-partial-messages`). Only the
     // tool_use lifecycle is consumed here — text/thinking keep flowing
