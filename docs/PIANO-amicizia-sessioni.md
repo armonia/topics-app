@@ -23,6 +23,18 @@ l'amicizia è l'ultimo 10%.
 
 ## 1. Le due decisioni da prendere prima
 
+> **DECISO DA ATTILIO IL 04/08: (A) → relay CIECO, cifratura end-to-end.** Parole
+> sue: «deve essere sicuro no? però sempre condivisibile». Le due cose stanno
+> insieme, ma non gratis, ed è giusto sapere il prezzo prima: **condividere resta
+> possibile — cambia CHI può leggere.** Con la cifratura end-to-end le chiavi
+> vivono sui dispositivi, il relay instrada byte che non sa aprire, e chi
+> condividi vede tutto come prima. Quello che sparisce sono le funzioni che
+> richiedono al SERVER di capire il contenuto: ricerca lato server sulle
+> conversazioni condivise, cronologia consultabile da un dispositivo nuovo senza
+> le chiavi, anteprime generate dal server. Se un giorno ne servirà una, non sarà
+> «una funzione in più»: sarà tornare indietro sulla scelta. Il piano qui sotto
+> vale lo stesso, con la fase 3 più costosa (scambio e recupero delle chiavi).
+
 **(A) Il relay vede i contenuti?**
 Il task dice «hosting: Hetzner», quindi un relay server-side. Vuol dire che le tue chat e
 l'output dei tuoi terminali **transitano da una macchina** — e lì sono in chiaro, salvo
