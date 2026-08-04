@@ -1,0 +1,107 @@
+---
+title: We sent 244 tokens for every token we got back
+description: >-
+  Three months of building this app with coding agents, read out of its own database: 2.05
+  billion input tokens, 8.4 million output, and 9,870 dollars at API rates. Four fifths of the
+  input was never cached, and that is almost the whole bill.
+pubDate: 2026-08-05
+pillar: cost
+format: field-notes
+seoTarget: how much do ai coding agents cost
+wiki:
+  - prompt-caching
+  - context-window
+  - agent-turn
+  - subscription-vs-api-billing
+---
+
+import TokenSplit from '../../components/charts/TokenSplit.astro';
+
+Between 28 April and 4 August 2026 we built this application using coding
+agents, and the app recorded what every one of them used. Two hundred and
+seventy-five sessions. **2,050,571,146 input tokens. 8,389,785 output tokens.**
+
+That is 244 tokens sent for every token received, and it is the single most
+useful thing to know about what agents cost. You are not paying for what the
+model writes. You are paying, almost entirely, for what you hand it before it
+starts.
+
+At list API rates the work priced out at **$9,869.76**.
+
+<TokenSplit />
+
+## Four fifths of the input was never cached
+
+Cache reads accounted for 401 million tokens, which is 19.6% of everything
+sent. The other 1.65 billion arrived as fresh input at full price, and since a
+cache read costs about a tenth of fresh input, that split is close to the whole
+bill.
+
+The cache writes are the number that surprised us. **546,378 tokens written,
+401 million read.** Every token we managed to get into the cache was read back
+about 734 times. Where caching worked it worked extraordinarily well, and it
+was applied to 0.03% of what we sent.
+
+That gap is not a caching bug. It is what happens when the stable part of a
+prompt is small and the volatile part is large: file contents, tool results,
+diffs, the growing conversation. Only a prefix that does not change can be
+cached, and in agent work the prefix stops being stable almost immediately.
+
+## The cost is a shape, not a rate
+
+If you are trying to estimate what a project will cost, the per-token price is
+the least useful input you have. Two numbers move the answer far more.
+
+The first is how much context each turn carries. An agent that re-reads four
+files to change one line pays for four files, every turn, forever. The second
+is how much of that context survives unchanged between turns, because that is
+the only part a cache can help with.
+
+Neither appears on a pricing page. Both are decided by how the tool assembles
+the prompt, which is why two setups running the same model on the same task can
+differ by an order of magnitude and both be working correctly.
+
+## What 9,870 dollars does and does not mean
+
+It is the value the CLI reports for the work at API rates. It is not
+necessarily what was paid: a session running against a Pro or Max subscription
+is billed by the plan rather than per token, and a good part of this was.
+
+Read the right way round, that is the more interesting number. Three months of
+heavy agent work priced at **$9,870 at API rates** is what a subscription is
+worth to somebody who uses it hard, and it is the honest answer to whether a
+flat plan is generous. It also sets the ceiling on what the same work would
+cost with a key instead, which is the decision most people are actually making.
+
+We are not going to pretend the two are the same thing. They are not, the
+difference is large, and anybody quoting one as the other is selling something.
+
+## Method
+
+Read on 5 August 2026 from this application's own SQLite database, over
+assistant messages carrying usage counters, between 28 April and 4 August 2026.
+275 distinct sessions, 1,372 records.
+
+Token counts come from the provider's own `usage` payload. `input` is
+`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, which is
+the sum the API bills against, so cache reads are inside the 2.05 billion rather
+than beside it. The dollar figure is the sum of `total_cost_usd` as reported by
+the Claude Code CLI for each run.
+
+The queries are four `SUM()`s and a `COUNT(DISTINCT)`. Anyone running Topics can
+run the same ones against their own database and get their own version of this
+article, which is the only reason it is worth publishing ours.
+
+## Limits
+
+One team, one codebase, three months. A repository of this shape has an unusual
+amount of long-file reading in it, and a project made of many small independent
+services would produce a different ratio.
+
+The records are per run rather than per API call, so nothing here supports a
+claim about an individual turn. Where a run spawned sub-agents their usage rolls
+up into the parent, which is right for a bill and wrong for a benchmark.
+
+The model is recorded on only 64 of the 1,372 records, because the field was
+added partway through. A breakdown by model would be the obvious next question
+and we cannot answer it honestly from this data, so it is not here.
