@@ -269,8 +269,20 @@ test.describe.serial("Cross-window topic + message sync", () => {
       await page.waitForTimeout(1500);
       await expect(draftTab).toBeVisible();
 
-      // The chat input should be present and ready to receive a first message.
-      const textarea = page.locator('[role="main"] textarea').first();
+      // The chat input should be present and ready to receive a first message —
+      // quella DELLA BOZZA, non «la prima textarea della pagina».
+      //
+      // Il test apriva prima «Web Search Test» e poi la nuova chat, e finché
+      // aprire una chat ne SOSTITUIVA un'altra restava una pane sola: `.first()`
+      // pescava per forza la bozza. Da `217ff8f5` l'apertura aggiunge invece di
+      // sostituire (aprire una chat non ne archivia più un'altra), le due pane
+      // convivono, e `.first()` prendeva la textarea di «Web Search Test» — che
+      // essendo nella pane non attiva è NASCOSTA. Misurato nella run completa
+      // del 04/08: `9 × locator resolved to <textarea … aria-label="Message
+      // input for Web Search Test">` con «unexpected value hidden».
+      //
+      // Il test non stava sbagliando diagnosi: stava guardando la chat sbagliata.
+      const textarea = page.getByLabel("New Chat panel").locator("textarea").first();
       await expect(textarea).toBeVisible({ timeout: 5000 });
     } finally {
       await ctx.close();

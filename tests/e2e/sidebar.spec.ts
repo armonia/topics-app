@@ -387,7 +387,7 @@ test.describe("Sidebar — Fissati (pinning)", () => {
 
   // PIN-1: full chat lifecycle — pin, close (archives; row persists via the
   // pinnedIds escape), reopen (unarchives), unpin while closed (archives).
-  test("PIN-1: pin a chat → close its tab keeps the pinned row (topic archives) → click reopens → unpin while closed archives", async ({
+  test("PIN-1: una chat fissata NON si chiude; tolta dai Fissati si chiude e archivia", async ({
     page,
     request,
   }) => {
@@ -413,23 +413,37 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(row).toHaveAttribute("data-pinned", "true");
     await expectServerPin(request, t.id, true);
 
-    // Close the tab through the SAME user-close funnel Cmd+W reaches
-    // (right-click → "Chiudi ora" bypasses the 3s countdown deterministically).
+    // FISSATA ⇒ NON SI CHIUDE. È la regola decisa il 03/08 («se è pinnata manco
+    // posso chiuderla finché non la dis-pinno») e applicata in `ee55a33f`: la X e
+    // la voce di menu spariscono, e ci passano anche tastiera e chiamanti futuri
+    // perché il divieto sta in `isPaneClosable`, non nel bottone.
+    //
+    // Questo test chiedeva il contrario — chiudeva la tab fissata e verificava
+    // che il topic si archiviasse — e descriveva un mondo che non esiste più.
+    // Riscritto il 04/08 sul contratto nuovo: prima si prova che NON si chiude,
+    // poi che tolta dai Fissati si chiude e archivia come qualunque altra.
     const paneTab = page.getByTestId(`pane-tab-${t.id}`);
     await expect(paneTab).toBeVisible({ timeout: 5000 });
+    await paneTab.click({ button: "right" });
+    await expect(page.getByRole("button", { name: /Chiudi ora/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    // E la tab è ancora lì: il menu non l'ha chiusa di nascosto.
+    await expect(paneTab).toBeVisible();
+
+    // Tolta dai Fissati, torna una chat come le altre: si chiude e si archivia.
+    await row.click({ button: "right" });
+    const menuUnpin = page.getByRole("menu");
+    await menuUnpin.waitFor({ state: "visible" });
+    await menuUnpin.getByRole("menuitem", { name: "Rimuovi dai Fissati" }).click();
+    await expectServerPin(request, t.id, false);
+
     await paneTab.click({ button: "right" });
     await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
-    // Pinned ⇒ the row PERSISTS, but the topic DOES archive on close. The
-    // archived flag is the durable, server-authoritative, cross-client "closed"
-    // signal (2-state model); exempting pinned chats from it left the closure
-    // represented only by the device-local closedStack tombstone, which a stale
-    // second client / mobile PWA / the server's own stored snapshot out-raced,
-    // resurrecting the tab ("closed pinned chat reappears"). The sidebar's
-    // pinnedIds escape keeps the row visible even when archived, and the click
-    // below unarchives on reopen — so Arc "one click reopens" is preserved.
-    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toBeVisible({ timeout: 5000 });
+    // Chiusa da NON fissata, si archivia — che è il segnale «chiusa» durevole e
+    // valido su tutti i client (modello a due stati). E la riga esce dai Fissati:
+    // non era più fissata già prima della chiusura.
     await expect
       .poll(
         async () => {
@@ -440,52 +454,28 @@ test.describe("Sidebar — Fissati (pinning)", () => {
         { timeout: 10000 }
       )
       .toBe(true);
-
-    // One click reopens the tab (openPanel unarchives an archived chat).
-    await row.click();
-    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeVisible({ timeout: 10000 });
-    await expect
-      .poll(
-        async () => {
-          const res = await request.get(`${BASE}/api/topics`);
-          const data = await res.json();
-          return data?.topics?.[t.id]?.archived;
-        },
-        { timeout: 10000 }
-      )
-      .toBe(false);
-
-    // Close again, then UNPIN while closed → row disappears AND the topic
-    // archives (2-state fallback: no phantom non-archived tab-less topic).
-    await page.getByTestId(`pane-tab-${t.id}`).click({ button: "right" });
-    await page.getByRole("button", { name: /Chiudi ora/ }).click();
-    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeHidden({ timeout: 5000 });
-
-    await row.click({ button: "right" });
-    const menu2 = page.getByRole("menu");
-    await menu2.waitFor({ state: "visible" });
-    await menu2.getByRole("menuitem", { name: "Rimuovi dai Fissati" }).click();
-
-    await expect(row).toBeHidden({ timeout: 5000 });
-    await expect
-      .poll(
-        async () => {
-          const res2 = await request.get(`${BASE}/api/topics`);
-          const data2 = await res2.json();
-          return data2?.topics?.[t.id]?.archived;
-        },
-        { timeout: 10000 }
-      )
-      .toBe(true);
+    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toHaveCount(0);
   });
 
-  // PIN-3: regression — a closed pinned chat must NOT reappear as a tab after a
-  // reload. Before the fix, closing a pinned chat left it non-archived, so its
-  // closure was represented only by the device-local closedStack tombstone; a
-  // stale peer / the server's stored snapshot then resurrected the tab. Now the
-  // chat archives on close (durable cross-client closed signal) while the
-  // pinned sidebar row persists via the pinnedIds escape.
-  test("PIN-3: a pinned chat closed then reloaded does NOT resurrect its tab (row persists)", async ({
+  // La parte «un click riapre la chat archiviata» viveva in coda a questo test,
+  // agganciata alla chiusura di una tab FISSATA che oggi non è più possibile.
+  // Non è stata riscritta qui perché non è la stessa prova: la copre
+  // `reopen-closed-tab.spec.ts`, che riapre senza passare dal fissaggio.
+
+  // PIN-3 — riscritto il 04/08, perché la sua premessa non è più raggiungibile.
+  //
+  // Prima verificava che una chat fissata e CHIUSA non risorgesse dopo un
+  // ricarico. Da `ee55a33f` una chat fissata non si chiude affatto, quindi lo
+  // stato «fissata e chiusa» non esiste: il vecchio bug è impossibile per
+  // costruzione, e il test non poteva più nemmeno arrivare al punto (cadeva sul
+  // «Chiudi ora» che non c'è).
+  //
+  // Quello che resta da difendere è lo stesso esito visto dall'utente — la chat
+  // fissata è dove l'avevi lasciata — e ora si prova al contrario: dopo un
+  // ricarico la tab è ANCORA APERTA, il topic NON è archiviato e la riga è
+  // ancora fra i Fissati. Se qualcuno riaprisse la strada alla chiusura di una
+  // tab fissata, questo test se ne accorge.
+  test("PIN-3: una chat fissata resta aperta attraverso un ricarico (non si chiude, non si archivia)", async ({
     page,
     request,
   }) => {
@@ -507,12 +497,16 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(paneTab).toBeVisible({ timeout: 10000 });
     await expectServerPin(request, t.id, true);
 
-    // Close the tab (Chiudi ora → deterministic, bypasses the countdown).
+    // La chiusura non è offerta: né la X né la voce di menu.
     await paneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Chiudi ora/ }).click();
-    await expect(paneTab).toBeHidden({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: /Chiudi ora/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    // Let the archive + pane-store PUT settle before reloading.
+    // Ricarico: la tab è ancora aperta…
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeVisible({ timeout: 15000 });
+    // …il topic NON è archiviato (nessuna chiusura è avvenuta di nascosto)…
     await expect
       .poll(
         async () => {
@@ -522,16 +516,9 @@ test.describe("Sidebar — Fissati (pinning)", () => {
         },
         { timeout: 10000 }
       )
-      .toBe(true);
-
-    // Reload — the closed pinned chat's tab must stay closed…
-    await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeHidden({ timeout: 10000 });
-    // …while the pinned sidebar row survives (one click still reopens it). The
-    // row renders once BOTH the topic list and the pinned-state sync have
-    // hydrated, so wait on the row itself (its data-pinned marker) rather than
-    // racing the pinned-section grouping's first paint.
+      .toBe(false);
+    // …e la riga è ancora fra i Fissati. Si aspetta il marcatore sulla riga
+    // stessa invece del raggruppamento, che dipende dal primo paint.
     const reloadedRow = page.getByRole("treeitem", { name: new RegExp(name) });
     await expect(reloadedRow).toBeVisible({ timeout: 15000 });
     await expect(reloadedRow).toHaveAttribute("data-pinned", "true", { timeout: 10000 });
