@@ -16,6 +16,19 @@ export interface PresenceSource {
   detached?: boolean;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
+  /**
+   * Il socket è ancora aperto? (`readyState === 1`)
+   *
+   * Il builder iterava OGNI socket in `wsClients` senza guardarlo, mentre tutte
+   * le altre vie di broadcast lo filtrano. Un socket mezzo aperto — chiuso lato
+   * client senza che il close handler sia mai scattato — restava quindi una
+   * "finestra" per sempre: `wsClients.delete` sta in due punti soli, e se quel
+   * percorso non scatta niente lo ripulisce.
+   *
+   * `undefined` = non dichiarato ⇒ si conta (chiamante non aggiornato, e i test
+   * esistenti non devono cambiare significato).
+   */
+  alive?: boolean;
 }
 
 export interface PresenceWindowEntry {
@@ -28,15 +41,37 @@ export interface PresenceWindowEntry {
 }
 
 /**
- * Deduped list of windows that have declared presence. A socket without a
- * `windowId` has not announced and is skipped; when two sockets carry the same
- * `windowId` (a reconnect race) the first wins. Order follows iteration order.
+ * Deduped list of windows that have declared presence.
+ *
+ * Tre regole, in quest'ordine:
+ *
+ * 1. **Un socket che non ha annunciato** (`windowId` assente) **o che non è
+ *    vivo** (`alive === false`) non è una finestra. Il secondo pezzo mancava, ed
+ *    è metà del bug delle "4 finestre principali": un socket mezzo aperto
+ *    restava nell'elenco per sempre.
+ *
+ * 2. **Stesso `windowId`** = stesso client che si è riconnesso prima che il
+ *    vecchio socket cadesse: vince il primo (invariata).
+ *
+ * 3. **Stesso `windowLabel`** = STESSA FINESTRA DEL SISTEMA OPERATIVO. Nel
+ *    guscio Tauri la finestra `main` è una per definizione: quattro socket che
+ *    dichiarano `main` non sono quattro finestre, sono quattro contesti della
+ *    stessa (rilevato dal vivo il 03/08: quattro `windowId` distinti, tutti
+ *    `label=main`, tutti sullo stesso `__board__`). Qui vince l'ULTIMO che si è
+ *    annunciato, così un reload SOSTITUISCE sé stesso invece di clonarsi.
+ *
+ *    Il label si applica solo quando c'è: sul web è assente, e lì più tab sono
+ *    davvero più finestre — collassarle sarebbe il bug opposto.
+ *
+ * Ordine: quello di iterazione; una voce collassata per label tiene la posizione
+ * dell'ultima occorrenza (è quella che sopravvive).
  */
 export function buildPresenceSnapshot(sources: Iterable<PresenceSource>): PresenceWindowEntry[] {
   const seen = new Set<string>();
   const windows: PresenceWindowEntry[] = [];
   for (const s of sources) {
     if (!s.windowId || seen.has(s.windowId)) continue;
+    if (s.alive === false) continue;
     seen.add(s.windowId);
     windows.push({
       windowId: s.windowId,
@@ -47,5 +82,16 @@ export function buildPresenceSnapshot(sources: Iterable<PresenceSource>): Presen
       focusedTopicId: s.presenceFocusedTopicId,
     });
   }
-  return windows;
+  return collapseByWindowLabel(windows);
+}
+
+/** Una voce per `windowLabel` non vuoto, l'ultima vince. Le voci senza label
+ *  passano tutte (caso web: più tab = più finestre davvero). */
+function collapseByWindowLabel(windows: PresenceWindowEntry[]): PresenceWindowEntry[] {
+  const lastIndexByLabel = new Map<string, number>();
+  windows.forEach((w, i) => {
+    if (w.windowLabel) lastIndexByLabel.set(w.windowLabel, i);
+  });
+  if (lastIndexByLabel.size === 0) return windows;
+  return windows.filter((w, i) => !w.windowLabel || lastIndexByLabel.get(w.windowLabel) === i);
 }
