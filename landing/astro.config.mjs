@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import mdx from '@astrojs/mdx';
+import { unified } from '@astrojs/markdown-remark';
 import { remarkWikilink } from './src/lib/remark-wikilink.mjs';
 
 /**
@@ -11,11 +12,12 @@ import { remarkWikilink } from './src/lib/remark-wikilink.mjs';
  * sitemap, an RSS feed, per-article OG images and 200 pages of blog and wiki
  * stop being hand-maintained code.
  *
- * The pieces that were hand-written and stay hand-written live in `public/`
- * verbatim: styles.css, app.js, changelog.js, the demo build under app/, the
- * product images. Astro copies them through untouched, so this migration cannot
- * change how a single one of them behaves. Hashing and bundling them is a later,
- * separate decision.
+ * What stays in `public/` is what a browser must fetch at a fixed URL and what
+ * no build step improves: styles.css, the demo build under app/, the product
+ * images, robots.txt, llms.txt, agents.md. The behaviour that used to live
+ * beside them as `app.js` and `changelog.js` moved into `src/scripts/*.ts`,
+ * where it is typechecked and bundled per page — served from `public/` it was
+ * none of those things, and every page paid for all of it.
  */
 export default defineConfig({
   site: 'https://topics.armonia.io',
@@ -41,7 +43,11 @@ export default defineConfig({
   ],
 
   markdown: {
-    remarkPlugins: [remarkWikilink],
+    // `markdown.remarkPlugins` still works and is deprecated in Astro 7 — the
+    // plugin list moved onto the processor itself, which is the object the
+    // renderer actually holds. Same pipeline, no warning, and it will survive
+    // the major that drops the old field.
+    processor: unified({ remarkPlugins: [remarkWikilink] }),
   },
 
   build: {

@@ -9,7 +9,7 @@
  * from scripts/changelog-i18n.json, and writes:
  *   - CHANGELOG.md                     canonical, Italian
  *   - client/public/changelog.json     structured (it+en, all buckets) -> served at /changelog.json
- *   - landing/changelog.json           public site (EN, new/fixes/perf only)
+ *   - landing/src/data/changelog.json  public site (EN, new/fixes/perf only)
  *
  * Any user-facing entry (new/fixes/perf) missing an EN translation is reported so
  * it can be added to changelog-i18n.json. Regeneration is deterministic.
@@ -125,7 +125,14 @@ const siteJson = versions
     },
   }))
   .filter((v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0);
-write('landing/changelog.json', JSON.stringify(siteJson, null, 2) + '\n');
+// `landing/src/data/`, not `landing/`. The site became an Astro project and
+// this line kept writing to a path nothing reads, so the next regeneration
+// would have silently frozen the public changelog at whatever version was last
+// copied by hand — no error anywhere, just a page that stopped moving.
+//
+// It is a build INPUT now, not a public asset: the page imports it and renders
+// the list server-side, so the 250KB never reaches a browser at all.
+write('landing/src/data/changelog.json', JSON.stringify(siteJson, null, 2) + '\n');
 
 // 7. Report.
 const totalEntries = versions.reduce(

@@ -1,11 +1,26 @@
 ---
 /**
- * The home page. The markup is the hand-written page that was here before,
- * moved under a layout and with its relative asset URLs made absolute — with
- * directory routes, `./styles.css` from /changelog/ would resolve to
- * /changelog/styles.css and 404.
+ * The home page.
+ *
+ * Order, and why: one line saying what it is, then the product, then proof that
+ * it is alive, then the model you need before the rest means anything. The
+ * pitch follows, and the two sections that buy the most trust — the comparison
+ * and the declared limits — come BEFORE the price rather than after it.
+ *
+ * The product sits second because of a measurement. It used to start at 585px,
+ * so a 13" laptop showed 215px of it against NN/g's finding that 57% of gaze
+ * time is spent above the fold. Pushing it below the model section made that
+ * worse, not better: measured at 1440×750 the frame was 1475px down and 0% of
+ * it was visible. It is a poster now — a picture until you ask for the app — so
+ * putting it high costs nothing, which was the only reason it was ever low.
  */
 import Base from '../layouts/Base.astro';
+import ChangelogList from '../components/ChangelogList.astro';
+import { homeTools, READ_ON } from '../data/compare';
+import { repoStats, longDate } from '../lib/repo-stats';
+
+const stats = repoStats();
+const fmt = (n: number) => n.toLocaleString('en-GB');
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -22,9 +37,7 @@ const jsonLd = {
       "@id": "https://topics.armonia.io/#site",
       "url": "https://topics.armonia.io/",
       "name": "Topics",
-      "publisher": {
-        "@id": "https://topics.armonia.io/#org"
-      },
+      "publisher": { "@id": "https://topics.armonia.io/#org" },
       "inLanguage": "en"
     },
     {
@@ -33,32 +46,25 @@ const jsonLd = {
       "url": "https://topics.armonia.io/",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Windows, Linux",
-      "softwareVersion": "2.2.11",
+      "softwareVersion": stats.version,
       "license": "https://github.com/armonia/topics-app/blob/main/LICENSE",
       "downloadUrl": "https://github.com/armonia/topics-app/releases/latest",
       "softwareHelp": "https://topics.armonia.io/agents.md",
       "releaseNotes": "https://topics.armonia.io/changelog",
       "isAccessibleForFree": true,
-      "publisher": {
-        "@id": "https://topics.armonia.io/#org"
-      },
-      "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "EUR"
-      }
+      "publisher": { "@id": "https://topics.armonia.io/#org" },
+      "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each task in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
     }
   ]
 };
 ---
 
 <Base
-  title="Topics · the workspace for coding agents"
-  description="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Sessions sorted into topics that keep their own terminal, branch and browser, a board that hands work to agents in isolated worktrees, and numbers that say what it cost. Free and open source."
-  ogDescription="Claude Code, Codex and Gemini CLI sessions sorted into topics, several projects open at once, and a board that puts agents to work in their own worktrees."
+  title="Topics · four agents, one repo, nobody collides"
+  description="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Every task gets its own git worktree, so several agents work the same repository at once. A board hands them work and gives it back as a diff. Free, MIT, on your machine."
+  ogDescription="Run Claude Code, Codex and Gemini CLI side by side on one repository. Each task in its own worktree, a board that dispatches them, and a diff back. Free and open source."
   path="/"
-  htmlAttrs={{ 'data-font': 'editorial', 'data-bg': 'weave' }}
   jsonLd={jsonLd}
 >
 <!-- Icon sprite. One 24×24 grid, 1.7 stroke, round joins, drawn so each glyph
@@ -80,6 +86,7 @@ const jsonLd = {
       <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.8 12.4l4.7 4.7 9.7-10.2"/></symbol>
       <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.6" y="10.2" width="14.8" height="9.4" rx="2.2"/><path d="M8.2 10.2V7.8a3.8 3.8 0 0 1 7.6 0v2.4"/></symbol>
       <symbol id="ic-key" viewBox="0 0 24 24"><circle cx="7.6" cy="12" r="3.4"/><path d="M11 12h9.4"/><path d="M17.2 12v3.2M20.4 12v2.4"/></symbol>
+      <symbol id="ic-warn" viewBox="0 0 24 24"><path d="M12 4.2L21 19.4H3z"/><path d="M12 10v4.2"/><circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/></symbol>
       <symbol id="ic-expand" viewBox="0 0 24 24"><path d="M9.4 4.6H4.6v4.8M14.6 4.6h4.8v4.8M9.4 19.4H4.6v-4.8M14.6 19.4h4.8v-4.8"/></symbol>
       <symbol id="ic-collapse" viewBox="0 0 24 24"><path d="M4.6 9.4h4.8V4.6M19.4 9.4h-4.8V4.6M4.6 14.6h4.8v4.8M19.4 14.6h-4.8v4.8"/></symbol>
       <symbol id="ic-float" viewBox="0 0 24 24"><rect x="3" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="3" y="12.6" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="12.6" width="8.4" height="7" rx="1.8"/></symbol>
@@ -90,15 +97,14 @@ const jsonLd = {
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
       <symbol id="os-apple" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M17.05 12.04c-.03-2.85 2.33-4.22 2.44-4.28-1.33-1.95-3.4-2.22-4.13-2.25-1.76-.18-3.43 1.04-4.32 1.04-.89 0-2.26-1.02-3.72-.99-1.91.03-3.68 1.11-4.66 2.82-1.99 3.45-.51 8.56 1.43 11.36.95 1.37 2.08 2.91 3.56 2.86 1.43-.06 1.97-.92 3.7-.92 1.72 0 2.21.92 3.72.89 1.54-.03 2.51-1.4 3.45-2.78 1.09-1.59 1.54-3.13 1.56-3.21-.03-.01-2.99-1.15-3.02-4.55zM14.2 4.38c.79-.96 1.32-2.29 1.18-3.62-1.14.05-2.52.76-3.33 1.72-.73.85-1.37 2.2-1.2 3.5 1.27.1 2.57-.65 3.35-1.6z"/></symbol>
       <symbol id="os-windows" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M3 5.5l7.6-1.04v7.04H3zM11.4 4.34L21 3v9.04h-9.6zM3 12.5h7.6v7.04L3 18.5zM11.4 12.5H21V21l-9.6-1.34z"/></symbol>
-      <symbol id="os-linux" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.2c-2.05 0-3.3 1.7-3.3 3.8 0 .95.18 1.55.18 2.35 0 1.05-1.4 2.05-2.1 3.55-.78 1.62-1.55 3.4-1.55 4.95 0 1 .62 1.6 1.55 1.6.6 0 1 .5 1.7.92.66.42 1.45.83 3.02.83s2.36-.41 3.02-.83c.7-.42 1.1-.92 1.7-.92.93 0 1.55-.6 1.55-1.6 0-1.55-.77-3.33-1.55-4.95-.7-1.5-2.1-2.5-2.1-3.55 0-.8.18-1.4.18-2.35 0-2.1-1.25-3.8-3.3-3.8z"/><circle cx="10.4" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><circle cx="13.6" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><path d="M11 8.7h2l-1 1.5z" fill="#f5b53d" stroke="none"/></symbol>
+      <!-- The penguin's eyes and beak are knocked out in PAPER, not in the old
+           page's near-black: the icon now sits on a light tile with ink as its
+           body colour, so dark counters inside a dark silhouette vanish. -->
+      <symbol id="os-linux" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.2c-2.05 0-3.3 1.7-3.3 3.8 0 .95.18 1.55.18 2.35 0 1.05-1.4 2.05-2.1 3.55-.78 1.62-1.55 3.4-1.55 4.95 0 1 .62 1.6 1.55 1.6.6 0 1 .5 1.7.92.66.42 1.45.83 3.02.83s2.36-.41 3.02-.83c.7-.42 1.1-.92 1.7-.92.93 0 1.55-.6 1.55-1.6 0-1.55-.77-3.33-1.55-4.95-.7-1.5-2.1-2.5-2.1-3.55 0-.8.18-1.4.18-2.35 0-2.1-1.25-3.8-3.3-3.8z"/><circle cx="10.4" cy="7.1" r=".95" fill="#faf9f5" stroke="none"/><circle cx="13.6" cy="7.1" r=".95" fill="#faf9f5" stroke="none"/><path d="M11 8.7h2l-1 1.5z" fill="#faf9f5" stroke="none"/></symbol>
     </defs>
   </svg>
 
   <div class="grain" aria-hidden="true"></div>
-  <div class="grain grain--fine" aria-hidden="true"></div>
-  <div class="aurora" aria-hidden="true"><span class="orb orb--blue"></span><span class="orb orb--violet"></span><span class="orb orb--teal"></span></div>
-  <div class="noise-grad" aria-hidden="true"></div>
-  <div class="spotlight" aria-hidden="true"></div>
 
   <!-- NAV -->
   <header class="nav" id="nav">
@@ -110,9 +116,10 @@ const jsonLd = {
       <nav class="nav__links" aria-label="Primary">
         <a href="#demo">Demo</a>
         <a href="#features">Features</a>
-        <a href="#autonomy">Agents</a>
+        <a href="/wiki">Docs</a>
+        <a href="/blog">Blog</a>
+        <a href="/compare/claude-code-guis">Compare</a>
         <a href="#pricing">Pricing</a>
-        <a href="#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank"><svg class="ic ic--fill"><use href="#ic-gh"/></svg>GitHub</a>
       </nav>
       <div class="nav__cta">
@@ -126,73 +133,78 @@ const jsonLd = {
   </header>
 
   <main id="top">
-    <!-- HERO — short on purpose. The product frame is the argument, so it has
-         to arrive before anything asks to be read. -->
+    <!-- HERO. The headline names a RESULT, not a category: measured across
+         1,200 landing pages, a result headline scores 58/100 against 44 for a
+         category one, and "the workspace for coding agents" was the second. -->
     <section class="hero">
-      <div class="grid-pattern" aria-hidden="true"></div>
+      {/* The release pill came off. It was 58px above the headline saying "v2.2.11
+          is out for macOS, Windows and Linux" — which the proof row now says, in
+          a place where it sits beside the numbers that make it mean something.
+          58px of duplicate is 58px of the product frame. */}
       <div class="hero__inner">
-        <a class="pill reveal" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
-          <span class="pill__dot"></span>
-          <span id="pillRelease">macOS, Windows and Linux</span>
-          <span class="pill__arrow">&rarr;</span>
-        </a>
-        <h1 class="hero__title reveal" style="--d:1">
-          The workspace for<br /><span class="gradient-text">coding agents.</span>
+        <h1 class="hero__title reveal">
+          Four agents, one repo,<br /><span class="gradient-text">nobody collides.</span>
         </h1>
-        <p class="hero__sub reveal" style="--d:2">
-          Every <strong>Claude Code</strong> session gets a topic that remembers its terminal,
-          its branch and its browser. Whole projects stay open next to each other, so switching
-          context costs one keystroke instead of ten minutes.
+        <p class="hero__sub reveal" style="--d:1">
+          A desktop workspace for <span class="slot" id="agentSlot">Claude&nbsp;Code</span>.
+          Every task gets its own git worktree, so several agents can be mid-edit on the
+          same repository without touching each other's files.
         </p>
-        <div class="hero__actions reveal" style="--d:3">
+        <div class="hero__actions reveal" style="--d:2">
           <a class="btn btn--primary btn--lg" id="primaryDownload" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
             <svg class="ic"><use href="#ic-dl"/></svg>
             <span id="primaryDownloadLabel">Download</span>
           </a>
           <a class="btn btn--glass btn--lg" href="#demo">
             <svg class="ic ic--fill"><use href="#ic-play"/></svg>
-            <span>Open the live demo</span>
+            <span>See it running</span>
           </a>
         </div>
-        <p class="hero__meta reveal" style="--d:4">
+        <p class="hero__meta reveal" style="--d:3">
           <span class="dot-live"></span>
-          Free and open source under MIT. No telemetry. Use your own API key, or the
-          subscription you already pay for.
+          Free and MIT. Your machine, your subscription or key, no account, no telemetry.
         </p>
       </div>
     </section>
 
-    <!-- The page used to introduce itself twice: an h1 saying "here is the
-         product", then an h2 thirty pixels above the product saying "here is
-         the product". The frame speaks for itself, so what survives is one
-         line telling you it is real and yours to touch. -->
 
-    <!-- DEMO — the frame comes first and the chapter list sits under it, so the
-         product is on screen before the reader has to choose anything. -->
+    <!-- DEMO. The real app, in an iframe, with sample data. It is now a poster
+         until you ask for it: the client is 449KB on the wire and ~1.55MB to
+         parse, it is same-origin so it shares this page's process and main
+         thread, and `loading="lazy"` never fired because the frame starts at
+         ~585px against Chrome's 1250px threshold. So every visitor paid for a
+         React boot while reading the headline. -->
     <section class="demo" id="demo">
       <div class="showcase reveal">
-        <div class="showcase__glow" aria-hidden="true"></div>
         <div class="showcase__frame">
-          <iframe class="window-real" id="demoFrame" src="/app/index.html"
-                  title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."
-                  loading="lazy"></iframe>
+          <!-- The iframe has no src until the poster is clicked or a chapter is
+               picked. home.ts sets it once and never again: re-creating it would
+               reload the app and throw away whatever the tour was doing. -->
+          <iframe class="window-real" id="demoFrame" data-src="/app/index.html"
+                  title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."></iframe>
+          <button class="showcase__poster" id="demoPoster" type="button" aria-label="Start the interactive demo">
+            <img src="/img/demo-poster.webp" alt="" width="2560" height="1440" fetchpriority="low" decoding="async" />
+            <span class="showcase__play"><svg class="ic ic--fill" aria-hidden="true"><use href="#ic-play"/></svg>Start the live demo</span>
+          </button>
           <!-- The wheel guard. Without it, passing the mouse over the demo on
                the way down the page hands your scroll to the app inside and the
                page stops moving. One click hands the demo over for real; it
                comes back as soon as the pointer leaves. -->
-          <button class="shield" id="demoShield" type="button"
-                  aria-label="Take control of the demo">
+          <button class="shield" id="demoShield" type="button" aria-label="Take control of the demo">
             <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
           </button>
-          <!-- Expanding only adds a class to <body>. Moving the iframe in the
-               DOM would re-create it, which reloads the app and throws away the
-               session the tour is in the middle of. -->
-          <button class="expand" id="demoExpand" type="button" aria-expanded="false"
-                  aria-label="Expand the demo to fill the window">
+          <button class="expand" id="demoExpand" type="button" aria-expanded="false" aria-label="Expand the demo to fill the window">
             <svg class="ic" aria-hidden="true"><use href="#ic-expand"/></svg>
             <span class="expand__label">Expand</span>
           </button>
         </div>
+        {/* The explanation goes UNDER the picture. Above it, it was three lines
+            standing between the headline and the only thing on the page that
+            proves the headline. */}
+        <p class="demo__lead">
+          The actual application, running here on sample data — not a video and not a mock.
+          Pick a chapter below, or click in and drive it yourself.
+        </p>
         <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">Every chapter switches GROUP — a set of tabs you live in. Click in to drive it yourself.</span></p>
       </div>
 
@@ -245,26 +257,76 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- WORKS WITH -->
-    <section class="strip" aria-label="Works with">
-      <p class="strip__label">Runs the agents you already run</p>
-      <div class="marquee" aria-hidden="true">
-        <div class="marquee__track">
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>OpenCode</span><span>·</span><span>Gemini CLI</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenAI GPT</span><span>·</span><span>MCP</span><span>·</span><span>any ACP agent</span><span>·</span>
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>OpenCode</span><span>·</span><span>Gemini CLI</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenAI GPT</span><span>·</span><span>MCP</span><span>·</span><span>any ACP agent</span><span>·</span>
+    <!-- PROOF. Not stars (0) and not downloads (54) — for a project this young
+         those are an own goal. Commits and releases are the true signal, read
+         from the repository at build time so the page cannot drift from it. -->
+    <section class="proof reveal" aria-label="Project activity">
+      <div class="proof__row">
+        <span class="proof__item"><b class="proof__n">{fmt(stats.commits)}</b> commits</span>
+        <span class="proof__item"><b class="proof__n">{fmt(stats.commitsLast7)}</b> in the last 7 days</span>
+        <span class="proof__item"><b class="proof__n">{stats.releases}</b> releases</span>
+        <span class="proof__item">
+          <b class="proof__n"><a id="pillRelease" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">v{stats.version}</a></b>
+          on macOS, Windows and Linux
+        </span>
+        <span class="proof__item"><b class="proof__n">MIT</b> licence</span>
+      </div>
+      <p class="proof__note">
+        Counted from the public repository when this page was built. First commit {longDate(stats.since)} —
+        <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">check them yourself</a>.
+      </p>
+    </section>
+
+    <!-- THE MODEL. The old page never explained what a topic was, which made
+         every screenshot below it a picture of an unnamed thing. Three steps,
+         no images: this is the one place where words are faster. -->
+    <section class="model" id="model">
+      <header class="section-head reveal">
+        <span class="eyebrow">the whole idea</span>
+        <h2>Three things, and you know the app.</h2>
+        <p>There is no new workflow to learn. The agents are the ones you already run, in a terminal, on your own account.</p>
+      </header>
+      <div class="model__grid reveal">
+        <div class="model__step">
+          <span class="model__n">1</span>
+          <h3>A topic is a session with a workspace attached</h3>
+          <p>One conversation, and the things it needs: a terminal, a branch, a browser, the files it touched. Close the app and it comes back the same, scrollback included.</p>
+        </div>
+        <div class="model__step">
+          <span class="model__n">2</span>
+          <h3>Panes and groups are the room they live in</h3>
+          <p>Split any pane, drag tabs between groups, keep three whole projects open beside each other. The layout persists, and syncs to your other machine.</p>
+        </div>
+        <div class="model__step">
+          <span class="model__n">3</span>
+          <h3>The board is where you hand work over</h3>
+          <p>Write a task, an agent takes it in a <code>git worktree</code> of its own, and hands back a commit and evidence. You read the diff and decide.</p>
         </div>
       </div>
+    </section>
+
+
+    <!-- WORKS WITH. Was a marquee: a 28-second infinite translate running for
+         as long as the tab was open, to say eight words. The rotating name in
+         the headline already does the "works with" job above the fold, so what
+         is left down here is the complete list, stated once and standing still. -->
+    <section class="strip" aria-label="Works with">
+      <p class="strip__label">Runs the agents you already run</p>
+      <p class="strip__list">
+        Claude&nbsp;Code · Codex · OpenCode · Gemini&nbsp;CLI · Anthropic&nbsp;API ·
+        OpenAI&nbsp;GPT · MCP · any&nbsp;ACP&nbsp;agent
+      </p>
     </section>
 
     <!-- AUTONOMY -->
     <section class="autonomy" id="autonomy">
       <header class="section-head reveal">
-        <span class="eyebrow">multi-agent and ultracode</span>
-        <h2>Give it a board. Walk away.</h2>
+        <span class="eyebrow">the board</span>
+        <h2>Give it a task. Walk away.</h2>
         <p>
-          Topics does more than watch agents work. Put a task on the board and an agent picks
-          it up inside its own git worktree, which is what lets several of them run at once
-          without stepping on your checkout.
+          A worktree per agent is not ours alone any more — Devin Desktop sells the same
+          idea. What is still unusual is the board: the agent picks the card up itself,
+          works it, and brings it back with evidence.
         </p>
       </header>
 
@@ -320,12 +382,11 @@ const jsonLd = {
     </section>
 
     <!-- FEATURES — six rows, alternating, each one a photograph of the real app
-         next to what it does. The images are shot by scripts/landing-shots.mjs
-         from the same build the demo above runs, and every one of them is a
-         WHOLE thing: a window, or one pane with its tab bar and its own corners.
-         The version before this cut 650×340 rectangles out of the middle of the
-         UI and dropped them into six identical cards, which is how you get six
-         pictures that all end mid-word. -->
+         next to what it does. The images come from scripts/landing-shots.mjs,
+         shot from the same build the demo above runs, and every one is a WHOLE
+         thing: a window, or one pane with its tab bar and its own corners. They
+         are also the only dark objects on the page besides the code, which is
+         the entire visual argument. -->
     <section class="features" id="features">
       <header class="section-head reveal">
         <span class="eyebrow">one window, every surface</span>
@@ -346,7 +407,7 @@ const jsonLd = {
             <ul class="flist">
               <li><b>Topics, not tabs.</b> Group sessions by project or intent. Each one keeps its terminal, files and conversation.</li>
               <li><b>Projects side by side.</b> Several whole projects open at once in a grid you can resize.</li>
-              <li><b>Spaces and splits.</b> Split any pane, drag tabs between groups, tear one off into its own window.</li>
+              <li><b>Groups and splits.</b> Split any pane, drag tabs between groups, tear one off into its own window.</li>
               <li><b>Layout that persists.</b> Panes, splits and tabs come back the way you left them.</li>
               <li><b>Tab sync across devices.</b> Open the workspace on another machine and find it in the same shape.</li>
               <li><b>Command palette.</b> Everything reachable from the keyboard, including reopening the tab you just closed.</li>
@@ -414,7 +475,7 @@ const jsonLd = {
           </div>
         </article>
 
-        <article class="fitem fitem--pro reveal">
+        <article class="fitem reveal">
           <figure class="fitem__shot fitem__shot--phone">
             <img class="shot shot--phone" src="/img/reach.webp" width="780" height="1688" loading="lazy"
                  alt="The whole app at phone width, listing the agent sessions running on acme-web." />
@@ -430,7 +491,7 @@ const jsonLd = {
               <li><b>Cross-device sync.</b> Open the workspace on a second machine and find the same tabs and layout.</li>
               <li><b>A view of every machine.</b> Which of your machines is online, and what is running on it.</li>
             </ul>
-            <p class="fitem__note">All of this is in the free app and works with your own tunnel today. What we are building is the hosted version, so you do not have to run the tunnel yourself. <a href="#pricing">See where that stands</a>.</p>
+            <p class="fitem__note">All of this is in the free app and works over a tunnel you run today. There is no hosted version and none is running — <a href="#limits">see the limits</a>.</p>
           </div>
         </article>
 
@@ -456,9 +517,93 @@ const jsonLd = {
       </div>
     </section>
 
+    <!-- COMPARE. HTML rather than an image, because the point of this block is
+         that somebody writing a "best tools for X" list can copy it. The facts
+         are shared with /compare so the short version cannot drift. -->
+    <section class="compare" id="compare">
+      <header class="section-head reveal">
+        <span class="eyebrow">against the alternatives</span>
+        <h2>The line that actually separates these.</h2>
+        <p>
+          Not features — those move in a release. Where the work runs, and who else can read it.
+        </p>
+      </header>
+      {/* A scrollable box has to be reachable from a keyboard, or the only way
+          to read the columns that are off the edge on a phone is a pointer. */}
+      <div class="compare__scroll reveal" tabindex="0" role="region" aria-label="Comparison table, scrolls horizontally">
+        <table class="ctable">
+          <thead>
+            <tr>
+              <th scope="col"><span class="sr-only">Question</span></th>
+              {homeTools.map((t) => <th scope="col" class={t.us ? 'is-us' : undefined}>{t.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Where the work runs</th>
+              {homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.shortWhere}</td>)}
+            </tr>
+            <tr>
+              <th scope="row">Price</th>
+              {homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.price}</td>)}
+            </tr>
+            <tr>
+              <th scope="row">Licence</th>
+              {homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.licence}</td>)}
+            </tr>
+            <tr>
+              <th scope="row">Account required</th>
+              {homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.account}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="compare__note">
+        Every cell about a product other than ours is quoted from their own public page, read
+        {' '}{READ_ON}. <a href="/compare/claude-code-guis">The full table, six tools, and when
+        each of them is the better answer &rarr;</a>
+      </p>
+    </section>
+
+    <!-- LIMITS. Both studies on trust in technical audiences put declared
+         limitations at the top of what gets believed, and not one of the thirty
+         competitor home pages in the sample has a section like this. -->
+    <section class="limits" id="limits">
+      <header class="section-head reveal">
+        <span class="eyebrow">before you download it</span>
+        <h2>When Topics is the wrong tool.</h2>
+        <p>Written by the people who make it, which is the only reason it is worth reading.</p>
+      </header>
+      <div class="limits__grid reveal">
+        <article class="limits__item">
+          <h3>You run one agent at a time</h3>
+          <p>Start a session, watch it, finish. A workspace is overhead. Everything here is in service of the case where three or four are running and you have lost track of which one is waiting on you.</p>
+        </article>
+        <article class="limits__item">
+          <h3>You want work to continue after you close the lid</h3>
+          <p>It will not. The agents run on your machine, so they stop when it sleeps. If that is the requirement, a product with cloud workspaces is the right shape and we say which ones on the <a href="/compare/claude-code-guis">comparison page</a>.</p>
+        </article>
+        <article class="limits__item">
+          <h3>You wanted an editor</h3>
+          <p>Topics is not an IDE and is not becoming one. It hosts the terminal agents and the surfaces around them; you keep whatever editor you already use, open beside it or inside a pane.</p>
+        </article>
+        <article class="limits__item">
+          <h3>You need accounts, roles or a shared board</h3>
+          <p>There is no authentication layer at all — not a weak one, none. Boards sync between <em>your</em> machines. Exposing one over a tunnel means putting your own auth in front of it.</p>
+        </article>
+        <article class="limits__item">
+          <h3>macOS will say the developer cannot be verified</h3>
+          <p>The build is signed ad-hoc, so Gatekeeper stops it on first launch and since Sequoia the control-click bypass is gone. <a href="#download">The three steps are below</a>, and if that is a dealbreaker it is a fair one.</p>
+        </article>
+        <article class="limits__item">
+          <h3>It is young, and macOS gets the most use</h3>
+          <p>First commit {longDate(stats.since)}. Windows and Linux are built and released every time, and are used far less than macOS, which is exactly where you should expect to find the rough edges.</p>
+        </article>
+      </div>
+    </section>
+
     <!-- THE REST — an audit of the repo against this page turned up sixteen
-         shipped capabilities the site never mentioned. The six cards above tell
-         the story; this is the part that answers "does it do X". -->
+         shipped capabilities the site never mentioned. -->
     <section class="more" id="more">
       <header class="section-head reveal">
         <span class="eyebrow">also in the box</span>
@@ -503,99 +648,113 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- PRICING -->
+    <!-- PRICING. Every plan here is something that can be delivered the day it
+         is bought. The page used to list €9 Pro and €19 Team beside the free
+         app: neither exists in the code — no hosted relay, no encrypted backup,
+         and Team needs accounts the product does not have — and across thirty
+         competitor pages not one shows a price for a plan you cannot buy. Three
+         columns of which two were unbuyable turned "free forever, really" into
+         "free for now", which was the most expensive thing on the page. -->
     <section class="pricing" id="pricing">
       <header class="section-head reveal">
         <span class="eyebrow">pricing</span>
-        <h2>The app is free. Forever.</h2>
+        <h2>The app is €0 and stays €0.</h2>
         <p>
-          Anything that runs on your machine costs nothing and always will: every agent, every
-          terminal, the whole board. The two plans below are what we are building next, for the
-          parts that need a server we run rather than one you run. Neither is on sale yet, and
-          the app has never needed them.
+          Everything that runs on your machine is free under MIT, permanently: every agent,
+          every terminal, the whole board. What you can pay for is support, an invoice, and
+          a say in what gets built — never a feature held back from the free app.
         </p>
       </header>
 
       <div class="plans">
-        <article class="plan reveal">
+        <article class="plan plan--free reveal">
           <header class="plan__head">
-            <h3>Free</h3>
-            <p class="plan__price"><span class="plan__amount">&euro;0</span><span class="plan__per">forever</span></p>
-            <p class="plan__for">The whole product, on your machine.</p>
+            <h3>€0 forever</h3>
+            <p class="plan__price"><span class="plan__amount">€0</span><span class="plan__per">the whole product</span></p>
+            <p class="plan__for">Not a trial and not a tier. This is the app.</p>
           </header>
           <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited topics, projects and split panes</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited terminals and agent sessions</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Kanban board, agent dispatch and worktrees</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Agent monitoring, dashboard, context inspector</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Browser pane, git, files, processes, cron</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your own key or subscription. We never sit between you and the model.</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited topics, projects, panes and terminals</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Board, agent dispatch, worktrees, diff review</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Dashboard, monitoring, context inspector</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access and mobile over your own tunnel</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Your subscription or your key.</b> We are never in the path</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>No telemetry, no account</b>, data on your disk</li>
           </ul>
-          <a class="btn btn--glass btn--block" id="planFreeCta" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
+          <a class="btn btn--primary btn--block" id="planFreeCta" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
             <svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span>
           </a>
-          <p class="plan__fine">MIT licensed. No account required.</p>
+          <p class="plan__fine">MIT. No sign-up, no email, nothing to cancel.</p>
         </article>
 
-        <!-- The two paid cards describe something we are building, not something
-             you can buy today, and the markup says so on its own: the CTA reads
-             "waitlist" in the HTML and app.js turns it into a real checkout only
-             once a Payment Link exists. It used to work the other way round,
-             which meant anyone reading with JS off, or any social preview,
-             saw an active subscription that cannot be purchased. -->
-        <article class="plan plan--feature plan--soon reveal">
-          <span class="plan__badge">In progress</span>
+        <article class="plan reveal">
           <header class="plan__head">
-            <h3>Pro</h3>
-            <p class="plan__price"><span class="plan__amount">&euro;9</span><span class="plan__per">/ month, planned</span></p>
-            <p class="plan__for">The hosted version of the things you can already self-host.</p>
+            <h3>Supporter</h3>
+            <p class="plan__price"><span class="plan__amount">€5</span><span class="plan__per">/ month, or €49 a year</span></p>
+            <p class="plan__for">You use it daily and would rather it kept being made.</p>
           </header>
           <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Free</b>, without running the plumbing:</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A hosted relay, so a second machine syncs without a tunnel of your own</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access with a URL and auth we manage</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications that reach your phone when you are away from the machine</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Encrypted off-machine backup of topics and history</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>No features attached.</b> That is the point</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A private channel with the person building it</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your issues looked at first</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A vote on what gets built next</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your name in the credits, if you want it there</li>
           </ul>
-          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing"><span>Join the Pro waitlist</span></a>
-          <p class="plan__fine">Not on sale yet. We will email before anything is charged.</p>
+          <a class="btn btn--glass btn--block" data-checkout="supporter" href="#pricing"><span>Support the project</span></a>
+          <p class="plan__fine">Cancel whenever. Nothing in the app changes either way.</p>
         </article>
 
-        <article class="plan plan--soon reveal">
-          <span class="plan__badge plan__badge--quiet">In progress</span>
+        <article class="plan plan--feature reveal">
+          <span class="plan__badge">Best value</span>
           <header class="plan__head">
-            <h3>Team</h3>
-            <p class="plan__price"><span class="plan__amount">&euro;19</span><span class="plan__per">/ seat / month, planned</span></p>
-            <p class="plan__for">One board, several people.</p>
+            <h3>Founding</h3>
+            <p class="plan__price"><span class="plan__amount">€99</span><span class="plan__per">once, not a subscription</span></p>
+            <p class="plan__for">Everything Supporter gives, plus the hosted side when it exists.</p>
           </header>
           <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Pro</b>, for every seat</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Accounts, so a board can belong to more than one person</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared boards across people, not just across your own machines</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Roles, and who is allowed to approve</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared agent profiles and board settings</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Supporter</b>, for good</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Any future hosted plan, free for life</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Early builds before they are tagged</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Refunded in full</b> if nothing hosted ships within a year</li>
           </ul>
-          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing"><span>Join the Team waitlist</span></a>
-          <p class="plan__fine">No seat minimum when it opens.</p>
+          <a class="btn btn--accent btn--block" data-checkout="founding" href="#pricing"><span>Become a founding user</span></a>
+          <p class="plan__fine">Nothing hosted exists today. You are buying a promise with a refund attached to it, and you should read that as exactly what it is.</p>
+        </article>
+
+        <article class="plan reveal">
+          <header class="plan__head">
+            <h3>Commercial</h3>
+            <p class="plan__price"><span class="plan__amount">€490</span><span class="plan__per">/ year, per company</span></p>
+            <p class="plan__for">Your finance department needs a counterparty, not a GitHub repo.</p>
+          </header>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A proper invoice, PO and VAT number</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Named contact, two working days to a reply</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Help getting it running on your setup</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your bugs prioritised over the queue</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>The licence stays MIT.</b> You are paying for the relationship, not permission</li>
+          </ul>
+          <a class="btn btn--glass btn--block" data-checkout="commercial" href="#pricing"><span>Request an invoice</span></a>
+          <p class="plan__fine">Unlimited seats. There is no per-seat count to police because there are no accounts.</p>
         </article>
       </div>
 
       <div class="pricing__faq reveal">
         <div>
-          <h4>Is the free version crippled?</h4>
-          <p>No. The board, the agents, the worktrees and the dashboard are all in the free app under MIT. If you only ever work on one machine, there is nothing here for you to buy.</p>
+          <h4>Is there lock-in?</h4>
+          <p>No, and the shape of the product is the answer rather than the promise. Your data is SQLite and files on your own disk, the licence is MIT, and there is no account to close. Stop paying, or delete this page from your history, and the app carries on exactly as before.</p>
         </div>
         <div>
           <h4>Do I pay you for tokens?</h4>
           <p>Never. Topics talks to Anthropic or OpenAI with your key, or through the CLI you are already signed in to, and that bill stays between you and them. We do not resell inference or take a cut of it.</p>
         </div>
         <div>
-          <h4>What happens if I stop paying?</h4>
-          <p>The app keeps working. You lose the hosted relay and go back to your own tunnel. Every topic, board and terminal stays on your disk exactly as it was.</p>
+          <h4>Will the free app get worse to make me pay?</h4>
+          <p>It cannot without a fork appearing the same week, which is what MIT is for. Nothing in the paid tiers is a capability withheld from the app — read the lists again and notice that <em>not one</em> of them is a feature.</p>
         </div>
         <div>
-          <h4>Can I self-host the Pro features?</h4>
-          <p>You already do. Remote access, mobile, cross-device sync and the machine list are in the free app and run over a tunnel you control. Pro is the same thing without the setup, which is the honest reason to charge for it.</p>
+          <h4>And if you would rather not pay us at all?</h4>
+          <p>Then do it yourself, and here is how. Remote access is a <code>cloudflared</code> or <code>tailscale</code> tunnel with your own auth in front. Push notifications are <code>ntfy</code>. Off-machine backup is <code>rclone</code> or <code>restic</code> pointed at <code>~/.topics</code>. All of it works today with the free app, and saying so out loud is the only thing that makes the sentence above it believable.</p>
         </div>
       </div>
     </section>
@@ -607,9 +766,7 @@ const jsonLd = {
         <h2>What's new.</h2>
         <p>Every release, and what changed in it. <a class="mono" href="/changelog">Full changelog&nbsp;&rarr;</a></p>
       </header>
-      <div class="cl-list reveal" data-changelog data-limit="4">
-        <p class="cl-empty">Loading&hellip;</p>
-      </div>
+      <div class="reveal"><ChangelogList limit={3} /></div>
     </section>
 
     <!-- DOWNLOAD -->
@@ -644,6 +801,44 @@ const jsonLd = {
           </div>
         </article>
       </div>
+
+      <!-- The Gatekeeper block. The single public indie dataset with both
+           numbers (2,814 downloads → 1,962 first launches) puts roughly 30% of
+           downloads never reaching a first run, and this app is ad-hoc signed,
+           so every macOS visitor meets that dialog. Naming it is worth more
+           than another feature. -->
+      <div class="gate reveal" id="gatekeeper">
+        <h3><svg class="ic"><use href="#ic-warn"/></svg> macOS will say the developer cannot be verified</h3>
+        <p>
+          Topics is signed ad-hoc rather than with a paid Apple Developer certificate, so the
+          first launch is blocked. Since macOS Sequoia the old control-click trick no longer
+          works — Settings is the only route, and it takes about fifteen seconds:
+        </p>
+        <ol>
+          <li>Open the app once and dismiss the dialog that says <b>"Apple could not verify Topics is free of malware"</b>.</li>
+          <li>Go to <b>System Settings &rarr; Privacy &amp; Security</b> and scroll to the bottom.</li>
+          <li>Next to <b>"Topics was blocked to protect your Mac"</b>, press <b>Open Anyway</b> and confirm.</li>
+        </ol>
+        <p style="margin-top:12px">
+          You only do it once. If you would rather check first, the build is reproducible from
+          the tag and every asset has a <code>.sig</code> beside it on the releases page.
+        </p>
+      </div>
+
+      <!-- The block for agents. Nobody in the sample of thirty does this, and
+           the audience for this product is a person who drives agents all day. -->
+      <div class="agents-block reveal">
+        <h3>Or let your agent install it</h3>
+        <p>
+          There is a machine-readable page at <a href="/agents.md">/agents.md</a> with the install
+          steps, the ports and the MCP surface. Paste this into any coding agent:
+        </p>
+        <div class="copyline">
+          <code id="agentPrompt" tabindex="0" role="region" aria-label="Install prompt, scrolls horizontally">Read https://topics.armonia.io/agents.md and install Topics on this machine</code>
+          <button type="button" data-copy="#agentPrompt">Copy</button>
+        </div>
+      </div>
+
       <p class="dl-note reveal">
         Every asset and checksum lives on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.
       </p>
@@ -655,12 +850,14 @@ const jsonLd = {
       <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
         <a href="#demo">Demo</a>
-        <a href="#features">Features</a>
+        <a href="/wiki">Docs</a>
+        <a href="/blog">Blog</a>
+        <a href="/compare/claude-code-guis">Compare</a>
         <a href="#pricing">Pricing</a>
         <a href="/changelog">Changelog</a>
-        <a href="#download">Download</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/blog/rss.xml">RSS</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
-        <a href="https://github.com/armonia/topics-app/blob/main/PRIVACY.md" rel="noopener" target="_blank">Privacy</a>
         <a href="https://github.com/armonia/topics-app/blob/main/SECURITY.md" rel="noopener" target="_blank">Security</a>
       </nav>
     </div>
@@ -670,6 +867,8 @@ const jsonLd = {
     </div>
   </footer>
 
-  <script src="/app.js" defer></script>
-  <script src="/changelog.js" defer></script>
+  <script>
+    import '../scripts/site';
+    import '../scripts/home';
+  </script>
 </Base>

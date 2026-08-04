@@ -101,6 +101,7 @@ const RENDER = {
   ship: 640,
   reach: 390,     // .shot--phone max-width (was 272: that alone put it at 0.70)
   own: 340,       // .shot--narrow max-width
+  poster: 1272,   // .demo max-width 1320 − 2×24 padding
 };
 
 const scales = [];
@@ -243,9 +244,32 @@ async function shotOf(page, selector, file, pad = 16) {
   return record(file.replace(/\.png$/, ''), logical, logical * OVERSAMPLE, kb);
 }
 
-/* ---- the six ------------------------------------------------------------- */
+/* ---- the seven ----------------------------------------------------------- */
 
 const SHOTS = {
+  /**
+   * The demo's poster frame — what stands in for the live app until somebody
+   * asks for it.
+   *
+   * The iframe is a full React client (449 KB on the wire, ~1.55 MB to parse)
+   * and it is same-origin, so it shares the landing page's process and main
+   * thread. `loading="lazy"` never helped: the frame starts around 585px and
+   * Chrome's lazy threshold is 1250px, so every visitor paid for a React boot
+   * while reading the headline. A ~60 KB picture holds the space instead, and
+   * one click swaps in the real thing.
+   *
+   * Shot at the frame's own geometry so the poster and the app it replaces are
+   * the same picture: no crossfade from a stretched image to a sharp one.
+   */
+  async poster(browser, base) {
+    const { ctx, page } = await boot(browser, { width: 1280, height: 720 }, base);
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: join(OUT, 'demo-poster.png'), scale: 'device' });
+    const kb = await toWebp(join(OUT, 'demo-poster.png'));
+    await ctx.close();
+    return record('poster', 1280, 1280 * OVERSAMPLE, kb);
+  },
+
   /**
    * The whole window: the Progetti group, three projects open at once.
    *
@@ -391,11 +415,14 @@ await browser.close();
 server.close();
 
 /* ---- the check ------------------------------------------------------------
- * Printed every run, enforced only with --strict. It is a report today because
- * two of the six cannot pass until the page offers them the width they need —
- * a full-bleed slot for the window shot, and a crop instead of the whole
- * dashboard. Wiring --strict into CI is the last step of that layout work, not
- * the first: a gate that is red on purpose teaches everyone to ignore it.
+ * Printed every run, enforced with --strict. The whole set is inside the band
+ * now: the window shot got the full-bleed slot it needed and the dashboard shot
+ * became the KPI grid rather than the whole pane, which is what "one feature per
+ * picture" turns into once the geometry is the constraint deciding it.
+ *
+ * Since it is green, --strict is a real gate rather than a red light nobody
+ * reads. Run it that way before shipping a layout change that moves any of the
+ * widths in RENDER.
  */
 if (scales.length) {
   const bad = scales.filter((s) => !s.ok);

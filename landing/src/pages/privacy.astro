@@ -1,0 +1,112 @@
+---
+/**
+ * The privacy page, written BEFORE any analytics exists rather than after.
+ *
+ * The product's promise is "no telemetry", and that is a promise about the
+ * application. A website is a different thing, and the moment a site with that
+ * claim on its home page adds a counter without saying so, the claim stops
+ * being worth anything — including the part that was true. So the distinction
+ * gets drawn first, in public, and whatever is added later has to fit what is
+ * written here.
+ */
+import Reading from '../layouts/Reading.astro';
+
+const UPDATED = '2026-08-05';
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: 'Privacy',
+  url: 'https://topics.armonia.io/privacy',
+  description: 'What the Topics application collects (nothing) and what this website collects, kept as two separate answers because they are two separate things.',
+  dateModified: UPDATED,
+  publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  inLanguage: 'en',
+};
+---
+
+<Reading
+  title="Privacy · Topics"
+  description="The Topics app collects nothing and talks to no server of ours. This website is a separate question, and this page answers both — including what would change if analytics were ever added."
+  path="/privacy"
+  jsonLd={jsonLd}
+>
+  <header class="article-head">
+    <p class="article-kicker">Updated {UPDATED}</p>
+    <h1>Privacy</h1>
+    <p class="article-standfirst">
+      Two questions that get mixed up constantly: what the application does, and what this
+      website does. They have different answers and both are below.
+    </p>
+    <div class="article-meta"><time datetime={UPDATED}>{UPDATED}</time></div>
+  </header>
+
+  <div class="article-body">
+    <article class="prose">
+      <h2 id="the-application">The application</h2>
+      <p>
+        Topics collects nothing. There is no analytics library, no crash reporter, no usage
+        ping, no account and no server of ours anywhere in the path. Your conversations,
+        projects, boards and terminal history are SQLite files and directories under
+        <code>~/.topics</code> on your own disk.
+      </p>
+      <p>
+        It does make network requests, and all of them go somewhere you chose: to Anthropic or
+        OpenAI when an agent runs, with your key or through the CLI you are signed in to; to
+        GitHub when it checks for an update; and to whatever a browser pane is pointed at. We
+        never see any of it, because none of it comes to us.
+      </p>
+      <p>
+        This is checkable rather than promised. The source is MIT on GitHub, and the
+        network calls are the sort of thing a proxy or Little Snitch will tell you about in a
+        minute flat. Do that instead of believing this paragraph.
+      </p>
+
+      <h2 id="this-website">This website</h2>
+      <p>
+        Static pages on Cloudflare, with <strong>no analytics, no cookies and no third-party
+        scripts</strong> as of {UPDATED}. Nothing on the page profiles you, and there is no
+        consent banner because there is nothing to consent to.
+      </p>
+      <p>Two things do happen, and they are worth naming:</p>
+      <ul>
+        <li>
+          <strong>Cloudflare logs requests.</strong> Any web server does — IP address, user
+          agent, which page. It is what serving a request consists of. We do not build
+          anything on top of those logs.
+        </li>
+        <li>
+          <strong>Three fonts and one API.</strong> Type comes from Fontshare and jsDelivr, and
+          the download buttons ask <code>api.github.com</code> for the latest release. Those
+          requests reach those companies, with your IP, exactly as any other request to them
+          would.
+        </li>
+      </ul>
+      <p>
+        The interactive demo is the real client running in an iframe with sample data, in your
+        browser. It talks to no backend and stores nothing outside that tab.
+      </p>
+
+      <h2 id="if-analytics-are-ever-added">If analytics are ever added</h2>
+      <p>
+        They might be — knowing whether anybody reads the blog is a reasonable thing to want.
+        If it happens it will be Cloudflare Web Analytics, which is cookieless and records no
+        cross-site identifier, and this page will say so with the date, before the script goes
+        up rather than after.
+      </p>
+      <p>
+        What will not happen: cookies, a third-party tag manager, any product that follows a
+        person between sites, and anything at all inside the application. The promise on the
+        home page is about the app, and adding a counter to a marketing page is not a reason
+        to weaken it.
+      </p>
+
+      <h2 id="contact">Contact</h2>
+      <p>
+        <a href="mailto:topics@armonia.io">topics@armonia.io</a>. If you find a network call
+        the app makes that is not described here, that is a bug and we would like to know
+        about it — the <a href="https://github.com/armonia/topics-app/blob/main/SECURITY.md" rel="noopener" target="_blank">security policy</a> is the fast route.
+      </p>
+    </article>
+  </div>
+</Reading>

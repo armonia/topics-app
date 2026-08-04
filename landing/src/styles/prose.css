@@ -11,25 +11,22 @@
    which is a useful reminder that being the reference for one thing does not
    make you the reference for all of them.
 
-   Everything here is written against SEMANTIC tokens — --paper, --ink, --rule —
-   which today resolve to the site's dark palette. The planned rebuild inverts
-   the site to warm paper with the product as the only dark object; when that
-   lands it is a change of eight values in one block, not a rewrite of this file.
-   That is the entire reason the indirection exists.
+   Everything here is written against SEMANTIC tokens — --paper, --ink, --rule.
+   The site used to be dark and is now warm paper with the product as the only
+   dark object; that inversion cost exactly the block below and nothing else in
+   this file, which is the entire reason the indirection exists.
    =========================================================================== */
 
 :root {
-  --paper: var(--s-0);
-  --paper-2: var(--s-2);
-  --ink: var(--text);
-  --ink-mute: var(--text-dim);
-  --ink-faint: var(--text-faint);
-  --rule: var(--border);
-  --accent-ink: var(--blue-2);
+  --paper: var(--p-0);
+  --paper-2: var(--p-2);
+  /* --ink, --ink-mute, --ink-faint and --rule are the page's own tokens now:
+     there is one set, not a reading set and a chrome set. */
 
-  /* On a dark page a code block sinks; on paper it will be the one dark object
-     next to the screenshots. Same role, opposite direction, one token. */
-  --code-bg: var(--s-1);
+  /* On a dark page a code block sank into the background. On paper it is the
+     second dark object after the screenshots, and the two of them together are
+     the argument the design is making. Same role, opposite direction. */
+  --code-bg: var(--dark);
   --code-ink: #d8dee9;
 
   --measure: 700px;        /* ≈71 characters at 19px Switzer */
@@ -124,6 +121,12 @@
   padding-left: 20px; color: var(--ink-mute);
 }
 
+/* A table wider than the column scrolls INSIDE its own box. Without this the
+   widest cell sets the width of the document and every paragraph on the page
+   gets a horizontal scrollbar it does not need. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll table { min-width: 640px; }
+
 /* Numbers are the point of most of these pieces; they should line up. */
 .prose table { width: 100%; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
 .prose th, .prose td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); }
@@ -131,12 +134,15 @@
 
 /* ── Code ───────────────────────────────────────────────────────────────── */
 
+/* A dark block on paper takes the screenshot's treatment, not a border: a pale
+   rule drawn around a dark rectangle reads as a sticker laid on the sheet. */
 .prose pre {
   font: 14px/22px var(--mono);
   background: var(--code-bg); color: var(--code-ink);
-  padding: 18px 20px; border-radius: 8px;
+  padding: 18px 20px; border-radius: 10px;
   margin-block: 28px; overflow-x: auto;
-  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-slab);
+  color-scheme: dark;
 }
 .prose :not(pre) > code {
   font: .88em/1 var(--mono);
@@ -160,8 +166,8 @@
   font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
   color: var(--ink-mute); margin-bottom: 6px;
 }
-.callout--warning { border-left-color: var(--amber); background: color-mix(in oklab, var(--amber) 8%, transparent); }
-.callout--measured { border-left-color: var(--green); background: color-mix(in oklab, var(--green) 8%, transparent); }
+.callout--warning { border-left-color: var(--warn); background: color-mix(in oklab, var(--warn) 8%, transparent); }
+.callout--measured { border-left-color: var(--good); background: color-mix(in oklab, var(--good) 8%, transparent); }
 
 /* ── Figures ────────────────────────────────────────────────────────────── */
 
