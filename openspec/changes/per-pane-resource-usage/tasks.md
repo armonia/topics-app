@@ -53,10 +53,12 @@ chat anche prima che la shell sappia attribuire le webview.
   `aria-label` e non `title` (`PaneTabBar.tsx:941`), e il vincolo è stato rispettato.
   Il label un title non ce l'aveva e tronca il nome a 150px, quindi serviva già di suo.
 - [x] 4.2 Tre stati distinti, con test dedicati che vietano lo zero nei primi due.
-- [ ] 4.3 E2E su due pane con consumi diversi. Rimandato di proposito: serve una
-  sessione PTY viva con carico misurabile, che è un test lento e ballerino finché il
-  campione CPU dipende da una finestra reale. Gli unit test coprono i tre stati e il
-  formato; l'E2E aggiungerebbe soprattutto copertura del rendering.
+- [x] 4.3 E2E in `tests/e2e/pane-usage-tooltip.spec.ts`, deterministico (2,9 s). NON
+  verifica il consumo vero — dipende dal carico e sarebbe rosso a caso — ma le due cose
+  che gli unit test non possono vedere: che il `title` arrivi davvero nel DOM con la
+  riga di consumo, e che stia sul NOME e non sul contenitore della tab. Quest'ultima è
+  una regressione di design: il contenitore usa apposta `aria-label` e non `title`, e
+  spostarlo là romperebbe il vincolo in silenzio.
 
 ## Phase 5 — Costo (RES-ATTR-04) — FATTA
 - [x] 5.1 Il numero di letture non dipende dal numero di pane: lo store deduplica su
