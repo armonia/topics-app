@@ -326,3 +326,33 @@ describe("deriveToolDetail", () => {
     expect(d.type).toBe("unknown");
   });
 });
+
+// ── TaskCreate / TaskUpdate (CLI 2.1.220) ──────────────────────────────────
+//
+// Il confine dello stream è QUI: se la todo non viene riconosciuta a questo
+// punto, al client arriva un tool generico e a schermo si vede JSON grezzo.
+describe("deriveToolDetail — TaskCreate / TaskUpdate", () => {
+  test("TaskCreate diventa una voce todo `pending`", () => {
+    expect(deriveToolDetail("TaskCreate", { subject: "Sistemare il parser", description: "lungo…" }))
+      .toEqual({ type: "todo", items: [{ content: "Sistemare il parser", status: "pending" }] });
+  });
+
+  test("TaskUpdate con subject e status porta QUELLO stato", () => {
+    expect(deriveToolDetail("TaskUpdate", { taskId: "1", subject: "Sistemare il parser", status: "completed" }))
+      .toEqual({ type: "todo", items: [{ content: "Sistemare il parser", status: "completed" }] });
+  });
+
+  test("TaskUpdate senza subject non finge una voce vuota", () => {
+    // Il caso più comune (`{taskId, status}`): una riga di todo senza todo
+    // sarebbe peggio del tool generico.
+    expect(deriveToolDetail("TaskUpdate", { taskId: "1", status: "in_progress" })?.type).not.toBe("todo");
+  });
+
+  test('status "deleted" non si traveste da completato', () => {
+    expect(deriveToolDetail("TaskUpdate", { taskId: "1", subject: "Roba", status: "deleted" })?.type).not.toBe("todo");
+  });
+
+  test("non ruba il caso `Task` (sub-agent)", () => {
+    expect(deriveToolDetail("Task", { subagent_type: "Explore", description: "cerca" })?.type).toBe("sub_agent");
+  });
+});
