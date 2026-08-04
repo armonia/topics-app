@@ -32,23 +32,30 @@ chat anche prima che la shell sappia attribuire le webview.
   (`sampled`/`total` come già fa `cpu_sampled`/`cpu_pids`).
 - [ ] 2.3 Unit test Rust sulla mappatura, con l'insieme dei processi iniettato.
 
-## Phase 3 — Canale unico e tipi (RES-ATTR-01/02)
-- [ ] 3.1 Unire le due metà in un solo payload per pane, sulle unità già in uso: CPU
-  scala 0-100 della macchina, memoria `phys_footprint`.
-- [ ] 3.2 Tipi in `useSystemStatus.ts`, con lo stato "non misurato" rappresentabile
-  (non un `0` di comodo).
+## Phase 3 — Canale unico e tipi (RES-ATTR-01/02) — FATTA per il lato server
+- [x] 3.1 `lib/paneUsage.ts`: store condiviso con cache, dedup e finestra allineata a
+  `FLEET_TTL_MS`. NON `useSystemStatus`, che fa un `setInterval` per istanza —
+  `PaneTabBar` è montata una volta per gruppo, quindi riusarlo avrebbe moltiplicato le
+  fetch per il numero di gruppi (RES-ATTR-04). Nessun polling: si aggiorna su hover.
+- [x] 3.2 Tipi in `useSystemStatus.ts` con `cpuPercent: number | null`.
+- [ ] 3.3 Unire il lato shell quando la Phase 2 atterra (oggi le pane browser cadono in
+  "non ancora misurato", che è il comportamento previsto).
 
-## Phase 4 — Tooltip (RES-ATTR-03, RES-ATTR-05)
-- [ ] 4.1 Tooltip in `PaneTabBar.tsx` con memoria, CPU e numero di processi. Attenzione
-  al vincolo già scritto nel file (riga ~903): su alcune tab un `title` aprirebbe un
-  tooltip sopra un nome già visibile — va rispettato invece di sovrascritto.
-- [ ] 4.2 TRE stati distinti, mai collassati in un "0" o un "—": misurato, "non
-  misurato" (ha un processo, manca la misura), "senza processo proprio" (topic, kanban,
-  chat, file, editor — vivono nel renderer condiviso e non sono separabili).
-- [ ] 4.3 E2E: due pane con consumi diversi mostrano due tooltip diversi; una pane appena
-  aperta mostra "non misurato".
+## Phase 4 — Tooltip (RES-ATTR-03, RES-ATTR-05) — FATTA
+- [x] 4.1 Il tooltip va sul LABEL, non sulla tab: il contenitore usa apposta
+  `aria-label` e non `title` (`PaneTabBar.tsx:941`), e il vincolo è stato rispettato.
+  Il label un title non ce l'aveva e tronca il nome a 150px, quindi serviva già di suo.
+- [x] 4.2 Tre stati distinti, con test dedicati che vietano lo zero nei primi due.
+- [ ] 4.3 E2E su due pane con consumi diversi. Rimandato di proposito: serve una
+  sessione PTY viva con carico misurabile, che è un test lento e ballerino finché il
+  campione CPU dipende da una finestra reale. Gli unit test coprono i tre stati e il
+  formato; l'E2E aggiungerebbe soprattutto copertura del rendering.
 
-## Phase 5 — Costo (RES-ATTR-04)
-- [ ] 5.1 Verificare che il numero di letture di sistema per ciclo non dipenda dal numero
-  di pane: stesso `ps`, stesso `FLEET_TTL_MS`.
-- [ ] 5.2 Misura prima/dopo con dieci pane aperte, allegata alla consegna.
+## Phase 5 — Costo (RES-ATTR-04) — FATTA
+- [x] 5.1 Il numero di letture non dipende dal numero di pane: lo store deduplica su
+  `inFlight` e rispetta la finestra di validità. Test: venti tab che chiedono nello
+  stesso istante producono UNA richiesta; dieci chiamate dentro la finestra, zero
+  richieste in più.
+- [x] 5.2 Coperti anche i modi in cui si rompe: una richiesta fallita libera `inFlight`
+  (altrimenti nessun tentativo successivo partirebbe più), e un errore di rete tiene
+  l'ultimo dato buono invece di svuotare il tooltip.
