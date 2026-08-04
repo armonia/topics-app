@@ -487,6 +487,18 @@ body.demo-expanded .shield{display:none}
    which is also the order it collapses to on a phone. */
 .fitem:nth-child(even) .fitem__shot{order:2}
 .fitem__shot{margin:0;min-width:0}
+/* One slab per page. The window shot is the only whole-window image on the site
+   and the only one that cannot be read in a 640px column: three projects inside
+   711 logical px would fail for a different reason than being shrunk. Given the
+   full container it lands at content scale 0.91, in band. Every other figure
+   stays in its column — a page where everything is full-bleed has no emphasis
+   left to spend. */
+.fitem--slab{grid-template-columns:1fr;gap:34px}
+.fitem--slab .fitem__shot{order:-1;max-width:none}
+.fitem--slab .fitem__body{max-width:78ch}
+.fitem--slab .flist{columns:2;column-gap:44px}
+.fitem--slab .flist li{break-inside:avoid}
+@media (max-width:860px){.fitem--slab .flist{columns:1}}
 .fitem__shot--phone,.fitem__shot--narrow{display:flex;flex-direction:column;align-items:center}
 /* The image is the frame. These are shot with the app's floating-splits mode
    on, so each subject already carries its own rounded corners and a strip of
@@ -495,7 +507,12 @@ body.demo-expanded .shield{display:none}
 .shot{display:block;width:100%;height:auto;border-radius:16px;
   border:1px solid var(--border);background:var(--s-0);
   box-shadow:var(--edge),0 30px 64px -34px hsl(226 70% 3% / .95)}
-.shot--phone{max-width:272px;border-radius:26px}
+/* 390px, not 272: the phone shot is captured at a real 390pt viewport, so any
+   smaller render is a downscale of the app's own type. At 272 it was serving a
+   390-wide capture at content scale 0.70 and the interface text landed under
+   10px. Rendering it at the width it was shot at costs nothing and is the only
+   one of the six that reaches scale 1.00. */
+.shot--phone{max-width:390px;border-radius:26px}
 .shot--narrow{max-width:340px}
 .fitem figcaption{margin-top:15px;color:var(--text-faint);font-size:.815rem;line-height:1.55;max-width:52ch}
 .fitem__shot--phone figcaption,.fitem__shot--narrow figcaption{text-align:center}
