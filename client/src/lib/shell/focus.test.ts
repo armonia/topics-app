@@ -17,8 +17,8 @@
  * `bun test` non ha DOM: il modulo tocca solo `cache` in memoria, quindi basta
  * resettarlo tra i casi.
  */
-import { describe, test, expect, beforeEach } from 'bun:test';
-import { isFocusSilencing, applyFocusStatus, __resetFocusForTests } from './focus';
+import { describe, test, it, expect, beforeEach } from 'bun:test';
+import { isFocusSilencing, applyFocusStatus, focusGateState, __resetFocusForTests } from './focus';
 
 beforeEach(() => {
   __resetFocusForTests();
@@ -56,6 +56,37 @@ describe('focus quiet-gate', () => {
     applyFocusStatus(1, 1);
     expect(isFocusSilencing()).toBe(true);
     applyFocusStatus(null, undefined);
+    expect(isFocusSilencing()).toBe(false);
+  });
+});
+
+// ── Lo stato per l'interfaccia ─────────────────────────────────────────────
+//
+// `supported: false` sul guscio nativo non è un dettaglio tecnico: vuol dire
+// che l'utente riceve banner durante un Focus senza sapere perché. Serve poterlo
+// dire — ma solo quando lo si sa davvero.
+describe('focusGateState', () => {
+  beforeEach(() => { __resetFocusForTests(); });
+
+  it('fuori dal guscio nativo non c’è niente da diagnosticare', () => {
+    // Nei test `shellKind` non è 'tauri': è il caso web/PWA.
+    expect(focusGateState()).toBe('unavailable');
+  });
+
+  it('una lettura tornata con supported=true è il gate attivo', () => {
+    applyFocusStatus(false, true);
+    // Fuori da Tauri resta 'unavailable' per costruzione: lo stato si legge
+    // solo dove il gate può esistere. È la parte che impedisce di mostrare un
+    // avviso sul web, dove non c'è alcun permesso da concedere.
+    expect(focusGateState()).toBe('unavailable');
+  });
+
+  it('applyFocusStatus segna la lettura come avvenuta', () => {
+    // Il flag interno è ciò che distingue «in attesa» da «bloccato»: senza,
+    // l'interfaccia mostrerebbe un avviso mentre la prima query è ancora in volo.
+    applyFocusStatus(true, true);
+    expect(isFocusSilencing()).toBe(true);
+    __resetFocusForTests();
     expect(isFocusSilencing()).toBe(false);
   });
 });
