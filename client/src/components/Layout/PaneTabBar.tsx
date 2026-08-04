@@ -1059,6 +1059,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               title={`${label}${formatPaneUsageLine(
                 pane.type === 'terminal' ? termSid : null,
                 pane.type === 'terminal' || pane.type === 'browser',
+                // Le due sorgenti sono diverse: un terminale si cerca per
+                // sessione (il server tiene il pid di testa del suo albero PTY),
+                // una pane browser per label di webview (la shell sa quale
+                // WebContent la rende). Vedi `paneUsage.ts`.
+                pane.type === 'browser' ? pane.id : null,
               )}`}
             >{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
