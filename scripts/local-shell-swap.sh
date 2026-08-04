@@ -41,7 +41,32 @@ die() { echo "✗ $*" >&2; exit 1; }
 
 [ -d "$APP" ] || die "Topics.app non trovata in $APP (override: TOPICS_APP=…)"
 
-if ! security find-identity -v -p codesigning | grep -qF "$SIGN_IDENTITY"; then
+# Si verifica FIRMANDO davvero una copia usa-e-getta, non con `find-identity -v`.
+#
+# PERCHE': `-v` elenca solo le identità VALIDE, e per un certificato autofirmato
+# "valida" richiede che sia marcato come fidato nel portachiavi. Ma il trust
+# serve a VERIFICARE una firma, non a produrla: `codesign --sign` funziona
+# benissimo senza. Misurato il 2026-08-04 su questa macchina — `find-identity -v`
+# non elencava "Topics Signing" mentre `codesign` firmava senza un lamento,
+# producendo lo STESSO `certificate root` con cui la Topics.app installata era
+# già firmata. Il vecchio controllo dava quindi un falso negativo e fermava lo
+# script proprio quando tutto era a posto, spingendo verso il `--sign -` adhoc
+# che questo file esiste per evitare.
+#
+# Il dry-run prova esattamente la proprietà che conta: so firmare, e il requisito
+# che ne esce è legato al CERTIFICATO e non al cdhash di questa build.
+_probe="${TMPDIR:-/tmp}/topics-sign-probe.$$"
+cp /usr/bin/true "$_probe" 2>/dev/null || true
+_can_sign=0
+if [ -f "$_probe" ] && codesign --force --sign "$SIGN_IDENTITY" "$_probe" >/dev/null 2>&1; then
+  case "$(codesign -d --requirements - "$_probe" 2>&1 | grep '^designated' || true)" in
+    *cdhash*) _can_sign=0 ;;   # adhoc travestito: non basta
+    *certificate*) _can_sign=1 ;;
+  esac
+fi
+rm -f "$_probe"
+
+if [ "$_can_sign" != 1 ]; then
   cat >&2 <<EOF
 ✗ Nessuna identità di firma "$SIGN_IDENTITY" nel portachiavi.
 

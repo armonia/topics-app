@@ -13,6 +13,13 @@
  */
 import { test, expect } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
+import { hermetic } from "./fixtures/hermetic";
+
+// Il confine per-file della suite: senza, questa spec eredita le pane lasciate
+// da quella prima e le lascia a quella dopo — ed è la classe di rosso che oggi
+// costa più tempo di quanto costi scriverlo. La guardia
+// `tests/unit/e2e-hermetic-coverage.test.ts` lo pretende da ogni spec.
+hermetic(test);
 
 test.describe("consumo per scheda nel tooltip", () => {
   test("una scheda senza processo proprio lo dichiara, e non mostra uno zero", async ({ page }) => {
