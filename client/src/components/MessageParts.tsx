@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
+import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { formatDurationMs } from './Chat/toolGrouping';
 import { turnClock } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -58,11 +59,31 @@ export function TurnActivityIndicator({
   sessionKey,
   onMessage,
   awaitingInput,
+  promptTokens,
+  completionTokens,
+  costCents,
+  cacheReadTokens,
+  cacheCreationTokens,
+  cacheCreation1hTokens,
 }: {
   since?: number;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /**
+   * I numeri del turno in corso, presi dal MESSAGGIO e non da un'iscrizione
+   * propria. Prima questa riga si iscriveva a `stream:usage` da sé e teneva i
+   * totali in uno stato locale: il frame passa una volta e nessuno lo
+   * conserva, quindi chi montava dopo — pane aperta a turno già iniziato,
+   * cambio di tab, qualunque remount — non vedeva più comparire né token né
+   * costo. Ora li scrive `useChat` sulla riga, che ai remount sopravvive.
+   */
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  costCents?: number | null;
+  cacheReadTokens?: number | null;
+  cacheCreationTokens?: number | null;
+  cacheCreation1hTokens?: number | null;
   /**
    * Il turno è fermo su una domanda all'umano (un tool in `waiting_for_input`).
    * Tecnicamente il turno è ancora vivo — il messaggio resta `partial` — ma
@@ -97,58 +118,36 @@ export function TurnActivityIndicator({
   // riceve `sessionKey` e `onMessage`: uno stato transitorio di un elemento non
   // ha motivo di attraversare l'albero come prop.
   const [slow, setSlow] = useState(false);
-  // Il CONSUMO del turno mentre cresce. Stessa iscrizione, stessa ragione: uno
-  // stato che vive quanto il turno non ha motivo di attraversare l'albero.
-  //
-  // Prima i numeri di consumo arrivavano una volta sola, a turno finito: durante
-  // un turno agentico da otto tool call non si vedeva muovere niente, e l'unica
-  // cosa viva era il cronometro. Il server manda i totali GIA' accumulati
-  // (`stream:usage`), quindi qui non si fa aritmetica: si mostra.
-  const [usage, setUsage] = useState<{
-    calls: number; tokens: number; costCents?: number;
-    // Lo scorporo della cache arriva nello stesso frame: si tiene, così il
-    // title puo' dire quanto di quel numero era rilettura invece di lasciare
-    // "un milione di token" senza spiegazione.
-    promptTokens?: number; cacheReadTokens?: number;
-    cacheCreationTokens?: number; cacheCreation1hTokens?: number;
-  } | null>(null);
+  // Quante chiamate al modello finora. È l'UNICO numero che resta di questa
+  // iscrizione: serve solo al title («7 chiamate finora — i letti comprendono
+  // il prompt riletto a ogni chiamata»), e su un remount ricomincia a contare
+  // dal frame dopo. I numeri che contano — token, cache, costo — arrivano
+  // invece dalla riga del messaggio, che ai remount sopravvive.
+  const [calls, setCalls] = useState(0);
   useEffect(() => {
     if (!onMessage || !sessionKey) return;
     return onMessage((msg: WSMessage) => {
-      const m = msg as {
-        type?: string; sessionKey?: string;
-        calls?: number; promptTokens?: number; completionTokens?: number; costCents?: number;
-        cacheReadTokens?: number; cacheCreationTokens?: number; cacheCreation1hTokens?: number;
-      };
-      if (m.sessionKey !== sessionKey) return;
-      if (m.type === 'stream:slow') setSlow(true);
-      else if (m.type === 'stream:resumed') setSlow(false);
-      else if (m.type === 'stream:usage') {
-        setUsage({
-          calls: m.calls ?? 0,
-          tokens: (m.promptTokens ?? 0) + (m.completionTokens ?? 0),
-          costCents: m.costCents,
-          promptTokens: m.promptTokens,
-          cacheReadTokens: m.cacheReadTokens,
-          cacheCreationTokens: m.cacheCreationTokens,
-          cacheCreation1hTokens: m.cacheCreation1hTokens,
-        });
-      }
+      if (!('sessionKey' in msg) || msg.sessionKey !== sessionKey) return;
+      if (msg.type === 'stream:slow') setSlow(true);
+      else if (msg.type === 'stream:resumed') setSlow(false);
+      else if (msg.type === 'stream:usage') setCalls(msg.calls ?? 0);
     });
   }, [onMessage, sessionKey]);
 
-  // Il turno cambia ⇒ il conto riparte. Senza, un secondo turno erediterebbe i
-  // numeri del primo finché non arriva la sua prima chiamata al modello.
+  // Il turno cambia ⇒ il conto riparte. Senza, un secondo turno erediterebbe le
+  // chiamate del primo finché non arriva il suo primo frame di consumo.
   //
-  // Azzerato in RENDER, non in un effect: un effect ridisegnerebbe una volta coi
-  // numeri del turno vecchio prima di correggersi — un lampeggio del conteggio a
+  // Azzerato in RENDER, non in un effect: un effect ridisegnerebbe una volta col
+  // numero del turno vecchio prima di correggersi — un lampeggio del conteggio a
   // ogni turno nuovo. È il pattern React per "aggiustare lo stato quando cambia
   // una prop": si confronta con l'ultimo valore visto e si riparte subito.
   const [usageTurn, setUsageTurn] = useState(since);
   if (usageTurn !== since) {
     setUsageTurn(since);
-    setUsage(null);
+    setCalls(0);
   }
+  // I totali di adesso, come li porta la riga.
+  const liveTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 
   // Da quando aspetta noi, e quanto ha aspettato in tutto in questo turno.
   //
@@ -196,6 +195,7 @@ export function TurnActivityIndicator({
         // parecchio» per una cosa cominciata due secondi fa.
         : `${phraseAt(clock.workedMs)}…`;
   return (
+    <>
     <div
       data-testid="chat-streaming-indicator"
       data-slow={state === 'slow' ? 'true' : undefined}
@@ -247,24 +247,54 @@ export function TurnActivityIndicator({
       >
         · {formatDurationMs(clock.primaryMs)}
       </span>
-      {usage && usage.tokens > 0 && (
+      {/* Mentre la domanda aspetta, i numeri NON stanno qui: scendono nella
+          striscia di chiusura qui sotto, che è la stessa di un messaggio
+          finito. Lasciarli anche in riga li direbbe due volte. */}
+      {liveTokens > 0 && state !== 'waiting' && (
         <span
           className="tabular-nums text-app-text-muted shrink-0"
           data-testid="turn-usage"
-          // `calls` e lo scorporo della cache stanno nel title e non nella riga:
-          // sono i numeri che SPIEGANO perche' i token letti superano la
+          // Le chiamate e lo scorporo della cache stanno nel title e non nella
+          // riga: sono i numeri che SPIEGANO perche' i token letti superano la
           // finestra di contesto (lo stesso prompt riletto N volte), ma la
           // striscia deve restare una riga. A turno finito lo scorporo passa in
           // chiaro nella striscia del messaggio (`MessageMetaFooter`), dove c'e'
           // spazio per mandarlo a capo.
-          title={liveUsageTitle(usage)}
+          title={liveUsageTitle({
+            calls,
+            promptTokens: promptTokens ?? undefined,
+            cacheReadTokens: cacheReadTokens ?? undefined,
+            cacheCreationTokens: cacheCreationTokens ?? undefined,
+            cacheCreation1hTokens: cacheCreation1hTokens ?? undefined,
+          })}
         >
-          · {formatTokens(usage.tokens)} token
-          {usage.costCents != null && usage.costCents > 0
-            ? ` · ${usage.costCents / 100 >= 1 ? `$${(usage.costCents / 100).toFixed(2)}` : `$${(usage.costCents / 100).toFixed(4)}`}`
+          · {formatTokens(liveTokens)} token
+          {costCents != null && costCents > 0
+            ? ` · ${costCents / 100 >= 1 ? `$${(costCents / 100).toFixed(2)}` : `$${(costCents / 100).toFixed(4)}`}`
             : ''}
         </span>
       )}
     </div>
+    {/* Un turno fermo su una domanda si CHIUDE come un messaggio qualunque.
+        Tecnicamente non è finito — la riga resta `partial`, il processo è vivo
+        e aspetta — ma a schermo restava a mezz'aria: niente striscia di
+        chiusura, i numeri in un formato tutto suo, e la sensazione di un
+        messaggio lasciato aperto invece che di un turno consegnato in attesa
+        di una risposta. Qui sotto va la STESSA striscia del messaggio finito,
+        coi numeri di adesso: durata a parte (la porta il cronometro fermo qui
+        sopra, con la sua spiegazione), letti, quota di cache e costo.
+        Quando la risposta arriva il turno riparte e questa sparisce da sé. */}
+    {state === 'waiting' && (
+      <MessageMetaFooter
+        latencyMs={null}
+        promptTokens={promptTokens}
+        completionTokens={completionTokens}
+        costCents={costCents}
+        cacheReadTokens={cacheReadTokens}
+        cacheCreationTokens={cacheCreationTokens}
+        cacheCreation1hTokens={cacheCreation1hTokens}
+      />
+    )}
+    </>
   );
 }
