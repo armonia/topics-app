@@ -54,6 +54,10 @@ export interface SystemStatus {
        *  sovrastima le pagine condivise; `mixed` = copertura parziale. */
       memMetric: 'footprint' | 'rss' | 'mixed';
       roots: { kind: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number }[];
+      /** Ripartizione per SESSIONE dentro il pty-bridge: `roots` dice quanto
+       *  tiene il bridge in tutto, questo quanto ne tiene ciascuna sessione.
+       *  `cpuPercent: null` = non ancora misurata, che non è zero. */
+      sessions: { sessionId: string; name: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number | null }[];
       supported: boolean;
     };
   };
