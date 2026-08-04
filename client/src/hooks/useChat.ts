@@ -1254,6 +1254,35 @@ export function useChat() {
         }
         break;
 
+      // I numeri del turno MENTRE cresce — token, scorporo della cache, costo.
+      //
+      // Vivevano dentro `TurnActivityIndicator`, che si iscriveva al filo per
+      // conto suo e li teneva in uno stato locale. Il frame passa UNA volta e
+      // nessuno lo conserva: chi montava dopo — una pane aperta a turno già in
+      // corso, un cambio di tab, qualunque remount della riga — non li vedeva
+      // comparire mai più, e in chat restava un turno che macina senza dire
+      // quanto sta costando. Qui finiscono sul MESSAGGIO, che è lo stato che
+      // sopravvive ai remount: da lì li legge la striscia viva e, a turno
+      // fermo su una domanda, la stessa striscia di chiusura di un messaggio
+      // finito. Il server manda i TOTALI già accumulati: qui non si somma.
+      case 'stream:usage': {
+        const u = event as unknown as {
+          promptTokens?: number; completionTokens?: number; costCents?: number;
+          cacheReadTokens?: number; cacheCreationTokens?: number; cacheCreation1hTokens?: number;
+          model?: string;
+        };
+        updateLastMessage(sessionKey, {
+          usagePromptTokens: u.promptTokens,
+          usageCompletionTokens: u.completionTokens,
+          ...(u.costCents != null ? { costCents: u.costCents } : {}),
+          cacheReadTokens: u.cacheReadTokens,
+          cacheCreationTokens: u.cacheCreationTokens,
+          cacheCreation1hTokens: u.cacheCreation1hTokens,
+          ...(u.model ? { model: u.model } : {}),
+        });
+        break;
+      }
+
       case 'stream:error':
         clearStreamTimeout(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));

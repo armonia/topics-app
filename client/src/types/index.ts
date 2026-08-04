@@ -470,6 +470,52 @@ export interface WSStreamToolUsageMessage {
   tokens?: number;
   costCents?: number;
 }
+/**
+ * I totali del turno mentre cresce — il consuntivo in diretta.
+ *
+ * Il server lo manda a ogni chiamata al modello (`onCallUsage`) coi valori GIÀ
+ * accumulati: chi lo riceve mostra, non somma. Distinto da `stream:tool_usage`,
+ * che è la quota di UNA azione.
+ *
+ * Non era dichiarato qui: l'unico consumatore se lo leggeva con un cast, e
+ * quando è arrivato il secondo — la riga del messaggio, che deve conservare i
+ * numeri attraverso i remount — il tipo mancante è saltato fuori come errore.
+ * È il caso in cui il compilatore aveva ragione a lamentarsi.
+ */
+/**
+ * Lo stream tace da un po' ma il provider è ancora collegato — e il contrario.
+ *
+ * Il server li annunciava già e nessuno li dichiarava: l'unico consumatore li
+ * leggeva con un cast, quindi il compilatore non poteva accorgersi né di un
+ * nome sbagliato né di un campo che cambia. Vale per entrambi i versi: senza
+ * `stream:resumed` l'indicatore resterebbe «lento» per tutto il turno.
+ */
+export interface WSStreamSlowMessage {
+  type: 'stream:slow';
+  sessionKey: string;
+  topicId?: string;
+}
+export interface WSStreamResumedMessage {
+  type: 'stream:resumed';
+  sessionKey: string;
+  topicId?: string;
+}
+export interface WSStreamUsageMessage {
+  type: 'stream:usage';
+  sessionKey: string;
+  topicId?: string;
+  /** Quante chiamate al modello in questo turno: spiega perché i letti superano la finestra. */
+  calls: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  costCents?: number;
+  /** Scorporo dei letti — quote DISGIUNTE, sommano a `promptTokens`. */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheCreation1hTokens?: number;
+  /** Il modello che sta macinando: serve a rendere verificabile il costo. */
+  model?: string;
+}
 export interface WSStreamErrorMessage {
   type: 'stream:error';
   sessionKey: string;
@@ -993,6 +1039,9 @@ export type WSMessage =
   | WSStreamToolUpdateMessage
   | WSStreamToolDetailMessage
   | WSStreamToolUsageMessage
+  | WSStreamUsageMessage
+  | WSStreamSlowMessage
+  | WSStreamResumedMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
   | WSStreamContextMessage
