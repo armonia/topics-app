@@ -70,6 +70,24 @@ export interface DispatcherDeps {
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
+   * Il worktree contiene LAVORO che sparirebbe cancellandolo — commit non su
+   * main, o modifiche non committate (junk escluso)?
+   *
+   * Serve per non buttare via una consegna quando un tentativo viene rimesso in
+   * coda. Il cleanup dopo il turno presume che un tentativo requeued/parked non
+   * abbia prodotto niente: è vero quasi sempre, ed è falso proprio nel caso che
+   * fa danno — l'agente committa, POI il turno viene troncato
+   * dall'infrastruttura, il task torna in `todo`/`backlog`, e il branch coi
+   * commit viene cancellato con la cartella.
+   *
+   * Assente ⇒ si risponde `false` e il comportamento resta quello storico. È
+   * una scelta consapevole: rendere obbligatoria la sonda spegnerebbe la
+   * pulizia su ogni host che non la fornisce, e la pulizia esiste per un motivo
+   * (senza, ogni ritentativo orfana un worktree). La sonda vera la fornisce
+   * server.ts; qui il valore di default tiene in piedi i test.
+   */
+  worktreeHasWork?: (worktreeId: string) => Promise<boolean>;
+  /**
    * A private per-task working dir for a CATCH-ALL task (creates it, returns the
    * path). Giving each project-less task its own cwd makes its topic's
    * `projectPath` unique, so the task's own splittable workspace claims the
@@ -758,7 +776,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // review/done (it's the deliverable), delete it when the attempt was
       // discarded (requeued/parked) so retries don't orphan a worktree each time.
       const after = deps.svc.get(taskId)?.task?.status;
-      if (worktreeId && (after === "todo" || after === "backlog")) await cleanupWorktree(worktreeId);
+      if (worktreeId && (after === "todo" || after === "backlog")) await cleanupWorktree(worktreeId, { preserveWork: true });
     } catch (err) {
       log(`launch failed for task ${taskId}`, err);
       // Setup threw (worktree/topic/bind). Park if attempts are exhausted, else
@@ -776,7 +794,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             : "Avvio agent fallito, rimesso in coda.",
         });
       } catch { /* best-effort */ }
-      if (worktreeId) await cleanupWorktree(worktreeId);
+      if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
     } finally {
       endRun(taskId, runId);
     }
@@ -1104,8 +1122,43 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
-  async function cleanupWorktree(worktreeId: string): Promise<void> {
+  /**
+   * Butta il worktree di un tentativo.
+   *
+   * `preserveWork` è per i percorsi in cui il tentativo è stato SCARTATO senza
+   * che nessuno abbia deciso di scartarne il contenuto — rimesso in coda,
+   * parcheggiato, avvio fallito. Lì il codice presumeva che non ci fosse niente
+   * da perdere; è vero quasi sempre e falso proprio quando fa danno, perché
+   * `deleteWorktree` cancella anche il BRANCH (worktree-manager: `mode ===
+   * "branch"` ⇒ `git branch -D`). Un agente che aveva committato e poi ha visto
+   * il turno troncato dall'infrastruttura perdeva i commit.
+   *
+   * Con `preserveWork`, un worktree che contiene lavoro NON si tocca affatto:
+   * non si prova a salvarne una parte, si lascia in piedi e decide la GC, che
+   * ha il contratto completo (`decideWorktreeReap`) e sa tenere, landare o
+   * abbandonare. È già quello che il commento sul percorso zombie diceva di
+   * fare: «An abandoned worktree, if the recovery ends up parking the task, is
+   * the worktree GC's job».
+   *
+   * SENZA `preserveWork` il comportamento è invariato, e deve restarlo: il reap
+   * dei tentativi fan-out perdenti scarta il contenuto DI PROPOSITO — lì l'umano
+   * ha scelto un altro tentativo, e tenerne i rami sarebbe una perdita di
+   * spazio, non una tutela.
+   */
+  async function cleanupWorktree(
+    worktreeId: string,
+    opts: { preserveWork?: boolean } = {},
+  ): Promise<void> {
     if (!deps.deleteWorktree) return;
+    if (opts.preserveWork && deps.worktreeHasWork) {
+      let hasWork = false;
+      try { hasWork = await deps.worktreeHasWork(worktreeId); }
+      catch { hasWork = true; } // non saperlo non autorizza a distruggere
+      if (hasWork) {
+        log(`worktree ${worktreeId} NON ripulito: contiene lavoro non su main — lasciato alla GC`);
+        return;
+      }
+    }
     try { await deps.deleteWorktree(worktreeId); }
     catch (err) { log(`worktree cleanup failed for ${worktreeId}`, err); }
   }
