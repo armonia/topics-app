@@ -1,5 +1,10 @@
 /* ===========================================================================
-   Topics: Aurora OS landing. Cool, dark-first, glassy, textured. No web fonts.
+   Topics landing. Dark, quiet, and built around one live product frame.
+
+   Two things are variants rather than decisions baked into the file:
+   `data-font` picks the type pairing, `data-bg` picks the backdrop. Both live
+   on <html>. Add `?lab=1` to any URL to get a switcher and compare them on the
+   real page instead of on a swatch sheet.
    =========================================================================== */
 @property --shimmer { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
@@ -18,12 +23,45 @@
   --grad:linear-gradient(110deg,var(--blue) 0%,var(--violet) 45%,var(--teal) 100%);
   --shadow-lg:0 50px 130px -30px rgb(2 6 20 / .95), 0 12px 44px -20px rgb(0 0 0 / .65);
   --maxw:1180px; --ease:cubic-bezier(.25,.46,.45,.94);
-  /* Type: Geist for UI/body, Space Grotesk for display headings, Geist Mono for
-     code/eyebrows/badges. Loaded from Google Fonts in index.html with
-     display=swap; the system fallbacks keep first paint instant. */
-  --font:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-  --display:"Space Grotesk","Geist",system-ui,sans-serif;
-  --mono:"Geist Mono",ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,monospace;
+  /* Type. The three roles are body, display (headings) and mono. Which families
+     fill them is a VARIANT, set by `data-font` on <html> — see the block below.
+     Fallbacks are system faces so first paint never waits on a webfont. */
+  --sans-fallback:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono-fallback:ui-monospace,"SF Mono","Cascadia Code",Menlo,monospace;
+  --font:"Inter",var(--sans-fallback);
+  --display:"Inter Display","Inter",var(--sans-fallback);
+  --mono:"JetBrains Mono",var(--mono-fallback);
+  --display-tracking:-.03em;
+  --display-weight:600;
+}
+
+/* ── Type variants ─────────────────────────────────────────────────────────
+   Set `data-font` on <html> to switch the whole site. Keeping these as data
+   attributes rather than four stylesheets means the choice is one attribute in
+   the HTML, and comparing them is a live toggle rather than a rebuild. */
+[data-font="inter"]{
+  --font:"Inter",var(--sans-fallback);
+  --display:"Inter Display","Inter",var(--sans-fallback);
+  --mono:"JetBrains Mono",var(--mono-fallback);
+  --display-tracking:-.035em; --display-weight:620;
+}
+[data-font="instrument"]{
+  --font:"Inter",var(--sans-fallback);
+  --display:"Instrument Serif","Iowan Old Style",Georgia,serif;
+  --mono:"JetBrains Mono",var(--mono-fallback);
+  --display-tracking:-.015em; --display-weight:400;
+}
+[data-font="bricolage"]{
+  --font:"Inter",var(--sans-fallback);
+  --display:"Bricolage Grotesque","Inter",var(--sans-fallback);
+  --mono:"JetBrains Mono",var(--mono-fallback);
+  --display-tracking:-.03em; --display-weight:600;
+}
+[data-font="plex"]{
+  --font:"IBM Plex Sans",var(--sans-fallback);
+  --display:"IBM Plex Sans",var(--sans-fallback);
+  --mono:"IBM Plex Mono",var(--mono-fallback);
+  --display-tracking:-.025em; --display-weight:600;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -40,22 +78,59 @@ a{color:inherit;text-decoration:none}
 .btn .ic{width:1.08em;height:1.08em}
 
 /* ───────── texture & light layers ───────── */
-.grain{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.07;mix-blend-mode:overlay;
+/* Grain was tuned against the old saturated blobs; on a near-flat backdrop the
+   same amount reads as a dirty screen. Halved, and off entirely on `carbon`. */
+[data-bg="carbon"] .grain,[data-bg="carbon"] .grain--fine{display:none}
+.grain{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.035;mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .grain--fine{opacity:.035;mix-blend-mode:soft-light;z-index:9998;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E")}
-.aurora{position:fixed;inset:-20vh -10vw;z-index:-3;pointer-events:none;filter:blur(72px) saturate(145%);contain:strict;overflow:hidden}
-.aurora .orb{position:absolute;width:48vw;height:48vw;border-radius:50%;mix-blend-mode:screen;opacity:.55;will-change:transform}
-.orb--blue{background:radial-gradient(circle,var(--blue) 0%,transparent 65%);top:-8vh;left:8vw;animation:drift1 24s var(--ease) infinite alternate}
-.orb--violet{background:radial-gradient(circle,var(--violet) 0%,transparent 65%);top:4vh;right:2vw;animation:drift2 30s var(--ease) infinite alternate}
-.orb--teal{background:radial-gradient(circle,var(--teal) 0%,transparent 70%);top:36vh;left:34vw;opacity:.3;animation:drift3 28s var(--ease) infinite alternate}
-@keyframes drift1{to{transform:translate(14vw,18vh) scale(1.15)}}
-@keyframes drift2{to{transform:translate(-12vw,12vh) scale(.9)}}
-@keyframes drift3{to{transform:translate(8vw,-14vh) scale(1.2)}}
-.noise-grad{position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.5;
-  background:radial-gradient(120% 80% at 80% -10%,hsl(258 80% 30% / .22),transparent 50%),radial-gradient(100% 70% at 0% 10%,hsl(190 80% 30% / .14),transparent 55%)}
-.spotlight{position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:radial-gradient(620px circle at var(--mx,50%) var(--my,-10%),hsl(225 100% 70% / .08),transparent 60%);transition:background .2s linear}
+/* ── Backdrop variants ─────────────────────────────────────────────────────
+   Set `data-bg` on <html>. The old backdrop was three saturated blobs drifting
+   on 24-30s loops behind everything; it fought the product screenshot for
+   attention and never sat still. All three replacements are static, and the
+   colour is left to the content.
+
+   `.aurora` keeps its element name so the markup and the reduced-motion rule
+   stay valid; it is now a single, still wash rather than an animated one. */
+.aurora{position:fixed;inset:0;z-index:-3;pointer-events:none;contain:strict;overflow:hidden}
+.aurora .orb{display:none}   /* the drifting blobs are gone in every variant */
+
+/* weave — near-black, a fine dot lattice, one cool wash falling from the top.
+   Technical and quiet; the grid gives depth without motion. */
+[data-bg="weave"] body{background:#07090f}
+[data-bg="weave"] .aurora{
+  background-image:radial-gradient(hsl(220 55% 72% / .075) 1px,transparent 1px);
+  background-size:34px 34px;
+  -webkit-mask-image:radial-gradient(120% 85% at 50% -5%,#000 0%,transparent 68%);
+  mask-image:radial-gradient(120% 85% at 50% -5%,#000 0%,transparent 68%)}
+[data-bg="weave"] .noise-grad{position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:radial-gradient(130% 70% at 50% -12%,hsl(222 70% 34% / .30),transparent 62%)}
+
+/* ink — a deep blue-black gradient with one wide beam behind the hero.
+   Cinematic, but it fades out before the content starts. */
+[data-bg="ink"] body{background:#05070d}
+[data-bg="ink"] .aurora{
+  background:linear-gradient(180deg,hsl(224 52% 13%) 0%,hsl(224 40% 8%) 34%,#05070d 68%)}
+[data-bg="ink"] .noise-grad{position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(58% 42% at 50% 0%,hsl(226 96% 68% / .22),transparent 70%),
+    radial-gradient(90% 30% at 50% 0%,hsl(190 90% 60% / .07),transparent 75%)}
+
+/* carbon — flat, no gradient anywhere. Every bit of colour comes from the
+   product and the buttons. The most restrained of the three. */
+[data-bg="carbon"] body{background:#0a0b0e}
+[data-bg="carbon"] .aurora{background:none}
+[data-bg="carbon"] .noise-grad{display:none}
+[data-bg="carbon"] .grid-pattern{opacity:.5}
+
+/* The cursor spotlight followed the mouse across the whole page. Keep the
+   element (app.js still writes --mx/--my) but let each variant decide; only
+   `ink` uses it, and softly. */
+.spotlight{position:fixed;inset:0;z-index:-1;pointer-events:none;background:none}
+[data-bg="ink"] .spotlight{
+  background:radial-gradient(560px circle at var(--mx,50%) var(--my,-10%),hsl(226 100% 72% / .05),transparent 62%);
+  transition:background .25s linear}
 
 /* ───────── nav ───────── */
 .nav{position:sticky;top:0;z-index:100;border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
@@ -93,7 +168,7 @@ a{color:inherit;text-decoration:none}
 .pill:hover{color:var(--text)}
 .pill__dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
 .pill__arrow{color:var(--text-faint);transition:transform .2s}.pill:hover .pill__arrow{transform:translateX(3px)}
-.hero__title{font-family:var(--display);font-size:clamp(2.4rem,5vw + 1rem,4.4rem);line-height:1.03;font-weight:700;letter-spacing:-.035em;margin-bottom:16px}
+.hero__title{font-family:var(--display);font-size:clamp(2.4rem,5vw + 1rem,4.4rem);line-height:1.03;font-weight:var(--display-weight);letter-spacing:var(--display-tracking);margin-bottom:16px}
 .gradient-text{background:linear-gradient(100deg,var(--blue-2) 0%,var(--violet) 38%,var(--teal) 78%,var(--blue-2) 100%);background-size:220% 100%;background-position:var(--shimmer) 0;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 7s linear infinite}
 @keyframes shimmer{to{--shimmer:200%}}
 @supports not (background-clip:text){.gradient-text{color:var(--blue-2)}}
@@ -138,7 +213,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── features ───────── */
 .section-head{max-width:700px;margin:0 auto 44px;text-align:center}
 .eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;color:var(--blue-2)}
-.section-head h2,.wedge h2{font-family:var(--display);font-size:clamp(1.9rem,3.4vw + .6rem,3rem);letter-spacing:-.03em;line-height:1.08;margin:14px 0;font-weight:600}
+.section-head h2,.wedge h2{font-family:var(--display);font-size:clamp(1.9rem,3.4vw + .6rem,3rem);letter-spacing:var(--display-tracking);line-height:1.08;margin:14px 0;font-weight:var(--display-weight)}
 .section-head p{color:var(--text-dim);font-size:1.05rem}
 .features{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
 .features::before{content:"";position:absolute;inset:-60px 0 auto;height:400px;z-index:-1;pointer-events:none;background:radial-gradient(60% 100% at 50% 0,hsl(225 70% 40% / .12),transparent 70%)}
@@ -220,7 +295,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .cl-empty{text-align:center;color:var(--text-dim);padding:30px 0}.cl-empty a{color:var(--blue-2)}
 /* full changelog page */
 .cl-page-hero{max-width:var(--maxw);margin:0 auto;padding:64px 24px 0;text-align:center}
-.cl-page-hero h1{font-family:var(--display);font-size:clamp(2.1rem,4vw + .6rem,3.2rem);letter-spacing:-.03em;line-height:1.06;margin:14px 0 10px;font-weight:600}
+.cl-page-hero h1{font-family:var(--display);font-size:clamp(2.1rem,4vw + .6rem,3.2rem);letter-spacing:var(--display-tracking);line-height:1.06;margin:14px 0 10px;font-weight:var(--display-weight)}
 .cl-page-hero p{color:var(--text-dim);font-size:1.05rem;max-width:560px;margin:0 auto}
 .cl-page .cl-list{margin-top:40px;padding-bottom:40px}
 
@@ -229,16 +304,20 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .reveal.in{opacity:1;transform:none}
 
 /* ───────── responsive ───────── */
-/* ───────── interactive demo (chapters + stage) ───────── */
-.demo{max-width:1200px;margin:64px auto 0;padding:0 24px}
-.demo__head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:34px;align-items:start;margin-bottom:26px;text-align:left}
-.demo__intro h2.demo__title{font-family:var(--display);font-size:clamp(1.6rem,2.2vw + .6rem,2.25rem);letter-spacing:-.03em;line-height:1.1;margin:12px 0 12px;font-weight:600}
-.demo__lede{color:var(--text-dim);font-size:.98rem;max-width:46ch}
+/* ───────── interactive demo (stage first, chapters under it) ───────── */
+.demo{max-width:1200px;margin:56px auto 0;padding:0 24px}
+/* The lead is centred and deliberately short. The chapter rail used to sit in a
+   column beside it, which pushed the product frame below the fold on a laptop;
+   the frame is the argument, so now only three lines stand between the hero and
+   the app, and the chapters wait underneath. */
+.demo__lead{max-width:660px;margin:0 auto 26px;text-align:center}
+.demo__lead h2.demo__title{font-family:var(--display);font-size:clamp(1.6rem,2.2vw + .6rem,2.25rem);letter-spacing:var(--display-tracking);line-height:1.1;margin:12px 0 12px;font-weight:var(--display-weight)}
+.demo__lede{color:var(--text-dim);font-size:.98rem}
 .demo__lede strong{color:var(--text)}
 
-/* The chapter rail. Two columns of real buttons: each one asks the embedded app
-   to play a scene, and the app answers by switching a REAL pane. */
-.chapters{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+/* The chapter rail, now a four-across row below the stage. Each button asks the
+   embedded app to play a scene, and the app answers by switching a REAL pane. */
+.chapters{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}
 .chapter{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;row-gap:2px;
   padding:11px 13px;border-radius:12px;text-align:left;cursor:pointer;color:var(--text);
   background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
@@ -299,6 +378,40 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
 .fgroup:hover{transform:translateY(-3px);box-shadow:0 22px 54px -24px rgb(0 0 0 / .85);border-color:var(--border-2)}
+/* ── Card mockups ─────────────────────────────────────────────────────────
+   Each feature card opens with a small drawing of the thing it describes,
+   built from rectangles rather than a screenshot: it stays sharp at any size,
+   follows the theme colours, weighs nothing, and never goes stale when the
+   product's own chrome changes. Everything here is decorative and hidden from
+   assistive tech by aria-hidden on the wrapper. */
+.fgroup__mock{margin:-6px -4px 20px;border-radius:12px;overflow:hidden;
+  background:linear-gradient(180deg,hsl(222 44% 12% / .5),hsl(222 40% 8% / .3));
+  border:1px solid var(--border);height:96px}
+.mock{display:block;width:100%;height:96px}
+.mock rect,.mock circle,.mock polyline,.mock path{vector-effect:non-scaling-stroke}
+.mk-pane,.mk-col,.mk-kpi,.mk-phone{fill:hsl(222 42% 14% / .8);stroke:var(--border-2);stroke-width:1}
+.mk-bar,.mk-hdr{fill:hsl(222 40% 20% / .8);stroke:none}
+.mk-hdr{fill:hsl(220 30% 55% / .5)}
+.mk-tab{fill:hsl(220 30% 60% / .35)}
+.mk-tab--on{fill:var(--blue-2)}
+.mk-line{fill:hsl(220 28% 72% / .55)}
+.mk-line--dim{fill:hsl(220 25% 62% / .28)}
+.mk-accent{fill:var(--blue-2)}
+.mk-ok{fill:var(--green)}
+.mk-dot{fill:hsl(220 20% 55% / .5)}
+.mk-caret{fill:var(--teal)}
+.mk-card{fill:hsl(222 38% 20% / .85);stroke:var(--border);stroke-width:1}
+.mk-card--work{fill:hsl(225 70% 40% / .4);stroke:hsl(225 80% 66% / .5)}
+.mk-card--review{fill:hsl(43 70% 40% / .32);stroke:hsl(43 85% 62% / .45)}
+.mk-avatar{fill:var(--blue-2)}
+.mk-avatar--ok{fill:var(--amber)}
+.mk-spark{fill:none;stroke:var(--teal);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mk-spark-dot{fill:var(--teal)}
+.mk-arc{fill:none;stroke:var(--blue-2);stroke-width:1.6;stroke-dasharray:3 4;stroke-linecap:round;opacity:.75}
+.mk-key{fill:none;stroke:var(--violet);stroke-width:2}
+.mk-keyshaft{stroke:var(--violet);stroke-width:2;stroke-linecap:round;fill:none}
+.mk-keyhole{fill:var(--violet);opacity:.55}
+
 .fgroup__head{display:flex;gap:14px;align-items:flex-start;margin-bottom:18px}
 .fgroup__head .card__icon{margin-bottom:0;flex:none;width:40px;height:40px}
 .fgroup__head h3{display:flex;align-items:center;gap:8px;font-size:1.16rem;letter-spacing:-.02em;margin-bottom:3px}
@@ -344,8 +457,26 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .pricing__faq p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
 .pricing__faq em{color:var(--text);font-style:normal;font-weight:560}
 
+/* ── Type/backdrop lab (only rendered behind ?lab=1) ───────────────────── */
+.lab{position:fixed;right:16px;bottom:16px;z-index:1000;width:250px;padding:14px;
+  border-radius:14px;border:1px solid var(--border-2);background:hsl(222 45% 8% / .94);
+  -webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%);
+  box-shadow:0 24px 60px -20px rgb(0 0 0 / .8);max-height:86vh;overflow:auto}
+.lab__head{font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--blue-2);margin-bottom:10px}
+.lab__group{margin-bottom:12px}
+.lab__title{font-size:.72rem;color:var(--text-faint);margin-bottom:6px}
+.lab__opt{display:block;width:100%;text-align:left;padding:7px 9px;margin-bottom:5px;border-radius:9px;
+  border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit;
+  transition:border-color .18s,background .18s}
+.lab__opt:hover{border-color:var(--border-2);background:var(--glass-2)}
+.lab__opt.is-on{border-color:hsl(225 90% 70% / .55);background:hsl(225 80% 55% / .16)}
+.lab__name{display:block;font-size:.82rem;font-weight:560}
+.lab__note{display:block;font-size:.7rem;color:var(--text-faint);line-height:1.35;margin-top:1px}
+.lab__foot{font-size:.68rem;color:var(--text-faint);line-height:1.4;padding-top:8px;border-top:1px solid var(--border)}
+@media (max-width:700px){.lab{left:12px;right:12px;width:auto;bottom:12px}}
+
 @media (max-width:1000px){
-  .demo__head{grid-template-columns:1fr;gap:22px}
+  .chapters{grid-template-columns:repeat(2,1fr)}
   .flow{grid-template-columns:1fr 1fr}
   .flow__step:nth-child(2)::after{display:none}
   .claims,.fmap,.plans{grid-template-columns:1fr 1fr}
@@ -363,8 +494,11 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 @media (max-width:600px){
   .hero{padding-top:26px}.bento,.dl-grid{grid-template-columns:1fr}.card--wide{grid-column:span 1}
   .demo{padding:0 16px}
-  .chapters{grid-template-columns:1fr}
+  /* Two across, not one: eight full-width buttons would be a wall of scrolling
+     between the frame and the next section. */
+  .chapters{grid-template-columns:1fr 1fr;gap:8px}
   .chapter__hint{display:none}          /* the name alone carries it on a phone */
+  .fgroup__mock{height:82px}.mock{height:82px}
   .flow,.claims,.fmap,.plans,.pricing__faq{grid-template-columns:1fr}
   .flow__step::after{display:none}
   /* A 16:9 stage on a phone is a letterbox of unreadable UI. Give it height and

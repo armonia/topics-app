@@ -1,43 +1,50 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<!-- data-font / data-bg pick the type pairing and the backdrop. Append ?lab=1
+     to the URL for a switcher that changes both on the live page. -->
+<html lang="en" data-theme="dark" data-font="inter" data-bg="weave">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Topics · the workspace for coding agents</title>
-  <meta name="description" content="An open, agent-first desktop workspace for Claude Code and CLI coding agents. Organize every session into focused topics, keep whole projects open side by side — terminals, browser, a Kanban board that dispatches agents into isolated worktrees, and the numbers that tell you what it cost. Free and open source." />
-  <meta name="theme-color" content="#06080f" />
+  <meta name="description" content="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Sessions sorted into topics that keep their own terminal, branch and browser, a board that hands work to agents in isolated worktrees, and numbers that say what it cost. Free and open source." />
+  <meta name="theme-color" content="#07090f" />
   <link rel="icon" type="image/png" href="./icon-64.png" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Topics · the workspace for coding agents" />
-  <meta property="og:description" content="Organize every Claude Code session into focused topics: terminals, browser, agent monitoring and an autonomous board in one window. Open. Fast. Yours." />
+  <meta property="og:description" content="Claude Code, Codex and Gemini CLI sessions sorted into topics, several projects open at once, and a board that puts agents to work in their own worktrees." />
   <meta property="og:url" content="https://topics.armonia.io" />
   <meta property="og:image" content="https://topics.armonia.io/icon.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" />
+  <!-- All four candidate pairings load while the type is being chosen. Once one
+       is picked, drop the rest: five families is far more than a page needs. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Instrument+Serif&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <!-- icon sprite -->
+  <!-- Icon sprite. One 24×24 grid, 1.7 stroke, round joins, drawn so each glyph
+       reads at 17px. Filled marks (brand logos, stars) opt in with .ic--fill. -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
-      <symbol id="ic-topics" viewBox="0 0 24 24"><path d="M12 3l8 4-8 4-8-4 8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16.5l8 4 8-4"/></symbol>
-      <symbol id="ic-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3 3-3 3"/><path d="M12.5 15h4"/></symbol>
-      <symbol id="ic-browser" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.3" cy="6.5" r=".7" fill="currentColor" stroke="none"/><circle cx="8.6" cy="6.5" r=".7" fill="currentColor" stroke="none"/></symbol>
-      <symbol id="ic-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M12.5 4v16"/><path d="M12.5 12.5H21"/></symbol>
-      <symbol id="ic-agents" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
-      <symbol id="ic-open" viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4"/><path d="M15 8l5 4-5 4"/></symbol>
-      <symbol id="ic-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M15 4v16"/></symbol>
-      <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4M12.5 16V8M17 16v-6"/></symbol>
-      <symbol id="ic-git" viewBox="0 0 24 24"><circle cx="7" cy="6" r="2.4"/><circle cx="7" cy="18" r="2.4"/><circle cx="17" cy="12" r="2.4"/><path d="M7 8.4v7.2M9.4 6h3.2a2 2 0 0 1 2 2v1.8"/></symbol>
-      <symbol id="ic-files" viewBox="0 0 24 24"><path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h3.2l1.6 2h8.2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"/></symbol>
-      <symbol id="ic-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.1 3.5 3.5 0 0 0 7 18z"/></symbol>
-      <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11"/></symbol>
-      <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10" rx="2.2"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></symbol>
-      <symbol id="ic-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8 5.6v12.8l10-6.4z"/></symbol>
-      <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 20h14"/></symbol>
+      <symbol id="ic-topics" viewBox="0 0 24 24"><path d="M12 3.2l8 4.1-8 4.1-8-4.1z"/><path d="M4 12.2l8 4.1 8-4.1"/><path d="M4 16.7l8 4.1 8-4.1"/></symbol>
+      <symbol id="ic-terminal" viewBox="0 0 24 24"><rect x="3" y="4.2" width="18" height="15.6" rx="2.6"/><path d="M7.2 9.4l2.9 2.6-2.9 2.6"/><path d="M12.8 14.8h4"/></symbol>
+      <symbol id="ic-browser" viewBox="0 0 24 24"><rect x="3" y="4.2" width="18" height="15.6" rx="2.6"/><path d="M3 9h18"/><circle cx="6.3" cy="6.6" r=".75" fill="currentColor" stroke="none"/><circle cx="8.7" cy="6.6" r=".75" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="ic-split" viewBox="0 0 24 24"><rect x="3" y="4.2" width="18" height="15.6" rx="2.6"/><path d="M12.4 4.2v15.6"/><path d="M12.4 12H21"/></symbol>
+      <!-- A fleet, not a gear: one lead node wired to three workers. -->
+      <symbol id="ic-agents" viewBox="0 0 24 24"><circle cx="12" cy="5.4" r="2.4"/><circle cx="5.2" cy="17.4" r="2.4"/><circle cx="18.8" cy="17.4" r="2.4"/><circle cx="12" cy="14" r="1.9"/><path d="M12 7.8v4.3M10.4 15.1l-3.1 1.4M13.6 15.1l3.1 1.4"/></symbol>
+      <symbol id="ic-open" viewBox="0 0 24 24"><path d="M9.2 7.8L4.4 12l4.8 4.2"/><path d="M14.8 7.8L19.6 12l-4.8 4.2"/></symbol>
+      <symbol id="ic-board" viewBox="0 0 24 24"><rect x="3" y="4.2" width="18" height="15.6" rx="2.6"/><path d="M9 4.2v15.6M15 4.2v15.6"/></symbol>
+      <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M4 4.6v14.8h16"/><path d="M7.6 16.2v-3.4M11.8 16.2V8.6M16 16.2v-5.6"/></symbol>
+      <symbol id="ic-git" viewBox="0 0 24 24"><circle cx="6.6" cy="6.2" r="2.3"/><circle cx="6.6" cy="17.8" r="2.3"/><circle cx="17.4" cy="12" r="2.3"/><path d="M6.6 8.5v7"/><path d="M8.9 6.2h3.9a2.2 2.2 0 0 1 2.2 2.2v1.4"/></symbol>
+      <symbol id="ic-files" viewBox="0 0 24 24"><path d="M3.6 6.6a1.6 1.6 0 0 1 1.6-1.6h3.3l1.7 2.2h8.2a1.6 1.6 0 0 1 1.6 1.6v8.6a1.6 1.6 0 0 1-1.6 1.6H5.2a1.6 1.6 0 0 1-1.6-1.6z"/></symbol>
+      <symbol id="ic-cloud" viewBox="0 0 24 24"><path d="M7.4 18.4h9.4a3.9 3.9 0 0 0 .5-7.77A5.9 5.9 0 0 0 6.3 11.3a3.6 3.6 0 0 0 1.1 7.1z"/></symbol>
+      <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.8 12.4l4.7 4.7 9.7-10.2"/></symbol>
+      <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.6" y="10.2" width="14.8" height="9.4" rx="2.2"/><path d="M8.2 10.2V7.8a3.8 3.8 0 0 1 7.6 0v2.4"/></symbol>
+      <symbol id="ic-key" viewBox="0 0 24 24"><circle cx="7.6" cy="12" r="3.4"/><path d="M11 12h9.4"/><path d="M17.2 12v3.2M20.4 12v2.4"/></symbol>
+      <symbol id="ic-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.4 5.8v12.4L18 12z"/></symbol>
+      <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3.6v11.8M8.2 11.6L12 15.4l3.8-3.8M5 20h14"/></symbol>
       <symbol id="ic-star" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .6l3.668 7.43 8.2 1.193-5.934 5.784 1.401 8.168L12 18.9l-7.335 3.866 1.401-8.168L.132 9.223l8.2-1.193z"/></symbol>
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
       <symbol id="os-apple" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M17.05 12.04c-.03-2.85 2.33-4.22 2.44-4.28-1.33-1.95-3.4-2.22-4.13-2.25-1.76-.18-3.43 1.04-4.32 1.04-.89 0-2.26-1.02-3.72-.99-1.91.03-3.68 1.11-4.66 2.82-1.99 3.45-.51 8.56 1.43 11.36.95 1.37 2.08 2.91 3.56 2.86 1.43-.06 1.97-.92 3.7-.92 1.72 0 2.21.92 3.72.89 1.54-.03 2.51-1.4 3.45-2.78 1.09-1.59 1.54-3.13 1.56-3.21-.03-.01-2.99-1.15-3.02-4.55zM14.2 4.38c.79-.96 1.32-2.29 1.18-3.62-1.14.05-2.52.76-3.33 1.72-.73.85-1.37 2.2-1.2 3.5 1.27.1 2.57-.65 3.35-1.6z"/></symbol>
@@ -46,14 +53,9 @@
     </defs>
   </svg>
 
-  <!-- texture & light layers -->
   <div class="grain" aria-hidden="true"></div>
   <div class="grain grain--fine" aria-hidden="true"></div>
-  <div class="aurora" aria-hidden="true">
-    <span class="orb orb--blue"></span>
-    <span class="orb orb--violet"></span>
-    <span class="orb orb--teal"></span>
-  </div>
+  <div class="aurora" aria-hidden="true"><span class="orb orb--blue"></span><span class="orb orb--violet"></span><span class="orb orb--teal"></span></div>
   <div class="noise-grad" aria-hidden="true"></div>
   <div class="spotlight" aria-hidden="true"></div>
 
@@ -83,23 +85,23 @@
   </header>
 
   <main id="top">
-    <!-- HERO -->
+    <!-- HERO — short on purpose. The product frame is the argument, so it has
+         to arrive before anything asks to be read. -->
     <section class="hero">
       <div class="grid-pattern" aria-hidden="true"></div>
       <div class="hero__inner">
         <a class="pill reveal" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
           <span class="pill__dot"></span>
-          <span id="pillRelease">macOS, Windows &amp; Linux</span>
-          <span class="pill__arrow">→</span>
+          <span id="pillRelease">macOS, Windows and Linux</span>
+          <span class="pill__arrow">&rarr;</span>
         </a>
         <h1 class="hero__title reveal" style="--d:1">
           The workspace for<br /><span class="gradient-text">coding agents.</span>
         </h1>
         <p class="hero__sub reveal" style="--d:2">
-          Organize every <strong>Claude Code</strong> and CLI agent session into focused
-          <em>topics</em>, and keep whole projects open side by side — terminals,
-          browser and context in one window.
-          <span class="hero__sub-accent">Open. Fast. Yours.</span>
+          Every <strong>Claude Code</strong> session gets a topic that remembers its terminal,
+          its branch and its browser. Whole projects stay open next to each other, so switching
+          context costs one keystroke instead of ten minutes.
         </p>
         <div class="hero__actions reveal" style="--d:3">
           <a class="btn btn--primary btn--lg" id="primaryDownload" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
@@ -108,106 +110,104 @@
           </a>
           <a class="btn btn--glass btn--lg" href="#demo">
             <svg class="ic ic--fill"><use href="#ic-play"/></svg>
-            <span>Try the live demo</span>
+            <span>Open the live demo</span>
           </a>
         </div>
-        <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry · bring your own keys</p>
+        <p class="hero__meta reveal" style="--d:4">
+          <span class="dot-live"></span>
+          Free and open source under MIT. No telemetry. Use your own API key, or the
+          subscription you already pay for.
+        </p>
+      </div>
+    </section>
+
+    <!-- DEMO — the frame comes first and the chapter list sits under it, so the
+         product is on screen before the reader has to choose anything. -->
+    <section class="demo" id="demo">
+      <div class="demo__lead reveal">
+        <span class="eyebrow">live demo, not a video</span>
+        <h2 class="demo__title">This is the app, running in your browser.</h2>
+        <p class="demo__lede">
+          Same bundle we ship, with sample data instead of a backend. Take the mouse and
+          click anything. Or pick a chapter underneath and a pointer will walk you through
+          that part of the app, then step aside the moment you touch it.
+        </p>
       </div>
 
-      <!-- ══ INTERACTIVE DEMO ══════════════════════════════════════════════
-           The frame below is the REAL Topics client, running in your browser
-           with mock data and no backend. The chapter buttons drive it through
-           its own UI; everything stays clickable. -->
-      <div class="demo reveal" style="--d:5" id="demo">
-        <div class="demo__head">
-          <div class="demo__intro">
-            <span class="eyebrow">live demo · not a video</span>
-            <h2 class="demo__title">Press a chapter. Watch the real app do it.</h2>
-            <p class="demo__lede">
-              This is the actual Topics client running in your browser — same bundle we ship,
-              with sample data instead of a backend. Pick a chapter and a pointer walks through
-              it, or just <strong>grab the mouse yourself</strong>: click any tab, drag any divider.
-              The tour steps aside the moment you do.
-            </p>
-          </div>
-          <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
-            <button class="chapter" data-scene="terminals" type="button">
-              <svg class="ic"><use href="#ic-terminal"/></svg>
-              <span class="chapter__name">Live terminals</span>
-              <span class="chapter__hint">Two Claude Code sessions, streaming</span>
-            </button>
-            <button class="chapter" data-scene="board" type="button">
-              <svg class="ic"><use href="#ic-board"/></svg>
-              <span class="chapter__name">Agent board</span>
-              <span class="chapter__hint">Queued → working → waiting on you</span>
-            </button>
-            <button class="chapter" data-scene="agents" type="button">
-              <svg class="ic"><use href="#ic-agents"/></svg>
-              <span class="chapter__name">Agent monitor</span>
-              <span class="chapter__hint">Who is live, for how long, at what cost</span>
-            </button>
-            <button class="chapter" data-scene="dashboard" type="button">
-              <svg class="ic"><use href="#ic-chart"/></svg>
-              <span class="chapter__name">Dashboard</span>
-              <span class="chapter__hint">Throughput, spend, leaderboard</span>
-            </button>
-            <button class="chapter" data-scene="browser" type="button">
-              <svg class="ic"><use href="#ic-browser"/></svg>
-              <span class="chapter__name">Browser pane</span>
-              <span class="chapter__hint">Your localhost, inside the window</span>
-            </button>
-            <button class="chapter" data-scene="git" type="button">
-              <svg class="ic"><use href="#ic-git"/></svg>
-              <span class="chapter__name">Git &amp; diffs</span>
-              <span class="chapter__hint">Review what the agent changed</span>
-            </button>
-            <button class="chapter" data-scene="files" type="button">
-              <svg class="ic"><use href="#ic-files"/></svg>
-              <span class="chapter__name">Files</span>
-              <span class="chapter__hint">Explorer, editor, search</span>
-            </button>
-            <button class="chapter" data-scene="workspace" type="button">
-              <svg class="ic"><use href="#ic-split"/></svg>
-              <span class="chapter__name">Projects side by side</span>
-              <span class="chapter__hint">Three projects, one window</span>
-            </button>
-          </div>
+      <div class="showcase reveal">
+        <div class="showcase__glow" aria-hidden="true"></div>
+        <div class="showcase__frame">
+          <iframe class="window-real" id="demoFrame" src="./app/index.html"
+                  title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."
+                  loading="lazy"></iframe>
         </div>
+        <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">Everything here is clickable. It is the product, not a screenshot.</span></p>
+      </div>
 
-        <div class="showcase">
-          <div class="showcase__glow" aria-hidden="true"></div>
-          <div class="showcase__frame">
-            <iframe class="window-real" id="demoFrame" src="./app/index.html"
-                    title="Interactive Topics demo — the real app with sample data. Use the chapter buttons above, or interact with it directly."
-                    loading="lazy"></iframe>
-          </div>
-          <p class="demo__foot">
-            <span class="dot-live"></span>
-            <span id="demoStatus">Everything you see is clickable — this is the product, not a screenshot.</span>
-          </p>
-        </div>
+      <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
+        <button class="chapter" data-scene="terminals" type="button">
+          <svg class="ic"><use href="#ic-terminal"/></svg>
+          <span class="chapter__name">Live terminals</span>
+          <span class="chapter__hint">Two Claude Code sessions, mid-run</span>
+        </button>
+        <button class="chapter" data-scene="board" type="button">
+          <svg class="ic"><use href="#ic-board"/></svg>
+          <span class="chapter__name">Agent board</span>
+          <span class="chapter__hint">Queued, working, waiting on you</span>
+        </button>
+        <button class="chapter" data-scene="agents" type="button">
+          <svg class="ic"><use href="#ic-agents"/></svg>
+          <span class="chapter__name">Agent monitor</span>
+          <span class="chapter__hint">Who is live, how long, what it cost</span>
+        </button>
+        <button class="chapter" data-scene="dashboard" type="button">
+          <svg class="ic"><use href="#ic-chart"/></svg>
+          <span class="chapter__name">Dashboard</span>
+          <span class="chapter__hint">Throughput, spend, leaderboard</span>
+        </button>
+        <button class="chapter" data-scene="browser" type="button">
+          <svg class="ic"><use href="#ic-browser"/></svg>
+          <span class="chapter__name">Browser pane</span>
+          <span class="chapter__hint">Your localhost, inside the window</span>
+        </button>
+        <button class="chapter" data-scene="git" type="button">
+          <svg class="ic"><use href="#ic-git"/></svg>
+          <span class="chapter__name">Git and diffs</span>
+          <span class="chapter__hint">Read the change before you take it</span>
+        </button>
+        <button class="chapter" data-scene="files" type="button">
+          <svg class="ic"><use href="#ic-files"/></svg>
+          <span class="chapter__name">Files</span>
+          <span class="chapter__hint">Explorer, editor, search</span>
+        </button>
+        <button class="chapter" data-scene="workspace" type="button">
+          <svg class="ic"><use href="#ic-split"/></svg>
+          <span class="chapter__name">Projects side by side</span>
+          <span class="chapter__hint">Three projects, one window</span>
+        </button>
       </div>
     </section>
 
     <!-- WORKS WITH -->
     <section class="strip" aria-label="Works with">
-      <p class="strip__label">Built around the agents you already run</p>
+      <p class="strip__label">Runs the agents you already run</p>
       <div class="marquee" aria-hidden="true">
         <div class="marquee__track">
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span><span>MCP</span><span>·</span>
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span><span>MCP</span><span>·</span>
+          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>OpenCode</span><span>·</span><span>Gemini CLI</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenAI GPT</span><span>·</span><span>MCP</span><span>·</span><span>any ACP agent</span><span>·</span>
+          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>OpenCode</span><span>·</span><span>Gemini CLI</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenAI GPT</span><span>·</span><span>MCP</span><span>·</span><span>any ACP agent</span><span>·</span>
         </div>
       </div>
     </section>
 
-    <!-- AUTONOMY — the multi-agent story -->
+    <!-- AUTONOMY -->
     <section class="autonomy" id="autonomy">
       <header class="section-head reveal">
-        <span class="eyebrow">multi-agent · ultracode</span>
+        <span class="eyebrow">multi-agent and ultracode</span>
         <h2>Give it a board. Walk away.</h2>
         <p>
-          Topics does not just watch agents work — it puts them to work. Drop a task on the board and an
-          agent picks it up in its own git worktree, so parallel agents never fight over your checkout.
+          Topics does more than watch agents work. Put a task on the board and an agent picks
+          it up inside its own git worktree, which is what lets several of them run at once
+          without stepping on your checkout.
         </p>
       </header>
 
@@ -215,115 +215,188 @@
         <li class="flow__step">
           <span class="flow__n">1</span>
           <h3>You write the task</h3>
-          <p>What should happen, where to look, how it is verified. A vague task comes back vague.</p>
+          <p>What should happen, where to look, how you will know it worked. Write it vaguely and it comes back vague.</p>
         </li>
         <li class="flow__step">
           <span class="flow__n">2</span>
-          <h3>An agent takes it</h3>
-          <p>Dispatched into an <strong>isolated worktree</strong> on its own branch. Several agents run at once without collisions.</p>
+          <h3>An agent picks it up</h3>
+          <p>It gets an <strong>isolated worktree</strong> on its own branch. Four agents can be mid-edit at the same time and none of them collide.</p>
         </li>
         <li class="flow__step">
           <span class="flow__n">3</span>
-          <h3>It delivers evidence</h3>
-          <p>Committed work, a summary, and a screenshot or video of the thing actually working — then it moves itself to review.</p>
+          <h3>It hands back evidence</h3>
+          <p>Committed work, a short summary, and a screenshot or clip of the thing running. Then it moves its own card to review.</p>
         </li>
         <li class="flow__step">
           <span class="flow__n">4</span>
-          <h3>You approve</h3>
-          <p>Read the diff, approve, land it into main. Publishing is always a separate, deliberate click — never automatic.</p>
+          <h3>You decide</h3>
+          <p>Read the diff and approve. Landing it into main is a second click, and pushing is a third. None of them happen on their own.</p>
         </li>
       </ol>
 
       <div class="claims reveal">
         <article class="claim">
-          <h3><svg class="ic"><use href="#ic-agents"/></svg> Every session starts in ultracode</h3>
+          <h3><svg class="ic"><use href="#ic-agents"/></svg> Sessions start at full effort</h3>
           <p>
-            Launched from a plain shell, Claude Code falls back to <code>low</code> effort. Topics passes
-            <code>--effort</code> explicitly, so sessions start at the top tier — with a per-topic
-            selector when you want to spend less on a small job.
+            Launched from a plain shell, Claude Code falls back to <code>low</code> effort.
+            Topics passes <code>--effort</code> on every spawn, so a session opens at the top
+            tier. Drop it per topic when the job is small and you would rather not pay for the
+            deep thinking.
           </p>
         </article>
         <article class="claim">
-          <h3><svg class="ic"><use href="#ic-open"/></svg> Sub-agents stay visible</h3>
+          <h3><svg class="ic"><use href="#ic-open"/></svg> Sub-agents stay on screen</h3>
           <p>
-            When an agent spawns its own fleet, the children show up in the session tree instead of
-            vanishing into a pipe. You can see what each one is doing and what it is spending.
+            When an agent spawns a fleet of its own, the children appear in the session tree
+            instead of disappearing into a pipe. You can see what each is doing and what it is
+            spending while it does it.
           </p>
         </article>
         <article class="claim">
           <h3><svg class="ic"><use href="#ic-lock"/></svg> Nothing lands behind your back</h3>
           <p>
-            Approve accepts the work. Landing merges it locally. Publishing pushes. Three separate
-            decisions, three separate clicks — because "done" should mean you said so.
+            Approving accepts the work. Landing merges it locally. Publishing pushes. Three
+            decisions, three clicks, because "done" should mean you said so.
           </p>
         </article>
       </div>
     </section>
 
-    <!-- FEATURES — the full map -->
+    <!-- FEATURES — every card carries a purpose-built mock of the thing it
+         describes, drawn as inline SVG so it scales and follows the theme. -->
     <section class="features" id="features">
       <header class="section-head reveal">
         <span class="eyebrow">one window, every surface</span>
-        <h2>Everything an agent session needs, side by side.</h2>
-        <p>No tab-juggling, no lost context. Each topic carries its own project, terminals and browser.</p>
+        <h2>Everything a session needs, in the same window.</h2>
+        <p>Each topic carries its own project, terminals and browser, and gets them back after a restart.</p>
       </header>
 
       <div class="fmap">
         <article class="fgroup reveal">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-pane" x="4" y="6" width="252" height="44" rx="5"/>
+              <rect class="mk-bar" x="4" y="6" width="252" height="11" rx="5"/>
+              <rect class="mk-tab mk-tab--on" x="10" y="9" width="42" height="5" rx="2.5"/>
+              <rect class="mk-tab" x="57" y="9" width="30" height="5" rx="2.5"/>
+              <rect class="mk-line" x="12" y="26" width="120" height="4" rx="2"/>
+              <rect class="mk-line" x="12" y="35" width="86" height="4" rx="2"/>
+              <rect class="mk-pane" x="4" y="54" width="122" height="38" rx="5"/>
+              <rect class="mk-bar" x="4" y="54" width="122" height="10" rx="5"/>
+              <rect class="mk-tab mk-tab--on" x="10" y="57" width="34" height="4" rx="2"/>
+              <rect class="mk-pane" x="134" y="54" width="122" height="38" rx="5"/>
+              <rect class="mk-bar" x="134" y="54" width="122" height="10" rx="5"/>
+              <rect class="mk-tab mk-tab--on" x="140" y="57" width="34" height="4" rx="2"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
             <div class="card__icon i-blue"><svg class="ic"><use href="#ic-topics"/></svg></div>
             <div>
               <h3>Organize</h3>
-              <p>Structure that survives a restart — and a second machine.</p>
+              <p>Structure that survives a restart, and a second machine.</p>
             </div>
           </header>
           <ul class="flist">
-            <li><b>Topics, not tabs</b> — group sessions by project or intent; each remembers its terminal, files and conversation.</li>
-            <li><b>Projects side by side</b> — several whole projects open at once in a resizable split grid.</li>
-            <li><b>Spaces &amp; split panes</b> — split any pane, drag tabs between groups, detach a window.</li>
-            <li><b>Layout that persists</b> — panes, splits and tabs come back exactly as you left them.</li>
-            <li><b>Tab sync across devices</b> — open the same workspace on another machine and find it in the same shape.</li>
-            <li><b>Command palette &amp; shortcuts</b> — everything reachable from the keyboard, including reopen-closed-tab.</li>
+            <li><b>Topics, not tabs.</b> Group sessions by project or intent. Each one keeps its terminal, files and conversation.</li>
+            <li><b>Projects side by side.</b> Several whole projects open at once in a grid you can resize.</li>
+            <li><b>Spaces and splits.</b> Split any pane, drag tabs between groups, tear one off into its own window.</li>
+            <li><b>Layout that persists.</b> Panes, splits and tabs come back the way you left them.</li>
+            <li><b>Tab sync across devices.</b> Open the workspace on another machine and find it in the same shape.</li>
+            <li><b>Command palette.</b> Everything reachable from the keyboard, including reopening the tab you just closed.</li>
           </ul>
         </article>
 
         <article class="fgroup reveal">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-pane" x="4" y="6" width="252" height="86" rx="5"/>
+              <rect class="mk-bar" x="4" y="6" width="252" height="11" rx="5"/>
+              <circle class="mk-dot" cx="13" cy="11.5" r="2"/><circle class="mk-dot" cx="21" cy="11.5" r="2"/><circle class="mk-dot" cx="29" cy="11.5" r="2"/>
+              <rect class="mk-accent" x="12" y="26" width="7" height="4" rx="2"/>
+              <rect class="mk-line" x="24" y="26" width="104" height="4" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="12" y="36" width="150" height="4" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="12" y="46" width="118" height="4" rx="2"/>
+              <rect class="mk-ok" x="12" y="56" width="5" height="4" rx="2"/>
+              <rect class="mk-line" x="22" y="56" width="76" height="4" rx="2"/>
+              <rect class="mk-accent" x="12" y="70" width="7" height="4" rx="2"/>
+              <rect class="mk-caret" x="24" y="68" width="6" height="8" rx="1"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
             <div class="card__icon i-teal"><svg class="ic"><use href="#ic-terminal"/></svg></div>
             <div>
               <h3>Run</h3>
-              <p>The agent, the server and the page it renders — in one place.</p>
+              <p>The agent, the dev server and the page it renders, all in reach.</p>
             </div>
           </header>
           <ul class="flist">
-            <li><b>Embedded terminals</b> — run Claude Code, Codex or any CLI agent and watch it work.</li>
-            <li><b>Lossless reattach</b> — reload the app, close the laptop: the session is still there, scrollback intact.</li>
-            <li><b>Browser pane</b> — a real browser per topic for localhost, docs, or letting the agent drive the page.</li>
-            <li><b>Processes &amp; scripts</b> — start <code>dev</code>, <code>test</code>, <code>build</code> from the sidebar and keep their logs.</li>
-            <li><b>Git worktrees</b> — isolated checkouts per task, named and garbage-collected for you.</li>
-            <li><b>Cron jobs &amp; webhooks</b> — recurring work and outside triggers, without leaving the app.</li>
+            <li><b>Embedded terminals.</b> Claude Code, Codex, OpenCode, Gemini CLI or a plain shell, running where you can watch them.</li>
+            <li><b>Lossless reattach.</b> Reload the app or shut the laptop; the session is still there with its scrollback.</li>
+            <li><b>Browser pane.</b> A real browser per topic for localhost and docs, and for letting an agent drive the page.</li>
+            <li><b>Processes and scripts.</b> Start <code>dev</code> or <code>test</code> from the sidebar and keep their output.</li>
+            <li><b>Git worktrees.</b> An isolated checkout per task, named for you and cleaned up afterwards.</li>
+            <li><b>Cron jobs and webhooks.</b> Work that repeats, and work triggered from outside.</li>
           </ul>
         </article>
 
         <article class="fgroup reveal">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-pane" x="4" y="6" width="252" height="86" rx="5"/>
+              <rect class="mk-kpi" x="14" y="16" width="52" height="26" rx="4"/>
+              <rect class="mk-kpi" x="72" y="16" width="52" height="26" rx="4"/>
+              <rect class="mk-kpi" x="130" y="16" width="52" height="26" rx="4"/>
+              <rect class="mk-kpi" x="188" y="16" width="52" height="26" rx="4"/>
+              <rect class="mk-line" x="20" y="22" width="20" height="6" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="20" y="33" width="30" height="3" rx="1.5"/>
+              <rect class="mk-line" x="78" y="22" width="24" height="6" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="78" y="33" width="26" height="3" rx="1.5"/>
+              <rect class="mk-line" x="136" y="22" width="18" height="6" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="136" y="33" width="30" height="3" rx="1.5"/>
+              <rect class="mk-line" x="194" y="22" width="22" height="6" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="194" y="33" width="24" height="3" rx="1.5"/>
+              <polyline class="mk-spark" points="16,80 44,68 72,74 100,56 128,62 156,48 184,54 212,40 240,46"/>
+              <circle class="mk-spark-dot" cx="240" cy="46" r="2.6"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
             <div class="card__icon i-violet"><svg class="ic"><use href="#ic-chart"/></svg></div>
             <div>
               <h3>See</h3>
-              <p>What the agents are doing, and what it is costing you.</p>
+              <p>What the agents are doing, and what they are costing you.</p>
             </div>
           </header>
           <ul class="flist">
-            <li><b>Agent monitoring</b> — every session's state at a glance, with a native notification when one finishes or needs you.</li>
-            <li><b>Heartbeats &amp; history</b> — a timeline per session, and a viewer to read back what happened.</li>
-            <li><b>Context inspector</b> — see what is filling the window, toggle sources, edit per-topic memory.</li>
-            <li><b>Dashboard</b> — throughput, cycle time, token spend and an agent leaderboard.</li>
-            <li><b>Per-pane resource usage</b> — which tab is eating your RAM, not just how much the app uses.</li>
-            <li><b>Activity feed &amp; journal</b> — a live stream of what happened, and a daily digest.</li>
+            <li><b>Agent monitoring.</b> Every session's state at a glance, plus a native notification when one finishes or gets stuck on a question.</li>
+            <li><b>Heartbeats and history.</b> A timeline per session, and a viewer to read back what happened.</li>
+            <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
+            <li><b>Dashboard.</b> Throughput, cycle time, token spend, and which agent got through the most work.</li>
+            <li><b>Per-pane resource usage.</b> Which tab is eating your RAM, not just how much the app uses in total.</li>
+            <li><b>Activity feed and journal.</b> A live stream of what happened, and a digest at the end of the day.</li>
           </ul>
         </article>
 
         <article class="fgroup reveal">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-col" x="6" y="8" width="58" height="80" rx="5"/>
+              <rect class="mk-col" x="70" y="8" width="58" height="80" rx="5"/>
+              <rect class="mk-col" x="134" y="8" width="58" height="80" rx="5"/>
+              <rect class="mk-col" x="198" y="8" width="56" height="80" rx="5"/>
+              <rect class="mk-hdr" x="12" y="14" width="26" height="4" rx="2"/>
+              <rect class="mk-hdr" x="76" y="14" width="22" height="4" rx="2"/>
+              <rect class="mk-hdr" x="140" y="14" width="30" height="4" rx="2"/>
+              <rect class="mk-hdr" x="204" y="14" width="24" height="4" rx="2"/>
+              <rect class="mk-card" x="12" y="24" width="46" height="16" rx="3"/>
+              <rect class="mk-card" x="12" y="44" width="46" height="16" rx="3"/>
+              <rect class="mk-card" x="76" y="24" width="46" height="16" rx="3"/>
+              <rect class="mk-card mk-card--work" x="140" y="24" width="46" height="22" rx="3"/>
+              <rect class="mk-card mk-card--review" x="204" y="24" width="44" height="22" rx="3"/>
+              <rect class="mk-avatar" x="144" y="38" width="9" height="4" rx="2"/>
+              <rect class="mk-avatar mk-avatar--ok" x="208" y="38" width="9" height="4" rx="2"/>
+              <rect class="mk-card" x="204" y="50" width="44" height="16" rx="3"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
             <div class="card__icon i-blue"><svg class="ic"><use href="#ic-board"/></svg></div>
             <div>
@@ -332,48 +405,79 @@
             </div>
           </header>
           <ul class="flist">
-            <li><b>Kanban board</b> — tasks, subtasks, priorities, tags, dependencies and drag-drop.</li>
-            <li><b>Agent dispatch</b> — assign a card to an agent and it starts working, in its own worktree.</li>
-            <li><b>Approval workflow</b> — review gates, delivery evidence, reject-with-notes that sends the agent back.</li>
-            <li><b>Diff review</b> — read the change in-app before you accept it.</li>
-            <li><b>File explorer &amp; editor</b> — tree, search, syntax-highlighted editing and git status inline.</li>
-            <li><b>Land, then publish</b> — merge locally when you are ready; pushing stays a separate decision.</li>
+            <li><b>Kanban board.</b> Tasks, subtasks, priorities, tags and dependencies, moved by dragging.</li>
+            <li><b>Agent dispatch.</b> Assign a card to an agent and it starts working, in a worktree of its own.</li>
+            <li><b>Approval gates.</b> Delivery evidence attached to the card, and a reject that sends the agent back with your notes.</li>
+            <li><b>Diff review.</b> Read the change in the app before you accept it.</li>
+            <li><b>Files and editor.</b> Tree, search, syntax highlighting, and git status next to the filenames.</li>
+            <li><b>Land, then publish.</b> Merge locally when you are ready. Pushing stays a separate decision.</li>
           </ul>
         </article>
 
         <article class="fgroup reveal fgroup--pro">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-pane" x="10" y="14" width="120" height="70" rx="5"/>
+              <rect class="mk-bar" x="10" y="14" width="120" height="9" rx="5"/>
+              <rect class="mk-line mk-line--dim" x="18" y="32" width="72" height="4" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="18" y="42" width="56" height="4" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="18" y="52" width="66" height="4" rx="2"/>
+              <rect class="mk-phone" x="196" y="10" width="46" height="78" rx="8"/>
+              <rect class="mk-bar" x="196" y="10" width="46" height="8" rx="8"/>
+              <rect class="mk-line mk-line--dim" x="204" y="28" width="30" height="4" rx="2"/>
+              <rect class="mk-line mk-line--dim" x="204" y="38" width="24" height="4" rx="2"/>
+              <rect class="mk-accent" x="204" y="52" width="30" height="4" rx="2"/>
+              <path class="mk-arc" d="M136 40 C 160 22, 172 22, 190 34"/>
+              <path class="mk-arc" d="M190 58 C 172 70, 160 70, 136 54"/>
+              <circle class="mk-spark-dot" cx="163" cy="27" r="2.4"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
             <div class="card__icon i-teal"><svg class="ic"><use href="#ic-cloud"/></svg></div>
             <div>
               <h3>Reach <span class="tag tag--pro">Pro</span></h3>
-              <p>The same workspace, from somewhere else.</p>
+              <p>The same workspace, from somewhere that is not your desk.</p>
             </div>
           </header>
           <ul class="flist">
-            <li><b>Mobile &amp; PWA</b> — check on a running agent from your phone.</li>
-            <li><b>Remote access</b> — reach your workspace over a tunnel, with your own auth in front.</li>
-            <li><b>Remote browser &amp; co-browse</b> — watch and drive the agent's browser from another device.</li>
-            <li><b>Cross-device sync</b> — sessions and layout follow you between machines.</li>
-            <li><b>Shared boards <span class="tag tag--team">Team</span></b> — one board, several people, several machines.</li>
+            <li><b>Mobile and PWA.</b> Check on a running agent from your phone.</li>
+            <li><b>Remote access.</b> Reach the workspace over a tunnel, with your own auth in front of it.</li>
+            <li><b>Remote browser.</b> Watch and drive the agent's browser from another device.</li>
+            <li><b>Cross-device sync.</b> Sessions and layout follow you between machines.</li>
+            <li><b>Shared boards <span class="tag tag--team">Team</span>.</b> One board, several people, several machines.</li>
           </ul>
-          <p class="fgroup__note">Everything above this card runs on your machine and is free forever. This group is what we host for you — see <a href="#pricing">pricing</a>.</p>
+          <p class="fgroup__note">Every card above this one runs on your machine and is free forever. This is the part we host, which is why it costs something. <a href="#pricing">See pricing</a>.</p>
         </article>
 
         <article class="fgroup reveal">
+          <div class="fgroup__mock" aria-hidden="true">
+            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
+              <rect class="mk-pane" x="14" y="12" width="106" height="72" rx="5"/>
+              <rect class="mk-hdr" x="26" y="26" width="46" height="5" rx="2.5"/>
+              <rect class="mk-line mk-line--dim" x="26" y="38" width="80" height="3.5" rx="1.75"/>
+              <rect class="mk-line mk-line--dim" x="26" y="47" width="70" height="3.5" rx="1.75"/>
+              <rect class="mk-line mk-line--dim" x="26" y="56" width="76" height="3.5" rx="1.75"/>
+              <rect class="mk-ok" x="26" y="68" width="26" height="6" rx="3"/>
+              <circle class="mk-key" cx="164" cy="48" r="13"/>
+              <path class="mk-keyshaft" d="M177 48h44"/>
+              <path class="mk-keyshaft" d="M206 48v9M216 48v7"/>
+              <circle class="mk-keyhole" cx="164" cy="48" r="4.2"/>
+            </svg>
+          </div>
           <header class="fgroup__head">
-            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-open"/></svg></div>
+            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-key"/></svg></div>
             <div>
               <h3>Own</h3>
-              <p>Your machine, your keys, your data.</p>
+              <p>Your machine, your account, your data.</p>
             </div>
           </header>
           <ul class="flist">
-            <li><b>MIT licensed</b> — read it, fork it, ship it.</li>
-            <li><b>Local-first</b> — conversations and project data live on your disk.</li>
-            <li><b>No telemetry</b> — nothing phones home.</li>
-            <li><b>Bring your own keys</b> — Anthropic API, an OpenClaw gateway, or your existing subscription through the CLI.</li>
-            <li><b>MCP built in</b> — the same tools your agents already use.</li>
-            <li><b>Native shells</b> — a small Tauri app, not a browser pretending to be one.</li>
+            <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
+            <li><b>Local first.</b> Conversations and project data sit on your disk.</li>
+            <li><b>No telemetry.</b> Nothing phones home.</li>
+            <li><b>Your key or your subscription.</b> Point it at an Anthropic or OpenAI API key, or run the CLI you already sign in to and keep using the plan you pay for.</li>
+            <li><b>MCP built in.</b> The same tools your agents already use.</li>
+            <li><b>A native shell.</b> A small desktop app, not a browser wearing a costume.</li>
           </ul>
         </article>
       </div>
@@ -385,14 +489,14 @@
         <span class="eyebrow">why topics</span>
         <h2>Not another editor wrapped around a model.</h2>
         <p>
-          Cursor and Warp reinvent the editor. Topics does not. It is a calm, glassy <strong>home</strong> for the
-          terminal agents you already trust: organized, observable, and entirely open. You keep your workflow,
-          Topics gives it a window worth looking at.
+          Cursor and Warp rebuilt the editor. Topics did not. It is a home for the terminal
+          agents you already trust, where you can see what they are doing and step in when
+          they need you. You keep the workflow you have. It gets a window worth looking at.
         </p>
         <div class="wedge__row">
           <div><b>Open source</b><span>MIT, on GitHub</span></div>
-          <div><b>Local-first</b><span>no cloud, no telemetry</span></div>
-          <div><b>Any agent</b><span>your keys, your CLI</span></div>
+          <div><b>Local first</b><span>no cloud, no telemetry</span></div>
+          <div><b>Any agent</b><span>your CLI, your account</span></div>
         </div>
       </div>
     </section>
@@ -403,9 +507,10 @@
         <span class="eyebrow">pricing</span>
         <h2>The app is free. Forever.</h2>
         <p>
-          Everything that runs on your machine — every agent, every terminal, the whole board — costs nothing
-          and always will. You pay us only for the things we have to run for you: syncing your workspace
-          between machines, reaching it from your phone, and sharing it with a team.
+          Anything that runs on your machine costs nothing and always will: every agent, every
+          terminal, the whole board. What you can pay for is the part we have to run for you,
+          which is keeping a workspace in sync between machines, reaching it from your phone,
+          and sharing it with other people.
         </p>
       </header>
 
@@ -413,16 +518,16 @@
         <article class="plan reveal">
           <header class="plan__head">
             <h3>Free</h3>
-            <p class="plan__price"><span class="plan__amount">€0</span><span class="plan__per">forever</span></p>
+            <p class="plan__price"><span class="plan__amount">&euro;0</span><span class="plan__per">forever</span></p>
             <p class="plan__for">The whole product, on your machine.</p>
           </header>
           <ul class="plan__list">
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited topics, projects and split panes</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited terminals and agent sessions</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Kanban board with agent dispatch + worktrees</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Agent monitoring, dashboard and context inspector</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Kanban board, agent dispatch and worktrees</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Agent monitoring, dashboard, context inspector</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Browser pane, git, files, processes, cron</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your own keys — we never sit between you and Anthropic</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your own key or subscription. We never sit between you and the model.</li>
           </ul>
           <a class="btn btn--glass btn--block" id="planFreeCta" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
             <svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span>
@@ -434,40 +539,36 @@
           <span class="plan__badge">Founding price</span>
           <header class="plan__head">
             <h3>Pro</h3>
-            <p class="plan__price"><span class="plan__amount">€9</span><span class="plan__per">/ month</span></p>
+            <p class="plan__price"><span class="plan__amount">&euro;9</span><span class="plan__per">/ month</span></p>
             <p class="plan__for">Your workspace, wherever you are.</p>
           </header>
           <ul class="plan__list">
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Free</b>, plus:</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Cloud sync — topics, layout and history across machines</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access — reach your workspace from anywhere</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Mobile &amp; PWA — check on a running agent from your phone</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote browser &amp; co-browse from another device</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications when an agent finishes or needs you</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Cloud sync for topics, layout and history</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access to your machine from anywhere</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Mobile and PWA, to check on a running agent</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote browser and co-browse from another device</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications when an agent needs you</li>
           </ul>
-          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing">
-            <span>Get Pro</span>
-          </a>
+          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing"><span>Get Pro</span></a>
           <p class="plan__fine">Cancel any time. The app keeps working without it.</p>
         </article>
 
         <article class="plan reveal">
           <header class="plan__head">
             <h3>Team</h3>
-            <p class="plan__price"><span class="plan__amount">€19</span><span class="plan__per">/ seat / month</span></p>
+            <p class="plan__price"><span class="plan__amount">&euro;19</span><span class="plan__per">/ seat / month</span></p>
             <p class="plan__for">One board, several people.</p>
           </header>
           <ul class="plan__list">
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Pro</b>, for every seat</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared boards across people and machines</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Roles and approval permissions</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A fleet view of who is running what, where</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A fleet view of who is running what, and where</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared agent profiles and board settings</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Priority support</li>
           </ul>
-          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing">
-            <span>Get Team</span>
-          </a>
+          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing"><span>Get Team</span></a>
           <p class="plan__fine">No seat minimum.</p>
         </article>
       </div>
@@ -475,19 +576,19 @@
       <div class="pricing__faq reveal">
         <div>
           <h4>Is the free version crippled?</h4>
-          <p>No. The board, the agents, the worktrees, the dashboard — all of it is in the free app, under MIT. If you only ever work on one machine, there is nothing here to buy.</p>
+          <p>No. The board, the agents, the worktrees and the dashboard are all in the free app under MIT. If you only ever work on one machine, there is nothing here for you to buy.</p>
         </div>
         <div>
           <h4>Do I pay you for tokens?</h4>
-          <p>Never. Topics talks to Anthropic with <em>your</em> key or <em>your</em> subscription, and that bill stays between you and them. We do not resell inference or take a cut.</p>
+          <p>Never. Topics talks to Anthropic or OpenAI with your key, or through the CLI you are already signed in to, and that bill stays between you and them. We do not resell inference or take a cut of it.</p>
         </div>
         <div>
           <h4>What happens if I stop paying?</h4>
-          <p>The app keeps working. You lose sync and remote access; every topic, board and terminal stays on your disk exactly as it was.</p>
+          <p>The app keeps working. You lose sync and remote access. Every topic, board and terminal stays on your disk exactly as it was.</p>
         </div>
         <div>
           <h4>Can I self-host the Pro features?</h4>
-          <p>Remote access already works with your own tunnel and your own auth — that path is open source and free. Pro is the hosted version for people who would rather not run it.</p>
+          <p>Remote access already works with your own tunnel and your own auth, and that path is open source and free. Pro is the hosted version, for people who would rather not run it themselves.</p>
         </div>
       </div>
     </section>
@@ -497,10 +598,10 @@
       <header class="section-head reveal">
         <span class="eyebrow">changelog</span>
         <h2>What's new.</h2>
-        <p>Every release, what changed. <a class="mono" href="./changelog.html">Full changelog&nbsp;→</a></p>
+        <p>Every release, and what changed in it. <a class="mono" href="./changelog.html">Full changelog&nbsp;&rarr;</a></p>
       </header>
       <div class="cl-list reveal" data-changelog data-limit="4">
-        <p class="cl-empty">Loading…</p>
+        <p class="cl-empty">Loading&hellip;</p>
       </div>
     </section>
 
@@ -516,7 +617,7 @@
           <div class="dl-card__icon"><svg class="ic ic--lg"><use href="#os-apple"/></svg></div>
           <h3>macOS</h3>
           <div class="dl-card__links">
-            <a class="dl-link" data-asset="mac" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Universal (.dmg) · Apple Silicon &amp; Intel</a>
+            <a class="dl-link" data-asset="mac" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Universal (.dmg), Apple Silicon and Intel</a>
           </div>
         </article>
         <article class="dl-card" data-os="win">
@@ -536,7 +637,7 @@
         </article>
       </div>
       <p class="dl-note reveal">
-        See every asset and checksum on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.
+        Every asset and checksum lives on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.
       </p>
     </section>
   </main>
@@ -556,8 +657,8 @@
       </nav>
     </div>
     <div class="footer__fine">
-      <p>MIT © <span id="year"></span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
-      <p class="footer__disc">Independent project, not affiliated with or endorsed by Anthropic, Cursor, or Warp. Names are used only to describe interoperability.</p>
+      <p>MIT &copy; <span id="year"></span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
+      <p class="footer__disc">An independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google, Cursor or Warp. Their names appear here only to say what Topics talks to.</p>
     </div>
   </footer>
 

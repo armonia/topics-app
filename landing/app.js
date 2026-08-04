@@ -67,6 +67,15 @@
     if (first) first.classList.add('is-primary');
   }
 
+  /**
+   * Releases are tagged `tauri-vX.Y.Z` because the tag is what triggers the
+   * build workflow. That is a fact about our CI, not a thing a visitor should
+   * ever read: on the page the version is just `v2.2.11`.
+   */
+  function prettyTag(tag) {
+    return String(tag || '').replace(/^tauri-/, '');
+  }
+
   async function resolveDownloads() {
     try {
       const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
@@ -77,8 +86,8 @@
       $$('[data-asset]').forEach((el) => { const u = url(el.dataset.asset); if (u) { el.href = u; el.removeAttribute('target'); } });
       const pUrl = url(PRIMARY_ASSET[OS]);
       if (dlBtn && pUrl) { dlBtn.href = pUrl; dlBtn.removeAttribute('target'); }
-      const tag = $('#latestTag'); if (tag && rel.tag_name) tag.textContent = `· latest: ${rel.tag_name}`;
-      const pill = $('#pillRelease'); if (pill && rel.tag_name) pill.textContent = `${rel.tag_name} is out · macOS, Windows & Linux`;
+      const tag = $('#latestTag'); if (tag && rel.tag_name) tag.textContent = `· latest: ${prettyTag(rel.tag_name)}`;
+      const pill = $('#pillRelease'); if (pill && rel.tag_name) pill.textContent = `${prettyTag(rel.tag_name)} is out for macOS, Windows and Linux`;
     } catch (_) { /* keep fallback links to releases page */ }
   }
   resolveDownloads();
@@ -108,12 +117,16 @@
         markActive(scene);
         if (demoStatus) demoStatus.textContent = (btn.querySelector('.chapter__hint') || {}).textContent || DEFAULT_STATUS;
         post({ type: 'play', scene });
-        // Keep the stage in view: pressing a chapter from far down the rail
-        // should not leave the visitor looking at buttons instead of the app.
+        // The rail sits directly under the stage, so if you can reach a chapter
+        // the app is almost certainly already on screen. Scroll ONLY when the
+        // stage is completely out of view; the earlier "bottom below the fold"
+        // test fired on every click and yanked the page upward, taking the
+        // button the visitor had just pressed with it.
         const stage = frame.closest('.showcase');
-        if (stage && stage.getBoundingClientRect().bottom > window.innerHeight) {
-          stage.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' });
-        }
+        if (!stage) return;
+        const r = stage.getBoundingClientRect();
+        const offscreen = r.bottom < 0 || r.top > window.innerHeight;
+        if (offscreen) stage.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
       });
     });
 
@@ -157,6 +170,66 @@
       if (fine) fine.textContent = 'Opening soon — we will email you before we charge anyone.';
     }
   });
+
+  /* ═══ type / backdrop lab ═════════════════════════════════════════════════
+   * Add ?lab=1 to any URL to get a switcher for the `data-font` and `data-bg`
+   * variants. It exists so the choice is made by looking at the real page with
+   * real content, instead of at a swatch sheet where every font looks fine.
+   * Absent the flag this costs one URL check and renders nothing. */
+  (() => {
+    const qs = new URLSearchParams(location.search);
+    if (qs.get('lab') !== '1') return;
+
+    const FONTS = [
+      ['inter', 'Inter', 'Neutral and extremely legible. The safe, invisible choice.'],
+      ['instrument', 'Instrument Serif', 'Serif headlines over a sans body. Editorial and warmer.'],
+      ['bricolage', 'Bricolage Grotesque', 'A grotesque with character. More opinionated.'],
+      ['plex', 'IBM Plex', 'Engineering heritage, one family throughout.'],
+    ];
+    const BGS = [
+      ['weave', 'Weave', 'Dot lattice, one cool wash from the top.'],
+      ['ink', 'Ink', 'Deep blue gradient with a beam behind the hero.'],
+      ['carbon', 'Carbon', 'Flat. All colour comes from the content.'],
+    ];
+    const root = document.documentElement;
+    const saved = { font: localStorage.getItem('lab-font'), bg: localStorage.getItem('lab-bg') };
+    if (saved.font) root.setAttribute('data-font', saved.font);
+    if (saved.bg) root.setAttribute('data-bg', saved.bg);
+
+    // innerHTML is safe here: every string interpolated below comes from the
+    // two const arrays a few lines up. No user input, no network data, and the
+    // panel only ever exists behind an explicit ?lab=1 flag.
+    const panel = document.createElement('div');
+    panel.className = 'lab';
+    const group = (title, items, attr, key) => `
+      <div class="lab__group">
+        <p class="lab__title">${title}</p>
+        ${items.map(([v, name, note]) => `
+          <button class="lab__opt" data-attr="${attr}" data-val="${v}" data-key="${key}" type="button">
+            <span class="lab__name">${name}</span><span class="lab__note">${note}</span>
+          </button>`).join('')}
+      </div>`;
+    panel.innerHTML =
+      `<p class="lab__head">Pick a look</p>` +
+      group('Type', FONTS, 'data-font', 'lab-font') +
+      group('Backdrop', BGS, 'data-bg', 'lab-bg') +
+      `<p class="lab__foot">Tell me the two names and I will make them the default, then drop the other fonts from the page.</p>`;
+    document.body.appendChild(panel);
+
+    const sync = () => {
+      panel.querySelectorAll('.lab__opt').forEach((b) => {
+        b.classList.toggle('is-on', root.getAttribute(b.dataset.attr) === b.dataset.val);
+      });
+    };
+    panel.addEventListener('click', (e) => {
+      const b = e.target.closest('.lab__opt');
+      if (!b) return;
+      root.setAttribute(b.dataset.attr, b.dataset.val);
+      try { localStorage.setItem(b.dataset.key, b.dataset.val); } catch (_) {}
+      sync();
+    });
+    sync();
+  })();
 
   /* star count */
   (async () => {
