@@ -143,6 +143,30 @@
       });
     });
 
+    /* Expand. A class on <body>, never a DOM move: re-parenting the iframe
+     * re-creates it, the app reloads, and whatever the tour was doing is gone.
+     * Scroll position is saved and restored by hand because `overflow:hidden`
+     * on body loses it in some browsers. */
+    const expandBtn = $('#demoExpand');
+    if (expandBtn) {
+      let savedScroll = 0;
+      const setExpanded = (on) => {
+        if (on) savedScroll = window.scrollY;
+        document.body.classList.toggle('demo-expanded', on);
+        expandBtn.setAttribute('aria-expanded', String(on));
+        const label = expandBtn.querySelector('.expand__label');
+        if (label) label.textContent = on ? 'Close' : 'Expand';
+        const icon = expandBtn.querySelector('use');
+        if (icon) icon.setAttribute('href', on ? '#ic-collapse' : '#ic-expand');
+        expandBtn.setAttribute('aria-label', on ? 'Close the expanded demo' : 'Expand the demo to fill the window');
+        if (!on) window.scrollTo(0, savedScroll);
+      };
+      expandBtn.addEventListener('click', () => setExpanded(!document.body.classList.contains('demo-expanded')));
+      addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.body.classList.contains('demo-expanded')) setExpanded(false);
+      });
+    }
+
     addEventListener('message', (ev) => {
       const d = ev && ev.data;
       if (!d || d.source !== 'topics-demo') return;
