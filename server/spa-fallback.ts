@@ -10,8 +10,10 @@
 // This is called in server.ts AFTER every api/asset/static branch, so by the
 // time we get here the request matched nothing on disk. The guard therefore only
 // needs to recognize a NAVIGATION: a GET whose client wants HTML and whose path
-// has no file extension (its last segment carries no '.'). `/api` and `/ws` are
-// excluded defensively — an unmatched API call is a real 404, never the shell.
+// has no file extension (its last segment carries no '.'), oppure che sta su un
+// prefisso di rotta client noto (`CLIENT_ROUTE_PREFIXES` qui sotto, dove la
+// chiave PUÒ contenere un punto). `/api` and `/ws` are excluded defensively —
+// an unmatched API call is a real 404, never the shell.
 
 export interface SpaFallbackRequest {
   method: string;
@@ -20,10 +22,35 @@ export interface SpaFallbackRequest {
   accept: string | null;
 }
 
+/**
+ * I prefissi delle rotte CLIENT che conosciamo per nome — i permalink alle tab
+ * (`shared/tab-link.ts`) e i due alias storici che il drawer della board e la
+ * push di fine turno riflettono nella history.
+ *
+ * PERCHÉ un'allowlist e non solo la regola generica qui sotto: la chiave di un
+ * permalink può contenere un PUNTO. `/tab/project/<path>` e
+ * `/tab/file/<path>/<file>` portano path veri (`/Users/x/my.app`,
+ * `App.tsx`), e la regola "l'ultimo segmento ha un'estensione ⇒ è un asset"
+ * risponderebbe 404 a una navigazione perfettamente valida — in silenzio, con
+ * il rosso che poi accusa il client. La grammatica si difende già da sola
+ * (base64url non produce mai un punto: `encodeTabSegment`), ma un link scritto
+ * a mano, copiato da un log o generato da una versione più vecchia non passa
+ * di lì. Due difese indipendenti sullo stesso guasto, e nessuna delle due da
+ * sola è un single point of failure.
+ *
+ * Le guardie che restano SOPRA: method/`/api`/`/ws`/Accept. Un POST su
+ * `/tab/...`, un `/api/...` sconosciuto o un client non-HTML devono continuare
+ * a ricevere il loro 404 vero — l'allowlist allarga cosa è una NAVIGAZIONE,
+ * non cosa è pubblico.
+ */
+const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/"] as const;
+
 export function shouldServeSpaFallback({ method, pathname, accept }: SpaFallbackRequest): boolean {
   if (method !== "GET") return false;
   if (pathname.startsWith("/api/") || pathname.startsWith("/ws")) return false;
   if (!(accept || "").includes("text/html")) return false;
+  // Rotta client nota per nome → shell, anche se la chiave contiene un punto.
+  if (CLIENT_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))) return true;
   // Last path segment carries a file extension → it's an asset request that
   // already 404'd upstream; leave it 404 rather than serving HTML.
   const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, Plus, Settings, Moon, Sun, File, FolderPlus, FolderOpen,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -13,7 +13,10 @@ import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { searchApi } from '../../lib/api';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
-import { PANE_CONFIG } from '../../state/pane/adapters';
+import { PANE_CONFIG, tabTargetForPane } from '../../state/pane/adapters';
+import { usePaneStore } from '../../state/pane/store';
+import { useCopyTabLink } from '../../hooks/useCopyTabLink';
+import { describeTabTarget } from '../../../../shared/tab-link';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
@@ -304,6 +307,22 @@ export function CommandPalette({
       .sort((a, b) => (b._ts || 0) - (a._ts || 0));
   }, [topics, onOpenTopic, onClose]);
 
+  // ── «Copia link» della tab a fuoco ──────────────────────────────────────
+  // La terza superficie dello stesso gesto (le altre due sono il menu della tab
+  // e quello del topic in sidebar), con le stesse parole — useCopyTabLink.
+  //
+  // Il soggetto è la tab a fuoco a LIVELLO APP, letta dal pane-store: è la
+  // stessa `focusedPaneId` che usePanelLifecycle tiene allineata alla superficie
+  // attiva. Con una finestra di progetto a fuoco il link è quello del PROGETTO —
+  // le sue tab interne non vivono nel pane-store, e per quelle il link si copia
+  // dal loro menu contestuale, che il progetto ce l'ha per prop.
+  const focusedPane = usePaneStore((s) => (s.focusedPaneId ? s.panes[s.focusedPaneId] ?? null : null));
+  const focusedTabTarget = useMemo(
+    () => (focusedPane ? tabTargetForPane(focusedPane) : null),
+    [focusedPane],
+  );
+  const { copyTabLink } = useCopyTabLink();
+
   // ── Layout actions (searchable command rows, 'action' category) ─────────
   // "Reimposta pannelli" (collapse every split into one tabbed cell) and its
   // inverse "Disponi automaticamente" (auto-tile every pane into a balanced
@@ -311,6 +330,18 @@ export function CommandPalette({
   // nothing to do. Rendered in the query results, not the empty-state columns.
   const actionItems = useMemo((): CommandAction[] => {
     const items: CommandAction[] = [];
+    if (focusedTabTarget) {
+      items.push({
+        id: 'copy-tab-link',
+        label: 'Copia link alla tab',
+        // Il target per esteso: dice QUALE tab si sta per copiare, che con la
+        // palette aperta sopra tutto non è ovvio.
+        description: describeTabTarget(focusedTabTarget),
+        icon: <Link2 size={14} />,
+        category: 'action' as const,
+        action: () => { void copyTabLink(focusedTabTarget); onClose(); },
+      });
+    }
     if (onResetPanels) {
       items.push({
         id: 'reset-panels',
@@ -332,7 +363,7 @@ export function CommandPalette({
       });
     }
     return items;
-  }, [onResetPanels, onAutoTilePanels, onClose]);
+  }, [focusedTabTarget, copyTabLink, onResetPanels, onAutoTilePanels, onClose]);
 
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {

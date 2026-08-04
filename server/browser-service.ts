@@ -1,4 +1,5 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
+import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry } from "./browser-state-store";
@@ -19,6 +20,15 @@ interface BrowserContextEntry {
   url: string;
   title: string;
   consoleMessages: { level: string; text: string; timestamp: number }[];
+  /**
+   * Le richieste di rete osservate su questa pane, buffer limitato.
+   * Vive qui e non in un registro globale perché la domanda che l'agente fa è
+   * sempre «cosa ha chiesto QUESTA pagina», e un registro condiviso mescolerebbe
+   * pane diverse proprio mentre si indaga.
+   */
+  network?: NetworkEntry[];
+  /** L'ultimo dialogo (`alert`/`confirm`/`prompt`) apparso, e come è stato chiuso. */
+  lastDialog?: { type: string; message: string; at: number; handled: "accept" | "dismiss" };
   persistCookies?: boolean;
   /** Cleanup hook for autosave timer + cancel for debounced saver. */
   autoSaveCleanup?: () => void;
@@ -199,6 +209,10 @@ export interface BrowserService {
   accessibilitySnapshot(id: string): Promise<{ url: string; title: string; ariaSnapshot: string }>;
   evaluate(id: string, script: string): Promise<any>;
   getConsoleMessages(id: string): { level: string; text: string; timestamp: number }[];
+  /** Le richieste di rete registrate su una pane (buffer limitato, non filtrato). */
+  getNetworkEntries(id: string): NetworkEntry[];
+  /** L'ultimo dialogo apparso su una pane e come è stato chiuso, o null. */
+  getLastDialog(id: string): { type: string; message: string; at: number; handled: "accept" | "dismiss" } | null;
   getUrl(id: string): { url: string; title: string } | null;
   listContexts(): { id: string; url: string; title: string; createdAt: string; lastActivity: number }[];
   /** width/height are CSS px (the pane's real size). deviceScaleFactor (HiDPI)
@@ -510,6 +524,52 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     if (entry.listenersBound) return;
     entry.listenersBound = true;
     const page = entry.page;
+
+    // --- Rete ---------------------------------------------------------------
+    // Registrare È il punto: la richiesta che spiega «il bottone non fa niente»
+    // passa una volta sola, e se nessuno la stava ascoltando è persa. Il costo è
+    // un array limitato per pane; il filtro (quello che evita il muro di token)
+    // sta a valle, in `browser-network-log.ts`.
+    entry.network ??= [];
+    page.on("request", (req) => {
+      try {
+        pushNetworkEntry(entry.network!, {
+          startedAt: Date.now(),
+          method: req.method(),
+          url: req.url(),
+          resourceType: req.resourceType(),
+        });
+      } catch { /* il registro non deve mai poter rompere la pagina */ }
+    });
+    page.on("response", (res) => {
+      try { completeNetworkEntry(entry.network!, res.url(), { status: res.status(), at: Date.now() }); }
+      catch { /* idem */ }
+    });
+    page.on("requestfailed", (req) => {
+      try {
+        completeNetworkEntry(entry.network!, req.url(), {
+          failure: req.failure()?.errorText || "richiesta fallita",
+          at: Date.now(),
+        });
+      } catch { /* idem */ }
+    });
+
+    // --- Dialoghi -----------------------------------------------------------
+    // Un `alert()`/`confirm()` non gestito blocca OGNI evento successivo della
+    // pagina: l'agente non sbaglia, si pianta, e all'umano arriva «il browser non
+    // risponde». Playwright di suo li chiude, ma in silenzio — e il silenzio è
+    // esattamente ciò che rende la diagnosi impossibile. Qui si chiude E si
+    // registra cosa c'era scritto, che è la metà utile.
+    page.on("dialog", async (d) => {
+      const type = d.type();
+      const message = d.message();
+      // `beforeunload` si ACCETTA (lasciar andare via), gli altri si chiudono:
+      // rifiutare è la scelta prudente per un agente che non ha chiesto niente.
+      const handled: "accept" | "dismiss" = type === "beforeunload" ? "accept" : "dismiss";
+      entry.lastDialog = { type, message, at: Date.now(), handled };
+      try { handled === "accept" ? await d.accept() : await d.dismiss(); } catch { /* già chiuso */ }
+      console.log(`[BrowserService] dialogo ${type} su ${id}: "${message.slice(0, 120)}" → ${handled}`);
+    });
 
     // Live console forwarding to the web streaming pane (schema `console`, which
     // the client already handles). error/warn always pass; log/info/debug go
@@ -1211,6 +1271,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     getConsoleMessages(id) {
       const entry = contexts.get(id);
       return entry?.consoleMessages || [];
+    },
+
+    getNetworkEntries(id) {
+      const entry = contexts.get(id);
+      return entry?.network ? [...entry.network] : [];
+    },
+
+    getLastDialog(id) {
+      return contexts.get(id)?.lastDialog ?? null;
     },
 
     getUrl(id) {

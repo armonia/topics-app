@@ -22,6 +22,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // 2026-07), so the "New Chat" affordances ship ON. The toggle stays in
   // Settings → Features for anyone who wants to hide the entry points.
   enableNewChat: true,
+  // Lingua dell'interfaccia: `auto` segue il browser (e ricade sull'italiano).
+  language: 'auto',
   // Experimental floating-splits layout — OFF by default, desktop-only.
   floatingSplits: false,
   // Animated "working" glow ring around actively-streaming chat panes — ON by

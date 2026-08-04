@@ -21,6 +21,7 @@ import {
   handleBrowserEval,
   handleBrowserReadScreen,
   handleBrowserConsole,
+  handleBrowserNetwork,
   handleBrowserSaveState,
   handleBrowserLoadState,
   handleBrowserScreenshot,
@@ -222,6 +223,7 @@ export function describeBrowserAction(toolName: string, args: ToolCallArgs): str
     case "browser_extract": return "Estrae dati";
     case "browser_read_screen": return "Legge lo schermo";
     case "browser_console": return "Legge la console";
+    case "browser_network": return "Legge le richieste di rete";
     case "browser_save_state": return "Salva la sessione";
     case "browser_load_state": return "Ripristina la sessione";
     case "browser_screenshot": return "Cattura uno screenshot";
@@ -347,6 +349,9 @@ export async function dispatchBrowserToolCallByContext(
     case "browser_console":
       // Args validated by handler
       return handleBrowserConsole(browserService, contextId, args as { level?: "all" | "errors" | "warnings"; limit?: number });
+    case "browser_network":
+      // Args validated by handler
+      return handleBrowserNetwork(browserService, contextId, args as { url_contains?: string; types?: string[]; only_failures?: boolean; limit?: number });
     case "browser_save_state":
       // Args validated by handler
       return handleBrowserSaveState(browserService, contextId, args as { handle?: string });

@@ -91,6 +91,11 @@ export interface TaskBrowserGroupLayout {
     rowHeights: number[];
     focusedGroupId: string | null;
     dndScope: string;
+    /** L'ospite di queste tab per «Copia link»: le pane browser del drawer non
+     *  stanno né nel pane-store né in un layout di progetto, quindi il permalink
+     *  porta `?task=<id>` e chi lo apre torna QUI (apre il task) invece di
+     *  cercare una pane che nessuna superficie possiede. */
+    linkContext: { taskId: string };
     nonClosablePaneIds: Set<string>;
     onActivatePane: (groupId: string, paneId: string) => void;
     onClosePane: (groupId: string, paneId: string) => void;
@@ -246,6 +251,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
       rowHeights: reconciled.rowHeights,
       focusedGroupId: reconciled.focusedGroupId,
       dndScope: `task:${taskId}`,
+      linkContext: { taskId },
       nonClosablePaneIds,
       onActivatePane,
       onClosePane,

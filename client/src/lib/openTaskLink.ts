@@ -121,8 +121,14 @@ export function currentTaskTarget(): TaskTarget | null {
 
 /** True if `origin` is one this app is served from — either the page origin
  *  (web/Electron: same-origin) or the data server origin (`serverHttpBase()` on
- *  the Tauri shell, where the UI itself runs from tauri://localhost). */
-function isSelfOrigin(origin: string): boolean {
+ *  the Tauri shell, where the UI itself runs from tauri://localhost).
+ *
+ *  ESPORTATA perché il permalink delle TAB (`lib/tabLink.ts`) deve decidere la
+ *  stessa identica cosa — «questa URL punta a NOI?» — e una seconda copia della
+ *  regola diverge alla prima origine nuova: sul guscio Tauri le origini valide
+ *  sono due, e chi ne conosce una sola manda l'utente in un browser esterno
+ *  invece di aprire la tab in-app. */
+export function isSelfOrigin(origin: string): boolean {
   if (origin === window.location.origin) return true;
   const serverBase = serverHttpBase();
   if (serverBase) {

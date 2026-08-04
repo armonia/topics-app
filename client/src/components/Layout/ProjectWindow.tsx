@@ -501,6 +501,11 @@ export function ProjectWindowPane({
             focusedGroupId={focusedGroupId}
             // Tab-drag scope: tabs may only move between groups of THIS project.
             dndScope={projectPath}
+            // L'ospite delle tab, per «Copia link»: senza, un file aperto qui
+            // dentro non avrebbe un link (il suo pane id è sorteggiato a ogni
+            // apertura, l'indirizzo è progetto + path) e una pane browser
+            // perderebbe l'hint `?in=` che dice DOVE riaprirla.
+            linkContext={{ projectPath }}
             // App-level focus signal: PaneTabBar uses this to render a
             // dimmed-active state for the focused group's active tab when
             // the project itself sits next to a sibling in App split view

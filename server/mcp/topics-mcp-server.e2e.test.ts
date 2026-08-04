@@ -17,6 +17,9 @@ const SERVER_SCRIPT = join(import.meta.dir, "topics-mcp-server.ts");
 let httpServer: ReturnType<typeof Bun.serve>;
 let baseUrl = "";
 const seenRequests: Array<{ method: string; path: string; body: any }> = [];
+// `seenRequests` tiene solo il pathname: per resolve_tab il valore da verificare
+// è nella QUERY (il ref intero, encodato), quindi lo si cattura a parte.
+let seenResolveRef: string | null = null;
 
 beforeAll(() => {
   httpServer = Bun.serve({
@@ -32,6 +35,14 @@ beforeAll(() => {
       }
       if (u.pathname.endsWith("/scripts")) {
         return Response.json({ scripts: [{ status: "running", scriptName: "dev", processId: "e2e-1", pid: 10, ports: [5173] }] });
+      }
+      if (u.pathname === "/api/tabs/resolve") {
+        seenResolveRef = u.searchParams.get("ref");
+        return Response.json({
+          kind: "task", key: "t-42", title: "Landa il resolver", state: "closed",
+          surface: "app", pointers: { taskId: "t-42" },
+          next: { tool: "get_task", args: { task_id: "t-42" } },
+        });
       }
       return Response.json({ ok: true });
     },
@@ -108,7 +119,7 @@ describe("MCP stdio server (subprocess)", () => {
     const names = resp.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
       "open_browser_pane", "close_browser_pane", "browser_list_tabs", "browser_focus_tab", "import_chrome", "browser_observe", "browser_act",
-      "browser_extract", "browser_get_text", "browser_screenshot", "browser_read_screen", "browser_console", "browser_eval",
+      "browser_extract", "browser_get_text", "browser_screenshot", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
       "browser_save_state", "browser_load_state", "browser_status", "browser_upload",
       "run_script", "list_processes",
       "read_process_output", "stop_process",
@@ -118,6 +129,7 @@ describe("MCP stdio server (subprocess)", () => {
       "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message", "read_chat_messages",
+      "resolve_tab",
     ]);
   });
 
@@ -133,6 +145,17 @@ describe("MCP stdio server (subprocess)", () => {
     expect(resp.result.content[0].text).toContain("processId=e2e-1");
     const hit = seenRequests.find(r => r.method === "POST" && r.path === "/api/sessions/s/scripts/run");
     expect(hit?.body).toEqual({ scriptName: "test" });
+  });
+
+  test("tools/call resolve_tab GETs /api/tabs/resolve and returns the resolved tab", async () => {
+    const ref = "https://127.0.0.1:3333/tab/browser/ctx-9?in=~L1VzZXJzL21l";
+    const resp = await client.request(6, "tools/call", { name: "resolve_tab", arguments: { ref } });
+    expect(resp.result.isError).toBeUndefined();
+    // Il ref arriva INTERO: la sua query non deve essere stata mangiata dalla
+    // nostra (per questo l'handler lo passa in encodeURIComponent).
+    expect(seenResolveRef).toBe(ref);
+    expect(seenRequests.some(r => r.method === "GET" && r.path === "/api/tabs/resolve")).toBe(true);
+    expect(JSON.parse(resp.result.content[0].text).next).toEqual({ tool: "get_task", args: { task_id: "t-42" } });
   });
 
   test("tools/call unknown tool → JSON-RPC error", async () => {

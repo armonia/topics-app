@@ -20,7 +20,8 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
 import { openExternalOnce } from '../lib/openExternal';
-import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
+import { openTaskInApp } from '../lib/openTaskLink';
+import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
 
 /**
  * Il renderer `a` di DEFAULT, per OGNI superficie markdown.
@@ -32,10 +33,41 @@ import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
  * erano cliccabili. Ora la regola sta QUI, dove sta già il resto della config
  * dei plugin, così non può più divergere per superficie.
  *
- * Un link alla PROPRIA origine che punta a un task (l'URL di "copia link"
- * incollato in un commento) apre il drawer in-app invece di far partire un
- * browser esterno; tutto il resto passa da `openExternalOnce`, che dedupa il
- * doppio-click e sceglie il canale giusto per host.
+ * Un link alla PROPRIA origine si apre IN-APP, mai in un browser esterno. Erano
+ * riconosciuti solo i `/task/<id>`, e l'asimmetria si vedeva: un `/topic/<id>`
+ * incollato in un commento della board — che è il link che l'app stessa manda
+ * nelle notifiche di fine turno — faceva partire il browser di sistema su una
+ * COPIA web dell'app, con la chat aperta lì e non qui. Adesso l'ordine è:
+ *   1. `selfTaskLinkTarget` — il drawer del task, che ha già il suo proprietario
+ *      (openTaskLink riflette `/task/<id>` nella history: non gli togliamo il
+ *      volante);
+ *   2. `selfTabLinkTarget` — TUTTO il resto della grammatica `/tab/…`, alias
+ *      `/topic/<id>` compreso, instradato dall'unica porta (`openTabInApp`);
+ *   3. `openExternalOnce`, che dedupa il doppio-click e sceglie il canale giusto
+ *      per host.
+ *
+ * La decisione sta tutta in `deepLinkClickRoute`, che è anche l'unico posto che
+ * sa dire «questa FINESTRA non può instradare». Serve per le pop-out STACCATE
+ * (`?topics=`): lì App.tsx si rifiuta di risolvere deep-link e la persistenza
+ * del pane-store è spenta, quindi intercettare il link avrebbe reso il click
+ * MUTO — nessuna tab che si apre, nessun avviso, e per chat/progetto un
+ * OPEN_PANE dispatchato in uno store che nessuno salva. Prima
+ * dell'intercettazione quello stesso link apriva il browser di sistema e il
+ * contenuto si vedeva: nelle staccate si torna esattamente lì.
+ *
+ * Niente toast sul fallimento: il valore del context dei toast NON è memoizzato
+ * (ToastProvider ricrea l'oggetto a ogni render di App), quindi bastava un
+ * `useToast()` qui dentro per rendere OGNI link di OGNI messaggio un consumatore
+ * che si ri-renderizza a ogni giro — proprio ciò che il `useMemo` di questo file
+ * esiste per evitare.
+ *
+ * Ma un click che non fa e non dice NULLA è il peggiore dei tre esiti, e per un
+ * anno è stato quello che succedeva: nessun call-site passava `notify`, quindi
+ * ogni rifiuto era un no-op silenzioso. Qui il canale giusto non è il toast, è
+ * il RIPIEGO: se non riusciamo ad aprirlo in casa, `openExternalOnce` lo apre
+ * fuori — cioè esattamente ciò che questo link faceva PRIMA che i self-origin
+ * venissero intercettati. L'utente vede il contenuto, che è il punto; e se
+ * davvero quel target non esiste più, glielo dirà la copia web.
  *
  * Chi passa un proprio `a` nei `components` lo sovrascrive comunque (lo spread
  * più sotto mette i components del chiamante DOPO).
@@ -50,9 +82,28 @@ const DEFAULT_COMPONENTS: Components = {
       onClick={(e) => {
         if (!href) return;
         e.preventDefault();
-        const selfTask = selfTaskLinkTarget(href);
-        if (selfTask) openTaskInApp(selfTask);
-        else openExternalOnce(href);
+        const route = deepLinkClickRoute(href);
+        if (route.via === 'task') { openTaskInApp(route.target); return; }
+        if (route.via === 'tab') {
+          // `notify` = il ripiego, non un messaggio: `openTabInApp` lo chiama
+          // UNA volta sola e solo su vicolo cieco (vedi `deadEnd`), e
+          // `openExternalOnce` dedupa comunque il doppio click.
+          //
+          // Ma il ripiego vale SOLO se in casa non si è aperto niente. Un
+          // `/tab/file/…` apre prima la finestra di progetto e poi insegue il
+          // file: se quel secondo hop si arrende, il vicolo cieco arriva a cose
+          // già aperte, e ripiegare lì significherebbe lasciare l'utente con la
+          // finestra di progetto in-app PIÙ una seconda copia completa di Topics
+          // nel browser di sistema. `onRouted` disarma il ripiego appena
+          // qualcosa è partito davvero.
+          let openedInApp = false;
+          openTabInApp(route.target, {
+            onRouted: () => { openedInApp = true; },
+            notify: () => { if (!openedInApp) openExternalOnce(href); },
+          });
+          return;
+        }
+        openExternalOnce(href);
       }}
     >{children}</a>
   ),

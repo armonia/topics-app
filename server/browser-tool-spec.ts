@@ -185,6 +185,22 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     surfaces: { passthrough: true, mcp: true },
   },
   {
+    name: "browser_network",
+    description:
+      "Read the network requests the pane has made (method, url, type, status, duration, failure). Use when the UI 'does nothing': see the call that fired, the 401, the request that never came back — instead of guessing from pixels. Defaults to DATA requests only (xhr/fetch/document/websocket) and the 50 most recent: images and fonts are noise. Returns { entries:[…], shown, recorded, failures }.",
+    schema: {
+      type: "object",
+      properties: {
+        url_contains: { type: "string", description: "Keep only URLs containing this (case-insensitive)." },
+        types: { type: "array", items: { type: "string" }, description: "Resource types to keep (xhr, fetch, document, image, font, …). Omit for data requests only." },
+        only_failures: { type: "boolean", description: "Only what went wrong: status >= 400 or never answered." },
+        limit: { type: "number", description: "Max entries, most-recent kept (default 50)." },
+      },
+      required: [],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
     name: "browser_eval",
     description:
       "Run JavaScript in the page and return the result (escape hatch for what the other tools can't do). Runs in the page sandbox only — cannot reach the host.",

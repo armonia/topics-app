@@ -1,9 +1,10 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PenLine, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { useCopyTabLink } from '@/hooks/useCopyTabLink';
 
 interface ContextMenuProps {
   x: number;
@@ -35,6 +36,9 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Stesso gesto, stesse parole della tab e della palette ⌘K: due superfici che
+  // dicono cose diverse sullo stesso soggetto, qui, sono un bug.
+  const { copyTabLink } = useCopyTabLink();
 
   // ONE dismissal contract: capture-phase outside-pointer + Escape close. The
   // rename input's ref is included so clicking into it (it lives inside menuRef
@@ -100,6 +104,16 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
         <>
           <MenuItem icon={PenLine} label="Rinomina" onClick={() => setSubMenu('rename')} />
           <MenuItem icon={Palette} label="Cambia colore" onClick={() => setSubMenu('color')} />
+          {/* Il soggetto è il TOPIC, non la pane: la stessa chat ha due id di
+              pane (`<topicId>` in alto, `chat:<topicId>` dentro un progetto) e
+              un link con l'id della pane aprirebbe una SECONDA tab della stessa
+              chat sulla superficie sbagliata. Qui la riga di sidebar E' il
+              topic, quindi il target si costruisce direttamente. */}
+          <MenuItem
+            icon={Link2}
+            label="Copia link"
+            onClick={() => { void copyTabLink({ kind: 'chat', key: topic.id }); onClose(); }}
+          />
           {onTogglePin && (
             <MenuItem
               icon={isPinned ? PinOff : Pin}

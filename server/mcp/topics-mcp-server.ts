@@ -433,6 +433,21 @@ const TOOLS = [
       required: ["topic_id"],
     },
   },
+  {
+    name: "resolve_tab",
+    description:
+      "Resolve a Topics tab permalink into what it points at. Call it when the user pastes a /tab/… , /task/<id> or /topic/<id> link, BEFORE guessing what it refers to: it returns the tab's kind, real title, state (open|closed|archived|unknown), the surface showing it, the ids already resolved, and the tool to call next to read its content. Read-only — it opens and changes nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ref: {
+          type: "string",
+          description: "The pasted link or bare path, e.g. 'https://127.0.0.1:3333/tab/chat/abc123' or '/task/t-42'.",
+        },
+      },
+      required: ["ref"],
+    },
+  },
 ];
 
 interface ParsedArgs {
@@ -1018,6 +1033,41 @@ export async function callReadChatMessages(
   return JSON.stringify({ topic: body?.topicName, count: compact.length, messages: compact }, null, 2);
 }
 
+/**
+ * Il sottoinsieme di `ResolvedTab` (server/lib/tab-resolver.ts) su cui questo
+ * handler fa una guardia. Il corpo viene poi rigirato al modello tale e quale,
+ * quindi non serve ricopiare qui l'intero tipo — e non lo si importa per la
+ * stessa ragione delle altre righe qui sopra: questo processo vive dall'altra
+ * parte di un confine di fiducia, senza un tsc che leghi le due parti.
+ */
+interface ResolveTabResp { kind?: unknown; state?: unknown }
+
+/**
+ * `GET /api/tabs/resolve` — da un permalink incollato dall'umano a «di quale tab
+ * si parla e come se ne legge il contenuto». Un `ref` per chiamata, come la
+ * rotta: l'alternativa (elencare tutte le tab) riverserebbe nel contesto url,
+ * titoli e cwd di ogni finestra aperta.
+ *
+ * Un ref che la grammatica non riconosce è un 400 della rotta, che `httpJson`
+ * trasforma in throw → il modello lo vede come tool error con il messaggio del
+ * server («ref is not a tab permalink»), che è esattamente l'informazione utile.
+ */
+export async function callResolveTab(
+  args: ParsedArgs,
+  toolArgs: { ref?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.ref !== "string" || !toolArgs.ref.trim()) {
+    throw new Error("resolve_tab: 'ref' (string) is required");
+  }
+  const path = `/api/tabs/resolve?ref=${encodeURIComponent(toolArgs.ref.trim())}`;
+  const body = await httpJson<ResolveTabResp>(args, "GET", path, undefined, fetchImpl);
+  if (!body || typeof body.kind !== "string") {
+    throw new Error("resolve_tab: server did not return a resolved tab");
+  }
+  return JSON.stringify(body, null, 2);
+}
+
 export async function callListProcesses(
   args: ParsedArgs,
   _toolArgs: Record<string, unknown>,
@@ -1404,6 +1454,9 @@ const TOOL_HANDLERS: Record<
   read_chat_messages: (a, t) => callReadChatMessages(a, t as { topic_id?: unknown; limit?: unknown }),
   create_project: (a, t) => callCreateProject(a, t as { name?: unknown }),
   open_project: (a, t) => callOpenProject(a, t as { ref?: unknown }),
+  // Volutamente FUORI da DISPATCH_EXCLUDED_TOOLS: anche un agente di board
+  // riceve link incollati dall'umano nel thread del task.
+  resolve_tab: (a, t) => callResolveTab(a, t as { ref?: unknown }),
 };
 
 // Register the ref-based browser tools (observe/act/extract/get_text/screenshot/
