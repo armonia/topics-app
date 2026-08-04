@@ -10,15 +10,51 @@
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 
 :root {
-  --bg:#05070e; --bg-2:#080b16; --surface:#0c1322; --surface-2:#101a2e;
-  --glass:hsl(222 38% 11% / .55); --glass-2:hsl(222 40% 14% / .42);
+  /* ── Elevation ───────────────────────────────────────────────────────────
+     Five OPAQUE surfaces. The page used to stack translucent "glass" on a flat
+     field: measured, the whole distance between page background and card
+     surface was 2.69 L* (a contrast of 1.056:1), which is one tone pretending
+     to be a stack, and it is why the page read as flat. Worse, the border on
+     top of it jumped +9.73 L* — three times the surface it was outlining — so
+     the eye saw rectangles drawn on paper rather than planes at different
+     heights.
+
+     Hue drifts 224°→218° and saturation falls as surfaces rise. That is the
+     atmospheric cue: things nearer the light are less blue and less saturated.
+     Opaque also means `backdrop-filter: blur(8px)`, which appeared nine times
+     over a uniform background and blurred nothing, can go. */
+  --s-0:hsl(224 38% 4.3%);   /* the page itself */
+  --s-1:hsl(223 33% 7.6%);   /* sunken wells, insets */
+  --s-2:hsl(221 29% 10.8%);  /* cards at rest */
+  --s-3:hsl(219 26% 14.2%);  /* raised: hovered cards, the featured plan */
+  --s-4:hsl(218 23% 17.8%);  /* controls sitting on a card */
+
+  /* One pixel of light along the top edge is the cheapest depth on the page:
+     +5.78 L*, more than twice what the whole surface change achieves. The lip
+     underneath closes the volume so the card has a bottom, not just a top. */
+  --edge:inset 0 1px 0 hsl(220 70% 92% / .075);
+  --edge-soft:inset 0 1px 0 hsl(220 70% 92% / .05);
+  --lip:inset 0 -1px 0 hsl(224 60% 3% / .55);
+
+  /* Shadows are BLUE, not black. On a #07090f field pure black moves the pixel
+     −2.11 L* (nearly nothing); a blue at the same alpha moves it +13.94. */
+  --shadow-card:0 1px 2px hsl(226 60% 3% / .5), 0 10px 24px -12px hsl(228 80% 8% / .75);
+  --shadow-lift:0 2px 5px hsl(226 60% 3% / .55), 0 26px 56px -20px hsl(228 88% 18% / .5);
+
+  --bg:var(--s-0); --bg-2:#080b16; --surface:var(--s-2); --surface-2:var(--s-3);
+  --glass:var(--s-2); --glass-2:var(--s-1);
   /* --text-faint was #5d6b8f, which lands at 3.8:1 on --bg — under the 4.5:1
      WCAG floor for body text, and axe flagged every label using it (the demo
      caption, the works-with label, the chapter hints, the plan footnotes).
      #7c89a8 measures ~5.3:1 and still reads clearly dimmer than --text-dim
      (~8:1), so the three-step hierarchy survives while the text stays legible. */
   --text:#e9eefc; --text-dim:#9aa6c6; --text-faint:#7c89a8;
-  --border:hsl(220 40% 60% / .12); --border-2:hsl(220 50% 70% / .2);
+  /* Opaque borders. As alpha values these were a single token landing on
+     surfaces from 8.5% to 17% lightness, so the same "line" ranged from
+     1.317:1 down to 1.036:1 depending on where it fell. That is why separators
+     were visible in some places and gone in others: the "sometimes" was
+     arithmetic, not perception. Opaque means one predictable line everywhere. */
+  --border:hsl(220 22% 24%); --border-2:hsl(219 26% 33%);
   --blue:#4d7cff; --blue-2:#5e9bff; --violet:#8b6cff; --teal:#22d3ee; --amber:#f5b53d; --green:#34e2a0;
   --grad:linear-gradient(110deg,var(--blue) 0%,var(--violet) 45%,var(--teal) 100%);
   --shadow-lg:0 50px 130px -30px rgb(2 6 20 / .95), 0 12px 44px -20px rgb(0 0 0 / .65);
@@ -27,37 +63,55 @@
      fill them is a VARIANT, set by `data-font` on <html> — see the block below.
      Fallbacks are system faces so first paint never waits on a webfont. */
   --sans-fallback:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --serif-fallback:"Iowan Old Style","Palatino Linotype",Georgia,serif;
   --mono-fallback:ui-monospace,"SF Mono","Cascadia Code",Menlo,monospace;
-  --font:"Inter",var(--sans-fallback);
-  --display:"Inter Display","Inter",var(--sans-fallback);
-  --mono:"JetBrains Mono",var(--mono-fallback);
-  --display-tracking:-.03em;
-  --display-weight:600;
+  /* Gambarino (display) + Switzer (body) + Commit Mono (code).
+     Gambarino is drawn for large sizes and is only used above ~32px; below
+     that it loses its detail and starts to look like a system serif, so small
+     headings use Switzer at a heavier weight through --display-sm. */
+  --font:"Switzer",var(--sans-fallback);
+  --display:"Gambarino",var(--serif-fallback);
+  --display-sm:"Switzer",var(--sans-fallback);
+  --mono:"Commit Mono",var(--mono-fallback);
+  --display-tracking:-.018em;
+  --display-weight:400;
 }
 
 /* ── Type variants ─────────────────────────────────────────────────────────
    Set `data-font` on <html> to switch the whole site. Keeping these as data
    attributes rather than four stylesheets means the choice is one attribute in
    the HTML, and comparing them is a live toggle rather than a rebuild. */
+/* The shipping pairing, named so the lab can switch back to it. */
+[data-font="editorial"]{
+  --font:"Switzer",var(--sans-fallback);
+  --display:"Gambarino",var(--serif-fallback);
+  --display-sm:"Switzer",var(--sans-fallback);
+  --mono:"Commit Mono",var(--mono-fallback);
+  --display-tracking:-.018em; --display-weight:400;
+}
 [data-font="inter"]{
+  --display-sm:"Inter",var(--sans-fallback);
   --font:"Inter",var(--sans-fallback);
   --display:"Inter Display","Inter",var(--sans-fallback);
   --mono:"JetBrains Mono",var(--mono-fallback);
   --display-tracking:-.035em; --display-weight:620;
 }
 [data-font="instrument"]{
+  --display-sm:"Inter",var(--sans-fallback);
   --font:"Inter",var(--sans-fallback);
   --display:"Instrument Serif","Iowan Old Style",Georgia,serif;
   --mono:"JetBrains Mono",var(--mono-fallback);
   --display-tracking:-.015em; --display-weight:400;
 }
 [data-font="bricolage"]{
+  --display-sm:"Inter",var(--sans-fallback);
   --font:"Inter",var(--sans-fallback);
   --display:"Bricolage Grotesque","Inter",var(--sans-fallback);
   --mono:"JetBrains Mono",var(--mono-fallback);
   --display-tracking:-.03em; --display-weight:600;
 }
 [data-font="plex"]{
+  --display-sm:"IBM Plex Sans",var(--sans-fallback);
   --font:"IBM Plex Sans",var(--sans-fallback);
   --display:"IBM Plex Sans",var(--sans-fallback);
   --mono:"IBM Plex Mono",var(--mono-fallback);
@@ -93,7 +147,7 @@ a{color:inherit;text-decoration:none}
 
    `.aurora` keeps its element name so the markup and the reduced-motion rule
    stay valid; it is now a single, still wash rather than an animated one. */
-.aurora{position:fixed;inset:0;z-index:-3;pointer-events:none;contain:strict;overflow:hidden}
+.aurora{position:absolute;top:0;left:0;right:0;height:1600px;z-index:-3;pointer-events:none;overflow:hidden}
 .aurora .orb{display:none}   /* the drifting blobs are gone in every variant */
 
 /* weave — near-black, a fine dot lattice, one cool wash falling from the top.
@@ -104,7 +158,7 @@ a{color:inherit;text-decoration:none}
   background-size:34px 34px;
   -webkit-mask-image:radial-gradient(120% 85% at 50% -5%,#000 0%,transparent 68%);
   mask-image:radial-gradient(120% 85% at 50% -5%,#000 0%,transparent 68%)}
-[data-bg="weave"] .noise-grad{position:fixed;inset:0;z-index:-2;pointer-events:none;
+[data-bg="weave"] .noise-grad{position:absolute;top:0;left:0;right:0;height:1200px;z-index:-2;pointer-events:none;
   background:radial-gradient(130% 70% at 50% -12%,hsl(222 70% 34% / .30),transparent 62%)}
 
 /* ink — a deep blue-black gradient with one wide beam behind the hero.
@@ -112,7 +166,7 @@ a{color:inherit;text-decoration:none}
 [data-bg="ink"] body{background:#05070d}
 [data-bg="ink"] .aurora{
   background:linear-gradient(180deg,hsl(224 52% 13%) 0%,hsl(224 40% 8%) 34%,#05070d 68%)}
-[data-bg="ink"] .noise-grad{position:fixed;inset:0;z-index:-2;pointer-events:none;
+[data-bg="ink"] .noise-grad{position:absolute;top:0;left:0;right:0;height:1200px;z-index:-2;pointer-events:none;
   background:
     radial-gradient(58% 42% at 50% 0%,hsl(226 96% 68% / .22),transparent 70%),
     radial-gradient(90% 30% at 50% 0%,hsl(190 90% 60% / .07),transparent 75%)}
@@ -136,7 +190,7 @@ a{color:inherit;text-decoration:none}
 .nav{position:sticky;top:0;z-index:100;border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
 .nav.is-stuck{background:hsl(222 45% 6% / .6);border-bottom-color:var(--border);-webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%)}
 .nav__inner{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:28px}
-.brand{display:flex;align-items:center;gap:9px;font-family:var(--display);font-weight:600;font-size:1.05rem;letter-spacing:-.01em}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--display-sm);font-weight:600;font-size:1.05rem;letter-spacing:-.01em}
 .brand__mark{border-radius:7px}
 .nav__links{display:flex;gap:26px;margin-left:6px}
 .nav__links a{color:var(--text-dim);font-size:.92rem;font-weight:500;transition:color .2s;display:inline-flex;align-items:center;gap:6px}
@@ -216,9 +270,9 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .section-head h2,.wedge h2{font-family:var(--display);font-size:clamp(1.9rem,3.4vw + .6rem,3rem);letter-spacing:var(--display-tracking);line-height:1.08;margin:14px 0;font-weight:var(--display-weight)}
 .section-head p{color:var(--text-dim);font-size:1.05rem}
 .features{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
-.features::before{content:"";position:absolute;inset:-60px 0 auto;height:400px;z-index:-1;pointer-events:none;background:radial-gradient(60% 100% at 50% 0,hsl(225 70% 40% / .12),transparent 70%)}
+.features::before{content:"";position:absolute;inset:-60px 0 auto;height:400px;z-index:-1;pointer-events:none;background:radial-gradient(60% 100% at 50% 0,hsl(226 78% 44% / .26),transparent 70%)}
 .bento{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.card{position:relative;padding:26px;border-radius:16px;overflow:hidden;background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),box-shadow .3s}
+.card{position:relative;padding:26px;border-radius:16px;overflow:hidden;background:var(--s-2);border:1px solid var(--border);transition:transform .3s var(--ease),box-shadow .3s}
 .card::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:var(--grad);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity .3s}
 .card::after{content:"";position:absolute;inset:0;z-index:-1;background-image:radial-gradient(hsl(220 60% 70% / .07) 1px,transparent 1px);background-size:22px 22px;opacity:.5;-webkit-mask-image:radial-gradient(60% 60% at 80% 0,#000,transparent);mask-image:radial-gradient(60% 60% at 80% 0,#000,transparent)}
 .card:hover{transform:translateY(-4px);box-shadow:0 22px 54px -24px rgb(0 0 0 / .85)}
@@ -244,7 +298,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── download ───────── */
 .download{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
 .dl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:920px;margin:0 auto}
-.dl-card{padding:28px 24px;border-radius:16px;text-align:center;background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),border-color .3s,order 0s;order:2}
+.dl-card{padding:28px 24px;border-radius:16px;text-align:center;background:var(--s-2);border:1px solid var(--border);transition:transform .3s var(--ease),border-color .3s,order 0s;order:2}
 .dl-card{position:relative}
 .dl-card.is-primary{order:1;border-color:var(--blue);box-shadow:0 0 0 1px var(--blue),0 22px 54px -24px hsl(225 100% 50% / .55)}
 /* "for you" = a tidy pill pinned to the card's top-right corner (the card is
@@ -254,7 +308,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .dl-card.is-primary::after{content:"for you";position:absolute;top:12px;right:12px;padding:3px 9px;border-radius:999px;font-family:var(--mono);font-size:.58rem;font-weight:500;letter-spacing:.13em;text-transform:uppercase;line-height:1;color:var(--blue-2);background:hsl(225 100% 65% / .12);border:1px solid hsl(225 100% 72% / .38);box-shadow:0 2px 10px -4px hsl(225 100% 50% / .55)}
 .dl-card:hover{transform:translateY(-4px);border-color:var(--border-2)}
 .dl-card__icon{width:52px;height:52px;margin:0 auto 14px;border-radius:13px;display:grid;place-items:center;background:var(--glass);border:1px solid var(--border-2);color:var(--text)}
-.dl-card h3{font-family:var(--display);font-weight:600;font-size:1.18rem;margin-bottom:14px}
+.dl-card h3{font-family:var(--display-sm);font-weight:600;font-size:1.18rem;margin-bottom:14px}
 .dl-card__links{display:flex;flex-direction:column;gap:8px}
 .dl-link{padding:9px 12px;border-radius:9px;font-size:.88rem;color:var(--text-dim);background:hsl(222 40% 12% / .5);border:1px solid var(--border);transition:all .2s}
 .dl-link:hover{color:#fff;border-color:var(--blue);background:hsl(225 70% 60% / .15)}
@@ -282,7 +336,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .cl-list{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .cl-rel{padding:24px 26px;text-align:left}
 .cl-rel__head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.cl-ver{font-family:var(--display);font-size:1.3rem;font-weight:600;letter-spacing:-.02em;color:var(--text);transition:color .2s}
+.cl-ver{font-family:var(--display-sm);font-size:1.3rem;font-weight:600;letter-spacing:-.02em;color:var(--text);transition:color .2s}
 .cl-ver:hover{color:var(--blue-2)}
 .cl-date{margin-left:auto;color:var(--text-faint);font-size:.8rem}
 .cl-secs{display:flex;flex-direction:column;gap:16px}
@@ -310,18 +364,16 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
    column beside it, which pushed the product frame below the fold on a laptop;
    the frame is the argument, so now only three lines stand between the hero and
    the app, and the chapters wait underneath. */
-.demo__lead{max-width:660px;margin:0 auto 26px;text-align:center}
-.demo__lead h2.demo__title{font-family:var(--display);font-size:clamp(1.6rem,2.2vw + .6rem,2.25rem);letter-spacing:var(--display-tracking);line-height:1.1;margin:12px 0 12px;font-weight:var(--display-weight)}
-.demo__lede{color:var(--text-dim);font-size:.98rem}
-.demo__lede strong{color:var(--text)}
+/* One line, not a second masthead. */
+.demo__lead{max-width:56ch;margin:0 auto 22px;text-align:center;color:var(--text-dim);font-size:.98rem}
 
 /* The chapter rail, now a four-across row below the stage. Each button asks the
    embedded app to play a scene, and the app answers by switching a REAL pane. */
 .chapters{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}
 .chapter{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;row-gap:2px;
   padding:11px 13px;border-radius:12px;text-align:left;cursor:pointer;color:var(--text);
-  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
-  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  background:var(--s-2);border:1px solid var(--border);
+  
   font-family:inherit;transition:border-color .22s,background .22s,transform .18s var(--ease)}
 .chapter .ic{grid-row:1 / span 2;align-self:center;width:17px;height:17px;color:var(--text-faint);transition:color .22s}
 .chapter__name{font-size:.9rem;font-weight:560;letter-spacing:-.01em}
@@ -348,7 +400,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .autonomy{position:relative;max-width:var(--maxw);margin:120px auto 0;padding:0 24px}
 .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;list-style:none;counter-reset:none}
 .flow__step{position:relative;padding:22px 20px;border-radius:16px;
-  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border)}
+  background:var(--s-2);border:1px solid var(--border)}
 .flow__n{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;margin-bottom:13px;
   font-family:var(--mono);font-size:.8rem;color:var(--blue-2);background:hsl(225 80% 60% / .16);border:1px solid var(--border-2)}
 .flow__step h3{font-size:1.02rem;letter-spacing:-.02em;margin-bottom:7px}
@@ -375,8 +427,8 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── feature map ───────── */
 .fmap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .fgroup{position:relative;padding:26px 24px;border-radius:18px;overflow:hidden;
-  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
-  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
+  background:var(--s-2);border:1px solid var(--border);
+  transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
 .fgroup:hover{transform:translateY(-3px);box-shadow:0 22px 54px -24px rgb(0 0 0 / .85);border-color:var(--border-2)}
 /* ── Card mockups ─────────────────────────────────────────────────────────
    Each feature card opens with a small drawing of the thing it describes,
@@ -384,7 +436,10 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
    follows the theme colours, weighs nothing, and never goes stale when the
    product's own chrome changes. Everything here is decorative and hidden from
    assistive tech by aria-hidden on the wrapper. */
-.fgroup__mock{margin:-6px -4px 20px;border-radius:12px;overflow:hidden;
+/* Aligned with the text block, not bled 4px past it: a well cut into the card
+   should share the card's margins, and the geometry audit was right to flag the
+   mismatched left edge. */
+.fgroup__mock{margin:0 0 20px;border-radius:12px;overflow:hidden;
   background:linear-gradient(180deg,hsl(222 44% 12% / .5),hsl(222 40% 8% / .3));
   border:1px solid var(--border);height:96px}
 .mock{display:block;width:100%;height:96px}
@@ -431,16 +486,16 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── pricing ───────── */
 .pricing{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
 .pricing::before{content:"";position:absolute;inset:-60px 0 auto;height:420px;z-index:-1;pointer-events:none;
-  background:radial-gradient(60% 100% at 50% 0,hsl(190 70% 40% / .1),transparent 70%)}
+  background:radial-gradient(60% 100% at 50% 0,hsl(188 76% 42% / .22),transparent 70%)}
 .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
 .plan{position:relative;display:flex;flex-direction:column;padding:28px 26px;border-radius:18px;
-  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
+  background:var(--s-2);border:1px solid var(--border);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .plan--feature{border-color:hsl(225 90% 70% / .38);box-shadow:0 22px 60px -30px hsl(225 100% 55% / .55)}
 .plan__badge{position:absolute;top:-10px;left:26px;font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
   text-transform:uppercase;padding:4px 9px;border-radius:6px;color:#fff;background:linear-gradient(180deg,var(--blue-2),var(--blue))}
 .plan__head{margin-bottom:20px}
-.plan__head h3{font-family:var(--display);font-size:1.3rem;letter-spacing:-.02em;margin-bottom:10px}
+.plan__head h3{font-family:var(--display-sm);font-size:1.3rem;letter-spacing:-.02em;margin-bottom:10px}
 .plan__price{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
 .plan__amount{font-family:var(--display);font-size:2.5rem;font-weight:600;letter-spacing:-.04em;line-height:1}
 .plan__per{color:var(--text-faint);font-size:.88rem}
@@ -456,6 +511,33 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .pricing__faq h4{font-size:.98rem;letter-spacing:-.015em;margin-bottom:7px}
 .pricing__faq p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
 .pricing__faq em{color:var(--text);font-style:normal;font-weight:560}
+
+/* ── Elevation applied ────────────────────────────────────────────────────
+   One place where every raised surface gets its light. Declared after the
+   component rules so it wins on box-shadow without hunting through six
+   selectors, and so adding a seventh card later is one selector, not a
+   copied gradient. */
+.card,.dl-card,.chapter,.flow__step,.fgroup,.plan,.claim,.wedge__card{
+  box-shadow:var(--edge),var(--lip),var(--shadow-card);
+  /* Removing backdrop-filter took away the stacking context these relied on:
+     without it `.card::after{z-index:-1}` escapes BEHIND the page background
+     and the dot texture inside the card disappears. */
+  isolation:isolate;
+}
+.card:hover,.dl-card:hover,.fgroup:hover,.chapter:hover{
+  background:var(--s-3);
+  box-shadow:var(--edge),var(--lip),var(--shadow-lift);
+}
+/* The featured plan sits one step up at rest, which is what "featured" should
+   mean on a page with a real elevation scale. */
+.plan--feature{background:var(--s-3);box-shadow:var(--edge),var(--lip),var(--shadow-lift)}
+/* A plan we cannot sell yet should not shout louder than the one you can use. */
+.plan--soon .plan__amount{color:var(--text-dim)}
+.plan__badge--quiet{background:var(--s-4);color:var(--text-dim);box-shadow:var(--edge-soft)}
+
+/* The mock is a window cut INTO the card, not a tile floating on it: it used to
+   sit +1.8 L* above its own container, which reads as a sticker. */
+.fgroup__mock{background:var(--s-1);box-shadow:inset 0 1px 3px hsl(226 60% 2% / .6),var(--edge-soft)}
 
 /* ── Type/backdrop lab (only rendered behind ?lab=1) ───────────────────── */
 .lab{position:fixed;right:16px;bottom:16px;z-index:1000;width:250px;padding:14px;
