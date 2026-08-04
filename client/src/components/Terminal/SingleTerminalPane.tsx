@@ -986,7 +986,29 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
                   )}
-                  <span>id {sessionId.slice(0, 8)}{info?.claudeSessionId ? ` · resume ${info.claudeSessionId.slice(0, 8)}` : ''}</span>
+                  <span>
+                    id {sessionId.slice(0, 8)}
+                    {info?.claudeSessionId && (
+                      <>
+                        {' · '}
+                        {/* Il verso opposto dell'adozione: da qui esce il comando
+                            per riprendere QUESTA conversazione in un terminale
+                            qualsiasi. Mostrare otto caratteri non basta — con
+                            `claude --resume` serve l'id INTERO, e ricopiarlo a
+                            mano da uno schermo e' esattamente il genere di cosa
+                            che si sbaglia. Un click mette negli appunti il
+                            comando completo, non solo l'id. */}
+                        <button
+                          onClick={() => {
+                            const cmd = `claude --resume ${info.claudeSessionId}`;
+                            try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
+                          }}
+                          title={`Copia negli appunti: claude --resume ${info.claudeSessionId}`}
+                          className="underline decoration-dotted underline-offset-2 hover:text-app-text"
+                        >resume {info.claudeSessionId.slice(0, 8)}</button>
+                      </>
+                    )}
+                  </span>
                 </div>
               );
             })()}
@@ -1032,7 +1054,29 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
                   )}
-                  <span>id {sessionId.slice(0, 8)}{info?.claudeSessionId ? ` · resume ${info.claudeSessionId.slice(0, 8)}` : ''}</span>
+                  <span>
+                    id {sessionId.slice(0, 8)}
+                    {info?.claudeSessionId && (
+                      <>
+                        {' · '}
+                        {/* Il verso opposto dell'adozione: da qui esce il comando
+                            per riprendere QUESTA conversazione in un terminale
+                            qualsiasi. Mostrare otto caratteri non basta — con
+                            `claude --resume` serve l'id INTERO, e ricopiarlo a
+                            mano da uno schermo e' esattamente il genere di cosa
+                            che si sbaglia. Un click mette negli appunti il
+                            comando completo, non solo l'id. */}
+                        <button
+                          onClick={() => {
+                            const cmd = `claude --resume ${info.claudeSessionId}`;
+                            try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
+                          }}
+                          title={`Copia negli appunti: claude --resume ${info.claudeSessionId}`}
+                          className="underline decoration-dotted underline-offset-2 hover:text-app-text"
+                        >resume {info.claudeSessionId.slice(0, 8)}</button>
+                      </>
+                    )}
+                  </span>
                 </div>
               );
             })()}
