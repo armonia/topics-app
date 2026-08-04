@@ -235,18 +235,25 @@ export function TurnActivityIndicator({
       >
         {label}
       </span>
-      <span
-        className="tabular-nums text-app-text-muted shrink-0"
-        data-testid="turn-timer"
-        // Che cosa sta contando questo numero adesso: il totale (turno senza
-        // attese) o il lavoro al netto delle attese. Durante un'attesa è
-        // `worked` come dopo — cioè FERMO: che la palla sia dell'umano lo dice
-        // `data-waiting` sulla striscia, non un numero che corre.
-        data-clock={state === 'waiting' || clock.totalWaitedMs > 0 ? 'worked' : 'total'}
-        title={clock.title}
-      >
-        · {formatDurationMs(clock.primaryMs)}
-      </span>
+      {/* Mentre la domanda aspetta, accanto a «in attesa della tua risposta»
+          NON ci va nessun numero. Anche fermo, un cronometro lì è un pezzo di
+          cronaca in mezzo a una richiesta: chi legge lo prende per il tempo che
+          sta facendo aspettare, e la domanda diventa un conto alla rovescia.
+          Il lavoro fatto finora non sparisce — scende nella striscia di
+          chiusura qui sotto, al posto dov'è sempre stato in un messaggio
+          finito, con la sua spiegazione nel tooltip. */}
+      {state !== 'waiting' && (
+        <span
+          className="tabular-nums text-app-text-muted shrink-0"
+          data-testid="turn-timer"
+          // Che cosa sta contando questo numero: il totale (turno senza attese)
+          // o il lavoro al netto delle attese già chiuse.
+          data-clock={clock.totalWaitedMs > 0 ? 'worked' : 'total'}
+          title={clock.title}
+        >
+          · {formatDurationMs(clock.primaryMs)}
+        </span>
+      )}
       {/* Mentre la domanda aspetta, i numeri NON stanno qui: scendono nella
           striscia di chiusura qui sotto, che è la stessa di un messaggio
           finito. Lasciarli anche in riga li direbbe due volte. */}
@@ -286,7 +293,8 @@ export function TurnActivityIndicator({
         Quando la risposta arriva il turno riparte e questa sparisce da sé. */}
     {state === 'waiting' && (
       <MessageMetaFooter
-        latencyMs={null}
+        latencyMs={clock.primaryMs}
+        latencyTitle={clock.title}
         promptTokens={promptTokens}
         completionTokens={completionTokens}
         costCents={costCents}

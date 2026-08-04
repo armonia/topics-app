@@ -4,6 +4,12 @@ import { formatTokens } from '../../lib/formatTokens';
 
 interface Props {
   latencyMs?: number | null;
+  /**
+   * Spiegazione della durata, quando ce n'è una da dare. Serve al turno fermo
+   * su una domanda: lì il numero è il LAVORO (fermo), non il tempo passato, e
+   * senza una riga che lo dica sembrerebbe un cronometro che si è piantato.
+   */
+  latencyTitle?: string;
   promptTokens?: number | null;
   completionTokens?: number | null;
   costCents?: number | null;
@@ -39,7 +45,7 @@ interface Props {
  *
  * The format mirrors the reference screenshot: `<duration>s · <tokens> tokens · $<cost>`.
  */
-export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
+export function MessageMetaFooter({ latencyMs, latencyTitle, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
   const prompt = safeNum(promptTokens);
   const completion = safeNum(completionTokens);
   const total = prompt + completion;
@@ -80,7 +86,7 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   if (safeLatency > 0) {
     // Same formatter as the tool/turn timers so a slow turn reads "1m 30s",
     // not "90s" — one consistent duration language across the chat.
-    parts.push({ text: formatDurationMs(safeLatency) });
+    parts.push({ text: formatDurationMs(safeLatency), ...(latencyTitle ? { title: latencyTitle } : {}), testId: 'message-duration' });
   }
   if (total > 0) {
     // Compatto: `4.5M`, non `4.531.312`. Il numero esatto resta nel title —
