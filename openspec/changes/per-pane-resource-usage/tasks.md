@@ -20,17 +20,22 @@ chat anche prima che la shell sappia attribuire le webview.
 - [x] 1.4 Test dedicato che confronta i totali con e senza sessioni registrate: identici.
   22 test verdi, `typecheck:server` e `typecheck:client` a 0.
 
-## Phase 2 — Attribuzione lato shell (RES-ATTR-02)
-- [ ] 2.1 Associare ogni processo WKWebView al `label` della sua pane. Metà del lavoro
-  c'è già: le pane browser sono webview NATIVE create con un label esplicito
-  (`WebviewBuilder::new(&label, …)`, `lib.rs:3548`), quindi il nome esiste — manca il
-  legame label → pid dell'XPC, che non è figlio della shell. Resta il pezzo con più
-  incognite e va verificato **prima** di scrivere il resto; se la piattaforma non lo
-  consente in modo stabile, la change si ferma alla Phase 1 e le pane browser dicono
-  "non misurato" (RES-ATTR-02), che è già previsto.
-- [ ] 2.2 Esporre footprint + CPU per pane, con la copertura dichiarata
-  (`sampled`/`total` come già fa `cpu_sampled`/`cpu_pids`).
-- [ ] 2.3 Unit test Rust sulla mappatura, con l'insieme dei processi iniettato.
+## Phase 2 — Attribuzione lato shell (RES-ATTR-02) — FATTA
+- [x] 2.1 `-[WKWebView _webProcessIdentifier]`, verificata sul runtime PRIMA di
+  scriverci sopra (era l'incognita che poteva far cadere la fase): il selettore esiste,
+  ritorna un `int`, e due webview distinte danno due pid distinti, entrambi
+  `com.apple.WebKit.WebContent`. È SPI → `respondsToSelector` a ogni giro, e l'assenza
+  degrada a mappa vuota: si perde l'attribuzione per scheda, non la misura complessiva.
+  Prima del caricamento ritorna 0, che non entra mai nella mappa — di qui lo stato
+  "non ancora misurata" per una scheda appena aperta.
+- [x] 2.2 `webviews[]` in `PerfMetrics`: label, pid, `phys_footprint` in MB (stessa
+  metrica dei totali) e `cpu_percent: Option` — `None` = non misurata, non zero.
+  La raccolta è asincrona per forza (`with_webview` gira sul main thread), quindi
+  scrive per il giro successivo: la copertura si dichiara con la lista vuota.
+- [x] 2.3 Quattro test Rust: pid morto escluso, ordine stabile fra due letture, mappa
+  vuota che non diventa una lista di zeri, puntatore nullo che non fa crashare la SPI.
+  Serializzati con un lock — condividono la mappa statica e `cargo test` va in
+  parallelo (due rossi intermittenti alla prima stesura).
 
 ## Phase 3 — Canale unico e tipi (RES-ATTR-01/02) — FATTA per il lato server
 - [x] 3.1 `lib/paneUsage.ts`: store condiviso con cache, dedup e finestra allineata a
@@ -38,8 +43,10 @@ chat anche prima che la shell sappia attribuire le webview.
   `PaneTabBar` è montata una volta per gruppo, quindi riusarlo avrebbe moltiplicato le
   fetch per il numero di gruppi (RES-ATTR-04). Nessun polling: si aggiorna su hover.
 - [x] 3.2 Tipi in `useSystemStatus.ts` con `cpuPercent: number | null`.
-- [ ] 3.3 Unire il lato shell quando la Phase 2 atterra (oggi le pane browser cadono in
-  "non ancora misurato", che è il comportamento previsto).
+- [x] 3.3 Le due sorgenti unite nello stesso store, sulle stesse unità: terminali per
+  sessione, pane browser per label di webview (`browserpane-<paneId>`). Sono due mondi
+  separati — il server non vede le webview, la shell non vede i sidecar — e una che
+  cade non porta giù l'altra.
 
 ## Phase 4 — Tooltip (RES-ATTR-03, RES-ATTR-05) — FATTA
 - [x] 4.1 Il tooltip va sul LABEL, non sulla tab: il contenitore usa apposta

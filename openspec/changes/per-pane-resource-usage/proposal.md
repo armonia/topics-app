@@ -28,7 +28,7 @@ feature invece di essere un dettaglio:
 | Pane | Processo proprio | Attribuibile |
 |---|---|---|
 | terminale / sessione Claude | sì, albero PTY col pid di testa | **sì** — il bridge lo riporta già |
-| browser | sì, webview nativa (`WebviewBuilder::new(&label…)`) | **sì**, una volta legato il `label` al pid |
+| browser | sì, webview nativa (`WebviewBuilder::new(&label…)`) | **sì** — via `-[WKWebView _webProcessIdentifier]`, verificata sul runtime |
 | topic, kanban, chat, file, editor, session-viewer | **no** — componenti React nell'unico renderer | **no** |
 
 Per l'ultima riga non esiste una misura: sono tutte lo stesso processo, e nessun `ps`
