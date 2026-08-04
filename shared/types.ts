@@ -52,7 +52,22 @@ export interface AskUserQuestionItem {
   question: string;
   /** Short label, ≤ 12 chars by SDK convention. */
   header: string;
-  options: { label: string; description?: string }[];
+  options: {
+    label: string;
+    description?: string;
+    /**
+     * L'opzione che chi ha fatto la domanda CONSIGLIA.
+     *
+     * Chi propone tre strade ha quasi sempre un'idea di quale sia la migliore,
+     * e nasconderla non rende la scelta più libera: la rende più lenta. Il
+     * pannello la marca in chiaro; non la preseleziona, perché una scelta fatta
+     * per inerzia non è una scelta.
+     *
+     * Al massimo UNA per domanda. Se il modello ne marca più d'una, il pannello
+     * onora la prima e ignora le altre — meglio un consiglio solo che tre.
+     */
+    recommended?: boolean;
+  }[];
   multiSelect?: boolean;
 }
 

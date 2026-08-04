@@ -123,6 +123,26 @@ const OTHER = 'Other';
 /** Come si chiama per chi legge. L'app parla italiano. */
 const OTHER_LABEL = 'Altro';
 
+/**
+ * L'opzione consigliata, e da dove si sa che lo è.
+ *
+ * Il campo `recommended` è la via pulita, ma il consiglio arriva anche scritto
+ * nel testo — la CLI lo mette in coda al titolo come «(Recommended)», e un
+ * modello che non conosce il campo fa lo stesso a parole. Riconoscere entrambe
+ * le forme vuol dire che il segno si vede SUBITO, senza aspettare che tutti si
+ * adeguino allo schema; e la parola in coda al titolo si toglie, o si
+ * leggerebbe due volte.
+ */
+const RECOMMENDED_RE = /\s*[（(\[]?\s*(consigliat[oa]|recommended)\s*[）)\]]?\s*$/i;
+function readRecommendation(opt: { label: string; description?: string; recommended?: boolean }) {
+  const inLabel = RECOMMENDED_RE.test(opt.label);
+  return {
+    isRecommended: opt.recommended === true || inLabel || RECOMMENDED_RE.test(opt.description ?? ''),
+    // Il titolo senza la parola: il chip la dice già.
+    label: inLabel ? opt.label.replace(RECOMMENDED_RE, '') : opt.label,
+  };
+}
+
 function QuestionsForm({
   questions, toolCallId, submitting, error, onSubmit,
 }: {
@@ -271,7 +291,15 @@ function QuestionsForm({
             )}
           </legend>
           <div className="space-y-0.5">
-            {q.options.map((opt, oIdx) => (
+            {(() => {
+              // Il consiglio è UNO: la prima opzione marcata vince, le altre
+              // tornano opzioni normali. Tre «consigliato» non consigliano.
+              let already = false;
+              return q.options.map((opt, oIdx) => {
+                const rec = readRecommendation(opt);
+                const showRec = rec.isRecommended && !already;
+                if (showRec) already = true;
+                return (
               <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
                 <input
                   type={inputType}
@@ -283,7 +311,18 @@ function QuestionsForm({
                   className="mt-[3px]"
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-app-text">{opt.label}</div>
+                  <div className="text-app-text flex items-center gap-1.5 flex-wrap">
+                    <span>{rec.label}</span>
+                    {showRec && (
+                      <span
+                        data-testid="ask-recommended"
+                        title="È la strada che l'agente consiglia — la scelta resta tua"
+                        className="text-[10px] leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
+                      >
+                        consigliato
+                      </span>
+                    )}
+                  </div>
                   {/* Wraps instead of truncating: the description is often the
                       only thing that distinguishes two options. */}
                   {opt.description && (
@@ -291,7 +330,9 @@ function QuestionsForm({
                   )}
                 </div>
               </label>
-            ))}
+                );
+              });
+            })()}
             {/* «Altro» — sempre disponibile, come vuole il contratto della SDK,
                 e con la casella SEMPRE APERTA: la risposta che le opzioni non
                 prevedono è quella che costa di più da dare, e farla precedere
