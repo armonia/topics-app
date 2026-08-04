@@ -11,6 +11,8 @@ import {
   formatPaneUsageLine,
   getPaneUsage,
   ensurePaneUsageFresh,
+  getBrowserPaneUsage,
+  browserPaneLabel,
   _resetPaneUsage,
   _setPaneUsageSnapshot,
 } from './paneUsage';
@@ -72,6 +74,48 @@ describe('formatPaneUsageLine', () => {
     expect(getPaneUsage(null)).toBeNull();
     expect(getPaneUsage(undefined)).toBeNull();
     expect(formatPaneUsageLine(null, true)).toContain('non ancora misurato');
+  });
+});
+
+describe('pane browser (RES-ATTR-02)', () => {
+  beforeEach(() => { _resetPaneUsage(); });
+
+  it('una pane browser si cerca per label di webview, non per sessione', () => {
+    // Sono due sorgenti diverse: il server non vede le webview (vivono nella
+    // shell) e la shell non vede i sidecar. Cercare un browser fra le sessioni
+    // darebbe sempre "non misurato" anche a misura presente.
+    _setPaneUsageSnapshot([], {
+      webviews: [{ label: browserPaneLabel('pane-42'), memoryMB: 310, cpuPercent: 12 }],
+    });
+    expect(getBrowserPaneUsage('pane-42')?.memoryMB).toBe(310);
+    expect(getPaneUsage('pane-42')).toBeNull();
+    const line = formatPaneUsageLine(null, true, 'pane-42');
+    expect(line).toContain('310 MB');
+    expect(line).toContain('CPU 12%');
+    expect(line).toContain('1 processo');
+  });
+
+  it('il label deve restare allineato a `browser_label` nella shell', () => {
+    // Se il prefisso cambia da una parte sola, il tooltip smette di trovare la
+    // misura e nessun test se ne accorgerebbe altrimenti.
+    expect(browserPaneLabel('abc')).toBe('browserpane-abc');
+  });
+
+  it('una pane browser senza webview associata dice "non ancora misurato"', () => {
+    // Il caso reale del primo campionamento: `_webProcessIdentifier` ritorna 0
+    // finché il contenuto non è caricato, quindi la mappa non ha ancora la voce.
+    _setPaneUsageSnapshot([], { webviews: [] });
+    expect(formatPaneUsageLine(null, true, 'pane-nuova')).toContain('non ancora misurato');
+  });
+
+  it('un terminale non pesca per sbaglio dalle webview', () => {
+    _setPaneUsageSnapshot(
+      [{ sessionId: 's-term', memoryMB: 55, cpuPercent: 2, processCount: 3 }],
+      { webviews: [{ label: browserPaneLabel('s-term'), memoryMB: 999, cpuPercent: 99 }] },
+    );
+    const line = formatPaneUsageLine('s-term', true);
+    expect(line).toContain('55 MB');
+    expect(line).not.toContain('999');
   });
 });
 
