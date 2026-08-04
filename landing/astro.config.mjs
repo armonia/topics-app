@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import mdx from '@astrojs/mdx';
+import { remarkWikilink } from './src/lib/remark-wikilink.mjs';
 
 /**
  * Static output, deployed to Cloudflare Workers assets exactly as before — no
@@ -38,6 +39,10 @@ export default defineConfig({
       filter: (page) => !page.includes('/app/'),
     }),
   ],
+
+  markdown: {
+    remarkPlugins: [remarkWikilink],
+  },
 
   build: {
     // Directory format, so a post is /blog/slug/ rather than /blog/slug.html.

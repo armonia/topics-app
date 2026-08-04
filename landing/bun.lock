@@ -10,6 +10,7 @@
         "@astrojs/sitemap": "^3.7.3",
         "astro": "^7.1.6",
         "astro-expressive-code": "^0.44.1",
+        "unist-util-visit": "^5.1.0",
       },
       "devDependencies": {
         "@astrojs/check": "^0.9.10",
