@@ -79,7 +79,7 @@ jobs:
             id="$(gh api -X POST "repos/$REPO/releases" \
                     -f tag_name="$TAG" \
                     -f target_commitish="$COMMITISH" \
-                    -f name="Topics (Tauri) $TAG" \
+                    -f name="Topics ${TAG#tauri-}" \
                     -F draft=true -F prerelease=false --jq .id)"
             echo "Created draft release $id for $TAG @ $COMMITISH"
           else
