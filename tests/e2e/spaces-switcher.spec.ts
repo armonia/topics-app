@@ -173,4 +173,39 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
     await expect(principaleEntry, "the Principale move-back row must render").toBeVisible({ timeout: 3000 });
     await expect(principaleEntry, "and it must be ENABLED (fixable move-back)").toBeEnabled();
   });
+
+  // I gruppi si vedono dalla SIDEBAR, non solo nella striscia di chip: è lì che
+  // vive il modello ("un gruppo è l'unità, una finestra è un gruppo staccato").
+  test("SPACE-05: the sidebar lists the groups with their tabs, and a row switches group", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+
+    // Crea uno Spazio spostandoci la tab A (stessa via di SPACE-02).
+    await page.locator(`[data-pane-id="${idA}"]`).first().click({ button: "right" });
+    await page.getByText("Sposta nello Spazio", { exact: true }).click();
+    await page.getByText("Nuovo Spazio", { exact: true }).click();
+
+    const section = page.getByTestId("sidebar-groups");
+    await expect(section, "the sidebar shows the groups once one exists").toBeVisible({ timeout: 5000 });
+    const rows = section.getByTestId("group-row");
+    await expect(rows, "Principale + the new group").toHaveCount(2);
+
+    // Le righe elencano le TAB, non solo le chat: la tab spostata sta nel nuovo
+    // gruppo, l'altra è rimasta in Principale.
+    await expect(
+      section.locator(`[data-testid="group-tab"]`),
+      "every app-level tab appears under exactly one group",
+    ).toHaveCount(2);
+
+    // Un click sulla riga commuta il gruppo attivo — la stessa azione del chip.
+    const other = rows.nth(1);
+    await other.click();
+    await expect(
+      page.getByTestId("space-switcher").getByRole("tab").nth(1),
+      "clicking a sidebar group activates it",
+    ).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
+    await expect(
+      page.locator(`[data-pane-id="${idA}"]`).first(),
+      "and its tab is now the visible one",
+    ).toBeVisible({ timeout: 5000 });
+  });
 });

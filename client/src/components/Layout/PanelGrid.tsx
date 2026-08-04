@@ -15,7 +15,6 @@ import { SpaceSwitcher } from './SpaceSwitcher';
 import { popOutTopics } from '../../lib/popOutTopic';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
-import { publishWorkspaceGroups } from '../../state/workspaceGroups';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
@@ -403,14 +402,10 @@ export function PanelGrid({
     return items;
   }, [openPanels, soloCells, soloTopicIds, standaloneHasUtility, pendingBrowserPane]);
 
-  // Mirror the composition to the workspaceGroups store so the SIDEBAR can show
-  // "which groups exist in this window" (and offer "Stacca"). One-directional:
-  // this only publishes what we already render — the layout's source of truth
-  // stays here. Cleared on unmount so a torn-down grid leaves no phantom rows.
-  useEffect(() => {
-    publishWorkspaceGroups(naturalGridItems.map(i => ({ key: i.key, paneIds: i.panelIds })));
-  }, [naturalGridItems]);
-  useEffect(() => () => publishWorkspaceGroups([]), []);
+  // (The workspaceGroups mirror lived here: an ephemeral publish of this
+  // window's grid cells, read by the old "Finestre" sidebar section. Both are
+  // gone — the sidebar groups by SPAZIO now, which is synced state with an
+  // identity, not a device-local echo of the current split geometry.)
 
   // Live ref for the sync effect's setGridRows updater. The updater can run
   // AFTER another setGridRows from a user handler (e.g. handleSplitPane)
