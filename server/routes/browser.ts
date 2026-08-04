@@ -17,7 +17,7 @@ import {
 import { resetMoondreamCounter } from "../integrations/moondream-client";
 import { probeFraming } from "../browser-framing";
 import type { BrowserActAction } from "../browser-tools";
-import { browserEngineRegistry, chromiumEngineInfo, CHROMIUM_ENGINE_ENABLED } from "../browser-engine-registry";
+import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-registry";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -50,7 +50,8 @@ export function createBrowserRouter(
     // --- Engine capability (engine switch, task 54601eeb) ---
     // Tells the web pane whether to show the Native↔Chromium toggle, which real
     // Chromium backs it, and how many of the user's extensions load (badge).
-    // Reports { enabled:false } unless TOPICS_CHROMIUM_ENGINE=1 → inert by default.
+    // Riporta `available:false` quando non c'è nessun Chromium installato: il
+    // client tiene nascosto il bottone e la pane resta sul motore nativo.
     if (method === "GET" && pathname === "/api/browsers/engines") {
       return json(chromiumEngineInfo());
     }
@@ -494,10 +495,10 @@ export function createBrowserRouter(
       // destroy+recreate) must release the sidecar ref this pane held + clear its
       // engine hint, so the ref-counted Chromium reaps once no chromium pane
       // remains. Idempotent + safe for native/unknown contexts.
-      if (CHROMIUM_ENGINE_ENABLED) {
-        browserEngineRegistry.release(deleteMatch.id);
-        browserService.setEngineHint(deleteMatch.id, "default");
-      }
+      // Idempotente e innocua anche per una pane che non ha mai toccato il
+      // Chromium: non serve più chiedersi se la capacità è «accesa».
+      browserEngineRegistry.release(deleteMatch.id);
+      browserService.setEngineHint(deleteMatch.id, "default");
       // NIENTE broadcast qui: la DELETE la chiama sempre il client che ha GIÀ
       // chiuso la sua pane (usePaneLifecycle / useProjectLayout / useBrowserContexts),
       // e la chiusura sugli ALTRI device passa da `browser:close-pane`. Il vecchio

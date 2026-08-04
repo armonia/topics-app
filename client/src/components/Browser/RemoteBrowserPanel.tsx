@@ -765,7 +765,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
 
         {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
             Shown only when the server advertises the capability
-            (TOPICS_CHROMIUM_ENGINE on + a Chromium installed). Streaming-only:
+            (un Chromium installato sulla macchina). Streaming-only:
             an iframe pane has no server-side engine. */}
         {browser.engineToggleAvailable && (
           <button

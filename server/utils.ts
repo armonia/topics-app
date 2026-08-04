@@ -303,7 +303,13 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.system_prompt) topic.systemPrompt = row.system_prompt;
     if (row.project_path) topic.projectPath = row.project_path;
     if (row.sort_order !== undefined) topic.sortOrder = row.sort_order;
-    if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
+    // `ask` NON si omette più. Veniva trattato come «il default», quindi non
+    // usciva nella risposta — e finché il livello non faceva niente era
+    // innocuo. Da quando decide `--permission-mode` (autonomy-mode.ts) è una
+    // SCELTA con un effetto: ometterla farebbe mostrare all'interfaccia il
+    // livello sbagliato, cioè chi ha scelto «chiede prima» si vedrebbe
+    // evidenziato «fa tutto».
+    if (row.autonomy_level) topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
     if (row.model) topic.model = row.model;
     // effort (migration 033). Per-topic reasoning-tier override; NULL omitted so

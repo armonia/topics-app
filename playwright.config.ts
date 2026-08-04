@@ -102,6 +102,16 @@ export default defineConfig({
     viewport: { width: 1280, height: 800 },
     launchOptions: EVIDENCE ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
+    // Lingua del BROWSER fissata all'italiano.
+    //
+    // L'app ha una lingua (`lib/i18n.ts`) e il default `auto` segue il browser.
+    // Chromium di Playwright parla en-US, quindi senza questa riga la suite
+    // vedrebbe l'interfaccia in INGLESE mentre le sue asserzioni sono scritte in
+    // italiano — e un rosso del genere non parla del prodotto, parla della
+    // lingua della macchina che lancia i test. Misurato il 04/08: convertite le
+    // voci del menu tab, 8 test caddero su «Dividi a destra» perche' l'app
+    // rendeva «Split right», correttamente.
+    locale: "it-IT",
   },
   outputDir: "test-results/artifacts",
   projects: [

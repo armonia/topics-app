@@ -61,7 +61,7 @@ import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./shared/browser-ws-messages";
 import { applyEngineSwitch } from "./server/browser-engine-switch";
-import { browserEngineRegistry, chromiumExtensionsCount, CHROMIUM_ENGINE_ENABLED } from "./server/browser-engine-registry";
+import { browserEngineRegistry, chromiumExtensionsCount } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
@@ -2138,25 +2138,21 @@ const server = Bun.serve<WSData>({
               console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
             );
           } else if (parsed.type === 'set_engine') {
-            // Engine switch (task 54601eeb) — flag-gated. When OFF, echo 'native'
-            // so a client toggle reverts. When ON, orchestrate the switch (acquire
-            // sidecar ref + hint + destroy) and broadcast the resulting engine to
-            // every viewer; they remount → the context recreates on the new engine.
-            if (!CHROMIUM_ENGINE_ENABLED) {
-              sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' });
-            } else {
-              applyEngineSwitch(
-                { registry: browserEngineRegistry, service: browserService, extensionsCount: chromiumExtensionsCount },
-                ctxId,
-                parsed.engine,
-              ).then((msg) => {
-                broadcastToBrowserWs(ctxId, msg);
-              }).catch((err) => {
-                console.warn(`[WS][browser] set_engine failed for ${ctxId}:`, err?.message || err);
-                // Switch failed (e.g. no chromium installed) — the pane stayed put.
-                try { sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' }); } catch { /* socket gone */ }
-              });
-            }
+            // Engine switch (task 54601eeb). Non più dietro un flag: la
+            // capacità la decide la presenza di un Chromium sulla macchina, e il
+            // bottone lato client è già nascosto quando non c'è. Se lo switch
+            // fallisce comunque (Chromium sparito, sidecar che non parte) si
+            // torna a 'native': la pane resta dov'era invece di restare a metà.
+            applyEngineSwitch(
+              { registry: browserEngineRegistry, service: browserService, extensionsCount: chromiumExtensionsCount },
+              ctxId,
+              parsed.engine,
+            ).then((msg) => {
+              broadcastToBrowserWs(ctxId, msg);
+            }).catch((err) => {
+              console.warn(`[WS][browser] set_engine failed for ${ctxId}:`, err?.message || err);
+              try { sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' }); } catch { /* socket gone */ }
+            });
           } else if (parsed.type === 'set_stream') {
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
