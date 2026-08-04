@@ -11,6 +11,8 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
+import { focusGateState, FULL_DISK_ACCESS_URL, type FocusGateState } from '../../lib/shell/focus';
+import { openExternalOnce } from '../../lib/openExternal';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -1028,6 +1030,72 @@ function NativeBannerStatus() {
   );
 }
 
+/**
+ * Il gate Focus/Non disturbare, e cosa fare quando è spento.
+ *
+ * Su macOS 26 il gate legge lo stato del Focus da `~/Library/DoNotDisturb/DB/`,
+ * che è protetto da TCC: senza Full Disk Access la lettura fallisce, il gate
+ * resta trasparente (default sicuro — si notifica sempre) e l'utente riceve
+ * banner durante un Focus **senza sapere perché**. La funzione sembra
+ * semplicemente non esistere.
+ *
+ * Qui la si nomina e si offre l'unica azione utile. Il bottone apre il pannello
+ * di sistema: concedere il permesso è un gesto che deve restare dell'utente,
+ * l'app può solo portarcelo davanti.
+ *
+ * Tre stati, tre risposte diverse: fuori dal guscio nativo non si disegna nulla
+ * (non c'è niente da concedere), in attesa nemmeno (una diagnosi che poi si
+ * smentisce è peggio del nulla), e solo `blocked` merita l'avviso.
+ */
+function FocusGateStatus() {
+  const [state, setState] = useState<FocusGateState>(() => focusGateState());
+  useEffect(() => {
+    // La prima lettura è asincrona: si ricontrolla finché non è tornata,
+    // invece di fotografare uno stato «in attesa» e lasciarlo lì.
+    if (state !== 'pending') return;
+    const t = setInterval(() => {
+      const next = focusGateState();
+      if (next !== 'pending') { setState(next); clearInterval(t); }
+    }, 400);
+    return () => clearInterval(t);
+  }, [state]);
+
+  if (state === 'unavailable' || state === 'pending') return null;
+
+  if (state === 'active') {
+    return (
+      <div className="flex items-start gap-2 mb-3 text-[11.5px]">
+        <Check size={13} className="shrink-0 mt-px text-app-text-muted" />
+        <div className="text-app-text-muted">
+          Focus / Non disturbare: i banner restano zitti mentre è attivo.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2 mb-3 text-[11.5px]">
+      <AlertCircle size={13} className="shrink-0 mt-px text-amber-500" />
+      <div className="min-w-0">
+        <div className="text-amber-500">Focus / Non disturbare: non lo vediamo</div>
+        <div className="text-app-text-muted mt-0.5">
+          Topics non riesce a leggere lo stato del Focus, quindi i banner arrivano
+          anche mentre è attivo. Su macOS quel dato è protetto e serve concedere
+          l'accesso completo al disco.
+        </div>
+        <button
+          onClick={() => openExternalOnce(FULL_DISK_ACCESS_URL)}
+          className="mt-1.5 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text hover:bg-white/20"
+        >Apri Accesso completo al disco</button>
+        <div className="text-app-text-muted mt-1">
+          Dopo averlo concesso serve riavviare Topics: il permesso si legge
+          all'avvio del processo.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NotificationsSection({ settings, onChange }: NotificationsSectionProps) {
   const masterOn = settings.notificationsEnabled;
   return (
@@ -1044,6 +1112,7 @@ function NotificationsSection({ settings, onChange }: NotificationsSectionProps)
         </p>
 
         <NativeBannerStatus />
+        <FocusGateStatus />
 
         <ToggleRow
           label="Enable notifications"
