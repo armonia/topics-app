@@ -137,6 +137,90 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     await expect(timer).toHaveAttribute("title", /Lavorato/);
   });
 
+  test("parcheggiato su una domanda, il turno si CHIUDE come un messaggio finito", async ({ page, chatPage }) => {
+    // Il seguito della lamentela: «mi dà fastidio che non finisce in maniera
+    // standard, è diverso rispetto a un messaggio che si chiude». Era vero —
+    // il turno in attesa restava a mezz'aria: nessuna striscia di chiusura, e
+    // i numeri in un formato tutto suo dentro la riga di attività. Ora sotto
+    // ci va la STESSA striscia del messaggio finito, coi numeri di adesso.
+    const ws = await interceptWebSocket(page);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    const history = page
+      .waitForResponse((r) => r.url().includes("/history/"), { timeout: 20_000 })
+      .catch(() => null);
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await history;
+
+    ws.send({ type: "stream:start", sessionKey, topicId, messageId: "msg_awaiting_footer_e2e" });
+    // La bolla dev'esserci: i numeri si scrivono SULLA riga del messaggio (è la
+    // correzione stessa — prima vivevano in uno stato locale della striscia e
+    // chi montava dopo il frame non li vedeva più).
+    await expect(page.getByTestId("chat-streaming-indicator").first()).toBeVisible({ timeout: 15_000 });
+    // I numeri arrivano dal server già accumulati, come nel turno vero.
+    ws.send({
+      type: "stream:usage",
+      sessionKey,
+      topicId,
+      calls: 7,
+      promptTokens: 1_000_000,
+      completionTokens: 12_000,
+      costCents: 42,
+      cacheReadTokens: 900_000,
+      cacheCreationTokens: 40_000,
+      cacheCreation1hTokens: 0,
+    });
+
+    const footer = page.getByTestId("message-meta-footer").last();
+    const inlineUsage = page.getByTestId("turn-usage");
+    // Mentre lavora: numeri in riga, nessuna striscia di chiusura.
+    await expect(inlineUsage.first()).toBeVisible({ timeout: 15_000 });
+    await expect(footer).toHaveCount(0);
+
+    const toolCallId = "toolu_ask_footer_e2e";
+    ws.send({
+      type: "stream:tool_call",
+      sessionKey,
+      topicId,
+      toolCall: { id: toolCallId, name: "mcp__topics__ask_user_question", args: {}, status: "running" },
+    });
+    ws.send({
+      type: "stream:tool_user_input_required",
+      sessionKey,
+      topicId,
+      toolCallId,
+      schema: {
+        kind: "questions",
+        questions: [
+          { question: "Quale strada?", header: "Strada", options: [{ label: "A" }, { label: "B" }], multiSelect: false },
+        ],
+      },
+    });
+
+    // La domanda parcheggia il turno ⇒ compare la striscia di chiusura, con la
+    // stessa contabilità di un messaggio finito: totale, quanto era rilettura,
+    // quanto nuovo, e il costo.
+    await expect(footer).toBeVisible({ timeout: 10_000 });
+    await expect(footer).toContainText("1.0M tokens");
+    await expect(page.getByTestId("message-token-split").last()).toContainText("da cache");
+    await expect(footer).toContainText("$0.42");
+    // E i numeri NON sono più anche in riga: detti due volte sarebbero rumore.
+    await expect(inlineUsage).toHaveCount(0);
+
+    // Evidenza durevole: la riga d'attesa E la striscia di chiusura sotto,
+    // nella stessa immagine — è il confronto che la lamentela chiedeva.
+    await page.getByTestId("chat-streaming-indicator").first()
+      .locator("xpath=..")
+      .screenshot({ path: "test-results/turno-in-attesa-chiusura.png" });
+
+    // Arriva la risposta ⇒ il turno riparte: la chiusura sparisce e i numeri
+    // tornano in riga. Se restasse, un turno che lavora sembrerebbe finito.
+    ws.send({ type: "stream:tool_result", sessionKey, topicId, toolCallId, status: "success", result: "ok" });
+    await expect(footer).toHaveCount(0, { timeout: 10_000 });
+    await expect(inlineUsage.first()).toBeVisible();
+  });
+
   test("fuori dalla chat il segnale dice «ferma», non «sta lavorando»", async ({ page, chatPage }) => {
     // Il seguito del guasto sopra, un livello più in là: dentro la chat la
     // striscia diceva la verità, ma la riga in sidebar e la tab continuavano a

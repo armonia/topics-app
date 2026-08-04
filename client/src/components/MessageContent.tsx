@@ -1182,7 +1182,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput} />}
+        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
+          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
+          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
         {!partial && (
           <MessageMetaFooter
@@ -1266,7 +1268,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Live turn-activity indicator (playful phrase + timer) — covers empty
           placeholder and mid-stream alike. */}
-      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput} />}
+      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
+          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
+          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
       {/* Per-message footer (latency + tokens + cost). Hidden until streaming
            ends and at least one metric is reported by the provider. */}
