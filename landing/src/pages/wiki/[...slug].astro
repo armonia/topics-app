@@ -2,9 +2,25 @@
 import { getCollection, render } from 'astro:content';
 import Reading from '../../layouts/Reading.astro';
 import { formatDate, PILLAR_LABEL } from '../../lib/format';
+import { WIKILINK_RE } from '../../lib/remark-wikilink.mjs';
 
 export async function getStaticPaths() {
   const entries = await getCollection('wiki', ({ data }) => !data.draft);
+
+  // Ogni [[collegamento]] scritto nella prosa, di qualunque superficie, deve
+  // puntare a una voce che esiste. Questo e' l'unico punto del build che vede
+  // tutte le voci insieme, quindi e' qui che un link morto fa fallire il giro
+  // invece di diventare un 404 che nessuno nota per sei mesi.
+  const known = new Set(entries.map((e) => e.id));
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  for (const doc of [...entries, ...posts]) {
+    for (const m of (doc.body ?? '').matchAll(WIKILINK_RE)) {
+      if (!known.has(m[1])) {
+        throw new Error(`${doc.id}: [[${m[1]}]] non corrisponde a nessuna voce di /wiki/`);
+      }
+    }
+  }
+
   return entries.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
 }
 
