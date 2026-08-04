@@ -113,7 +113,15 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
 
 // --- Subcomponents -------------------------------------------------------
 
+/**
+ * Il valore della scelta libera SUL FILO. Resta in inglese: è il sentinella che
+ * `resolveAnswerFor` sostituisce col testo scritto, e lo stesso contratto che
+ * la SDK usa. Quello che si legge a schermo è un'altra cosa — vedi
+ * `OTHER_LABEL`.
+ */
 const OTHER = 'Other';
+/** Come si chiama per chi legge. L'app parla italiano. */
+const OTHER_LABEL = 'Altro';
 
 function QuestionsForm({
   questions, toolCallId, submitting, error, onSubmit,
@@ -154,6 +162,31 @@ function QuestionsForm({
         return { ...prev, [qKey]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label] };
       }
       return { ...prev, [qKey]: [label] }; // single-select: replace
+    });
+    // Scegliere È il passo avanti: su una domanda a scelta singola, cliccare
+    // l'opzione e poi cercare il tasto «Avanti» è un gesto in più che non
+    // decide niente. Non vale per la scelta multipla (stai ancora scegliendo),
+    // per «Altro» (stai per scrivere) né per l'ULTIMA domanda: lì il passo
+    // sarebbe l'invio, e un invio per sbaglio non si annulla.
+    if (!q.multiSelect && label !== OTHER && q.question === current.question && !isLast) {
+      setStep((s) => Math.min(s + 1, questions.length - 1));
+    }
+  }
+
+  /**
+   * Il testo libero seleziona «Altro» da sé: la casella è sempre aperta, e
+   * chiedere di spuntare il pallino PRIMA di poter scrivere era un passaggio a
+   * vuoto. Se lo si svuota, la scelta si annulla — altrimenti resterebbe una
+   * risposta vuota che il tasto d'invio accetta.
+   */
+  function writeOther(q: AskUserQuestionItem, text: string) {
+    const qKey = q.question;
+    setOtherText((prev) => ({ ...prev, [qKey]: text }));
+    setSelections((prev) => {
+      const cur = prev[qKey] || [];
+      if (text.trim().length === 0) return { ...prev, [qKey]: cur.filter((l) => l !== OTHER) };
+      if (q.multiSelect) return cur.includes(OTHER) ? prev : { ...prev, [qKey]: [...cur, OTHER] };
+      return { ...prev, [qKey]: [OTHER] };
     });
   }
 
@@ -259,7 +292,11 @@ function QuestionsForm({
                 </div>
               </label>
             ))}
-            {/* "Other" — always available; mirrors the SDK contract. */}
+            {/* «Altro» — sempre disponibile, come vuole il contratto della SDK,
+                e con la casella SEMPRE APERTA: la risposta che le opzioni non
+                prevedono è quella che costa di più da dare, e farla precedere
+                da un pallino da spuntare è un ostacolo messo proprio lì.
+                Scrivere seleziona; svuotare annulla. */}
             <label className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
               <input
                 type={inputType}
@@ -271,17 +308,16 @@ function QuestionsForm({
                 className="mt-[3px]"
               />
               <div className="flex-1 min-w-0">
-                <div className="text-app-text">Other</div>
-                {picked(q.question, OTHER) && (
-                  <textarea
-                    value={otherText[q.question] || ''}
-                    onChange={(e) => setOtherText((prev) => ({ ...prev, [q.question]: e.target.value }))}
-                    disabled={submitting}
-                    rows={2}
-                    placeholder="Type your answer…"
-                    className="mt-1 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
-                  />
-                )}
+                <div className="text-app-text">{OTHER_LABEL}</div>
+                <textarea
+                  value={otherText[q.question] || ''}
+                  onChange={(e) => writeOther(q, e.target.value)}
+                  disabled={submitting}
+                  rows={2}
+                  placeholder="Scrivi la tua risposta…"
+                  data-testid={`ask-other-input-${qIdx}`}
+                  className="mt-1 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+                />
               </div>
             </label>
           </div>
@@ -310,7 +346,7 @@ function QuestionsForm({
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
-          {submitting ? 'Sending…' : isLast ? 'Send' : 'Avanti'}
+          {submitting ? 'Invio…' : isLast ? 'Invia' : 'Avanti'}
         </button>
       </div>
     </form>

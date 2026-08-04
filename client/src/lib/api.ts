@@ -226,10 +226,28 @@ export const chatApi = {
     toolCallId: string,
     response: import('../types').ToolUserResponse,
   ): Promise<{ ok: boolean; submittedAt: string }> {
-    return request<{ ok: boolean; submittedAt: string }>('/chat/tool-response', {
-      method: 'POST',
-      body: JSON.stringify({ sessionKey, toolCallId, response }),
-    });
+    // Un tetto a orologio, perché il ramo lento di questa POST è quello che
+    // scrive sullo stdin del provider e aspetta che qualcuno legga: se
+    // nessuno legge, la fetch non torna MAI e il pannello resta su «Invio…»
+    // per sempre, con la risposta scritta e nessun modo di rimandarla.
+    // Meglio un errore in faccia dopo trenta secondi — il testo resta nel
+    // form, e si riprova.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 30_000);
+    try {
+      return await request<{ ok: boolean; submittedAt: string }>('/chat/tool-response', {
+        method: 'POST',
+        body: JSON.stringify({ sessionKey, toolCallId, response }),
+        signal: ac.signal,
+      });
+    } catch (err) {
+      if (ac.signal.aborted) {
+        throw new Error("Il server non ha confermato entro 30 secondi — la risposta non è partita. Riprova.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   },
 
   async getHistory(sessionKey: string, data: HistoryRequest = {}): Promise<HistoryResponse> {
