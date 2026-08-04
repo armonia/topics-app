@@ -1147,6 +1147,25 @@ function requestBuffer(sessionId: string): Promise<Uint8Array> {
  * guardando — un agente dimenticato, una tab lasciata aperta — non è una
  * presenza, e contarla terrebbe il turno notturno bloccato per sempre.
  */
+/**
+ * Fotografia delle sessioni vive per il censimento delle orfane: id, se
+ * qualcuno è attaccato, e se è un sotto-agente.
+ *
+ * Tre fatti e non uno, perché il censimento deve risparmiare per motivi
+ * diversi: chi è guardato adesso, e chi ha un padre invece di una tab.
+ */
+export function listTerminalSessionSnapshot(): Array<{ id: string; attached: boolean; isSubAgent: boolean }> {
+  const out: Array<{ id: string; attached: boolean; isSubAgent: boolean }> = [];
+  for (const [id, s] of sessions) {
+    out.push({
+      id,
+      attached: (sessionSockets.get(id)?.size ?? 0) > 0,
+      isSubAgent: !!s.parentSessionKey,
+    });
+  }
+  return out;
+}
+
 export function countAttachedTerminalSessions(): number {
   let n = 0;
   for (const set of sessionSockets.values()) if (set.size > 0) n++;

@@ -26,7 +26,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -41,6 +41,7 @@ import { createExternalSessionsService } from "./server/services/external-sessio
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
+import { scanOrphanSessions, referencedSessionIdsIn } from "./server/lib/orphan-sessions";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
@@ -2992,6 +2993,57 @@ function runWorktreeGc() {
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
 }
 // First pass 2 min after boot (let dispatch settle), then every 30 min.
+// ── Censimento delle sessioni orfane — SOLO LETTURA ────────────────────────
+//
+// Esistono sessioni claude-code vive che nessuna struttura di `ui_state`
+// referenzia: nessuna finestra le mostra, quindi non esiste un gesto umano per
+// chiuderle. Qui si CONTANO e basta.
+//
+// Perché non si agisce: «non referenziata» è un giudizio che attraversa quattro
+// strutture diverse, e un falso positivo ucciderebbe una sessione che qualcuno
+// stava usando. Un giro in sola lettura è il modo di scoprire i falsi positivi
+// PRIMA che costino — se il log nomina sessioni che stai usando, il censimento
+// è sbagliato e si vede senza aver perso niente.
+function censusOrphanSessions(): void {
+  try {
+    const snap = listTerminalSessionSnapshot();
+    if (snap.length === 0) return;
+    const referenced = new Set<string>();
+    try {
+      for (const row of ctx.db.prepare("SELECT value FROM ui_state").all() as Array<{ value: string }>) {
+        for (const id of referencedSessionIdsIn(String(row.value ?? ""))) referenced.add(id);
+      }
+    } catch (err) {
+      // Senza poter leggere `ui_state` NON si censisce: un insieme di
+      // referenze vuoto farebbe risultare orfane TUTTE le sessioni.
+      console.warn("[orfane] censimento saltato: ui_state illeggibile", err);
+      return;
+    }
+    const res = scanOrphanSessions({
+      liveSessionIds: snap.map((s) => s.id),
+      referencedIds: referenced,
+      attachedIds: new Set(snap.filter((s) => s.attached).map((s) => s.id)),
+      subAgentIds: new Set(snap.filter((s) => s.isSubAgent).map((s) => s.id)),
+    });
+    const motivi = Object.entries(res.sparedReasons).map(([k, n]) => `${n}× ${k}`).join("; ");
+    if (res.orphans.length > 0) {
+      console.log(
+        `[orfane] ${res.orphans.length} sessioni che NESSUNA interfaccia mostra (di ${res.examined} vive): ` +
+        res.orphans.map((id) => id.slice(0, 8)).join(", ") +
+        (motivi ? ` — risparmiate: ${motivi}` : "") +
+        " · SOLO CENSIMENTO, nessuna azione presa.",
+      );
+    } else {
+      console.log(`[orfane] nessuna orfana su ${res.examined} sessioni vive${motivi ? ` — ${motivi}` : ""}.`);
+    }
+  } catch (err) {
+    console.warn("[orfane] censimento fallito", err);
+  }
+}
+// Dopo il boot, quando il roster si è ripopolato: prima sarebbe un censimento
+// su una lista vuota, cioè zero orfane per il motivo sbagliato.
+const orphanCensusBoot = setTimeout(censusOrphanSessions, 180_000);
+
 const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
 const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 
@@ -3127,6 +3179,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(staleStreamTimer);
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
+  clearTimeout(orphanCensusBoot);
   clearInterval(worktreeGcTimer);
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
