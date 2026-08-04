@@ -142,11 +142,6 @@
     <!-- DEMO — the frame comes first and the chapter list sits under it, so the
          product is on screen before the reader has to choose anything. -->
     <section class="demo" id="demo">
-      <p class="demo__lead reveal">
-        The window below is the app itself, running on sample data. Take the mouse, or pick a
-        chapter underneath and a pointer will walk you through that part of it.
-      </p>
-
       <div class="showcase reveal">
         <div class="showcase__glow" aria-hidden="true"></div>
         <div class="showcase__frame">
@@ -286,21 +281,9 @@
 
       <div class="fmap">
         <article class="fgroup reveal">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-pane" x="4" y="6" width="252" height="44" rx="5"/>
-              <rect class="mk-bar" x="4" y="6" width="252" height="11" rx="5"/>
-              <rect class="mk-tab mk-tab--on" x="10" y="9" width="42" height="5" rx="2.5"/>
-              <rect class="mk-tab" x="57" y="9" width="30" height="5" rx="2.5"/>
-              <rect class="mk-line" x="12" y="26" width="120" height="4" rx="2"/>
-              <rect class="mk-line" x="12" y="35" width="86" height="4" rx="2"/>
-              <rect class="mk-pane" x="4" y="54" width="122" height="38" rx="5"/>
-              <rect class="mk-bar" x="4" y="54" width="122" height="10" rx="5"/>
-              <rect class="mk-tab mk-tab--on" x="10" y="57" width="34" height="4" rx="2"/>
-              <rect class="mk-pane" x="134" y="54" width="122" height="38" rx="5"/>
-              <rect class="mk-bar" x="134" y="54" width="122" height="10" rx="5"/>
-              <rect class="mk-tab mk-tab--on" x="140" y="57" width="34" height="4" rx="2"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/organize.png" width="629" height="336" loading="lazy"
+                 alt="The sidebar: a topic holding three projects, one expanded to its running Claude Code session." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-blue"><svg class="ic"><use href="#ic-topics"/></svg></div>
@@ -320,20 +303,9 @@
         </article>
 
         <article class="fgroup reveal">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-pane" x="4" y="6" width="252" height="86" rx="5"/>
-              <rect class="mk-bar" x="4" y="6" width="252" height="11" rx="5"/>
-              <circle class="mk-dot" cx="13" cy="11.5" r="2"/><circle class="mk-dot" cx="21" cy="11.5" r="2"/><circle class="mk-dot" cx="29" cy="11.5" r="2"/>
-              <rect class="mk-accent" x="12" y="26" width="7" height="4" rx="2"/>
-              <rect class="mk-line" x="24" y="26" width="104" height="4" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="12" y="36" width="150" height="4" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="12" y="46" width="118" height="4" rx="2"/>
-              <rect class="mk-ok" x="12" y="56" width="5" height="4" rx="2"/>
-              <rect class="mk-line" x="22" y="56" width="76" height="4" rx="2"/>
-              <rect class="mk-accent" x="12" y="70" width="7" height="4" rx="2"/>
-              <rect class="mk-caret" x="24" y="68" width="6" height="8" rx="1"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/run.png" width="650" height="340" loading="lazy"
+                 alt="A live Claude Code session in an embedded terminal, mid-task." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-teal"><svg class="ic"><use href="#ic-terminal"/></svg></div>
@@ -353,24 +325,9 @@
         </article>
 
         <article class="fgroup reveal">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-pane" x="4" y="6" width="252" height="86" rx="5"/>
-              <rect class="mk-kpi" x="14" y="16" width="52" height="26" rx="4"/>
-              <rect class="mk-kpi" x="72" y="16" width="52" height="26" rx="4"/>
-              <rect class="mk-kpi" x="130" y="16" width="52" height="26" rx="4"/>
-              <rect class="mk-kpi" x="188" y="16" width="52" height="26" rx="4"/>
-              <rect class="mk-line" x="20" y="22" width="20" height="6" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="20" y="33" width="30" height="3" rx="1.5"/>
-              <rect class="mk-line" x="78" y="22" width="24" height="6" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="78" y="33" width="26" height="3" rx="1.5"/>
-              <rect class="mk-line" x="136" y="22" width="18" height="6" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="136" y="33" width="30" height="3" rx="1.5"/>
-              <rect class="mk-line" x="194" y="22" width="22" height="6" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="194" y="33" width="24" height="3" rx="1.5"/>
-              <polyline class="mk-spark" points="16,80 44,68 72,74 100,56 128,62 156,48 184,54 212,40 240,46"/>
-              <circle class="mk-spark-dot" cx="240" cy="46" r="2.6"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/see.png" width="650" height="340" loading="lazy"
+                 alt="Dashboard tiles: throughput and token spend for today and this week." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-violet"><svg class="ic"><use href="#ic-chart"/></svg></div>
@@ -390,25 +347,9 @@
         </article>
 
         <article class="fgroup reveal">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-col" x="6" y="8" width="58" height="80" rx="5"/>
-              <rect class="mk-col" x="70" y="8" width="58" height="80" rx="5"/>
-              <rect class="mk-col" x="134" y="8" width="58" height="80" rx="5"/>
-              <rect class="mk-col" x="198" y="8" width="56" height="80" rx="5"/>
-              <rect class="mk-hdr" x="12" y="14" width="26" height="4" rx="2"/>
-              <rect class="mk-hdr" x="76" y="14" width="22" height="4" rx="2"/>
-              <rect class="mk-hdr" x="140" y="14" width="30" height="4" rx="2"/>
-              <rect class="mk-hdr" x="204" y="14" width="24" height="4" rx="2"/>
-              <rect class="mk-card" x="12" y="24" width="46" height="16" rx="3"/>
-              <rect class="mk-card" x="12" y="44" width="46" height="16" rx="3"/>
-              <rect class="mk-card" x="76" y="24" width="46" height="16" rx="3"/>
-              <rect class="mk-card mk-card--work" x="140" y="24" width="46" height="22" rx="3"/>
-              <rect class="mk-card mk-card--review" x="204" y="24" width="44" height="22" rx="3"/>
-              <rect class="mk-avatar" x="144" y="38" width="9" height="4" rx="2"/>
-              <rect class="mk-avatar mk-avatar--ok" x="208" y="38" width="9" height="4" rx="2"/>
-              <rect class="mk-card" x="204" y="50" width="44" height="16" rx="3"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/ship.png" width="650" height="340" loading="lazy"
+                 alt="The board's In Progress column: an agent working on a task in its own worktree." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-blue"><svg class="ic"><use href="#ic-board"/></svg></div>
@@ -428,22 +369,9 @@
         </article>
 
         <article class="fgroup reveal fgroup--pro">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-pane" x="10" y="14" width="120" height="70" rx="5"/>
-              <rect class="mk-bar" x="10" y="14" width="120" height="9" rx="5"/>
-              <rect class="mk-line mk-line--dim" x="18" y="32" width="72" height="4" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="18" y="42" width="56" height="4" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="18" y="52" width="66" height="4" rx="2"/>
-              <rect class="mk-phone" x="196" y="10" width="46" height="78" rx="8"/>
-              <rect class="mk-bar" x="196" y="10" width="46" height="8" rx="8"/>
-              <rect class="mk-line mk-line--dim" x="204" y="28" width="30" height="4" rx="2"/>
-              <rect class="mk-line mk-line--dim" x="204" y="38" width="24" height="4" rx="2"/>
-              <rect class="mk-accent" x="204" y="52" width="30" height="4" rx="2"/>
-              <path class="mk-arc" d="M136 40 C 160 22, 172 22, 190 34"/>
-              <path class="mk-arc" d="M190 58 C 172 70, 160 70, 136 54"/>
-              <circle class="mk-spark-dot" cx="163" cy="27" r="2.4"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/reach.png" width="650" height="340" loading="lazy"
+                 alt="The agent monitor on a phone-width screen, listing live sessions." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-teal"><svg class="ic"><use href="#ic-cloud"/></svg></div>
@@ -463,19 +391,9 @@
         </article>
 
         <article class="fgroup reveal">
-          <div class="fgroup__mock" aria-hidden="true">
-            <svg viewBox="0 0 260 96" preserveAspectRatio="none" class="mock">
-              <rect class="mk-pane" x="14" y="12" width="106" height="72" rx="5"/>
-              <rect class="mk-hdr" x="26" y="26" width="46" height="5" rx="2.5"/>
-              <rect class="mk-line mk-line--dim" x="26" y="38" width="80" height="3.5" rx="1.75"/>
-              <rect class="mk-line mk-line--dim" x="26" y="47" width="70" height="3.5" rx="1.75"/>
-              <rect class="mk-line mk-line--dim" x="26" y="56" width="76" height="3.5" rx="1.75"/>
-              <rect class="mk-ok" x="26" y="68" width="26" height="6" rx="3"/>
-              <circle class="mk-key" cx="164" cy="48" r="13"/>
-              <path class="mk-keyshaft" d="M177 48h44"/>
-              <path class="mk-keyshaft" d="M206 48v9M216 48v7"/>
-              <circle class="mk-keyhole" cx="164" cy="48" r="4.2"/>
-            </svg>
+          <div class="fgroup__mock fgroup__mock--shot">
+            <img class="fgroup__shot" src="./img/own.png" width="650" height="340" loading="lazy"
+                 alt="The model picker: Claude, Codex and the other agents you can point it at." />
           </div>
           <header class="fgroup__head">
             <div class="card__icon i-violet"><svg class="ic"><use href="#ic-key"/></svg></div>

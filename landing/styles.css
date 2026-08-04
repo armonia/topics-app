@@ -439,10 +439,21 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* Aligned with the text block, not bled 4px past it: a well cut into the card
    should share the card's margins, and the geometry audit was right to flag the
    mismatched left edge. */
+/* 96px was the height that made real UI unusable: a whole pane scaled into a
+   325x96 slot takes 11px chrome down to 2-3px. The slot is now tall enough for
+   a 1:1 DETAIL of the actual product — five terminal rows, two KPI tiles, two
+   board cards — which is the only way a screenshot of dense UI stays readable
+   at card size. */
 .fgroup__mock{margin:0 0 20px;border-radius:12px;overflow:hidden;
-  background:linear-gradient(180deg,hsl(222 44% 12% / .5),hsl(222 40% 8% / .3));
-  border:1px solid var(--border);height:96px}
-.mock{display:block;width:100%;height:96px}
+  background:var(--s-1);border:1px solid var(--border);height:170px}
+.mock{display:block;width:100%;height:170px}
+
+/* A captured component, shown at 1:1 and anchored top-left so the crop the
+   capture script chose is exactly the crop you see. `image-rendering:auto`
+   matters: these are photographs of text, and any smoothing setting that tries
+   to be clever makes small type worse. */
+.fgroup__shot{display:block;width:100%;height:100%;object-fit:cover;object-position:left top}
+.fgroup__mock--shot{background:var(--s-0)}
 .mock rect,.mock circle,.mock polyline,.mock path{vector-effect:non-scaling-stroke}
 .mk-pane,.mk-col,.mk-kpi,.mk-phone{fill:hsl(222 42% 14% / .8);stroke:var(--border-2);stroke-width:1}
 .mk-bar,.mk-hdr{fill:hsl(222 40% 20% / .8);stroke:none}
