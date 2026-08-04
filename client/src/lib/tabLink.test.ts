@@ -10,6 +10,8 @@ import {
   tabAckReleasesIntent,
   DEAD_TAB_MESSAGE,
   __resetTabLinkStateForTests,
+  __setTabLinkRetryDelayForTests,
+  UNVERIFIED_TAB_MESSAGE,
   type ProjectPanesReader,
 } from './tabLink';
 import {
@@ -137,6 +139,9 @@ beforeEach(() => {
   // La cache dei soggetti verificati è di modulo: senza reset un «esiste» di un
   // test diventerebbe il permesso a materializzare nel test dopo.
   __resetTabLinkStateForTests();
+  // Il ritentativo esiste per coprire i ~2s del ricarico del server: nei test
+  // aspettarli davvero significherebbe una suite che dorme.
+  __setTabLinkRetryDelayForTests(1);
   // Idem per il flag di idratazione: è di modulo, e un test che marca idratato
   // renderebbe immediato il gate di quello dopo.
   __resetServerHydratedForTests();
@@ -743,14 +748,18 @@ describe('openTabInApp — un soggetto non confermato non diventa MAI una pane',
 // `notify`, non lo diceva nemmeno.
 
 describe('openTabInApp — la guardia rifiuta il NOTO-CATTIVO, non ciò che non ha potuto verificare', () => {
-  test('server irraggiungibile: si instrada LO STESSO (e non si avvisa di niente)', async () => {
+  test('server irraggiungibile: si instrada LO STESSO, ma ora lo si DICE', async () => {
+    // Il fail-open resta (rifiutare romperebbe i link buoni a ogni ricarico del
+    // server), ma prima l'unica traccia era un `console.warn` — cioè niente, per
+    // chi usa l'app. Era il caso che può lasciare una pane fantasma persistita e
+    // sincronizzata su ogni device, e taceva; quello benigno parlava.
     const { events } = stubWindow(`${origin}/`);
     stubResolverDown();
     const { notes, notify } = collectNotes();
     openTabInApp({ kind: 'project', key: '/work/x' }, { notify });
     await settle();
     expect(events.some((e) => e.type === 'topics:open-project')).toBe(true);
-    expect(notes).toEqual([]);
+    expect(notes).toEqual([UNVERIFIED_TAB_MESSAGE]);
   });
 
   test('risposta non-2xx o corpo illeggibile: idem — non è una risposta sul soggetto', async () => {
@@ -760,7 +769,37 @@ describe('openTabInApp — la guardia rifiuta il NOTO-CATTIVO, non ciò che non 
     openTabInApp({ kind: 'chat', key: 'topic-1' }, { notify });
     await settle();
     expect(events.some((e) => e.type === 'topics:open-topic')).toBe(true);
+    expect(notes).toEqual([UNVERIFIED_TAB_MESSAGE]);
+  });
+
+  test('un `unavailable` viene RIPROVATO una volta: la finestra tipica è il ricarico del server', async () => {
+    // Primo colpo a vuoto, secondo con la risposta vera: il link buono si apre e
+    // NON si avvisa di niente, perché la verifica alla fine è riuscita. È il
+    // motivo per cui il ritentativo esiste — quasi tutti gli `unavailable` sono
+    // due secondi di server che si ricarica, non un ref inventato.
+    const { events } = stubWindow(`${origin}/`);
+    let colpi = 0;
+    (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+      colpi++;
+      if (colpi === 1) throw new Error('ECONNREFUSED');
+      return { ok: true, json: async () => ({ state: 'open' }) };
+    };
+    const { notes, notify } = collectNotes();
+    openTabInApp({ kind: 'chat', key: 'topic-1' }, { notify });
+    await settle();
+    expect(colpi).toBe(2);
+    expect(events.some((e) => e.type === 'topics:open-topic')).toBe(true);
     expect(notes).toEqual([]);
+  });
+
+  test('il ritentativo NON si applica a un «non esiste»: è una risposta, ripeterla non la cambia', async () => {
+    const { asked } = stubResolver([]);
+    stubWindow(`${origin}/`);
+    const { notes, notify } = collectNotes();
+    openTabInApp({ kind: 'chat', key: 'topic-inventato' }, { notify });
+    await settle();
+    expect(asked.length).toBe(1);
+    expect(notes).toEqual([DEAD_TAB_MESSAGE]);
   });
 
   test('ma un `unknown` ESPLICITO continua a rifiutare: la guardia non è stata spenta', async () => {
@@ -789,6 +828,7 @@ describe('openTabInApp — la guardia rifiuta il NOTO-CATTIVO, non ciò che non 
     const { notes, notify } = collectNotes();
     openTabInApp({ kind: 'project', key: '/work/x' }, { notify });
     await settle();
+    // Richiesto di nuovo: il «non ho potuto chiedere» non è rimasto in cache.
     expect(asked.length).toBe(1);
     expect(events.some((e) => e.type === 'topics:open-project')).toBe(false);
     expect(notes).toEqual([DEAD_TAB_MESSAGE]);
