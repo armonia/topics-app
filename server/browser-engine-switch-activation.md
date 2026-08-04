@@ -1,6 +1,6 @@
 # Engine switch — attivazione — task 54601eeb
 
-Stato: **cablato end-to-end dietro flag `TOPICS_CHROMIUM_ENGINE` (default OFF)**.
+Stato: **attivo**. Il flag `TOPICS_CHROMIUM_ENGINE` è stato TOLTO il 04/08/2026: teneva spenta una funzione completa e collaudata, e la domanda giusta la sapeva già fare il codice — «c'è un Chromium installato?». Se non c'è, il bottone resta nascosto come prima.
 Con la flag spenta tutto è inerte: il ramo WS `set_engine` risponde `native`, la
 DELETE non rilascia ref, `/api/browsers/engines` ritorna `{enabled:false}`, il
 client non mostra il toggle → nessun Chromium parte. Si accende impostando

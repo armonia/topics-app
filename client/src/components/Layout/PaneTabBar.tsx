@@ -21,6 +21,7 @@ import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinne
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
@@ -204,6 +205,11 @@ interface PaneTabBarProps {
 }
 
 export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+  // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
+  // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
+  // conversione non cambia una virgola di cio' che vedi in italiano, e in
+  // inglese finalmente dice qualcosa.
+  const tr = useT();
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -1263,7 +1269,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 title="Rinomina questa scheda"
               >
                 <Edit3 size={14} />
-                <span className="flex-1 text-left">Rinomina</span>
+                <span className="flex-1 text-left">{tr('tab.menu.rename')}</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 px-3 py-2">
@@ -1334,7 +1340,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     title={pageUrl}
                   >
                     <Globe size={14} />
-                    <span className="flex-1 text-left">Copia URL della pagina</span>
+                    <span className="flex-1 text-left">{tr('tab.menu.copyUrl')}</span>
                   </button>
                 )}
               </>
@@ -1360,7 +1366,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <X size={14} />
-                <span className="flex-1 text-left">Chiudi ora</span>
+                <span className="flex-1 text-left">{tr('tab.menu.closeNow')}</span>
               </button>
               <button
                 onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
@@ -1368,7 +1374,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 title="Chiude dopo un conto alla rovescia di 3 secondi (annullabile)"
               >
                 <X size={14} />
-                <span className="flex-1 text-left">Chiudi (con conto alla rovescia)</span>
+                <span className="flex-1 text-left">{tr('tab.menu.closeCountdown')}</span>
               </button>
             </>
           )}
@@ -1386,7 +1392,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
               <X size={14} />
-              <span>Chiudi le altre</span>
+              <span>{tr('tab.menu.closeOthers')}</span>
             </button>
           )}
           {(onSplitRight || onSplitDown) && (
@@ -1398,7 +1404,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Columns2 size={14} />
-                  <span>Dividi a destra</span>
+                  <span>{tr('tab.menu.splitRight')}</span>
                 </button>
               )}
               {onSplitDown && (
@@ -1407,7 +1413,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Rows2 size={14} />
-                  <span>Dividi in basso</span>
+                  <span>{tr('tab.menu.splitDown')}</span>
                 </button>
               )}
             </>

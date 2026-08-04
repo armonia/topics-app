@@ -6,6 +6,7 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
+import { permissionModeForAutonomy } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
@@ -546,12 +547,12 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null } {
+function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null } {
   try {
     const row = getDatabase()
-      .prepare("SELECT effort, model, provider, mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
-      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null } | undefined;
-    if (!row) return { effort: null, model: null, mcpPolicy: null };
+      .prepare("SELECT effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null; autonomy_level?: string | null } | undefined;
+    if (!row) return { effort: null, model: null, mcpPolicy: null, autonomy: null };
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -563,9 +564,9 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._[\]-]{1,64}$/.test(row.model)
       ? row.model
       : null;
-    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null };
+    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null, autonomy: row.autonomy_level ?? null };
   } catch {
-    return { effort: null, model: null, mcpPolicy: null };
+    return { effort: null, model: null, mcpPolicy: null, autonomy: null };
   }
 }
 
@@ -1665,7 +1666,16 @@ export class ClaudeCodeProvider implements AIProvider {
     // refreshSessionConfig when either changes.
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
     const model = overrides.model ?? this.config.model ?? defaultChatModel();
-    const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
+    // Il LIVELLO DI AUTONOMIA della chat decide la modalità di permessi.
+    //
+    // Esisteva nel modello dati e non era collegato a niente: ogni chat partiva
+    // comunque in `bypassPermissions`. L'ordine è: scelta della chat → config del
+    // provider → default di prima. Un topic che non ha scelto continua a
+    // comportarsi ESATTAMENTE come prima — cambiare il default avrebbe zittito le
+    // chat di chi non ha mai toccato l'impostazione.
+    const permissionMode = overrides.autonomy
+      ? permissionModeForAutonomy(overrides.autonomy)
+      : (this.config.permissionMode ?? DEFAULT_PERMISSION_MODE);
     // Spawn IN the topic's resolved working dir (worktree/project) so the CLI's
     // relative-path tools match the "You are working in <path>" awareness block.
     // Falls back to the global workspace/HOME for topics with no bound project.
