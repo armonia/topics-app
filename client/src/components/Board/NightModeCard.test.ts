@@ -4,7 +4,7 @@
  * la coda stia girando, ed è l'unico errore che questa card può fare davvero.
  */
 import { describe, test, expect } from 'bun:test';
-import { describeNight, formatCountdown, type NightStatus } from './NightModeCard';
+import { describeNight, formatCountdown, type NightStatus } from './nightModeText';
 
 const st = (o: Partial<NightStatus>): NightStatus => ({
   enabled: true, until: '10:00', startedAt: null, action: 'dispatch', reason: null,

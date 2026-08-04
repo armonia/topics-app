@@ -232,12 +232,12 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     prevEffectivePinnedRef.current = s;
     return s;
   }, [pinnedIds, validatedOrderedIds]);
-  // eslint-disable-next-line react-hooks/refs -- useRef only reads this initial value on the first render to seed the mirror ref; subsequent syncs happen in the effect below (the value is ref-derived via the contents-equality cache, hence the transitive flag)
   /** La tab che QUESTA sessione ha aperto come anteprima — l'unica che una
    *  apertura singola può sostituire. Vive solo in memoria di proposito:
    *  «essere l'anteprima» è un fatto di questa finestra e di questo momento, non
    *  qualcosa che si eredita da uno snapshot del server. */
   const previewPaneIdRef = useRef<string | null>(null);
+  // eslint-disable-next-line react-hooks/refs -- useRef only reads this initial value on the first render to seed the mirror ref; subsequent syncs happen in the effect below (the value is ref-derived via the contents-equality cache, hence the transitive flag)
   const pinnedIdsRef = useRef(effectivePinnedIds);
   useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
 
