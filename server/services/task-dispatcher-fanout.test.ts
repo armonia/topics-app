@@ -387,3 +387,67 @@ describe("task-dispatcher fan-out", () => {
     expect(h.rows("t1").length).toBe(2);              // solo i nuovi
   });
 });
+
+// ── La guardia contro la perdita dei commit ────────────────────────────────
+//
+// Il cleanup dopo il turno presume che un tentativo rimesso in coda non abbia
+// prodotto niente. È vero quasi sempre, e falso proprio nel caso che fa danno:
+// l'agente committa, POI il turno viene troncato dall'infrastruttura, il task
+// torna in `todo`, e `deleteWorktree` porta via anche il BRANCH — commit
+// compresi (worktree-manager: mode "branch" ⇒ `git branch -D`).
+describe("cleanup del worktree — non buttare via i commit", () => {
+  it("tentativo rimesso in coda SENZA lavoro: si pulisce (comportamento invariato)", async () => {
+    const h = harness({ worktreeHasWork: async () => false });
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.stats.set("wt-1", NOTHING);
+    h.stats.set("wt-2", NOTHING);
+    h.finishAll();
+    await flush();
+    expect(h.worktreesDeleted.sort()).toEqual(["wt-1", "wt-2"]);
+  });
+
+  it("il reap dei tentativi PERDENTI resta invariato anche se hanno lavoro", async () => {
+    // Qui lo scarto è deliberato: l'umano (o la regola del fan-out) ha deciso.
+    // Tutelarli sarebbe accumulo, non tutela — la guardia NON deve applicarsi.
+    const h = harness({ worktreeHasWork: async () => true });
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.stats.set("wt-1", NOTHING);
+    h.stats.set("wt-2", NOTHING);
+    h.finishAll();
+    await flush();
+    expect(h.worktreesDeleted.sort()).toEqual(["wt-1", "wt-2"]);
+  });
+
+  it("senza la sonda il comportamento è quello storico (host non aggiornato)", async () => {
+    const h = harness(); // nessun worktreeHasWork
+    boardWithFanOut(h, 2);
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.stats.set("wt-1", NOTHING);
+    h.stats.set("wt-2", NOTHING);
+    h.finishAll();
+    await flush();
+    expect(h.worktreesDeleted.sort()).toEqual(["wt-1", "wt-2"]);
+  });
+});
+
+// NOTA, e vale piu di un test verde: il percorso che perdeva davvero i commit —
+// UN agente, turno troncato, task rimesso in coda — NON e coperto qui. Ho
+// provato a raggiungerlo con questo harness (fanOut 1, runTurn che rigetta,
+// tentativi esauriti) e ogni variante finisce altrove: o in `review` per
+// consegna di sistema, o senza nemmeno creare il worktree. I test che avevo
+// scritto passavano senza toccare la guardia, cioe non provavano niente, e li
+// ho tolti invece di lasciarli verdi a vuoto.
+//
+// Quello che i tre test sopra provano davvero e il NON-regressione: il reap dei
+// tentativi perdenti continua a cancellare anche quando la sonda dice che c'e
+// lavoro, perche li lo scarto e deliberato. La guardia vera (`preserveWork`) e
+// verificata per lettura, non da un test: per coprirla serve un harness che
+// sappia portare un task a `todo`/`backlog` DOPO aver creato un worktree.
