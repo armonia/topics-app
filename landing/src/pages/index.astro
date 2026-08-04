@@ -77,9 +77,9 @@ const jsonLd = {
   <SiteHeader current="product" />
 
   <main id="top">
-    <!-- HERO. The headline names a RESULT, not a category: measured across
+    {/* HERO. The headline names a RESULT, not a category: measured across
          1,200 landing pages, a result headline scores 58/100 against 44 for a
-         category one, and "the workspace for coding agents" was the second. -->
+         category one, and "the workspace for coding agents" was the second. */}
     <section class="hero">
       {/* The release pill came off. It was 58px above the headline saying "v2.2.11
           is out for macOS, Windows and Linux" — which the proof row now says, in
@@ -112,28 +112,28 @@ const jsonLd = {
     </section>
 
 
-    <!-- DEMO. The real app, in an iframe, with sample data. It is now a poster
+    {/* DEMO. The real app, in an iframe, with sample data. It is now a poster
          until you ask for it: the client is 449KB on the wire and ~1.55MB to
          parse, it is same-origin so it shares this page's process and main
          thread, and `loading="lazy"` never fired because the frame starts at
          ~585px against Chrome's 1250px threshold. So every visitor paid for a
-         React boot while reading the headline. -->
+         React boot while reading the headline. */}
     <section class="demo" id="demo">
       <div class="showcase reveal">
         <div class="showcase__frame">
-          <!-- The iframe has no src until the poster is clicked or a chapter is
+          {/* The iframe has no src until the poster is clicked or a chapter is
                picked. home.ts sets it once and never again: re-creating it would
-               reload the app and throw away whatever the tour was doing. -->
+               reload the app and throw away whatever the tour was doing. */}
           <iframe class="window-real" id="demoFrame" data-src="/app/index.html"
                   title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."></iframe>
           <button class="showcase__poster" id="demoPoster" type="button" aria-label="Start the interactive demo">
             <img src="/img/demo-poster.webp" alt="" width="2560" height="1440" fetchpriority="low" decoding="async" />
             <span class="showcase__play"><svg class="ic ic--fill" aria-hidden="true"><use href="#ic-play"/></svg>Start the live demo</span>
           </button>
-          <!-- The wheel guard. Without it, passing the mouse over the demo on
+          {/* The wheel guard. Without it, passing the mouse over the demo on
                the way down the page hands your scroll to the app inside and the
                page stops moving. One click hands the demo over for real; it
-               comes back as soon as the pointer leaves. -->
+               comes back as soon as the pointer leaves. */}
           <button class="shield" id="demoShield" type="button" aria-label="Take control of the demo">
             <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
           </button>
@@ -201,9 +201,9 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- PROOF. Not stars (0) and not downloads (54) — for a project this young
+    {/* PROOF. Not stars (0) and not downloads (54) — for a project this young
          those are an own goal. Commits and releases are the true signal, read
-         from the repository at build time so the page cannot drift from it. -->
+         from the repository at build time so the page cannot drift from it. */}
     <section class="proof reveal" aria-label="Project activity">
       <div class="proof__row">
         <span class="proof__item"><b class="proof__n">{fmt(stats.commits)}</b> commits</span>
@@ -221,9 +221,9 @@ const jsonLd = {
       </p>
     </section>
 
-    <!-- THE MODEL. The old page never explained what a topic was, which made
+    {/* THE MODEL. The old page never explained what a topic was, which made
          every screenshot below it a picture of an unnamed thing. Three steps,
-         no images: this is the one place where words are faster. -->
+         no images: this is the one place where words are faster. */}
     <section class="model" id="model">
       <header class="section-head reveal">
         <span class="eyebrow">the whole idea</span>
@@ -250,10 +250,10 @@ const jsonLd = {
     </section>
 
 
-    <!-- WORKS WITH. Was a marquee: a 28-second infinite translate running for
+    {/* WORKS WITH. Was a marquee: a 28-second infinite translate running for
          as long as the tab was open, to say eight words. The rotating name in
          the headline already does the "works with" job above the fold, so what
-         is left down here is the complete list, stated once and standing still. -->
+         is left down here is the complete list, stated once and standing still. */}
     <section class="strip" aria-label="Works with">
       <p class="strip__label">Runs the agents you already run</p>
       <p class="strip__list">
@@ -262,7 +262,7 @@ const jsonLd = {
       </p>
     </section>
 
-    <!-- AUTONOMY -->
+    {/* AUTONOMY */}
     <section class="autonomy" id="autonomy">
       <header class="section-head reveal">
         <span class="eyebrow">the board</span>
@@ -325,12 +325,12 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- FEATURES — six rows, alternating, each one a photograph of the real app
+    {/* FEATURES — six rows, alternating, each one a photograph of the real app
          next to what it does. The images come from scripts/landing-shots.mjs,
          shot from the same build the demo above runs, and every one is a WHOLE
          thing: a window, or one pane with its tab bar and its own corners. They
          are also the only dark objects on the page besides the code, which is
-         the entire visual argument. -->
+         the entire visual argument. */}
     <section class="features" id="features">
       <header class="section-head reveal">
         <span class="eyebrow">one window, every surface</span>
@@ -461,9 +461,9 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- COMPARE. HTML rather than an image, because the point of this block is
+    {/* COMPARE. HTML rather than an image, because the point of this block is
          that somebody writing a "best tools for X" list can copy it. The facts
-         are shared with /compare so the short version cannot drift. -->
+         are shared with /compare so the short version cannot drift. */}
     <section class="compare" id="compare">
       <header class="section-head reveal">
         <span class="eyebrow">against the alternatives</span>
@@ -509,9 +509,9 @@ const jsonLd = {
       </p>
     </section>
 
-    <!-- LIMITS. Both studies on trust in technical audiences put declared
+    {/* LIMITS. Both studies on trust in technical audiences put declared
          limitations at the top of what gets believed, and not one of the thirty
-         competitor home pages in the sample has a section like this. -->
+         competitor home pages in the sample has a section like this. */}
     <section class="limits" id="limits">
       <header class="section-head reveal">
         <span class="eyebrow">before you download it</span>
@@ -546,8 +546,8 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- THE REST — an audit of the repo against this page turned up sixteen
-         shipped capabilities the site never mentioned. -->
+    {/* THE REST — an audit of the repo against this page turned up sixteen
+         shipped capabilities the site never mentioned. */}
     <section class="more" id="more">
       <header class="section-head reveal">
         <span class="eyebrow">also in the box</span>
@@ -574,7 +574,7 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- WEDGE -->
+    {/* WEDGE */}
     <section class="wedge">
       <div class="wedge__card reveal">
         <span class="eyebrow">why topics</span>
@@ -592,13 +592,13 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- PRICING. Every plan here is something that can be delivered the day it
+    {/* PRICING. Every plan here is something that can be delivered the day it
          is bought. The page used to list €9 Pro and €19 Team beside the free
          app: neither exists in the code — no hosted relay, no encrypted backup,
          and Team needs accounts the product does not have — and across thirty
          competitor pages not one shows a price for a plan you cannot buy. Three
          columns of which two were unbuyable turned "free forever, really" into
-         "free for now", which was the most expensive thing on the page. -->
+         "free for now", which was the most expensive thing on the page. */}
     <section class="pricing" id="pricing">
       <header class="section-head reveal">
         <span class="eyebrow">pricing</span>
@@ -703,7 +703,7 @@ const jsonLd = {
       </div>
     </section>
 
-    <!-- CHANGELOG -->
+    {/* CHANGELOG */}
     <section class="changelog" id="changelog">
       <header class="section-head reveal">
         <span class="eyebrow">changelog</span>
@@ -713,7 +713,7 @@ const jsonLd = {
       <div class="reveal"><ChangelogList limit={3} /></div>
     </section>
 
-    <!-- DOWNLOAD -->
+    {/* DOWNLOAD */}
     <section class="download" id="download">
       <header class="section-head reveal">
         <span class="eyebrow">get topics</span>
@@ -746,11 +746,11 @@ const jsonLd = {
         </article>
       </div>
 
-      <!-- The Gatekeeper block. The single public indie dataset with both
+      {/* The Gatekeeper block. The single public indie dataset with both
            numbers (2,814 downloads → 1,962 first launches) puts roughly 30% of
            downloads never reaching a first run, and this app is ad-hoc signed,
            so every macOS visitor meets that dialog. Naming it is worth more
-           than another feature. -->
+           than another feature. */}
       <div class="gate reveal" id="gatekeeper">
         <h3><svg class="ic"><use href="#ic-warn"/></svg> macOS will say the developer cannot be verified</h3>
         <p>
@@ -769,8 +769,8 @@ const jsonLd = {
         </p>
       </div>
 
-      <!-- The block for agents. Nobody in the sample of thirty does this, and
-           the audience for this product is a person who drives agents all day. -->
+      {/* The block for agents. Nobody in the sample of thirty does this, and
+           the audience for this product is a person who drives agents all day. */}
       <div class="agents-block reveal">
         <h3>Or let your agent install it</h3>
         <p>
