@@ -361,9 +361,11 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── interactive demo (stage first, chapters under it) ───────── */
 /* Wider than the rest of the page on purpose: the product frame is the
    argument, and 1180px of column made it read as a window inside a page
-   rather than as the thing the page is about. Capped at 1560 so a 27" reads
-   as deliberate instead of blown out. */
-.demo{max-width:1560px;margin:56px auto 0;padding:0 24px}
+   rather than as the thing the page is about. 1560 went the other way and
+   became something you sit in front of rather than look at — 1320 is wider
+   than the text column without taking the whole screen, and Expand is there
+   for the moment you do want the whole screen. */
+.demo{max-width:1320px;margin:56px auto 0;padding:0 24px}
 /* The lead is centred and deliberately short. The chapter rail used to sit in a
    column beside it, which pushed the product frame below the fold on a laptop;
    the frame is the argument, so now only three lines stand between the hero and
@@ -404,8 +406,40 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
    11.00. The app loses ~17% of logical width; being able to read it is
    worth more than fitting one more pane in.
    Height in vh rather than aspect-ratio so a short screen does not push the
-   chapter rail off the fold. */
-.demo .showcase__frame{--demo-scale:1;transform:none;aspect-ratio:auto;height:min(74vh,780px)}
+   chapter rail off the fold. 62vh, not 74: at 74 the frame was taller than
+   the space between the sticky nav and the fold, so the page could never show
+   the whole stage and the rail at once. */
+.demo .showcase__frame{--demo-scale:1;transform:none;aspect-ratio:auto;height:min(62vh,640px)}
+
+/* ── Scroll shield ────────────────────────────────────────────────────────
+   An iframe eats the wheel: pass the pointer over the demo on the way down
+   the page and the app's own scroll containers swallow the gesture, so the
+   PAGE stops moving and the visitor is stuck inside a window they never asked
+   to enter. This transparent layer sits over the frame and takes that wheel
+   itself — it lives in the parent document, so scrolling over it scrolls the
+   page, which is what the visitor meant.
+
+   One click hands the demo over for real (the layer goes away and every pixel
+   underneath is live), and it re-arms the moment the pointer leaves, so the
+   next pass down the page scrolls again. The chapter buttons and the ghost
+   tour are unaffected: they drive the app from inside, where no shield sits. */
+.shield{position:absolute;inset:0;z-index:3;cursor:pointer;background:transparent;
+  border:0;padding:0;font:inherit;color:inherit;display:grid;place-items:center;
+  -webkit-appearance:none;appearance:none}
+.shield__hint{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;
+  font-size:.85rem;font-weight:540;letter-spacing:-.01em;color:var(--text);
+  background:hsl(222 42% 8% / .82);border:1px solid var(--border-2);
+  -webkit-backdrop-filter:blur(12px) saturate(150%);backdrop-filter:blur(12px) saturate(150%);
+  box-shadow:var(--edge),0 14px 34px -16px hsl(226 70% 3% / .9);
+  opacity:0;transform:translateY(5px);transition:opacity .22s var(--ease),transform .22s var(--ease)}
+.shield:hover .shield__hint,.shield:focus-visible .shield__hint{opacity:1;transform:none}
+.shield:focus-visible{outline:2px solid var(--blue-2);outline-offset:-3px}
+.shield__hint .ic{width:15px;height:15px;color:var(--blue-2)}
+/* Taken over: no layer at all, so clicks, drags and the app's own scrolling
+   behave exactly as they do in the product. */
+.showcase.is-live .shield{display:none}
+/* Expanded is already a deliberate act — nothing left to shield. */
+body.demo-expanded .shield{display:none}
 .demo__foot{display:flex;align-items:center;gap:9px;justify-content:center;margin-top:16px;
   font-size:.83rem;color:var(--text-faint);font-family:var(--mono)}
 
@@ -437,72 +471,48 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .claim code{font-family:var(--mono);font-size:.84em;padding:0 5px;border-radius:5px;background:hsl(225 60% 60% / .12);color:var(--text);white-space:nowrap}
 .claim p{line-height:1.7}
 
-/* ───────── feature map ───────── */
-.fmap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.fgroup{position:relative;padding:26px 24px;border-radius:18px;overflow:hidden;
-  background:var(--s-2);border:1px solid var(--border);
-  transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
-.fgroup:hover{transform:translateY(-3px);box-shadow:0 22px 54px -24px rgb(0 0 0 / .85);border-color:var(--border-2)}
-/* ── Card mockups ─────────────────────────────────────────────────────────
-   Each feature card opens with a small drawing of the thing it describes,
-   built from rectangles rather than a screenshot: it stays sharp at any size,
-   follows the theme colours, weighs nothing, and never goes stale when the
-   product's own chrome changes. Everything here is decorative and hidden from
-   assistive tech by aria-hidden on the wrapper. */
-/* Aligned with the text block, not bled 4px past it: a well cut into the card
-   should share the card's margins, and the geometry audit was right to flag the
-   mismatched left edge. */
-/* 96px was the height that made real UI unusable: a whole pane scaled into a
-   325x96 slot takes 11px chrome down to 2-3px. The slot is now tall enough for
-   a 1:1 DETAIL of the actual product — five terminal rows, two KPI tiles, two
-   board cards — which is the only way a screenshot of dense UI stays readable
-   at card size. */
-.fgroup__mock{margin:0 0 20px;border-radius:12px;overflow:hidden;
-  background:var(--s-1);border:1px solid var(--border);height:170px}
-.mock{display:block;width:100%;height:170px}
-
-/* A captured component, shown at 1:1 and anchored top-left so the crop the
-   capture script chose is exactly the crop you see. `image-rendering:auto`
-   matters: these are photographs of text, and any smoothing setting that tries
-   to be clever makes small type worse. */
-.fgroup__shot{display:block;width:100%;height:100%;object-fit:cover;object-position:left top}
-.fgroup__mock--shot{background:var(--s-0)}
-.mock rect,.mock circle,.mock polyline,.mock path{vector-effect:non-scaling-stroke}
-.mk-pane,.mk-col,.mk-kpi,.mk-phone{fill:hsl(222 42% 14% / .8);stroke:var(--border-2);stroke-width:1}
-.mk-bar,.mk-hdr{fill:hsl(222 40% 20% / .8);stroke:none}
-.mk-hdr{fill:hsl(220 30% 55% / .5)}
-.mk-tab{fill:hsl(220 30% 60% / .35)}
-.mk-tab--on{fill:var(--blue-2)}
-.mk-line{fill:hsl(220 28% 72% / .55)}
-.mk-line--dim{fill:hsl(220 25% 62% / .28)}
-.mk-accent{fill:var(--blue-2)}
-.mk-ok{fill:var(--green)}
-.mk-dot{fill:hsl(220 20% 55% / .5)}
-.mk-caret{fill:var(--teal)}
-.mk-card{fill:hsl(222 38% 20% / .85);stroke:var(--border);stroke-width:1}
-.mk-card--work{fill:hsl(225 70% 40% / .4);stroke:hsl(225 80% 66% / .5)}
-.mk-card--review{fill:hsl(43 70% 40% / .32);stroke:hsl(43 85% 62% / .45)}
-.mk-avatar{fill:var(--blue-2)}
-.mk-avatar--ok{fill:var(--amber)}
-.mk-spark{fill:none;stroke:var(--teal);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.mk-spark-dot{fill:var(--teal)}
-.mk-arc{fill:none;stroke:var(--blue-2);stroke-width:1.6;stroke-dasharray:3 4;stroke-linecap:round;opacity:.75}
-.mk-key{fill:none;stroke:var(--violet);stroke-width:2}
-.mk-keyshaft{stroke:var(--violet);stroke-width:2;stroke-linecap:round;fill:none}
-.mk-keyhole{fill:var(--violet);opacity:.55}
-
-.fgroup__head{display:flex;gap:14px;align-items:flex-start;margin-bottom:18px}
-.fgroup__head .card__icon{margin-bottom:0;flex:none;width:40px;height:40px}
-.fgroup__head h3{display:flex;align-items:center;gap:8px;font-size:1.16rem;letter-spacing:-.02em;margin-bottom:3px}
-.fgroup__head p{color:var(--text-faint);font-size:.86rem;line-height:1.45}
-.flist{list-style:none;display:grid;gap:10px}
-.flist li{position:relative;padding-left:16px;color:var(--text-dim);font-size:.895rem;line-height:1.55}
-.flist li::before{content:"";position:absolute;left:0;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--border-2)}
+/* ───────── feature map — six alternating rows ─────────
+   Six identical cards, each opening with a 170px-tall crop of the product, is
+   what "sembrano tagli di screenshot" was describing: at that height a whole
+   pane cannot be shown, so every image was a slice that ended mid-row. The
+   rows below give each feature a full-width photograph of a WHOLE thing — a
+   window, or one pane with its own corners — sitting next to its own list,
+   alternating sides so the eye has a reason to keep going down the page. */
+.fmap{display:flex;flex-direction:column}
+.fitem{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);
+  gap:clamp(32px,4vw,64px);align-items:center;padding:66px 0;border-top:1px solid var(--border)}
+.fitem:first-child{border-top:0;padding-top:16px}
+/* Alternate: the picture starts left, then right, then left. Grid `order` on
+   the figure alone keeps the DOM in reading order (picture, then its list),
+   which is also the order it collapses to on a phone. */
+.fitem:nth-child(even) .fitem__shot{order:2}
+.fitem__shot{margin:0;min-width:0}
+.fitem__shot--phone,.fitem__shot--narrow{display:flex;flex-direction:column;align-items:center}
+/* The image is the frame. These are shot with the app's floating-splits mode
+   on, so each subject already carries its own rounded corners and a strip of
+   backdrop — wrapping that in a second fake window chrome would be two frames
+   around one picture. */
+.shot{display:block;width:100%;height:auto;border-radius:16px;
+  border:1px solid var(--border);background:var(--s-0);
+  box-shadow:var(--edge),0 30px 64px -34px hsl(226 70% 3% / .95)}
+.shot--phone{max-width:272px;border-radius:26px}
+.shot--narrow{max-width:340px}
+.fitem figcaption{margin-top:15px;color:var(--text-faint);font-size:.815rem;line-height:1.55;max-width:52ch}
+.fitem__shot--phone figcaption,.fitem__shot--narrow figcaption{text-align:center}
+.fitem__body{min-width:0}
+.fitem__kicker{display:flex;align-items:center;gap:11px;margin-bottom:15px;
+  font-family:var(--mono);font-size:.73rem;letter-spacing:.15em;text-transform:uppercase;color:var(--blue-2)}
+.fitem__n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;
+  font-size:.7rem;letter-spacing:0;color:var(--text);background:var(--s-3);box-shadow:var(--edge),var(--lip)}
+.fitem h3{font-family:var(--display);font-weight:var(--display-weight);letter-spacing:var(--display-tracking);
+  font-size:clamp(1.45rem,1.5vw + .95rem,2.05rem);line-height:1.14;margin-bottom:20px}
+.flist{list-style:none;display:grid;gap:11px}
+.flist li{position:relative;padding-left:16px;color:var(--text-dim);font-size:.915rem;line-height:1.6}
+.flist li::before{content:"";position:absolute;left:0;top:.66em;width:5px;height:5px;border-radius:50%;background:var(--border-2)}
 .flist b{color:var(--text);font-weight:560}
 .flist code{font-family:var(--mono);font-size:.84em;padding:0 4px;border-radius:4px;background:hsl(225 60% 60% / .12);white-space:nowrap}
-.fgroup--pro{border-color:hsl(187 70% 55% / .28)}
-.fgroup__note{margin-top:16px;padding-top:14px;border-top:1px solid var(--border);color:var(--text-faint);font-size:.82rem;line-height:1.5}
-.fgroup__note a{color:var(--blue-2);text-decoration:underline;text-underline-offset:2px}
+.fitem__note{margin-top:20px;padding-top:15px;border-top:1px solid var(--border);color:var(--text-faint);font-size:.83rem;line-height:1.55}
+.fitem__note a{color:var(--blue-2);text-decoration:underline;text-underline-offset:2px}
 .tag{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:5px;vertical-align:middle}
 .tag--pro{color:var(--teal);background:hsl(187 80% 55% / .15);border:1px solid hsl(187 70% 55% / .3)}
 .tag--team{color:var(--violet);background:hsl(258 80% 68% / .15);border:1px solid hsl(258 70% 68% / .3)}
@@ -583,14 +593,14 @@ body.demo-expanded .expand{opacity:1}
    component rules so it wins on box-shadow without hunting through six
    selectors, and so adding a seventh card later is one selector, not a
    copied gradient. */
-.card,.dl-card,.chapter,.flow__step,.fgroup,.plan,.claim,.wedge__card{
+.card,.dl-card,.chapter,.flow__step,.plan,.claim,.wedge__card{
   box-shadow:var(--edge),var(--lip),var(--shadow-card);
   /* Removing backdrop-filter took away the stacking context these relied on:
      without it `.card::after{z-index:-1}` escapes BEHIND the page background
      and the dot texture inside the card disappears. */
   isolation:isolate;
 }
-.card:hover,.dl-card:hover,.fgroup:hover,.chapter:hover{
+.card:hover,.dl-card:hover,.chapter:hover{
   background:var(--s-3);
   box-shadow:var(--edge),var(--lip),var(--shadow-lift);
 }
@@ -600,10 +610,6 @@ body.demo-expanded .expand{opacity:1}
 /* A plan we cannot sell yet should not shout louder than the one you can use. */
 .plan--soon .plan__amount{color:var(--text-dim)}
 .plan__badge--quiet{background:var(--s-4);color:var(--text-dim);box-shadow:var(--edge-soft)}
-
-/* The mock is a window cut INTO the card, not a tile floating on it: it used to
-   sit +1.8 L* above its own container, which reads as a sticker. */
-.fgroup__mock{background:var(--s-1);box-shadow:inset 0 1px 3px hsl(226 60% 2% / .6),var(--edge-soft)}
 
 /* ── Type/backdrop lab (only rendered behind ?lab=1) ───────────────────── */
 .lab{position:fixed;right:16px;bottom:16px;z-index:1000;width:250px;padding:14px;
@@ -627,11 +633,17 @@ body.demo-expanded .expand{opacity:1}
   .chapters{grid-template-columns:repeat(2,1fr)}
   .flow{grid-template-columns:1fr 1fr}
   .flow__step:nth-child(2)::after{display:none}
-  .claims,.fmap,.plans{grid-template-columns:1fr 1fr}
+  .claims,.plans{grid-template-columns:1fr 1fr}
   .more__grid{grid-template-columns:1fr 1fr}
 }
 @media (max-width:900px){
   .nav__links{display:none}
+  /* One column: the alternation only means something when the two halves sit
+     side by side. Picture first every time — it is the reason to read the list. */
+  .fitem{grid-template-columns:1fr;gap:28px;padding:48px 0}
+  .fitem:nth-child(even) .fitem__shot{order:0}
+  .fitem__shot{max-width:640px}
+  .fitem figcaption{max-width:none}
   .bento,.dl-grid{grid-template-columns:1fr 1fr}
   /* 3 wide + 3 normal cards (9 col-units) can't tile a 2-col grid — drop the
      wide spans so the six cards make a clean 3×2. */
@@ -647,8 +659,7 @@ body.demo-expanded .expand{opacity:1}
      between the frame and the next section. */
   .chapters{grid-template-columns:1fr 1fr;gap:8px}
   .chapter__hint{display:none}          /* the name alone carries it on a phone */
-  .fgroup__mock{height:82px}.mock{height:82px}
-  .flow,.claims,.fmap,.plans,.pricing__faq,.more__grid{grid-template-columns:1fr}
+  .flow,.claims,.plans,.pricing__faq,.more__grid{grid-template-columns:1fr}
   .flow__step::after{display:none}
   /* A 16:9 stage on a phone is a letterbox of unreadable UI. Give it height and
      render the app at a smaller logical viewport so text stays legible. */
