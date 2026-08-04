@@ -79,6 +79,34 @@ describe('projectGridWeights change notifications (auto-rebalance trigger)', () 
     await flush();
   });
 
+  test('clear + re-publish of the SAME weight in one tick is silent (inner resize)', async () => {
+    // What every re-run of ProjectWindow's publish effect looks like from here:
+    // cleanup clears, body sets it straight back. Dragging a divider inside a
+    // project window did exactly this (a new `rows` array, same shape), and the
+    // clear's notification made PanelGrid rebalance the OUTER grid to an equal
+    // split — so resizing one project's split threw away the whole grid's row
+    // heights. Netting the batch against the settled registry is what keeps a
+    // no-op silent; a remount and StrictMode's double-invoke are the same shape.
+    const p = '/tmp/notify-clear-reset';
+    setProjectGridWeight(p, { cols: 2, rows: 1 });
+    await flush();
+    const seen: Array<ReadonlySet<string>> = [];
+    const unsub = subscribeProjectGridWeights((c) => seen.push(c));
+    clearProjectGridWeight(p);
+    setProjectGridWeight(p, { cols: 2, rows: 1 }); // same extent, new rows array
+    await flush();
+    expect(seen).toHaveLength(0);
+    // A clear followed by a genuinely different weight is still a change.
+    clearProjectGridWeight(p);
+    setProjectGridWeight(p, { cols: 3, rows: 1 });
+    await flush();
+    expect(seen).toHaveLength(1);
+    expect([...seen[0]]).toContain(p);
+    unsub();
+    clearProjectGridWeight(p);
+    await flush();
+  });
+
   test('clearing an existing entry notifies (tab swap); clearing a missing one does not', async () => {
     const p = '/tmp/notify-clear';
     setProjectGridWeight(p, { cols: 1, rows: 1 });
