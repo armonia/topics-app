@@ -779,6 +779,32 @@ const taskDispatcher = createTaskDispatcher({
     return ready.id;
   },
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
+  // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
+  // cancellare il branch di un tentativo rimesso in coda che pero' aveva gia'
+  // committato (turno troncato dall'infrastruttura dopo il commit: il task
+  // torna in `todo`/`backlog` e il cleanup portava via anche i commit).
+  //
+  // Due domande, entrambe: commit non su main (letti per CONTENUTO, quindi
+  // reggono anche a un land in squash) e sporco reale nell'albero (junk
+  // escluso). In caso di dubbio si risponde SI': non sapere non autorizza a
+  // distruggere.
+  worktreeHasWork: async (worktreeId) => {
+    const wt = ctx.worktreeStore.get(worktreeId);
+    if (!wt) return false;               // riga sparita: non c'e' nulla da tutelare
+    if (wt.mode !== "branch") return false; // niente branch proprio, niente commit da perdere
+    try {
+      if (wt.absPath && existsSync(wt.absPath)) {
+        const dirt = await worktreeRealDirt(wt.absPath);
+        if (dirt.length > 0) return true;
+      }
+      if (!wt.branchName) return false;
+      const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+      if (!repoPath) return true;        // non so leggere il repo -> tutelo
+      return (await branchStatusFromRepo(repoPath, wt.branchName)) === "unmerged";
+    } catch {
+      return true;
+    }
+  },
   runTurn: runHeadlessTurn,
   // ai-bridge restart recovery: the provider answers whether a turn survived in
   // the broker (returns false when the flag is off / provider lacks it), and
