@@ -131,6 +131,11 @@ function loadMathMods(): Promise<MathMods> {
       rehype: rehypeKatex.default,
     };
     return mathModsCache;
+  }).catch((err) => {
+    // Drop the rejected promise so a transient chunk failure is retried by the
+    // next message rather than poisoning the cache for the rest of the session.
+    mathModsPromise = null;
+    throw err;
   });
   return mathModsPromise;
 }
@@ -144,7 +149,13 @@ export function ChatMarkdown({ components, children }: { components: Components;
   useEffect(() => {
     if (!needsMath || mathMods) return;
     let alive = true;
-    loadMathMods().then((mods) => { if (alive) setMathMods(mods); });
+    // The catch is not decoration: these are three lazy chunks over the network,
+    // and a failed chunk load rejects. Without it the rejection is unhandled and
+    // the message renders nothing rather than falling back to its own source —
+    // which for a maths block is still perfectly readable text.
+    loadMathMods()
+      .then((mods) => { if (alive) setMathMods(mods); })
+      .catch(() => { /* keep the plain remark pipeline; `$$…$$` stays literal */ });
     return () => { alive = false; };
   }, [needsMath, mathMods]);
 

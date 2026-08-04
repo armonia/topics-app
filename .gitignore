@@ -42,9 +42,19 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Runtime data
-data/
-memory/
+# Runtime data.
+#
+# These were bare `data/` and `memory/`, and a bare pattern matches a directory
+# of that name at ANY depth. That is fine while every `data` in the tree is
+# runtime state, and a landmine the moment one is not: `landing/src/data/`
+# builds locally, because the file is on disk, and is missing from the clone CI
+# checks out. The failure lands nowhere near the cause.
+#
+# Anchored to the paths that really hold runtime state. `.claude/` and
+# `test-results/` are already ignored wholesale, so their copies are covered.
+/data/
+tests/e2e/data/
+/memory/
 .state/
 .backups/
 .browser-cookies/

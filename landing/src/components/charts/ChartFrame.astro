@@ -44,11 +44,12 @@ const { title, subtitle, summary, source, columns, rows } = Astro.props;
 </figure>
 
 <style>
-  /* One hue per entity, never per rank. The two series slots are the validated
-     dark steps of the reference palette (blue #3987e5, orange #d95926): checked
-     against this page's surface with the palette validator — lightness band,
-     chroma floor, CVD separation ΔE 26.8, normal-vision ΔE 31.8, contrast ≥3:1,
-     all pass. Text never wears them. */
+  /* One hue per entity, never per rank. Blue #3987e5 and orange #d95926, both
+     at L 62.2, run through the palette validator: lightness band, chroma floor,
+     CVD separation ΔE 26.8 (protan), normal-vision ΔE 31.8, all pass. They were
+     picked against the dark page and re-measured when it became paper — 3.45:1
+     and 3.69:1 on #faf9f5, so both clear the 3:1 floor for a mark and neither
+     had to move. Text never wears them. */
   .viz {
     --s1: #3987e5;
     --s2: #d95926;
