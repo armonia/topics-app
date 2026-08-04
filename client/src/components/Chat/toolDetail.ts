@@ -142,6 +142,36 @@ export function deriveToolDetail(
     }
   }
 
+  // TaskCreate / TaskUpdate — la CLI 2.1.220 ha affiancato al vecchio
+  // `TodoWrite` (che portava l'INTERA lista in un colpo) due tool che agiscono
+  // su UN task per volta. Senza questi case la todo non veniva riconosciuta e
+  // cadeva nella card generica: JSON grezzo a schermo al posto della TodoCard.
+  //
+  // Si mappano sulla stessa forma `todo` con una voce sola — la card esiste già
+  // e sa renderla, non serve un tipo nuovo.
+  //
+  // Ma NON sempre: una `TaskUpdate` che porta solo `{taskId, status}` non ha un
+  // testo da mostrare, e una voce con etichetta vuota è PEGGIO della card
+  // generica (una riga di todo senza todo). In quel caso si lascia passare
+  // invece di fingere. Stessa scelta per `status: "deleted"`, che non è uno
+  // stato di avanzamento: mapparlo su "completed" direbbe una cosa falsa.
+  if (c === 'taskcreate' || c === 'task_create' || c === 'taskupdate' || c === 'task_update') {
+    const content = s(a.subject);
+    const rawStatus = s(a.status);
+    const known = rawStatus === 'in_progress' || rawStatus === 'completed' || rawStatus === 'pending';
+    if (content && (rawStatus === undefined || known)) {
+      return {
+        type: 'todo',
+        items: [{
+          content,
+          // Un task nasce sempre `pending`: TaskCreate non porta uno status.
+          status: (known ? rawStatus : 'pending') as 'pending' | 'in_progress' | 'completed',
+          ...(s(a.activeForm) ? { activeForm: s(a.activeForm)! } : {}),
+        }],
+      };
+    }
+  }
+
   if (c === 'exitplanmode' || c === 'exit_plan_mode') {
     return { type: 'plan', text: s(a.plan) ?? s(a.text) ?? '' };
   }
