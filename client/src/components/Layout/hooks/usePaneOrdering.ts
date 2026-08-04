@@ -25,7 +25,7 @@ import {
   getBrowserContextFromPaneId,
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
-import { findPreviewInList, replaceInList, consumeTabRestored } from '../../../lib/previewTabs';
+import { replaceInList, consumeTabRestored } from '../../../lib/previewTabs';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
@@ -233,6 +233,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     return s;
   }, [pinnedIds, validatedOrderedIds]);
   // eslint-disable-next-line react-hooks/refs -- useRef only reads this initial value on the first render to seed the mirror ref; subsequent syncs happen in the effect below (the value is ref-derived via the contents-equality cache, hence the transitive flag)
+  /** La tab che QUESTA sessione ha aperto come anteprima — l'unica che una
+   *  apertura singola può sostituire. Vive solo in memoria di proposito:
+   *  «essere l'anteprima» è un fatto di questa finestra e di questo momento, non
+   *  qualcosa che si eredita da uno snapshot del server. */
+  const previewPaneIdRef = useRef<string | null>(null);
   const pinnedIdsRef = useRef(effectivePinnedIds);
   useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
 
@@ -277,11 +282,40 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       const added = topicIds.filter(id => !prev.includes(id));
 
       if (wasAdded && added.length === 1 && !isRestore) {
-        const previewId = findPreviewInList(existing, pinnedIdsRef.current, added[0]);
+        // QUALE tab viene sostituita: quella che QUESTA sessione ha aperto come
+        // anteprima, non «la prima non fissata».
+        //
+        // `findPreviewInList` prendeva la prima non fissata, e l'insieme delle
+        // fissate arriva da `loadPanelOrder()`, che restituisce `pinned: []`
+        // SEMPRE — su ogni dispositivo, a ogni mount. Con l'insieme vuoto ogni
+        // tab è un'anteprima, quindi la candidata era semplicemente la PRIMA
+        // della lista: una chat ripristinata dal server, che nessuno aveva
+        // aperto come anteprima.
+        //
+        // E sostituire non è nascondere: chiude la pane, e nel modello a due
+        // stati chiudere una chat la ARCHIVIA — per tutti i dispositivi. Aprire
+        // una chat ne archiviava un'altra.
+        //
+        // Ricordare l'id invece di dedurlo toglie il problema alla radice, e non
+        // passa dal flag `preview` della pane — che per le chat standalone è
+        // DERIVATO dall'insieme delle fissate, quindi leggerlo per decidere
+        // sarebbe circolare (provato: rompe le tab in corsivo).
+        //
+        // Al mount non c'è nessuna anteprima ricordata: la prima apertura
+        // singola si limita ad aggiungere e DIVENTA l'anteprima. È la differenza
+        // fra «non so quale sia» e «è la prima che capita».
+        const remembered = previewPaneIdRef.current;
+        const previewId = remembered && existing.includes(remembered) && remembered !== added[0]
+          && !pinnedIdsRef.current.has(remembered)
+          ? remembered
+          : null;
         if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId) && !isDraftPaneId(previewId)) {
           pendingCloseRef.current = previewId;
+          previewPaneIdRef.current = added[0];
           return replaceInList(existing, previewId, added[0]);
         }
+        // Nessuna anteprima da sostituire: la nuova tab lo diventa.
+        previewPaneIdRef.current = added[0];
       }
 
       // A single-tab RESTORE (undo of a close) must return to its ORIGINAL slot,
