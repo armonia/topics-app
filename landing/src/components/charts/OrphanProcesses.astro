@@ -1,0 +1,46 @@
+---
+/**
+ * Sixty-five squares, one per process. A unit chart rather than a stat tile
+ * because the ratio is the point and it is legible at a glance: four of these
+ * were doing something and sixty-one were not.
+ */
+import ChartFrame from './ChartFrame.astro';
+
+const TOTAL = 65, IDLE = 61;
+const COLS = 13, CELL = 20, GAP = 4;
+const W = COLS * CELL + (COLS - 1) * GAP;
+const ROWS = Math.ceil(TOTAL / COLS);
+const H = ROWS * CELL + (ROWS - 1) * GAP;
+const cells = Array.from({ length: TOTAL }, (_, i) => i);
+---
+
+<ChartFrame
+  title="Sixty-five WebContent processes, and what they were doing"
+  subtitle="Each square is one process. Filled squares used no CPU at all over twelve seconds."
+  summary="Unit chart of 65 WebContent processes. 61 of them used zero CPU time over a twelve-second sample; 4 were active. The 61 idle ones held 11.7 GB."
+  source="Measured 29 July 2026 after eighteen hours of use. Attribution with lsof, memory with footprint -p, liveness from the delta of ps -o time= over twelve seconds. RSS was useless here: it reported 4 MB for processes actually holding 171 to 272 MB, and one holding 5 GB."
+  columns={['State', 'Processes', 'Memory']}
+  rows={[['No CPU in 12 s', 61, '11.7 GB'], ['Active', 4, 'the rest of the 14 GB'], ['Total', 65, '14 GB']]}
+>
+  <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMinYMin meet">
+    {cells.map((i) => {
+      const idle = i < IDLE;
+      return (
+        <g>
+          <rect
+            x={(i % COLS) * (CELL + GAP)} y={Math.floor(i / COLS) * (CELL + GAP)}
+            width={CELL} height={CELL} rx="4"
+            fill={idle ? 'var(--s2)' : 'var(--s1)'}
+            opacity={idle ? 0.9 : 1}
+          />
+          <title>{idle ? 'No CPU time in the twelve-second sample' : 'Active'}</title>
+        </g>
+      );
+    })}
+  </svg>
+
+  <div class="viz-legend">
+    <span><i style="background:var(--s2)"></i>61 using no CPU</span>
+    <span><i style="background:var(--s1)"></i>4 active</span>
+  </div>
+</ChartFrame>

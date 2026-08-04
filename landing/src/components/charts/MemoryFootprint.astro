@@ -1,0 +1,62 @@
+---
+/**
+ * Shell against shell. The comparison people quote is 627 against 117, and it is
+ * the wrong one: 627 is the whole application (Electron shell + the Bun server +
+ * the PTY bridge) while 117 is the Tauri shell alone. The server and the bridge
+ * did not go anywhere. What actually changed is the shell, so the shell is what
+ * this chart plots.
+ */
+import ChartFrame from './ChartFrame.astro';
+
+const data = [
+  { label: 'Tauri, after Tier 1', value: 90, series: 1, note: '54 app + 11 GPU + 10 net + 15 WebContent' },
+  { label: 'Tauri, first spike', value: 117, series: 1, note: '79 main + 14 GPU + 8 net + 16 WebContent' },
+  { label: 'Electron, clean', value: 221, series: 2, note: 'no browser pane open' },
+  { label: 'Electron, browser pane open', value: 926, series: 2, note: 'the case the product is for' },
+];
+
+const W = 640, ROW = 46, PAD_L = 0, PAD_T = 4;
+const H = data.length * ROW + 26;
+const max = 1000;                       // clean ceiling above the 926
+const BAR_W = W - 120;                  // room for the value at the tip
+const x = (v: number) => (v / max) * BAR_W;
+const ticks = [0, 250, 500, 750, 1000];
+---
+
+<ChartFrame
+  title="Resident memory, shell against shell"
+  subtitle="The server and the PTY bridge are the same in both, so they are not in the picture."
+  summary="Horizontal bar chart of resident memory. Tauri after Tier 1: 90 MB. Tauri first spike: 117 MB. Electron clean: 221 MB. Electron with a browser pane open: 926 MB."
+  source="Measured 25 June 2026 on one machine, one session each, with the same project open. RSS for Tauri is an upper bound because the WebKit framework is shared with the system."
+  columns={['Shell', 'MB', 'Breakdown']}
+  rows={data.map((d) => [d.label, d.value, d.note])}
+>
+  <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMinYMin meet">
+    {ticks.map((t) => (
+      <g>
+        <line class="v-axis" x1={x(t)} y1={PAD_T} x2={x(t)} y2={data.length * ROW} />
+        <text x={x(t)} y={H - 6} text-anchor={t === 0 ? 'start' : 'middle'} font-size="12">{t === 0 ? '0' : t === max ? `${t} MB` : t}</text>
+      </g>
+    ))}
+
+    {data.map((d, i) => {
+      const y = PAD_T + i * ROW;
+      return (
+        <g>
+          <text x="0" y={y + 14}>{d.label}</text>
+          {/* 4px rounded data-end, square at the baseline: the rect is drawn
+              square and a path caps the tip, so the bar grows from one origin. */}
+          <rect class={d.series === 1 ? 'v-s1' : 'v-s2'} x="0" y={y + 21} width={Math.max(x(d.value), 5)} height="14" rx="4" />
+          <rect class={d.series === 1 ? 'v-s1' : 'v-s2'} x="0" y={y + 21} width="5" height="14" />
+          <text class="v-val" x={x(d.value) + 10} y={y + 32}>{d.value}</text>
+          <title>{d.label}: {d.value} MB ({d.note})</title>
+        </g>
+      );
+    })}
+  </svg>
+
+  <div class="viz-legend">
+    <span><i style="background:var(--s1)"></i>Tauri</span>
+    <span><i style="background:var(--s2)"></i>Electron</span>
+  </div>
+</ChartFrame>

@@ -1,0 +1,86 @@
+---
+/**
+ * The shell every chart shares: title, subtitle, the SVG slot, a source line and
+ * a table view behind a disclosure.
+ *
+ * The table is not decoration. A chart that only exists as marks gates its own
+ * data behind eyesight and colour vision, and these charts carry the numbers
+ * the articles are about — so every one of them ships the numbers as text too.
+ * It is also what makes them quotable by something that cannot see.
+ */
+export interface Props {
+  title: string;
+  subtitle?: string;
+  /** Read out to screen readers in place of the marks. */
+  summary: string;
+  source?: string;
+  /** Column headers for the table view. */
+  columns: string[];
+  /** Rows for the table view, already formatted. */
+  rows: (string | number)[][];
+}
+const { title, subtitle, summary, source, columns, rows } = Astro.props;
+---
+
+<figure class="viz">
+  <figcaption class="viz__head">
+    <span class="viz__title">{title}</span>
+    {subtitle && <span class="viz__sub">{subtitle}</span>}
+  </figcaption>
+
+  <div class="viz__plot" role="img" aria-label={summary}>
+    <slot />
+  </div>
+
+  {source && <p class="viz__source">{source}</p>}
+
+  <details class="viz__data">
+    <summary>The numbers</summary>
+    <table>
+      <thead><tr>{columns.map((c) => <th>{c}</th>)}</tr></thead>
+      <tbody>{rows.map((r) => <tr>{r.map((cell, i) => i === 0 ? <th scope="row">{cell}</th> : <td>{cell}</td>)}</tr>)}</tbody>
+    </table>
+  </details>
+</figure>
+
+<style>
+  /* One hue per entity, never per rank. The two series slots are the validated
+     dark steps of the reference palette (blue #3987e5, orange #d95926): checked
+     against this page's surface with the palette validator — lightness band,
+     chroma floor, CVD separation ΔE 26.8, normal-vision ΔE 31.8, contrast ≥3:1,
+     all pass. Text never wears them. */
+  .viz {
+    --s1: #3987e5;
+    --s2: #d95926;
+    --viz-grid: color-mix(in oklab, var(--ink) 14%, transparent);
+    margin-block: 40px;
+  }
+  .viz__head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 18px; }
+  .viz__title { font-size: 17px; font-weight: 600; color: var(--ink); line-height: 1.35; }
+  .viz__sub { font-size: 15px; color: var(--ink-mute); line-height: 1.45; }
+  .viz__plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .viz__source { font-size: 14px; line-height: 21px; color: var(--ink-faint); margin-block-start: 14px; }
+  .viz__data { margin-block-start: 12px; font-size: 15px; }
+  .viz__data summary { cursor: pointer; color: var(--ink-mute); font-family: var(--mono); font-size: 13px; }
+  .viz__data table { width: 100%; margin-block-start: 12px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .viz__data th, .viz__data td { text-align: left; padding: 7px 14px 7px 0; border-bottom: 1px solid var(--rule); font-size: 15px; }
+  .viz__data thead th { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-mute); }
+  .viz__data td { color: var(--ink-mute); }
+</style>
+
+<style is:global>
+  /* Shared mark specs, so four charts cannot drift apart. Bars cap at 24px and
+     never fill their band: the leftover is the gap that separates them, rather
+     than a stroke, which would add ink that is not data. */
+  .viz svg text { font-family: var(--font); fill: var(--ink-mute); font-size: 13px; }
+  .viz svg .v-val { fill: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .viz svg .v-axis { stroke: var(--viz-grid); stroke-width: 1; }
+  .viz svg .v-rule { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 3 3; }
+  .viz svg .v-s1 { fill: var(--s1); }
+  .viz svg .v-s2 { fill: var(--s2); }
+  .viz svg .v-line1 { stroke: var(--s1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .viz svg .v-line2 { stroke: var(--s2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .viz-legend { display: flex; gap: 20px; margin-block-start: 14px; font-size: 14px; color: var(--ink-mute); }
+  .viz-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .viz-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+</style>
