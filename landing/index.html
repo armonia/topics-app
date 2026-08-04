@@ -60,6 +60,7 @@
       <symbol id="ic-collapse" viewBox="0 0 24 24"><path d="M4.6 9.4h4.8V4.6M19.4 9.4h-4.8V4.6M4.6 14.6h4.8v4.8M19.4 14.6h-4.8v4.8"/></symbol>
       <symbol id="ic-float" viewBox="0 0 24 24"><rect x="3" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="3" y="12.6" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="12.6" width="8.4" height="7" rx="1.8"/></symbol>
       <symbol id="ic-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.4 5.8v12.4L18 12z"/></symbol>
+      <symbol id="ic-cursor" viewBox="0 0 24 24"><path d="M5.4 3.6l13.2 6.9-5.7 1.5-1.5 5.7z"/><path d="M13.4 13.6l4.6 5.3"/></symbol>
       <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3.6v11.8M8.2 11.6L12 15.4l3.8-3.8M5 20h14"/></symbol>
       <symbol id="ic-star" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .6l3.668 7.43 8.2 1.193-5.934 5.784 1.401 8.168L12 18.9l-7.335 3.866 1.401-8.168L.132 9.223l8.2-1.193z"/></symbol>
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
@@ -151,6 +152,14 @@
           <iframe class="window-real" id="demoFrame" src="./app/index.html"
                   title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."
                   loading="lazy"></iframe>
+          <!-- The wheel guard. Without it, passing the mouse over the demo on
+               the way down the page hands your scroll to the app inside and the
+               page stops moving. One click hands the demo over for real; it
+               comes back as soon as the pointer leaves. -->
+          <button class="shield" id="demoShield" type="button"
+                  aria-label="Take control of the demo">
+            <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
+          </button>
           <!-- Expanding only adds a class to <body>. Moving the iframe in the
                DOM would re-create it, which reloads the app and throws away the
                session the tour is in the middle of. -->
@@ -286,8 +295,13 @@
       </div>
     </section>
 
-    <!-- FEATURES — every card carries a purpose-built mock of the thing it
-         describes, drawn as inline SVG so it scales and follows the theme. -->
+    <!-- FEATURES — six rows, alternating, each one a photograph of the real app
+         next to what it does. The images are shot by scripts/landing-shots.mjs
+         from the same build the demo above runs, and every one of them is a
+         WHOLE thing: a window, or one pane with its tab bar and its own corners.
+         The version before this cut 650×340 rectangles out of the middle of the
+         UI and dropped them into six identical cards, which is how you get six
+         pictures that all end mid-word. -->
     <section class="features" id="features">
       <header class="section-head reveal">
         <span class="eyebrow">one window, every surface</span>
@@ -296,136 +310,124 @@
       </header>
 
       <div class="fmap">
-        <article class="fgroup reveal">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/organize.png" width="629" height="336" loading="lazy"
-                 alt="The sidebar: a topic holding three projects, one expanded to its running Claude Code session." />
+        <article class="fitem reveal">
+          <figure class="fitem__shot">
+            <img class="shot" src="./img/organize.webp" width="1984" height="1248" loading="lazy"
+                 alt="The Topics window: three projects open at once — acme-web across the top with two Claude Code sessions and a preview, acme-api and acme-mobile sharing the row below." />
+            <figcaption>Three projects open at once. The sidebar lists what is running in each, and the layout is yours to drag.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">01</span> Organize</p>
+            <h3>Structure that survives a restart, and a second machine.</h3>
+            <ul class="flist">
+              <li><b>Topics, not tabs.</b> Group sessions by project or intent. Each one keeps its terminal, files and conversation.</li>
+              <li><b>Projects side by side.</b> Several whole projects open at once in a grid you can resize.</li>
+              <li><b>Spaces and splits.</b> Split any pane, drag tabs between groups, tear one off into its own window.</li>
+              <li><b>Layout that persists.</b> Panes, splits and tabs come back the way you left them.</li>
+              <li><b>Tab sync across devices.</b> Open the workspace on another machine and find it in the same shape.</li>
+              <li><b>Command palette.</b> Everything reachable from the keyboard, including reopening the tab you just closed.</li>
+            </ul>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-blue"><svg class="ic"><use href="#ic-topics"/></svg></div>
-            <div>
-              <h3>Organize</h3>
-              <p>Structure that survives a restart, and a second machine.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>Topics, not tabs.</b> Group sessions by project or intent. Each one keeps its terminal, files and conversation.</li>
-            <li><b>Projects side by side.</b> Several whole projects open at once in a grid you can resize.</li>
-            <li><b>Spaces and splits.</b> Split any pane, drag tabs between groups, tear one off into its own window.</li>
-            <li><b>Layout that persists.</b> Panes, splits and tabs come back the way you left them.</li>
-            <li><b>Tab sync across devices.</b> Open the workspace on another machine and find it in the same shape.</li>
-            <li><b>Command palette.</b> Everything reachable from the keyboard, including reopening the tab you just closed.</li>
-          </ul>
         </article>
 
-        <article class="fgroup reveal">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/run.png" width="650" height="340" loading="lazy"
-                 alt="A live Claude Code session in an embedded terminal, mid-task." />
+        <article class="fitem reveal">
+          <figure class="fitem__shot">
+            <img class="shot" src="./img/run.webp" width="1724" height="1268" loading="lazy"
+                 alt="A pane holding a live Claude Code session mid-task, with its tab bar showing the second session next to it." />
+            <figcaption>A Claude Code session in an embedded terminal — the same binary you run in a shell, with its scrollback kept.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">02</span> Run</p>
+            <h3>The agent, the dev server and the page it renders, all in reach.</h3>
+            <ul class="flist">
+              <li><b>Embedded terminals.</b> Claude Code, Codex, OpenCode, Gemini CLI or a plain shell, running where you can watch them.</li>
+              <li><b>Lossless reattach.</b> Reload the app or shut the laptop; the session is still there with its scrollback.</li>
+              <li><b>Browser pane.</b> A real browser per topic for localhost and docs, and for letting an agent drive the page.</li>
+              <li><b>Processes and scripts.</b> Start <code>dev</code> or <code>test</code> from the sidebar and keep their output.</li>
+              <li><b>Git worktrees.</b> An isolated checkout per task, named for you and cleaned up afterwards.</li>
+              <li><b>Cron jobs and webhooks.</b> Work that repeats, and work triggered from outside.</li>
+            </ul>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-teal"><svg class="ic"><use href="#ic-terminal"/></svg></div>
-            <div>
-              <h3>Run</h3>
-              <p>The agent, the dev server and the page it renders, all in reach.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>Embedded terminals.</b> Claude Code, Codex, OpenCode, Gemini CLI or a plain shell, running where you can watch them.</li>
-            <li><b>Lossless reattach.</b> Reload the app or shut the laptop; the session is still there with its scrollback.</li>
-            <li><b>Browser pane.</b> A real browser per topic for localhost and docs, and for letting an agent drive the page.</li>
-            <li><b>Processes and scripts.</b> Start <code>dev</code> or <code>test</code> from the sidebar and keep their output.</li>
-            <li><b>Git worktrees.</b> An isolated checkout per task, named for you and cleaned up afterwards.</li>
-            <li><b>Cron jobs and webhooks.</b> Work that repeats, and work triggered from outside.</li>
-          </ul>
         </article>
 
-        <article class="fgroup reveal">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/see.png" width="650" height="340" loading="lazy"
-                 alt="Dashboard tiles: throughput and token spend for today and this week." />
+        <article class="fitem reveal">
+          <figure class="fitem__shot">
+            <img class="shot" src="./img/see.webp" width="2012" height="1268" loading="lazy"
+                 alt="The dashboard pane: tasks shipped, throughput, token spend, average cycle time and agent utilisation, with a chart underneath." />
+            <figcaption>The dashboard reads your own database — tasks, cycle time and what the tokens actually cost.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">03</span> See</p>
+            <h3>What the agents are doing, and what they are costing you.</h3>
+            <ul class="flist">
+              <li><b>Agent monitoring.</b> Every session's state at a glance, plus a native notification when one finishes or gets stuck on a question.</li>
+              <li><b>Heartbeats and history.</b> A timeline per session, and a viewer to read back what happened.</li>
+              <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
+              <li><b>Dashboard.</b> Throughput, cycle time, token spend, and which agent got through the most work.</li>
+              <li><b>Per-pane resource usage.</b> Which tab is eating your RAM, not just how much the app uses in total.</li>
+              <li><b>Activity feed and journal.</b> A live stream of what happened, and a digest at the end of the day.</li>
+            </ul>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-chart"/></svg></div>
-            <div>
-              <h3>See</h3>
-              <p>What the agents are doing, and what they are costing you.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>Agent monitoring.</b> Every session's state at a glance, plus a native notification when one finishes or gets stuck on a question.</li>
-            <li><b>Heartbeats and history.</b> A timeline per session, and a viewer to read back what happened.</li>
-            <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
-            <li><b>Dashboard.</b> Throughput, cycle time, token spend, and which agent got through the most work.</li>
-            <li><b>Per-pane resource usage.</b> Which tab is eating your RAM, not just how much the app uses in total.</li>
-            <li><b>Activity feed and journal.</b> A live stream of what happened, and a digest at the end of the day.</li>
-          </ul>
         </article>
 
-        <article class="fgroup reveal">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/ship.png" width="650" height="340" loading="lazy"
-                 alt="The board's In Progress column: an agent working on a task in its own worktree." />
+        <article class="fitem reveal">
+          <figure class="fitem__shot">
+            <img class="shot" src="./img/ship.webp" width="2012" height="1268" loading="lazy"
+                 alt="The board pane: Backlog, To do, In progress and Review columns, with an agent working a card in its own worktree." />
+            <figcaption>A card an agent picked up. It works in its own worktree and moves itself to review when it has evidence.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">04</span> Ship</p>
+            <h3>From a card on a board to a commit on main.</h3>
+            <ul class="flist">
+              <li><b>Kanban board.</b> Tasks, subtasks, priorities, tags and dependencies, moved by dragging.</li>
+              <li><b>Agent dispatch.</b> Assign a card to an agent and it starts working, in a worktree of its own.</li>
+              <li><b>Approval gates.</b> Delivery evidence attached to the card, and a reject that sends the agent back with your notes.</li>
+              <li><b>Diff review.</b> Read the change in the app before you accept it.</li>
+              <li><b>Files and editor.</b> Tree, search, syntax highlighting, and git status next to the filenames.</li>
+              <li><b>Land, then publish.</b> Merge locally when you are ready. Pushing stays a separate decision.</li>
+            </ul>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-blue"><svg class="ic"><use href="#ic-board"/></svg></div>
-            <div>
-              <h3>Ship</h3>
-              <p>From a card on a board to a commit on main.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>Kanban board.</b> Tasks, subtasks, priorities, tags and dependencies, moved by dragging.</li>
-            <li><b>Agent dispatch.</b> Assign a card to an agent and it starts working, in a worktree of its own.</li>
-            <li><b>Approval gates.</b> Delivery evidence attached to the card, and a reject that sends the agent back with your notes.</li>
-            <li><b>Diff review.</b> Read the change in the app before you accept it.</li>
-            <li><b>Files and editor.</b> Tree, search, syntax highlighting, and git status next to the filenames.</li>
-            <li><b>Land, then publish.</b> Merge locally when you are ready. Pushing stays a separate decision.</li>
-          </ul>
         </article>
 
-        <article class="fgroup reveal fgroup--pro">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/reach.png" width="650" height="340" loading="lazy"
-                 alt="The agent monitor on a phone-width screen, listing live sessions." />
+        <article class="fitem fitem--pro reveal">
+          <figure class="fitem__shot fitem__shot--phone">
+            <img class="shot shot--phone" src="./img/reach.webp" width="780" height="1688" loading="lazy"
+                 alt="The whole app at phone width, listing the agent sessions running on acme-web." />
+            <figcaption>Not a mock frame: the same client at a 390pt viewport, listing the sessions running at home.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">05</span> Reach</p>
+            <h3>The same workspace, from somewhere that is not your desk.</h3>
+            <ul class="flist">
+              <li><b>Mobile and PWA.</b> Check on a running agent from your phone.</li>
+              <li><b>Remote access.</b> Reach the workspace over a tunnel you run, with your own auth in front of it.</li>
+              <li><b>Remote browser.</b> Watch and drive the agent's browser from another device.</li>
+              <li><b>Cross-device sync.</b> Open the workspace on a second machine and find the same tabs and layout.</li>
+              <li><b>A view of every machine.</b> Which of your machines is online, and what is running on it.</li>
+            </ul>
+            <p class="fitem__note">All of this is in the free app and works with your own tunnel today. What we are building is the hosted version, so you do not have to run the tunnel yourself. <a href="#pricing">See where that stands</a>.</p>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-teal"><svg class="ic"><use href="#ic-cloud"/></svg></div>
-            <div>
-              <h3>Reach</h3>
-              <p>The same workspace, from somewhere that is not your desk.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>Mobile and PWA.</b> Check on a running agent from your phone.</li>
-            <li><b>Remote access.</b> Reach the workspace over a tunnel you run, with your own auth in front of it.</li>
-            <li><b>Remote browser.</b> Watch and drive the agent's browser from another device.</li>
-            <li><b>Cross-device sync.</b> Open the workspace on a second machine and find the same tabs and layout.</li>
-            <li><b>A view of every machine.</b> Which of your machines is online, and what is running on it.</li>
-          </ul>
-          <p class="fgroup__note">All of this is in the free app and works with your own tunnel today. What we are building is the hosted version, so you do not have to run the tunnel yourself. <a href="#pricing">See where that stands</a>.</p>
         </article>
 
-        <article class="fgroup reveal">
-          <div class="fgroup__mock fgroup__mock--shot">
-            <img class="fgroup__shot" src="./img/own.png" width="650" height="340" loading="lazy"
-                 alt="The model picker: Claude, Codex and the other agents you can point it at." />
+        <article class="fitem reveal">
+          <figure class="fitem__shot fitem__shot--narrow">
+            <img class="shot shot--narrow" src="./img/own.webp" width="696" height="824" loading="lazy"
+                 alt="The provider and model picker: Claude Code, Codex and the Anthropic API, each with the models it can run." />
+            <figcaption>Pick the provider per topic. The bill stays between you and them — we never sit in the middle.</figcaption>
+          </figure>
+          <div class="fitem__body">
+            <p class="fitem__kicker"><span class="fitem__n">06</span> Own</p>
+            <h3>Your machine, your account, your data.</h3>
+            <ul class="flist">
+              <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
+              <li><b>Local first.</b> Conversations and project data sit on your disk.</li>
+              <li><b>No telemetry.</b> Nothing phones home.</li>
+              <li><b>Your key or your subscription.</b> Point it at an Anthropic or OpenAI API key, or run the CLI you already sign in to and keep using the plan you pay for.</li>
+              <li><b>MCP built in.</b> The same tools your agents already use.</li>
+              <li><b>A native shell.</b> A small desktop app, not a browser wearing a costume.</li>
+            </ul>
           </div>
-          <header class="fgroup__head">
-            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-key"/></svg></div>
-            <div>
-              <h3>Own</h3>
-              <p>Your machine, your account, your data.</p>
-            </div>
-          </header>
-          <ul class="flist">
-            <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
-            <li><b>Local first.</b> Conversations and project data sit on your disk.</li>
-            <li><b>No telemetry.</b> Nothing phones home.</li>
-            <li><b>Your key or your subscription.</b> Point it at an Anthropic or OpenAI API key, or run the CLI you already sign in to and keep using the plan you pay for.</li>
-            <li><b>MCP built in.</b> The same tools your agents already use.</li>
-            <li><b>A native shell.</b> A small desktop app, not a browser wearing a costume.</li>
-          </ul>
         </article>
       </div>
     </section>

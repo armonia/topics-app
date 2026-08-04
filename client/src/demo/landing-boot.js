@@ -739,8 +739,19 @@
       setTimeout(function () { self._msg(JSON.stringify({
         type: "presence:windows",
         windows: [
+          /* `tabs` is what the sidebar's "Finestre" groups: a window is the
+           * group its tabs belong to, chats and everything else alike. A window
+           * that announces only `topicIds` (an older client) still renders —
+           * `windowTabs()` falls back to them — which is why the second window
+           * here deliberately carries none. */
           { windowId: "w-demo-detached", clientId: "c-demo-2", windowLabel: "detach-acme-auth",
-            detached: true, topicIds: ["t-auth", "t-bugs"] },
+            detached: true, topicIds: ["t-auth", "t-bugs"],
+            tabs: [
+              { id: "t-auth", type: "chat", title: "auth flow" },
+              { id: "t-bugs", type: "chat", title: "bug triage" },
+              { id: "terminal:cc9", type: "terminal", title: "Claude Code" },
+              { id: "browser:c9", type: "browser", title: "localhost:3000" },
+            ] },
           { windowId: "w-demo-main", clientId: "c-demo-3",
             detached: false, topicIds: ["t-ship"] },
         ],
