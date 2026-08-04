@@ -67,3 +67,48 @@ describe('resolveToolDetail — server-built detail survives validation', () => 
     if (d.type === 'monitor') expect(d.description).toBe('errors in deploy.log');
   });
 });
+
+// ── TaskCreate / TaskUpdate (CLI 2.1.220) ──────────────────────────────────
+//
+// Il vecchio `TodoWrite` portava l'intera lista; questi due agiscono su un task
+// per volta. Non riconoscerli faceva cadere la todo nella card generica — JSON
+// grezzo a schermo.
+describe('toolDetail — TaskCreate / TaskUpdate', () => {
+  test('TaskCreate diventa una voce todo `pending`', () => {
+    const d = deriveToolDetail('TaskCreate', { subject: 'Sistemare il parser', description: 'lungo…' });
+    expect(d).toEqual({ type: 'todo', items: [{ content: 'Sistemare il parser', status: 'pending' }] });
+  });
+
+  test('TaskCreate porta activeForm quando c’è (è la riga dello spinner)', () => {
+    const d = deriveToolDetail('TaskCreate', { subject: 'Girare i test', activeForm: 'Girando i test' });
+    expect(d).toMatchObject({ type: 'todo', items: [{ activeForm: 'Girando i test' }] });
+  });
+
+  test('TaskUpdate con subject e status diventa la voce con QUELLO stato', () => {
+    const d = deriveToolDetail('TaskUpdate', { taskId: '1', subject: 'Sistemare il parser', status: 'completed' });
+    expect(d).toEqual({ type: 'todo', items: [{ content: 'Sistemare il parser', status: 'completed' }] });
+  });
+
+  test('TaskUpdate SENZA subject non finge una voce vuota', () => {
+    // È il caso più comune (`{taskId, status}`): una riga di todo senza todo
+    // sarebbe peggio della card generica.
+    const d = deriveToolDetail('TaskUpdate', { taskId: '1', status: 'in_progress' });
+    expect(d?.type).not.toBe('todo');
+  });
+
+  test('status "deleted" non si traveste da completato', () => {
+    // Cancellare non è finire: mapparlo su `completed` direbbe una cosa falsa.
+    const d = deriveToolDetail('TaskUpdate', { taskId: '1', subject: 'Roba', status: 'deleted' });
+    expect(d?.type).not.toBe('todo');
+  });
+
+  test('il nome è riconosciuto senza badare a maiuscole e underscore', () => {
+    for (const n of ['taskcreate', 'TASKCREATE', 'task_create', 'Task_Update']) {
+      expect(deriveToolDetail(n, { subject: 'x' })?.type, n).toBe('todo');
+    }
+  });
+
+  test('non ruba il caso `Task` (sub-agent), che è un tool diverso', () => {
+    expect(deriveToolDetail('Task', { subagent_type: 'Explore', description: 'cerca' })?.type).toBe('sub_agent');
+  });
+});
