@@ -29,3 +29,15 @@ export function getSessionCliPid(sessionKey: string): number | null {
 export function clearSessionCliPid(sessionKey: string): void {
   cliPids.delete(sessionKey);
 }
+
+/**
+ * Tutte le sessioni con un CLI vivo registrato.
+ *
+ * Serve all'attribuzione delle risorse (`lib/fleet-usage.ts`): una CHAT con un
+ * agente al lavoro ha un processo suo esattamente come un terminale, e senza
+ * questo elenco risultava «non misurata» pur avendo un albero di processi
+ * sotto. Il registro c'era già — mancava solo il modo di scorrerlo.
+ */
+export function listSessionCliPids(): { sessionKey: string; pid: number }[] {
+  return [...cliPids].map(([sessionKey, pid]) => ({ sessionKey, pid }));
+}
