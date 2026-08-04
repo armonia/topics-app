@@ -644,6 +644,33 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     [tasks],
   );
 
+  // Quanti CHECKOUT vivi tiene questo progetto.
+  //
+  // Il chip «non su main» accanto conta i BRANCH non landati; questo conta le
+  // cartelle. Sono due accumuli diversi e si spostano separatamente: un branch
+  // landato libera il suo worktree, ma un worktree tenuto perche' il task e'
+  // ancora aperto non ha nessun branch da landare. Con un numero solo non si
+  // capisce quale dei due sta crescendo — ed e' cresciuto in silenzio fino a
+  // ~40 worktree il 21/07.
+  const [worktreeCount, setWorktreeCount] = useState(0);
+  useEffect(() => {
+    if (!projectPath || global) { setWorktreeCount(0); return; }
+    let alive = true;
+    const load = () => {
+      fetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { worktrees?: unknown[] } | null) => {
+          if (alive && Array.isArray(b?.worktrees)) setWorktreeCount(b.worktrees.length);
+        })
+        .catch(() => {});
+    };
+    load();
+    // Il GC gira ogni 30 minuti e i dispatch creano worktree in continuazione:
+    // un conteggio letto una volta sola al mount invecchia sotto gli occhi.
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [projectPath, global]);
+
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
     for (const t of tasks) {
@@ -859,6 +886,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
             data-testid="unlanded-badge"
           ><AlertTriangle className="h-3 w-3 shrink-0" /> {unlandedTasks.length} non su main</button>
+        )}
+        {worktreeCount > 0 && (
+          <span
+            title={`${worktreeCount} worktree vivi per questo progetto.\nIl GC ne ripulisce solo quelli provabilmente sicuri, e scrive nel log dei motivi perche' tiene gli altri.`}
+            className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary"
+            data-testid="worktree-count-badge"
+          >{worktreeCount} worktree</span>
         )}
         <div className="ml-2 min-w-0">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
