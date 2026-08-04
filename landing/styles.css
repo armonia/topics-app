@@ -359,7 +359,11 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 
 /* ───────── responsive ───────── */
 /* ───────── interactive demo (stage first, chapters under it) ───────── */
-.demo{max-width:1200px;margin:56px auto 0;padding:0 24px}
+/* Wider than the rest of the page on purpose: the product frame is the
+   argument, and 1180px of column made it read as a window inside a page
+   rather than as the thing the page is about. Capped at 1560 so a 27" reads
+   as deliberate instead of blown out. */
+.demo{max-width:1560px;margin:56px auto 0;padding:0 24px}
 /* The lead is centred and deliberately short. The chapter rail used to sit in a
    column beside it, which pushed the product frame below the fold on a laptop;
    the frame is the argument, so now only three lines stand between the hero and
@@ -391,8 +395,17 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* The stage sits FLAT. The old landing tilted this frame 6°, which suited a
    screenshot; it is now a live app asking to be clicked, and a tilted plane
    reads as "display case, do not touch". */
-.demo .showcase{margin-top:0}
-.demo .showcase__frame{transform:none;aspect-ratio:16/9.6}
+.demo .showcase{margin-top:0;max-width:none}
+/* --demo-scale:1 is the whole fix for "it all happens in a little window".
+   The frame used to render the app at a 1.43x logical viewport and scale it
+   back down, which sounds like a bigger monitor and measures like shrunken
+   text: the app's dominant 11px type reached the visitor at 7.71 CSS px.
+   At scale 1 an app pixel is a visitor pixel, and that same text measures
+   11.00. The app loses ~17% of logical width; being able to read it is
+   worth more than fitting one more pane in.
+   Height in vh rather than aspect-ratio so a short screen does not push the
+   chapter rail off the fold. */
+.demo .showcase__frame{--demo-scale:1;transform:none;aspect-ratio:auto;height:min(74vh,780px)}
 .demo__foot{display:flex;align-items:center;gap:9px;justify-content:center;margin-top:16px;
   font-size:.83rem;color:var(--text-faint);font-family:var(--mono)}
 
@@ -523,6 +536,37 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .pricing__faq p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
 .pricing__faq em{color:var(--text);font-style:normal;font-weight:560}
 
+/* ── Expand ───────────────────────────────────────────────────────────────
+   The frame fills the window on request. Implemented as a class on <body>:
+   the iframe never moves in the DOM, because re-parenting it re-creates it,
+   which reloads the app and discards the session the tour is running in. */
+.expand{position:absolute;right:12px;bottom:12px;z-index:4;display:inline-flex;align-items:center;gap:7px;
+  padding:7px 11px;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:540;
+  color:var(--text);background:hsl(222 40% 8% / .82);border:1px solid var(--border-2);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  opacity:0;transition:opacity .22s,border-color .22s,background .22s}
+.showcase:hover .expand,.expand:focus-visible{opacity:1}
+.expand:hover{background:hsl(222 40% 12% / .92);border-color:hsl(220 60% 75% / .45)}
+.expand .ic{width:15px;height:15px}
+
+body.demo-expanded{overflow:hidden}
+body.demo-expanded .demo{position:fixed;inset:0;z-index:9995;max-width:none;margin:0;padding:0;
+  display:flex;flex-direction:column;background:hsl(224 40% 3% / .96);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+body.demo-expanded .showcase{flex:1;min-height:0;margin:0;padding:16px 16px 0}
+/* Room for the chapter rail underneath. Without it the overlay covers the rail
+   and, worse, the iframe swallows every click aimed at it. */
+body.demo-expanded .showcase__frame{height:100%;border-radius:12px}
+body.demo-expanded .demo__foot{display:none}
+body.demo-expanded .chapters{position:relative;z-index:9996;margin:12px 16px 16px;
+  grid-template-columns:repeat(9,1fr);gap:6px}
+body.demo-expanded .chapter{padding:8px 9px}
+body.demo-expanded .chapter__hint{display:none}
+body.demo-expanded .expand{opacity:1}
+@media (max-width:900px){
+  body.demo-expanded .chapters{grid-template-columns:repeat(3,1fr)}
+}
+
 /* ───────── the long tail ───────── */
 .more{position:relative;max-width:var(--maxw);margin:120px auto 0;padding:0 24px}
 .more__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);
@@ -608,7 +652,8 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   .flow__step::after{display:none}
   /* A 16:9 stage on a phone is a letterbox of unreadable UI. Give it height and
      render the app at a smaller logical viewport so text stays legible. */
-  .demo .showcase__frame{--demo-scale:.85;aspect-ratio:3/4}
+  /* Same reasoning on a phone: 11px of app text arrived as 9.36. */
+  .demo .showcase__frame{--demo-scale:1;aspect-ratio:3/4;height:auto}
   .demo__foot{font-size:.76rem;text-align:center}
   /* Touch targets: the nav buttons measured 40px and the release pill 35px,
      both under the 44px minimum for a finger. Height only — the labels and the

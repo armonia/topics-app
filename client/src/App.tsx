@@ -882,6 +882,13 @@ function App() {
     */}
     <PendingActionProvider countdownMs={1500}>
     <div
+      // NB: the landing demo (client/src/demo/landing-cursor.js, scene
+      // "floating") toggles `.floating-splits` on THIS element from outside
+      // React, to show the mode on the marketing site. That works only because
+      // on web `isDesktop` is false, so this template string is constant
+      // between renders and React never rewrites the attribute. Add anything
+      // dynamic here and the demo chapter goes quietly dead — nothing breaks,
+      // it just stops showing what it claims to show.
       className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isDesktop ? 'floating-splits' : ''}`}
       onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
       onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
