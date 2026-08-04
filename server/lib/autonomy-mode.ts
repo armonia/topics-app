@@ -29,8 +29,14 @@
  * l'impostazione — una migrazione silenziosa travestita da funzione nuova.
  */
 
-/** I livelli, come li conosce il modello dati (`shared/types.ts`). */
-export type AutonomyLevel = "ask" | "auto-apply" | "yolo";
+/**
+ * I livelli (`ask | auto-apply | yolo`) vivono in `shared/types.ts` e SOLO lì:
+ * chi ha bisogno del tipo lo importa da quella parte. Fino al 05/08/2026
+ * questo file ne teneva una copia letterale — due sorgenti di verità libere
+ * di divergere in silenzio, visto che le funzioni qui sotto prendono `string`
+ * e mandano al default qualunque livello non riconosciuto. Un livello aggiunto
+ * di là sarebbe passato di qua senza un solo errore di compilazione.
+ */
 
 /** La modalità con cui si parte quando il topic non ha scelto. */
 export const DEFAULT_PERMISSION_MODE = "bypassPermissions";
