@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
   "version": "2.2.11",
-  "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
+  "description": "Companion app for OpenClaw \u2014 organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
   "repository": {
@@ -46,6 +46,7 @@
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
     "test:unit": "bun test ./client/src ./server/ ./shared ./tests/unit ./tests/integration ./scripts",
+    "test:heavy": "TOPICS_HEAVY_TESTS=1 bun test ./server/browser-dom-cobrowse.test.ts",
     "lint": "cd client && bun run lint",
     "lint:gherkin": "bun --bun spec-flow/scripts/lint-gherkin.ts",
     "tag:scenarios": "bun --bun spec-flow/scripts/tag-scenarios.ts",

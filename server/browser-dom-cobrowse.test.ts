@@ -12,6 +12,26 @@
  * network, no data:/scheme questions), including a ticking mutation.
  */
 import { describe, it, expect } from 'bun:test';
+
+/**
+ * FUORI dalla corsia unitaria per default, e non è pigrizia.
+ *
+ * Questo file lancia un Chromium VERO. Sotto carico l'avvio non rispetta un
+ * tetto costante, e il timeout a 45s scattava a caso: misurato il 04/08, la
+ * suite intera con loadavg ~14 lo dava rosso, lo stesso file isolato faceva 7
+ * pass in 8,2 secondi. Tre volte in una sessione.
+ *
+ * Un rosso così MENTE: dice «il co-browse è rotto» quando il fatto è «questa
+ * macchina era occupata». Chi lo incontra durante un'altra consegna deve
+ * fermarsi a dimostrare che non è colpa sua — e il prossimo rosso VERO verrà
+ * liquidato come «sarà il carico». È il costo che si paga davvero.
+ *
+ * Alzare il timeout sposterebbe la soglia senza togliere la bugia. Quindi il
+ * file gira nella sua corsia: `bun run test:heavy` (o `TOPICS_HEAVY_TESTS=1`),
+ * dove ha la macchina per sé e un rosso significa qualcosa.
+ */
+const HEAVY = process.env.TOPICS_HEAVY_TESTS === '1';
+const describeHeavy = HEAVY ? describe : describe.skip;
 import { createBrowserService } from './browser-service';
 import type { BrowserWsMessage } from '../shared/browser-ws-messages';
 
@@ -35,7 +55,7 @@ const BUILD_PAGE = `
   }, 150);
 `;
 
-describe('browser-service: DOM co-browse (real browser)', () => {
+describeHeavy('browser-service: DOM co-browse (real browser)', () => {
   it('enableDomMode bootstraps a FullSnapshot, streams incrementals, and setDomEmit(false) stops', async () => {
     const emitted: { id: string; msg: BrowserWsMessage }[] = [];
     const svc = await createBrowserService({
