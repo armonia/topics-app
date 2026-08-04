@@ -194,7 +194,7 @@ export class ContextPage {
     //     wrapping button owns the click, so `svg.cursor-pointer` matches
     //     nothing. Target the button's stable testid instead.
     const directBtn = this.page.locator(
-      'button[title="Context Inspector"]',
+      'button[title="Ispettore del contesto"]',
     );
     const inputRing = this.page
       .locator('[data-testid="chat-input-context-ring"]')

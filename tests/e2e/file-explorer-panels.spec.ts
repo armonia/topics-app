@@ -229,7 +229,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     // We verify the Processes section renders and is interactive
 
     // Click the Processes section button to expand it
-    const processesBtn = page.locator("button", { hasText: "Processes" });
+    const processesBtn = page.locator("button", { hasText: "Processi" });
     await expect(processesBtn).toBeVisible({ timeout: 5000 });
     await processesBtn.click();
 
@@ -287,7 +287,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Navigate to Processes section
-    const processesBtn = page.locator("button", { hasText: "Processes" });
+    const processesBtn = page.locator("button", { hasText: "Processi" });
     await expect(processesBtn).toBeVisible({ timeout: 5000 });
     await processesBtn.click();
 

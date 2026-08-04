@@ -122,7 +122,7 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Expand the Processes section
-    const processesBtn = page.locator("button", { hasText: "Processes" });
+    const processesBtn = page.locator("button", { hasText: "Processi" });
     await expect(processesBtn).toBeVisible({ timeout: 5_000 });
     await processesBtn.click();
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useT } from '../../hooks/useT';
 import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -75,6 +76,7 @@ export function ChatPanel({
   onFocusPanel,
   bodyOnly = false,
 }: ChatPanelProps) {
+  const tr = useT();
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => { setIsMobile(window.innerWidth < 768); }; window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
@@ -199,8 +201,8 @@ export function ChatPanel({
                 }));
               }}
               className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors app-no-drag" {...NO_DRAG_REGION}
-              title="Vai al browser aperto da questa chat"
-              aria-label="Vai al browser"
+              title={tr('chat.panel.goToBrowserTitle')}
+              aria-label={tr('chat.panel.goToBrowser')}
               data-testid="chat-jump-to-browser"
             >
               <Globe size={14} />
@@ -212,21 +214,21 @@ export function ChatPanel({
             <button
               onClick={(e) => { e.stopPropagation(); openContextInspector(); }}
               className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag hover:bg-app-hover text-app-text-tertiary hover:text-app-text`} {...NO_DRAG_REGION}
-              title="Context Inspector"
-              aria-label="Context Inspector"
+              title={tr('chat.panel.contextInspector')}
+              aria-label={tr('chat.panel.contextInspector')}
             >
               <Layers size={14} />
             </button>
           )}
           {!headerLeft && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title={tr('chat.panel.topicSettings')} aria-label={tr('chat.panel.topicSettings')}><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
               {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} {...NO_DRAG_REGION} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-              {!isMobile && <button onClick={(e) => { e.stopPropagation(); void popOutTopic(topic.id).then((opened) => { if (opened) onClose(); }); }} disabled={!canPopOut} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag disabled:opacity-40 disabled:cursor-not-allowed" {...NO_DRAG_REGION} title="Sposta in una nuova finestra" aria-label="Sposta in una nuova finestra"><ExternalLink size={14} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); void popOutTopic(topic.id).then((opened) => { if (opened) onClose(); }); }} disabled={!canPopOut} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag disabled:opacity-40 disabled:cursor-not-allowed" {...NO_DRAG_REGION} title={tr('chat.panel.moveToWindow')} aria-label={tr('chat.panel.moveToWindow')}><ExternalLink size={14} /></button>}
             </>
           )}
-          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
+          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title={tr('chat.panel.close')} aria-label={tr('chat.panel.close')}><X size={14} /></button>}
         </div>}
 
         {/* Mobile "what is this session doing" strip — front-and-centre on the
@@ -240,9 +242,9 @@ export function ChatPanel({
             {/* Same real project favicon as the sidebar / tab bar; icon-less
                 projects render nothing (no fake folder glyph). */}
             <ProjectFavicon path={suggestedProject} size={16} className="flex-shrink-0" />
-            <div className="flex-1 min-w-0"><div className="text-[12px] font-medium text-primary">Link to a project?</div><div className="text-[11px] text-app-text-secondary truncate">{suggestedProject}</div></div>
-            <button onClick={() => { onUpdateTopic(topic.id, { projectPath: suggestedProject }); setSuggestedProject(null); }} className="px-3 py-1 text-[11px] bg-primary text-white rounded-md hover:bg-primary-hover transition-colors">Link</button>
-            <button onClick={() => setSuggestedProject(null)} className="px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text transition-colors">Skip</button>
+            <div className="flex-1 min-w-0"><div className="text-[12px] font-medium text-primary">{tr('chat.linkProject.question')}</div><div className="text-[11px] text-app-text-secondary truncate">{suggestedProject}</div></div>
+            <button onClick={() => { onUpdateTopic(topic.id, { projectPath: suggestedProject }); setSuggestedProject(null); }} className="px-3 py-1 text-[11px] bg-primary text-white rounded-md hover:bg-primary-hover transition-colors">{tr('chat.linkProject.link')}</button>
+            <button onClick={() => setSuggestedProject(null)} className="px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text transition-colors">{tr('chat.linkProject.skip')}</button>
           </div>
         )}
         {commandResult && (
