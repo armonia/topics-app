@@ -18,6 +18,7 @@ import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/op
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
+import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
@@ -261,9 +262,26 @@ export function getTerminalSessionById(id: string): TerminalSession | undefined 
  */
 export function getFleetSessionRefs(): { sessionId: string; name: string; pid: number }[] {
   const out: { sessionId: string; name: string; pid: number }[] = [];
+  const seen = new Set<string>();
   for (const s of sessions.values()) {
     if (!s.ptyPid || s.ptyPid <= 0) continue;
+    seen.add(s.id);
     out.push({ sessionId: s.id, name: s.name, pid: s.ptyPid });
+  }
+  // Le CHAT, non solo i terminali. Una chat con un agente al lavoro ha un
+  // albero di processi suo quanto un terminale — semplicemente lo spawna
+  // l'ai-bridge invece del pty-bridge, e il pid finisce in un registro diverso
+  // (`providers/session-pids.ts`, che esisteva già per ancorare le shell in
+  // background). Senza questo pezzo la funzione copriva solo le sessioni PTY, e
+  // su una macchina dove si lavora in chat il tooltip diceva sempre «non
+  // misurato» pur essendoci gigabyte da attribuire.
+  //
+  // I PTY vincono sui doppioni: se la stessa sessione compare in entrambi i
+  // registri, il pid del PTY è quello dell'albero completo.
+  for (const { sessionKey, pid } of listSessionCliPids()) {
+    if (!sessionKey || pid <= 0 || seen.has(sessionKey)) continue;
+    seen.add(sessionKey);
+    out.push({ sessionId: sessionKey, name: sessions.get(sessionKey)?.name ?? sessionKey, pid });
   }
   return out;
 }
