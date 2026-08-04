@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
+import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
 import {
@@ -202,6 +203,7 @@ export function TopicTree({
   boardOpen = false,
   onOpenBoard,
 }: TopicTreeProps) {
+  const tr = useT();
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
   // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
@@ -697,8 +699,8 @@ export function TopicTree({
             {item.pinned && (
               <span
                 className={`flex-shrink-0 flex items-center ml-0.5 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-                title="Fissato"
-                aria-label="Fissato"
+                title={tr('sidebar.pinned')}
+                aria-label={tr('sidebar.pinned')}
               >
                 <Pin size={12} />
               </span>
@@ -873,7 +875,7 @@ export function TopicTree({
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div role="tree" aria-label="Sidebar" className="flex flex-col h-full min-h-0">
+    <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
       {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
           above the first row and below the last — the SAME 6px the cards keep
           laterally (mx-1.5) and the tab bar keeps around its tabs, so the
@@ -919,7 +921,7 @@ export function TopicTree({
               <div data-testid="sidebar-pinned-section">
                 <div className="flex items-center gap-1.5 px-3 h-6 select-none">
                   <Pin size={10} className="text-app-text-tertiary flex-shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">Fissati</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">{tr('sidebar.pinnedSection')}</span>
                 </div>
                 {pinnedBlock.map(item => renderItem(item))}
                 {/* Hairline divider between the pinned block and the timeline
@@ -997,7 +999,7 @@ export function TopicTree({
               className={POPOVER_ITEM}
             >
               <CheckCheck size={14} />
-              <span>Mark all as read</span>
+              <span>{tr('sidebar.markAllRead')}</span>
             </button>
           )}
           {onTogglePin && (
@@ -1080,6 +1082,7 @@ interface TerminalSidebarItemProps {
 }
 
 function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
+  const tr = useT();
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
@@ -1170,8 +1173,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       {pinned && (
         <span
           className={`flex-shrink-0 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-          title="Fissato"
-          aria-label="Fissato"
+          title={tr('sidebar.pinned')}
+          aria-label={tr('sidebar.pinned')}
         >
           <Pin size={12} />
         </span>
@@ -1196,7 +1199,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                 ref={overflowRef}
                 onClick={(e) => { e.stopPropagation(); setOverflowOpen(o => !o); }}
                 className="flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
-                title="More options"
+                title={tr('sidebar.moreOptions')}
               >
                 <MoreHorizontal size={12} />
               </button>
@@ -1216,7 +1219,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                   >
                     <FolderOpen size={14} className="flex-shrink-0" />
-                    <span>Open as project</span>
+                    <span>{tr('sidebar.openAsProject')}</span>
                   </button>
                 )}
                 <button
@@ -1310,6 +1313,7 @@ interface TouchProjectMenuProps {
 }
 
 function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onArchiveProject }: TouchProjectMenuProps) {
+  const tr = useT();
   const overflowBtnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -1323,7 +1327,7 @@ function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPa
         ref={overflowBtnRef}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
         className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
-        title="More options"
+        title={tr('sidebar.moreOptions')}
       >
         <MoreHorizontal size={14} />
       </button>
@@ -1363,6 +1367,7 @@ interface ProjectArchiveButtonProps {
 }
 
 function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectArchiveButtonProps) {
+  const tr = useT();
   // Only the archive direction goes through the countdown — restoring is
   // immediate (consistent with TopicItem and the App-level wrappers).
   const status = usePendingActionStatus(allArchived ? null : `archive-project:${projectPath}`);
@@ -1387,7 +1392,7 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
       <button
         onClick={(e) => { e.stopPropagation(); onArchive(projectPath, false); }}
         className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
-        title="Restore Project"
+        title={tr('sidebar.restoreProject')}
       >
         <ArchiveRestore size={12} />
       </button>
@@ -1463,6 +1468,7 @@ interface BrowserSidebarItemProps {
 }
 
 function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, onOpenBrowser, onCloseBrowser, onTogglePin }: BrowserSidebarItemProps) {
+  const tr = useT();
   // v3 sidebar↔topbar sync: also check `close-tab:browser:<id>` so the
   // sidebar browser row shows the countdown when the close is initiated
   // from the topbar.
@@ -1505,8 +1511,8 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       {pinned && (
         <span
           className="flex-shrink-0 flex items-center text-app-text-tertiary ml-1"
-          title="Fissato"
-          aria-label="Fissato"
+          title={tr('sidebar.pinned')}
+          aria-label={tr('sidebar.pinned')}
         >
           <Pin size={12} />
         </span>
