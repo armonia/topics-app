@@ -1,0 +1,93 @@
+---
+title: The number we kept quoting about Electron was the wrong one
+description: Swapping Electron for Tauri took the shell from 221 MB to 117, and later to 90. The figure we had been repeating was 627 against 117, which compares an entire application against one part of one, and we were the ones repeating it.
+pubDate: 2026-08-05
+pillar: performance
+format: field-notes
+seoTarget: tauri vs electron memory usage
+wiki:
+  - pane
+  - local-first
+---
+
+import MemoryFootprint from '../../components/charts/MemoryFootprint.astro';
+
+Replacing the Electron shell with Tauri took resident memory from 221 MB to
+117 MB, and to 90 MB once the work was finished. With a browser pane open, the
+figure Electron reached was 926 MB, so the honest range is a 59% to 90%
+reduction depending on what the app was doing.
+
+None of those is the number we had been quoting.
+
+<MemoryFootprint />
+
+## Where the wrong number came from
+
+Our own planning document opens with a table. Electron main plus four helpers,
+548 MB. The Bun server, 61 MB. The PTY bridge, 18 MB. Total, 627 MB.
+
+That table is correct and it is not a comparison. It measures the whole
+application. The 117 MB next to which it kept getting placed measures the Tauri
+shell, and the shell is one of the three rows.
+
+The server and the bridge did not go anywhere. They are the same processes doing
+the same work under Tauri as under Electron, so putting 627 next to 117 credits
+the shell swap with 79 MB of savings that never happened. The real comparison is
+221 against 117, which is still a good number, and it is a number that survives
+somebody checking it.
+
+We caught this while writing the article. It had been sitting in an internal
+document for six weeks, and it would have gone on the front page.
+
+## Why the shell was 548 MB in the first place
+
+Roughly 80% of the memory was not our code. It was Chromium, shipped inside
+Electron, once per application.
+
+Tauri does not ship a browser. It uses the one the operating system already has,
+which on macOS is WebKit. That is the entire mechanism, and it explains both the
+saving and its shape: the biggest single line in the old measurement disappears,
+and what is left is the parts we wrote.
+
+It also explains the range. Electron at 221 MB is Electron with nothing much
+open. Electron at 926 MB is Electron with a browser [[pane]] open, which for this
+product is not an edge case, it is the normal way to use it. A reduction quoted
+against the idle number is the least flattering one available, and it is the one
+we should quote.
+
+## The number that is an upper bound, not a measurement
+
+Tauri's RSS is not comparable to Electron's in the way the chart implies, and the
+direction of the error is worth knowing.
+
+WebKit on macOS is a system framework, shared across every application using it.
+Some of what the tool attributes to our process is memory that would exist
+whether or not the app were running. So 117 MB is a ceiling: the marginal cost of
+running Topics is lower than that, and we do not know by how much.
+
+We have left it as measured rather than estimating a correction, because a
+number you cannot reproduce is worse than one that is slightly pessimistic
+against you.
+
+## Method
+
+One machine, one session per configuration, same project open, measured 25 June
+2026. Resident set size per process, summed across the process tree belonging to
+the app, excluding the `claude` agent processes themselves because those are the
+user's workload and not the shell's cost. The Tauri figures break down as 79 main
+plus 14 GPU plus 8 networking plus 16 WebContent for the first spike, and 54 plus
+11 plus 10 plus 15 after the port was finished.
+
+## Limits
+
+A single measurement each, not a distribution. Memory on a desktop application
+moves with what you have open, how long it has been open and what the operating
+system feels like caching, and we did not sample over time or repeat on other
+hardware. RSS overstates Tauri's real cost for the reason above, and it may
+overstate Electron's too, though less: Electron ships its own copy of Chromium
+precisely so it does not share one.
+
+The one thing we would not want inferred from this: a smaller shell is not a
+faster application. Everything about how it feels to use lives somewhere else,
+and one of those places costs
+[two frames per pane](/blog/layout-cost-8-panes/) rather than megabytes.

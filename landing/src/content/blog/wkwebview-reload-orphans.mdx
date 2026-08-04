@@ -1,0 +1,93 @@
+---
+title: The app was holding 14 GB, and reloading it made things worse
+description: Sixty-five WebContent processes, sixty-one of which used no CPU at all over twelve seconds, holding 11.7 GB between them. Every reload created more of them, and the reload was the first thing anyone suggests.
+pubDate: 2026-08-05
+pillar: performance
+format: field-notes
+seoTarget: wkwebview memory leak orphaned processes
+wiki:
+  - pane
+  - local-first
+---
+
+import OrphanProcesses from '../../components/charts/OrphanProcesses.astro';
+
+After eighteen hours of use the app was holding 14 GB. It was not holding it in
+one place: there were sixty-five WebContent processes, and sixty-one of them had
+used zero CPU time over a twelve-second sample. Those sixty-one accounted for
+11.7 GB, and nobody was looking at any of them.
+
+<OrphanProcesses />
+
+## The tool everyone reaches for was lying
+
+Resident set size said 4 MB. The real figure for those processes was between 171
+and 272 MB each, and one of them was holding 5 GB.
+
+RSS is not measuring what the name suggests on macOS with a WebKit process tree.
+Pages get shared, compressed and attributed in ways that leave the number
+uncorrelated with what the process is actually costing you. `footprint -p` gives
+the figure that matches what the system is under pressure from.
+
+That is the whole reason this went unnoticed for eighteen hours. Every casual
+check said the processes were tiny.
+
+## How to tell a live process from an abandoned one
+
+Sample the accumulated CPU time twice, twelve seconds apart, and subtract.
+
+A process rendering anything at all moves that number. A process that was
+abandoned but never torn down does not move it, ever, while still holding every
+byte it allocated. Twelve seconds is enough to separate the two and short enough
+that you will actually do it.
+
+Attribution comes first: `lsof` on each process to find which ones belong to the
+app, because a machine has other people's WebContent processes on it too.
+
+## The cause is that a reload does not unmount what you think
+
+Two things were producing them, and the second is the one worth carrying away.
+
+A cache of visited [[pane|panes]] had no ceiling, so it grew for as long as the
+session did. That one is ordinary and the fix is a cap.
+
+The other is that `location.reload()` does not tear down child webviews. They
+belong to the window, not to the page, so the page can go away and they stay.
+None of the React cleanup runs, nothing is notified, and each reload leaves one
+live WKWebView per browser pane that was open.
+
+Which produces a genuinely unhelpful situation: the app is using too much memory,
+the instinct is to reload it, and reloading is what makes it worse. There were
+four ordinary paths to a reload in the app, and one of them fires by itself when
+it detects a stale bundle.
+
+## Cleaning it up without restarting
+
+Killing the idle processes while the app is running works, provided you spare the
+three that were created at launch, which belong to the main window. That took the
+app from 14 GB to 1.93 GB and it stayed up.
+
+It is worth checking the pane store before deciding anything is safe to kill: in
+this session every browser pane was in the closed stack, so all sixty-one
+processes were serving nothing. If some had been live, the same command would
+have taken working panes down with them.
+
+## Method
+
+Measured 29 July 2026 on the running application after eighteen hours of normal
+use. Attribution with `lsof` against the app's bundle identifier, memory with
+`footprint -p` per process, liveness from the delta of `ps -o time=` over twelve
+seconds. Process counts and the 14 GB total are from the same sample.
+
+## Limits
+
+One session on one machine, and an unusually long one. Eighteen hours with that
+many browser panes opened and closed is a heavy day, and a lighter session would
+accumulate the same processes more slowly rather than not at all. The twelve
+second window is a heuristic: a process that renders once a minute would look
+abandoned to it.
+
+We have not measured how much of the 11.7 GB the system would have reclaimed
+under pressure rather than swapping. The number that matters to a person is the
+one their laptop is responding to, and that is a different measurement than this
+one.

@@ -1,0 +1,97 @@
+---
+title: Measuring the app at rest told us nothing
+description: Twelve tabs open, no long tasks, around 80 fps. The app looked healthy at rest and switching tabs took half a second. Freezing hidden panes cut the median switch from 491 ms to 352, and a second run on a busier machine only got 8%.
+pubDate: 2026-08-05
+pillar: performance
+format: field-notes
+seoTarget: react keep alive hidden component performance
+wiki:
+  - pane
+  - window-group
+---
+
+import TabSwitchAB from '../../components/charts/TabSwitchAB.astro';
+
+With twelve tabs open the app sat at roughly 80 fps with zero long tasks. By
+every measurement we were taking, it was fine. Switching between those tabs took
+491 milliseconds, and we could not see that at all, because we were measuring
+the wrong moment.
+
+<TabSwitchAB />
+
+## Where the half second was going
+
+Visited [[pane|panes]] stay mounted. That is deliberate: unmounting one throws
+away its scroll position, its terminal buffer and whatever it had cached, and
+getting those back costs more than keeping them.
+
+Staying mounted also meant re-rendering. Every render of the group re-rendered
+every pane inside it, so clicking one tab rebuilt the React tree of all twelve,
+to update eleven that nobody was looking at.
+
+At rest none of this happens, because nothing triggers a render. The cost only
+appears in the instant you switch, which is the instant nobody was profiling.
+
+## Why memo does not fix it
+
+The obvious reach is `React.memo` on the pane, and it does nothing here. A pane's
+props include callbacks built as closures during the group's render, so they are
+new objects every time and the shallow comparison always fails. Memo compares,
+finds a difference that is not a difference, and re-renders anyway.
+
+What works is cruder. Hold on to the React *element* from the previous render and
+pass that same object back. React sees an identical reference and skips the
+subtree without asking anything about props. It is not a comparison, it is a
+short circuit.
+
+One transition is deliberately left uncached: the render that takes a pane from
+visible to hidden. That is the render that delivers `isVisible=false`, and
+whoever owns a system view needs it to shut theirs down. Freezing that one would
+leave a WKWebView running behind a hidden tab, which is the opposite of the point.
+
+## How to measure a tab switch without fooling yourself
+
+Run a fixed number of switches, not a fixed amount of time.
+
+We started with a time window and the results were backwards. In thirty seconds
+a faster build performs more switches, so it accumulates more total work and
+scores worse than the slow one. The metric rewarded being slow.
+
+Each switch also has to be awaited until the tab has actually committed, not
+until the click returns. Otherwise the measurement stops before the work it is
+trying to measure has started.
+
+## What we did not get
+
+The second run tells a different story from the first, and both are in the chart
+because publishing only the first would be a choice about which number to
+believe.
+
+First run: median per switch 491 ms to 352, a 28% improvement. Second run: 770
+to 706, which is 8%. Total blocking time moved 2447 to 1642 and 5140 to 4095.
+The second run was slower throughout, which suggests the machine was busier, and
+a busier machine spends proportionally more of the switch in costs this change
+does not touch.
+
+So the honest claim is "between 8% and 28% on the median, in two runs on one
+machine", not the single number we would have preferred to write.
+
+What is left in the switch, and still there: about 130 ms of WebSocket message
+handling, 100 ms of fetch, 120 ms in native focus, and around 360 ms of garbage
+collection. That last one is larger than everything this change saved.
+
+## Method
+
+Measured 28 July 2026. Twelve tabs, twenty switches per run, two runs. CPU
+profile taken over the Chrome DevTools Protocol from Playwright, self time
+computed from the profiler's samples and time deltas. Source maps are not applied
+by the profiler, so the build was made without minification to get readable
+frame names.
+
+## Limits
+
+One machine, two runs, no repetitions to establish variance, and the two runs
+disagree by a factor of three on the improvement. Twelve tabs is a heavy session
+but it is one shape of session. The measurement is a synthetic switch loop rather
+than a person using the app, and a person pauses between switches, which changes
+what the garbage collector is doing when the next one starts.

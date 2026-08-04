@@ -1,0 +1,84 @@
+---
+title: Eight panes, and the sidebar animation costs two frames each
+description: Animating a sidebar by changing padding costs 8 ms of layout per frame with two panes open and 66 ms with sixteen. The frame budget at 60 fps is 16.7 ms. Doing the same movement with a transform costs zero at every count.
+pubDate: 2026-08-05
+pillar: performance
+format: deep-dive
+seoTarget: css padding vs transform layout performance
+wiki:
+  - pane
+  - split
+---
+
+import LayoutCost from '../../components/charts/LayoutCost.astro';
+
+Sliding a sidebar open by animating its width costs layout work on every frame,
+and that work scales with how much is on screen. Measured in WebKit: 8 ms per
+frame with two panes open, 20 ms with five, 33 ms with eight. The budget for a
+frame at 60 fps is 16.7 ms. The same movement done with a transform costs 0 ms
+at every pane count.
+
+<LayoutCost />
+
+## Why the pane count is in this at all
+
+A sidebar that animates its own width is not animating alone. Everything to the
+right of it has a new amount of room on every frame, so the browser has to lay
+all of it out again: every [[pane]], every [[split]], every terminal row inside
+them. The sidebar is the thing moving; the cost is proportional to what it is
+pushing.
+
+Which is why the number goes up with the pane count and why a benchmark of the
+sidebar on its own would have found nothing. On an empty window the animation is
+free. On the window people actually work in, it eats two frames.
+
+## What a transform does instead
+
+A transform does not change layout. It changes how an already-laid-out box is
+painted, so the browser skips straight to compositing, and the work it skips is
+exactly the work that scaled with the pane count.
+
+The catch is that a transform moves a picture of the content rather than the
+content, so anything that has to end up in a different place after the animation
+has to be told where. The technique for that is old and unglamorous: measure the
+start, measure the end, apply the difference as a transform, then let it play out
+and clear it.
+
+The gap the chart shows is what pays for that bookkeeping.
+
+## Why we measured in WebKit and not in Chrome
+
+Because the product ships on WebKit and the two engines do not agree about this.
+
+Layout in WebKit ran around six times slower than in Chromium on the same
+operation, which means a benchmark in Chrome would have said the padding
+approach was fine at eight panes and it is not. It also means the transform work
+matters *more* on the engine we ship on, not less. Anyone porting a desktop
+application to a system WebView should assume their Chrome-based intuitions about
+layout cost are optimistic.
+
+## Method
+
+`performance/sidebar-flip-webkit-bench.cjs` in the repository, run 29 June 2026
+in headless WebKit through Playwright, reporting AppleWebKit 605.1.15 Version
+26.0. That is the same engine as the WKWebView the desktop app renders in.
+
+The measurement is synchronous layout time per frame, taken by forcing a reflow
+and timing it, at pane counts of 2, 5, 8 and 16. Synchronous timing was chosen
+deliberately: headless WebKit throttles requestAnimationFrame, so a frame-rate
+number from it would be meaningless while a layout number stays honest.
+
+Confirmed afterwards on the real WKWebView in the shipped app, where the
+transform version produced no frames over 33 ms.
+
+## Limits
+
+One operation on one engine. This measures a sidebar toggle, not everything an
+interface does, and layout cost is not the only thing that makes an animation
+feel bad. The pane counts are four points, not a curve, and the growth between
+them looks linear but four points cannot establish that.
+
+The 16.7 ms line is a budget, not a cliff. Going over it means dropping frames,
+not stopping, and a single frame over budget during a 200 ms animation is
+something nobody sees. Thirty-three milliseconds sustained across the whole
+animation is something everybody sees.
