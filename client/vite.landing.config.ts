@@ -12,7 +12,7 @@ import fs from 'fs';
  * as the first <head> script. The shim seeds localStorage (dark theme + a
  * multi-pane split layout) and stubs fetch/WebSocket with generic mock data, so
  * the embedded hero demo IS the real app — no forked component tree, no
- * module-mock drift. Output is committed to landing/app/ and served by the
+ * module-mock drift. Output is committed to landing/public/app/ and served by the
  * Cloudflare Worker. Rebuild: `npm run build:landing`.
  */
 function inlineBootShim(): Plugin {
@@ -68,7 +68,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../landing/app',
+    outDir: '../landing/public/app',
     emptyOutDir: true,
     rollupOptions: {
       output: {

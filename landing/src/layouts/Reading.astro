@@ -1,0 +1,67 @@
+---
+/**
+ * The frame for anything you read rather than scan: blog articles, wiki
+ * entries, and the two index pages.
+ *
+ * Slimmer chrome than the home page on purpose. A reader who arrived from a
+ * search result wants the text; the product pitch belongs at the end, once the
+ * piece has earned it, and it is one block rather than a form.
+ */
+import Base from './Base.astro';
+import '../styles/prose.css';
+
+export interface Props {
+  title: string;
+  description: string;
+  path: string;
+  jsonLd?: unknown;
+}
+const { title, description, path, jsonLd } = Astro.props;
+---
+
+<Base title={title} description={description} path={path} jsonLd={jsonLd}>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="grain grain--fine" aria-hidden="true"></div>
+
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="brand" href="/" aria-label="Topics home">
+        <img src="/icon-64.png" alt="" class="brand__mark" width="28" height="28" />
+        <span class="brand__name">Topics</span>
+      </a>
+      <nav class="nav__links" aria-label="Primary">
+        <a href="/blog">Blog</a>
+        <a href="/wiki">Wiki</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/#pricing">Pricing</a>
+      </nav>
+      <div class="nav__cta">
+        <a class="btn btn--primary btn--sm" href="/#download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="prose-page">
+    <slot />
+  </main>
+
+  <footer class="footer">
+    <div class="footer__inner">
+      <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
+      <nav class="footer__links" aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/blog">Blog</a>
+        <a href="/wiki">Wiki</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/blog/rss.xml">RSS</a>
+        <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
+      </nav>
+    </div>
+    <div class="footer__fine">
+      <p>MIT &copy; 2026 <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
+      <p class="footer__disc">An independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google, Cursor or Warp.</p>
+    </div>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</Base>

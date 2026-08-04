@@ -1,94 +1,67 @@
-<!DOCTYPE html>
-<!-- Type: Gambarino for display, Switzer for body, Commit Mono for code.
-     Instrument Serif was the right IDEA and the wrong DRAWING: a thin, generic
-     display serif. Gambarino is a display serif with actual character, Switzer
-     is a proper variable grotesque rather than the Inter everyone ships, and
-     Commit Mono is the face Resend uses in production. All three are free for
-     commercial use (Fontshare / OFL), so none of this waits on a licence.
-     Backdrop: `weave`, a still dot lattice under one cool wash, over a five-step
-     opaque elevation scale. It replaced three saturated blobs that drifted on
-     24-30s loops and fought the product frame for attention.
-     Both are variants: append ?lab=1 for a switcher that compares all of them
-     on this page, and swap the two attributes below to change the default. -->
-<html lang="en" data-theme="dark" data-font="editorial" data-bg="weave">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Topics · the workspace for coding agents</title>
-  <meta name="description" content="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Sessions sorted into topics that keep their own terminal, branch and browser, a board that hands work to agents in isolated worktrees, and numbers that say what it cost. Free and open source." />
-  <meta name="theme-color" content="#07090f" />
-  <link rel="canonical" href="https://topics.armonia.io/" />
-  <link rel="icon" type="image/png" href="./icon-64.png" />
-  <meta property="og:type" content="website" />
-  <meta property="og:title" content="Topics · the workspace for coding agents" />
-  <meta property="og:description" content="Claude Code, Codex and Gemini CLI sessions sorted into topics, several projects open at once, and a board that puts agents to work in their own worktrees." />
-  <meta property="og:url" content="https://topics.armonia.io" />
-  <meta property="og:image" content="https://topics.armonia.io/icon.png" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <link rel="preconnect" href="https://api.github.com" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <!-- Only the three families the page renders. The lab candidates are fetched
-       by app.js on demand behind ?lab=1, so a normal visit never pays for type
-       it will not see. -->
-  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
-  <link rel="stylesheet" href="./styles.css" />
-  <!-- Structured data. Deliberately small: MDN wins every definitional query with
-       zero JSON-LD, and the sites that stack twelve types are not the ones that
-       rank. What is here is the set Google still produces results for in 2026 —
-       Organization, WebSite, SoftwareApplication. There is no `aggregateRating`
-       and there will not be one until real ratings exist: inventing it is a
-       manual action, which is a stupid way to lose a domain. `FAQPage` is absent
-       for a different reason — the rich result was retired on 7 May 2026, so the
-       markup would cost effort and buy nothing. -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Organization",
-        "@id": "https://topics.armonia.io/#org",
-        "name": "Armonia",
-        "url": "https://armonia.io",
-        "logo": "https://topics.armonia.io/icon.png"
+---
+/**
+ * The home page. The markup is the hand-written page that was here before,
+ * moved under a layout and with its relative asset URLs made absolute — with
+ * directory routes, `./styles.css` from /changelog/ would resolve to
+ * /changelog/styles.css and 404.
+ */
+import Base from '../layouts/Base.astro';
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://topics.armonia.io/#org",
+      "name": "Armonia",
+      "url": "https://armonia.io",
+      "logo": "https://topics.armonia.io/icon.png"
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://topics.armonia.io/#site",
+      "url": "https://topics.armonia.io/",
+      "name": "Topics",
+      "publisher": {
+        "@id": "https://topics.armonia.io/#org"
       },
-      {
-        "@type": "WebSite",
-        "@id": "https://topics.armonia.io/#site",
-        "url": "https://topics.armonia.io/",
-        "name": "Topics",
-        "publisher": { "@id": "https://topics.armonia.io/#org" },
-        "inLanguage": "en"
+      "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "Topics",
+      "url": "https://topics.armonia.io/",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Windows, Linux",
+      "softwareVersion": "2.2.11",
+      "license": "https://github.com/armonia/topics-app/blob/main/LICENSE",
+      "downloadUrl": "https://github.com/armonia/topics-app/releases/latest",
+      "softwareHelp": "https://topics.armonia.io/agents.md",
+      "releaseNotes": "https://topics.armonia.io/changelog",
+      "isAccessibleForFree": true,
+      "publisher": {
+        "@id": "https://topics.armonia.io/#org"
       },
-      {
-        "@type": "SoftwareApplication",
-        "name": "Topics",
-        "url": "https://topics.armonia.io/",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "macOS, Windows, Linux",
-        "softwareVersion": "2.2.11",
-        "license": "https://github.com/armonia/topics-app/blob/main/LICENSE",
-        "downloadUrl": "https://github.com/armonia/topics-app/releases/latest",
-        "softwareHelp": "https://topics.armonia.io/agents.md",
-        "releaseNotes": "https://topics.armonia.io/changelog.html",
-        "isAccessibleForFree": true,
-        "publisher": { "@id": "https://topics.armonia.io/#org" },
-        "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "EUR"
-        }
+      "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
       }
-    ]
-  }
-  </script>
-</head>
-<body>
-  <!-- Icon sprite. One 24×24 grid, 1.7 stroke, round joins, drawn so each glyph
+    }
+  ]
+};
+---
+
+<Base
+  title="Topics · the workspace for coding agents"
+  description="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Sessions sorted into topics that keep their own terminal, branch and browser, a board that hands work to agents in isolated worktrees, and numbers that say what it cost. Free and open source."
+  ogDescription="Claude Code, Codex and Gemini CLI sessions sorted into topics, several projects open at once, and a board that puts agents to work in their own worktrees."
+  path="/"
+  htmlAttrs={{ 'data-font': 'editorial', 'data-bg': 'weave' }}
+  jsonLd={jsonLd}
+>
+<!-- Icon sprite. One 24×24 grid, 1.7 stroke, round joins, drawn so each glyph
        reads at 17px. Filled marks (brand logos, stars) opt in with .ic--fill. -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
@@ -131,7 +104,7 @@
   <header class="nav" id="nav">
     <div class="nav__inner">
       <a class="brand" href="#top" aria-label="Topics home">
-        <img src="./icon-64.png" alt="" class="brand__mark" width="28" height="28" />
+        <img src="/icon-64.png" alt="" class="brand__mark" width="28" height="28" />
         <span class="brand__name">Topics</span>
       </a>
       <nav class="nav__links" aria-label="Primary">
@@ -200,7 +173,7 @@
       <div class="showcase reveal">
         <div class="showcase__glow" aria-hidden="true"></div>
         <div class="showcase__frame">
-          <iframe class="window-real" id="demoFrame" src="./app/index.html"
+          <iframe class="window-real" id="demoFrame" src="/app/index.html"
                   title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."
                   loading="lazy"></iframe>
           <!-- The wheel guard. Without it, passing the mouse over the demo on
@@ -363,7 +336,7 @@
       <div class="fmap">
         <article class="fitem fitem--slab reveal">
           <figure class="fitem__shot">
-            <img class="shot" src="./img/organize.webp" width="2480" height="1560" loading="lazy"
+            <img class="shot" src="/img/organize.webp" width="2480" height="1560" loading="lazy"
                  alt="The Topics window showing the Progetti group: acme-api across the top, acme-mobile and acme-docs sharing the row below, each with its own Claude Code session." />
             <figcaption>The "Progetti" group: three projects open at once. The strip at the top switches groups; the sidebar lists what each one holds.</figcaption>
           </figure>
@@ -383,7 +356,7 @@
 
         <article class="fitem reveal">
           <figure class="fitem__shot">
-            <img class="shot" src="./img/run.webp" width="1280" height="1528" loading="lazy"
+            <img class="shot" src="/img/run.webp" width="1280" height="1528" loading="lazy"
                  alt="A pane holding a live Claude Code session mid-task, with its tab bar showing the second session next to it." />
             <figcaption>A Claude Code session in an embedded terminal — the same binary you run in a shell, with its scrollback kept.</figcaption>
           </figure>
@@ -403,7 +376,7 @@
 
         <article class="fitem reveal">
           <figure class="fitem__shot">
-            <img class="shot" src="./img/see.webp" width="1288" height="382" loading="lazy"
+            <img class="shot" src="/img/see.webp" width="1288" height="382" loading="lazy"
                  alt="The dashboard's headline numbers: tasks shipped, cycle time, token spend and agent utilisation, each with its change against the previous period." />
             <figcaption>The numbers, at the size they are in the app. What the agents got through, and what the tokens cost.</figcaption>
           </figure>
@@ -423,7 +396,7 @@
 
         <article class="fitem reveal">
           <figure class="fitem__shot">
-            <img class="shot" src="./img/ship.webp" width="1266" height="1608" loading="lazy"
+            <img class="shot" src="/img/ship.webp" width="1266" height="1608" loading="lazy"
                  alt="The board pane: Backlog, To do, In progress and Review columns, with an agent working a card in its own worktree." />
             <figcaption>A card an agent picked up. It works in its own worktree and moves itself to review when it has evidence.</figcaption>
           </figure>
@@ -443,7 +416,7 @@
 
         <article class="fitem fitem--pro reveal">
           <figure class="fitem__shot fitem__shot--phone">
-            <img class="shot shot--phone" src="./img/reach.webp" width="780" height="1688" loading="lazy"
+            <img class="shot shot--phone" src="/img/reach.webp" width="780" height="1688" loading="lazy"
                  alt="The whole app at phone width, listing the agent sessions running on acme-web." />
             <figcaption>Not a mock frame: the same client at a 390pt viewport, listing the sessions running at home.</figcaption>
           </figure>
@@ -463,7 +436,7 @@
 
         <article class="fitem reveal">
           <figure class="fitem__shot fitem__shot--narrow">
-            <img class="shot shot--narrow" src="./img/own.webp" width="696" height="824" loading="lazy"
+            <img class="shot shot--narrow" src="/img/own.webp" width="696" height="824" loading="lazy"
                  alt="The provider and model picker: Claude Code, Codex and the Anthropic API, each with the models it can run." />
             <figcaption>Pick the provider per topic. The bill stays between you and them — we never sit in the middle.</figcaption>
           </figure>
@@ -632,7 +605,7 @@
       <header class="section-head reveal">
         <span class="eyebrow">changelog</span>
         <h2>What's new.</h2>
-        <p>Every release, and what changed in it. <a class="mono" href="./changelog.html">Full changelog&nbsp;&rarr;</a></p>
+        <p>Every release, and what changed in it. <a class="mono" href="/changelog">Full changelog&nbsp;&rarr;</a></p>
       </header>
       <div class="cl-list reveal" data-changelog data-limit="4">
         <p class="cl-empty">Loading&hellip;</p>
@@ -679,12 +652,12 @@
 
   <footer class="footer">
     <div class="footer__inner">
-      <div class="footer__brand"><img src="./icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
+      <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
         <a href="#demo">Demo</a>
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
-        <a href="./changelog.html">Changelog</a>
+        <a href="/changelog">Changelog</a>
         <a href="#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
         <a href="https://github.com/armonia/topics-app/blob/main/PRIVACY.md" rel="noopener" target="_blank">Privacy</a>
@@ -697,7 +670,6 @@
     </div>
   </footer>
 
-  <script src="./app.js" defer></script>
-  <script src="./changelog.js" defer></script>
-</body>
-</html>
+  <script src="/app.js" defer></script>
+  <script src="/changelog.js" defer></script>
+</Base>

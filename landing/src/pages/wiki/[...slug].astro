@@ -1,0 +1,84 @@
+---
+import { getCollection, render } from 'astro:content';
+import Reading from '../../layouts/Reading.astro';
+import { formatDate, PILLAR_LABEL } from '../../lib/format';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('wiki', ({ data }) => !data.draft);
+  return entries.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const d = entry.data;
+
+const all = await getCollection('wiki', ({ data }) => !data.draft);
+const seeAlso = d.seeAlso.map((slug) => {
+  const hit = all.find((w) => w.id === slug);
+  if (!hit) throw new Error(`${entry.id}: seeAlso points at /wiki/${slug}, which does not exist`);
+  return hit;
+});
+
+// Backlinks, computed rather than maintained. An entry nobody points at is a
+// signal in itself — it means the term is not actually load-bearing yet.
+const blog = await getCollection('blog', ({ data }) => !data.draft);
+const backlinks = [
+  ...all.filter((w) => w.id !== entry.id && w.data.seeAlso.includes(entry.id))
+        .map((w) => ({ href: `/wiki/${w.id}`, title: w.data.title, note: w.data.definition })),
+  ...blog.filter((p) => p.data.wiki.includes(entry.id))
+         .map((p) => ({ href: `/blog/${p.id}`, title: p.data.title, note: p.data.description })),
+];
+
+/**
+ * `Article`, not `DefinedTerm`. DefinedTerm produces no rich result and never
+ * has; Article is in the live Search Gallery. The entity signal is worth having
+ * where it costs nothing, which is why the term is also the h1 and the opening
+ * sentence is the definition — that is the block an answer engine lifts.
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: d.title,
+  description: d.definition,
+  dateModified: d.updatedDate.toISOString(),
+  author: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  mainEntityOfPage: new URL(`/wiki/${entry.id}`, Astro.site).href,
+  inLanguage: 'en',
+};
+---
+
+<Reading title={`${d.title} · Topics wiki`} description={d.definition} path={`/wiki/${entry.id}`} jsonLd={jsonLd}>
+  <header class="article-head">
+    <p class="article-kicker">Wiki · {PILLAR_LABEL[d.pillar]}</p>
+    <h1>{d.title}</h1>
+    <p class="article-standfirst">{d.definition}</p>
+    <div class="article-meta">
+      <span>Updated <time datetime={d.updatedDate.toISOString()}>{formatDate(d.updatedDate)}</time></span>
+    </div>
+  </header>
+
+  <article class="prose">
+    <Content />
+  </article>
+
+  {seeAlso.length > 0 && (
+    <section class="article-foot">
+      <h2>See also</h2>
+      <ul class="related">
+        {seeAlso.map((w) => (
+          <li><a href={`/wiki/${w.id}`}>{w.data.title}</a><p>{w.data.definition}</p></li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {backlinks.length > 0 && (
+    <section class="article-foot">
+      <h2>What points here</h2>
+      <ul class="related">
+        {backlinks.map((b) => (<li><a href={b.href}>{b.title}</a><p>{b.note}</p></li>))}
+      </ul>
+    </section>
+  )}
+</Reading>

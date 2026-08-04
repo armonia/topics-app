@@ -80,4 +80,4 @@ Allow: /
 User-agent: Bytespider
 Disallow: /
 
-Sitemap: https://topics.armonia.io/sitemap.xml
+Sitemap: https://topics.armonia.io/sitemap-index.xml
