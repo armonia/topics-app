@@ -787,6 +787,49 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
+        // Il task NON è più tuo: un agente a cui il dispatcher ha tolto il task
+        // non può riprenderselo.
+        //
+        // `release()` azzera `assigned_topic_id` quando parcheggia o rimette in
+        // coda — ma il TURNO dell'agente non muore con quella riga: continua a
+        // girare, e la sua `update_task(status)` passava senza che nessuno
+        // controllasse se quel task gli appartenesse ancora. Misurato: un task
+        // parcheggiato alle 22:48 è tornato `in_progress` 79 secondi dopo ed è
+        // rimasto lì SETTE GIORNI — nessun reaper lo guardava, perché per il DB
+        // stava lavorando, e falsava anche la capacità di dispatch.
+        //
+        // La proprietà si misura come già fa il carve-out dei sottotask: o il
+        // task è legato al tuo topic, o lo è un suo antenato (i passi della tua
+        // checklist restano tuoi). Fuori da lì, rifiuto esplicito.
+        //
+        // Solo quando `agentTopicId` c'è: gli altri chiamanti (umano, sistema,
+        // dispatcher) non hanno un topic con cui rivendicare niente, e questa
+        // guardia non li riguarda.
+        //
+        // Due forme di "non è tuo", e servono entrambe:
+        //  a) il task è legato a un ALTRO topic — è di un altro agente;
+        //  b) il task non è legato a nessuno MA porta la firma di un rilascio
+        //     del dispatcher (`queued` dopo un requeue, `failed`/`blocked` dopo
+        //     un park). È il caso misurato: `release()` azzera il legame, e il
+        //     turno che continua a girare tornava a prenderselo.
+        //
+        // Un task MAI dispacciato ha `assigned_topic_id` e `dispatch_state`
+        // entrambi nulli: quello resta lavorabile: bloccarlo sarebbe impedire a
+        // una sessione di lavorare su un task che nessuno le ha tolto.
+        const releasedByDispatcher =
+          row.assigned_topic_id == null
+          && (row.dispatch_state === "queued" || row.dispatch_state === "failed" || row.dispatch_state === "blocked");
+        const boundElsewhere = row.assigned_topic_id != null && row.assigned_topic_id !== agentTopicId;
+        if (
+          actor === "agent" && agentTopicId
+          && (boundElsewhere || releasedByDispatcher)
+          && !isOwnStep(taskId, agentTopicId)
+        ) {
+          throw new TaskServiceError(
+            "task_not_yours",
+            "questo task non è più assegnato a te (rimesso in coda o parcheggiato dal dispatcher): non puoi cambiarne lo stato. Se hai lavoro da consegnare, scrivilo come commento.",
+          );
+        }
         // The gate: an agent may never mark done — it hands off to review.
         // ONE carve-out: its own checklist steps (strict descendants of the
         // task bound to its topic) close directly — they are the agent's plan,
