@@ -640,6 +640,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // ─── Streaming ───
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
 
+      // Il modello che servirà DAVVERO questo turno, suffisso compreso.
+      //
+      // Senza pin sul topic `overrideModel` è `undefined`, e per l'anello del
+      // contesto quello voleva dire «non lo so»: restava il nome NUDO che la
+      // CLI riporta nei suoi eventi (`claude-opus-5`, mai `[1m]`), cioè 200k di
+      // denominatore su una chat che gira a un milione. L'anello segnava pieno
+      // a un quinto del vero. Il default del provider è il nome giusto: è lo
+      // stesso che `spawnPersistentProcess` passa alla CLI.
+      const spawnedModel = overrideModel ?? topicProvider.defaultModel?.() ?? undefined;
       console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
       // La riga assistente di QUESTO turno, raggiungibile anche dal `catch` in
       // fondo: se schiantiamo dopo averla aperta, va chiusa lì — vedi
@@ -649,6 +658,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // === WS-based chat: sends via chat.send, receives tool + text events ===
         try {
           const requestStartMs = Date.now();
+          // L'inizio del TURNO — di norma è questo istante, ma su una
+          // riadozione diventa l'ora di nascita della riga che stiamo
+          // riprendendo (vedi sotto). `requestStartMs` resta l'inizio di
+          // QUESTA gamba HTTP, che serve ad altro (i media nuovi, le durate
+          // degli eventi).
+          let turnStartMs = requestStartMs;
           let fullContent = "";
           let fullThinking = "";
           let lastTextDelta = ""; // track cumulative text from delta events
@@ -796,6 +811,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // reload. Il listener sotto trasforma quell'abort nella chiusura che
           // mancava.
           crashedPartialId = partialMsg.id;
+          // Su una RIADOZIONE il turno non comincia adesso: è cominciato quando
+          // l'ha aperto il turno vero, e noi ci stiamo solo riattaccando. Con
+          // l'orologio che parte da qui la durata scritta sotto il messaggio
+          // era quella del replay muto — 71ms, 100ms, 131ms su turni da minuti
+          // — cioè un numero che non misura niente. La riga porta la sua ora di
+          // nascita: quella è l'inizio.
+          if (isReattach) {
+            const born = Date.parse(partialMsg.timestamp);
+            if (Number.isFinite(born) && born > 0 && born <= Date.now()) turnStartMs = born;
+          }
           const externalAbort = new AbortController();
           startStream(sessionKey, partialMsg.id, externalAbort);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1280,7 +1305,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // il tempo che ci ha messo una persona a rispondere: un turno da otto
             // secondi non deve essere archiviato come «43m» perché la domanda è
             // arrivata durante il pranzo. Vedi lib/human-wait.ts.
-            const latencyMs = Math.max(0, Date.now() - requestStartMs - humanWait.totalMs());
+            const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
@@ -1895,7 +1920,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // Forma standard `usage_update` ACP (3.1): il payload lo
                 // costruisce un posto solo, così l'evento vivo e
                 // `GET /api/context/live` non possono divergere.
-                const update = buildContextUpdate({ tokens, model, fallbackModel: overrideModel, windowTokens });
+                const update = buildContextUpdate({ tokens, model, fallbackModel: spawnedModel, windowTokens });
                 // Scrittura solo quando il numero cambia davvero: in un turno
                 // lungo questo handler scatta a ogni chiamata al modello.
                 if (update.usage.used !== lastContextUsed) {
@@ -1905,7 +1930,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     usedTokens: update.usage.used,
                     windowTokens: update.usage.size,
                     estimated: update.estimated,
-                    model: model ?? overrideModel ?? null,
+                    model: model ?? spawnedModel ?? null,
                   });
                   const uevt = {
                     type: "stream:context" as const,

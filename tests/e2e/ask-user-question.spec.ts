@@ -201,6 +201,83 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await page.waitForTimeout(800); // il video mostra la chat che riparte
   });
 
+  test("tre domande insieme si rispondono A STEP, una alla volta", async ({ page, chatPage, request }) => {
+    // Uscivano tutte in un blocco solo: tre domande con le loro opzioni sono un
+    // muro, e chi risponde all'ultima deve tenere a mente le prime due. Adesso
+    // una schermata per domanda, con il conto («2 di 3»), il riepilogo di quel
+    // che hai già scelto e la possibilità di tornare indietro a cambiare idea.
+    // Sul filo non cambia niente: l'invio parte una volta sola, alla fine.
+    const toolCallId = "toolu_ask_steps";
+    const qs = [
+      { question: "Quale runtime?", header: "Runtime", options: [{ label: "Bun" }, { label: "Node" }], multiSelect: false },
+      { question: "Quale database?", header: "Database", options: [{ label: "SQLite" }, { label: "Postgres" }], multiSelect: false },
+      { question: "Quale deploy?", header: "Deploy", options: [{ label: "Locale" }, { label: "Cloud" }], multiSelect: false },
+    ];
+    await seedMessage(request, { sessionKey, role: "user", content: "decidiamo lo stack" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: "Tre scelte:",
+      toolCalls: [{
+        id: toolCallId,
+        name: "mcp__topics__ask_user_question",
+        args: { questions: qs },
+        status: "waiting_for_input",
+        startedAt: Date.now() - 4_000,
+        userInputSchema: { kind: "questions", questions: qs },
+      }],
+    });
+    const bridge = registerBridgeAsk(request, qs);
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+
+    // Una domanda alla volta: le altre due NON sono a schermo.
+    await expect(form.locator("legend")).toHaveCount(1);
+    await expect(form.locator("legend")).toContainText("Quale runtime?");
+    await expect(form.getByTestId("ask-step-progress")).toHaveText("1 di 3");
+    // Non si va avanti senza rispondere.
+    await expect(form.getByTestId("ask-step-next")).toBeDisabled();
+
+    await form.locator('input[type="radio"][value="Bun"]').check();
+    await form.getByTestId("ask-step-next").click();
+
+    await expect(form.getByTestId("ask-step-progress")).toHaveText("2 di 3");
+    await expect(form.locator("legend")).toContainText("Quale database?");
+    // Quel che hai già scelto resta sotto gli occhi.
+    await expect(form.getByTestId("ask-step-recap")).toContainText("Bun");
+
+    // Indietro per cambiare idea, e la scelta di prima è ancora selezionata.
+    await form.getByTestId("ask-step-back").click();
+    await expect(form.getByTestId("ask-step-progress")).toHaveText("1 di 3");
+    await expect(form.locator('input[type="radio"][value="Bun"]')).toBeChecked();
+    await form.locator('input[type="radio"][value="Node"]').check();
+    await form.getByTestId("ask-step-next").click();
+
+    await form.locator('input[type="radio"][value="SQLite"]').check();
+    await form.getByTestId("ask-step-next").click();
+
+    // Ultima: il tasto diventa l'invio, non un altro passo.
+    await expect(form.getByTestId("ask-step-progress")).toHaveText("3 di 3");
+    await expect(form.getByTestId("ask-step-next")).toHaveCount(0);
+    await form.locator('input[type="radio"][value="Cloud"]').check();
+    await form.getByTestId("ask-submit").click();
+
+    // Al bridge arrivano TUTTE e tre insieme, con la correzione fatta a metà.
+    const result = await bridge;
+    expect(result.cancelled).toBeFalsy();
+    expect(result.answers).toEqual({
+      "Quale runtime?": "Node",
+      "Quale database?": "SQLite",
+      "Quale deploy?": "Cloud",
+    });
+  });
+
   test('"Other": il testo libero torna al bridge come risposta', async ({ page, chatPage, request }) => {
     const toolCallId = "toolu_ask_other";
     const question = "Quale database?";

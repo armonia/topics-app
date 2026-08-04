@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { HelpCircle, Send, Loader2 } from 'lucide-react';
+import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
@@ -130,6 +130,19 @@ function QuestionsForm({
   // stays `Record<string,string>`, so multiple picks are joined with ", ".
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [otherText, setOtherText] = useState<Record<string, string>>({});
+  // UNA domanda alla volta, come la fa la CLI.
+  //
+  // Prima uscivano tutte insieme in un blocco solo: tre domande con tre righe
+  // di opzioni ciascuna sono un muro, e chi legge deve tenere a mente le prime
+  // due mentre risponde alla terza. A step ognuna ha la sua schermata, si può
+  // tornare indietro a cambiare idea, e l'invio parte una volta sola alla fine
+  // — la risposta al tool è un oggetto solo, quindi il passo non cambia niente
+  // sul filo. Con una domanda sola non compare nessuna impalcatura: resta
+  // esattamente il pannello di prima.
+  const [step, setStep] = useState(0);
+  const stepped = questions.length > 1;
+  const current = questions[Math.min(step, questions.length - 1)]!;
+  const isLast = step >= questions.length - 1;
 
   const picked = (qKey: string, label: string) => (selections[qKey] || []).includes(label);
 
@@ -144,12 +157,14 @@ function QuestionsForm({
     });
   }
 
-  const allAnswered = questions.every((q) => {
+  const answered = (q: AskUserQuestionItem) => {
     const cur = selections[q.question] || [];
     if (cur.length === 0) return false;
     if (cur.includes(OTHER) && (otherText[q.question] || '').trim().length === 0) return false;
     return true;
-  });
+  };
+  const allAnswered = questions.every(answered);
+  const canAdvance = answered(current);
 
   function resolveAnswerFor(q: AskUserQuestionItem): string {
     const cur = selections[q.question] || [];
@@ -163,7 +178,15 @@ function QuestionsForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!allAnswered || submitting) return;
+        if (submitting) return;
+        // Non è l'ultima: il tasto porta avanti, non invia. Un Invio dalla
+        // tastiera finisce qui dentro come il click, quindi il passo si fa in
+        // un posto solo.
+        if (!isLast) {
+          if (canAdvance) setStep((s) => Math.min(s + 1, questions.length - 1));
+          return;
+        }
+        if (!allAnswered) return;
         const resolved: Record<string, string> = {};
         for (const q of questions) resolved[q.question] = resolveAnswerFor(q);
         onSubmit({ kind: 'questions', answers: resolved, submittedAt: '' });
@@ -174,8 +197,27 @@ function QuestionsForm({
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>L'agente attende la tua risposta</span>
+        {stepped && (
+          <span className="ml-auto normal-case tracking-normal text-app-text-muted" data-testid="ask-step-progress">
+            {step + 1} di {questions.length}
+          </span>
+        )}
       </div>
-      {questions.map((q, qIdx) => {
+      {/* Le risposte già date, in una riga: si vede cosa hai scelto senza
+          tornare indietro, e tornare indietro resta possibile col tasto sotto. */}
+      {stepped && step > 0 && (
+        <div className="text-[11px] text-app-text-muted space-y-0.5" data-testid="ask-step-recap">
+          {questions.slice(0, step).map((q, i) => (
+            <div key={`${toolCallId}-recap-${i}`} className="truncate">
+              <span className="uppercase tracking-wide">{q.header || `Domanda ${i + 1}`}</span>
+              <span className="mx-1.5">→</span>
+              <span className="text-app-text">{resolveAnswerFor(q) || '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {(stepped ? [current] : questions).map((q) => {
+        const qIdx = questions.indexOf(q);
         const inputType = q.multiSelect ? 'checkbox' : 'radio';
         return (
         <fieldset key={`${toolCallId}-q-${qIdx}`} className="space-y-1.5">
@@ -249,14 +291,26 @@ function QuestionsForm({
       {error && (
         <div className="text-[12px] text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
-      <div className="flex justify-end">
+      <div className="flex justify-end items-center gap-2">
+        {stepped && step > 0 && (
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={submitting}
+            data-testid="ask-step-back"
+            className="px-3 py-1.5 text-[12.5px] font-medium rounded-md text-app-text-secondary hover:bg-app-hover disabled:opacity-40 transition-colors"
+          >
+            Indietro
+          </button>
+        )}
         <button
           type="submit"
-          disabled={!allAnswered || submitting}
+          disabled={(isLast ? !allAnswered : !canAdvance) || submitting}
+          data-testid={isLast ? 'ask-submit' : 'ask-step-next'}
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-          {submitting ? 'Sending…' : 'Send'}
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
+          {submitting ? 'Sending…' : isLast ? 'Send' : 'Avanti'}
         </button>
       </div>
     </form>
