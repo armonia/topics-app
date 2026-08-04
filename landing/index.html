@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<!-- Type: Instrument Serif for display, Inter for body, JetBrains Mono for code.
-     The two faces this replaced (Geist and Space Grotesk) were both grotesques,
-     so another grotesque would have been the same register under a new name; a
-     serif in the headings is an actual change of voice, and it reads as
-     considered next to a dense terminal screenshot. Body stays a sans because a
-     serif at 15px is harder to read, not nicer.
-     Backdrop: `weave`, a still dot lattice under one cool wash. It replaced
-     three saturated blobs that drifted on 24-30s loops and competed with the
-     product frame for attention.
+<!-- Type: Gambarino for display, Switzer for body, Commit Mono for code.
+     Instrument Serif was the right IDEA and the wrong DRAWING: a thin, generic
+     display serif. Gambarino is a display serif with actual character, Switzer
+     is a proper variable grotesque rather than the Inter everyone ships, and
+     Commit Mono is the face Resend uses in production. All three are free for
+     commercial use (Fontshare / OFL), so none of this waits on a licence.
+     Backdrop: `weave`, a still dot lattice under one cool wash, over a five-step
+     opaque elevation scale. It replaced three saturated blobs that drifted on
+     24-30s loops and fought the product frame for attention.
      Both are variants: append ?lab=1 for a switcher that compares all of them
      on this page, and swap the two attributes below to change the default. -->
-<html lang="en" data-theme="dark" data-font="instrument" data-bg="weave">
+<html lang="en" data-theme="dark" data-font="editorial" data-bg="weave">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -27,11 +27,13 @@
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <!-- Only the three families the page actually renders. The other candidates
-       (Bricolage Grotesque, IBM Plex) are fetched by app.js on demand, and only
-       when ?lab=1 asks to compare them, so a normal visit never pays for type
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <!-- Only the three families the page renders. The lab candidates are fetched
+       by app.js on demand behind ?lab=1, so a normal visit never pays for type
        it will not see. -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -132,18 +134,18 @@
       </div>
     </section>
 
+    <!-- The page used to introduce itself twice: an h1 saying "here is the
+         product", then an h2 thirty pixels above the product saying "here is
+         the product". The frame speaks for itself, so what survives is one
+         line telling you it is real and yours to touch. -->
+
     <!-- DEMO — the frame comes first and the chapter list sits under it, so the
          product is on screen before the reader has to choose anything. -->
     <section class="demo" id="demo">
-      <div class="demo__lead reveal">
-        <span class="eyebrow">live demo, not a video</span>
-        <h2 class="demo__title">This is the app, running in your browser.</h2>
-        <p class="demo__lede">
-          Same bundle we ship, with sample data instead of a backend. Take the mouse and
-          click anything. Or pick a chapter underneath and a pointer will walk you through
-          that part of the app, then step aside the moment you touch it.
-        </p>
-      </div>
+      <p class="demo__lead reveal">
+        The window below is the app itself, running on sample data. Take the mouse, or pick a
+        chapter underneath and a pointer will walk you through that part of it.
+      </p>
 
       <div class="showcase reveal">
         <div class="showcase__glow" aria-hidden="true"></div>
@@ -446,18 +448,18 @@
           <header class="fgroup__head">
             <div class="card__icon i-teal"><svg class="ic"><use href="#ic-cloud"/></svg></div>
             <div>
-              <h3>Reach <span class="tag tag--pro">Pro</span></h3>
+              <h3>Reach</h3>
               <p>The same workspace, from somewhere that is not your desk.</p>
             </div>
           </header>
           <ul class="flist">
             <li><b>Mobile and PWA.</b> Check on a running agent from your phone.</li>
-            <li><b>Remote access.</b> Reach the workspace over a tunnel, with your own auth in front of it.</li>
+            <li><b>Remote access.</b> Reach the workspace over a tunnel you run, with your own auth in front of it.</li>
             <li><b>Remote browser.</b> Watch and drive the agent's browser from another device.</li>
-            <li><b>Cross-device sync.</b> Sessions and layout follow you between machines.</li>
-            <li><b>Shared boards <span class="tag tag--team">Team</span>.</b> One board, several people, several machines.</li>
+            <li><b>Cross-device sync.</b> Open the workspace on a second machine and find the same tabs and layout.</li>
+            <li><b>A view of every machine.</b> Which of your machines is online, and what is running on it.</li>
           </ul>
-          <p class="fgroup__note">Every card above this one runs on your machine and is free forever. This is the part we host, which is why it costs something. <a href="#pricing">See pricing</a>.</p>
+          <p class="fgroup__note">All of this is in the free app and works with your own tunnel today. What we are building is the hosted version, so you do not have to run the tunnel yourself. <a href="#pricing">See where that stands</a>.</p>
         </article>
 
         <article class="fgroup reveal">
@@ -519,9 +521,9 @@
         <h2>The app is free. Forever.</h2>
         <p>
           Anything that runs on your machine costs nothing and always will: every agent, every
-          terminal, the whole board. What you can pay for is the part we have to run for you,
-          which is keeping a workspace in sync between machines, reaching it from your phone,
-          and sharing it with other people.
+          terminal, the whole board. The two plans below are what we are building next, for the
+          parts that need a server we run rather than one you run. Neither is on sale yet, and
+          the app has never needed them.
         </p>
       </header>
 
@@ -546,41 +548,46 @@
           <p class="plan__fine">MIT licensed. No account required.</p>
         </article>
 
-        <article class="plan plan--feature reveal">
-          <span class="plan__badge">Founding price</span>
+        <!-- The two paid cards describe something we are building, not something
+             you can buy today, and the markup says so on its own: the CTA reads
+             "waitlist" in the HTML and app.js turns it into a real checkout only
+             once a Payment Link exists. It used to work the other way round,
+             which meant anyone reading with JS off, or any social preview,
+             saw an active subscription that cannot be purchased. -->
+        <article class="plan plan--feature plan--soon reveal">
+          <span class="plan__badge">In progress</span>
           <header class="plan__head">
             <h3>Pro</h3>
-            <p class="plan__price"><span class="plan__amount">&euro;9</span><span class="plan__per">/ month</span></p>
-            <p class="plan__for">Your workspace, wherever you are.</p>
+            <p class="plan__price"><span class="plan__amount">&euro;9</span><span class="plan__per">/ month, planned</span></p>
+            <p class="plan__for">The hosted version of the things you can already self-host.</p>
           </header>
           <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Free</b>, plus:</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Cloud sync for topics, layout and history</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access to your machine from anywhere</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Mobile and PWA, to check on a running agent</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote browser and co-browse from another device</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications when an agent needs you</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Free</b>, without running the plumbing:</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A hosted relay, so a second machine syncs without a tunnel of your own</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access with a URL and auth we manage</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications that reach your phone when you are away from the machine</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Encrypted off-machine backup of topics and history</li>
           </ul>
-          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing"><span>Get Pro</span></a>
-          <p class="plan__fine">Cancel any time. The app keeps working without it.</p>
+          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing"><span>Join the Pro waitlist</span></a>
+          <p class="plan__fine">Not on sale yet. We will email before anything is charged.</p>
         </article>
 
-        <article class="plan reveal">
+        <article class="plan plan--soon reveal">
+          <span class="plan__badge plan__badge--quiet">In progress</span>
           <header class="plan__head">
             <h3>Team</h3>
-            <p class="plan__price"><span class="plan__amount">&euro;19</span><span class="plan__per">/ seat / month</span></p>
+            <p class="plan__price"><span class="plan__amount">&euro;19</span><span class="plan__per">/ seat / month, planned</span></p>
             <p class="plan__for">One board, several people.</p>
           </header>
           <ul class="plan__list">
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Pro</b>, for every seat</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared boards across people and machines</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Roles and approval permissions</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A fleet view of who is running what, and where</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Accounts, so a board can belong to more than one person</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared boards across people, not just across your own machines</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Roles, and who is allowed to approve</li>
             <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared agent profiles and board settings</li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Priority support</li>
           </ul>
-          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing"><span>Get Team</span></a>
-          <p class="plan__fine">No seat minimum.</p>
+          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing"><span>Join the Team waitlist</span></a>
+          <p class="plan__fine">No seat minimum when it opens.</p>
         </article>
       </div>
 
@@ -595,11 +602,11 @@
         </div>
         <div>
           <h4>What happens if I stop paying?</h4>
-          <p>The app keeps working. You lose sync and remote access. Every topic, board and terminal stays on your disk exactly as it was.</p>
+          <p>The app keeps working. You lose the hosted relay and go back to your own tunnel. Every topic, board and terminal stays on your disk exactly as it was.</p>
         </div>
         <div>
           <h4>Can I self-host the Pro features?</h4>
-          <p>Remote access already works with your own tunnel and your own auth, and that path is open source and free. Pro is the hosted version, for people who would rather not run it themselves.</p>
+          <p>You already do. Remote access, mobile, cross-device sync and the machine list are in the free app and run over a tunnel you control. Pro is the same thing without the setup, which is the honest reason to charge for it.</p>
         </div>
       </div>
     </section>
@@ -636,14 +643,15 @@
           <h3>Windows</h3>
           <div class="dl-card__links">
             <a class="dl-link" data-asset="win" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Installer (.exe)</a>
+            <a class="dl-link" data-asset="msi" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">MSI package</a>
           </div>
         </article>
         <article class="dl-card" data-os="linux">
           <div class="dl-card__icon"><svg class="ic ic--lg"><use href="#os-linux"/></svg></div>
           <h3>Linux</h3>
           <div class="dl-card__links">
-            <a class="dl-link" data-asset="appimage" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">AppImage</a>
-            <a class="dl-link" data-asset="deb" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Debian (.deb)</a>
+            <a class="dl-link" data-asset="deb" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Debian, Ubuntu (.deb)</a>
+            <a class="dl-link" data-asset="rpm" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Fedora, RHEL (.rpm)</a>
           </div>
         </article>
       </div>

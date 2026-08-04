@@ -47,14 +47,27 @@
   const OS = detectOS();
   const OS_LABEL = { mac: 'macOS', win: 'Windows', linux: 'Linux' }[OS];
 
+  /**
+   * Matchers for the files a release actually contains. Keep this list honest:
+   * a slot with no matching asset silently leaves its link pointing at the
+   * releases page, and the visitor clicks a download button that downloads
+   * nothing.
+   *
+   * There is no AppImage and there never will be on this pipeline: the Linux
+   * job builds `--bundles deb,rpm` because linuxdeploy chokes on the ~100MB bun
+   * sidecar. The page offered AppImage as the PRIMARY Linux download anyway, so
+   * every Linux visitor hit a dead button while the .rpm that does exist was
+   * not offered at all.
+   */
   const ASSET = {
     // ONE universal macOS dmg (Apple Silicon + Intel) since v1.0.3.
-    'mac':      (n) => /\.dmg$/i.test(n),
-    'win':      (n) => /\.exe$/i.test(n),
-    'appimage': (n) => /\.appimage$/i.test(n),
-    'deb':      (n) => /\.deb$/i.test(n),
+    'mac':  (n) => /\.dmg$/i.test(n),
+    'win':  (n) => /\.exe$/i.test(n),
+    'msi':  (n) => /\.msi$/i.test(n),
+    'deb':  (n) => /\.deb$/i.test(n),
+    'rpm':  (n) => /\.rpm$/i.test(n),
   };
-  const PRIMARY_ASSET = { mac: 'mac', win: 'win', linux: 'appimage' };
+  const PRIMARY_ASSET = { mac: 'mac', win: 'win', linux: 'deb' };
 
   // current OS card first (CSS uses .is-primary -> order:1) + labelled CTA
   const label = `Download for ${OS_LABEL}`;
@@ -158,16 +171,26 @@
     const url = CHECKOUT[plan];
     const labelEl = el.querySelector('span') || el;
     if (url) {
+      // A Payment Link exists: promote the waitlist button into a real one, and
+      // drop the "in progress" framing the markup ships with.
       el.href = url;
       el.setAttribute('rel', 'noopener');
       el.setAttribute('target', '_blank');
-    } else {
-      el.href = `${WAITLIST}%20(${plan})`;
-      labelEl.textContent = plan === 'team' ? 'Join the Team waitlist' : 'Join the Pro waitlist';
-      el.setAttribute('aria-label', `${labelEl.textContent} — checkout opens soon`);
+      labelEl.textContent = plan === 'team' ? 'Get Team' : 'Get Pro';
       const card = el.closest('.plan');
-      const fine = card && card.querySelector('.plan__fine');
-      if (fine) fine.textContent = 'Opening soon — we will email you before we charge anyone.';
+      if (card) {
+        card.classList.remove('plan--soon');
+        const badge = card.querySelector('.plan__badge');
+        if (badge) badge.remove();
+        const per = card.querySelector('.plan__per');
+        if (per) per.textContent = per.textContent.replace(/,\s*planned$/, '');
+        const fine = card.querySelector('.plan__fine');
+        if (fine) fine.textContent = 'Cancel any time. The app keeps working without it.';
+      }
+    } else {
+      // No link configured, which is today. The markup already reads as a
+      // waitlist, so there is nothing to rewrite: just point it somewhere.
+      el.href = `${WAITLIST}%20(${plan})`;
     }
   });
 
@@ -189,9 +212,10 @@
     document.head.appendChild(extra);
 
     const FONTS = [
-      ['inter', 'Inter', 'Neutral and extremely legible. The safe, invisible choice.'],
-      ['instrument', 'Instrument Serif', 'Serif headlines over a sans body. Editorial and warmer.'],
-      ['bricolage', 'Bricolage Grotesque', 'A grotesque with character. More opinionated.'],
+      ['editorial', 'Gambarino + Switzer', 'Shipping. Display serif with real character, variable grotesque body, Commit Mono.'],
+      ['bricolage', 'Bricolage Grotesque', 'One family, three optical sizes. What fly.io ships.'],
+      ['inter', 'Inter', 'Neutral and everywhere. The safe, invisible choice.'],
+      ['instrument', 'Instrument Serif', 'The previous pick. Thinner and more generic than Gambarino.'],
       ['plex', 'IBM Plex', 'Engineering heritage, one family throughout.'],
     ];
     const BGS = [
