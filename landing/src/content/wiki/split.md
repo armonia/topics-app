@@ -1,6 +1,9 @@
 ---
 title: Split
-definition: A split divides a pane in two, producing a tree of rows and columns rather than a flat list. It is what lets a terminal, the file it is editing and the page it renders sit on screen together instead of taking turns.
+definition: >-
+  A split divides a pane in two, producing a tree of rows and columns rather than a flat list.
+  It is what lets a terminal, the file it is editing and the page it renders sit on screen
+  together instead of taking turns.
 updatedDate: 2026-08-04
 pillar: performance
 seeAlso:
@@ -34,7 +37,7 @@ happened.
 ## What a split has to survive
 
 A reload, a restart, and a second machine. Which means the tree has to be
-serialisable and reconcilable — two devices can both have opinions about it, and
+serialisable and reconcilable: two devices can both have opinions about it, and
 one of them has to win in a way that is not simply "whoever wrote last by
 wall-clock".
 

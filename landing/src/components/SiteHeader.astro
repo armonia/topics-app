@@ -1,0 +1,51 @@
+---
+/**
+ * The navigation, in one place.
+ *
+ * There were three of them. The home page offered Demo · Features · Docs · Blog
+ * · Compare · Pricing · GitHub, the changelog dropped Demo and offered no way
+ * back to the home page, and the reading pages offered a fourth set with no
+ * GitHub link at all. Nobody decided that; it is what happens when a nav is
+ * markup instead of a component, and it is the kind of thing a visitor reads as
+ * "which site am I on".
+ *
+ * Every href is absolute, including the anchors. `/#features` resolves from a
+ * wiki page and from the home page alike, so one list works everywhere and
+ * there is no per-page variant to drift.
+ */
+export interface Props {
+  /** Marks the current section, so the nav says where you are. */
+  current?: 'product' | 'docs' | 'blog' | 'compare' | 'pricing' | 'changelog';
+}
+const { current } = Astro.props;
+
+const links = [
+  { key: 'product', label: 'Product', href: '/#features' },
+  { key: 'docs', label: 'Docs', href: '/wiki' },
+  { key: 'blog', label: 'Blog', href: '/blog' },
+  { key: 'compare', label: 'Compare', href: '/compare/claude-code-guis' },
+  { key: 'pricing', label: 'Pricing', href: '/#pricing' },
+  { key: 'changelog', label: 'Changelog', href: '/changelog' },
+] as const;
+---
+
+<header class="nav" id="nav">
+  <div class="nav__inner">
+    <a class="brand" href="/" aria-label="Topics home">
+      <img src="/icon-64.png" alt="" class="brand__mark" width="26" height="26" />
+      <span class="brand__name">Topics</span>
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      {links.map((l) => (
+        <a href={l.href} aria-current={current === l.key ? 'page' : undefined}>{l.label}</a>
+      ))}
+    </nav>
+    <div class="nav__cta">
+      <a class="btn btn--ghost btn--sm" href="https://github.com/armonia/topics-app" rel="noopener" target="_blank" aria-label="Topics on GitHub">
+        <svg class="ic ic--fill" aria-hidden="true"><use href="#ic-gh"/></svg>
+        <span class="nav__ghlabel">GitHub</span><span class="nav__stars" id="starCount" aria-hidden="true"></span>
+      </a>
+      <a class="btn btn--primary btn--sm" href="/#download">Download</a>
+    </div>
+  </div>
+</header>

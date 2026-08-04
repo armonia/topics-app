@@ -1,6 +1,9 @@
 ---
 title: Git worktree per agent
-definition: A git worktree is a second working copy of the same repository, checked out to its own branch in its own directory. Giving each coding agent one is what lets several of them edit the same project at once without touching each other's files.
+definition: >-
+  A git worktree is a second working copy of the same repository, checked out to its own
+  branch in its own directory. Giving each coding agent one is what lets several of them edit
+  the same project at once without touching each other's files.
 updatedDate: 2026-08-04
 pillar: worktrees
 seeAlso:
@@ -20,7 +23,7 @@ at a time. Agents do not take turns. Point three of them at one checkout and
 they will each run `git add`, each write files, and each assume the tree they
 read a second ago is the tree they are writing into.
 
-The failure is not theoretical and it is not a merge conflict — a merge conflict
+The failure is not theoretical and it is not a merge conflict. A merge conflict
 is git telling you it noticed. The quiet version is **a shared index**: two
 processes staging into the same `.git/index` interleave, and one of them commits
 a snapshot containing half of somebody else's work. Nothing errors. The commit

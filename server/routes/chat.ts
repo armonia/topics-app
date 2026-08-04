@@ -80,6 +80,7 @@ import {
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
 import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
+import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
@@ -799,6 +800,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
           // fresh row.
+          // La riga com'è ADESSO, prima che il riattacco la svuoti per riusarla.
+          // Serve a garantire l'unica regola che conta qui: una riadozione può
+          // aggiungere, mai togliere. Vedi reattachMerge.ts.
+          const reattachSnapshot: RowSnapshot | null = isReattach
+            ? (() => {
+                try {
+                  const r = db.prepare(
+                    "SELECT content, thinking, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
+                  ).get(sessionKey) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
+                  return r ? {
+                    content: r.content ?? "",
+                    thinking: r.thinking ?? null,
+                    toolCallsJson: r.tool_calls ?? null,
+                    blocksJson: r.blocks ?? null,
+                  } : null;
+                } catch { return null; }
+              })()
+            : null;
           const partialMsg = isReattach
             ? reuseOrCreatePartialForReattach(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
@@ -1305,6 +1324,32 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // il tempo che ci ha messo una persona a rispondere: un turno da otto
             // secondi non deve essere archiviato come «43m» perché la domanda è
             // arrivata durante il pranzo. Vedi lib/human-wait.ts.
+            // Riadozione: quello che il replay NON ha ri-emesso torna dov'era.
+            // Senza questo, un replay muto (coda chiusa nello store del broker)
+            // lasciava la riga col solo testo finale e senza i tool — compreso
+            // un `ask_user_question` ancora a schermo, che spariva a ogni
+            // ricarica del server.
+            if (isReattach && reattachSnapshot) {
+              const merged = mergeReattachedRow(reattachSnapshot, {
+                content: fullContent,
+                thinking: fullThinking || undefined,
+                trackedTools: trackedToolCallIds.length,
+                blocks,
+              });
+              fullContent = merged.content;
+              if (merged.thinking !== undefined) fullThinking = merged.thinking;
+              if (merged.blocks && merged.blocks !== blocks) {
+                blocks.length = 0;
+                blocks.push(...(merged.blocks as ContentBlock[]));
+              }
+              if (merged.toolCallsJson !== undefined) {
+                try { db.run("UPDATE messages SET tool_calls = ? WHERE id = ?", [merged.toolCallsJson, partialMsg.id]); }
+                catch (err) { console.warn(`[chat-reattach] tool non ripristinati su ${sessionKey}:`, err); }
+              }
+              if (merged.nothingNew) {
+                console.log(`[chat-reattach] ${sessionKey}: il riattacco non ha aggiunto niente — la riga resta com'era`);
+              }
+            }
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
               content: fullContent,

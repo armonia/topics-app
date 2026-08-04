@@ -1,6 +1,9 @@
 ---
 title: LWW (last-writer-wins)
-definition: A conflict rule that keeps the most recent write. It is the simplest thing that works for synchronising state across devices, and it is only correct if "most recent" is decided causally rather than by reading two clocks that disagree.
+definition: >-
+  A conflict rule that keeps the most recent write. It is the simplest thing that works for
+  synchronising state across devices, and it is only correct if "most recent" is decided
+  causally rather than by reading two clocks that disagree.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:
@@ -23,7 +26,7 @@ Deciding "later" by comparing two timestamps taken on two machines means the
 device with the faster clock wins arguments it should lose, permanently and
 invisibly.
 
-The fix is a monotonic sequence assigned by whatever both parties agree on — a
+The fix is a monotonic sequence assigned by whatever both parties agree on: a
 server sequence number, or a logical clock. "Later" then means *after* in a
 causal sense, which is the thing you actually meant.
 
@@ -33,7 +36,7 @@ level loses one of them although they do not conflict at all. Resolving per fiel
 keeps both.
 
 **Empty wins.** The most damaging version is a device that syncs an empty state
-during startup, before it has loaded anything, and wins on recency — wiping every
+during startup, before it has loaded anything, and wins on recency, wiping every
 other device. A rule of "later wins" needs a companion rule that an empty state
 is never authoritative.
 

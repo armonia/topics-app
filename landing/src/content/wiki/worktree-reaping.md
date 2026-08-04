@@ -1,6 +1,9 @@
 ---
 title: Worktree reaping
-definition: Removing a git worktree once its work has landed. Skipping it leaves branches, disk and (worse) anything still pointing at that directory in a state that looks broken rather than finished.
+definition: >-
+  Removing a git worktree once its work has landed. Skipping it leaves branches, disk and
+  (worse) anything still pointing at that directory in a state that looks broken rather than
+  finished.
 updatedDate: 2026-08-04
 pillar: worktrees
 seeAlso:

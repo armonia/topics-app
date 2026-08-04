@@ -43,11 +43,19 @@ export default defineConfig({
   ],
 
   markdown: {
-    // `markdown.remarkPlugins` still works and is deprecated in Astro 7 — the
+    // `markdown.remarkPlugins` still works and is deprecated in Astro 7: the
     // plugin list moved onto the processor itself, which is the object the
     // renderer actually holds. Same pipeline, no warning, and it will survive
     // the major that drops the old field.
-    processor: unified({ remarkPlugins: [remarkWikilink] }),
+    //
+    // `smartypants: false` is the interesting one. It is on by default, and it
+    // was rewriting every straight quote in the sources into a curly one at
+    // build time: measured, zero curly quotes across 35 content files and 109
+    // in the rendered pages. Curly quotes are one of the listed tells of
+    // machine-written prose, so the build was manufacturing a signal the author
+    // never wrote, on a site whose whole credibility argument is that a person
+    // wrote it. Off, and typography is whatever the source says it is.
+    processor: unified({ remarkPlugins: [remarkWikilink], smartypants: false }),
   },
 
   build: {

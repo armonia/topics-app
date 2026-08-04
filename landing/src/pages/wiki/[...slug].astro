@@ -64,7 +64,8 @@ const jsonLd = {
 };
 ---
 
-<Reading title={`${d.title} · Topics wiki`} description={d.definition} path={`/wiki/${entry.id}`} jsonLd={jsonLd}>
+<Reading title={`${d.title} · Topics wiki`} description={d.definition} path={`/wiki/${entry.id}`} jsonLd={jsonLd}
+  current="docs">
   <header class="article-head">
     <p class="article-kicker">Wiki · {PILLAR_LABEL[d.pillar]}</p>
     <h1>{d.title}</h1>

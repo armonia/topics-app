@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.11",
-    "date": "2026-08-04",
+    "date": "2026-08-05",
     "sections": {
       "new": [
         {
@@ -228,7 +228,7 @@
           "scope": "hooks"
         },
         {
-          "text": "/boot.js answered 404 — the PWA had stopped registering the service worker",
+          "text": "/boot.js answered 404: the PWA had stopped registering the service worker",
           "scope": "web"
         },
         {
@@ -252,7 +252,7 @@
           "scope": "pane"
         },
         {
-          "text": "the poll resurrected DURING unmount — one immortal orphan timer per cycle",
+          "text": "the poll resurrected DURING unmount: one immortal orphan timer per cycle",
           "scope": "scripts"
         },
         {
@@ -276,7 +276,7 @@
           "scope": "resume"
         },
         {
-          "text": "«1000K» — five copies of formatTokens, three got the million boundary wrong",
+          "text": "«1000K»: five copies of formatTokens, three got the million boundary wrong",
           "scope": "token"
         },
         {
@@ -292,7 +292,7 @@
           "scope": "browser"
         },
         {
-          "text": "regenerates the embedded manifest — migration 074 was missing",
+          "text": "regenerates the embedded manifest: migration 074 was missing",
           "scope": "db"
         },
         {
@@ -316,7 +316,7 @@
           "scope": "browser"
         },
         {
-          "text": "11 of 13 findings from the lifecycle audit — session, orphan contexts, vacuous tests",
+          "text": "11 of 13 findings from the lifecycle audit: session, orphan contexts, vacuous tests",
           "scope": "browser"
         },
         {
@@ -324,7 +324,7 @@
           "scope": "browser"
         },
         {
-          "text": "UNDO_CLOSE no longer leaves a ghost pane — but the E2E red has another cause",
+          "text": "UNDO_CLOSE no longer leaves a ghost pane: but the E2E red has another cause",
           "scope": "pane"
         },
         {
@@ -344,13 +344,13 @@
           "scope": "attention"
         },
         {
-          "text": "browserState was a DEAD write — now it has a column",
+          "text": "browserState was a DEAD write: now it has a column",
           "scope": "browser"
         }
       ],
       "perf": [
         {
-          "text": "the missing index on messages(timestamp) — 19 ms to 0.2 ms on the KPIs",
+          "text": "the missing index on messages(timestamp): 19 ms to 0.2 ms on the KPIs",
           "scope": "db"
         },
         {
@@ -388,7 +388,7 @@
       ],
       "fixes": [
         {
-          "text": "realigned the registry after the merge — 97 types",
+          "text": "realigned the registry after the merge: 97 types",
           "scope": "ws contract"
         },
         {
@@ -413,7 +413,7 @@
     "sections": {
       "new": [
         {
-          "text": "auth-gate on /api,/ws,/preview — loopback-trusted + pairing token + anti-CSRF",
+          "text": "auth-gate on /api,/ws,/preview: loopback-trusted + pairing token + anti-CSRF",
           "scope": "security"
         },
         {
@@ -425,7 +425,7 @@
           "scope": "ux"
         },
         {
-          "text": "a group IS a window — one unified \"Windows\" section in the sidebar",
+          "text": "a group IS a window: one unified \"Windows\" section in the sidebar",
           "scope": "ux"
         },
         {
@@ -437,7 +437,7 @@
           "scope": "board"
         },
         {
-          "text": "Topics sees external Claude sessions — ~/.claude/projects scanner, sidebar badge, dispatcher guard",
+          "text": "Topics sees external Claude sessions: ~/.claude/projects scanner, sidebar badge, dispatcher guard",
           "scope": "sessions"
         },
         {
@@ -461,7 +461,7 @@
           "scope": "effort"
         },
         {
-          "text": "the turn says WHY it ended — ACP vocabulary instead of done/error/aborted",
+          "text": "the turn says WHY it ended: ACP vocabulary instead of done/error/aborted",
           "scope": "0.4"
         },
         {
@@ -469,7 +469,7 @@
           "scope": "board"
         },
         {
-          "text": "pre-review checks — no review without green commands",
+          "text": "pre-review checks: no review without green commands",
           "scope": "board"
         },
         {
@@ -481,7 +481,7 @@
           "scope": "context"
         },
         {
-          "text": "speak Agent Client Protocol — a new agent costs one line",
+          "text": "speak Agent Client Protocol: a new agent costs one line",
           "scope": "provider"
         },
         {
@@ -505,7 +505,7 @@
           "scope": "fan-out"
         },
         {
-          "text": "`browser_list` — know how many WKWebViews are really alive",
+          "text": "`browser_list`: know how many WKWebViews are really alive",
           "scope": "shell"
         },
         {
@@ -529,7 +529,7 @@
           "scope": "sidebar"
         },
         {
-          "text": "how much of a message was CACHE — the data was there and was being thrown away",
+          "text": "how much of a message was CACHE: the data was there and was being thrown away",
           "scope": "token"
         },
         {
@@ -595,11 +595,11 @@
           "scope": "security"
         },
         {
-          "text": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
+          "text": "gate /media/ too: blocks token-less remote reads of ~/.topics/media files",
           "scope": "security"
         },
         {
-          "text": "gate the PRIMARY /ws socket (+ /uploads) — was ungated (chat/ui-state leak on LAN)",
+          "text": "gate the PRIMARY /ws socket (+ /uploads): was ungated (chat/ui-state leak on LAN)",
           "scope": "security"
         },
         {
@@ -607,7 +607,7 @@
           "scope": "ux"
         },
         {
-          "text": "group from the sidebar — restore the drag + open/register the dropped topic",
+          "text": "group from the sidebar: restore the drag + open/register the dropped topic",
           "scope": "ux"
         },
         {
@@ -619,7 +619,7 @@
           "scope": "ux"
         },
         {
-          "text": "status bar on ONE line — the crowding removed at the source, not with height",
+          "text": "status bar on ONE line: the crowding removed at the source, not with height",
           "scope": "ux"
         },
         {
@@ -635,7 +635,7 @@
           "scope": "chat"
         },
         {
-          "text": "the source was invisible to grep — 2 raw NUL bytes",
+          "text": "the source was invisible to grep: 2 raw NUL bytes",
           "scope": "moondream"
         },
         {
@@ -683,7 +683,7 @@
           "scope": "shell"
         },
         {
-          "text": "verify before destroying — a branch is reaped only if its content really is on main",
+          "text": "verify before destroying: a branch is reaped only if its content really is on main",
           "scope": "gc"
         },
         {
@@ -759,7 +759,7 @@
           "scope": "memory"
         },
         {
-          "text": "drop the reaper — reloading was free again, and I was the one who had made it expensive",
+          "text": "drop the reaper: reloading was free again, and I was the one who had made it expensive",
           "scope": "memory"
         },
         {
@@ -819,7 +819,7 @@
           "scope": "terminal"
         },
         {
-          "text": "the load error is no longer a writable buffer — ⌘S was overwriting the file",
+          "text": "the load error is no longer a writable buffer: ⌘S was overwriting the file",
           "scope": "editor"
         },
         {
@@ -831,7 +831,7 @@
           "scope": "voice"
         },
         {
-          "text": "silence isn't death — the watchdog asks the server instead of passing sentence",
+          "text": "silence isn't death: the watchdog asks the server instead of passing sentence",
           "scope": "chat"
         },
         {
@@ -887,7 +887,7 @@
           "scope": "perf"
         },
         {
-          "text": "the server side's RAM isn't the Bun process alone — 27 MB against 2166",
+          "text": "the server side's RAM isn't the Bun process alone: 27 MB against 2166",
           "scope": "perf"
         },
         {
@@ -903,7 +903,7 @@
           "scope": "tab"
         },
         {
-          "text": "the badge really does arrive in the background — one single read policy",
+          "text": "the badge really does arrive in the background: one single read policy",
           "scope": "unread"
         },
         {
@@ -983,7 +983,7 @@
           "scope": "chat"
         },
         {
-          "text": "the Board was unreadable in light theme — it now follows the tokens",
+          "text": "the Board was unreadable in light theme: it now follows the tokens",
           "scope": "board"
         },
         {
@@ -999,7 +999,7 @@
           "scope": "a11y"
         },
         {
-          "text": "the 7 window.confirm calls FROZE the webview — now a React ConfirmDialog",
+          "text": "the 7 window.confirm calls FROZE the webview: now a React ConfirmDialog",
           "scope": "a11y"
         },
         {
@@ -1025,7 +1025,7 @@
           "scope": "client"
         },
         {
-          "text": "the suite was half sleep — 14.5 → 6.8 min with identical outcomes",
+          "text": "the suite was half sleep: 14.5 → 6.8 min with identical outcomes",
           "scope": "e2e"
         },
         {
@@ -1037,7 +1037,7 @@
           "scope": "e2e"
         },
         {
-          "text": "15s of pauses gone from the PR gate — and one that must NOT be removed, documented",
+          "text": "15s of pauses gone from the PR gate: and one that must NOT be removed, documented",
           "scope": "e2e"
         },
         {
@@ -1093,7 +1093,7 @@
           "scope": "cobrowse"
         },
         {
-          "text": "no redraw for a pane with no layout — xterm's cache never fills",
+          "text": "no redraw for a pane with no layout: xterm's cache never fills",
           "scope": "terminal"
         },
         {
@@ -1101,7 +1101,7 @@
           "scope": "terminal"
         },
         {
-          "text": "a layout boundary on the pane shell — the caret no longer relayouts the whole app",
+          "text": "a layout boundary on the pane shell: the caret no longer relayouts the whole app",
           "scope": "layout"
         },
         {
@@ -1201,15 +1201,15 @@
     "sections": {
       "new": [
         {
-          "text": "guaranteed review preview — the server promotes the delivery comment's evidence",
+          "text": "guaranteed review preview: the server promotes the delivery comment's evidence",
           "scope": "board"
         },
         {
-          "text": "tool call experience — running state synced to real usage, groups with counts+highlights, durations, hljs in cards",
+          "text": "tool call experience: running state synced to real usage, groups with counts+highlights, durations, hljs in cards",
           "scope": "chat"
         },
         {
-          "text": "hot-reload on demand — no more surprise reloads",
+          "text": "hot-reload on demand: no more surprise reloads",
           "scope": "dev"
         },
         {
@@ -1249,11 +1249,11 @@
           "scope": "chat"
         },
         {
-          "text": "consistent time display — rollup to hours + footer via formatDurationMs",
+          "text": "consistent time display: rollup to hours + footer via formatDurationMs",
           "scope": "chat"
         },
         {
-          "text": "context tracking — pre→post compaction delta + /context command",
+          "text": "context tracking: pre→post compaction delta + /context command",
           "scope": "chat"
         },
         {
@@ -1285,7 +1285,7 @@
           "scope": "recovery"
         },
         {
-          "text": "per-version changelog — in-app modal (IT) + site page (EN)",
+          "text": "per-version changelog: in-app modal (IT) + site page (EN)",
           "scope": "changelog"
         }
       ],
@@ -1307,11 +1307,11 @@
           "scope": "board"
         },
         {
-          "text": "live typing echo in co-browse — rrweb sampling.input 'last'→'all'",
+          "text": "live typing echo in co-browse: rrweb sampling.input 'last'→'all'",
           "scope": "browser"
         },
         {
-          "text": "reap the orphaned sidecar before respawning — stop CPU buildup",
+          "text": "reap the orphaned sidecar before respawning: stop CPU buildup",
           "scope": "webrtc"
         },
         {
@@ -1319,7 +1319,7 @@
           "scope": "browser"
         },
         {
-          "text": "robust input bridge on WKWebView — stop links escaping to the system browser",
+          "text": "input bridge on WKWebView: stop links escaping to the system browser",
           "scope": "browser"
         },
         {
@@ -1331,7 +1331,7 @@
           "scope": "tauri"
         },
         {
-          "text": "chat no longer loses the message — solid turn finalization",
+          "text": "chat no longer loses the message: solid turn finalization",
           "scope": "chat"
         },
         {
@@ -1518,19 +1518,19 @@
       "new": [],
       "fixes": [
         {
-          "text": "10s settle after hot-reload's SIGTERM — never SIGTERM the server during init again",
+          "text": "10s settle after hot-reload's SIGTERM: never SIGTERM the server during init again",
           "scope": "start-prod"
         },
         {
-          "text": "every provider event bumps the stream's lastActivity — StaleStream no longer cuts down tool-heavy turns",
+          "text": "every provider event bumps the stream's lastActivity: StaleStream no longer cuts down tool-heavy turns",
           "scope": "chat"
         },
         {
-          "text": "early signal handler — a SIGTERM during init no longer kills the process with 143",
+          "text": "early signal handler: a SIGTERM during init no longer kills the process with 143",
           "scope": "server"
         },
         {
-          "text": "two-phase reattach — silent scan of the store queue, live attach only from the open turn",
+          "text": "two-phase reattach: silent scan of the store queue, live attach only from the open turn",
           "scope": "chat"
         },
         {
@@ -1538,7 +1538,7 @@
           "scope": "board"
         },
         {
-          "text": "TARGETED navigate to the target pane — with splits, browser panes were navigating in lockstep",
+          "text": "TARGETED navigate to the target pane: with splits, browser panes were navigating in lockstep",
           "scope": "browser"
         }
       ],
@@ -1552,15 +1552,15 @@
       "new": [],
       "fixes": [
         {
-          "text": "chats survive hot-reload and auto-compact — detach in the broker + reattach at boot + liveness watchdog",
+          "text": "chats survive hot-reload and auto-compact: detach in the broker + reattach at boot + liveness watchdog",
           "scope": "chat"
         },
         {
-          "text": "enableDomMode rides the first navigation — no forced video when set_render and nav arrive together",
+          "text": "enableDomMode rides the first navigation: no forced video when set_render and nav arrive together",
           "scope": "browser"
         },
         {
-          "text": "selective boot sweep — re-adopts only mid-flight turns, reaps idle/orphaned broker children",
+          "text": "selective boot sweep: re-adopts only mid-flight turns, reaps idle/orphaned broker children",
           "scope": "chat"
         },
         {
@@ -1586,7 +1586,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "single-flight createContext — the race on first touch orphaned the context with the DOM recorder",
+          "text": "single-flight createContext: the race on first touch orphaned the context with the DOM recorder",
           "scope": "browser"
         }
       ],
@@ -1600,7 +1600,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "DOM mode handles late-joiners and reconnects — takeFullSnapshot on a live recorder + idempotent bundle",
+          "text": "DOM mode handles late-joiners and reconnects: takeFullSnapshot on a live recorder + idempotent bundle",
           "scope": "browser"
         }
       ],
@@ -1613,7 +1613,7 @@
     "sections": {
       "new": [
         {
-          "text": "the DOM mirror is natively interactive — text selection, hover, instant local scroll",
+          "text": "the DOM mirror is natively interactive: text selection, hover, instant local scroll",
           "scope": "browser"
         }
       ],
@@ -1659,7 +1659,7 @@
       ],
       "fixes": [
         {
-          "text": "drawer no longer cramped — scrollable info + modest preview",
+          "text": "drawer no longer cramped: scrollable info + modest preview",
           "scope": "board"
         },
         {
@@ -1667,7 +1667,7 @@
           "scope": "board"
         },
         {
-          "text": "hide rrweb's replay cursor in DOM mode — no dot chasing the mouse (native feel, not streaming)",
+          "text": "hide rrweb's replay cursor in DOM mode: no dot chasing the mouse (native feel, not streaming)",
           "scope": "browser"
         }
       ],
@@ -1710,7 +1710,7 @@
           "scope": "tauri"
         },
         {
-          "text": "the agent no longer proposes 'Land and publish' — publish is separate (protocol #6)",
+          "text": "the agent no longer proposes 'Land and publish': publish is separate (protocol #6)",
           "scope": "board"
         }
       ],
@@ -1723,23 +1723,23 @@
     "sections": {
       "new": [
         {
-          "text": "delivery preview in the task drawer too — full image (object-contain), click to open it full-size",
+          "text": "delivery preview in the task drawer too: full image (object-contain), click to open it full-size",
           "scope": "board"
         },
         {
-          "text": "review-ready previews — live preview server + screenshot evidence per task",
+          "text": "review-ready previews: live preview server + screenshot evidence per task",
           "scope": "kanban"
         },
         {
-          "text": "DOM channel protocol — additive set_render/render_mode/dom_event variants (T1 stage A)",
+          "text": "DOM channel protocol: additive set_render/render_mode/dom_event variants (T1 stage A)",
           "scope": "browser"
         },
         {
-          "text": "server-side DOM channel — injects rrweb on-demand, fans out dom_event, late-join bootstrap (T1 stage B)",
+          "text": "server-side DOM channel: injects rrweb on-demand, fans out dom_event, late-join bootstrap (T1 stage B)",
           "scope": "browser"
         },
         {
-          "text": "client-side DOM co-browse — native rrweb Replayer, DOM/video toggle, fallback on video error, agent-lock gated input (T1 stage C)",
+          "text": "client-side DOM co-browse: native rrweb Replayer, DOM/video toggle, fallback on video error, agent-lock gated input (T1 stage C)",
           "scope": "browser"
         }
       ],
@@ -1753,11 +1753,11 @@
           "scope": "reload"
         },
         {
-          "text": "absolute getMediaUrl via serverHttpBase — <img> no longer goes through the fetch shim",
+          "text": "absolute getMediaUrl via serverHttpBase: <img> no longer goes through the fetch shim",
           "scope": "desktop"
         },
         {
-          "text": "revocable rrweb DOM — stop recording when nobody's watching, no permanent addInitScript (review commit B)",
+          "text": "revocable rrweb DOM: stop recording when nobody's watching, no permanent addInitScript (review commit B)",
           "scope": "browser"
         },
         {
@@ -1765,7 +1765,7 @@
           "scope": "browser"
         },
         {
-          "text": "inject rrweb via CDP Runtime.evaluate (CSP-exempt) — DOM mode stayed on video on sites with Content-Security-Policy",
+          "text": "inject rrweb via CDP Runtime.evaluate (CSP-exempt): DOM mode stayed on video on sites with Content-Security-Policy",
           "scope": "browser"
         },
         {
@@ -1783,7 +1783,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "no split in projects on mobile — groups flatten into a single tab-strip",
+          "text": "no split in projects on mobile: groups flatten into a single tab-strip",
           "scope": "mobile"
         },
         {
@@ -1800,7 +1800,7 @@
     "sections": {
       "new": [
         {
-          "text": "delivery preview on the card — preview_image (migration 055) + allowlist-gated thumbnail",
+          "text": "delivery preview on the card: preview_image (migration 055) + allowlist-gated thumbnail",
           "scope": "board"
         }
       ],
@@ -1819,7 +1819,7 @@
     "sections": {
       "new": [
         {
-          "text": "'Share session' toggle on Mac — the pane switches from native WKWebView to the server-side stream that phone/web see live (same session)",
+          "text": "'Share session' toggle on Mac: the pane switches from native WKWebView to the server-side stream that phone/web see live (same session)",
           "scope": "browser"
         }
       ],
@@ -1837,7 +1837,7 @@
           "scope": "statusbar"
         },
         {
-          "text": "card — agent cluster top-right, inline priority, checklist in review",
+          "text": "card: agent cluster top-right, inline priority, checklist in review",
           "scope": "board"
         },
         {
@@ -1849,15 +1849,15 @@
           "scope": "browser"
         },
         {
-          "text": "WebRTC server broker — lazy sidecar spawn + SDP/ICE relay on /ws/browser",
+          "text": "WebRTC server broker: lazy sidecar spawn + SDP/ICE relay on /ws/browser",
           "scope": "browser"
         },
         {
-          "text": "WebRTC client render path — shared-session <video>, negotiates over WS, JPEG fallback (opt-in)",
+          "text": "WebRTC client render path: shared-session <video>, negotiates over WS, JPEG fallback (opt-in)",
           "scope": "browser"
         },
         {
-          "text": "WebRTC as the sole transport (default-ON, zero JPEG) — iframe where frameable, video otherwise, error+Retry",
+          "text": "WebRTC as the sole transport (default-ON, zero JPEG): iframe where frameable, video otherwise, error+Retry",
           "scope": "browser"
         }
       ],
@@ -1879,11 +1879,11 @@
           "scope": "board"
         },
         {
-          "text": "WebRTC keyframe on a wall-clock timer (1s) — static pages no longer stayed black (frame-count-based IDR starvation)",
+          "text": "WebRTC keyframe on a wall-clock timer (1s): static pages no longer stayed black (frame-count-based IDR starvation)",
           "scope": "browser"
         },
         {
-          "text": "negotiate WebRTC on nav/url, not on the first JPEG frame — avoids an infinite 'Starting shared session' spinner",
+          "text": "negotiate WebRTC on nav/url, not on the first JPEG frame: avoids an infinite 'Starting shared session' spinner",
           "scope": "browser"
         },
         {
@@ -1966,7 +1966,7 @@
     "sections": {
       "new": [
         {
-          "text": "T2 — native iframe render mode for framable sites (CodePen-style)",
+          "text": "T2: native iframe render mode for framable sites (CodePen-style)",
           "scope": "browser"
         },
         {
@@ -2004,7 +2004,7 @@
           "scope": "notify"
         },
         {
-          "text": "native-grade web streaming pane — responsive viewport+HiDPI, WS reconnect, console/download",
+          "text": "native-grade web streaming pane: responsive viewport+HiDPI, WS reconnect, console/download",
           "scope": "browser"
         }
       ],
@@ -2209,7 +2209,7 @@
     "sections": {
       "new": [
         {
-          "text": "per-pane engine registry — ref-counted sidecar acquire/release (server-half of the engine switch)",
+          "text": "per-pane engine registry: ref-counted sidecar acquire/release (server-half of the engine switch)",
           "scope": "browser"
         },
         {
@@ -2221,7 +2221,7 @@
           "scope": "board"
         },
         {
-          "text": "task-owned browser — agent fork + inventory label",
+          "text": "task-owned browser: agent fork + inventory label",
           "scope": "board"
         },
         {
@@ -2248,7 +2248,7 @@
     "sections": {
       "new": [
         {
-          "text": "reaper for abandoned headless sessions — running→dormant with no PTY signal",
+          "text": "reaper for abandoned headless sessions: running→dormant with no PTY signal",
           "scope": "sessions"
         },
         {
@@ -2256,7 +2256,7 @@
           "scope": "board"
         },
         {
-          "text": "quiescence gate — scheduled restarts no longer cut in-flight turns",
+          "text": "quiescence gate: scheduled restarts no longer cut in-flight turns",
           "scope": "dispatch"
         },
         {
@@ -2268,7 +2268,7 @@
           "scope": "ai-bridge"
         },
         {
-          "text": "provider behind the TOPICS_AI_BRIDGE flag — turns via broker",
+          "text": "provider behind the TOPICS_AI_BRIDGE flag: turns via broker",
           "scope": "ai-bridge"
         },
         {
@@ -2276,11 +2276,11 @@
           "scope": "ai-bridge"
         },
         {
-          "text": "reattach wiring — reconcile, chat route, runHeadlessReattach",
+          "text": "reattach wiring: reconcile, chat route, runHeadlessReattach",
           "scope": "ai-bridge"
         },
         {
-          "text": "periodic worktree GC — fix at the source of the pile-up",
+          "text": "periodic worktree GC: fix at the source of the pile-up",
           "scope": "worktree"
         },
         {
@@ -2310,7 +2310,7 @@
           "scope": "board"
         },
         {
-          "text": "floor at sonnet in the model-picker — haiku only judges, never executes",
+          "text": "floor at sonnet in the model-picker: haiku only judges, never executes",
           "scope": "dispatch"
         },
         {
@@ -2318,7 +2318,7 @@
           "scope": "ai-bridge"
         },
         {
-          "text": "EBADF store-write — close the fd in onDead, not in kill; gitignore store dir",
+          "text": "EBADF store-write: close the fd in onDead, not in kill; gitignore store dir",
           "scope": "ai-bridge"
         },
         {
@@ -2353,7 +2353,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "stop the reload loop from cached index — cache-busted reload + attempt cap",
+          "text": "stop the reload loop from cached index: cache-busted reload + attempt cap",
           "scope": "client"
         }
       ],
@@ -2394,7 +2394,7 @@
     "sections": {
       "new": [
         {
-          "text": "watch-board-tasks — board task watcher for Claude Code sessions",
+          "text": "watch-board-tasks: board task watcher for Claude Code sessions",
           "scope": "scripts"
         },
         {
@@ -2402,7 +2402,7 @@
           "scope": "tauri"
         },
         {
-          "text": "delivery roots — commit gate on review, worktree reap post-merge, area-aware landing",
+          "text": "delivery roots: commit gate on review, worktree reap post-merge, area-aware landing",
           "scope": "dispatch"
         }
       ],
@@ -2417,7 +2417,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "parseTier no longer haiku-biased — exact match, then first occurrence",
+          "text": "parseTier no longer haiku-biased: exact match, then first occurrence",
           "scope": "dispatch"
         }
       ],
@@ -2458,7 +2458,7 @@
     "sections": {
       "new": [
         {
-          "text": "on-demand Chromium sidecar — backbone of the pane engine switch",
+          "text": "on-demand Chromium sidecar: backbone of the pane engine switch",
           "scope": "browser"
         }
       ],
@@ -2544,7 +2544,7 @@
     "sections": {
       "new": [
         {
-          "text": "voice task scaffolding — dialog + status bar + store (WIP)",
+          "text": "voice task scaffolding: dialog + status bar + store (WIP)",
           "scope": "voice"
         }
       ],
@@ -2569,7 +2569,7 @@
       ],
       "fixes": [
         {
-          "text": "window no longer loses position on relaunch/update — geometry in LOGICAL points + save on ExitRequested",
+          "text": "window no longer loses position on relaunch/update: geometry in LOGICAL points + save on ExitRequested",
           "scope": "desktop"
         }
       ],
@@ -2596,7 +2596,7 @@
     "sections": {
       "new": [
         {
-          "text": "chat scroll survives reload — device-local key + preserve in hydrate",
+          "text": "chat scroll survives reload: device-local key + preserve in hydrate",
           "scope": "chat"
         }
       ],
@@ -2615,7 +2615,7 @@
     "sections": {
       "new": [
         {
-          "text": "preserve cursor/selection across hot reload — chat + board",
+          "text": "preserve cursor/selection across hot reload: chat + board",
           "scope": "composer"
         },
         {
@@ -2721,7 +2721,7 @@
           "scope": "board"
         },
         {
-          "text": "'Publish' control — per-project push/deploy from the board",
+          "text": "'Publish' control: per-project push/deploy from the board",
           "scope": "board"
         },
         {
@@ -2731,7 +2731,7 @@
       ],
       "fixes": [
         {
-          "text": "persist the Board tab — 'board'/'kanban' were missing from the sanitize whitelist",
+          "text": "persist the Board tab: 'board'/'kanban' were missing from the sanitize whitelist",
           "scope": "panes"
         },
         {
@@ -2795,7 +2795,7 @@
           "scope": "board"
         },
         {
-          "text": "auto-heal of dead bindings — a todo task tied to a reaped topic restarts",
+          "text": "auto-heal of dead bindings: a todo task tied to a reaped topic restarts",
           "scope": "dispatch"
         }
       ],
@@ -2851,7 +2851,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "solid hot-reload — no SW under Tauri + no-store on disk-serve",
+          "text": "solid hot-reload: no SW under Tauri + no-store on disk-serve",
           "scope": "desktop"
         },
         {
@@ -2914,7 +2914,7 @@
           "scope": "chat"
         },
         {
-          "text": "live metrics on cards — model · execution time · tokens",
+          "text": "live metrics on cards: model · execution time · tokens",
           "scope": "board"
         },
         {
@@ -2934,17 +2934,17 @@
           "scope": "board"
         },
         {
-          "text": "token consumption optimization — lean MCP, lean envelope, retry cap 2",
+          "text": "token consumption optimization: lean MCP, lean envelope, retry cap 2",
           "scope": "dispatch"
         }
       ],
       "fixes": [
         {
-          "text": "cleaned-up kanban — selector without internal plumbing, standalone catch-all at the top level",
+          "text": "cleaned-up kanban: selector without internal plumbing, standalone catch-all at the top level",
           "scope": "board"
         },
         {
-          "text": "solid server singleton — isolated worktree + exclusive port",
+          "text": "solid server singleton: isolated worktree + exclusive port",
           "scope": "daemon"
         },
         {
@@ -2991,7 +2991,7 @@
       ],
       "fixes": [
         {
-          "text": "persist Topic.standalone (migration 044) — it was NEVER saved",
+          "text": "persist Topic.standalone (migration 044): it was NEVER saved",
           "scope": "db"
         }
       ],
@@ -3074,7 +3074,7 @@
     "sections": {
       "new": [
         {
-          "text": "chat topics + kanban in the frosted tier — opaque background removed, inherit vibrancy",
+          "text": "chat topics + kanban in the frosted tier: opaque background removed, inherit vibrancy",
           "scope": "design"
         }
       ],
@@ -3088,13 +3088,13 @@
     "sections": {
       "new": [
         {
-          "text": "bundle rev — reload only on a real change + freshness check on WS connection",
+          "text": "bundle rev: reload only on a real change + freshness check on WS connection",
           "scope": "dev-reload"
         }
       ],
       "fixes": [
         {
-          "text": "drawer as a layout sibling — kanban shrinks and scrolls, never clipped; clicked card kept in view",
+          "text": "drawer as a layout sibling: kanban shrinks and scrolls, never clipped; clicked card kept in view",
           "scope": "board"
         }
       ],
@@ -3108,7 +3108,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "absolute URLs to the external opener — removes the phantom 'browser topics'",
+          "text": "absolute URLs to the external opener: removes the phantom 'browser topics'",
           "scope": "board"
         }
       ],
@@ -3149,7 +3149,7 @@
     "sections": {
       "new": [
         {
-          "text": "attachments are the output — preview on the right, in-app click",
+          "text": "attachments are the output: preview on the right, in-app click",
           "scope": "board"
         }
       ],
@@ -3168,7 +3168,7 @@
     "sections": {
       "new": [
         {
-          "text": "server-side persisted drafts — composer and replies in the drawer",
+          "text": "server-side persisted drafts: composer and replies in the drawer",
           "scope": "board"
         }
       ],
@@ -3224,7 +3224,7 @@
     "sections": {
       "new": [
         {
-          "text": "never 'no project' — auto falls back to the 'general' catch-all",
+          "text": "never 'no project': auto falls back to the 'general' catch-all",
           "scope": "board"
         }
       ],
@@ -3239,7 +3239,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "project-less tasks in Todo — amber 'assign a project to start' chip",
+          "text": "project-less tasks in Todo: amber 'assign a project to start' chip",
           "scope": "board"
         }
       ],
@@ -3253,7 +3253,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "refetch on window wake — the ticker no longer counts sleep hours",
+          "text": "refetch on window wake: the ticker no longer counts sleep hours",
           "scope": "board"
         }
       ],
@@ -3294,7 +3294,7 @@
     "sections": {
       "new": [
         {
-          "text": "priority as a real concept — priority queue, selectors, 'automatic' evaluated by the agent",
+          "text": "priority as a real concept: priority queue, selectors, 'automatic' evaluated by the agent",
           "scope": "board"
         }
       ],
@@ -3317,7 +3317,7 @@
           "scope": "board"
         },
         {
-          "text": "every project always has an icon — real favicon/manifest or monogram",
+          "text": "every project always has an icon: real favicon/manifest or monogram",
           "scope": "ui"
         },
         {
@@ -3325,15 +3325,15 @@
           "scope": "board"
         },
         {
-          "text": "delivery is never silent — agent → review requires its own comment",
+          "text": "delivery is never silent: agent → review requires its own comment",
           "scope": "board"
         },
         {
-          "text": "detail UI feedback — Linear-style StatusIcon, neutral agent identity, loading everywhere, live drawer",
+          "text": "detail UI feedback: Linear-style StatusIcon, neutral agent identity, loading everywhere, live drawer",
           "scope": "board"
         },
         {
-          "text": "per-step thread — replying on a subtask re-kicks the agent",
+          "text": "per-step thread: replying on a subtask re-kicks the agent",
           "scope": "board"
         },
         {
@@ -3341,7 +3341,7 @@
           "scope": "board"
         },
         {
-          "text": "project selector in the task header — move, open, new",
+          "text": "project selector in the task header: move, open, new",
           "scope": "board"
         },
         {
@@ -3353,7 +3353,7 @@
           "scope": "board"
         },
         {
-          "text": "attachments in task comments — same pipeline as chat",
+          "text": "attachments in task comments: same pipeline as chat",
           "scope": "board"
         },
         {
@@ -3395,7 +3395,7 @@
           "scope": "board"
         },
         {
-          "text": "claim without a placeholder topic — the FK on assigned_topic_id forbade it",
+          "text": "claim without a placeholder topic: the FK on assigned_topic_id forbade it",
           "scope": "board"
         },
         {
@@ -3403,7 +3403,7 @@
           "scope": "context"
         },
         {
-          "text": "no icon on chat topics — brand only on Claude Code/Codex terminals",
+          "text": "no icon on chat topics: brand only on Claude Code/Codex terminals",
           "scope": "ui"
         },
         {
@@ -3419,7 +3419,7 @@
           "scope": "board"
         },
         {
-          "text": "bump icon cache v2->v3 — flush stale 'none' entries hiding real favicons",
+          "text": "bump icon cache v2->v3: flush stale 'none' entries hiding real favicons",
           "scope": "ui"
         },
         {
@@ -3431,11 +3431,11 @@
           "scope": "ui"
         },
         {
-          "text": "never PUT before hydration — a fresh client cleared everyone's pins",
+          "text": "never PUT before hydration: a fresh client cleared everyone's pins",
           "scope": "sidebar"
         },
         {
-          "text": "faithful stream:end schema — optional messageId (+reason/topicId/usage)",
+          "text": "faithful stream:end schema, optional messageId (+reason/topicId/usage)",
           "scope": "ws"
         },
         {
@@ -3467,11 +3467,11 @@
           "scope": "dispatch+boot"
         },
         {
-          "text": "reliable drag — the source card no longer flies off, overlay in a portal",
+          "text": "reliable drag: the source card no longer flies off, overlay in a portal",
           "scope": "board"
         },
         {
-          "text": "targeted drop — pointer-first collision (empty column no longer loses to nearby cards)",
+          "text": "targeted drop: pointer-first collision (empty column no longer loses to nearby cards)",
           "scope": "board"
         },
         {
@@ -3483,7 +3483,7 @@
           "scope": "board"
         },
         {
-          "text": "agent topics are born closed — no auto tab in the tabbar",
+          "text": "agent topics are born closed: no auto tab in the tabbar",
           "scope": "board"
         }
       ],
@@ -3623,7 +3623,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "focus hook v3 — event-driven focus-acquiring click detection (#15)",
+          "text": "focus hook v3: event-driven focus-acquiring click detection (#15)",
           "scope": "browser"
         }
       ],
@@ -3637,7 +3637,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "retry the topics fetch on WebKit too — 'Load failed' now matches (#14)",
+          "text": "retry the topics fetch on WebKit too: 'Load failed' now matches (#14)",
           "scope": "client"
         }
       ],
@@ -3651,7 +3651,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "live sweep — closable phantom board, browser focus on first click, visible countdown (#13)",
+          "text": "live sweep: closable phantom board, browser focus on first click, visible countdown (#13)",
           "scope": "ux"
         }
       ],
@@ -3665,7 +3665,7 @@
       "new": [],
       "fixes": [
         {
-          "text": "move-to-project writes the tombstone — the moved tab no longer stays duplicated (#12)",
+          "text": "move-to-project writes the tombstone: the moved tab no longer stays duplicated (#12)",
           "scope": "panes"
         }
       ],
@@ -3720,7 +3720,7 @@
     "sections": {
       "new": [
         {
-          "text": "task auto-dispatch — drag→todo runs a task-scoped agent, answer from the board (#7)",
+          "text": "task auto-dispatch: drag→todo runs a task-scoped agent, answer from the board (#7)",
           "scope": "kanban"
         }
       ],
@@ -3824,7 +3824,7 @@
           "scope": "tauri"
         },
         {
-          "text": "Fissa works for browser tabs — one canonical pin key for all types",
+          "text": "Fissa works for browser tabs: one canonical pin key for all types",
           "scope": "pinning"
         },
         {
@@ -3873,7 +3873,7 @@
           "scope": "aura"
         },
         {
-          "text": "unified popover foundation — Menu primitive + useDismissable + placement",
+          "text": "unified popover foundation: Menu primitive + useDismissable + placement",
           "scope": "ui"
         },
         {
@@ -3889,15 +3889,15 @@
           "scope": "layout"
         },
         {
-          "text": "add 'Disponi automaticamente' — auto-tile panes into a balanced grid",
+          "text": "add 'Disponi automaticamente': auto-tile panes into a balanced grid",
           "scope": "layout"
         },
         {
-          "text": "drop UX v2 phase 1 — relative drop zones + label-free gutters + center-merge primitive",
+          "text": "drop UX v2 phase 1: relative drop zones + label-free gutters + center-merge primitive",
           "scope": "layout"
         },
         {
-          "text": "drop UX v2 phase 2 — every position works on both surfaces",
+          "text": "drop UX v2 phase 2: every position works on both surfaces",
           "scope": "layout"
         }
       ],
@@ -3911,7 +3911,7 @@
           "scope": "aura"
         },
         {
-          "text": "smooth the haze — 16 nested contours, adaptive to aura count",
+          "text": "smooth the haze: 16 nested contours, adaptive to aura count",
           "scope": "aura"
         },
         {
@@ -3927,7 +3927,7 @@
           "scope": "aura"
         },
         {
-          "text": "kill banding — half-res, 14 layers, firmer blur",
+          "text": "kill banding: half-res, 14 layers, firmer blur",
           "scope": "aura"
         },
         {
@@ -3935,7 +3935,7 @@
           "scope": "sidebar"
         },
         {
-          "text": "dither the falloff — kill 8-bit gradient banding",
+          "text": "dither the falloff: kill 8-bit gradient banding",
           "scope": "aura"
         },
         {
@@ -3963,7 +3963,7 @@
           "scope": "aura"
         },
         {
-          "text": "calm corners — fade the wave to 0 near each corner",
+          "text": "calm corners: fade the wave to 0 near each corner",
           "scope": "aura"
         },
         {
@@ -4087,7 +4087,7 @@
           "scope": "server"
         },
         {
-          "text": "worktree delete — prune when dir is gone, unwatch git dir, un-break queue GC",
+          "text": "worktree delete: prune when dir is gone, unwatch git dir, un-break queue GC",
           "scope": "server"
         },
         {
@@ -4153,7 +4153,7 @@
           "scope": "server"
         },
         {
-          "text": "openclaw decision gate — skip control-tool blocks + log degradation",
+          "text": "openclaw decision gate: skip control-tool blocks + log degradation",
           "scope": "context"
         },
         {
@@ -4165,7 +4165,7 @@
           "scope": "pane-sync"
         },
         {
-          "text": "consistent tab names — browser page title, unified fallbacks",
+          "text": "consistent tab names: browser page title, unified fallbacks",
           "scope": "tabs"
         },
         {
@@ -4261,7 +4261,7 @@
     "sections": {
       "new": [
         {
-          "text": "git build-sha in the version popover — freshness at a glance",
+          "text": "git build-sha in the version popover: freshness at a glance",
           "scope": "ui"
         }
       ],
@@ -4299,11 +4299,11 @@
           "scope": "tauri"
         },
         {
-          "text": "clip the REMOTE content layer — mask subview layers too",
+          "text": "clip the REMOTE content layer: mask subview layers too",
           "scope": "tauri"
         },
         {
-          "text": "ESM import for execSync — the build sha was silently empty",
+          "text": "ESM import for execSync: the build sha was silently empty",
           "scope": "build"
         },
         {
@@ -4320,11 +4320,11 @@
     "sections": {
       "new": [
         {
-          "text": "working aura v3 — animated colored inner shadow, not a border",
+          "text": "working aura v3: animated colored inner shadow, not a border",
           "scope": "ui"
         },
         {
-          "text": "non-uniform aura motion — counter-wheel + irregular breathe",
+          "text": "non-uniform aura motion: counter-wheel + irregular breathe",
           "scope": "ui"
         },
         {
@@ -4336,35 +4336,35 @@
           "scope": "context-menu"
         },
         {
-          "text": "aura v4 — organic, non-repeating motion (Siri-like randomness)",
+          "text": "aura v4: organic, non-repeating motion (Siri-like randomness)",
           "scope": "ui"
         },
         {
-          "text": "aura v5 — real waves, born/swelling/dissolving along the edge",
+          "text": "aura v5: real waves, born/swelling/dissolving along the edge",
           "scope": "ui"
         },
         {
-          "text": "aura v7 — depth waves: the glow's reach undulates along the edge",
+          "text": "aura v7: depth waves: the glow's reach undulates along the edge",
           "scope": "ui"
         },
         {
-          "text": "aura v8 — full-perimeter depth waves",
+          "text": "aura v8: full-perimeter depth waves",
           "scope": "ui"
         },
         {
-          "text": "aura v9 — traveling waves: rotating uneven conic band + fast swells",
+          "text": "aura v9: traveling waves: rotating uneven conic band + fast swells",
           "scope": "ui"
         },
         {
-          "text": "bundle hot-delivery — rebuilt /public auto-reloads open windows",
+          "text": "bundle hot-delivery: rebuilt /public auto-reloads open windows",
           "scope": "dev"
         },
         {
-          "text": "aura v11 — true perimeter orbiters + tighter, faster v10 tuning",
+          "text": "aura v11: true perimeter orbiters + tighter, faster v10 tuning",
           "scope": "ui"
         },
         {
-          "text": "aura v12 — one continuous traveling wave, no discrete dots",
+          "text": "aura v12: one continuous traveling wave, no discrete dots",
           "scope": "ui"
         }
       ],
@@ -4378,11 +4378,11 @@
           "scope": "journal"
         },
         {
-          "text": "first cross-platform Tauri build — cfg-gate Reopen, drop broken Apple signing",
+          "text": "first cross-platform Tauri build: cfg-gate Reopen, drop broken Apple signing",
           "scope": "ci"
         },
         {
-          "text": "NO_STRIP for linuxdeploy — the bun sidecar doesn't survive strip",
+          "text": "NO_STRIP for linuxdeploy: the bun sidecar doesn't survive strip",
           "scope": "ci"
         },
         {
@@ -4390,7 +4390,7 @@
           "scope": "shell"
         },
         {
-          "text": "Linux ships deb+rpm — AppImage's linuxdeploy chokes on the sidecar",
+          "text": "Linux ships deb+rpm: AppImage's linuxdeploy chokes on the sidecar",
           "scope": "ci"
         },
         {
@@ -4440,7 +4440,7 @@
           "scope": "ui"
         },
         {
-          "text": "incremental transcript-title scan — read only appended bytes",
+          "text": "incremental transcript-title scan: read only appended bytes",
           "scope": "server"
         }
       ]
@@ -4456,7 +4456,7 @@
           "scope": "ui"
         },
         {
-          "text": "'Reimposta pannelli' — flatten splits back to first level",
+          "text": "'Reimposta pannelli': flatten splits back to first level",
           "scope": "layout"
         },
         {
@@ -4464,15 +4464,15 @@
           "scope": "shell"
         },
         {
-          "text": "Spazi — workspace groups for app-level tabs",
+          "text": "Spazi: workspace groups for app-level tabs",
           "scope": "spaces"
         },
         {
-          "text": "installed-app hot-reload — disk-served /public with auto-reload",
+          "text": "installed-app hot-reload: disk-served /public with auto-reload",
           "scope": "shell"
         },
         {
-          "text": "Fissati — Arc/Dia-style pinning for chats and projects",
+          "text": "Fissati: Arc/Dia-style pinning for chats and projects",
           "scope": "sidebar"
         },
         {
@@ -4480,7 +4480,7 @@
           "scope": "windows"
         },
         {
-          "text": "make the working glow actually pop — two-comet ring + breathing halo",
+          "text": "make the working glow actually pop: two-comet ring + breathing halo",
           "scope": "ui"
         },
         {
@@ -4522,7 +4522,7 @@
           "scope": "ui"
         },
         {
-          "text": "traffic lights must never vanish — fail-safe reposition",
+          "text": "traffic lights must never vanish: fail-safe reposition",
           "scope": "shell"
         },
         {
@@ -4530,15 +4530,15 @@
           "scope": "status"
         },
         {
-          "text": "closing a pinned chat archives it — kills the resurrection loop",
+          "text": "closing a pinned chat archives it: kills the resurrection loop",
           "scope": "sidebar"
         },
         {
-          "text": "project pane channel writes are now durable — no more dead-id tabs",
+          "text": "project pane channel writes are now durable: no more dead-id tabs",
           "scope": "sync"
         },
         {
-          "text": "durable per-id tombstones — closing 50+ tabs can't resurrect old ones",
+          "text": "durable per-id tombstones: closing 50+ tabs can't resurrect old ones",
           "scope": "panes"
         },
         {
@@ -4588,7 +4588,7 @@
           "scope": "tauri"
         },
         {
-          "text": "Electron-parity window chrome — frameless titlebar, vibrancy, floating splits",
+          "text": "Electron-parity window chrome: frameless titlebar, vibrancy, floating splits",
           "scope": "tauri"
         },
         {
@@ -4616,7 +4616,7 @@
           "scope": "tauri"
         },
         {
-          "text": "pure n-ary split-tree engine (layoutTree) — P2 foundation",
+          "text": "pure n-ary split-tree engine (layoutTree): P2 foundation",
           "scope": "layout"
         },
         {
@@ -4624,7 +4624,7 @@
           "scope": "tauri"
         },
         {
-          "text": "native theme sync (set_theme — NSWindow appearance + vibrancy re-tint)",
+          "text": "native theme sync (set_theme: NSWindow appearance + vibrancy re-tint)",
           "scope": "tauri"
         },
         {
@@ -4636,7 +4636,7 @@
           "scope": "layout"
         },
         {
-          "text": "split controller geometry helpers — dropZone + pxToWeightDelta (P2)",
+          "text": "split controller geometry helpers: dropZone + pxToWeightDelta (P2)",
           "scope": "layout"
         },
         {
@@ -4652,7 +4652,7 @@
           "scope": "layout"
         },
         {
-          "text": "useSplitController hook — completes the P2 component layer",
+          "text": "useSplitController hook: completes the P2 component layer",
           "scope": "layout"
         },
         {
@@ -4660,7 +4660,7 @@
           "scope": "tauri"
         },
         {
-          "text": "Help menu — Topics on GitHub (opener)",
+          "text": "Help menu: Topics on GitHub (opener)",
           "scope": "tauri"
         },
         {
@@ -4688,7 +4688,7 @@
           "scope": "tauri"
         },
         {
-          "text": "dev hot-reload — watch /public, reload webview (Electron parity)",
+          "text": "dev hot-reload: watch /public, reload webview (Electron parity)",
           "scope": "tauri"
         },
         {
@@ -4712,7 +4712,7 @@
           "scope": "terminal"
         },
         {
-          "text": "always-on-top global shortcut (Cmd/Ctrl+Alt+T) — Electron parity",
+          "text": "always-on-top global shortcut (Cmd/Ctrl+Alt+T): Electron parity",
           "scope": "tauri"
         },
         {
@@ -4720,7 +4720,7 @@
           "scope": "tauri"
         },
         {
-          "text": "opt-in overlay sidebar — true zero-frame-drop toggle (Settings ▸ Appearance)",
+          "text": "opt-in overlay sidebar: true zero-frame-drop toggle (Settings ▸ Appearance)",
           "scope": "layout"
         },
         {
@@ -4728,7 +4728,7 @@
           "scope": "tauri"
         },
         {
-          "text": "browser_eval_js — read-side agent primitive for native pane (no CEF)",
+          "text": "browser_eval_js: read-side agent primitive for native pane (no CEF)",
           "scope": "tauri"
         },
         {
@@ -4772,7 +4772,7 @@
           "scope": "tauri"
         },
         {
-          "text": "native-pane agent delegation — WS wiring + client executor + e2e",
+          "text": "native-pane agent delegation: WS wiring + client executor + e2e",
           "scope": "tauri"
         },
         {
@@ -4792,11 +4792,11 @@
           "scope": "browser"
         },
         {
-          "text": "Phase 2 — vision read_screen/point on the native Tauri pane",
+          "text": "Phase 2: vision read_screen/point on the native Tauri pane",
           "scope": "browser"
         },
         {
-          "text": "Phase 4 — scheme-guard LFI + history dropdown on the Tauri pane",
+          "text": "Phase 4: scheme-guard LFI + history dropdown on the Tauri pane",
           "scope": "browser"
         },
         {
@@ -4820,15 +4820,15 @@
           "scope": "vibrancy"
         },
         {
-          "text": "browser_upload — agent uploads a local file to a page file input",
+          "text": "browser_upload: agent uploads a local file to a page file input",
           "scope": "browser"
         },
         {
-          "text": "browser_status — real url/title/viewport/loading for the agent",
+          "text": "browser_status: real url/title/viewport/loading for the agent",
           "scope": "browser"
         },
         {
-          "text": "\"Open at Login\" (autostart) — Electron parity",
+          "text": "\"Open at Login\" (autostart): Electron parity",
           "scope": "tauri"
         },
         {
@@ -4836,7 +4836,7 @@
           "scope": "tauri"
         },
         {
-          "text": "clickable tray menu — jump to any topic needing you",
+          "text": "clickable tray menu: jump to any topic needing you",
           "scope": "tauri"
         },
         {
@@ -4848,7 +4848,7 @@
           "scope": "browser"
         },
         {
-          "text": "tiered session status — amber \"act now\" vs blue \"done\", legible fills, live activity feed",
+          "text": "tiered session status: amber \"act now\" vs blue \"done\", legible fills, live activity feed",
           "scope": "status"
         },
         {
@@ -4926,11 +4926,11 @@
           "scope": "tauri"
         },
         {
-          "text": "P0 stop-the-bleeding — nav-guard, ⌘W, single-instance, SSE, drag-drop, perf",
+          "text": "P0 stop-the-bleeding: nav-guard, ⌘W, single-instance, SSE, drag-drop, perf",
           "scope": "tauri"
         },
         {
-          "text": "vibrancy renders — drop negative layer.zPosition (excluded it from behind-window blur)",
+          "text": "vibrancy renders: drop negative layer.zPosition (excluded it from behind-window blur)",
           "scope": "tauri"
         },
         {
@@ -4958,7 +4958,7 @@
           "scope": "tauri"
         },
         {
-          "text": "vibrancy restored — robust isTauri gate + synchronous first paint",
+          "text": "vibrancy restored: isTauri gate + synchronous first paint",
           "scope": "tauri"
         },
         {
@@ -4990,7 +4990,7 @@
           "scope": "tauri"
         },
         {
-          "text": "\"all-grey\" panes — frost-cover not lifted on a spurious Resized",
+          "text": "\"all-grey\" panes: frost-cover not lifted on a spurious Resized",
           "scope": "tauri"
         },
         {
@@ -5002,11 +5002,11 @@
           "scope": "tauri"
         },
         {
-          "text": "native-pane occlusion/perf/focus — structural, no hide-kludges",
+          "text": "native-pane occlusion/perf/focus: structural, no hide-kludges",
           "scope": "tauri-browser"
         },
         {
-          "text": "overlay-only on desktop-Tauri — kill the terminal-blank kludge",
+          "text": "overlay-only on desktop-Tauri: kill the terminal-blank kludge",
           "scope": "tauri-sidebar"
         },
         {
@@ -5042,7 +5042,7 @@
           "scope": "dnd"
         },
         {
-          "text": "DOM renderer on Tauri — @xterm/addon-canvas crashes on xterm v6",
+          "text": "DOM renderer on Tauri: @xterm/addon-canvas crashes on xterm v6",
           "scope": "terminal"
         },
         {
@@ -5320,7 +5320,7 @@
           "scope": null
         },
         {
-          "text": "restructure Processes sidebar — scripts API, process log pane, ports in System Status",
+          "text": "restructure Processes sidebar: scripts API, process log pane, ports in System Status",
           "scope": null
         },
         {
@@ -5372,7 +5372,7 @@
           "scope": null
         },
         {
-          "text": "Electron — replace BrowserView with main window, add dev mode identity",
+          "text": "Electron: replace BrowserView with main window, add dev mode identity",
           "scope": null
         },
         {
@@ -5384,7 +5384,7 @@
           "scope": null
         },
         {
-          "text": "improve PWA for mobile Safari — icons, safe areas, theme colors",
+          "text": "improve PWA for mobile Safari: icons, safe areas, theme colors",
           "scope": null
         },
         {
@@ -5412,7 +5412,7 @@
           "scope": null
         },
         {
-          "text": "uniform sidebar accordions — chevron after label, file toolbar",
+          "text": "uniform sidebar accordions: chevron after label, file toolbar",
           "scope": null
         },
         {
@@ -5420,7 +5420,7 @@
           "scope": null
         },
         {
-          "text": "redesign toast notifications — portal, compact style, expose context",
+          "text": "redesign toast notifications: portal, compact style, expose context",
           "scope": null
         },
         {
@@ -5784,7 +5784,7 @@
           "scope": "24-01"
         },
         {
-          "text": "archive complete-spec-coverage — 17 specs, 35 requirements, 556 scenarios",
+          "text": "archive complete-spec-coverage: 17 specs, 35 requirements, 556 scenarios",
           "scope": "openspec"
         },
         {
@@ -5820,7 +5820,7 @@
           "scope": null
         },
         {
-          "text": "add visual stability testing — screenshot diff + DOM mutation monitoring",
+          "text": "add visual stability testing: screenshot diff + DOM mutation monitoring",
           "scope": null
         },
         {
@@ -5976,31 +5976,31 @@
           "scope": "types"
         },
         {
-          "text": "Phase B — singleton lock + state file + control HTTP + LaunchAgent IPC",
+          "text": "Phase B: singleton lock + state file + control HTTP + LaunchAgent IPC",
           "scope": "daemon"
         },
         {
-          "text": "Phase C — initial message queue (TOPIC-IM-01)",
+          "text": "Phase C: initial message queue (TOPIC-IM-01)",
           "scope": "topics"
         },
         {
-          "text": "Phase D — multi-machine domain + heartbeat ticker",
+          "text": "Phase D: multi-machine domain + heartbeat ticker",
           "scope": "machines"
         },
         {
-          "text": "Phase E — electron-updater + sticky \"Restart to Update\" toast",
+          "text": "Phase E: electron-updater + sticky \"Restart to Update\" toast",
           "scope": "updater"
         },
         {
-          "text": "Phase F — no-flash boot 3rd layer + scoped notifications + caffeinate",
+          "text": "Phase F: no-flash boot 3rd layer + scoped notifications + caffeinate",
           "scope": "ux"
         },
         {
-          "text": "Phase G — 3-layer token system + window chrome polish + animation set",
+          "text": "Phase G: 3-layer token system + window chrome polish + animation set",
           "scope": "design"
         },
         {
-          "text": "Phase H — minimal `topics` CLI binary",
+          "text": "Phase H: minimal `topics` CLI binary",
           "scope": "cli"
         },
         {
@@ -6020,7 +6020,7 @@
           "scope": "providers"
         },
         {
-          "text": "inline countdown ring on tab/sidebar — drop the bottom-right toast",
+          "text": "inline countdown ring on tab/sidebar: drop the bottom-right toast",
           "scope": "panes"
         },
         {
@@ -6140,7 +6140,7 @@
           "scope": "panes"
         },
         {
-          "text": "buildProviderHistory helper — DB as conversation source of truth",
+          "text": "buildProviderHistory helper: DB as conversation source of truth",
           "scope": "history"
         },
         {
@@ -6192,35 +6192,35 @@
           "scope": "chat"
         },
         {
-          "text": "ask-user-tool — pause stream, show form, resume on submit",
+          "text": "ask-user-tool: pause stream, show form, resume on submit",
           "scope": "chat"
         },
         {
-          "text": "Zod validation for /ws/browser/:contextId protocol — WS-01 partial",
+          "text": "Zod validation for /ws/browser/:contextId protocol, WS-01 partial",
           "scope": "ws"
         },
         {
-          "text": "Zod schema for ToolCallDetail union — NORM-01 foundation",
+          "text": "Zod schema for ToolCallDetail union: NORM-01 foundation",
           "scope": "schemas"
         },
         {
-          "text": "Zod validation for /ws main channel inbound — WS-01 extension",
+          "text": "Zod validation for /ws main channel inbound: WS-01 extension",
           "scope": "ws"
         },
         {
-          "text": "wire parseToolCallDetail at renderer boundary — NORM-01 live",
+          "text": "wire parseToolCallDetail at renderer boundary: NORM-01 live",
           "scope": "chat"
         },
         {
-          "text": "welcome/hello handshake with version + capabilities — WS-02",
+          "text": "welcome/hello handshake with version + capabilities: WS-02",
           "scope": "ws"
         },
         {
-          "text": "sanitize ToolCallDetail at hydration boundary — NORM-01 complete",
+          "text": "sanitize ToolCallDetail at hydration boundary: NORM-01 complete",
           "scope": "db"
         },
         {
-          "text": "explicit FSM module for agent sessions + profiles — AGENT-01 foundation",
+          "text": "explicit FSM module for agent sessions + profiles: AGENT-01 foundation",
           "scope": "agents"
         },
         {
@@ -6228,19 +6228,19 @@
           "scope": "v3"
         },
         {
-          "text": "extend FSM adoption to profile updates — AGENT-01 complete",
+          "text": "extend FSM adoption to profile updates: AGENT-01 complete",
           "scope": "agents"
         },
         {
-          "text": "outbound emit-side Zod validation registry — WS-01 outbound",
+          "text": "outbound emit-side Zod validation registry: WS-01 outbound",
           "scope": "ws"
         },
         {
-          "text": "expand outbound registry to 37 types — domain broadcast coverage",
+          "text": "expand outbound registry to 37 types: domain broadcast coverage",
           "scope": "ws"
         },
         {
-          "text": "outbound registry FULL coverage — 87 types, WS-01 complete",
+          "text": "outbound registry FULL coverage: 87 types, WS-01 complete",
           "scope": "ws"
         },
         {
@@ -6256,7 +6256,7 @@
           "scope": "activity"
         },
         {
-          "text": "/project slash command — create / open / info",
+          "text": "/project slash command: create / open / info",
           "scope": "chat"
         },
         {
@@ -6308,7 +6308,7 @@
           "scope": "server"
         },
         {
-          "text": "Phase-1 CLI bridge tools — processes & tasks, project-scoped",
+          "text": "Phase-1 CLI bridge tools: processes & tasks, project-scoped",
           "scope": "mcp"
         },
         {
@@ -6316,7 +6316,7 @@
           "scope": "master"
         },
         {
-          "text": "ingest endpoint — proposals become persistent kanban cards",
+          "text": "ingest endpoint: proposals become persistent kanban cards",
           "scope": "master"
         },
         {
@@ -6340,11 +6340,11 @@
           "scope": "master"
         },
         {
-          "text": "terminal-Master wiring — role prompt + buffer-scrape ingest",
+          "text": "terminal-Master wiring: role prompt + buffer-scrape ingest",
           "scope": "master"
         },
         {
-          "text": "session control — read/write/close MCP tools + live PTY test",
+          "text": "session control: read/write/close MCP tools + live PTY test",
           "scope": "master"
         },
         {
@@ -6380,7 +6380,7 @@
           "scope": "landing"
         },
         {
-          "text": "realistic app demo — faithful dark IDE chrome, generic data",
+          "text": "realistic app demo: faithful dark IDE chrome, generic data",
           "scope": "landing"
         },
         {
@@ -6416,7 +6416,7 @@
           "scope": "sidebar"
         },
         {
-          "text": "pimp the Master pane — identity + starter prompts + proposals",
+          "text": "pimp the Master pane: identity + starter prompts + proposals",
           "scope": "master"
         },
         {
@@ -6440,7 +6440,7 @@
           "scope": "landing"
         },
         {
-          "text": "Agents Board section — status + preview + action + Autopilot",
+          "text": "Agents Board section: status + preview + action + Autopilot",
           "scope": "board"
         },
         {
@@ -6456,7 +6456,7 @@
           "scope": "quick-260606-1uk"
         },
         {
-          "text": "header reorg — drop icons + SidebarControls, move into Topics ▾",
+          "text": "header reorg: drop icons + SidebarControls, move into Topics ▾",
           "scope": "quick-260606-1uk"
         },
         {
@@ -6548,15 +6548,15 @@
           "scope": "layout"
         },
         {
-          "text": "floating-splits — desktop-only detached rounded panels",
+          "text": "floating-splits: desktop-only detached rounded panels",
           "scope": "layout"
         },
         {
-          "text": "floating-splits — transparent window so gaps show the real desktop",
+          "text": "floating-splits: transparent window so gaps show the real desktop",
           "scope": "layout"
         },
         {
-          "text": "per-region native vibrancy — frosted panels + clear-desktop gaps",
+          "text": "per-region native vibrancy: frosted panels + clear-desktop gaps",
           "scope": "layout"
         },
         {
@@ -6564,11 +6564,11 @@
           "scope": "layout"
         },
         {
-          "text": "per-topic delta subscription — server scaffolding (P6, step 1/3)",
+          "text": "per-topic delta subscription: server scaffolding (P6, step 1/3)",
           "scope": "ws"
         },
         {
-          "text": "import_chrome — seed the native pane from the user's real Chrome logins",
+          "text": "import_chrome: seed the native pane from the user's real Chrome logins",
           "scope": "browser"
         },
         {
@@ -6612,7 +6612,7 @@
           "scope": "browser"
         },
         {
-          "text": "login sharing — browser_save_state/load_state (Jarvis interop)",
+          "text": "login sharing: browser_save_state/load_state (Jarvis interop)",
           "scope": "browser"
         },
         {
@@ -6644,7 +6644,7 @@
           "scope": "perf"
         },
         {
-          "text": "dev toolbar — pretty URL, zoom, device, quick console, history menu",
+          "text": "dev toolbar: pretty URL, zoom, device, quick console, history menu",
           "scope": "browser"
         },
         {
@@ -6678,7 +6678,7 @@
           "scope": null
         },
         {
-          "text": "UI polish — sidebar streaming stop, message layout, system status",
+          "text": "UI polish: sidebar streaming stop, message layout, system status",
           "scope": null
         },
         {
@@ -6810,7 +6810,7 @@
           "scope": null
         },
         {
-          "text": "add min-w-0 to StandaloneChatGroup + GroupLayout containers — fixes mobile overflow",
+          "text": "add min-w-0 to StandaloneChatGroup + GroupLayout containers: fixes mobile overflow",
           "scope": null
         },
         {
@@ -6830,11 +6830,11 @@
           "scope": null
         },
         {
-          "text": "lock html/body/#root to 100dvh + overflow:hidden — prevent page scroll on iOS PWA",
+          "text": "lock html/body/#root to 100dvh + overflow:hidden, prevent page scroll on iOS PWA",
           "scope": null
         },
         {
-          "text": "use fixed inset-0 instead of h-screen/100dvh — fixes iPad PWA dead space below textarea (also fixed duplicate style prop override)",
+          "text": "use fixed inset-0 instead of h-screen/100dvh: fixes iPad PWA dead space below textarea (also fixed duplicate style prop override)",
           "scope": null
         },
         {
@@ -6842,35 +6842,35 @@
           "scope": null
         },
         {
-          "text": "add min-h-0 to ChatPane, change PanelGrid to overflow-hidden — prevent content from exceeding viewport height on iPad",
+          "text": "add min-h-0 to ChatPane, change PanelGrid to overflow-hidden: prevent content from exceeding viewport height on iPad",
           "scope": null
         },
         {
-          "text": "use safe-area-inset on fixed container edges — iPad PWA safe area fix",
+          "text": "use safe-area-inset on fixed container edges: iPad PWA safe area fix",
           "scope": null
         },
         {
-          "text": "revert to inset:0, remove viewport-fit=cover — eliminate safe area gaps on iPad",
+          "text": "revert to inset:0, remove viewport-fit=cover, eliminate safe area gaps on iPad",
           "scope": null
         },
         {
-          "text": "compact sidebar header on mobile — smaller buttons (w-8), shorter header (h-11), consistent font size",
+          "text": "compact sidebar header on mobile: smaller buttons (w-8), shorter header (h-11), consistent font size",
           "scope": null
         },
         {
-          "text": "normalize mobile sizes to match desktop — remove all oversized mobile-only padding, buttons, margins",
+          "text": "normalize mobile sizes to match desktop: remove all oversized mobile-only padding, buttons, margins",
           "scope": null
         },
         {
-          "text": "compact sidebar items — h-11/44px → h-8/32px, text-13px → text-12px on mobile",
+          "text": "compact sidebar items: h-11/44px → h-8/32px, text-13px → text-12px on mobile",
           "scope": null
         },
         {
-          "text": "normalize ALL remaining mobile-oversized elements — buttons, icons, padding unified with desktop sizes",
+          "text": "normalize ALL remaining mobile-oversized elements: buttons, icons, padding unified with desktop sizes",
           "scope": null
         },
         {
-          "text": "compact project sidebar — file items 44px→28px, section headers h-10→h-8, close button w-9→w-7",
+          "text": "compact project sidebar: file items 44px→28px, section headers h-10→h-8, close button w-9→w-7",
           "scope": null
         },
         {
@@ -6878,7 +6878,7 @@
           "scope": null
         },
         {
-          "text": "change status-bar-style from black-translucent to default — keeps system bar separate from app content on iPad",
+          "text": "change status-bar-style from black-translucent to default: keeps system bar separate from app content on iPad",
           "scope": null
         },
         {
@@ -6890,11 +6890,11 @@
           "scope": null
         },
         {
-          "text": "revert tab bar to top position always — ensures header visible under iPad system bar for projects",
+          "text": "revert tab bar to top position always: ensures header visible under iPad system bar for projects",
           "scope": null
         },
         {
-          "text": "always show top bar even when no tabs open — empty state with header + sidebar toggle",
+          "text": "always show top bar even when no tabs open: empty state with header + sidebar toggle",
           "scope": null
         },
         {
@@ -6902,11 +6902,11 @@
           "scope": null
         },
         {
-          "text": "hook resilience — agent cache, topic fetch timeout, WS cleanup",
+          "text": "hook resilience: agent cache, topic fetch timeout, WS cleanup",
           "scope": null
         },
         {
-          "text": "SSE tool call status — send tool_result and contentOffset inline",
+          "text": "SSE tool call status: send tool_result and contentOffset inline",
           "scope": null
         },
         {
@@ -6930,11 +6930,11 @@
           "scope": "03-04"
         },
         {
-          "text": "fix failing E2E tests — fixture roles, WS intercept, drag scroll",
+          "text": "fix failing E2E tests: fixture roles, WS intercept, drag scroll",
           "scope": "03"
         },
         {
-          "text": "fix KANBAN-03 cross-column move test — use API move + reload verification",
+          "text": "fix KANBAN-03 cross-column move test: use API move + reload verification",
           "scope": "05"
         },
         {
@@ -6950,7 +6950,7 @@
           "scope": "02"
         },
         {
-          "text": "dual SSE+history mock for chat tests — root cause: history wipe",
+          "text": "dual SSE+history mock for chat tests: root cause: history wipe",
           "scope": "02"
         },
         {
@@ -6962,11 +6962,11 @@
           "scope": "15-01"
         },
         {
-          "text": "stabilize E2E tests — fix wrong ports, seed test data, fix history mocks",
+          "text": "stabilize E2E tests: fix wrong ports, seed test data, fix history mocks",
           "scope": "15-03"
         },
         {
-          "text": "remove topics-only guard from split handlers — allow any pane type",
+          "text": "remove topics-only guard from split handlers: allow any pane type",
           "scope": "16"
         },
         {
@@ -7002,7 +7002,7 @@
           "scope": null
         },
         {
-          "text": "grid split edge cases — guard non-topic splits, add unsolo, enforce limits",
+          "text": "grid split edge cases: guard non-topic splits, add unsolo, enforce limits",
           "scope": null
         },
         {
@@ -7122,11 +7122,11 @@
           "scope": null
         },
         {
-          "text": "eliminate flash/flicker on load — inline critical CSS + localStorage pre-render",
+          "text": "eliminate flash/flicker on load: inline critical CSS + localStorage pre-render",
           "scope": null
         },
         {
-          "text": "resolve visual stability bugs — topic switch, page load, sidebar toggle",
+          "text": "resolve visual stability bugs: topic switch, page load, sidebar toggle",
           "scope": null
         },
         {
@@ -7134,7 +7134,7 @@
           "scope": null
         },
         {
-          "text": "robust Chromium cleanup — teardown kills by user-data-dir, setup has signal handlers for crash",
+          "text": "Chromium cleanup: teardown kills by user-data-dir, setup has signal handlers for crash",
           "scope": null
         },
         {
@@ -7150,7 +7150,7 @@
           "scope": null
         },
         {
-          "text": "sidebar tab-sync — only show items with open tabs",
+          "text": "sidebar tab-sync: only show items with open tabs",
           "scope": null
         },
         {
@@ -7302,7 +7302,7 @@
           "scope": "terminal"
         },
         {
-          "text": "split bugs — stale focus highlight + collapsed split-down row (#3)",
+          "text": "split bugs: stale focus highlight + collapsed split-down row (#3)",
           "scope": "layout"
         },
         {
@@ -7438,7 +7438,7 @@
           "scope": "server"
         },
         {
-          "text": "clear tool spinners — dedup cumulative tool_use snapshots from claude-code provider",
+          "text": "clear tool spinners: dedup cumulative tool_use snapshots from claude-code provider",
           "scope": "chat"
         },
         {
@@ -7470,7 +7470,7 @@
           "scope": "30.1-devtools"
         },
         {
-          "text": "cleanup orphan WebContentsView + robust split layout",
+          "text": "cleanup orphan WebContentsView + split layout",
           "scope": "30.1-lifecycle"
         },
         {
@@ -7490,7 +7490,7 @@
           "scope": "30.1-persist"
         },
         {
-          "text": "claude before openclaw — drop the openclaw default fallback",
+          "text": "claude before openclaw: drop the openclaw default fallback",
           "scope": "providers"
         },
         {
@@ -7502,7 +7502,7 @@
           "scope": "claude-code"
         },
         {
-          "text": "browser-* suite green — DATA_DIR isolation + close race",
+          "text": "browser-* suite green: DATA_DIR isolation + close race",
           "scope": "30.1-e2e"
         },
         {
@@ -7522,7 +7522,7 @@
           "scope": "browser"
         },
         {
-          "text": "restore icon polish in <PaneAddMenu> — mobile size + per-pane accent",
+          "text": "restore icon polish in <PaneAddMenu>: mobile size + per-pane accent",
           "scope": "panes"
         },
         {
@@ -7542,11 +7542,11 @@
           "scope": "panes"
         },
         {
-          "text": "resilient timeout — survive long sub-agent waits, recover after silence",
+          "text": "resilient timeout: survive long sub-agent waits, recover after silence",
           "scope": "stream"
         },
         {
-          "text": "real-time onToolResult — process user events with tool_result blocks",
+          "text": "real-time onToolResult: process user events with tool_result blocks",
           "scope": "claude-code"
         },
         {
@@ -7558,7 +7558,7 @@
           "scope": "refresh"
         },
         {
-          "text": "asset watcher default OFF — opt-in via TOPICS_AUTO_RELOAD=1",
+          "text": "asset watcher default OFF: opt-in via TOPICS_AUTO_RELOAD=1",
           "scope": "electron"
         },
         {
@@ -7574,7 +7574,7 @@
           "scope": "chat"
         },
         {
-          "text": "WS message union refactor — restore literal narrowing, unblock build",
+          "text": "WS message union refactor: restore literal narrowing, unblock build",
           "scope": "types"
         },
         {
@@ -7586,7 +7586,7 @@
           "scope": "chat"
         },
         {
-          "text": "sidebar↔topbar pending-action sync — countdowns mirrored everywhere",
+          "text": "sidebar↔topbar pending-action sync: countdowns mirrored everywhere",
           "scope": "ui"
         },
         {
@@ -7650,11 +7650,11 @@
           "scope": "sidebar"
         },
         {
-          "text": "standalone Claude Code tab stays standalone — no home-as-project catch-all",
+          "text": "standalone Claude Code tab stays standalone: no home-as-project catch-all",
           "scope": "panes"
         },
         {
-          "text": "bug-fix pass — DnD scoping, phase-authoritative loading, reload persistence",
+          "text": "bug-fix pass: DnD scoping, phase-authoritative loading, reload persistence",
           "scope": "ui"
         },
         {
@@ -7670,7 +7670,7 @@
           "scope": "master"
         },
         {
-          "text": "three split/clone bugs — home catch-all, mixed-group new chat, no-solo terminals",
+          "text": "three split/clone bugs: home catch-all, mixed-group new chat, no-solo terminals",
           "scope": "layout"
         },
         {
@@ -7718,11 +7718,11 @@
           "scope": "sidebar"
         },
         {
-          "text": "strip node_modules symlinks for universal merge — v1.0.2",
+          "text": "strip node_modules symlinks for universal merge: v1.0.2",
           "scope": "release"
         },
         {
-          "text": "x64ArchFiles for universal merge — v1.0.3",
+          "text": "x64ArchFiles for universal merge: v1.0.3",
           "scope": "release"
         },
         {
@@ -7734,7 +7734,7 @@
           "scope": "landing"
         },
         {
-          "text": "clean fill, no ring/shadow — stop open rows looking selected",
+          "text": "clean fill, no ring/shadow: stop open rows looking selected",
           "scope": "selection"
         },
         {
@@ -7742,11 +7742,11 @@
           "scope": "master"
         },
         {
-          "text": "drop hero hover zoom/tilt — it made the scaled demo jump",
+          "text": "drop hero hover zoom/tilt: it made the scaled demo jump",
           "scope": "landing"
         },
         {
-          "text": "single 'open-master' path — no more chat-master fallback",
+          "text": "single 'open-master' path: no more chat-master fallback",
           "scope": "master"
         },
         {
@@ -7758,7 +7758,7 @@
           "scope": "board"
         },
         {
-          "text": "kill the real zoom/crop — legacy .window-real :hover transform",
+          "text": "kill the real zoom/crop: legacy .window-real :hover transform",
           "scope": "landing"
         },
         {
@@ -7878,11 +7878,11 @@
           "scope": "terminal"
         },
         {
-          "text": "kill reload flash — instant initial tab-scroll + cached favicon slots",
+          "text": "kill reload flash: instant initial tab-scroll + cached favicon slots",
           "scope": "ui"
         },
         {
-          "text": "unblock tsc -b — silence TS6 baseUrl deprecation",
+          "text": "unblock tsc -b: silence TS6 baseUrl deprecation",
           "scope": "client"
         },
         {
@@ -7914,11 +7914,11 @@
           "scope": "browser"
         },
         {
-          "text": "floating-splits — reveal real vibrancy + flush window edges",
+          "text": "floating-splits: reveal real vibrancy + flush window edges",
           "scope": "layout"
         },
         {
-          "text": "floating-splits — flush edges in the standalone grid too",
+          "text": "floating-splits: flush edges in the standalone grid too",
           "scope": "layout"
         },
         {
@@ -7930,7 +7930,7 @@
           "scope": "server"
         },
         {
-          "text": "unblock E2E collection — context-settings injected `require` in ESM scope",
+          "text": "unblock E2E collection: context-settings injected `require` in ESM scope",
           "scope": "e2e"
         },
         {
@@ -7954,7 +7954,7 @@
           "scope": "server"
         },
         {
-          "text": "clear remaining type errors — server typecheck now 0; ratchet is a hard gate (audit P3)",
+          "text": "clear remaining type errors: server typecheck now 0; ratchet is a hard gate (audit P3)",
           "scope": "server"
         },
         {
@@ -7962,7 +7962,7 @@
           "scope": "server"
         },
         {
-          "text": "stop trimming porcelain XY status — fixes staged/unstaged misclassification (audit)",
+          "text": "stop trimming porcelain XY status: fixes staged/unstaged misclassification (audit)",
           "scope": "git"
         },
         {
@@ -8022,11 +8022,11 @@
           "scope": "release"
         },
         {
-          "text": "audit high-value bugs — topic:switch focus-steal, browser screencast leak, git mislabel",
+          "text": "audit high-value bugs: topic:switch focus-steal, browser screencast leak, git mislabel",
           "scope": null
         },
         {
-          "text": "close audit robustness gaps — timeouts, timer leaks, undrained stderr",
+          "text": "close audit robustness gaps: timeouts, timer leaks, undrained stderr",
           "scope": "server"
         },
         {
@@ -8110,7 +8110,7 @@
           "scope": "browser"
         },
         {
-          "text": "pin per-region frost behind content (z-order) — fixes blank panes",
+          "text": "pin per-region frost behind content (z-order): fixes blank panes",
           "scope": "vibrancy"
         },
         {
@@ -8126,7 +8126,7 @@
           "scope": "server"
         },
         {
-          "text": "don't exit when GATEWAY_TOKEN is absent — the gateway is optional",
+          "text": "don't exit when GATEWAY_TOKEN is absent: the gateway is optional",
           "scope": "server"
         },
         {
@@ -8182,7 +8182,7 @@
           "scope": "dnd"
         },
         {
-          "text": "split preview is pure fill — drop the seam line (one indicator)",
+          "text": "split preview is pure fill: drop the seam line (one indicator)",
           "scope": "dnd"
         },
         {

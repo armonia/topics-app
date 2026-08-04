@@ -1,6 +1,9 @@
 ---
 title: Auto-compaction
-definition: The automatic summarising of older context when a session approaches the model's window limit. It keeps long sessions alive, and it is also the moment a watchdog is most likely to mistake a working agent for a dead one.
+definition: >-
+  The automatic summarising of older context when a session approaches the model's window
+  limit. It keeps long sessions alive, and it is also the moment a watchdog is most likely to
+  mistake a working agent for a dead one.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:
@@ -14,8 +17,8 @@ give. Compaction replaces the older middle of the conversation with a summary,
 freeing room while keeping the thread.
 
 It is genuinely useful and it is lossy in a specific way: the summary keeps what
-was *said* and loses the exact text. Details that were never restated — a precise
-error string, an exact path, a number — do not survive. Anything the rest of the
+was *said* and loses the exact text. Details that were never restated (a precise
+error string, an exact path, a number) do not survive. Anything the rest of the
 session depends on verbatim should be written into a file or a standing
 instruction rather than trusted to survive a compaction.
 

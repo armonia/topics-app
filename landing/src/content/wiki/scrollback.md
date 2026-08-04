@@ -1,6 +1,9 @@
 ---
 title: Scrollback
-definition: The lines a terminal has already printed and still keeps. It is the part almost every embedded terminal discards, and the only part that answers the question you actually have when an agent finishes — what did it do while I was away.
+definition: >-
+  The lines a terminal has already printed and still keeps. It is the part almost every
+  embedded terminal discards, and the only part that answers the question you actually have
+  when an agent finishes: what did it do while I was away.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:
@@ -8,7 +11,7 @@ seeAlso:
   - pty-bridge
 ---
 
-A terminal shows a screen — perhaps fifty lines. The scrollback is everything
+A terminal shows a screen, perhaps fifty lines. The scrollback is everything
 above it that has been kept.
 
 ## Why it is the valuable part

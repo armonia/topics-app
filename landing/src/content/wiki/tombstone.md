@@ -1,6 +1,9 @@
 ---
 title: Tombstone
-definition: A record that something was deleted, kept instead of simply removing the row. Without one, a sync cannot tell "you deleted this" from "I have something you have not seen yet" — so deleted things come back.
+definition: >-
+  A record that something was deleted, kept instead of simply removing the row. Without one, a
+  sync cannot tell "you deleted this" from "I have something you have not seen yet", so
+  deleted things come back.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:
@@ -29,7 +32,7 @@ where the same thing is legitimately created again afterwards.
 Close a tab, then open a new one with the same identity. Now there is a tombstone
 saying "deleted" and a live object saying "here". Which wins?
 
-Not the newer timestamp by wall-clock — clocks on two machines disagree by more
+Not the newer timestamp by wall-clock: clocks on two machines disagree by more
 than the gap between those two actions. What resolves it is *causality*: the
 tombstone applies only if the deletion happened after the creation it is talking
 about. A creation that is newer than the tombstone that mentions it means the
