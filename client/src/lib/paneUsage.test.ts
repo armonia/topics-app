@@ -1,0 +1,139 @@
+/**
+ * `paneUsage` — i TRE stati devono restare tre.
+ *
+ * Il difetto che questi test tengono chiuso: collassare "non ha un processo",
+ * "non ancora misurato" e "misurato, quasi zero" in un unico `0` o `—`. Sono
+ * tre cose diverse, e l'unica disonesta sarebbe mostrare uno zero per le prime
+ * due — un numero inventato con l'aria di una misura.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import {
+  formatPaneUsageLine,
+  getPaneUsage,
+  ensurePaneUsageFresh,
+  _resetPaneUsage,
+  _setPaneUsageSnapshot,
+} from './paneUsage';
+
+describe('formatPaneUsageLine', () => {
+  beforeEach(() => { _resetPaneUsage(); });
+
+  it('una pane senza processo proprio lo DICE, non mostra zero', () => {
+    // topic, kanban, chat, file, editor: componenti React nello stesso
+    // renderer. Nessun `ps` può separarle, quindi non esiste una misura.
+    const line = formatPaneUsageLine('qualsiasi', false);
+    expect(line).toContain('non ha un processo proprio');
+    expect(line).not.toContain('0 MB');
+    expect(line).not.toContain('0%');
+  });
+
+  it('una pane con processo ma senza misura dice "non ancora misurato"', () => {
+    const line = formatPaneUsageLine('s-ignota', true);
+    expect(line).toContain('non ancora misurato');
+    expect(line).not.toContain('0 MB');
+  });
+
+  it('CPU null = "non ancora misurata", NON "0%"', () => {
+    // Un processo appena nato non ha un delta da cui ricavare una percentuale.
+    _setPaneUsageSnapshot([{ sessionId: 's-nuova', memoryMB: 120, cpuPercent: null, processCount: 1 }]);
+    const line = formatPaneUsageLine('s-nuova', true);
+    expect(line).toContain('120 MB');
+    expect(line).toContain('CPU non ancora misurata');
+    expect(line).not.toContain('CPU 0%');
+  });
+
+  it('CPU zero misurata è uno zero VERO e si vede come tale', () => {
+    _setPaneUsageSnapshot([{ sessionId: 's-ferma', memoryMB: 90, cpuPercent: 0, processCount: 2 }]);
+    const line = formatPaneUsageLine('s-ferma', true);
+    expect(line).toContain('CPU 0%');
+    expect(line).toContain('2 processi');
+  });
+
+  it('una misura piccola non diventa zero', () => {
+    // Stessa regola di `formatCpuPercent` nella status bar: 0,3% è una misura,
+    // e arrotondarla a "0%" la farebbe passare per assente.
+    _setPaneUsageSnapshot([{ sessionId: 's-bassa', memoryMB: 40, cpuPercent: 0.3, processCount: 1 }]);
+    const line = formatPaneUsageLine('s-bassa', true);
+    expect(line).toContain('<1%');
+    expect(line).toContain('1 processo');
+  });
+
+  it('singolare e plurale dei processi', () => {
+    _setPaneUsageSnapshot([
+      { sessionId: 'uno', memoryMB: 1, cpuPercent: 1, processCount: 1 },
+      { sessionId: 'tanti', memoryMB: 1, cpuPercent: 1, processCount: 7 },
+    ]);
+    expect(formatPaneUsageLine('uno', true)).toContain('1 processo');
+    expect(formatPaneUsageLine('tanti', true)).toContain('7 processi');
+  });
+
+  it('un sessionId assente non esplode', () => {
+    _setPaneUsageSnapshot([{ sessionId: 'x', memoryMB: 1, cpuPercent: 1, processCount: 1 }]);
+    expect(getPaneUsage(null)).toBeNull();
+    expect(getPaneUsage(undefined)).toBeNull();
+    expect(formatPaneUsageLine(null, true)).toContain('non ancora misurato');
+  });
+});
+
+describe('costo del campionamento (RES-ATTR-04)', () => {
+  // Il requisito: il numero di letture NON deve crescere col numero di pane.
+  // È la ragione per cui questo store esiste invece di riusare
+  // `useSystemStatus`, che fa un `setInterval` PER ISTANZA — dieci gruppi di
+  // tab avrebbero significato dieci polling paralleli sullo stesso dato.
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+
+  beforeEach(() => {
+    _resetPaneUsage();
+    calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({
+        server: { fleet: { sessions: [{ sessionId: 's', name: 'x', pid: 1, memoryMB: 10, cpuPercent: 1, processCount: 1 }], cpuCores: 12, memMetric: 'footprint' } },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { globalThis.fetch = realFetch; _resetPaneUsage(); });
+
+  it('venti tab che chiedono insieme producono UNA richiesta', async () => {
+    for (let i = 0; i < 20; i++) ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls).toBe(1);
+  });
+
+  it('dentro la finestra di validità non si richiede di nuovo', async () => {
+    ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls).toBe(1);
+    for (let i = 0; i < 10; i++) ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls).toBe(1); // il dato è ancora fresco: nessuna seconda lettura
+    expect(getPaneUsage('s')?.memoryMB).toBe(10);
+  });
+
+  it('una richiesta fallita non lascia lo store bloccato', async () => {
+    globalThis.fetch = (async () => { calls++; throw new Error('offline'); }) as unknown as typeof fetch;
+    ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls).toBe(1);
+    // `inFlight` deve essersi liberato, altrimenti nessun tentativo successivo
+    // partirebbe mai più e il tooltip resterebbe muto per sempre.
+    ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls).toBe(2);
+  });
+
+  it('un errore di rete non cancella l\'ultimo dato buono', async () => {
+    ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    expect(getPaneUsage('s')?.memoryMB).toBe(10);
+    _setPaneUsageSnapshot([{ sessionId: 's', memoryMB: 10, cpuPercent: 1, processCount: 1 }]);
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
+    await new Promise(r => setTimeout(r, 4100)); // scade il TTL
+    ensurePaneUsageFresh();
+    await new Promise(r => setTimeout(r, 20));
+    // Meglio l'ultimo numero buono che un tooltip che lampeggia a vuoto.
+    expect(getPaneUsage('s')?.memoryMB).toBe(10);
+  });
+
+});
