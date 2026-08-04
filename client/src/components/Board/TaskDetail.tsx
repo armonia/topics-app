@@ -2085,7 +2085,19 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </p>
       )}
 
-      {/* Modalità notturna. L'interruttore lo accende una PERSONA — il senso è
+      {/* La condizione del BOARD, detta dove si accende l'impostazione invece
+          che scoperta a ogni task. Prima ogni dispatch moriva con «worktree
+          richiesto ma il progetto non è un repo git registrato»: il messaggio
+          era corretto e arrivava alla persona sbagliata. */}
+      {s.dispatchUseWorktree && (s as { worktreeReady?: boolean }).worktreeReady === false && (
+        <p className="text-[11px] leading-snug text-amber-300/90">
+          Questo progetto non è un repo git: con «worktree isolato» acceso ogni
+          task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza
+          un repo nella cartella del progetto.
+        </p>
+      )}
+
+      {/* Modalità notturna.      {/* Modalità notturna. L'interruttore lo accende una PERSONA — il senso è
           «vado via», e nessuna euristica lo sa. L'orario è una FINE: scaduto
           quello la modalità si spegne DA SOLA, invece di restare armata il
           giorno dopo addosso a chi lavora. */}
