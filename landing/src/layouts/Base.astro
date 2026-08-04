@@ -1,0 +1,73 @@
+---
+/**
+ * The shell every page shares: head, fonts, the texture layers and the canonical
+ * URL. Kept deliberately thin — the site's whole visual system is one
+ * hand-written stylesheet in public/, and putting components between it and the
+ * markup would buy nothing and cost the ability to read the page as HTML.
+ */
+export interface Props {
+  title: string;
+  description: string;
+  /** Path from the site root, e.g. "/" or "/changelog". Canonical + og:url. */
+  path: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  /** Extra <html> attributes — the home page carries the type/backdrop variants. */
+  htmlAttrs?: Record<string, string>;
+  bodyClass?: string;
+  /** Structured data, serialised rather than inlined so braces stay JSON. */
+  jsonLd?: unknown;
+  /** Google Fonts href, only for the changelog, which uses a different pairing. */
+  googleFonts?: string;
+  themeColor?: string;
+}
+
+const {
+  title,
+  description,
+  path,
+  ogTitle = title,
+  ogDescription = description,
+  htmlAttrs = {},
+  bodyClass,
+  jsonLd,
+  googleFonts,
+  themeColor = '#07090f',
+} = Astro.props;
+
+const canonical = new URL(path, Astro.site).href;
+---
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" {...htmlAttrs}>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="theme-color" content={themeColor} />
+  <link rel="canonical" href={canonical} />
+  <link rel="icon" type="image/png" href="/icon-64.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={ogTitle} />
+  <meta property="og:description" content={ogDescription} />
+  <meta property="og:url" content={canonical} />
+  <meta property="og:image" content="https://topics.armonia.io/icon.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="alternate" type="application/rss+xml" title="Topics" href="/blog/rss.xml" />
+  <link rel="preconnect" href="https://api.github.com" />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  {googleFonts && <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />}
+  {googleFonts && <link rel="stylesheet" href={googleFonts} />}
+  {/* Only the three families the page renders. The lab candidates are fetched by
+      app.js on demand behind ?lab=1, so a normal visit never pays for type it
+      will not see. */}
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  {jsonLd && <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />}
+</head>
+<body class={bodyClass}>
+  <slot />
+</body>
+</html>

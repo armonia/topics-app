@@ -24,8 +24,8 @@
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
     "changelog": "node scripts/gen-changelog.mjs",
     "build:landing": "cd client && bun run build:landing",
-    "deploy:landing": "bunx wrangler@latest deploy",
-    "deploy:landing:dry": "bunx wrangler@latest deploy --dry-run",
+    "deploy:landing": "bun run build:site && bunx wrangler@latest deploy",
+    "deploy:landing:dry": "bun run build:site && bunx wrangler@latest deploy --dry-run",
     "gen:shortcuts": "bun run scripts/gen-shortcuts.ts",
     "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
@@ -53,7 +53,9 @@
     "lint": "cd client && bun run lint",
     "lint:gherkin": "bun --bun spec-flow/scripts/lint-gherkin.ts",
     "tag:scenarios": "bun --bun spec-flow/scripts/tag-scenarios.ts",
-    "uat": "bun --bun spec-flow/scripts/generate-uat.ts"
+    "uat": "bun --bun spec-flow/scripts/generate-uat.ts",
+    "build:site": "cd landing && bun install --frozen-lockfile && bun run build",
+    "dev:site": "cd landing && bun run dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",

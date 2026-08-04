@@ -1,0 +1,5 @@
+# /changelog.html was the URL for the whole life of the site — it is linked from
+# the home page, it is the og:url of that page, and it is what anyone who shared
+# it has. Directory routing moved it to /changelog, so the old one is kept alive
+# rather than allowed to 404.
+/changelog.html  /changelog  301

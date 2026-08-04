@@ -1,0 +1,35 @@
+---
+import { getCollection } from 'astro:content';
+import Reading from '../../layouts/Reading.astro';
+import { formatDate, FORMAT_LABEL } from '../../lib/format';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+---
+
+<Reading
+  title="Blog · Topics"
+  description="What we measured while building a desktop workspace for coding agents: memory footprints, token costs, terminal internals, and the things that broke on the way."
+  path="/blog"
+>
+  <header class="index-head">
+    <h1>Blog</h1>
+    <p>
+      What we measured while building this. Numbers we took ourselves, with the method
+      next to them, and the failures included — a claim without a way to check it is
+      just marketing with a decimal point.
+    </p>
+  </header>
+
+  <ul class="entry-list">
+    {posts.map((p) => (
+      <li>
+        <p class="entry-meta">
+          {FORMAT_LABEL[p.data.format]} · <time datetime={p.data.pubDate.toISOString()}>{formatDate(p.data.pubDate)}</time>
+        </p>
+        <h2><a href={`/blog/${p.id}`}>{p.data.title}</a></h2>
+        <p>{p.data.description}</p>
+      </li>
+    ))}
+  </ul>
+</Reading>

@@ -131,6 +131,9 @@ landing/app-shot.png
 landing/_capture.mjs
 landing/*-shot.png
 landing/app.png
+
+# Astro: tipi generati dal build del sito
+landing/.astro/
 landing/demo-src/node_modules/
 
 # Tauri desktop shell

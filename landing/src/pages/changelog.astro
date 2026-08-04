@@ -1,25 +1,25 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Changelog · Topics</title>
-  <meta name="description" content="Every Topics release, version by version — new features, fixes and performance improvements for the agent-first desktop workspace." />
-  <meta name="theme-color" content="#06080f" />
-  <link rel="icon" type="image/png" href="./icon-64.png" />
-  <meta property="og:type" content="website" />
-  <meta property="og:title" content="Changelog · Topics" />
-  <meta property="og:description" content="Every Topics release, version by version." />
-  <meta property="og:url" content="https://topics.armonia.io/changelog.html" />
-  <meta property="og:image" content="https://topics.armonia.io/icon.png" />
-  <link rel="preconnect" href="https://api.github.com" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" />
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body class="cl-page">
-  <!-- icon sprite (subset used here) -->
+---
+/**
+ * Every release. Its own type pairing (Geist / Space Grotesk) is deliberate and
+ * predates this migration — it is the one page on the site that is a document
+ * rather than an argument.
+ *
+ * The URL was /changelog.html and is now /changelog; public/_redirects keeps the
+ * old one working, because it is linked from the home page and from og:url.
+ */
+import Base from '../layouts/Base.astro';
+---
+
+<Base
+  title="Changelog · Topics"
+  description="Every Topics release, version by version — new features, fixes and performance improvements for the agent-first desktop workspace."
+  ogDescription="Every Topics release, version by version."
+  path="/changelog"
+  themeColor="#06080f"
+  bodyClass="cl-page"
+  googleFonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+>
+<!-- icon sprite (subset used here) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
@@ -41,19 +41,19 @@
   <!-- NAV -->
   <header class="nav" id="nav">
     <div class="nav__inner">
-      <a class="brand" href="./index.html" aria-label="Topics home">
-        <img src="./icon-64.png" alt="" class="brand__mark" width="28" height="28" />
+      <a class="brand" href="/" aria-label="Topics home">
+        <img src="/icon-64.png" alt="" class="brand__mark" width="28" height="28" />
         <span class="brand__name">Topics</span>
       </a>
       <nav class="nav__links" aria-label="Primary">
-        <a href="./index.html#features">Features</a>
-        <a href="./index.html#workspace">Workspace</a>
-        <a href="./changelog.html">Changelog</a>
-        <a href="./index.html#download">Download</a>
+        <a href="/#features">Features</a>
+        <a href="/#workspace">Workspace</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank"><svg class="ic ic--fill"><use href="#ic-gh"/></svg>GitHub</a>
       </nav>
       <div class="nav__cta">
-        <a class="btn btn--primary btn--sm" href="./index.html#download">Download</a>
+        <a class="btn btn--primary btn--sm" href="/#download">Download</a>
       </div>
     </div>
   </header>
@@ -72,11 +72,11 @@
 
   <footer class="footer">
     <div class="footer__inner">
-      <div class="footer__brand"><img src="./icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
+      <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
-        <a href="./index.html#features">Features</a>
-        <a href="./changelog.html">Changelog</a>
-        <a href="./index.html#download">Download</a>
+        <a href="/#features">Features</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
         <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">Releases</a>
       </nav>
@@ -86,7 +86,6 @@
     </div>
   </footer>
 
-  <script src="./app.js" defer></script>
-  <script src="./changelog.js" defer></script>
-</body>
-</html>
+  <script src="/app.js" defer></script>
+  <script src="/changelog.js" defer></script>
+</Base>

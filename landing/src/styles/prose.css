@@ -1,0 +1,246 @@
+/* ===========================================================================
+   Reading surface — blog articles and wiki entries.
+
+   The numbers are not taste. They come from measuring twenty reference pages
+   (PostHog, Stripe, Vercel, Supabase, Linear, Cloudflare, Fly.io, Josh Comeau,
+   Julia Evans, Ciechanowski, MDN, Anthropic docs) in Chromium at 1440×900: the
+   prose column converges on 543-810px and 67-92 characters per line with a
+   median of 76, the body on 15-19px at line-height 1.5-1.75, and the h2 on a
+   top margin of about two line-heights against a bottom of one. Anthropic's own
+   docs sit at 114 characters per line, the worst reading measure in the sample,
+   which is a useful reminder that being the reference for one thing does not
+   make you the reference for all of them.
+
+   Everything here is written against SEMANTIC tokens — --paper, --ink, --rule —
+   which today resolve to the site's dark palette. The planned rebuild inverts
+   the site to warm paper with the product as the only dark object; when that
+   lands it is a change of eight values in one block, not a rewrite of this file.
+   That is the entire reason the indirection exists.
+   =========================================================================== */
+
+:root {
+  --paper: var(--s-0);
+  --paper-2: var(--s-2);
+  --ink: var(--text);
+  --ink-mute: var(--text-dim);
+  --ink-faint: var(--text-faint);
+  --rule: var(--border);
+  --accent-ink: var(--blue-2);
+
+  /* On a dark page a code block sinks; on paper it will be the one dark object
+     next to the screenshots. Same role, opposite direction, one token. */
+  --code-bg: var(--s-1);
+  --code-ink: #d8dee9;
+
+  --measure: 700px;        /* ≈71 characters at 19px Switzer */
+  --measure-wide: 860px;   /* figures that need +23% and no more */
+  --flow: 1.25em;
+}
+
+/* ── Page frame ─────────────────────────────────────────────────────────── */
+
+.prose-page {
+  /* Three columns: gutter, reading measure, gutter. Children sit in column 2;
+     anything that must break out asks for `full-bleed` and gets 1 / -1. It is
+     the mechanism that lets a dark product slab run to the edges while the text
+     stays where it can be read — which, once the page is paper, IS the argument
+     the design is making. */
+  display: grid;
+  grid-template-columns: 1fr min(var(--measure), calc(100% - 40px)) 1fr;
+  padding: 0 0 120px;
+}
+.prose-page > * { grid-column: 2; }
+.prose-page > .full-bleed { grid-column: 1 / -1; }
+.prose-page > .wide {
+  grid-column: 2;
+  width: min(var(--measure-wide), calc(100vw - 40px));
+  margin-inline: calc(50% - min(var(--measure-wide), 100vw - 40px) / 2);
+}
+
+/* ── Head ───────────────────────────────────────────────────────────────── */
+
+.article-head { padding: 88px 0 0; }
+.article-kicker {
+  font-family: var(--mono);
+  font-size: 13px; line-height: 1;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.article-head h1 {
+  font-family: var(--display);
+  font-weight: var(--display-weight);
+  font-size: 46px; line-height: 54px; letter-spacing: -1px;
+  text-wrap: balance;
+  margin: 18px 0 20px;
+}
+.article-standfirst {
+  font-size: 21px; line-height: 32px;
+  color: var(--ink-mute);
+  text-wrap: pretty;
+  margin-bottom: 26px;
+}
+.article-meta {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  font-size: 15px; color: var(--ink-faint);
+  padding-bottom: 30px; border-bottom: 1px solid var(--rule);
+}
+.article-meta .sep { opacity: .5; }
+/* `updated` is the one date that matters to a search engine and to a reader,
+   so it is in the page and not in the footer. */
+.article-meta time { font-variant-numeric: tabular-nums; }
+
+/* ── Prose ──────────────────────────────────────────────────────────────── */
+
+.prose { font-size: 19px; line-height: 30px; color: var(--ink); }
+.prose > * { margin-block: 0 var(--flow); }
+.prose > :first-child { margin-block-start: 34px; }
+
+.prose h2 {
+  font-family: var(--display);
+  font-weight: var(--display-weight);
+  font-size: 30px; line-height: 40px; letter-spacing: -.4px;
+  text-wrap: balance;
+  margin-block: 60px 28px;
+}
+.prose h3 {
+  font-size: 22px; line-height: 30px; font-weight: 600; letter-spacing: -.2px;
+  text-wrap: balance;
+  margin-block: 36px 12px;
+}
+.prose h4 {
+  font-family: var(--mono);
+  font-size: 15px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-mute);
+  margin-block: 28px 8px;
+}
+.prose p { text-wrap: pretty; }
+.prose ul, .prose ol { padding-inline-start: 1.4em; }
+.prose li + li { margin-block-start: .5em; }
+.prose a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.prose strong { color: var(--ink); font-weight: 600; }
+.prose hr { border: 0; border-top: 1px solid var(--rule); margin-block: calc(var(--flow) * 2.4); }
+.prose blockquote {
+  border-left: 2px solid var(--rule);
+  padding-left: 20px; color: var(--ink-mute);
+}
+
+/* Numbers are the point of most of these pieces; they should line up. */
+.prose table { width: 100%; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
+.prose th, .prose td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); }
+.prose th { font-weight: 600; color: var(--ink-mute); font-size: 14px; text-transform: uppercase; letter-spacing: .05em; }
+
+/* ── Code ───────────────────────────────────────────────────────────────── */
+
+.prose pre {
+  font: 14px/22px var(--mono);
+  background: var(--code-bg); color: var(--code-ink);
+  padding: 18px 20px; border-radius: 8px;
+  margin-block: 28px; overflow-x: auto;
+  border: 1px solid var(--rule);
+}
+.prose :not(pre) > code {
+  font: .88em/1 var(--mono);
+  background: color-mix(in oklab, var(--ink) 9%, transparent);
+  padding: .15em .38em; border-radius: 4px;
+}
+
+/* ── Callouts ───────────────────────────────────────────────────────────── */
+
+/* One shape, three border colours. `measured` is reserved for a block that
+   carries a number we took ourselves — it is the signature device of this blog,
+   and it means nothing if it appears on a number we read somewhere else. */
+.callout {
+  border-left: 3px solid var(--accent-ink);
+  background: color-mix(in oklab, var(--accent-ink) 8%, transparent);
+  border-radius: 6px; padding: 14px 16px 14px 20px;
+  font-size: 17px; line-height: 27px;
+}
+.callout > .callout-label {
+  display: block; font-family: var(--mono);
+  font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-mute); margin-bottom: 6px;
+}
+.callout--warning { border-left-color: var(--amber); background: color-mix(in oklab, var(--amber) 8%, transparent); }
+.callout--measured { border-left-color: var(--green); background: color-mix(in oklab, var(--green) 8%, transparent); }
+
+/* ── Figures ────────────────────────────────────────────────────────────── */
+
+.prose figure { margin-block: 40px; }
+.prose figure img { display: block; width: 100%; height: auto; border-radius: 12px; }
+.prose figcaption {
+  font-size: 15px; line-height: 23px; color: var(--ink-mute);
+  margin-block-start: 12px;
+}
+
+/* ── Contents ───────────────────────────────────────────────────────────── */
+
+/* The article keeps the reading measure; the list lives in the right gutter,
+   which already exists in the page grid and is otherwise empty. */
+.prose-page > .article-body {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr min(var(--measure), calc(100% - 40px)) 1fr;
+}
+.article-body > .prose { grid-column: 2; min-width: 0; }
+.article-body > .toc { grid-column: 3; display: none; }
+
+@media (min-width: 1200px) {
+  .article-body > .toc {
+    display: block;
+    position: sticky; top: 96px; align-self: start;
+    justify-self: start;
+    width: 260px; margin-inline-start: 48px; margin-block-start: 40px;
+    max-height: calc(100vh - 140px); overflow-y: auto;
+  }
+  .toc__label {
+    /* 13px, same as the article kicker: this is the only mono micro-label on a
+       reading page, and two sizes for one role is one size too many. */
+    font-family: var(--mono); font-size: 13px; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--ink-faint); margin-bottom: 12px;
+  }
+  .toc ul { list-style: none; padding: 0; margin: 0; border-left: 1px solid var(--rule); }
+  .toc li { margin: 0; }
+  .toc a {
+    display: block; padding: 6px 0 6px 14px; margin-left: -1px;
+    font-size: 15px; line-height: 21px; color: var(--ink-mute);
+    border-left: 1px solid transparent; text-decoration: none;
+  }
+  .toc a:hover { color: var(--ink); border-left-color: var(--accent-ink); }
+}
+
+/* ── Foot ───────────────────────────────────────────────────────────────── */
+
+.article-foot { margin-block-start: 72px; padding-block-start: 30px; border-top: 1px solid var(--rule); }
+.article-foot h2 { font-size: 15px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); margin: 0 0 16px; }
+.related { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.related a { font-size: 18px; font-weight: 600; color: var(--ink); }
+.related p { font-size: 16px; line-height: 24px; color: var(--ink-mute); margin: 3px 0 0; }
+
+/* ── Index pages ────────────────────────────────────────────────────────── */
+
+.index-head { padding: 88px 0 30px; }
+.index-head h1 { font-family: var(--display); font-weight: var(--display-weight); font-size: 46px; line-height: 54px; letter-spacing: -1px; margin-bottom: 14px; }
+.index-head p { font-size: 19px; line-height: 30px; color: var(--ink-mute); max-width: 62ch; }
+.entry-list { list-style: none; padding: 0; margin: 0; }
+.entry-list li { padding-block: 26px; border-top: 1px solid var(--rule); }
+.entry-list h2 { font-size: 23px; line-height: 31px; font-weight: 600; letter-spacing: -.2px; margin: 0 0 6px; }
+.entry-list h2 a { color: var(--ink); }
+.entry-list p { font-size: 17px; line-height: 26px; color: var(--ink-mute); margin: 0; text-wrap: pretty; }
+.entry-list .entry-meta { font-size: 14px; color: var(--ink-faint); font-family: var(--mono); margin-bottom: 8px; }
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .article-head { padding-top: 56px; }
+  .article-head h1, .index-head h1 { font-size: 34px; line-height: 40px; letter-spacing: -.7px; }
+  .article-standfirst { font-size: 19px; line-height: 29px; }
+  .prose { font-size: 17px; line-height: 27px; }
+  .prose h2 { font-size: 25px; line-height: 33px; margin-block: 44px 20px; }
+  .prose h3 { font-size: 20px; line-height: 28px; margin-block: 28px 10px; }
+  /* Wide figures stop being wide rather than overflowing. */
+  .prose-page > .wide { width: auto; margin-inline: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prose * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

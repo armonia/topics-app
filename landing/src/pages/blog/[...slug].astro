@@ -1,0 +1,100 @@
+---
+import { getCollection, render } from 'astro:content';
+import Reading from '../../layouts/Reading.astro';
+import { formatDate, readingTime, FORMAT_LABEL } from '../../lib/format';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content, headings } = await render(post);
+// Astro slugs headings for us, so the contents list is derived rather than
+// maintained — it cannot drift from the article the way a hand-written one does.
+const sections = headings.filter((h) => h.depth === 2);
+const d = post.data;
+
+// Wiki entries this piece leans on. Resolved rather than hard-coded so a link
+// to a renamed entry fails the build instead of rotting into a 404.
+const wikiAll = await getCollection('wiki', ({ data }) => !data.draft);
+const related = d.wiki.map((slug) => {
+  const hit = wikiAll.find((w) => w.id === slug);
+  if (!hit) throw new Error(`${post.id}: frontmatter "wiki" points at /wiki/${slug}, which does not exist`);
+  return hit;
+});
+
+const words = post.body?.split(/\s+/).length ?? 0;
+
+/**
+ * `BlogPosting`, and nothing else. `TechArticle` has never been supported by
+ * Google, `HowTo` was retired in 2023 and the `FAQPage` rich result on
+ * 7 May 2026 — DigitalOcean, which runs the largest technical tutorial library
+ * on the web, marks "How To Install Nginx on Ubuntu" as an Article. The signal
+ * that actually carries is a real author with a URL and a `dateModified` that
+ * moves, not a stack of types.
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: d.title,
+  description: d.description,
+  datePublished: d.pubDate.toISOString(),
+  dateModified: (d.updatedDate ?? d.pubDate).toISOString(),
+  author: { '@type': 'Person', name: d.author, url: d.authorUrl },
+  publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  mainEntityOfPage: new URL(`/blog/${post.id}`, Astro.site).href,
+  inLanguage: 'en',
+};
+---
+
+<Reading title={`${d.title} · Topics`} description={d.description} path={`/blog/${post.id}`} jsonLd={jsonLd}>
+  <header class="article-head">
+    <p class="article-kicker">{FORMAT_LABEL[d.format]}</p>
+    <h1>{d.title}</h1>
+    <p class="article-standfirst">{d.description}</p>
+    <div class="article-meta">
+      <span>{d.author}</span><span class="sep">·</span>
+      <span>{readingTime(words)}</span><span class="sep">·</span>
+      <time datetime={d.pubDate.toISOString()}>{formatDate(d.pubDate)}</time>
+      {d.updatedDate && (
+        <>
+          <span class="sep">·</span>
+          <span>updated <time datetime={d.updatedDate.toISOString()}>{formatDate(d.updatedDate)}</time></span>
+        </>
+      )}
+    </div>
+  </header>
+
+  <div class="article-body">
+    <article class="prose">
+      <Content />
+    </article>
+    {/* Only when there is enough to navigate. Below four sections a contents
+        list is a decoration that costs a column; the CSS hides it under 1200px
+        for the same reason. No progress bar — one of the fourteen reference
+        pages we measured had one, and it fights the list for the same job. */}
+    {sections.length >= 4 && (
+      <nav class="toc" aria-label="On this page">
+        <p class="toc__label">On this page</p>
+        <ul>
+          {sections.map((h) => <li><a href={`#${h.slug}`}>{h.text}</a></li>)}
+        </ul>
+      </nav>
+    )}
+  </div>
+
+  {related.length > 0 && (
+    <section class="article-foot">
+      <h2>Referenced</h2>
+      <ul class="related">
+        {related.map((w) => (
+          <li>
+            <a href={`/wiki/${w.id}`}>{w.data.title}</a>
+            <p>{w.data.definition}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+</Reading>
