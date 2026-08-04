@@ -495,7 +495,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     args: Parameters<TaskService["release"]>[0],
     opts?: { announce?: boolean },
   ): Task {
+    // Il topic dell'agente si RITIRA insieme al task, qualunque sia l'esito.
+    //
+    // `release()` slega il task dal topic — ma il topic resta «aperto» per
+    // sempre: nessun umano lo chiuderà mai come tab (non è una sua tab) e il
+    // dispatcher pota solo i tentativi di un fan-out, non questo. È così che il
+    // topic di un agente parcheggiato a metà luglio è rimasto in giro fino ad
+    // agosto, contato fra le conversazioni vive.
+    //
+    // Si legge PRIMA della release: dopo, il legame non c'è più e non si
+    // saprebbe più quale topic ritirare.
+    const boundTopicId = deps.svc.get(args.taskId)?.task?.assignedTopicId ?? null;
     const task = deps.svc.release(args);
+    if (boundTopicId) {
+      // Best-effort: un topic che non si archivia non deve impedire il rilascio
+      // del task — il task è la cosa che qualcun altro sta aspettando.
+      try { deps.archiveTopic?.(boundTopicId); }
+      catch (err) { log(`archivio del topic ${boundTopicId} fallito al rilascio`, err); }
+    }
     emit(task);
     const parked = opts?.announce === false ? null : parkedEdgeEvent(task, args);
     if (parked) {

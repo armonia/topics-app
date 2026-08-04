@@ -274,7 +274,14 @@ describe("task-dispatcher fan-out", () => {
     expect(t.deliveredBy).toBeNull();
     expect(h.comments("t1").join("\n")).toContain("nessuno ha prodotto modifiche committate");
     expect(h.worktreesDeleted.sort()).toEqual(["wt-1", "wt-2"]);
-    expect(h.topicsArchived.sort()).toEqual(["topic-1", "topic-2"]);
+    // L'insieme, non la lista: il topic LEGATO al task viene archiviato due
+    // volte — una dal ritiro al rilascio, una dalla potatura dei tentativi — e
+    // va bene, perché `archiveTopicFully` è convergente (un topic già
+    // archiviato non riscrive il flag né ribroadcasta). Il contratto è «questi
+    // topic finiscono archiviati», non «archiveTopic è chiamata una volta
+    // sola»: asserire il conteggio legherebbe il test al numero di percorsi
+    // interni invece che all'esito.
+    expect([...new Set(h.topicsArchived)].sort()).toEqual(["topic-1", "topic-2"]);
   });
 
   it("il fan-out paga N slot del tetto: gli altri todo aspettano il tick dopo", async () => {
@@ -451,3 +458,25 @@ describe("cleanup del worktree — non buttare via i commit", () => {
 // lavoro, perche li lo scarto e deliberato. La guardia vera (`preserveWork`) e
 // verificata per lettura, non da un test: per coprirla serve un harness che
 // sappia portare un task a `todo`/`backlog` DOPO aver creato un worktree.
+
+// ── Il topic dell'agente si ritira col task ────────────────────────────────
+//
+// `releaseAndEmit` ora archivia il topic legato al task prima di slegarlo:
+// `release()` toglieva il legame e il topic restava «aperto» per sempre —
+// nessun umano lo chiuderà mai come tab (non è una sua tab) e la potatura dei
+// tentativi copre solo i fan-out. È così che il topic di un agente parcheggiato
+// a metà luglio è rimasto in giro fino ad agosto, contato fra le conversazioni
+// vive.
+//
+// NON C'È UN TEST DEDICATO, e lo dico invece di lasciarne uno verde a vuoto.
+// Il percorso da coprire è il rilascio di un agente SOLO (righe 981 e 1357 del
+// dispatcher: fine turno senza consegna, e park dopo i tentativi). Ho provato a
+// raggiungerlo con questo harness in tre modi — turno che rigetta, nessuna
+// parola dell'agente, tentativi esauriti — e ogni variante finisce altrove: o
+// in `review` per consegna di sistema, o con il task ancora `in_progress`. I
+// test che ne erano usciti passavano SENZA toccare l'hook, cioè non provavano
+// niente.
+//
+// Quello che il test qui sopra («nessun tentativo ha committato») prova è che
+// l'hook FIRA: è per causa sua che `topicsArchived` contiene un doppione, ed è
+// il motivo per cui quell'asserzione è diventata sull'insieme.
