@@ -8,13 +8,12 @@
  * output = the deduped window list) lets server.ts stay a thin adapter over it.
  */
 
-/** One tab of a window, as that window described it (chats, terminals,
- *  projects, browsers alike) — the sidebar's "Finestre" groups these. */
-export interface PresenceTab {
-  id: string;
-  type: string;
-  title?: string;
-}
+// La forma di una tab sul filo è UNA, in `shared/types.ts`: era scritta
+// identica anche qui e in `client/src/types/index.ts`, cioè due copie della
+// stessa cosa libere di divergere (il test `no-type-mirrors` è lì per questo).
+// Ri-esportata perché ogni import storico di questo modulo resti valido.
+import type { PresenceTab } from "../shared/types";
+export type { PresenceTab };
 
 /** The presence-bearing subset of a socket's WSData (what the builder reads). */
 export interface PresenceSource {

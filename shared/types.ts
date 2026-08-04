@@ -47,6 +47,29 @@ export type ToolCallStatus = 'pending' | 'running' | 'waiting_for_input' | 'succ
 // provider stream verbatim, so these are on-wire payloads — any change
 // must keep both halves compatible in the same commit.
 
+/**
+ * Una tab di una finestra, come quella finestra l'ha descritta — chat, terminali,
+ * progetti e browser allo stesso modo: la sidebar «Finestre» raggruppa queste.
+ *
+ * Stava scritta due volte, identica, su `server/presence.ts` e
+ * `client/src/types/index.ts`. Due copie della stessa forma sul filo sono due
+ * occasioni di divergere in silenzio, ed è esattamente quello che il test
+ * `no-type-mirrors` esiste per impedire. Qui è dichiarata una volta; i due lati
+ * la ri-esportano, quindi nessun import esistente cambia.
+ */
+export interface PresenceTab {
+  /** Id della pane, quello che usano `focusPane` e i link alle tab. */
+  id: string;
+  /**
+   * Tipo della pane (`chat`, `terminal`, `project`, `browser`, …) — libero sul
+   * filo, così un peer con una build più vecchia non butta via una tab solo
+   * perché non sa nominarla.
+   */
+  type: string;
+  /** Il titolo che la finestra proprietaria mostra sulla tab. */
+  title?: string;
+}
+
 /** One question emitted by the AskUserQuestion tool. */
 export interface AskUserQuestionItem {
   question: string;
