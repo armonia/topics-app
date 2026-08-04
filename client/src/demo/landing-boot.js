@@ -40,6 +40,14 @@
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
       BROW = "browser:c1";
 
+  /* Chapter panes — the right-hand column of acme-web is the demo's STAGE.
+   * Each landing "chapter" button switches this group to one of these tabs, so
+   * a chapter is a REAL pane of the REAL app, reached by a real tab click — not
+   * a screenshot and not a forked component. Adding a chapter here is the only
+   * change needed on the app side; landing-cursor.js looks tabs up by pane id. */
+  var KANB = "kanban:c1", DASH = "dashboard:c1", AGTS = "agents:c1",
+      GITP = "git:c1", FILES = "files:c1";
+
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
   function projectHash(p) {
@@ -101,13 +109,19 @@
     set("topics-project-layout-" + projectHash(path), JSON.stringify(layout));
   }
   seedProject(PROJECT, [
-    { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
-    { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
-    { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
+    { id: CC1,   type: "terminal",  title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
+    { id: CC2,   type: "terminal",  title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
+    { id: BROW,  type: "browser",   title: "Preview",     projectPath: PROJECT },
+    // The chapter stage — one tab per landing chapter, all real panes.
+    { id: KANB,  type: "kanban",    title: "Board",       projectPath: PROJECT },
+    { id: AGTS,  type: "agents",    title: "Agents",      projectPath: PROJECT },
+    { id: DASH,  type: "dashboard", title: "Dashboard",   projectPath: PROJECT },
+    { id: GITP,  type: "git",       title: "Git",         projectPath: PROJECT },
+    { id: FILES, type: "files",     title: "Files",       projectPath: PROJECT },
   ], {
     groups: [
-      { id: "pgA-l", paneIds: [CC1, CC2],     activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW],         activePaneId: BROW, type: "utility" },
+      { id: "pgA-l", paneIds: [CC1, CC2], activePaneId: CC1,  type: "utility" },
+      { id: "pgA-r", paneIds: [BROW, KANB, AGTS, DASH, GITP, FILES], activePaneId: BROW, type: "utility" },
     ],
     rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
@@ -248,21 +262,25 @@
       ],
     };
   }
-  function mkTask(id, text, status, order, priority, assignedTo) {
+  function mkTask(id, text, status, order, priority, assignedTo, agentId, desc) {
     return { id: id, text: text, status: status, kanbanOrder: order, createdAt: ISO,
-      completedAt: status === "done" ? ISO : null, projectId: PROJECT, description: null,
-      priority: priority || 2, assignedTo: assignedTo || null, assignedAgentId: null, assignedTopicId: null,
-      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: null, updatedAt: ISO,
+      completedAt: status === "done" ? ISO : null, projectId: PROJECT, description: desc || null,
+      priority: priority || 2, assignedTo: assignedTo || null, assignedAgentId: agentId || null, assignedTopicId: null,
+      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: status === "in_progress" ? ISO : null, updatedAt: ISO,
       archived: false, blocks: [], blockedBy: [], tags: [] };
   }
+  /* The board tells the WHOLE loop in one screen: queued → an agent picked it up
+   * in its own worktree → delivered and waiting for a human → landed. That arc is
+   * the product's argument, so the demo board must show every stage at once. */
   var TASKS = [
     mkTask("k1", "Wire telemetry opt-in", "backlog", 0, 1),
     mkTask("k2", "Localize onboarding", "backlog", 1, 1),
     mkTask("k3", "Sign release builds", "todo", 0, 3),
     mkTask("k4", "Empty-state polish", "todo", 1, 2),
-    mkTask("k5", "Ship v1.1", "in_progress", 0, 4, "claude"),
-    mkTask("k6", "Landing site", "in_progress", 1, 3, "claude"),
-    mkTask("k7", "Token hashing", "review", 0, 3),
+    mkTask("k5", "Ship v2.2 release notes", "in_progress", 0, 4, "claude", "a2", "Agent working in an isolated worktree."),
+    mkTask("k6", "Landing site rebuild", "in_progress", 1, 3, "claude", "a1"),
+    mkTask("k7", "Token hashing", "review", 0, 3, "claude", "a3", "Delivered — waiting for your approval."),
+    mkTask("k11", "Reload-safe dispatch", "review", 1, 2, "claude", "a2"),
     mkTask("k8", "Split panes", "done", 0, 2),
     mkTask("k9", "Auto-update", "done", 1, 2),
     mkTask("k10", "Grain + aurora", "done", 2, 1),
@@ -297,6 +315,87 @@
   var AGENTS = [
     { id: "a1", name: "Lead", role: "lead", modelPreference: "opus", maxConcurrentTasks: 3, capabilities: [], avatarEmoji: "🧭", status: "available", createdAt: ISO, updatedAt: ISO },
     { id: "a2", name: "Builder", role: "worker", modelPreference: "sonnet", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "⚙️", status: "busy", createdAt: ISO, updatedAt: ISO },
+    { id: "a3", name: "Reviewer", role: "worker", modelPreference: "opus", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "🔍", status: "busy", createdAt: ISO, updatedAt: ISO },
+    { id: "a4", name: "Scout", role: "worker", modelPreference: "haiku", maxConcurrentTasks: 4, capabilities: [], avatarEmoji: "🛰️", status: "available", createdAt: ISO, updatedAt: ISO },
+  ];
+
+  /* Agent sessions feed the Agents pane through TWO endpoints with DIFFERENT
+   * shapes, and mixing them up crashes the pane:
+   *   GET /agents/sessions          → shared/monitoring.ts `AgentSession`
+   *                                   (`key`, `displayName`, `updatedAt` as an
+   *                                   epoch NUMBER) — rendered as "Live".
+   *   GET /agents/sessions/history  → api.ts `SessionHistoryItem`
+   *                                   (`sessionKey`, `startedAt` as an ISO
+   *                                   STRING) — rendered as history.
+   * SessionHistory calls `new Date(s.updatedAt).toISOString()` on the live rows,
+   * so a history-shaped object served on the live route throws
+   * `RangeError: Invalid time value` and the ErrorBoundary eats the whole pane. */
+  function liveAgentSession(key, name, status, minsAgo, tokens, msg) {
+    return {
+      key: key, kind: "main", channel: "topics", displayName: name, status: status,
+      model: "claude-opus-5", updatedAt: Date.parse(ISO) - minsAgo * 60000,
+      sessionId: key, totalTokens: tokens, contextTokens: Math.round(tokens * 0.4),
+      lastMessage: msg, topicId: null, topicName: null,
+    };
+  }
+  var LIVE_AGENT_SESSIONS = [
+    liveAgentSession("sk-builder", "Builder · acme-web", "active", 1, 84000, "Writing the release notes"),
+    liveAgentSession("sk-review", "Reviewer · acme-web", "active", 3, 51000, "Reading the diff"),
+    liveAgentSession("sk-scout", "Scout · acme-api", "idle", 14, 22000, "Waiting for a task"),
+  ];
+
+  function histAgentSession(id, agentId, status, minsAgo, durMins, tokens) {
+    var started = new Date(Date.parse(ISO) - minsAgo * 60000).toISOString();
+    var ended = status === "running" ? null : new Date(Date.parse(ISO) - (minsAgo - durMins) * 60000).toISOString();
+    var agent = AGENTS.filter(function (a) { return a.id === agentId; })[0] || {};
+    return {
+      id: id, agentId: agentId, sessionKey: "sk-" + id, topicId: null, status: status,
+      taskId: null, startedAt: started, lastHeartbeat: ended || ISO, completedAt: ended,
+      totalTokens: tokens, errorMessage: null,
+      agentName: agent.name || "Agent", agentAvatar: agent.avatarEmoji || null,
+      agentRole: agent.role || null, topicName: null,
+    };
+  }
+  var AGENT_SESSIONS = [
+    histAgentSession("s3", "a2", "completed", 96, 40, 132000),
+    histAgentSession("s4", "a4", "completed", 180, 12, 22000),
+    histAgentSession("s5", "a1", "completed", 260, 75, 61000),
+    histAgentSession("s6", "a3", "completed", 420, 18, 44000),
+  ];
+
+  /* Dashboard series — 14 days of throughput and spend. Deterministic (no
+   * Math.random) so every visitor sees the same chart and screenshots are
+   * reproducible. */
+  function series(base, spread, scale) {
+    var pts = [], day0 = Date.parse(ISO) - 13 * 86400000;
+    for (var i = 0; i < 14; i++) {
+      // Cheap deterministic wobble: two out-of-phase sines, no RNG.
+      var w = Math.sin(i * 1.1) * 0.6 + Math.sin(i * 0.37) * 0.4;
+      var v = base + w * spread;
+      pts.push({ date: new Date(day0 + i * 86400000).toISOString().slice(0, 10),
+                 value: Math.round(Math.max(0, v) * scale) / scale });
+    }
+    return pts;
+  }
+  var SERIES = { throughput: series(9, 4, 1), spend: series(2.6, 1.2, 100), cycle: series(3.1, 1.1, 10) };
+
+  /* Heartbeat timeline for the Agents chapter: a session that started, checked
+   * in repeatedly, and did work. `type` must be one of TimelineEvent's union
+   * members ('session_start' | 'session_end' | 'heartbeat' | 'action'). */
+  var TIMELINE = (function () {
+    var out = [{ type: "session_start", timestamp: new Date(Date.parse(ISO) - 26 * 60000).toISOString(), data: { model: "claude-opus-5" } }];
+    for (var i = 24; i >= 2; i -= 4) {
+      out.push({ type: "heartbeat", timestamp: new Date(Date.parse(ISO) - i * 60000).toISOString(),
+                 data: { status: "working", tokensUsed: 8000 + (24 - i) * 3400 } });
+    }
+    out.push({ type: "action", timestamp: new Date(Date.parse(ISO) - 3 * 60000).toISOString(), data: { action: "commit", detail: "review: token hashing" } });
+    return out;
+  })();
+  var AGENT_STATS = [
+    { agentId: "a2", agentName: "Builder",  avatarEmoji: "⚙️", tasksCompleted: 34, totalTokens: 2410000, avgCycleTimeHours: 2.4, errorRate: 0.02, sessionsCount: 41 },
+    { agentId: "a1", agentName: "Lead",     avatarEmoji: "🧭", tasksCompleted: 21, totalTokens: 1680000, avgCycleTimeHours: 3.8, errorRate: 0.01, sessionsCount: 26 },
+    { agentId: "a3", agentName: "Reviewer", avatarEmoji: "🔍", tasksCompleted: 18, totalTokens: 940000,  avgCycleTimeHours: 1.2, errorRate: 0.00, sessionsCount: 22 },
+    { agentId: "a4", agentName: "Scout",    avatarEmoji: "🛰️", tasksCompleted: 12, totalTokens: 310000,  avgCycleTimeHours: 0.6, errorRate: 0.03, sessionsCount: 15 },
   ];
   /* Running terminal sessions. The headline value is the Claude Code agent
    * sessions ("claude-code" → Claude icon in the sidebar, grouped under their
@@ -476,8 +575,17 @@
         if (/\/scripts\b/.test(u)) return Promise.resolve(J({ scripts: SCRIPTS }));
         if (/\/processes\b/.test(u)) return Promise.resolve(J([]));
         if (/\/terminal\/sessions\b/.test(u)) return Promise.resolve(J(SESSIONS));
+        // ORDER MATTERS: the specific /agents/sessions/* routes must be tested
+        // BEFORE the bare /agents/sessions one, which would otherwise swallow
+        // them and answer every sub-route with the live-session list.
+        if (/\/agents\/sessions\/history\b/.test(u)) return Promise.resolve(J({ sessions: AGENT_SESSIONS, total: AGENT_SESSIONS.length, limit: 100, offset: 0 }));
+        if (/\/agents\/sessions\/[^/]+\/timeline\b/.test(u)) return Promise.resolve(J({
+          session: null, events: TIMELINE, heartbeatCount: TIMELINE.length - 1, actionCount: 3,
+        }));
+        if (/\/agents\/sessions\/[^/]+\/history\b/.test(u)) return Promise.resolve(J({ messages: [] }));
+        if (/\/agents\/profiles\/[^/]+\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: AGENT_SESSIONS }));
         if (/\/agents\/profiles\b/.test(u)) return Promise.resolve(J({ profiles: AGENTS }));
-        if (/\/agents\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: [], total: 0, limit: 100, offset: 0 }));
+        if (/\/agents\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: LIVE_AGENT_SESSIONS }));
         if (/\/providers\/snapshot\b/.test(u)) return Promise.resolve(J({ providers: [], defaultProvider: null, generatedAt: ISO }));
         if (/\/providers\b/.test(u)) return Promise.resolve(J({ providers: [], default: null }));
         if (/\/projects\b/.test(u)) return Promise.resolve(J({ projects: [
@@ -489,8 +597,16 @@
         if (/\/worktrees\b/.test(u)) return Promise.resolve(J({ worktrees: [] }));
         if (/\/webhooks\b/.test(u)) return Promise.resolve(J({ webhooks: [] }));
         if (/\/dashboard\/kpis\b/.test(u)) return Promise.resolve(J({ throughputDay: 12, throughputWeek: 64, avgCycleTimeHours: 3.2, wipCount: 4, errorRate: 0.02, tokenSpendDay: 1.4, tokenSpendWeek: 9.1, agentUtilization: 0.62, approvalTurnaroundHours: 1.1, pendingApprovals: 0 }));
-        if (/\/dashboard\/timeseries\b/.test(u)) return Promise.resolve(J({ points: [] }));
-        if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: [] }));
+        if (/\/dashboard\/timeseries\b/.test(u)) {
+          // The pane asks per metric — hand back the matching series so switching
+          // metric visibly redraws instead of replaying one curve for everything.
+          var metric = (u.match(/metric=([^&]+)/) || [])[1] || "";
+          var pts = /spend|token|cost/i.test(metric) ? SERIES.spend
+                  : /cycle|time|duration/i.test(metric) ? SERIES.cycle
+                  : SERIES.throughput;
+          return Promise.resolve(J({ points: pts }));
+        }
+        if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: AGENT_STATS }));
         // MUST precede the generic /files rule: ScriptRunner does Object.entries
         // on .scripts, so this must be an OBJECT map (an array → crash).
         if (/\/files\/package-scripts\b/.test(u)) return Promise.resolve(J({

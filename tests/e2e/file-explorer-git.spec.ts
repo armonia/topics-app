@@ -201,7 +201,7 @@ test.describe("File Explorer — Git", () => {
     // comunque. Il predicato giusto è questo.
     const statusIndicators = gitChanges.locator("span", { hasText: /^[MDUA]$/ });
     const commitInput = gitChanges.locator('input[placeholder="Message"]');
-    const cleanTree = gitChanges.getByText("Clean working tree");
+    const cleanTree = gitChanges.getByText("Albero di lavoro pulito");
     const sectionHasContent = async () =>
       (await statusIndicators.first().isVisible().catch(() => false)) ||
       (await commitInput.isVisible().catch(() => false)) ||
@@ -417,6 +417,6 @@ test.describe("File Explorer — Git", () => {
     await commitBtn.click();
 
     // After commit, the staged section should clear (clean working tree)
-    await expect(gitChanges.getByText("Clean working tree")).toBeVisible({ timeout: 15000 });
+    await expect(gitChanges.getByText("Albero di lavoro pulito")).toBeVisible({ timeout: 15000 });
   });
 });

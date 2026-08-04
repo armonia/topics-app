@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
@@ -463,6 +464,7 @@ export function ChatInput({
   onUpdateTopic,
   onMessage,
 }: ChatInputProps) {
+  const tr = useT();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
   // Context inspector and the envelope assembler use, and the only one the
@@ -966,13 +968,13 @@ export function ChatInput({
           <div className="flex-1 min-w-0">
             {stoppedByUser ? (
               <>
-                <div className="text-[11px] text-app-text font-medium">Turno interrotto</div>
-                <div className="text-[11px] text-app-text-muted">L'hai fermato tu — il messaggio è ancora qui</div>
+                <div className="text-[11px] text-app-text font-medium">{tr('chat.turnStopped')}</div>
+                <div className="text-[11px] text-app-text-muted">{tr('chat.turnStopped.detail')}</div>
               </>
             ) : (
               <>
-                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">Nessuna risposta</div>
-                <div className="text-[11px] text-amber-600 dark:text-amber-500">La connessione può essersi interrotta</div>
+                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">{tr('chat.noAnswer')}</div>
+                <div className="text-[11px] text-amber-600 dark:text-amber-500">{tr('chat.noAnswer.detail')}</div>
               </>
             )}
           </div>

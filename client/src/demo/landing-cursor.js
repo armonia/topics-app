@@ -23,10 +23,17 @@
  * ───────────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
+  var REDUCED = false;
   try {
     if (window.__landingGhostCursor) return;
     window.__landingGhostCursor = true;
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // Reduced motion does NOT disable the chapters — it removes the MOTION.
+    // Bailing out here (as this script used to) left the landing's chapter
+    // buttons wired to nothing for exactly the visitors least able to follow a
+    // moving pointer. Instead the pointer stays hidden, every glide collapses
+    // to an instant jump, and the autoplay tour never starts: a chapter click
+    // still switches the real pane, just without the choreography.
+    REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch (e) { return; }
 
   var START_AT_MS = 1200;     // start almost immediately once the UI has mounted
@@ -106,12 +113,15 @@
   function moveInstant(x, y) { setTransition(0); place(x, y); }
   function glide(x, y, ms) {
     ms = ms || 750;
+    if (REDUCED) ms = 0;   // jump, don't travel
     return new Promise(function (resolve) {
       try { setTransition(ms); place(x, y); } catch (e) {}
       setTimeout(resolve, ms + 60);
     });
   }
-  function fadeCursor(on) { if (cursor) cursor.style.opacity = on ? "1" : "0"; }
+  // Under reduced motion the pointer never becomes visible — the pane still
+  // switches, so the chapter works; there is just nothing gliding across it.
+  function fadeCursor(on) { if (cursor) cursor.style.opacity = (on && !REDUCED) ? "1" : "0"; }
 
   function ripple(x, y) {
     try {
@@ -155,6 +165,13 @@
 
   /** One eased drag segment: cursor visual + window mousemove stay in sync. */
   function dragSegment(x0, y0, x1, y1, ms) {
+    if (REDUCED) {
+      // Deliver the drag as a single jump: the pane really resizes, the
+      // visitor just isn't shown 60 frames of it travelling.
+      moveInstant(x1, y1);
+      fire(window, "mousemove", x1, y1, 1);
+      return Promise.resolve({ x: x1, y: y1 });
+    }
     return new Promise(function (resolve) {
       var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
       function step(now) {
@@ -218,94 +235,211 @@
            q("[data-panel-divider-row][data-panel-divider-col]");
   }
 
-  /* ---- choreography -------------------------------------------------------- */
-  var round = 0;
+  /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
+  function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
 
-  function runRound() {
-    var seq = Promise.resolve();
-    function step(fn) {
-      seq = seq.then(function () {
-        return whenVisible().then(function () {
-          return Promise.resolve().then(fn).catch(function () { /* skip silently */ });
+  /* ---- cancellation ------------------------------------------------------- *
+   * One scene at a time. Starting a scene (or the visitor grabbing the mouse)
+   * cancels whatever was running: every await goes through `hold`, which
+   * rejects as soon as the token is stale, so a half-played scene unwinds
+   * instead of fighting the new one for the cursor. */
+  var runToken = 0;
+  function cancelled(tok) { return tok !== runToken; }
+  function hold(tok, ms) {
+    return sleep(ms).then(function () {
+      if (cancelled(tok)) throw new Error("cancelled");
+    });
+  }
+  /** Run `fn` unless the scene was superseded or the tab is in the background. */
+  function act(tok, fn) {
+    if (cancelled(tok)) return Promise.reject(new Error("cancelled"));
+    return whenVisible().then(function () {
+      if (cancelled(tok)) throw new Error("cancelled");
+      return Promise.resolve().then(fn).catch(function (e) {
+        // A missing target must skip, but a cancellation must propagate.
+        if (e && e.message === "cancelled") throw e;
+      });
+    });
+  }
+
+  /* ---- messaging back to the landing page --------------------------------- */
+  function emit(name, scene) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: "topics-demo", type: name, scene: scene || null }, "*");
+      }
+    } catch (e) { /* cross-origin or detached — the demo still works alone */ }
+  }
+
+  /* ---- scenes ------------------------------------------------------------- *
+   * A scene is a short, readable gesture on the REAL app. Each one re-queries
+   * its targets, so a scene whose pane is missing degrades to a no-op rather
+   * than throwing. Keep them under ~6s: they are illustrations, not films. */
+
+  /** Switch the right-hand stage to a chapter tab and let the eye land on it. */
+  function showStage(tok, paneId, dwellMs) {
+    return act(tok, function () {
+      var el = stageTab(paneId);
+      if (!el) return;
+      return glideAndClick(el, 0.5, 0.5);
+    }).then(function () {
+      return act(tok, function () {
+        // Drift into the pane body so the visitor looks at the CONTENT, not the tab.
+        var host = stageTab(paneId);
+        var cell = host && host.closest ? host.closest("[data-group-cell]") : null;
+        var p = cell ? pointOf(cell, 0.5, 0.42) : null;
+        if (!p) return;
+        return glide(p.x, p.y, 850);
+      });
+    }).then(function () { return hold(tok, dwellMs == null ? 900 : dwellMs); });
+  }
+
+  var SCENES = {
+    /* Several whole projects open at once — the app-level split. */
+    workspace: function (tok) {
+      return act(tok, function () {
+        var el = tabCC(3); // focus acme-api (bottom-left window)
+        if (!el) return;
+        return glideAndClick(el, 0.42, 0.5);
+      }).then(function () {
+        return act(tok, function () {
+          var el = appDivider();
+          if (!el) return;
+          return glideAndDrag(el, [{ dx: 130, ms: 950, holdMs: 400 }, { dx: 4, ms: 750 }]);
         });
-      });
-      return seq;
-    }
+      }).then(function () { return hold(tok, 500); });
+    },
 
-    // (a) switch to the SECOND Claude Code tab in acme-web
-    step(function () {
-      var el = tabCC(2);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(450); });
-    });
+    /* Two live Claude Code sessions in one project, side by side with the app. */
+    terminals: function (tok) {
+      return act(tok, function () {
+        var el = tabCC(2);
+        if (!el) return;
+        return glideAndClick(el, 0.42, 0.5);
+      }).then(function () { return hold(tok, 1400); })
+        .then(function () {
+          return act(tok, function () {
+            var el = tabCC(1);
+            if (!el) return;
+            return glideAndClick(el, 0.42, 0.5);
+          });
+        }).then(function () { return hold(tok, 700); });
+    },
 
-    // (b) drag the terminal|preview split inside acme-web (~100px), settle.
-    // Direction alternates per round so the loop doesn't ratchet into the clamp.
-    step(function () {
-      var el = innerDivider();
-      if (!el) return;
-      var dir = (round % 2 === 0) ? -1 : 1;
-      return glideAndDrag(el, [{ dx: dir * 100, ms: 1100 }]).then(function () { return sleep(400); });
-    });
+    /* Resize the terminal | preview split — the layout is yours. */
+    layout: function (tok) {
+      return act(tok, function () {
+        var el = innerDivider();
+        if (!el) return;
+        return glideAndDrag(el, [{ dx: -110, ms: 1000, holdMs: 350 }, { dx: 6, ms: 800 }]);
+      }).then(function () { return hold(tok, 500); });
+    },
 
-    // (c) focus the acme-api window via its Claude Code tab
-    step(function () {
-      var el = tabCC(3);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(400); });
-    });
+    browser:   function (tok) { return showStage(tok, "browser:c1", 1500); },
+    board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
+    agents:    function (tok) { return showStage(tok, "agents:c1", 1600); },
+    dashboard: function (tok) { return showStage(tok, "dashboard:c1", 1800); },
+    git:       function (tok) { return showStage(tok, "git:c1", 1400); },
+    files:     function (tok) { return showStage(tok, "files:c1", 1400); },
+  };
 
-    // (d) drag the acme-api | acme-mobile divider out ~120px, then settle
-    // back near 50/50 (same grab — the hook tracks delta from mousedown).
-    step(function () {
-      var el = appDivider();
-      if (!el) return;
-      return glideAndDrag(el, [
-        { dx: 120, ms: 900, holdMs: 350 },
-        { dx: 4, ms: 700 },
-      ]).then(function () { return sleep(400); });
-    });
+  /* Autoplay order — the product's argument, told in sequence: you keep whole
+   * projects open, agents run in them, a board drives the agents, and the
+   * numbers tell you what it cost. */
+  var TOUR = ["terminals", "browser", "board", "agents", "dashboard", "workspace"];
 
-    // (e) back to the FIRST Claude tab, then park + fade out
-    step(function () {
-      var el = tabCC(1);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5);
-    });
-    step(function () {
-      var px = Math.max(40, window.innerWidth - 72);
-      var py = Math.max(40, window.innerHeight - 48);
-      return glide(px, py, 700).then(function () { return sleep(2000); }).then(function () { fadeCursor(false); });
-    });
+  /* ---- player -------------------------------------------------------------- */
+  var autoplay = true;
+  var tourIndex = 0;
+  var idleTimer = 0;
 
-    return seq;
-  }
-
-  function loop() {
-    whenVisible()
+  function playScene(name) {
+    var fn = SCENES[name];
+    if (!fn) return Promise.resolve();
+    var tok = ++runToken;
+    emit("scene-start", name);
+    return whenVisible()
       .then(function () {
+        if (cancelled(tok)) throw new Error("cancelled");
         ensureCursor();
-        // each round re-enters from a quiet corner and fades in
-        moveInstant(window.innerWidth * 0.46, window.innerHeight * 0.32);
-        return sleep(60);
+        fadeCursor(true);
+        return sleep(220);
       })
-      .then(function () { fadeCursor(true); return sleep(420); })
-      .then(runRound)
-      .catch(function () { /* round must never throw */ })
+      .then(function () { return fn(tok); })
       .then(function () {
-        round++;
-        setTimeout(loop, LOOP_PAUSE_MS);
-      });
+        if (cancelled(tok)) return;
+        emit("scene-end", name);
+      })
+      .catch(function () { /* cancelled or a missing target — never throw */ });
   }
 
-  /* ---- boot: wait for the app to mount, start at ≈t+6s --------------------- */
+  /** Visitor asked for a chapter: stop the tour, play it, then stay put. */
+  function playOnDemand(name) {
+    autoplay = false;
+    clearTimeout(idleTimer);
+    playScene(name).then(function () {
+      // Park the pointer out of the way so it never covers what it just showed.
+      var tok = runToken;
+      if (cancelled(tok)) return;
+      return glide(Math.max(40, window.innerWidth - 64), Math.max(40, window.innerHeight - 44), 650)
+        .then(function () { if (!cancelled(tok)) fadeCursor(false); });
+    });
+  }
+
+  function tourStep() {
+    if (!autoplay) return;
+    var name = TOUR[tourIndex % TOUR.length];
+    tourIndex++;
+    playScene(name).then(function () {
+      if (!autoplay) return;
+      idleTimer = setTimeout(tourStep, LOOP_PAUSE_MS);
+    });
+  }
+
+  /* ---- the visitor always wins -------------------------------------------- *
+   * The demo is the real app and must stay usable. The moment a REAL pointer or
+   * key event arrives (isTrusted — our own synthetic events are not), the ghost
+   * stops mid-gesture and gets out of the way. Nothing resumes on its own;
+   * only a chapter button brings it back. */
+  function yieldToVisitor() {
+    if (!autoplay && runToken === 0) return;
+    autoplay = false;
+    clearTimeout(idleTimer);
+    runToken++;            // cancels any scene in flight
+    fadeCursor(false);
+    emit("visitor-took-over", null);
+  }
+  ["pointerdown", "wheel", "keydown", "touchstart"].forEach(function (t) {
+    try {
+      addEventListener(t, function (e) { if (e && e.isTrusted) yieldToVisitor(); },
+        { passive: true, capture: true });
+    } catch (e) { /* older browsers: the tour simply keeps running */ }
+  });
+
+  /* ---- public API: the landing page's chapter buttons ---------------------- */
+  window.__topicsDemo = {
+    scenes: Object.keys(SCENES),
+    play: playOnDemand,
+    stop: yieldToVisitor,
+  };
+  addEventListener("message", function (ev) {
+    var d = ev && ev.data;
+    if (!d || d.source !== "topics-landing") return;
+    if (d.type === "play" && typeof d.scene === "string") playOnDemand(d.scene);
+    else if (d.type === "stop") yieldToVisitor();
+  });
+
+  /* ---- boot: wait for the app to mount, then start the tour ---------------- */
   var bootT0 = Date.now();
   (function waitForMount() {
     try {
       if (tabCC(2) && tabCC(1)) {
         ensureCursor(); // exists (hidden) as soon as the UI is up
-        var delay = Math.max(0, START_AT_MS - (Date.now() - bootT0));
-        setTimeout(loop, delay);
+        emit("ready", null);
+        // No unsolicited motion for visitors who asked for none. The chapter
+        // buttons still drive the app; nothing moves until one is pressed.
+        if (REDUCED) { autoplay = false; return; }
+        setTimeout(tourStep, Math.max(0, START_AT_MS - (Date.now() - bootT0)));
         return;
       }
     } catch (e) { /* keep polling */ }
