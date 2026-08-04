@@ -1,0 +1,81 @@
+---
+/**
+ * Where 2.05 billion input tokens went.
+ *
+ * The form is a single stacked bar rather than a chart with axes, because the
+ * question is composition and there is one total. A bar chart of three parts
+ * where one is 80% and another is 0.03% would spend most of its width proving
+ * that 0.03% is small.
+ *
+ * The output tokens are NOT in this bar. Putting 8.4 million next to 2.05
+ * billion in the same linear scale produces a segment 0.4% wide, which is
+ * technically honest and communicates nothing; the ratio is stated as a number
+ * above it instead, which is the form a 244:1 comparison actually wants.
+ */
+import ChartFrame from './ChartFrame.astro';
+
+const INPUT = 2_050_571_146;
+const CACHE_READ = 401_355_341;
+const CACHE_CREATE = 546_378;
+const FRESH = INPUT - CACHE_READ - CACHE_CREATE;
+
+const parts = [
+  { label: 'Fresh input, paid at full price', value: FRESH, series: 2 },
+  { label: 'Read from cache', value: CACHE_READ, series: 1 },
+  { label: 'Written to cache', value: CACHE_CREATE, series: 3 },
+];
+
+const W = 640, H = 74, BAR_Y = 8, BAR_H = 34, GAP = 2;
+const pct = (v: number) => (v / INPUT) * 100;
+const fmtB = (v: number) => `${(v / 1e9).toFixed(2)} bn`;
+const fmtM = (v: number) => `${(v / 1e6).toFixed(1)} m`;
+const fmtK = (v: number) => `${Math.round(v / 1e3)} k`;
+
+let x = 0;
+const segs = parts.map((p) => {
+  const w = (pct(p.value) / 100) * W;
+  const seg = { ...p, x, w: Math.max(w - GAP, 1), share: pct(p.value) };
+  x += w;
+  return seg;
+});
+---
+
+<ChartFrame
+  title="Where 2.05 billion input tokens went"
+  subtitle="Four fifths of everything sent was never cached, and cache reads cost a tenth of fresh input."
+  summary="Stacked bar of input token composition across 275 sessions. Fresh input paid at full price: 1.65 billion, 80.4 percent. Read from cache: 401 million, 19.6 percent. Written to cache: 546 thousand, 0.03 percent."
+  source="275 agent sessions in this repository between 28 April and 4 August 2026, read from the app's own SQLite database. Input counts include cache reads, which is how the provider reports them."
+  columns={['Part of the input', 'Tokens', 'Share']}
+  rows={[
+    ['Fresh input, paid at full price', fmtB(FRESH), `${pct(FRESH).toFixed(1)}%`],
+    ['Read from cache', fmtM(CACHE_READ), `${pct(CACHE_READ).toFixed(1)}%`],
+    ['Written to cache', fmtK(CACHE_CREATE), `${pct(CACHE_CREATE).toFixed(3)}%`],
+    ['Total input', fmtB(INPUT), '100%'],
+    ['Total output', fmtM(8_389_785), '—'],
+  ]}
+>
+  <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMinYMin meet">
+    {segs.map((s) => (
+      <g>
+        <rect
+          class={s.series === 2 ? 'v-s2' : s.series === 1 ? 'v-s1' : 'v-s3'}
+          x={s.x} y={BAR_Y} width={s.w} height={BAR_H} rx="3"
+        />
+        <title>{s.label}: {s.value.toLocaleString('en-GB')} tokens, {s.share.toFixed(2)}%</title>
+      </g>
+    ))}
+    {/* Only the two segments wide enough to hold a label get one. The third is
+        1/3000th of the bar; a leader line to it would be more ink than data. */}
+    {segs.slice(0, 2).map((s) => (
+      <text class="v-val" x={s.x + 10} y={BAR_Y + 22} font-size="13">{s.share.toFixed(1)}%</text>
+    ))}
+    <text x="0" y={H - 6} font-size="12">0</text>
+    <text x={W} y={H - 6} font-size="12" text-anchor="end">2.05 billion</text>
+  </svg>
+
+  <div class="viz-legend">
+    <span><i style="background:var(--s2)"></i>Fresh input</span>
+    <span><i style="background:var(--s1)"></i>Cache read</span>
+    <span><i style="background:var(--s3)"></i>Cache write (0.03%)</span>
+  </div>
+</ChartFrame>

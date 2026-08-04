@@ -1,6 +1,9 @@
 ---
 title: A commit about a landing page deleted two React components
-description: Two agents shared one checkout, so they shared one git index. A commit that touched only the marketing demo swept in another agent's staged deletions and left main importing two files that no longer existed, for forty-one minutes.
+description: >-
+  Two agents shared one checkout, so they shared one git index. A commit that touched only the
+  marketing demo swept in another agent's staged deletions and left main importing two files
+  that no longer existed, for forty-one minutes.
 pubDate: 2026-08-05
 pillar: worktrees
 format: field-notes

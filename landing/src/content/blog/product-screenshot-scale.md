@@ -1,6 +1,9 @@
 ---
 title: Our product screenshots were 3× too small, and we could prove it
-description: One of our six product images was rendering the app's own 13px interface text at 4.7 effective pixels. Here is the ratio that catches it, what the sites that get this right actually do instead, and the check that now fails the build.
+description: >-
+  One of our six product images was rendering the app's own 13px interface text at 4.7
+  effective pixels. Here is the ratio that catches it, what the sites that get this right
+  actually do instead, and the check that now fails the build.
 pubDate: 2026-08-04
 pillar: performance
 format: field-notes

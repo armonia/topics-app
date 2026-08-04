@@ -53,6 +53,12 @@ const { title, subtitle, summary, source, columns, rows } = Astro.props;
   .viz {
     --s1: #3987e5;
     --s2: #d95926;
+    /* The third slot, added when a chart needed three parts. Violet, not the
+       obvious green: with the blue and the orange already placed, green's worst
+       adjacent separation is ΔE 8.6 under deuteranopia, barely over the floor,
+       while this is 25.6 under protanopia and 22.5 under tritanopia. Chosen by
+       running the validator on both, not by looking at them. */
+    --s3: #8a63d2;
     --viz-grid: color-mix(in oklab, var(--ink) 14%, transparent);
     margin-block: 40px;
   }
@@ -79,6 +85,7 @@ const { title, subtitle, summary, source, columns, rows } = Astro.props;
   .viz svg .v-rule { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 3 3; }
   .viz svg .v-s1 { fill: var(--s1); }
   .viz svg .v-s2 { fill: var(--s2); }
+  .viz svg .v-s3 { fill: var(--s3); }
   .viz svg .v-line1 { stroke: var(--s1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .viz svg .v-line2 { stroke: var(--s2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .viz-legend { display: flex; gap: 20px; margin-block-start: 14px; font-size: 14px; color: var(--ink-mute); }
