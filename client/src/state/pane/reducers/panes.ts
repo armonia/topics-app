@@ -436,8 +436,16 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // when the remote snapshot omitted it) restores the user's real divider
       // position instead of resetting to the 0.5/horizontal default.
       const localGroupSplit: Record<string, { splitRatio: number; splitAxis: 'horizontal' | 'vertical' }> = {};
+      // Full local paneIds order per group, captured BEFORE the wholesale
+      // `state.groups = clean.groups` below. Local-kept re-injection consults it
+      // so a pane we hold locally is spliced back at the ABSOLUTE position it
+      // occupied here, not appended at the tail — otherwise an undo that just
+      // re-slotted a tab at index 1 gets clobbered to the end by the very
+      // hydrate the async unarchive kicks off (PANE-03 store-order drift).
+      const localGroupOrder: Record<string, string[]> = {};
       for (const [gid, group] of Object.entries(state.groups)) {
         localGroupSplit[gid] = { splitRatio: group.splitRatio, splitAxis: group.splitAxis };
+        localGroupOrder[gid] = [...group.paneIds];
       }
       // Preserve the causal open timestamp across the wholesale pane apply:
       // a peer on an older build (sanitizer without the openedAt whitelist)
@@ -601,8 +609,13 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // Unlike drafts we recreate a missing group: these are real panes this
       // client holds that the remote snapshot didn't list — e.g. a project /
       // chat tab the user just opened here while another client's older state
-      // was in flight. Appended so a freshly-opened local tab stays on the
-      // right of the bar.
+      // was in flight. Spliced back at the ABSOLUTE position they held locally
+      // (after the nearest surviving predecessor) rather than blindly appended:
+      // appending clobbers a locally-repositioned pane — an undo that re-slotted
+      // a tab at index 1 would settle at the tail once this hydrate applies, and
+      // resurface appended on the next reload (PANE-03). When the group is
+      // recreated wholesale (remote omitted it) there is no incoming order to
+      // splice against, so the captured local order IS the order.
       for (const [gid, ids] of Object.entries(localKeptByGroup)) {
         let group = state.groups[gid];
         if (!group) {
@@ -611,9 +624,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           state.groups[gid] = group;
           if (!state.groupOrder.includes(gid)) state.groupOrder.push(gid);
         }
+        const localOrder = localGroupOrder[gid] ?? [];
         for (const id of ids) {
           state.panes[id] = localKeptPanes[id];
-          if (!group.paneIds.includes(id)) group.paneIds.push(id);
+          if (group.paneIds.includes(id)) continue;
+          // Nearest preceding local neighbor that survived into the merged
+          // group anchors the insert; none found → front of the group.
+          const localIdx = localOrder.indexOf(id);
+          let insertAt = group.paneIds.length;
+          if (localIdx >= 0) {
+            let anchor = -1;
+            for (let i = localIdx - 1; i >= 0; i--) {
+              const pos = group.paneIds.indexOf(localOrder[i]);
+              if (pos >= 0) { anchor = pos; break; }
+            }
+            insertAt = anchor + 1;
+          }
+          group.paneIds.splice(insertAt, 0, id);
         }
       }
       // Defense-in-depth — sanitizer also clamps, but a test fixture or legacy
