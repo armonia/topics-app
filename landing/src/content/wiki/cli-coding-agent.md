@@ -1,6 +1,6 @@
 ---
 title: CLI coding agent
-definition: A coding agent that runs as a command-line process on your machine — Claude Code, Codex, OpenCode, Gemini CLI — rather than inside an editor or behind a web app. It reads and writes your real files with your real permissions, which is both the appeal and the risk.
+definition: A coding agent that runs as a command-line process on your machine (Claude Code, Codex, OpenCode, Gemini CLI) rather than inside an editor or behind a web app. It reads and writes your real files with your real permissions, which is both the appeal and the risk.
 updatedDate: 2026-08-04
 pillar: parallel-agents
 seeAlso:
@@ -16,7 +16,7 @@ tools, and no sandbox in the way.
 ## What distinguishes it from an editor assistant
 
 An editor assistant is scoped to the buffer and asks permission to touch
-anything else. A CLI agent starts from the opposite premise — it has a shell, so
+anything else. A CLI agent starts from the opposite premise. It has a shell, so
 it can read any file, run any command, install anything, and commit.
 
 That is why it can do end-to-end work and why it needs supervision. The
@@ -31,7 +31,7 @@ reaches a remote without a human.
 why driving one programmatically means a [[pty]] rather than a pipe.
 
 **Its billing is tied to the binary.** A subscription authorises the official
-CLI, not the API — see [[subscription-vs-api-billing]].
+CLI, not the API. See [[subscription-vs-api-billing]].
 
 **It has its own tool set.** Whatever the installed CLI can do, it can do; a
 wrapper that re-implements a subset gets a different, smaller agent.

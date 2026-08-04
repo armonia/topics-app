@@ -11,14 +11,14 @@ seeAlso:
 
 A board of tasks is an old idea. What changes when the worker is an agent is that
 the *writing* of the task stops being administrative overhead and becomes the
-work — because the agent will do exactly what the card says, including the parts
+work, because the agent will do exactly what the card says, including the parts
 you left ambiguous.
 
 ## What a card has to carry
 
 - **What should happen**, in terms of observable behaviour rather than
   implementation.
-- **Where to look** — the files, the surface, the reproduction.
+- **Where to look**, meaning the files, the surface, the reproduction.
 - **How anyone will know it worked.** A command that passes, a screenshot, a
   behaviour you can point at. Without this the card cannot be closed honestly.
 
@@ -32,7 +32,7 @@ will always have the more generous opinion.
 reviewed. A task that reaches review with an uncommitted working tree is not
 ready, it is a description of something that happened on a machine.
 
-The corollary is that the agent should move its own card to review — it is the
+The corollary is that the agent should move its own card to review. It is the
 only party that knows when it is finished — while a human decides what happens
 next. See [[landing-vs-approving]].
 

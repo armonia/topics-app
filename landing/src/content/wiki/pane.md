@@ -25,7 +25,7 @@ every streamed token. Ten panes on screen is a layout problem; ten panes *alive*
 is a performance problem, and it is the one that shows up as a laptop fan.
 
 There are two honest answers and you need both. Cap how many panes stay resident
-at once, and freeze the ones nobody is looking at — stop their timers, stop their
+at once, and freeze the ones nobody is looking at: stop their timers, stop their
 repaints, keep their state.
 
 ## Hidden is not the same as unfocused
@@ -35,10 +35,8 @@ tempting signal and it is the wrong one: a pane in a background window that the
 user is watching while typing elsewhere is very much being looked at, and
 freezing it makes the app feel broken in a way that is hard to report.
 
-Visibility — is this rectangle actually on screen — is the signal that survives
+Visibility (is this rectangle actually on screen) is the signal that survives
 contact with how people really work.
-
-## In Topics
 
 Freezing hidden panes measured a 23-28% reduction in CPU at rest. The liveness
 gate is deliberately built on visibility and never on window focus.

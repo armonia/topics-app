@@ -47,7 +47,7 @@ Running the same calculation across all six:
 | Terminal | 594 | 505 | 0.85 |
 | Model picker | 348 | 341 | 0.98 |
 
-Only the last one was fine. And it was fine by accident — it is a popover, so it
+Only the last one was fine. And it was fine by accident. It is a popover, so it
 was small to begin with.
 
 ## What the sites that get this right do
@@ -72,7 +72,7 @@ at an arbitrary width without either shrinking it or cropping it.
 You cannot photograph a 1240px-wide window and show it 570px wide. There are
 exactly two ways out, and picking one is unavoidable:
 
-1. **The page renders it bigger** — a full-bleed slab instead of a column.
+1. **The page renders it bigger**: a full-bleed slab instead of a column.
 2. **The subject is smaller** — one pane, one card, one popover.
 
 Which is the interesting part, because option 2 is also the answer to a

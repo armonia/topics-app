@@ -34,7 +34,7 @@ directory, a global cache. Two agents in two worktrees running `bun run dev` are
 still fighting over port 3000.
 
 It also has to be cleaned up. An abandoned worktree keeps a branch alive, keeps
-disk, and — if something else points at it — leaves the thing that pointed at it
+disk, and (if something else points at it) leaves the thing that pointed at it
 in a state that looks broken rather than finished.
 
 ## In Topics

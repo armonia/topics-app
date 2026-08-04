@@ -9,24 +9,20 @@ seeAlso:
   - scrollback
 ---
 
-There are three levels of getting a session back, and they are usually all
-described with the same word.
+Three different things get called the same word.
 
-**Restart** — the session is gone; a new shell in the same directory. Everything
-that was running is dead.
-
-**Reattach, lossy** — the session lived, and you get the current screen. Whatever
-scrolled past while you were away is gone. This is what most implementations do,
-and it is where the interesting output usually was.
-
-**Reattach, lossless** — the session lived and you get its full history, exactly
-as if you had been watching.
+A *restart* gives you a new shell in the same directory. Whatever was running is
+dead. A *lossy reattach* means the session survived and you get its current
+screen back, but everything that scrolled past while you were away is gone. That
+is what most implementations do, and it is where the interesting output usually
+was. A *lossless reattach* gives you the session and its full history, exactly as
+if you had been watching the whole time.
 
 ## Why the third one is the only useful one here
 
 The whole reason to leave an agent running is to read what it did afterwards. If
 reattaching gives you the last twenty-four lines, then the compile error at line
-four hundred — the reason you came back — is not there.
+four hundred (the reason you came back) is not there.
 
 ## What it takes
 
@@ -41,6 +37,6 @@ and a chatty process eats memory. It is a per-session cap, not a global one.
 ## Where it still breaks
 
 If the bridge reconnects but the interface does not reconcile which sessions
-exist, you get tabs that are present and blank — attached to nothing. It is
+exist, you get tabs that are present and blank, attached to nothing. It is
 worth testing explicitly, because it looks like a rendering bug and is a
 lifecycle one.

@@ -10,7 +10,7 @@ seeAlso:
 ---
 
 The unit most tools pick is the *file* or the *session*. Neither survives contact
-with agents. A file is too small — the work is a change across a dozen of them. A
+with agents. A file is too small. The work is a change across a dozen of them. A
 session is too thin: it remembers the conversation and forgets the branch it was
 on, the server it started, and the page it was looking at.
 
@@ -38,10 +38,8 @@ disassembled in the first place.
 Once work is grouped this way, running several agents at once stops being a
 question of window management. Each topic is already a self-contained context; a
 second agent working a second topic is not competing for anything the first one
-needs — which is precisely what makes [[git-worktree-per-agent]] the natural
+needs, which is precisely what makes [[git-worktree-per-agent]] the natural
 companion rather than an extra feature.
-
-## In Topics
 
 A topic survives a restart and a second machine: panes, splits, tabs and the
 terminal scrollback come back in the shape you left them.
