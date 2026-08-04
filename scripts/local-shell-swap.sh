@@ -95,6 +95,24 @@ echo "▸ 1/5  bundle del client → public/ (finisce dentro il binario)"
 (cd "$REPO_ROOT/client" && ./node_modules/.bin/vite build >/dev/null)
 
 echo "▸ 2/5  cargo build --release"
+# `touch build.rs` NON è scaramanzia. `tauri.conf.json` punta `frontendDist` a
+# ../../public e `tauri_build::build()` embedda quei file nel binario, ma NIENTE
+# dichiara un `rerun-if-changed` sul contenuto di public/. Cargo quindi non sa
+# che il bundle è cambiato: ricompila `lib.rs` se l'hai toccato e lascia l'embed
+# in cache, producendo un Mach-O nuovo con dentro una UI vecchia.
+#
+# Preso in flagrante il 2026-08-04: il controllo qui sotto ha fermato uno swap
+# proprio così, dopo un `cargo build` da 3m30s andato a buon fine. Senza quel
+# controllo l'app sarebbe partita con l'interfaccia di ieri, e il sintomo
+# («le modifiche al client non si vedono») avrebbe portato a cercare una cache
+# del browser che non c'entra niente.
+#
+# `touch build.rs` NON basta (provato, secondo giro fallito uguale): rifà girare
+# build.rs ma l'artefatto con gli asset resta quello in OUT_DIR. Si pulisce il
+# solo crate `app` — le dipendenze restano compilate, quindi si paga circa lo
+# stesso tempo di un build incrementale del crate, non una build da zero.
+"$HOME/.cargo/bin/cargo" clean -p app --release \
+  --manifest-path "$REPO_ROOT/desktop-tauri/src-tauri/Cargo.toml" 2>/dev/null || true
 (cd "$REPO_ROOT/desktop-tauri/src-tauri" && "$HOME/.cargo/bin/cargo" build --release)
 
 BIN="$REPO_ROOT/desktop-tauri/src-tauri/target/release/app"
@@ -104,7 +122,17 @@ BIN="$REPO_ROOT/desktop-tauri/src-tauri/target/release/app"
 # controllo si può scambiare un Mach-O che embedda una `public/` vecchia, e il
 # sintomo (UI stantia) sembra un problema di cache.
 ASSET="$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' "$REPO_ROOT/public/index.html" | head -1 || true)"
-if [ -n "$ASSET" ] && ! strings "$BIN" 2>/dev/null | grep -q "$(basename "$ASSET")"; then
+# L'esito si CATTURA invece di usarlo come condizione di un pipeline.
+#
+# Con `set -o pipefail` (riga 33) la forma naturale — `strings … | grep -q X` —
+# è rotta in modo subdolo: appena `grep -q` trova la corrispondenza esce, quindi
+# `strings` riceve SIGPIPE, e il pipeline riporta l'errore di `strings` invece
+# del successo di `grep`. Risultato: il controllo dichiara "bundle assente"
+# ESATTAMENTE quando il bundle c'è. Costato quattro build da ~3m30s il
+# 2026-08-04 prima che il sospetto cadesse sullo script invece che su cargo.
+# `|| true` neutralizza l'uscita del pipeline; conta solo se l'output è vuoto.
+ASSET_FOUND="$(strings "$BIN" 2>/dev/null | grep -F -m1 "$(basename "$ASSET")" || true)"
+if [ -n "$ASSET" ] && [ -z "$ASSET_FOUND" ]; then
   die "il binario non contiene il bundle appena costruito ($ASSET)"
 fi
 echo "  ✓ bundle embeddato verificato ($ASSET)"

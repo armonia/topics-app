@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
 import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText } from 'lucide-react';
@@ -52,6 +53,7 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
 }
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
+  const tr = useT();
   const { gitStatus, loading, error, notGit, reload: loadStatus } = useGitStatus({ projectPath });
   const toast = useToast();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -513,7 +515,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         return (
           <div className="flex flex-col items-center justify-center py-8 gap-2">
             <GitBranch size={28} className="text-app-text-muted opacity-40" />
-            <p className="text-app-text-muted text-[12px]">No git repository initialized</p>
+            <p className="text-app-text-muted text-[12px]">{tr('git.noRepoInitialized')}</p>
             <button
               onClick={handleInit}
               disabled={initializing}
@@ -594,7 +596,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {/* Expandable content */}
         {expanded && notGit && (
           <div className="px-3 py-2 flex items-center gap-2">
-            <span className="text-[11px] text-app-text-muted">No git repository</span>
+            <span className="text-[11px] text-app-text-muted">{tr('git.noRepo')}</span>
             <button
               onClick={handleInit}
               disabled={initializing}
@@ -620,7 +622,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             {gitStatus!.files.length === 0 ? (
               <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                 <CheckCircle size={14} className="mx-auto mb-1 opacity-40" />
-                Clean working tree
+                {tr('git.cleanTree')}
               </div>
             ) : (() => {
               // Split files into staged and unstaged groups
@@ -1014,8 +1016,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]">
               <div className="text-center">
                 <CheckCircle size={24} className="mx-auto mb-2 opacity-30" />
-                <p>Clean working tree</p>
-                <p className="text-[11px] mt-1 opacity-60">No changes to commit</p>
+                <p>{tr('git.cleanTree')}</p>
+                <p className="text-[11px] mt-1 opacity-60">{tr('git.nothingToCommit')}</p>
               </div>
             </div>
           ) : (
@@ -1094,9 +1096,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
               <span className="text-[12px] text-app-text-secondary">{selectedFile}</span>
               <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
-                <span>Original (HEAD)</span>
+                <span>{tr('git.originalHead')}</span>
                 <span>|</span>
-                <span>Modified (Working)</span>
+                <span>{tr('git.modifiedWorking')}</span>
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
@@ -1118,7 +1120,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           <div className="flex items-center justify-center h-full text-app-text-tertiary text-[13px]">
             <div className="text-center">
               <GitBranch size={32} className="mx-auto mb-2 opacity-30" />
-              <p>Select a changed file to view its diff</p>
+              <p>{tr('git.selectFile')}</p>
             </div>
           </div>
         )}
@@ -1172,6 +1174,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 // ── Discard confirmation dialog ──────────────────────────────────────
 
 function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[]; onConfirm: () => void; onCancel: () => void }) {
+  const tr = useT();
   const fileNames = files.map(f => {
     const parts = f.split('/');
     return parts[parts.length - 1];
@@ -1184,7 +1187,7 @@ function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[];
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
-      <p className="mb-3">This will permanently discard uncommitted changes.</p>
+      <p className="mb-3">{tr('git.discardWarning')}</p>
       <div className="bg-app-hover rounded px-3 py-2 max-h-[120px] overflow-y-auto">
         {files.length === 1 ? (
           <span className="font-mono">{fileNames[0]}</span>

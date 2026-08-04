@@ -7,6 +7,7 @@
  * Review column (approve → done / reject → in_progress). Talks only to the
  * project-scoped board API (client/src/lib/board.ts).
  */
+import { useT } from '../../hooks/useT';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
@@ -45,6 +46,7 @@ interface Props {
  *  and pushes on demand (→ deploy CI where configured). Lives in the header so it
  *  works from the GLOBAL board too, where every project shows up together. */
 function PublishControl() {
+  const tr = useT();
   const [projects, setProjects] = useState<PublishProject[] | null>(null);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -111,9 +113,9 @@ function PublishControl() {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-app-border bg-surface p-1 shadow-xl">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-app-text-muted">Da pubblicare — controlla i commit prima</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
             {pending.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-app-text-muted">Niente da pubblicare — tutto già su remoto.</div>
+              <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
             ) : pending.map((p) => {
               const isOpen = expanded === p.projectId;
               return (
@@ -143,9 +145,9 @@ function PublishControl() {
                   )}
                   {isOpen && (
                     <div className="mb-1.5 ml-4 border-l border-app-border pl-2">
-                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-app-text-faint">Diff che verrà pubblicato</div>
-                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-app-text-muted">Carico il diff…</div>}
-                      {diffs[p.projectId] === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
+                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
+                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
+                      {diffs[p.projectId] === 'error' && <div className="text-[11px] text-red-400">{tr('board.publish.diffError')}</div>}
                       {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
                         <UnifiedDiff bundle={diffs[p.projectId] as DiffBundle} />
                       )}
@@ -203,6 +205,7 @@ function OverloadBadge() {
  *  that is sized from live capacity and enforced across ALL boards. Per-board
  *  overrides still live in the project board's ⚙ inline panel. */
 function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessage) => void) => () => void }) {
+  const tr = useT();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [g, setG] = useState<GlobalSettings | null>(null);
@@ -254,14 +257,14 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
       ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
         <div className="space-y-2.5 px-3 py-2.5 text-xs text-app-text-heading">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Dispatch — tutte le board</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.dispatch.allBoards')}</p>
           <label className="flex cursor-pointer items-center justify-between gap-3">
             <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-app-text-secondary" /> Auto-dispatch</span>
             <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
           </label>
           <div className="space-y-1 border-t border-app-border-subtle pt-2">
             <label className="flex cursor-pointer items-center justify-between gap-3">
-              <span>Agent in parallelo — auto</span>
+              <span>{tr('board.dispatch.parallelAuto')}</span>
               <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
             </label>
             {g?.maxAgentsAuto ? (
@@ -278,7 +281,7 @@ function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessa
                 />
               </label>
             )}
-            <p className="text-[10px] leading-snug text-app-text-faint">Vale su TUTTE le board (una sola macchina, un solo limite).</p>
+            <p className="text-[10px] leading-snug text-app-text-faint">{tr('board.dispatch.oneMachine')}</p>
           </div>
         </div>
       </Menu>
@@ -316,6 +319,7 @@ function FilterOption({ selected, onClick, dot, label, title }: {
  *  bespoke widgets. Priority/assignee/project have no "auto" entry: filtering by
  *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
+  const tr = useT();
   const prioBtnRef = useRef<HTMLButtonElement>(null);
   const asgBtnRef = useRef<HTMLButtonElement>(null);
   const projBtnRef = useRef<HTMLButtonElement>(null);
@@ -396,7 +400,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
             <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
           <Menu open={asgOpen} anchorRef={asgBtnRef} onClose={() => setAsgOpen(false)} minWidth={170} role="listbox">
-            <p className={menuHeader}>Assegnatario</p>
+            <p className={menuHeader}>{tr('board.filter.assignee')}</p>
             {assignees.map((a) => (
               <FilterOption key={a} selected={filters.assignedTo.includes(a)} onClick={() => toggleAssignedTo(a)} label={`@${a}`} />
             ))}
@@ -412,7 +416,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
             <ChevronDown className="h-3 w-3 text-app-text-muted" />
           </button>
           <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={200} role="listbox">
-            <p className={menuHeader}>Progetto</p>
+            <p className={menuHeader}>{tr('common.project')}</p>
             {projects.map((pid) => (
               <FilterOption key={pid} selected={filters.projectId.includes(pid)} onClick={() => toggleProject(pid)} label={projName(pid)} />
             ))}
