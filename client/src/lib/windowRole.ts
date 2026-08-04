@@ -1,0 +1,43 @@
+// Il RUOLO della finestra corrente. Nessun import: è un modulo foglia, così può
+// leggerlo anche un modulo puro di `lib/` senza tirarsi dietro mezza app.
+//
+// ── Perché serve una risposta sola ──────────────────────────────────────────
+// Una finestra STACCATA è una pop-out di una o più chat, e la sua identità È la
+// query `?topics=<id,…>` (forma storica singolare: `?topic=<id>`). Non è un
+// dettaglio cosmetico: `state/pane/bootstrap.ts` ci si basa per SPEGNERE lì
+// dentro tutta la persistenza del pane-store — niente snapshot locale, niente
+// PUT verso il server, niente canale cross-tab. Tutto ciò che una staccata
+// scrive nel pane-store muore alla chiusura, senza aver mai lasciato traccia.
+//
+// La domanda era duplicata in tre posti, e le copie erano DIVERSE:
+// `bootstrap.ts` e `App.tsx` leggono `topics ?? topic`, mentre
+// `components/Layout/spaceHelpers.isDetachedWindow` leggeva solo `topic` — cioè
+// una pop-out moderna (`?topics=`) risultava NON staccata a chi lo chiedeva a
+// quella. Qui la risposta è una, e chi la vuole la importa.
+
+/** I nomi di query che identificano una pop-out: `topics` è la forma corrente
+ *  (multi-chat), `topic` quella storica — le finestre già aperte la portano
+ *  ancora, quindi vanno riconosciute entrambe. */
+const DETACHED_PARAMS = ['topics', 'topic'] as const;
+
+/**
+ * `true` se QUESTA finestra è una pop-out staccata.
+ *
+ * Chi la chiama sta per fare qualcosa che in una staccata non ha senso o fa
+ * danno: registrare una pane (nessuno la persiste), mostrare lo switcher degli
+ * Spazi, instradare un deep-link (App.tsx si rifiuta già di farlo). Nel dubbio
+ * — niente `window`, accesso negato — la risposta è `false`: la finestra
+ * normale è il caso comune, e sbagliare in quella direzione al massimo ripete
+ * ciò che l'app faceva già.
+ */
+export function isDetachedWindow(): boolean {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return DETACHED_PARAMS.some((name) => {
+      const value = params.get(name);
+      return !!value && value.trim().length > 0;
+    });
+  } catch {
+    return false;
+  }
+}

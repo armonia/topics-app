@@ -15,6 +15,7 @@
  * clearBrowserCaches() flushes it (+ the ref snapshot cache) on browser_open
  * (page changed -> indices stale) and on context destroy.
  */
+import { filterNetwork, summarizeNetwork, type NetworkEntry } from "./browser-network-log";
 import type { BrowserService } from "./browser-service";
 import type {
   BrowserActAction,
@@ -387,6 +388,37 @@ export async function handleBrowserConsole(
   // this handler. In web mode there is no per-context console buffer, so this
   // path only ever returns the "needs a native pane" note.
   return { error: "browser_console is available only for a visible native browser pane. Call open_browser_pane (with a url) first." };
+}
+
+/**
+ * Le richieste di rete della pane, filtrate.
+ *
+ * Il filtro NON è un dettaglio di comodità: una pagina qualsiasi fa centinaia di
+ * richieste, e restituirle tutte costa più di quanto informi. Il default tiene
+ * solo ciò che porta dati; l'ampiezza si chiede.
+ */
+export async function handleBrowserNetwork(
+  service: BrowserService,
+  contextId: string,
+  args: { url_contains?: string; types?: string[]; only_failures?: boolean; limit?: number },
+): Promise<{ entries: NetworkEntry[]; shown: number; recorded: number; failures: number } | { error: string }> {
+  console.log(`[BrowserTools] browser_network(${contextId}, only_failures=${!!args?.only_failures})`);
+  try {
+    const all = service.getNetworkEntries(contextId);
+    const entries = filterNetwork(all, {
+      urlContains: args?.url_contains,
+      types: args?.types,
+      onlyFailures: args?.only_failures,
+      limit: args?.limit,
+    });
+    const s = summarizeNetwork(all, entries);
+    // `recorded` dice quante ne sono state viste in tutto: senza, una risposta
+    // corta sembrerebbe «non è successo niente» invece di «te ne mostro dieci».
+    return { entries, shown: s.shown, recorded: s.recorded, failures: s.failures };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `browser_network failed: ${msg}` };
+  }
 }
 
 /**

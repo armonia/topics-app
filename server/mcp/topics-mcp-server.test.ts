@@ -40,6 +40,7 @@ import {
   callMoveToProject,
   callSendChatMessage,
   callReadChatMessages,
+  callResolveTab,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -351,6 +352,67 @@ describe("callReadChatMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
+// callResolveTab — GET /api/tabs/resolve
+// ---------------------------------------------------------------------------
+
+describe("callResolveTab", () => {
+  const A = { baseUrl: "http://x", sessionKey: "s" };
+
+  test("GETs the resolve endpoint with the ref encoded, and returns the body verbatim", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    const resolved = {
+      kind: "chat",
+      key: "topic-1",
+      title: "Rifattorizzare il resolver",
+      state: "open",
+      surface: "project:/Users/me/Projects/topics-app",
+      pointers: { topicId: "topic-1", projectPath: "/Users/me/Projects/topics-app" },
+      next: { tool: "read_chat_messages", args: { topic_id: "topic-1" } },
+    };
+    const fetchImpl = stubFetch(async (url, init) => {
+      seenUrl = String(url);
+      seenMethod = String(init?.method ?? "GET");
+      return new Response(JSON.stringify(resolved), { status: 200 });
+    });
+
+    const out = await callResolveTab(A, { ref: "https://127.0.0.1:3333/tab/chat/topic-1?x=1" }, fetchImpl);
+    expect(seenMethod).toBe("GET");
+    // Il ref intero (query compresa) deve viaggiare come UN parametro: se non lo
+    // si encoda, la sua '?'/'&' verrebbero lette come query della NOSTRA rotta.
+    expect(seenUrl).toBe(
+      "http://x/api/tabs/resolve?ref=https%3A%2F%2F127.0.0.1%3A3333%2Ftab%2Fchat%2Ftopic-1%3Fx%3D1",
+    );
+    // Il corpo si rigira tale e quale: `next` è il valore del tool.
+    expect(JSON.parse(out)).toEqual(resolved);
+  });
+
+  test("throws on a missing / blank ref without calling the server", async () => {
+    let called = false;
+    const fetchImpl = stubFetch(async () => { called = true; return new Response("{}", { status: 200 }); });
+    await expect(callResolveTab(A, {}, fetchImpl)).rejects.toThrow(/ref.*required/i);
+    await expect(callResolveTab(A, { ref: "   " }, fetchImpl)).rejects.toThrow(/ref.*required/i);
+    expect(called).toBe(false);
+  });
+
+  test("surfaces the server's 400 message when the ref is not a permalink", async () => {
+    // 400, non 404: la rotta non sta dicendo «la tab non esiste» ma «questo non
+    // è un link a una tab» — ed è quel messaggio che deve arrivare al modello.
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "ref is not a tab permalink" }), { status: 400 }),
+    );
+    await expect(callResolveTab(A, { ref: "https://example.com/whatever" }, fetchImpl))
+      .rejects.toThrow(/ref is not a tab permalink/);
+  });
+
+  test("throws when the server answers something that is not a resolved tab", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    await expect(callResolveTab(A, { ref: "/tab/panel/board" }, fetchImpl))
+      .rejects.toThrow(/did not return a resolved tab/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleMessage — JSON-RPC routing
 // ---------------------------------------------------------------------------
 
@@ -391,6 +453,7 @@ describe("handleMessage", () => {
       "browser_screenshot",
       "browser_read_screen",
       "browser_console",
+      "browser_network",
       "browser_eval",
       "browser_save_state",
       "browser_load_state",
@@ -419,6 +482,7 @@ describe("handleMessage", () => {
       "open_project",
       "send_chat_message",
       "read_chat_messages",
+      "resolve_tab",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);
@@ -427,6 +491,7 @@ describe("handleMessage", () => {
     expect(tools.find((t) => t.name === "update_task")!.inputSchema.required).toEqual(["task_id"]);
     expect(tools.find((t) => t.name === "create_task")!.inputSchema.required).toEqual(["text"]);
     expect(tools.find((t) => t.name === "comment_task")!.inputSchema.required).toEqual(["task_id", "content"]);
+    expect(tools.find((t) => t.name === "resolve_tab")!.inputSchema.required).toEqual(["ref"]);
   });
 
   test("tools/list under --profile=dispatch drops the orchestration/nav tools", async () => {
@@ -444,7 +509,10 @@ describe("handleMessage", () => {
       expect(names).not.toContain(gone);
     }
     // Kept: the task tools, processes, and every browser_* verification tool.
-    for (const kept of ["list_tasks", "create_task", "update_task", "comment_task", "get_task", "run_script", "browser_observe", "browser_read_screen", "open_browser_pane"]) {
+    // `resolve_tab` stays ON PURPOSE: a dispatched board agent also gets links
+    // pasted by the human in the task thread, and must be able to say what they
+    // point at instead of guessing.
+    for (const kept of ["list_tasks", "create_task", "update_task", "comment_task", "get_task", "run_script", "browser_observe", "browser_read_screen", "open_browser_pane", "resolve_tab"]) {
       expect(names).toContain(kept);
     }
   });
@@ -535,6 +603,31 @@ describe("handleMessage", () => {
     }
   });
 
+  test("tools/call routes resolve_tab through the registry", async () => {
+    const orig = globalThis.fetch;
+    let seenUrl = "";
+    (globalThis as any).fetch = stubFetch(async (url) => {
+      seenUrl = String(url);
+      return new Response(JSON.stringify({
+        kind: "task", key: "t-42", title: "Landa il resolver", state: "closed",
+        surface: "app", pointers: { taskId: "t-42" },
+        next: { tool: "get_task", args: { task_id: "t-42" } },
+      }), { status: 200 });
+    });
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "resolve_tab", arguments: { ref: "/task/t-42" } } },
+        ARGS,
+      );
+      const result = resp!.result as any;
+      expect(result.isError).toBeUndefined();
+      expect(seenUrl).toBe("http://localhost:3333/api/tabs/resolve?ref=%2Ftask%2Ft-42");
+      expect(JSON.parse(result.content[0].text).next).toEqual({ tool: "get_task", args: { task_id: "t-42" } });
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("senza progressToken la chiamata funziona lo stesso e non emette niente", async () => {
     const orig = globalThis.fetch;
     let calls = 0;
@@ -557,6 +650,29 @@ describe("handleMessage", () => {
       );
       expect((resp!.result as any).isError).toBeUndefined();
       expect(emitted).toHaveLength(0);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("resolve_tab stays callable under --profile=dispatch", async () => {
+    // Non è in DISPATCH_EXCLUDED_TOOLS di proposito: anche un agente di board
+    // riceve link incollati dall'umano. Qui si verifica il ramo tools/call, che
+    // ha il suo gate separato da tools/list.
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = stubFetch(async () =>
+      new Response(JSON.stringify({
+        kind: "panel", key: "board", title: "Board", state: "open", surface: "app",
+        pointers: {}, next: { tool: "list_tasks", args: {} },
+      }), { status: 200 }),
+    );
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "resolve_tab", arguments: { ref: "/tab/panel/board" } } },
+        { ...ARGS, profile: "dispatch" },
+      );
+      expect(resp!.error).toBeUndefined();
+      expect((resp!.result as any).isError).toBeUndefined();
     } finally {
       (globalThis as any).fetch = orig;
     }

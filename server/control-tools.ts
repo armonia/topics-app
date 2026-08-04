@@ -13,16 +13,21 @@
  * without a self-HTTP call or a duplicated TLS/token/origin dance.
  *
  * SDK passthrough is single-turn (claude/openai don't feed the tool result back
- * in-turn), and these are fire-and-forget UI side-effects, so each handler just
- * returns a short confirmation string. The SDK caller only ever resolves to a
- * CHAT topic (a terminal Claude tab is a claude-code CLI session, not an SDK
- * one), so the terminal-tab fallbacks the HTTP endpoints carry are not needed
- * here.
+ * in-turn), and the four marker successors are fire-and-forget UI side-effects,
+ * so each handler just returns a short confirmation string. `resolve_tab` is the
+ * one READ tool here: same single-turn limit, so its result (the resolved-tab
+ * JSON) reaches the USER in the chat's tool block, never the model — which is
+ * why its description tells the model not to summarize what it never received.
+ *
+ * The SDK caller only ever resolves to a CHAT topic (a terminal Claude tab is a
+ * claude-code CLI session, not an SDK one), so the terminal-tab fallbacks the
+ * HTTP endpoints carry are not needed here.
  */
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { Topic } from "./types";
+import type { ResolvedTab } from "./lib/tab-resolver";
 import {
   switchTopicCore,
   createTopicCore,
@@ -33,7 +38,8 @@ export type ControlToolName =
   | "switch_topic"
   | "new_topic"
   | "create_project"
-  | "open_project";
+  | "open_project"
+  | "resolve_tab";
 
 /**
  * Single source of truth for the control-tool surface, in the same shape as
@@ -87,6 +93,28 @@ export const CONTROL_TOOL_SPECS: ControlToolSpec[] = [
       required: ["ref"],
     },
   },
+  {
+    // Il gemello del tool MCP `resolve_tab`. Sta qui perché è QUESTA la
+    // superficie dove l'umano incolla un link: la chat. I provider SDK
+    // (claude/openai) non vedono l'MCP — ricevono i tool via
+    // `sendOptions.tools` — quindi senza questa voce il tool funzionerebbe per
+    // gli agenti dispatchati e non per la chat, cioè al contrario del caso d'uso.
+    //
+    // Il passthrough SDK è a turno singolo (limite documentato in
+    // `server/providers/claude.ts`: nessun giro tool_use → tool_result → turno
+    // successivo), quindi la descrizione lo DICE al modello: senza, il modello
+    // chiama il tool e poi riassume a memoria un risultato che non ha mai visto.
+    name: "resolve_tab",
+    description:
+      "Resolve a Topics tab permalink (/tab/… , /task/<id>, /topic/<id>) that the user pasted: which tab it is, its real title, whether it is still open, and how to read its content. Read-only — it opens and changes nothing. IMPORTANT: the resolution is rendered directly to the user as this tool's result; you do NOT receive it back in this turn, so never summarize, quote or guess its content — just acknowledge that you resolved the link.",
+    schema: {
+      type: "object",
+      properties: {
+        ref: { type: "string", description: "The pasted link or bare path, e.g. 'https://127.0.0.1:3333/tab/chat/abc123' or '/task/t-42'." },
+      },
+      required: ["ref"],
+    },
+  },
 ];
 
 /** Anthropic `Tool[]` for the SDK passthrough surface (claude/openai). */
@@ -111,6 +139,16 @@ export interface ControlDispatchDeps extends SessionControlDeps {
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   workspaceDir: string;
+  /**
+   * Risolve un permalink a una tab. INIETTATA e non importata: il resolver vuole
+   * il DB e il registro delle pane native, e questo modulo è volutamente senza
+   * dipendenze da SQLite (come per gli altri quattro tool, che ricevono i core
+   * dal router). Chi la costruisce usa `lib/tab-resolver-deps.ts`, che è l'unica
+   * costruzione delle sue fonti — così la chat e `GET /api/tabs/resolve` non
+   * possono rispondere due cose diverse sulla stessa tab.
+   * Assente ⇒ il tool dice «non disponibile» invece di mentire.
+   */
+  resolveTab?: (ref: string) => ResolvedTab | null;
 }
 
 /** Structured error the dispatcher throws so the caller can surface a clear message. */
@@ -173,6 +211,29 @@ export async function dispatchControlToolCall(
       writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
       deps.bindTopicToProject(topic.id, targetDir, { focus: true });
       return `created + opened project at ${targetDir}`;
+    }
+    case "resolve_tab": {
+      const ref = typeof args?.ref === "string" ? args.ref.trim() : "";
+      if (!ref) throw new ControlToolError("resolve_tab: 'ref' (string) is required", "bad_args");
+      if (!deps.resolveTab) {
+        throw new ControlToolError("resolve_tab: tab resolver not wired in this process", "unavailable");
+      }
+      const resolved = deps.resolveTab(ref);
+      // `null` = la grammatica non lo riconosce. Come la rotta HTTP, NON è un
+      // «non esiste»: è «questo non è un link a una tab». Dirlo così evita che
+      // il modello concluda che la tab è stata cancellata.
+      if (!resolved) {
+        throw new ControlToolError(
+          "resolve_tab: ref is not a tab permalink (expected /tab/… , /task/<id> or /topic/<id>)",
+          "not_a_tab_link",
+        );
+      }
+      // JSON intero, non una frase: questo risultato lo legge l'UMANO nel blocco
+      // tool della chat (la history che torna al provider è testo semplice —
+      // `providers/normalize-history.ts` — quindi al modello non arriva né ora né
+      // al turno dopo). Meglio dargli tutto: `state` gli dice se la tab è ancora
+      // lì e `next` da dove se ne legge il contenuto.
+      return JSON.stringify(resolved, null, 2);
     }
     default:
       throw new ControlToolError(`unknown control tool: ${name}`, "unknown_tool");

@@ -27,7 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { MAX_FANOUT } from "../../shared/board";
-import { decideNight } from "./night-mode";
+import { decideNight, deadlineFrom } from "./night-mode";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -271,6 +271,22 @@ export interface TaskDispatcher {
    * tick re-dispatches once the window elapses. Returns the updated task.
    */
   deferWait(taskId: string, reason: string, minutes?: number): Task;
+  /**
+   * Lo stato della modalità notturna della board, per l'interfaccia. Sola
+   * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle
+   * impostazioni non può dire una cosa diversa da quella che il dispatcher fa.
+   */
+  nightStatus(projectId: string): {
+    enabled: boolean;
+    until: string | null;
+    startedAt: string | null;
+    action: "off" | "dispatch" | "wait" | "expire";
+    reason: string | null;
+    load1: number;
+    cores: number;
+    busySessions: number;
+    endsInMs: number | null;
+  };
   /** A task reached `done` → nudge the todos it was blocking (they are now claimable). */
   onBlockerDone(taskId: string): void;
   /**
@@ -384,6 +400,56 @@ const ROLE_PROMPT =
   "Non puoi portare il task a `done` (serve l'ok umano).";
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
+  /**
+   * Lo STATO della modalità notturna per una board, calcolato una volta sola.
+   *
+   * Esiste perché l'interfaccia deve poter dire «non parte niente, ed ecco
+   * perché» — e se lo calcolasse per conto suo potrebbe dire una cosa diversa da
+   * quella che il dispatcher fa davvero. Qui il gate del `tick` e la card delle
+   * impostazioni leggono LA STESSA riga di codice: l'unico modo perché non
+   * possano contraddirsi.
+   *
+   * Puro rispetto al mondo: legge orologio, carico e sessioni vive, non scrive
+   * niente. Lo spegnimento allo scadere resta del `tick`, che è l'unico che ha
+   * il diritto di cambiare le impostazioni.
+   */
+  function evaluateNight(settings: { nightMode?: boolean; nightModeUntil?: string | null; nightModeStartedAt?: string | null }): {
+    decision: ReturnType<typeof decideNight>;
+    load1: number;
+    cores: number;
+    busySessions: number;
+    /** Millisecondi mancanti alla fine, o null se non c'è un orario di fine. */
+    endsInMs: number | null;
+  } {
+    const cap = deps.capacity?.();
+    const load1 = cap?.load1 ?? 0;
+    const cores = cap?.cores ?? 1;
+    // Le sessioni umane vive: è il «sono via» del turno. Assente ⇒ 0, cioè
+    // si guarda solo il carico — meno preciso, mai più permissivo del
+    // dovuto perché il carico resta comunque un gate.
+    const busySessions = deps.humanSessionsLive?.() ?? 0;
+    const now = new Date();
+    const startedAt = settings.nightModeStartedAt ? new Date(settings.nightModeStartedAt) : null;
+    const untilHHMM = settings.nightModeUntil || null;
+    const decision = decideNight({
+      enabled: !!settings.nightMode,
+      untilHHMM,
+      startedAt,
+      now,
+      load1,
+      cores,
+      busySessions,
+    });
+    const dl = untilHHMM ? deadlineFrom(startedAt ?? now, untilHHMM) : null;
+    return {
+      decision,
+      load1,
+      cores,
+      busySessions,
+      endsInMs: dl ? Math.max(0, dl.getTime() - now.getTime()) : null,
+    };
+  }
+
   const graceMs = deps.graceMs ?? 6000;
   const log =
     deps.log ??
@@ -1496,19 +1562,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // che semplicemente tornata normale. Un turno che non sa finire è peggio di
     // uno che non parte.
     if (settings.nightMode) {
-      const cap = deps.capacity?.();
-      const decision = decideNight({
-        enabled: true,
-        untilHHMM: settings.nightModeUntil || null,
-        startedAt: settings.nightModeStartedAt ? new Date(settings.nightModeStartedAt) : null,
-        now: new Date(),
-        load1: cap?.load1 ?? 0,
-        cores: cap?.cores ?? 1,
-        // Le sessioni umane vive: è il «sono via» del turno. Assente ⇒ 0, cioè
-        // si guarda solo il carico — meno preciso, mai più permissivo del
-        // dovuto perché il carico resta comunque un gate.
-        busySessions: deps.humanSessionsLive?.() ?? 0,
-      });
+      const { decision } = evaluateNight(settings);
       if (decision.action === "expire") {
         log(`modalità notturna spenta su ${projectId}: ${decision.reason}`);
         try { deps.svc.updateBoardSettings(projectId, { nightMode: false }); }
@@ -1991,5 +2045,40 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     pendingResume.clear();
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
+  /**
+   * Lo stato della modalità notturna per l'interfaccia. Sola lettura.
+   *
+   * Serve a rispondere alla domanda che una casella di spunta non risponde:
+   * «è accesa, e allora perché non parte niente?». Senza, l'unico modo di
+   * saperlo è leggere i log del server.
+   */
+  function nightStatus(projectId: string): {
+    enabled: boolean;
+    until: string | null;
+    startedAt: string | null;
+    action: "off" | "dispatch" | "wait" | "expire";
+    reason: string | null;
+    load1: number;
+    cores: number;
+    busySessions: number;
+    endsInMs: number | null;
+  } {
+    let settings: { nightMode?: boolean; nightModeUntil?: string | null; nightModeStartedAt?: string | null };
+    try { settings = deps.svc.getBoardSettings(projectId) as typeof settings; }
+    catch { return { enabled: false, until: null, startedAt: null, action: "off", reason: null, load1: 0, cores: 0, busySessions: 0, endsInMs: null }; }
+    const ev = evaluateNight(settings);
+    return {
+      enabled: !!settings.nightMode,
+      until: settings.nightModeUntil || null,
+      startedAt: settings.nightModeStartedAt || null,
+      action: ev.decision.action,
+      reason: "reason" in ev.decision ? ev.decision.reason : null,
+      load1: ev.load1,
+      cores: ev.cores,
+      busySessions: ev.busySessions,
+      endsInMs: ev.endsInMs,
+    };
+  }
+
+  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, shutdown, nightStatus, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
 }

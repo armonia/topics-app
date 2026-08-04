@@ -876,6 +876,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
       // (concurrency cap, effort, worktree, timeout). `autoDispatch` in the
       // patch routes to the GLOBAL switch (see /api/all-boards/settings).
+      // Lo STATO della modalità notturna: accesa sì, ma sta dispacciando o
+      // aspettando, e per quale motivo. È la differenza fra un interruttore e un
+      // pannello di gestione — senza, l'unico modo di sapere perché non parte
+      // niente è leggere i log del server. Passa dallo stesso calcolo del gate
+      // del dispatcher, così le due cose non possono divergere.
+      const bNight = matchRoute(pathname, "/api/boards/:projectId/night-status");
+      if (bNight && method === "GET") {
+        if (!dispatcher?.nightStatus) return json({ enabled: false, action: "off" });
+        try { return json(dispatcher.nightStatus(bNight.projectId)); }
+        catch (e) { return fail(e); }
+      }
+
       const bSettings = matchRoute(pathname, "/api/boards/:projectId/settings");
       if (bSettings) {
         const projectId = bSettings.projectId;
