@@ -2085,6 +2085,40 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </p>
       )}
 
+      {/* Modalità notturna. L'interruttore lo accende una PERSONA — il senso è
+          «vado via», e nessuna euristica lo sa. L'orario è una FINE: scaduto
+          quello la modalità si spegne DA SOLA, invece di restare armata il
+          giorno dopo addosso a chi lavora. */}
+      <label
+        className="flex cursor-pointer items-center justify-between"
+        title="Dispaccia la coda solo mentre la macchina è libera (nessuna sessione con qualcuno attaccato, carico sotto soglia) e si spegne da sola all'orario di fine."
+      >
+        <span>Modalità notturna</span>
+        <input
+          type="checkbox"
+          checked={!!s.nightMode}
+          onChange={(e) => patch({ nightMode: e.target.checked })}
+          className="h-3.5 w-3.5 accent-emerald-500"
+        />
+      </label>
+      {s.nightMode && (
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-[11px] text-app-text-muted">Si ferma alle</span>
+          <input
+            type="time"
+            value={s.nightModeUntil || '10:00'}
+            onChange={(e) => patch({ nightModeUntil: e.target.value })}
+            className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text"
+          />
+        </label>
+      )}
+      {s.nightMode && (
+        <p className="text-[11px] leading-snug text-app-text-muted">
+          I task in coda partono solo a macchina libera. Alle {s.nightModeUntil || '10:00'} la
+          modalità si spegne e la board torna normale.
+        </p>
+      )}
+
       <label className="flex cursor-pointer items-center justify-between" title="Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.">
         <span>Auto-merge su Approva</span>
         <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
