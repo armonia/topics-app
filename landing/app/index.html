@@ -43,6 +43,14 @@
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
       BROW = "browser:c1";
 
+  /* Chapter panes — the right-hand column of acme-web is the demo's STAGE.
+   * Each landing "chapter" button switches this group to one of these tabs, so
+   * a chapter is a REAL pane of the REAL app, reached by a real tab click — not
+   * a screenshot and not a forked component. Adding a chapter here is the only
+   * change needed on the app side; landing-cursor.js looks tabs up by pane id. */
+  var KANB = "kanban:c1", DASH = "dashboard:c1", AGTS = "agents:c1",
+      GITP = "git:c1", FILES = "files:c1";
+
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
   function projectHash(p) {
@@ -104,13 +112,19 @@
     set("topics-project-layout-" + projectHash(path), JSON.stringify(layout));
   }
   seedProject(PROJECT, [
-    { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
-    { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
-    { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
+    { id: CC1,   type: "terminal",  title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
+    { id: CC2,   type: "terminal",  title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
+    { id: BROW,  type: "browser",   title: "Preview",     projectPath: PROJECT },
+    // The chapter stage — one tab per landing chapter, all real panes.
+    { id: KANB,  type: "kanban",    title: "Board",       projectPath: PROJECT },
+    { id: AGTS,  type: "agents",    title: "Agents",      projectPath: PROJECT },
+    { id: DASH,  type: "dashboard", title: "Dashboard",   projectPath: PROJECT },
+    { id: GITP,  type: "git",       title: "Git",         projectPath: PROJECT },
+    { id: FILES, type: "files",     title: "Files",       projectPath: PROJECT },
   ], {
     groups: [
-      { id: "pgA-l", paneIds: [CC1, CC2],     activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW],         activePaneId: BROW, type: "utility" },
+      { id: "pgA-l", paneIds: [CC1, CC2], activePaneId: CC1,  type: "utility" },
+      { id: "pgA-r", paneIds: [BROW, KANB, AGTS, DASH, GITP, FILES], activePaneId: BROW, type: "utility" },
     ],
     rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
@@ -251,21 +265,25 @@
       ],
     };
   }
-  function mkTask(id, text, status, order, priority, assignedTo) {
+  function mkTask(id, text, status, order, priority, assignedTo, agentId, desc) {
     return { id: id, text: text, status: status, kanbanOrder: order, createdAt: ISO,
-      completedAt: status === "done" ? ISO : null, projectId: PROJECT, description: null,
-      priority: priority || 2, assignedTo: assignedTo || null, assignedAgentId: null, assignedTopicId: null,
-      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: null, updatedAt: ISO,
+      completedAt: status === "done" ? ISO : null, projectId: PROJECT, description: desc || null,
+      priority: priority || 2, assignedTo: assignedTo || null, assignedAgentId: agentId || null, assignedTopicId: null,
+      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: status === "in_progress" ? ISO : null, updatedAt: ISO,
       archived: false, blocks: [], blockedBy: [], tags: [] };
   }
+  /* The board tells the WHOLE loop in one screen: queued → an agent picked it up
+   * in its own worktree → delivered and waiting for a human → landed. That arc is
+   * the product's argument, so the demo board must show every stage at once. */
   var TASKS = [
     mkTask("k1", "Wire telemetry opt-in", "backlog", 0, 1),
     mkTask("k2", "Localize onboarding", "backlog", 1, 1),
     mkTask("k3", "Sign release builds", "todo", 0, 3),
     mkTask("k4", "Empty-state polish", "todo", 1, 2),
-    mkTask("k5", "Ship v1.1", "in_progress", 0, 4, "claude"),
-    mkTask("k6", "Landing site", "in_progress", 1, 3, "claude"),
-    mkTask("k7", "Token hashing", "review", 0, 3),
+    mkTask("k5", "Ship v2.2 release notes", "in_progress", 0, 4, "claude", "a2", "Agent working in an isolated worktree."),
+    mkTask("k6", "Landing site rebuild", "in_progress", 1, 3, "claude", "a1"),
+    mkTask("k7", "Token hashing", "review", 0, 3, "claude", "a3", "Delivered — waiting for your approval."),
+    mkTask("k11", "Reload-safe dispatch", "review", 1, 2, "claude", "a2"),
     mkTask("k8", "Split panes", "done", 0, 2),
     mkTask("k9", "Auto-update", "done", 1, 2),
     mkTask("k10", "Grain + aurora", "done", 2, 1),
@@ -300,6 +318,87 @@
   var AGENTS = [
     { id: "a1", name: "Lead", role: "lead", modelPreference: "opus", maxConcurrentTasks: 3, capabilities: [], avatarEmoji: "🧭", status: "available", createdAt: ISO, updatedAt: ISO },
     { id: "a2", name: "Builder", role: "worker", modelPreference: "sonnet", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "⚙️", status: "busy", createdAt: ISO, updatedAt: ISO },
+    { id: "a3", name: "Reviewer", role: "worker", modelPreference: "opus", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "🔍", status: "busy", createdAt: ISO, updatedAt: ISO },
+    { id: "a4", name: "Scout", role: "worker", modelPreference: "haiku", maxConcurrentTasks: 4, capabilities: [], avatarEmoji: "🛰️", status: "available", createdAt: ISO, updatedAt: ISO },
+  ];
+
+  /* Agent sessions feed the Agents pane through TWO endpoints with DIFFERENT
+   * shapes, and mixing them up crashes the pane:
+   *   GET /agents/sessions          → shared/monitoring.ts `AgentSession`
+   *                                   (`key`, `displayName`, `updatedAt` as an
+   *                                   epoch NUMBER) — rendered as "Live".
+   *   GET /agents/sessions/history  → api.ts `SessionHistoryItem`
+   *                                   (`sessionKey`, `startedAt` as an ISO
+   *                                   STRING) — rendered as history.
+   * SessionHistory calls `new Date(s.updatedAt).toISOString()` on the live rows,
+   * so a history-shaped object served on the live route throws
+   * `RangeError: Invalid time value` and the ErrorBoundary eats the whole pane. */
+  function liveAgentSession(key, name, status, minsAgo, tokens, msg) {
+    return {
+      key: key, kind: "main", channel: "topics", displayName: name, status: status,
+      model: "claude-opus-5", updatedAt: Date.parse(ISO) - minsAgo * 60000,
+      sessionId: key, totalTokens: tokens, contextTokens: Math.round(tokens * 0.4),
+      lastMessage: msg, topicId: null, topicName: null,
+    };
+  }
+  var LIVE_AGENT_SESSIONS = [
+    liveAgentSession("sk-builder", "Builder · acme-web", "active", 1, 84000, "Writing the release notes"),
+    liveAgentSession("sk-review", "Reviewer · acme-web", "active", 3, 51000, "Reading the diff"),
+    liveAgentSession("sk-scout", "Scout · acme-api", "idle", 14, 22000, "Waiting for a task"),
+  ];
+
+  function histAgentSession(id, agentId, status, minsAgo, durMins, tokens) {
+    var started = new Date(Date.parse(ISO) - minsAgo * 60000).toISOString();
+    var ended = status === "running" ? null : new Date(Date.parse(ISO) - (minsAgo - durMins) * 60000).toISOString();
+    var agent = AGENTS.filter(function (a) { return a.id === agentId; })[0] || {};
+    return {
+      id: id, agentId: agentId, sessionKey: "sk-" + id, topicId: null, status: status,
+      taskId: null, startedAt: started, lastHeartbeat: ended || ISO, completedAt: ended,
+      totalTokens: tokens, errorMessage: null,
+      agentName: agent.name || "Agent", agentAvatar: agent.avatarEmoji || null,
+      agentRole: agent.role || null, topicName: null,
+    };
+  }
+  var AGENT_SESSIONS = [
+    histAgentSession("s3", "a2", "completed", 96, 40, 132000),
+    histAgentSession("s4", "a4", "completed", 180, 12, 22000),
+    histAgentSession("s5", "a1", "completed", 260, 75, 61000),
+    histAgentSession("s6", "a3", "completed", 420, 18, 44000),
+  ];
+
+  /* Dashboard series — 14 days of throughput and spend. Deterministic (no
+   * Math.random) so every visitor sees the same chart and screenshots are
+   * reproducible. */
+  function series(base, spread, scale) {
+    var pts = [], day0 = Date.parse(ISO) - 13 * 86400000;
+    for (var i = 0; i < 14; i++) {
+      // Cheap deterministic wobble: two out-of-phase sines, no RNG.
+      var w = Math.sin(i * 1.1) * 0.6 + Math.sin(i * 0.37) * 0.4;
+      var v = base + w * spread;
+      pts.push({ date: new Date(day0 + i * 86400000).toISOString().slice(0, 10),
+                 value: Math.round(Math.max(0, v) * scale) / scale });
+    }
+    return pts;
+  }
+  var SERIES = { throughput: series(9, 4, 1), spend: series(2.6, 1.2, 100), cycle: series(3.1, 1.1, 10) };
+
+  /* Heartbeat timeline for the Agents chapter: a session that started, checked
+   * in repeatedly, and did work. `type` must be one of TimelineEvent's union
+   * members ('session_start' | 'session_end' | 'heartbeat' | 'action'). */
+  var TIMELINE = (function () {
+    var out = [{ type: "session_start", timestamp: new Date(Date.parse(ISO) - 26 * 60000).toISOString(), data: { model: "claude-opus-5" } }];
+    for (var i = 24; i >= 2; i -= 4) {
+      out.push({ type: "heartbeat", timestamp: new Date(Date.parse(ISO) - i * 60000).toISOString(),
+                 data: { status: "working", tokensUsed: 8000 + (24 - i) * 3400 } });
+    }
+    out.push({ type: "action", timestamp: new Date(Date.parse(ISO) - 3 * 60000).toISOString(), data: { action: "commit", detail: "review: token hashing" } });
+    return out;
+  })();
+  var AGENT_STATS = [
+    { agentId: "a2", agentName: "Builder",  avatarEmoji: "⚙️", tasksCompleted: 34, totalTokens: 2410000, avgCycleTimeHours: 2.4, errorRate: 0.02, sessionsCount: 41 },
+    { agentId: "a1", agentName: "Lead",     avatarEmoji: "🧭", tasksCompleted: 21, totalTokens: 1680000, avgCycleTimeHours: 3.8, errorRate: 0.01, sessionsCount: 26 },
+    { agentId: "a3", agentName: "Reviewer", avatarEmoji: "🔍", tasksCompleted: 18, totalTokens: 940000,  avgCycleTimeHours: 1.2, errorRate: 0.00, sessionsCount: 22 },
+    { agentId: "a4", agentName: "Scout",    avatarEmoji: "🛰️", tasksCompleted: 12, totalTokens: 310000,  avgCycleTimeHours: 0.6, errorRate: 0.03, sessionsCount: 15 },
   ];
   /* Running terminal sessions. The headline value is the Claude Code agent
    * sessions ("claude-code" → Claude icon in the sidebar, grouped under their
@@ -479,8 +578,17 @@
         if (/\/scripts\b/.test(u)) return Promise.resolve(J({ scripts: SCRIPTS }));
         if (/\/processes\b/.test(u)) return Promise.resolve(J([]));
         if (/\/terminal\/sessions\b/.test(u)) return Promise.resolve(J(SESSIONS));
+        // ORDER MATTERS: the specific /agents/sessions/* routes must be tested
+        // BEFORE the bare /agents/sessions one, which would otherwise swallow
+        // them and answer every sub-route with the live-session list.
+        if (/\/agents\/sessions\/history\b/.test(u)) return Promise.resolve(J({ sessions: AGENT_SESSIONS, total: AGENT_SESSIONS.length, limit: 100, offset: 0 }));
+        if (/\/agents\/sessions\/[^/]+\/timeline\b/.test(u)) return Promise.resolve(J({
+          session: null, events: TIMELINE, heartbeatCount: TIMELINE.length - 1, actionCount: 3,
+        }));
+        if (/\/agents\/sessions\/[^/]+\/history\b/.test(u)) return Promise.resolve(J({ messages: [] }));
+        if (/\/agents\/profiles\/[^/]+\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: AGENT_SESSIONS }));
         if (/\/agents\/profiles\b/.test(u)) return Promise.resolve(J({ profiles: AGENTS }));
-        if (/\/agents\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: [], total: 0, limit: 100, offset: 0 }));
+        if (/\/agents\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: LIVE_AGENT_SESSIONS }));
         if (/\/providers\/snapshot\b/.test(u)) return Promise.resolve(J({ providers: [], defaultProvider: null, generatedAt: ISO }));
         if (/\/providers\b/.test(u)) return Promise.resolve(J({ providers: [], default: null }));
         if (/\/projects\b/.test(u)) return Promise.resolve(J({ projects: [
@@ -492,8 +600,16 @@
         if (/\/worktrees\b/.test(u)) return Promise.resolve(J({ worktrees: [] }));
         if (/\/webhooks\b/.test(u)) return Promise.resolve(J({ webhooks: [] }));
         if (/\/dashboard\/kpis\b/.test(u)) return Promise.resolve(J({ throughputDay: 12, throughputWeek: 64, avgCycleTimeHours: 3.2, wipCount: 4, errorRate: 0.02, tokenSpendDay: 1.4, tokenSpendWeek: 9.1, agentUtilization: 0.62, approvalTurnaroundHours: 1.1, pendingApprovals: 0 }));
-        if (/\/dashboard\/timeseries\b/.test(u)) return Promise.resolve(J({ points: [] }));
-        if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: [] }));
+        if (/\/dashboard\/timeseries\b/.test(u)) {
+          // The pane asks per metric — hand back the matching series so switching
+          // metric visibly redraws instead of replaying one curve for everything.
+          var metric = (u.match(/metric=([^&]+)/) || [])[1] || "";
+          var pts = /spend|token|cost/i.test(metric) ? SERIES.spend
+                  : /cycle|time|duration/i.test(metric) ? SERIES.cycle
+                  : SERIES.throughput;
+          return Promise.resolve(J({ points: pts }));
+        }
+        if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: AGENT_STATS }));
         // MUST precede the generic /files rule: ScriptRunner does Object.entries
         // on .scripts, so this must be an OBJECT map (an array → crash).
         if (/\/files\/package-scripts\b/.test(u)) return Promise.resolve(J({
@@ -593,42 +709,11 @@
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="./manifest.json" />
     <title>Topics</title>
-    <script>
-      // Apply theme + sidebar state BEFORE first paint to prevent FOUC/flicker
-      (function() {
-        var theme = 'system';
-        try {
-          var raw = localStorage.getItem('theme');
-          if (raw) { try { theme = JSON.parse(raw); } catch(e2) { theme = raw; } }
-        } catch(e) {}
-        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
-
-        // Keep the iOS/Android status-bar tint in lock-step with the resolved
-        // theme so the safe-area zone reads as one continuous surface (no light
-        // status bar over a dark app, or vice-versa). These hexes MUST match the
-        // `--bg` tokens in index.css (light #f8f9fa / dark hsl(222 16% 8.5%) = #121419).
-        try {
-          var tc = document.querySelector('meta[name="theme-color"]');
-          if (tc) tc.setAttribute('content', dark ? '#121419' : '#f8f9fa');
-        } catch(e) {}
-
-        // Electron on macOS: tag <html> so the app can let native window vibrancy
-        // (configured in electron-app/main.ts) show through the chrome. Set before
-        // first paint so the opaque base never masks the blur.
-        try {
-          if (window.electronAPI && window.electronAPI.platform === 'darwin') {
-            document.documentElement.classList.add('electron-mac');
-          }
-        } catch(e) {}
-
-        // Pre-apply sidebar collapsed state
-        try {
-          var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
-          if (settings.sidebarCollapsed) document.documentElement.classList.add('sidebar-pre-collapsed');
-        } catch(e) {}
-      })();
-    </script>
+    <!-- Pre-paint boot (theme/FOUC, SW register, CSP telemetry). Externalized to
+         /boot.js so a strict `script-src 'self'` CSP doesn't refuse it (inline
+         <script> would be blocked under that policy). Blocking + in <head> so it
+         still runs before first paint. See client/public/boot.js. -->
+    <script src="./boot.js"></script>
     <style>
       /* Critical CSS — must match React theme colors exactly */
       html, body, #root { background-color: #f8f9fa; color: #1a1a1a; }
@@ -638,34 +723,14 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-Cv41Y164.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/icons-qYTwN--u.js">
-    <link rel="modulepreload" crossorigin href="./assets/markdown-BSyWqnvk.js">
-    <link rel="modulepreload" crossorigin href="./assets/react-vendor-D25dlSlT.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Cm0fV1xo.css">
+    <script type="module" crossorigin src="./assets/index-CP6rBn0g.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-Bf6S1DM3.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-DPMNvPOV.js">
+    <link rel="modulepreload" crossorigin href="./assets/react-vendor-Bpw9NJ6-.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-wBh37nbh.css">
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // Register Service Worker for PWA (only on localhost or cloudflare tunnels)
-      if ('serviceWorker' in navigator) {
-        const host = window.location.hostname;
-        const shouldRegisterSW = host === 'localhost' || host.endsWith('.trycloudflare.com');
-        
-        window.addEventListener('load', () => {
-          if (shouldRegisterSW) {
-            navigator.serviceWorker.register('/sw.js')
-              .then(reg => console.log('SW registered:', reg.scope))
-              .catch(err => console.warn('SW registration failed:', err));
-          } else {
-            // Unregister any existing SW for LAN access
-            navigator.serviceWorker.getRegistrations().then(regs => {
-              regs.forEach(reg => reg.unregister());
-            });
-          }
-        });
-      }
-    </script>
     <script>/* ─────────────────────────────────────────────────────────────────────────
  * Topics landing demo — ghost cursor (classic script, injected at BODY END)
  *
@@ -691,10 +756,17 @@
  * ───────────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
+  var REDUCED = false;
   try {
     if (window.__landingGhostCursor) return;
     window.__landingGhostCursor = true;
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // Reduced motion does NOT disable the chapters — it removes the MOTION.
+    // Bailing out here (as this script used to) left the landing's chapter
+    // buttons wired to nothing for exactly the visitors least able to follow a
+    // moving pointer. Instead the pointer stays hidden, every glide collapses
+    // to an instant jump, and the autoplay tour never starts: a chapter click
+    // still switches the real pane, just without the choreography.
+    REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch (e) { return; }
 
   var START_AT_MS = 1200;     // start almost immediately once the UI has mounted
@@ -774,12 +846,15 @@
   function moveInstant(x, y) { setTransition(0); place(x, y); }
   function glide(x, y, ms) {
     ms = ms || 750;
+    if (REDUCED) ms = 0;   // jump, don't travel
     return new Promise(function (resolve) {
       try { setTransition(ms); place(x, y); } catch (e) {}
       setTimeout(resolve, ms + 60);
     });
   }
-  function fadeCursor(on) { if (cursor) cursor.style.opacity = on ? "1" : "0"; }
+  // Under reduced motion the pointer never becomes visible — the pane still
+  // switches, so the chapter works; there is just nothing gliding across it.
+  function fadeCursor(on) { if (cursor) cursor.style.opacity = (on && !REDUCED) ? "1" : "0"; }
 
   function ripple(x, y) {
     try {
@@ -823,6 +898,13 @@
 
   /** One eased drag segment: cursor visual + window mousemove stay in sync. */
   function dragSegment(x0, y0, x1, y1, ms) {
+    if (REDUCED) {
+      // Deliver the drag as a single jump: the pane really resizes, the
+      // visitor just isn't shown 60 frames of it travelling.
+      moveInstant(x1, y1);
+      fire(window, "mousemove", x1, y1, 1);
+      return Promise.resolve({ x: x1, y: y1 });
+    }
     return new Promise(function (resolve) {
       var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
       function step(now) {
@@ -886,94 +968,211 @@
            q("[data-panel-divider-row][data-panel-divider-col]");
   }
 
-  /* ---- choreography -------------------------------------------------------- */
-  var round = 0;
+  /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
+  function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
 
-  function runRound() {
-    var seq = Promise.resolve();
-    function step(fn) {
-      seq = seq.then(function () {
-        return whenVisible().then(function () {
-          return Promise.resolve().then(fn).catch(function () { /* skip silently */ });
+  /* ---- cancellation ------------------------------------------------------- *
+   * One scene at a time. Starting a scene (or the visitor grabbing the mouse)
+   * cancels whatever was running: every await goes through `hold`, which
+   * rejects as soon as the token is stale, so a half-played scene unwinds
+   * instead of fighting the new one for the cursor. */
+  var runToken = 0;
+  function cancelled(tok) { return tok !== runToken; }
+  function hold(tok, ms) {
+    return sleep(ms).then(function () {
+      if (cancelled(tok)) throw new Error("cancelled");
+    });
+  }
+  /** Run `fn` unless the scene was superseded or the tab is in the background. */
+  function act(tok, fn) {
+    if (cancelled(tok)) return Promise.reject(new Error("cancelled"));
+    return whenVisible().then(function () {
+      if (cancelled(tok)) throw new Error("cancelled");
+      return Promise.resolve().then(fn).catch(function (e) {
+        // A missing target must skip, but a cancellation must propagate.
+        if (e && e.message === "cancelled") throw e;
+      });
+    });
+  }
+
+  /* ---- messaging back to the landing page --------------------------------- */
+  function emit(name, scene) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: "topics-demo", type: name, scene: scene || null }, "*");
+      }
+    } catch (e) { /* cross-origin or detached — the demo still works alone */ }
+  }
+
+  /* ---- scenes ------------------------------------------------------------- *
+   * A scene is a short, readable gesture on the REAL app. Each one re-queries
+   * its targets, so a scene whose pane is missing degrades to a no-op rather
+   * than throwing. Keep them under ~6s: they are illustrations, not films. */
+
+  /** Switch the right-hand stage to a chapter tab and let the eye land on it. */
+  function showStage(tok, paneId, dwellMs) {
+    return act(tok, function () {
+      var el = stageTab(paneId);
+      if (!el) return;
+      return glideAndClick(el, 0.5, 0.5);
+    }).then(function () {
+      return act(tok, function () {
+        // Drift into the pane body so the visitor looks at the CONTENT, not the tab.
+        var host = stageTab(paneId);
+        var cell = host && host.closest ? host.closest("[data-group-cell]") : null;
+        var p = cell ? pointOf(cell, 0.5, 0.42) : null;
+        if (!p) return;
+        return glide(p.x, p.y, 850);
+      });
+    }).then(function () { return hold(tok, dwellMs == null ? 900 : dwellMs); });
+  }
+
+  var SCENES = {
+    /* Several whole projects open at once — the app-level split. */
+    workspace: function (tok) {
+      return act(tok, function () {
+        var el = tabCC(3); // focus acme-api (bottom-left window)
+        if (!el) return;
+        return glideAndClick(el, 0.42, 0.5);
+      }).then(function () {
+        return act(tok, function () {
+          var el = appDivider();
+          if (!el) return;
+          return glideAndDrag(el, [{ dx: 130, ms: 950, holdMs: 400 }, { dx: 4, ms: 750 }]);
         });
-      });
-      return seq;
-    }
+      }).then(function () { return hold(tok, 500); });
+    },
 
-    // (a) switch to the SECOND Claude Code tab in acme-web
-    step(function () {
-      var el = tabCC(2);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(450); });
-    });
+    /* Two live Claude Code sessions in one project, side by side with the app. */
+    terminals: function (tok) {
+      return act(tok, function () {
+        var el = tabCC(2);
+        if (!el) return;
+        return glideAndClick(el, 0.42, 0.5);
+      }).then(function () { return hold(tok, 1400); })
+        .then(function () {
+          return act(tok, function () {
+            var el = tabCC(1);
+            if (!el) return;
+            return glideAndClick(el, 0.42, 0.5);
+          });
+        }).then(function () { return hold(tok, 700); });
+    },
 
-    // (b) drag the terminal|preview split inside acme-web (~100px), settle.
-    // Direction alternates per round so the loop doesn't ratchet into the clamp.
-    step(function () {
-      var el = innerDivider();
-      if (!el) return;
-      var dir = (round % 2 === 0) ? -1 : 1;
-      return glideAndDrag(el, [{ dx: dir * 100, ms: 1100 }]).then(function () { return sleep(400); });
-    });
+    /* Resize the terminal | preview split — the layout is yours. */
+    layout: function (tok) {
+      return act(tok, function () {
+        var el = innerDivider();
+        if (!el) return;
+        return glideAndDrag(el, [{ dx: -110, ms: 1000, holdMs: 350 }, { dx: 6, ms: 800 }]);
+      }).then(function () { return hold(tok, 500); });
+    },
 
-    // (c) focus the acme-api window via its Claude Code tab
-    step(function () {
-      var el = tabCC(3);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(400); });
-    });
+    browser:   function (tok) { return showStage(tok, "browser:c1", 1500); },
+    board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
+    agents:    function (tok) { return showStage(tok, "agents:c1", 1600); },
+    dashboard: function (tok) { return showStage(tok, "dashboard:c1", 1800); },
+    git:       function (tok) { return showStage(tok, "git:c1", 1400); },
+    files:     function (tok) { return showStage(tok, "files:c1", 1400); },
+  };
 
-    // (d) drag the acme-api | acme-mobile divider out ~120px, then settle
-    // back near 50/50 (same grab — the hook tracks delta from mousedown).
-    step(function () {
-      var el = appDivider();
-      if (!el) return;
-      return glideAndDrag(el, [
-        { dx: 120, ms: 900, holdMs: 350 },
-        { dx: 4, ms: 700 },
-      ]).then(function () { return sleep(400); });
-    });
+  /* Autoplay order — the product's argument, told in sequence: you keep whole
+   * projects open, agents run in them, a board drives the agents, and the
+   * numbers tell you what it cost. */
+  var TOUR = ["terminals", "browser", "board", "agents", "dashboard", "workspace"];
 
-    // (e) back to the FIRST Claude tab, then park + fade out
-    step(function () {
-      var el = tabCC(1);
-      if (!el) return;
-      return glideAndClick(el, 0.42, 0.5);
-    });
-    step(function () {
-      var px = Math.max(40, window.innerWidth - 72);
-      var py = Math.max(40, window.innerHeight - 48);
-      return glide(px, py, 700).then(function () { return sleep(2000); }).then(function () { fadeCursor(false); });
-    });
+  /* ---- player -------------------------------------------------------------- */
+  var autoplay = true;
+  var tourIndex = 0;
+  var idleTimer = 0;
 
-    return seq;
-  }
-
-  function loop() {
-    whenVisible()
+  function playScene(name) {
+    var fn = SCENES[name];
+    if (!fn) return Promise.resolve();
+    var tok = ++runToken;
+    emit("scene-start", name);
+    return whenVisible()
       .then(function () {
+        if (cancelled(tok)) throw new Error("cancelled");
         ensureCursor();
-        // each round re-enters from a quiet corner and fades in
-        moveInstant(window.innerWidth * 0.46, window.innerHeight * 0.32);
-        return sleep(60);
+        fadeCursor(true);
+        return sleep(220);
       })
-      .then(function () { fadeCursor(true); return sleep(420); })
-      .then(runRound)
-      .catch(function () { /* round must never throw */ })
+      .then(function () { return fn(tok); })
       .then(function () {
-        round++;
-        setTimeout(loop, LOOP_PAUSE_MS);
-      });
+        if (cancelled(tok)) return;
+        emit("scene-end", name);
+      })
+      .catch(function () { /* cancelled or a missing target — never throw */ });
   }
 
-  /* ---- boot: wait for the app to mount, start at ≈t+6s --------------------- */
+  /** Visitor asked for a chapter: stop the tour, play it, then stay put. */
+  function playOnDemand(name) {
+    autoplay = false;
+    clearTimeout(idleTimer);
+    playScene(name).then(function () {
+      // Park the pointer out of the way so it never covers what it just showed.
+      var tok = runToken;
+      if (cancelled(tok)) return;
+      return glide(Math.max(40, window.innerWidth - 64), Math.max(40, window.innerHeight - 44), 650)
+        .then(function () { if (!cancelled(tok)) fadeCursor(false); });
+    });
+  }
+
+  function tourStep() {
+    if (!autoplay) return;
+    var name = TOUR[tourIndex % TOUR.length];
+    tourIndex++;
+    playScene(name).then(function () {
+      if (!autoplay) return;
+      idleTimer = setTimeout(tourStep, LOOP_PAUSE_MS);
+    });
+  }
+
+  /* ---- the visitor always wins -------------------------------------------- *
+   * The demo is the real app and must stay usable. The moment a REAL pointer or
+   * key event arrives (isTrusted — our own synthetic events are not), the ghost
+   * stops mid-gesture and gets out of the way. Nothing resumes on its own;
+   * only a chapter button brings it back. */
+  function yieldToVisitor() {
+    if (!autoplay && runToken === 0) return;
+    autoplay = false;
+    clearTimeout(idleTimer);
+    runToken++;            // cancels any scene in flight
+    fadeCursor(false);
+    emit("visitor-took-over", null);
+  }
+  ["pointerdown", "wheel", "keydown", "touchstart"].forEach(function (t) {
+    try {
+      addEventListener(t, function (e) { if (e && e.isTrusted) yieldToVisitor(); },
+        { passive: true, capture: true });
+    } catch (e) { /* older browsers: the tour simply keeps running */ }
+  });
+
+  /* ---- public API: the landing page's chapter buttons ---------------------- */
+  window.__topicsDemo = {
+    scenes: Object.keys(SCENES),
+    play: playOnDemand,
+    stop: yieldToVisitor,
+  };
+  addEventListener("message", function (ev) {
+    var d = ev && ev.data;
+    if (!d || d.source !== "topics-landing") return;
+    if (d.type === "play" && typeof d.scene === "string") playOnDemand(d.scene);
+    else if (d.type === "stop") yieldToVisitor();
+  });
+
+  /* ---- boot: wait for the app to mount, then start the tour ---------------- */
   var bootT0 = Date.now();
   (function waitForMount() {
     try {
       if (tabCC(2) && tabCC(1)) {
         ensureCursor(); // exists (hidden) as soon as the UI is up
-        var delay = Math.max(0, START_AT_MS - (Date.now() - bootT0));
-        setTimeout(loop, delay);
+        emit("ready", null);
+        // No unsolicited motion for visitors who asked for none. The chapter
+        // buttons still drive the app; nothing moves until one is pressed.
+        if (REDUCED) { autoplay = false; return; }
+        setTimeout(tourStep, Math.max(0, START_AT_MS - (Date.now() - bootT0)));
         return;
       }
     } catch (e) { /* keep polling */ }
