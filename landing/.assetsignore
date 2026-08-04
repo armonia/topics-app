@@ -1,11 +1,11 @@
 # Paths under landing/ that must never be published.
 #
-# demo-src/ is 4.9 MB of node_modules left over from an earlier attempt at the
-# embedded demo. Nothing references it — the demo is built from client/ via
-# vite.landing.config.ts — and it is untracked, so it exists only on whichever
-# machine last ran that experiment. Uploading it would triple the deploy for
-# nothing.
-demo-src
-
-# Editor and OS debris that can appear in a working copy.
-.DS_Store
+# This is a safety net, not the primary defence. The deploy uploads whatever
+# sits in this directory, so anything that is not part of the site must not live
+# here in the first place — a 4.9 MB node_modules tree from an abandoned demo
+# experiment used to, and would have shipped.
+#
+# Patterns follow the form Cloudflare documents for Workers static assets.
+**/node_modules
+**/.DS_Store
+**/.git
