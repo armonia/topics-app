@@ -93,6 +93,25 @@ const appJson = versions.map((v) => ({
 }));
 write('client/public/changelog.json', JSON.stringify(appJson, null, 2) + '\n');
 
+/**
+ * Scopes come straight off the conventional-commit subject, so the ones written
+ * in Italian used to reach the English site verbatim: a translated entry still
+ * carried a `costi ·` or `notifiche ·` label in front of it. Only the Italian
+ * scopes need an entry here — anything absent passes through unchanged, which
+ * is right for the technical ones (`pty`, `worktree`, `mcp`, …) that are the
+ * same word in both languages.
+ */
+const SCOPE_EN = {
+  agenti: 'agents', attenzione: 'attention', coda: 'queue', contesto: 'context',
+  'contratto ws': 'ws contract', costi: 'costs', diagnostica: 'diagnostics',
+  evidenza: 'evidence', guardia: 'guard', guscio: 'shell', icone: 'icons',
+  memoria: 'memory', messaggi: 'messages', modali: 'modals', notifiche: 'notifications',
+  osservabilita: 'observability', processi: 'processes', rigenera: 'regenerate',
+  sessioni: 'sessions', sicurezza: 'security', tastiera: 'keyboard', tempi: 'timing',
+  terminale: 'terminal', voce: 'voice',
+};
+const scopeEn = (s) => (s ? SCOPE_EN[s] || s : s);
+
 // Public site: EN only, user-facing buckets, drop internal churn. Fallback to IT
 // so a not-yet-translated entry still shows rather than vanishing.
 const siteJson = versions
@@ -100,9 +119,9 @@ const siteJson = versions
     version: v.version,
     date: v.date,
     sections: {
-      new: v.sections.new.map((e) => ({ text: e.en || e.it, scope: e.scope })),
-      fixes: v.sections.fixes.map((e) => ({ text: e.en || e.it, scope: e.scope })),
-      perf: v.sections.perf.map((e) => ({ text: e.en || e.it, scope: e.scope })),
+      new: v.sections.new.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
+      fixes: v.sections.fixes.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
+      perf: v.sections.perf.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
     },
   }))
   .filter((v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0);
