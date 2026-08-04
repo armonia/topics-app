@@ -263,55 +263,31 @@
   // App-level seam between the acme-web row and the row under it.
   function rowDivider() { return outsideProjectWindows("col"); }
 
-  /* ---- shape: give the thing you asked for the room to be read -------------
+  /* ---- groups: a chapter switches GROUP, it does not stretch a split -------
    * The stage used to be one quarter of a window split four ways, so a chapter
-   * about the board showed a board the size of a business card. A chapter now
-   * RESIZES the window first — with the app's own dividers, dragged by the same
-   * pointer, so the visitor watches the layout being made rather than finding
-   * it already made.
+   * about the board showed a board the size of a business card, and the way out
+   * was to drag two dividers before every chapter. Both are gone: a chapter
+   * clicks the group it belongs to, and the group holds exactly what the
+   * chapter is about — one window, whole frame.
    *
-   * Targets are FRACTIONS of the live container, never pixels: the frame is
-   * 1300px on a desktop and 350 on a phone, and a hardcoded delta would put the
-   * divider through the floor on one of them. Both are inside PanelGrid's
-   * [MIN_PANE_FRACTION, 1-MIN] clamp (0.1), so nothing here fights the app. */
-  var shape = "grid";   // matches the layout landing-boot.js seeds
-
-  /** Drag `el` so its centre lands at `frac` across `box` on one axis. */
-  function dragToFraction(el, box, frac, axis) {
-    var b = box.getBoundingClientRect(), p = pointOf(el);
-    if (!p || !b.width || !b.height) return Promise.resolve(false);
-    var d = axis === "y"
-      ? { dy: Math.round(b.top + b.height * frac - p.y) }
-      : { dx: Math.round(b.left + b.width * frac - p.x) };
-    if (Math.abs(d.dx || d.dy) < 8) return Promise.resolve(true); // already there
-    d.ms = 620;
-    return glideAndDrag(el, [d]);
+   * This is the product's own model, not a demo trick. A gruppo is a set of
+   * tabs (`Pane.spaceId` + the `spaces` registry); the chips are the app's own
+   * SpaceSwitcher, and the click below is a real click on a real chip. */
+  function groupChip(spaceId) { return q('[data-space-id="' + spaceId + '"]'); }
+  function activeGroup() {
+    var el = q('[data-space-id][aria-selected="true"]');
+    return el ? el.getAttribute("data-space-id") : null;
   }
-
-  /**
-   * `focus` — acme-web takes the window, its two groups split at `col`.
-   * `grid`  — back to three projects sharing the window, the demo's rest state.
-   * A no-op when the layout is already in that shape, so switching between two
-   * stage chapters costs nothing.
-   */
-  function setShape(tok, name, col) {
-    if (shape === name + (col || "")) return Promise.resolve();
-    // 0.74, not 0.8: past that the two projects underneath stop reading as
-    // windows kept open and start reading as a squashed strip, which is the
-    // opposite of the point they are there to make.
-    var rowFrac = name === "focus" ? 0.74 : 0.56;
+  /** Switch to a group unless it is already the active one. */
+  function useGroup(tok, spaceId) {
     return act(tok, function () {
-      var d = rowDivider();
-      return d && d.parentElement ? dragToFraction(d, d.parentElement, rowFrac, "y") : null;
-    }).then(function () {
-      return act(tok, function () {
-        var d = innerDivider();
-        var row = d && d.parentElement;
-        if (!d || !row) return null;
-        return dragToFraction(d, row, name === "focus" ? col : 0.54, "x");
-      });
-    }).then(function () { shape = name + (col || ""); });
+      if (activeGroup() === spaceId) return null;
+      var chip = groupChip(spaceId);
+      if (!chip) return null;
+      return glideAndClick(chip, 0.5, 0.5).then(function () { return sleep(420); });
+    });
   }
+  var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_AGENTS = "space:agents";
 
   /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
   function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
@@ -357,8 +333,8 @@
   /** Switch the right-hand stage to a chapter tab and let the eye land on it.
    *  Makes room first: a board, a dashboard or a diff in a quarter of a window
    *  is a thumbnail, and a thumbnail is what the visitor came here to avoid. */
-  function showStage(tok, paneId, dwellMs) {
-    return setShape(tok, "focus", 0.3).then(function () {
+  function showStage(tok, paneId, dwellMs, spaceId) {
+    return useGroup(tok, spaceId || GROUP_DEFAULT).then(function () {
       return act(tok, function () {
         var el = stageTab(paneId);
         if (!el) return;
@@ -381,9 +357,9 @@
      * chapter that puts the three windows back on equal terms after a stage
      * chapter has given acme-web the room. */
     workspace: function (tok) {
-      return setShape(tok, "grid").then(function () {
+      return useGroup(tok, GROUP_PROJECTS).then(function () {
         return act(tok, function () {
-          var el = tabCC(3); // focus acme-api (bottom-left window)
+          var el = tabCC(4); // focus acme-mobile (bottom-left window)
           if (!el) return;
           return glideAndClick(el, 0.42, 0.5);
         });
@@ -400,7 +376,7 @@
      * Here the room goes the OTHER way: the terminals are the subject, so the
      * split lands at 62% and the preview keeps the rest. */
     terminals: function (tok) {
-      return setShape(tok, "focus", 0.62).then(function () {
+      return useGroup(tok, GROUP_DEFAULT).then(function () {
         return act(tok, function () {
           var el = tabCC(2);
           if (!el) return;
@@ -422,12 +398,7 @@
         var el = innerDivider();
         if (!el) return;
         return glideAndDrag(el, [{ dx: -110, ms: 1000, holdMs: 350 }, { dx: 6, ms: 800 }]);
-      }).then(function () {
-        // Hand-dragged: the shape is no longer one we can claim to know, so the
-        // next chapter re-asserts its own instead of trusting a stale label.
-        shape = "custom";
-        return hold(tok, 500);
-      });
+      }).then(function () { return hold(tok, 500); });
     },
 
     /* Floating splits: the desktop paint mode, shown by toggling the app's own
@@ -462,9 +433,9 @@
         return cands[0] || null;
       })();
       if (!root) return Promise.resolve();
-      // Four balanced panes make four cards; a 16%-tall strip makes two slivers.
-      // The shape IS part of what this chapter shows.
-      return setShape(tok, "grid").then(function () { return act(tok, function () {
+      // Three windows make three cards; one window alone makes one, which shows
+      // nothing. The GROUP is part of what this chapter shows.
+      return useGroup(tok, GROUP_PROJECTS).then(function () { return act(tok, function () {
         // Park the pointer over the seam that is about to open, so the eye is
         // already where the change happens.
         var d = innerDivider();
@@ -480,12 +451,17 @@
       });
     },
 
+    /* acme-web's own tabs: they live inside a ProjectWindow (git, files and the
+     * per-project board have no standalone renderer), and that window is alone
+     * in the default group, so the frame is theirs. */
     browser:   function (tok) { return showStage(tok, "browser:c1", 1500); },
     board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
-    agents:    function (tok) { return showStage(tok, "agents:c1", 1600); },
-    dashboard: function (tok) { return showStage(tok, "dashboard:c1", 1800); },
     git:       function (tok) { return showStage(tok, "git:c1", 1400); },
     files:     function (tok) { return showStage(tok, "files:c1", 1400); },
+    /* These two DO render standalone, so they are a group of their own: two
+     * tabs, one window, whole frame. */
+    agents:    function (tok) { return showStage(tok, "__agents__", 1600, GROUP_AGENTS); },
+    dashboard: function (tok) { return showStage(tok, "__dashboard__", 1800, GROUP_AGENTS); },
   };
 
   /* Autoplay order — the product's argument, told in sequence: you keep whole

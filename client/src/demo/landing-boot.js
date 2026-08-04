@@ -18,13 +18,21 @@
  * ───────────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
-  // Tell SingleTerminalPane to use xterm's Canvas renderer in the demo, so the
-  // Claude Code block-art logo (sub-cell quadrant glyphs) renders seam-free.
-  // The real app keeps the DOM renderer (native mobile text selection).
-  try { window.__TOPICS_DEMO_CANVAS__ = true; } catch (e) {}
-  var PROJECT = "/demo/acme-web";   // the open project (the rich split below)
-  var P2 = "/demo/acme-api";        // sibling projects — shown in the sidebar with
-  var P3 = "/demo/acme-mobile";     // their own running Claude Code sessions
+  /* NO canvas renderer. This used to set `__TOPICS_DEMO_CANVAS__` so the Claude
+   * Code block-art logo (sub-cell quadrant glyphs) rendered seam-free — but
+   * @xterm/addon-canvas is pinned to xterm core v5 and CRASHES on v6 at render
+   * time (`_linkifier2.onShowLinkUnderline` is undefined; the try/catch around
+   * loadAddon only catches a synchronous load throw). It survived first paint
+   * and then blew up the moment a terminal REMOUNTED — which is exactly what
+   * switching group does — and the ErrorBoundary replaced the whole panel area
+   * with "Panel error". A hairline seam in a logo is a cosmetic cost; a demo
+   * that dies when you use it is not.
+   * SingleTerminalPane's own comment says it outright: "never set it in the
+   * app". The demo is not an exception. */
+  var PROJECT = "/demo/acme-web";   // the working project (its own group)
+  var P2 = "/demo/acme-api";        // sibling projects — they share the "Progetti"
+  var P3 = "/demo/acme-mobile";     // group, three windows in one grid
+  var P4 = "/demo/acme-docs";
   /* The demo's "now". It used to be a frozen literal, and every duration the UI
    * derives against the real clock drifted with it: by the time this build had
    * been online two months, a "live" agent session was rendering as `1515.6h`
@@ -35,26 +43,44 @@
    * random, so only the date LABELS move. */
   var ISO = new Date(Date.now() - 4 * 60000).toISOString();
 
-  // The "figata": THREE projects open at once. acme-web full-width on top;
-  // acme-api + acme-mobile side-by-side below. Each is its own ProjectWindow —
-  // the project sidebar (Tasks/Files/Git/Processes) IS the interesting context,
-  // so no redundant Git tab. App-level pane id == createPaneId('project', path).
+  /* THREE GROUPS, which is the model this demo exists to show: a gruppo is a
+   * set of tabs you live in, and a window is just a gruppo that has been
+   * detached. Spazi are that concept in the store (`Pane.spaceId` + the
+   * `spaces` registry), so seeding them here is seeding real product state —
+   * the chip strip, the sidebar's "Gruppi" section and the grid all read it.
+   *
+   *   Principale (implicit, no record) → acme-web ALONE, one window filling the
+   *                                      frame: terminals | the stage tabs.
+   *   Progetti                         → acme-api + acme-mobile + acme-docs,
+   *                                      three windows in one grid.
+   *   Agenti                           → the standalone Agents + Dashboard
+   *                                      panes, one window, two tabs.
+   *
+   * A chapter navigates by SWITCHING GROUP, not by dragging dividers: the pane
+   * it is about lands full-frame instead of in a quarter of a four-way split. */
+  var SPACE_PROJECTS = "space:projects", SPACE_AGENTS = "space:agents";
   function projPaneId(p) { return "project:" + encodeURIComponent(p); }
-  var PROJ_A = projPaneId(PROJECT);   // top, full width
-  var PROJ_B = projPaneId(P2);        // bottom-left
-  var PROJ_C = projPaneId(P3);        // bottom-right
+  var PROJ_A = projPaneId(PROJECT);   // Principale, alone
+  var PROJ_B = projPaneId(P2);        // Progetti, top
+  var PROJ_C = projPaneId(P3);        // Progetti, bottom-left
+  var PROJ_D = projPaneId(P4);        // Progetti, bottom-right
   // Inner project panes (ids unique across the app). Each project's star is a
   // Claude Code agent session (the paid core value); no standalone git pane.
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
-      BROW = "browser:c1";
+      CC6 = "terminal:cc6", BROW = "browser:c1";
+  /* App-level utility panes (`__agents__` / `__dashboard__`): these two render
+   * STANDALONE — StandaloneChatGroup has a branch for them — so they can be a
+   * group of their own. git / files / the per-project board cannot: they only
+   * exist inside a ProjectWindow, which is why those chapters stay in the
+   * acme-web group instead of getting one each. */
+  var AGENTS_APP = "__agents__", DASH_APP = "__dashboard__";
 
   /* Chapter panes — the right-hand column of acme-web is the demo's STAGE.
    * Each landing "chapter" button switches this group to one of these tabs, so
    * a chapter is a REAL pane of the REAL app, reached by a real tab click — not
    * a screenshot and not a forked component. Adding a chapter here is the only
    * change needed on the app side; landing-cursor.js looks tabs up by pane id. */
-  var KANB = "kanban:c1", DASH = "dashboard:c1", AGTS = "agents:c1",
-      GITP = "git:c1", FILES = "files:c1";
+  var KANB = "kanban:c1", GITP = "git:c1", FILES = "files:c1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -72,12 +98,26 @@
    * browser preview); acme-api + acme-mobile share the bottom row side-by-side. */
   var appPanes = {};
   appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web",    stableKey: PROJ_A };
-  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api",    stableKey: PROJ_B };
-  appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3,      title: "acme-mobile", stableKey: PROJ_C };
+  // `spaceId` is a synced Pane field on sanitizePane's whitelist; the DEFAULT
+  // group is encoded as ABSENT (never the literal id, which is normalised away).
+  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2, title: "acme-api",    stableKey: PROJ_B, spaceId: SPACE_PROJECTS };
+  appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3, title: "acme-mobile", stableKey: PROJ_C, spaceId: SPACE_PROJECTS };
+  appPanes[PROJ_D] = { id: PROJ_D, type: "project", projectPath: P4, title: "acme-docs",   stableKey: PROJ_D, spaceId: SPACE_PROJECTS };
+  appPanes[AGENTS_APP] = { id: AGENTS_APP, type: "agents",    title: "Agenti",    stableKey: AGENTS_APP, spaceId: SPACE_AGENTS };
+  appPanes[DASH_APP]   = { id: DASH_APP,   type: "dashboard", title: "Dashboard", stableKey: DASH_APP,   spaceId: SPACE_AGENTS };
   set("pane-store-v2", JSON.stringify({
     panes: appPanes,
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C], splitRatio: 0.5, splitAxis: "vertical" } },
+    // ONE app-level group holds the tab ORDER — that is all `groups` is (there
+    // is only ever `group:default`, and no renderer iterates it). The grouping
+    // the user sees is `spaces` below.
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C, PROJ_D, AGENTS_APP, DASH_APP], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
+    // The registry: a record per NON-default group, id === its key, never a
+    // record for the implicit default (sanitizeSnapshot drops that).
+    spaces: {
+      "space:projects": { id: SPACE_PROJECTS, name: "Progetti", order: 0, updatedAt: 1748856600000 },
+      "space:agents":   { id: SPACE_AGENTS,   name: "Agenti",   order: 1, updatedAt: 1748856600000 },
+    },
     closedStack: [],
     lastSeq: 1000,
     // The reducer's LWW gate drops a hydrate unless server_seq beats the live
@@ -89,22 +129,23 @@
   }));
   set("pane-store-focused-id", PROJ_A);
 
-  // Device-local grid overlay: acme-web spans the FULL-WIDTH top row; acme-api
-  // and acme-mobile share the bottom row 50/50. Top row gets the larger share so
-  // the project that carries the browser preview stays legible. The grid item key
-  // for a solo cell is `solo:<paneId>` (soloCells.ts soloCellKey) — it MUST match
-  // or PanelGrid's additive-sync re-merges everything into row 0.
-  set("topics-panel-grid-layout", JSON.stringify({
+  /* Device-local grid overlay, PER GROUP (`topics-panel-grid-layout:<spaceId>`;
+   * the bare key is the default group's). Only "Progetti" needs one: three
+   * windows in a grid. The other two groups hold panes that are not solo
+   * cells, so they land in the single standalone cell — which is exactly the
+   * "one window filling the frame" this demo is here to show, with no drag and
+   * no overlay to keep in sync.
+   * The item key for a solo cell is `solo:<paneId>` (soloCells.ts soloCellKey)
+   * — it MUST match or PanelGrid's additive sync re-merges everything into
+   * row 0. */
+  set("topics-panel-grid-layout:" + SPACE_PROJECTS, JSON.stringify({
     gridRows: [
-      { itemKeys: ["solo:" + PROJ_A], widths: [1] },
-      { itemKeys: ["solo:" + PROJ_B, "solo:" + PROJ_C], widths: [0.5, 0.5] },
+      { itemKeys: ["solo:" + PROJ_B], widths: [1] },
+      { itemKeys: ["solo:" + PROJ_C, "solo:" + PROJ_D], widths: [0.5, 0.5] },
     ],
     gridRowHeights: [0.56, 0.44],
-    // soloCells is a flat list of CELLS (each inner array = one cell's tabs), NOT
-    // rows. Three single-pane cells → three separate ProjectWindows; the row/
-    // column arrangement comes from gridRows above (B and C share the 2nd row).
-    soloCells: [[PROJ_A], [PROJ_B], [PROJ_C]],
-    soloTopicIds: [PROJ_A, PROJ_B, PROJ_C],
+    soloCells: [[PROJ_B], [PROJ_C], [PROJ_D]],
+    soloTopicIds: [PROJ_B, PROJ_C, PROJ_D],
   }));
 
   /* ---- 1b. Per-project inner layouts ----------------------------------- *
@@ -122,16 +163,18 @@
     { id: BROW,  type: "browser",   title: "Preview",     projectPath: PROJECT },
     // The chapter stage — one tab per landing chapter, all real panes.
     { id: KANB,  type: "kanban",    title: "Board",       projectPath: PROJECT },
-    { id: AGTS,  type: "agents",    title: "Agents",      projectPath: PROJECT },
-    { id: DASH,  type: "dashboard", title: "Dashboard",   projectPath: PROJECT },
     { id: GITP,  type: "git",       title: "Git",         projectPath: PROJECT },
     { id: FILES, type: "files",     title: "Files",       projectPath: PROJECT },
   ], {
     groups: [
       { id: "pgA-l", paneIds: [CC1, CC2], activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW, KANB, AGTS, DASH, GITP, FILES], activePaneId: BROW, type: "utility" },
+      { id: "pgA-r", paneIds: [BROW, KANB, GITP, FILES], activePaneId: BROW, type: "utility" },
     ],
-    rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
+    // 42/58 in favour of the stage: this window is ALONE in its group now, so
+    // the tab a chapter opens gets most of the frame without a single drag —
+    // which is the whole reason a chapter switches group instead of stretching
+    // a split. The terminals keep enough width for Claude Code's own wrapping.
+    rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.42, 0.58] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
   });
   seedProject(P2, [
@@ -141,14 +184,22 @@
     rows: [{ groupIds: ["pgB"], widths: [1] }],
     rowHeights: [1], sidebarCollapsed: true, focusedGroupId: "pgB",
   });
-  // acme-mobile (P3): the third open project (bottom-right). A single working
-  // Claude Code session; sidebar collapsed so the narrow half-column stays clean.
+  // acme-mobile (P3) and acme-docs (P4): the other two windows of the
+  // "Progetti" group. One working Claude Code session each; sidebar collapsed
+  // so the narrow half-columns stay clean.
   seedProject(P3, [
     { id: CC4, type: "terminal", title: "Claude Code", projectPath: P3, terminalSessionId: "cc4", terminalType: "claude-code" },
   ], {
     groups: [{ id: "pgC", paneIds: [CC4], activePaneId: CC4, type: "utility" }],
     rows: [{ groupIds: ["pgC"], widths: [1] }],
     rowHeights: [1], sidebarCollapsed: true, focusedGroupId: "pgC",
+  });
+  seedProject(P4, [
+    { id: CC6, type: "terminal", title: "Claude Code", projectPath: P4, terminalSessionId: "cc6", terminalType: "claude-code" },
+  ], {
+    groups: [{ id: "pgD", paneIds: [CC6], activePaneId: CC6, type: "utility" }],
+    rows: [{ groupIds: ["pgD"], widths: [1] }],
+    rowHeights: [1], sidebarCollapsed: true, focusedGroupId: "pgD",
   });
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
@@ -162,7 +213,7 @@
   // Expand all three projects so their Claude Code sessions are visible at a
   // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
   set("topics-sidebar-state", JSON.stringify({
-    expandedNodes: ["project:" + PROJECT, "project:" + P2, "project:" + P3],
+    expandedNodes: ["project:" + PROJECT, "project:" + P2, "project:" + P3, "project:" + P4],
     viewMode: "timeline", showArchived: false,
     showProjects: true, showChats: true, showTerminals: true,
     showProjectsArchived: false, showChatsArchived: false, browserExpanded: false,
@@ -439,6 +490,7 @@
     ccSession("cc3", P2, true),
     ccSession("cc4", P3, false),
     ccSession("cc5", P3, true),
+    ccSession("cc6", P4, true),
   ];
 
   /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
@@ -532,6 +584,26 @@
     "\n",
     "\x1b[1;36m❯\x1b[0m \x1b[7m \x1b[0m\n",
   ];
+  /* acme-docs' session: a different KIND of work on purpose — the group holds
+   * three projects and three agents, and three identical transcripts would
+   * read as one screenshot pasted three times. */
+  var CLAUDE_CC6 = [
+    M1 + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.172\x1b[0m\n",
+    M2 + "   \x1b[2mSonnet 5\x1b[0m\n",
+    M3 + "   \x1b[2macme-docs · main\x1b[0m\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m Document the new webhook payload, with an example\n",
+    "\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mRead\x1b[0m(server/routes/webhooks.ts)\n",
+    "\x1b[2m  ⎿  \x1b[0m162 lines\n",
+    "\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mWrite\x1b[0m(docs/webhooks.md)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m+48\x1b[0m \x1b[31m−0\x1b[0m\n",
+    "\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Added the signature header and a curl example that verifies it.\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m \x1b[7m \x1b[0m\n",
+  ];
   var SHELL_LINES = [
     "\x1b[2m~/code/acme-web\x1b[0m \x1b[32m✔\x1b[0m\n",
     "\x1b[1;36m❯\x1b[0m git status -sb\n",
@@ -619,6 +691,7 @@
           { id: "p-acme",     name: "acme-web",    path: PROJECT, slug: "acme-web",    color: "#5b8cff", icon: null },
           { id: "p-acme-api", name: "acme-api",    path: P2,      slug: "acme-api",    color: "#22d3ee", icon: null },
           { id: "p-acme-mob", name: "acme-mobile", path: P3,      slug: "acme-mobile", color: "#7c6cff", icon: null },
+          { id: "p-acme-doc", name: "acme-docs",   path: P4,      slug: "acme-docs",   color: "#22c55e", icon: null },
         ] }));
         if (/\/machines\b/.test(u)) return Promise.resolve(J({ machines: [] }));
         if (/\/worktrees\b/.test(u)) return Promise.resolve(J({ worktrees: [] }));
@@ -698,7 +771,8 @@
       var idm = u.match(/\/ws\/terminal\/([^/?]+)/);
       var sid = idm ? idm[1] : "";
       // cc1/cc2 are Claude Code agent sessions; sh1 is a plain shell.
-      var lines = sid === "cc2" ? CLAUDE_CC2 : sid === "cc3" ? CLAUDE_CC3 : sid === "cc4" ? CLAUDE_CC4 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
+      var lines = sid === "cc2" ? CLAUDE_CC2 : sid === "cc3" ? CLAUDE_CC3 : sid === "cc4" ? CLAUDE_CC4
+        : sid === "cc6" ? CLAUDE_CC6 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
       // Raw PTY semantics: a bare \n is line-feed only (cursor drops a row but
       // keeps its column → staircase). Emit CRLF so xterm returns to col 0.
       lines.forEach(function (l, i) { setTimeout(function () { self._msg(l.replace(/\n/g, "\r\n")); }, 120 + i * 90); });

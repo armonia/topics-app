@@ -634,21 +634,14 @@ test.describe("Sidebar — Project icons", () => {
     await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
 
-  // A "group" in this app is a WINDOW — the unit that pops out and lives on as
-  // its own OS window — not an intra-window split cell. The sidebar's Finestre
-  // section is that model made visible: this window plus every other one.
-  test("SIDEBAR-WINDOWS: presence renders every window — this one, the main one, and a detached one", async ({ page }) => {
-    // The native OS detach can't run headless, but the section is WS-driven:
-    // inject a `presence:windows` frame and assert what the sidebar makes of it.
-    // TWO peers on purpose:
-    //   - a DETACHED one WITH a Tauri label → a real OS window, focusable ("Vai")
-    //   - a NON-detached one WITHOUT a label → the main window / a web tab.
-    // The second is the regression guard: the section used to be built on
-    // computeDetachedWindows, which filters `detached`, so a detached window's
-    // own sidebar listed its siblings but silently hid the window it was torn
-    // off from. It must appear, and — having no OS label — must NOT offer "Vai"
-    // (a button that instead reopened its topics HERE would move work, not
-    // navigate to it).
+  // Un gruppo è l'unità; una finestra è solo un gruppo staccato. La sezione
+  // "Finestre" è sparita per questo — quello che sapeva fare (raggiungere la
+  // finestra che tiene una tab) vive qui, per TAB, dentro il gruppo di
+  // appartenenza.
+  test("SIDEBAR-GROUPS: a tab held by another window is marked, and reachable, inside its group", async ({ page }) => {
+    // La presenza è WS-driven: si inietta un frame `presence:windows` e si
+    // guarda cosa ne fa la sidebar. La finestra annuncia le sue TAB (non solo
+    // le chat), che è la forma su cui questa sezione lavora.
     await page.routeWebSocket(/ws/, (ws) => {
       const server = ws.connectToServer();
       server.onMessage((msg) => ws.send(msg));
@@ -657,86 +650,30 @@ test.describe("Sidebar — Project icons", () => {
         ws.send(JSON.stringify({
           type: "presence:windows",
           windows: [
-            { windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true, topicIds: ["e2e-detached-topic"] },
-            { windowId: "e2e-main-window", clientId: "e2e-c2", detached: false, topicIds: ["e2e-main-topic"] },
-          ],
-        }));
-      }, 1200);
-    });
-    await goToApp(page);
-
-    const section = page.getByTestId("sidebar-windows");
-    await expect(section, "the windows section renders from live presence").toBeVisible({ timeout: 10000 });
-    await expect(section).toContainText("Finestre");
-
-    // This window is named explicitly, so "where am I" is answerable…
-    await expect(section, "this window is listed too, not just the foreign ones").toContainText("Questa finestra");
-    // …and the non-detached peer is surfaced as the main window, not hidden.
-    await expect(section, "the NON-detached peer must be listed").toContainText("Finestra principale");
-    await expect(
-      section.locator('[aria-expanded]'),
-      "one row per window: this one + the main one + the detached one",
-    ).toHaveCount(3);
-
-    // "Vai" is offered only where it can actually raise an OS window: the
-    // labelled detached peer. Not for this window, not for the unlabelled one.
-    await expect(
-      section.getByTestId("focus-window"),
-      "only the labelled OS window offers 'Vai'",
-    ).toHaveCount(1);
-  });
-
-  // A window is the GROUP its tabs belong to — all of them. The section used to
-  // list chat topics only, so a window made of terminals, a project and a
-  // browser announced nothing and drew as a heading over an empty list.
-  test("SIDEBAR-WINDOWS: a window groups every tab it holds, not only its chats", async ({ page }) => {
-    await page.routeWebSocket(/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => ws.send(msg));
-      ws.onMessage((msg) => server.send(msg));
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: "presence:windows",
-          windows: [
-            // Announces `tabs`: two of them are not chats at all, and one chat
-            // is not in `topicIds` — the two sets are answers to two different
-            // questions (delta routing vs. what the window holds).
             {
-              windowId: "e2e-tabful", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
+              windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
               topicIds: ["e2e-detached-topic"],
               tabs: [
                 { id: "e2e-detached-topic", type: "chat", title: "auth flow" },
                 { id: "terminal:e2e-cc", type: "terminal", title: "Claude Code" },
-                { id: "browser:e2e-b", type: "browser", title: "localhost:3000" },
               ],
             },
-            // Announces NO tabs (an older client): its row must fall back to the
-            // topics rather than render as an empty window.
-            { windowId: "e2e-legacy", clientId: "e2e-c2", detached: false, topicIds: ["e2e-main-topic"] },
           ],
         }));
       }, 1200);
     });
     await goToApp(page);
 
-    const section = page.getByTestId("sidebar-windows");
-    await expect(section).toBeVisible({ timeout: 10000 });
-    // 3 from the tab-announcing window + 1 from the fallback + whatever this
-    // window holds; the two that matter are the ones no chat-only list had.
+    // Con zero gruppi creati dall'utente la sezione si accende lo stesso,
+    // perché c'è una tab altrove: è la regressione da non introdurre
+    // togliendo "Finestre".
+    const section = page.getByTestId("sidebar-groups");
+    await expect(section, "the groups section renders when a tab lives elsewhere").toBeVisible({ timeout: 10000 });
+    await expect(section).toContainText("Gruppi");
+    await expect(section).toContainText("Principale");
     await expect(
-      section.locator('[data-testid="window-tab"][data-pane-type="terminal"]'),
-      "a terminal tab is part of the window it lives in",
-    ).toHaveCount(1);
-    await expect(
-      section.locator('[data-testid="window-tab"][data-pane-type="browser"]'),
-      "so is a browser tab",
-    ).toHaveCount(1);
-    await expect(section).toContainText("Claude Code");
-    await expect(section).toContainText("localhost:3000");
-    // The pre-`tabs` peer still lists something.
-    await expect(
-      section.locator('[data-testid="window-tab"]').filter({ hasText: "e2e-main-topic" }),
-      "a window that announced no tabs falls back to its topics",
-    ).toHaveCount(1);
+      page.getByTestId("sidebar-windows"),
+      "the old windows section is gone: a window is a detached group",
+    ).toHaveCount(0);
   });
 });
