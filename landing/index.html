@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Topics · the workspace for coding agents</title>
-  <meta name="description" content="An open, agent-first desktop workspace for Claude Code and CLI coding agents. Organize every session into focused topics, keep several projects open side by side, each with its own terminals, browser and context. The open alternative to Cursor and Warp." />
+  <meta name="description" content="An open, agent-first desktop workspace for Claude Code and CLI coding agents. Organize every session into focused topics, keep whole projects open side by side — terminals, browser, a Kanban board that dispatches agents into isolated worktrees, and the numbers that tell you what it cost. Free and open source." />
   <meta name="theme-color" content="#06080f" />
   <link rel="icon" type="image/png" href="./icon-64.png" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Topics · the workspace for coding agents" />
-  <meta property="og:description" content="Organize every Claude Code and CLI agent session into focused topics: terminals, browser and agent monitoring in one window — several projects side by side. Open. Fast. Yours." />
+  <meta property="og:description" content="Organize every Claude Code session into focused topics: terminals, browser, agent monitoring and an autonomous board in one window. Open. Fast. Yours." />
   <meta property="og:url" content="https://topics.armonia.io" />
   <meta property="og:image" content="https://topics.armonia.io/icon.png" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -29,12 +29,20 @@
       <symbol id="ic-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M12.5 4v16"/><path d="M12.5 12.5H21"/></symbol>
       <symbol id="ic-agents" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
       <symbol id="ic-open" viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4"/><path d="M15 8l5 4-5 4"/></symbol>
-      <symbol id="os-apple" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M17.05 12.04c-.03-2.85 2.33-4.22 2.44-4.28-1.33-1.95-3.4-2.22-4.13-2.25-1.76-.18-3.43 1.04-4.32 1.04-.89 0-2.26-1.02-3.72-.99-1.91.03-3.68 1.11-4.66 2.82-1.99 3.45-.51 8.56 1.43 11.36.95 1.37 2.08 2.91 3.56 2.86 1.43-.06 1.97-.92 3.7-.92 1.72 0 2.21.92 3.72.89 1.54-.03 2.51-1.4 3.45-2.78 1.09-1.59 1.54-3.13 1.56-3.21-.03-.01-2.99-1.15-3.02-4.55zM14.2 4.38c.79-.96 1.32-2.29 1.18-3.62-1.14.05-2.52.76-3.33 1.72-.73.85-1.37 2.2-1.2 3.5 1.27.1 2.57-.65 3.35-1.6z"/></symbol>
-      <symbol id="os-windows" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M3 5.5l7.6-1.04v7.04H3zM11.4 4.34L21 3v9.04h-9.6zM3 12.5h7.6v7.04L3 18.5zM11.4 12.5H21V21l-9.6-1.34z"/></symbol>
-      <symbol id="os-linux" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.2c-2.05 0-3.3 1.7-3.3 3.8 0 .95.18 1.55.18 2.35 0 1.05-1.4 2.05-2.1 3.55-.78 1.62-1.55 3.4-1.55 4.95 0 1 .62 1.6 1.55 1.6.6 0 1 .5 1.7.92.66.42 1.45.83 3.02.83s2.36-.41 3.02-.83c.7-.42 1.1-.92 1.7-.92.93 0 1.55-.6 1.55-1.6 0-1.55-.77-3.33-1.55-4.95-.7-1.5-2.1-2.5-2.1-3.55 0-.8.18-1.4.18-2.35 0-2.1-1.25-3.8-3.3-3.8z"/><circle cx="10.4" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><circle cx="13.6" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><path d="M11 8.7h2l-1 1.5z" fill="#f5b53d" stroke="none"/></symbol>
+      <symbol id="ic-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M15 4v16"/></symbol>
+      <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4M12.5 16V8M17 16v-6"/></symbol>
+      <symbol id="ic-git" viewBox="0 0 24 24"><circle cx="7" cy="6" r="2.4"/><circle cx="7" cy="18" r="2.4"/><circle cx="17" cy="12" r="2.4"/><path d="M7 8.4v7.2M9.4 6h3.2a2 2 0 0 1 2 2v1.8"/></symbol>
+      <symbol id="ic-files" viewBox="0 0 24 24"><path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h3.2l1.6 2h8.2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"/></symbol>
+      <symbol id="ic-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.1 3.5 3.5 0 0 0 7 18z"/></symbol>
+      <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11"/></symbol>
+      <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10" rx="2.2"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></symbol>
+      <symbol id="ic-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8 5.6v12.8l10-6.4z"/></symbol>
       <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 20h14"/></symbol>
       <symbol id="ic-star" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .6l3.668 7.43 8.2 1.193-5.934 5.784 1.401 8.168L12 18.9l-7.335 3.866 1.401-8.168L.132 9.223l8.2-1.193z"/></symbol>
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
+      <symbol id="os-apple" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M17.05 12.04c-.03-2.85 2.33-4.22 2.44-4.28-1.33-1.95-3.4-2.22-4.13-2.25-1.76-.18-3.43 1.04-4.32 1.04-.89 0-2.26-1.02-3.72-.99-1.91.03-3.68 1.11-4.66 2.82-1.99 3.45-.51 8.56 1.43 11.36.95 1.37 2.08 2.91 3.56 2.86 1.43-.06 1.97-.92 3.7-.92 1.72 0 2.21.92 3.72.89 1.54-.03 2.51-1.4 3.45-2.78 1.09-1.59 1.54-3.13 1.56-3.21-.03-.01-2.99-1.15-3.02-4.55zM14.2 4.38c.79-.96 1.32-2.29 1.18-3.62-1.14.05-2.52.76-3.33 1.72-.73.85-1.37 2.2-1.2 3.5 1.27.1 2.57-.65 3.35-1.6z"/></symbol>
+      <symbol id="os-windows" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M3 5.5l7.6-1.04v7.04H3zM11.4 4.34L21 3v9.04h-9.6zM3 12.5h7.6v7.04L3 18.5zM11.4 12.5H21V21l-9.6-1.34z"/></symbol>
+      <symbol id="os-linux" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.2c-2.05 0-3.3 1.7-3.3 3.8 0 .95.18 1.55.18 2.35 0 1.05-1.4 2.05-2.1 3.55-.78 1.62-1.55 3.4-1.55 4.95 0 1 .62 1.6 1.55 1.6.6 0 1 .5 1.7.92.66.42 1.45.83 3.02.83s2.36-.41 3.02-.83c.7-.42 1.1-.92 1.7-.92.93 0 1.55-.6 1.55-1.6 0-1.55-.77-3.33-1.55-4.95-.7-1.5-2.1-2.5-2.1-3.55 0-.8.18-1.4.18-2.35 0-2.1-1.25-3.8-3.3-3.8z"/><circle cx="10.4" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><circle cx="13.6" cy="7.1" r=".95" fill="#0a0e18" stroke="none"/><path d="M11 8.7h2l-1 1.5z" fill="#f5b53d" stroke="none"/></symbol>
     </defs>
   </svg>
 
@@ -57,9 +65,10 @@
         <span class="brand__name">Topics</span>
       </a>
       <nav class="nav__links" aria-label="Primary">
+        <a href="#demo">Demo</a>
         <a href="#features">Features</a>
-        <a href="#workspace">Workspace</a>
-        <a href="#changelog">Changelog</a>
+        <a href="#autonomy">Agents</a>
+        <a href="#pricing">Pricing</a>
         <a href="#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank"><svg class="ic ic--fill"><use href="#ic-gh"/></svg>GitHub</a>
       </nav>
@@ -80,7 +89,7 @@
       <div class="hero__inner">
         <a class="pill reveal" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
           <span class="pill__dot"></span>
-          <span id="pillRelease">v1.1 is out · macOS, Windows &amp; Linux</span>
+          <span id="pillRelease">macOS, Windows &amp; Linux</span>
           <span class="pill__arrow">→</span>
         </a>
         <h1 class="hero__title reveal" style="--d:1">
@@ -97,19 +106,85 @@
             <svg class="ic"><use href="#ic-dl"/></svg>
             <span id="primaryDownloadLabel">Download</span>
           </a>
-          <a class="btn btn--glass btn--lg" href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">
-            <svg class="ic ic--fill"><use href="#ic-gh"/></svg>
-            <span>Star on GitHub</span>
+          <a class="btn btn--glass btn--lg" href="#demo">
+            <svg class="ic ic--fill"><use href="#ic-play"/></svg>
+            <span>Try the live demo</span>
           </a>
         </div>
-        <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry</p>
+        <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry · bring your own keys</p>
       </div>
 
-      <!-- interactive product demo: the REAL Topics app, with generic sample data -->
-      <div class="showcase reveal" style="--d:5" id="workspace">
-        <div class="showcase__glow" aria-hidden="true"></div>
-        <div class="showcase__frame">
-          <iframe class="window-real" src="./app/index.html" title="Interactive Topics demo — explore the real app (terminals, browser, processes) with sample data" loading="lazy"></iframe>
+      <!-- ══ INTERACTIVE DEMO ══════════════════════════════════════════════
+           The frame below is the REAL Topics client, running in your browser
+           with mock data and no backend. The chapter buttons drive it through
+           its own UI; everything stays clickable. -->
+      <div class="demo reveal" style="--d:5" id="demo">
+        <div class="demo__head">
+          <div class="demo__intro">
+            <span class="eyebrow">live demo · not a video</span>
+            <h2 class="demo__title">Press a chapter. Watch the real app do it.</h2>
+            <p class="demo__lede">
+              This is the actual Topics client running in your browser — same bundle we ship,
+              with sample data instead of a backend. Pick a chapter and a pointer walks through
+              it, or just <strong>grab the mouse yourself</strong>: click any tab, drag any divider.
+              The tour steps aside the moment you do.
+            </p>
+          </div>
+          <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
+            <button class="chapter" data-scene="terminals" type="button">
+              <svg class="ic"><use href="#ic-terminal"/></svg>
+              <span class="chapter__name">Live terminals</span>
+              <span class="chapter__hint">Two Claude Code sessions, streaming</span>
+            </button>
+            <button class="chapter" data-scene="board" type="button">
+              <svg class="ic"><use href="#ic-board"/></svg>
+              <span class="chapter__name">Agent board</span>
+              <span class="chapter__hint">Queued → working → waiting on you</span>
+            </button>
+            <button class="chapter" data-scene="agents" type="button">
+              <svg class="ic"><use href="#ic-agents"/></svg>
+              <span class="chapter__name">Agent monitor</span>
+              <span class="chapter__hint">Who is live, for how long, at what cost</span>
+            </button>
+            <button class="chapter" data-scene="dashboard" type="button">
+              <svg class="ic"><use href="#ic-chart"/></svg>
+              <span class="chapter__name">Dashboard</span>
+              <span class="chapter__hint">Throughput, spend, leaderboard</span>
+            </button>
+            <button class="chapter" data-scene="browser" type="button">
+              <svg class="ic"><use href="#ic-browser"/></svg>
+              <span class="chapter__name">Browser pane</span>
+              <span class="chapter__hint">Your localhost, inside the window</span>
+            </button>
+            <button class="chapter" data-scene="git" type="button">
+              <svg class="ic"><use href="#ic-git"/></svg>
+              <span class="chapter__name">Git &amp; diffs</span>
+              <span class="chapter__hint">Review what the agent changed</span>
+            </button>
+            <button class="chapter" data-scene="files" type="button">
+              <svg class="ic"><use href="#ic-files"/></svg>
+              <span class="chapter__name">Files</span>
+              <span class="chapter__hint">Explorer, editor, search</span>
+            </button>
+            <button class="chapter" data-scene="workspace" type="button">
+              <svg class="ic"><use href="#ic-split"/></svg>
+              <span class="chapter__name">Projects side by side</span>
+              <span class="chapter__hint">Three projects, one window</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="showcase">
+          <div class="showcase__glow" aria-hidden="true"></div>
+          <div class="showcase__frame">
+            <iframe class="window-real" id="demoFrame" src="./app/index.html"
+                    title="Interactive Topics demo — the real app with sample data. Use the chapter buttons above, or interact with it directly."
+                    loading="lazy"></iframe>
+          </div>
+          <p class="demo__foot">
+            <span class="dot-live"></span>
+            <span id="demoStatus">Everything you see is clickable — this is the product, not a screenshot.</span>
+          </p>
         </div>
       </div>
     </section>
@@ -119,49 +194,187 @@
       <p class="strip__label">Built around the agents you already run</p>
       <div class="marquee" aria-hidden="true">
         <div class="marquee__track">
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span>
-          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span>
+          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span><span>MCP</span><span>·</span>
+          <span>Claude Code</span><span>·</span><span>Codex</span><span>·</span><span>Aider</span><span>·</span><span>any CLI agent</span><span>·</span><span>Anthropic API</span><span>·</span><span>OpenClaw</span><span>·</span><span>MCP</span><span>·</span>
         </div>
       </div>
     </section>
 
-    <!-- FEATURES -->
+    <!-- AUTONOMY — the multi-agent story -->
+    <section class="autonomy" id="autonomy">
+      <header class="section-head reveal">
+        <span class="eyebrow">multi-agent · ultracode</span>
+        <h2>Give it a board. Walk away.</h2>
+        <p>
+          Topics does not just watch agents work — it puts them to work. Drop a task on the board and an
+          agent picks it up in its own git worktree, so parallel agents never fight over your checkout.
+        </p>
+      </header>
+
+      <ol class="flow reveal">
+        <li class="flow__step">
+          <span class="flow__n">1</span>
+          <h3>You write the task</h3>
+          <p>What should happen, where to look, how it is verified. A vague task comes back vague.</p>
+        </li>
+        <li class="flow__step">
+          <span class="flow__n">2</span>
+          <h3>An agent takes it</h3>
+          <p>Dispatched into an <strong>isolated worktree</strong> on its own branch. Several agents run at once without collisions.</p>
+        </li>
+        <li class="flow__step">
+          <span class="flow__n">3</span>
+          <h3>It delivers evidence</h3>
+          <p>Committed work, a summary, and a screenshot or video of the thing actually working — then it moves itself to review.</p>
+        </li>
+        <li class="flow__step">
+          <span class="flow__n">4</span>
+          <h3>You approve</h3>
+          <p>Read the diff, approve, land it into main. Publishing is always a separate, deliberate click — never automatic.</p>
+        </li>
+      </ol>
+
+      <div class="claims reveal">
+        <article class="claim">
+          <h3><svg class="ic"><use href="#ic-agents"/></svg> Every session starts in ultracode</h3>
+          <p>
+            Launched from a plain shell, Claude Code falls back to <code>low</code> effort. Topics passes
+            <code>--effort</code> explicitly, so sessions start at the top tier — with a per-topic
+            selector when you want to spend less on a small job.
+          </p>
+        </article>
+        <article class="claim">
+          <h3><svg class="ic"><use href="#ic-open"/></svg> Sub-agents stay visible</h3>
+          <p>
+            When an agent spawns its own fleet, the children show up in the session tree instead of
+            vanishing into a pipe. You can see what each one is doing and what it is spending.
+          </p>
+        </article>
+        <article class="claim">
+          <h3><svg class="ic"><use href="#ic-lock"/></svg> Nothing lands behind your back</h3>
+          <p>
+            Approve accepts the work. Landing merges it locally. Publishing pushes. Three separate
+            decisions, three separate clicks — because "done" should mean you said so.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- FEATURES — the full map -->
     <section class="features" id="features">
       <header class="section-head reveal">
         <span class="eyebrow">one window, every surface</span>
         <h2>Everything an agent session needs, side by side.</h2>
         <p>No tab-juggling, no lost context. Each topic carries its own project, terminals and browser.</p>
       </header>
-      <div class="bento">
-        <article class="card card--wide reveal">
-          <div class="card__icon i-blue"><svg class="ic"><use href="#ic-topics"/></svg></div>
-          <h3>Topics, not tabs</h3>
-          <p>Group related agent sessions by project or intent. Switch context in one keystroke; every topic remembers its terminal, files and conversation.</p>
+
+      <div class="fmap">
+        <article class="fgroup reveal">
+          <header class="fgroup__head">
+            <div class="card__icon i-blue"><svg class="ic"><use href="#ic-topics"/></svg></div>
+            <div>
+              <h3>Organize</h3>
+              <p>Structure that survives a restart — and a second machine.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>Topics, not tabs</b> — group sessions by project or intent; each remembers its terminal, files and conversation.</li>
+            <li><b>Projects side by side</b> — several whole projects open at once in a resizable split grid.</li>
+            <li><b>Spaces &amp; split panes</b> — split any pane, drag tabs between groups, detach a window.</li>
+            <li><b>Layout that persists</b> — panes, splits and tabs come back exactly as you left them.</li>
+            <li><b>Tab sync across devices</b> — open the same workspace on another machine and find it in the same shape.</li>
+            <li><b>Command palette &amp; shortcuts</b> — everything reachable from the keyboard, including reopen-closed-tab.</li>
+          </ul>
         </article>
-        <article class="card reveal">
-          <div class="card__icon i-teal"><svg class="ic"><use href="#ic-terminal"/></svg></div>
-          <h3>Live terminal</h3>
-          <p>Run Claude Code, Codex or any CLI agent in an embedded terminal and watch it work in real time.</p>
+
+        <article class="fgroup reveal">
+          <header class="fgroup__head">
+            <div class="card__icon i-teal"><svg class="ic"><use href="#ic-terminal"/></svg></div>
+            <div>
+              <h3>Run</h3>
+              <p>The agent, the server and the page it renders — in one place.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>Embedded terminals</b> — run Claude Code, Codex or any CLI agent and watch it work.</li>
+            <li><b>Lossless reattach</b> — reload the app, close the laptop: the session is still there, scrollback intact.</li>
+            <li><b>Browser pane</b> — a real browser per topic for localhost, docs, or letting the agent drive the page.</li>
+            <li><b>Processes &amp; scripts</b> — start <code>dev</code>, <code>test</code>, <code>build</code> from the sidebar and keep their logs.</li>
+            <li><b>Git worktrees</b> — isolated checkouts per task, named and garbage-collected for you.</li>
+            <li><b>Cron jobs &amp; webhooks</b> — recurring work and outside triggers, without leaving the app.</li>
+          </ul>
         </article>
-        <article class="card reveal">
-          <div class="card__icon i-violet"><svg class="ic"><use href="#ic-browser"/></svg></div>
-          <h3>Browser inside</h3>
-          <p>A real Chromium pane per topic. Preview localhost, read docs, let agents drive the page.</p>
+
+        <article class="fgroup reveal">
+          <header class="fgroup__head">
+            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-chart"/></svg></div>
+            <div>
+              <h3>See</h3>
+              <p>What the agents are doing, and what it is costing you.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>Agent monitoring</b> — every session's state at a glance, with a native notification when one finishes or needs you.</li>
+            <li><b>Heartbeats &amp; history</b> — a timeline per session, and a viewer to read back what happened.</li>
+            <li><b>Context inspector</b> — see what is filling the window, toggle sources, edit per-topic memory.</li>
+            <li><b>Dashboard</b> — throughput, cycle time, token spend and an agent leaderboard.</li>
+            <li><b>Per-pane resource usage</b> — which tab is eating your RAM, not just how much the app uses.</li>
+            <li><b>Activity feed &amp; journal</b> — a live stream of what happened, and a daily digest.</li>
+          </ul>
         </article>
-        <article class="card card--wide reveal">
-          <div class="card__icon i-blue"><svg class="ic"><use href="#ic-split"/></svg></div>
-          <h3>Projects side by side</h3>
-          <p>Keep several projects open at once in a resizable split grid — each window with its own sessions and context.</p>
+
+        <article class="fgroup reveal">
+          <header class="fgroup__head">
+            <div class="card__icon i-blue"><svg class="ic"><use href="#ic-board"/></svg></div>
+            <div>
+              <h3>Ship</h3>
+              <p>From a card on a board to a commit on main.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>Kanban board</b> — tasks, subtasks, priorities, tags, dependencies and drag-drop.</li>
+            <li><b>Agent dispatch</b> — assign a card to an agent and it starts working, in its own worktree.</li>
+            <li><b>Approval workflow</b> — review gates, delivery evidence, reject-with-notes that sends the agent back.</li>
+            <li><b>Diff review</b> — read the change in-app before you accept it.</li>
+            <li><b>File explorer &amp; editor</b> — tree, search, syntax-highlighted editing and git status inline.</li>
+            <li><b>Land, then publish</b> — merge locally when you are ready; pushing stays a separate decision.</li>
+          </ul>
         </article>
-        <article class="card reveal">
-          <div class="card__icon i-teal"><svg class="ic"><use href="#ic-agents"/></svg></div>
-          <h3>Agent monitoring</h3>
-          <p>See every session's state at a glance, and get a native notification the moment an agent finishes or needs you.</p>
+
+        <article class="fgroup reveal fgroup--pro">
+          <header class="fgroup__head">
+            <div class="card__icon i-teal"><svg class="ic"><use href="#ic-cloud"/></svg></div>
+            <div>
+              <h3>Reach <span class="tag tag--pro">Pro</span></h3>
+              <p>The same workspace, from somewhere else.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>Mobile &amp; PWA</b> — check on a running agent from your phone.</li>
+            <li><b>Remote access</b> — reach your workspace over a tunnel, with your own auth in front.</li>
+            <li><b>Remote browser &amp; co-browse</b> — watch and drive the agent's browser from another device.</li>
+            <li><b>Cross-device sync</b> — sessions and layout follow you between machines.</li>
+            <li><b>Shared boards <span class="tag tag--team">Team</span></b> — one board, several people, several machines.</li>
+          </ul>
+          <p class="fgroup__note">Everything above this card runs on your machine and is free forever. This group is what we host for you — see <a href="#pricing">pricing</a>.</p>
         </article>
-        <article class="card card--wide reveal">
-          <div class="card__icon i-violet"><svg class="ic"><use href="#ic-open"/></svg></div>
-          <h3>Open and yours</h3>
-          <p>MIT-licensed, local-first, zero telemetry. Bring your own keys and your own agents. Everything runs on your machine.</p>
+
+        <article class="fgroup reveal">
+          <header class="fgroup__head">
+            <div class="card__icon i-violet"><svg class="ic"><use href="#ic-open"/></svg></div>
+            <div>
+              <h3>Own</h3>
+              <p>Your machine, your keys, your data.</p>
+            </div>
+          </header>
+          <ul class="flist">
+            <li><b>MIT licensed</b> — read it, fork it, ship it.</li>
+            <li><b>Local-first</b> — conversations and project data live on your disk.</li>
+            <li><b>No telemetry</b> — nothing phones home.</li>
+            <li><b>Bring your own keys</b> — Anthropic API, an OpenClaw gateway, or your existing subscription through the CLI.</li>
+            <li><b>MCP built in</b> — the same tools your agents already use.</li>
+            <li><b>Native shells</b> — a small Tauri app, not a browser pretending to be one.</li>
+          </ul>
         </article>
       </div>
     </section>
@@ -180,6 +393,101 @@
           <div><b>Open source</b><span>MIT, on GitHub</span></div>
           <div><b>Local-first</b><span>no cloud, no telemetry</span></div>
           <div><b>Any agent</b><span>your keys, your CLI</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRICING -->
+    <section class="pricing" id="pricing">
+      <header class="section-head reveal">
+        <span class="eyebrow">pricing</span>
+        <h2>The app is free. Forever.</h2>
+        <p>
+          Everything that runs on your machine — every agent, every terminal, the whole board — costs nothing
+          and always will. You pay us only for the things we have to run for you: syncing your workspace
+          between machines, reaching it from your phone, and sharing it with a team.
+        </p>
+      </header>
+
+      <div class="plans">
+        <article class="plan reveal">
+          <header class="plan__head">
+            <h3>Free</h3>
+            <p class="plan__price"><span class="plan__amount">€0</span><span class="plan__per">forever</span></p>
+            <p class="plan__for">The whole product, on your machine.</p>
+          </header>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited topics, projects and split panes</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited terminals and agent sessions</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Kanban board with agent dispatch + worktrees</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Agent monitoring, dashboard and context inspector</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Browser pane, git, files, processes, cron</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your own keys — we never sit between you and Anthropic</li>
+          </ul>
+          <a class="btn btn--glass btn--block" id="planFreeCta" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
+            <svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span>
+          </a>
+          <p class="plan__fine">MIT licensed. No account required.</p>
+        </article>
+
+        <article class="plan plan--feature reveal">
+          <span class="plan__badge">Founding price</span>
+          <header class="plan__head">
+            <h3>Pro</h3>
+            <p class="plan__price"><span class="plan__amount">€9</span><span class="plan__per">/ month</span></p>
+            <p class="plan__for">Your workspace, wherever you are.</p>
+          </header>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Free</b>, plus:</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Cloud sync — topics, layout and history across machines</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access — reach your workspace from anywhere</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Mobile &amp; PWA — check on a running agent from your phone</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote browser &amp; co-browse from another device</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Push notifications when an agent finishes or needs you</li>
+          </ul>
+          <a class="btn btn--primary btn--block" data-checkout="pro" href="#pricing">
+            <span>Get Pro</span>
+          </a>
+          <p class="plan__fine">Cancel any time. The app keeps working without it.</p>
+        </article>
+
+        <article class="plan reveal">
+          <header class="plan__head">
+            <h3>Team</h3>
+            <p class="plan__price"><span class="plan__amount">€19</span><span class="plan__per">/ seat / month</span></p>
+            <p class="plan__for">One board, several people.</p>
+          </header>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Pro</b>, for every seat</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared boards across people and machines</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Roles and approval permissions</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A fleet view of who is running what, where</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Shared agent profiles and board settings</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Priority support</li>
+          </ul>
+          <a class="btn btn--glass btn--block" data-checkout="team" href="#pricing">
+            <span>Get Team</span>
+          </a>
+          <p class="plan__fine">No seat minimum.</p>
+        </article>
+      </div>
+
+      <div class="pricing__faq reveal">
+        <div>
+          <h4>Is the free version crippled?</h4>
+          <p>No. The board, the agents, the worktrees, the dashboard — all of it is in the free app, under MIT. If you only ever work on one machine, there is nothing here to buy.</p>
+        </div>
+        <div>
+          <h4>Do I pay you for tokens?</h4>
+          <p>Never. Topics talks to Anthropic with <em>your</em> key or <em>your</em> subscription, and that bill stays between you and them. We do not resell inference or take a cut.</p>
+        </div>
+        <div>
+          <h4>What happens if I stop paying?</h4>
+          <p>The app keeps working. You lose sync and remote access; every topic, board and terminal stays on your disk exactly as it was.</p>
+        </div>
+        <div>
+          <h4>Can I self-host the Pro features?</h4>
+          <p>Remote access already works with your own tunnel and your own auth — that path is open source and free. Pro is the hosted version for people who would rather not run it.</p>
         </div>
       </div>
     </section>
@@ -228,7 +536,6 @@
         </article>
       </div>
       <p class="dl-note reveal">
-        macOS builds are currently unsigned, so on first launch right-click the app and choose <b>Open</b>.
         See every asset and checksum on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.
       </p>
     </section>
@@ -238,7 +545,9 @@
     <div class="footer__inner">
       <div class="footer__brand"><img src="./icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
+        <a href="#demo">Demo</a>
         <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
         <a href="./changelog.html">Changelog</a>
         <a href="#download">Download</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>

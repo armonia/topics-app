@@ -1,0 +1,35 @@
+{
+  // ─────────────────────────────────────────────────────────────────────────
+  // topics.armonia.io — the marketing site, deployed FROM THIS REPO.
+  //
+  // Why this file exists: the site used to be served by a Worker created in the
+  // Cloudflare dashboard that served `landing/` pinned to a hard-coded commit
+  // SHA. Nothing in the repo referenced it and nothing bumped the pin, so the
+  // published site silently froze at b1f87064 (2026-06-12) while main moved
+  // 1793 commits ahead — the hero still advertised v1.1 during v2.2, and
+  // /changelog.html, added in July, returned 404 for anyone who clicked it.
+  //
+  // A pin nobody owns will always drift. So the deploy now lives next to the
+  // thing it deploys: `bun run deploy:landing` uploads whatever is in
+  // `landing/` right now, and the version that ships is the version you can
+  // read in git.
+  //
+  // The demo under landing/app/ is a BUILD ARTIFACT (client → vite.landing.
+  // config.ts). Rebuild it with `bun run build:landing` from client/ before
+  // deploying if the client changed, or the site ships a stale demo.
+  // ─────────────────────────────────────────────────────────────────────────
+  "name": "topics-landing",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./landing",
+    // `/changelog` → changelog.html, matching the `cleanUrls` the site was
+    // written against.
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // Deploys land on <name>.<subdomain>.workers.dev so a build can be checked
+  // before it is the public site. Pointing topics.armonia.io here is a separate,
+  // deliberate step (Workers → topics-landing → Domains & Routes), because
+  // taking over a live domain should not be a side effect of a deploy.
+  "workers_dev": true
+}

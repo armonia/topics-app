@@ -7,7 +7,12 @@
 :root {
   --bg:#05070e; --bg-2:#080b16; --surface:#0c1322; --surface-2:#101a2e;
   --glass:hsl(222 38% 11% / .55); --glass-2:hsl(222 40% 14% / .42);
-  --text:#e9eefc; --text-dim:#9aa6c6; --text-faint:#5d6b8f;
+  /* --text-faint was #5d6b8f, which lands at 3.8:1 on --bg — under the 4.5:1
+     WCAG floor for body text, and axe flagged every label using it (the demo
+     caption, the works-with label, the chapter hints, the plan footnotes).
+     #7c89a8 measures ~5.3:1 and still reads clearly dimmer than --text-dim
+     (~8:1), so the three-step hierarchy survives while the text stays legible. */
+  --text:#e9eefc; --text-dim:#9aa6c6; --text-faint:#7c89a8;
   --border:hsl(220 40% 60% / .12); --border-2:hsl(220 50% 70% / .2);
   --blue:#4d7cff; --blue-2:#5e9bff; --violet:#8b6cff; --teal:#22d3ee; --amber:#f5b53d; --green:#34e2a0;
   --grad:linear-gradient(110deg,var(--blue) 0%,var(--violet) 45%,var(--teal) 100%);
@@ -188,8 +193,14 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .footer__brand{display:flex;align-items:center;gap:9px;font-weight:600}
 .footer__links{display:flex;gap:22px;flex-wrap:wrap}
 .footer__links a{color:var(--text-dim);font-size:.9rem;transition:color .2s}.footer__links a:hover{color:var(--text)}
-.footer__fine{margin-top:26px;color:var(--text-faint);font-size:.82rem}.footer__fine a{color:var(--text-dim)}
-.footer__disc{margin-top:6px;opacity:.7;max-width:640px}
+.footer__fine{margin-top:26px;color:var(--text-faint);font-size:.82rem}
+/* Underlined, not merely tinted: the colour difference against the surrounding
+   fine print is only 2.17:1, so colour alone did not mark it as a link. */
+.footer__fine a{color:var(--text-dim);text-decoration:underline;text-underline-offset:2px}
+/* `opacity:.7` on already-faint text dropped this legal line to 3.3:1. It is a
+   disclaimer — the one paragraph that must stay readable — so it keeps the
+   token's own colour and earns its quietness from size and position instead. */
+.footer__disc{margin-top:6px;max-width:640px}
 
 /* ───────── changelog ───────── */
 .changelog{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
@@ -218,6 +229,127 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .reveal.in{opacity:1;transform:none}
 
 /* ───────── responsive ───────── */
+/* ───────── interactive demo (chapters + stage) ───────── */
+.demo{max-width:1200px;margin:64px auto 0;padding:0 24px}
+.demo__head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:34px;align-items:start;margin-bottom:26px;text-align:left}
+.demo__intro h2.demo__title{font-family:var(--display);font-size:clamp(1.6rem,2.2vw + .6rem,2.25rem);letter-spacing:-.03em;line-height:1.1;margin:12px 0 12px;font-weight:600}
+.demo__lede{color:var(--text-dim);font-size:.98rem;max-width:46ch}
+.demo__lede strong{color:var(--text)}
+
+/* The chapter rail. Two columns of real buttons: each one asks the embedded app
+   to play a scene, and the app answers by switching a REAL pane. */
+.chapters{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.chapter{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;row-gap:2px;
+  padding:11px 13px;border-radius:12px;text-align:left;cursor:pointer;color:var(--text);
+  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  font-family:inherit;transition:border-color .22s,background .22s,transform .18s var(--ease)}
+.chapter .ic{grid-row:1 / span 2;align-self:center;width:17px;height:17px;color:var(--text-faint);transition:color .22s}
+.chapter__name{font-size:.9rem;font-weight:560;letter-spacing:-.01em}
+.chapter__hint{font-size:.775rem;color:var(--text-faint);line-height:1.35}
+.chapter:hover{transform:translateY(-2px);border-color:var(--border-2);background:var(--glass)}
+.chapter:hover .ic{color:var(--blue-2)}
+.chapter:focus-visible{outline:2px solid var(--blue-2);outline-offset:2px}
+.chapter.is-active{border-color:hsl(225 90% 70% / .5);background:hsl(225 80% 55% / .13)}
+.chapter.is-active .ic{color:var(--blue-2)}
+.chapter.is-active .chapter__name{color:#fff}
+/* While a chapter plays, a hairline creeps along the top edge of its button. */
+.chapter.is-active::after{content:"";position:absolute;left:11px;right:11px;top:0;height:2px;border-radius:2px;background:var(--grad)}
+.chapter{position:relative}
+
+/* The stage sits FLAT. The old landing tilted this frame 6°, which suited a
+   screenshot; it is now a live app asking to be clicked, and a tilted plane
+   reads as "display case, do not touch". */
+.demo .showcase{margin-top:0}
+.demo .showcase__frame{transform:none;aspect-ratio:16/9.6}
+.demo__foot{display:flex;align-items:center;gap:9px;justify-content:center;margin-top:16px;
+  font-size:.83rem;color:var(--text-faint);font-family:var(--mono)}
+
+/* ───────── autonomy / multi-agent ───────── */
+.autonomy{position:relative;max-width:var(--maxw);margin:120px auto 0;padding:0 24px}
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;list-style:none;counter-reset:none}
+.flow__step{position:relative;padding:22px 20px;border-radius:16px;
+  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border)}
+.flow__n{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;margin-bottom:13px;
+  font-family:var(--mono);font-size:.8rem;color:var(--blue-2);background:hsl(225 80% 60% / .16);border:1px solid var(--border-2)}
+.flow__step h3{font-size:1.02rem;letter-spacing:-.02em;margin-bottom:7px}
+.flow__step p{color:var(--text-dim);font-size:.9rem;line-height:1.55}
+.flow__step strong{color:var(--text)}
+/* Connector between the steps — the loop reads left to right. */
+.flow__step:not(:last-child)::after{content:"";position:absolute;top:34px;right:-14px;width:14px;height:1px;background:var(--border-2);z-index:1}
+
+.claims{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:34px}
+.claim{padding:24px;border-radius:16px;background:hsl(222 40% 9% / .34);border:1px solid var(--border)}
+.claim h3{display:flex;align-items:center;gap:9px;font-size:1rem;letter-spacing:-.02em;margin-bottom:9px}
+.claim h3 .ic{width:17px;height:17px;color:var(--blue-2);flex:none}
+.claim p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
+/* Horizontal padding only: vertical padding on an inline <code> paints outside
+   the line box, so two of them on consecutive wrapped lines visibly collide on
+   a narrow screen (measured: 31×18px of overlap at 390px wide). */
+/* `white-space:nowrap`: these are short identifiers (`--effort`, `low`), and a
+   flag broken across two lines reads as two different flags. It also stops the
+   wrapped inline box from spanning both lines, which the geometry audit
+   correctly reported as one <code> rectangle swallowing another. */
+.claim code{font-family:var(--mono);font-size:.84em;padding:0 5px;border-radius:5px;background:hsl(225 60% 60% / .12);color:var(--text);white-space:nowrap}
+.claim p{line-height:1.7}
+
+/* ───────── feature map ───────── */
+.fmap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.fgroup{position:relative;padding:26px 24px;border-radius:18px;overflow:hidden;
+  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
+.fgroup:hover{transform:translateY(-3px);box-shadow:0 22px 54px -24px rgb(0 0 0 / .85);border-color:var(--border-2)}
+.fgroup__head{display:flex;gap:14px;align-items:flex-start;margin-bottom:18px}
+.fgroup__head .card__icon{margin-bottom:0;flex:none;width:40px;height:40px}
+.fgroup__head h3{display:flex;align-items:center;gap:8px;font-size:1.16rem;letter-spacing:-.02em;margin-bottom:3px}
+.fgroup__head p{color:var(--text-faint);font-size:.86rem;line-height:1.45}
+.flist{list-style:none;display:grid;gap:10px}
+.flist li{position:relative;padding-left:16px;color:var(--text-dim);font-size:.895rem;line-height:1.55}
+.flist li::before{content:"";position:absolute;left:0;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--border-2)}
+.flist b{color:var(--text);font-weight:560}
+.flist code{font-family:var(--mono);font-size:.84em;padding:0 4px;border-radius:4px;background:hsl(225 60% 60% / .12);white-space:nowrap}
+.fgroup--pro{border-color:hsl(187 70% 55% / .28)}
+.fgroup__note{margin-top:16px;padding-top:14px;border-top:1px solid var(--border);color:var(--text-faint);font-size:.82rem;line-height:1.5}
+.fgroup__note a{color:var(--blue-2);text-decoration:underline;text-underline-offset:2px}
+.tag{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:5px;vertical-align:middle}
+.tag--pro{color:var(--teal);background:hsl(187 80% 55% / .15);border:1px solid hsl(187 70% 55% / .3)}
+.tag--team{color:var(--violet);background:hsl(258 80% 68% / .15);border:1px solid hsl(258 70% 68% / .3)}
+
+/* ───────── pricing ───────── */
+.pricing{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
+.pricing::before{content:"";position:absolute;inset:-60px 0 auto;height:420px;z-index:-1;pointer-events:none;
+  background:radial-gradient(60% 100% at 50% 0,hsl(190 70% 40% / .1),transparent 70%)}
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+.plan{position:relative;display:flex;flex-direction:column;padding:28px 26px;border-radius:18px;
+  background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.plan--feature{border-color:hsl(225 90% 70% / .38);box-shadow:0 22px 60px -30px hsl(225 100% 55% / .55)}
+.plan__badge{position:absolute;top:-10px;left:26px;font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
+  text-transform:uppercase;padding:4px 9px;border-radius:6px;color:#fff;background:linear-gradient(180deg,var(--blue-2),var(--blue))}
+.plan__head{margin-bottom:20px}
+.plan__head h3{font-family:var(--display);font-size:1.3rem;letter-spacing:-.02em;margin-bottom:10px}
+.plan__price{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
+.plan__amount{font-family:var(--display);font-size:2.5rem;font-weight:600;letter-spacing:-.04em;line-height:1}
+.plan__per{color:var(--text-faint);font-size:.88rem}
+.plan__for{color:var(--text-dim);font-size:.9rem}
+.plan__list{list-style:none;display:grid;gap:11px;margin-bottom:24px;flex:1}
+.plan__list li{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;color:var(--text-dim);font-size:.88rem;line-height:1.5}
+.plan__list .ic{color:var(--green);margin-top:.28em}
+.plan__list b{color:var(--text);font-weight:560}
+.btn--block{width:100%}
+.plan__fine{margin-top:11px;text-align:center;color:var(--text-faint);font-size:.78rem}
+.pricing__faq{display:grid;grid-template-columns:repeat(2,1fr);gap:26px 40px;margin-top:56px;
+  padding-top:38px;border-top:1px solid var(--border)}
+.pricing__faq h4{font-size:.98rem;letter-spacing:-.015em;margin-bottom:7px}
+.pricing__faq p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
+.pricing__faq em{color:var(--text);font-style:normal;font-weight:560}
+
+@media (max-width:1000px){
+  .demo__head{grid-template-columns:1fr;gap:22px}
+  .flow{grid-template-columns:1fr 1fr}
+  .flow__step:nth-child(2)::after{display:none}
+  .claims,.fmap,.plans{grid-template-columns:1fr 1fr}
+}
 @media (max-width:900px){
   .nav__links{display:none}
   .bento,.dl-grid{grid-template-columns:1fr 1fr}
@@ -230,6 +362,22 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 }
 @media (max-width:600px){
   .hero{padding-top:26px}.bento,.dl-grid{grid-template-columns:1fr}.card--wide{grid-column:span 1}
+  .demo{padding:0 16px}
+  .chapters{grid-template-columns:1fr}
+  .chapter__hint{display:none}          /* the name alone carries it on a phone */
+  .flow,.claims,.fmap,.plans,.pricing__faq{grid-template-columns:1fr}
+  .flow__step::after{display:none}
+  /* A 16:9 stage on a phone is a letterbox of unreadable UI. Give it height and
+     render the app at a smaller logical viewport so text stays legible. */
+  .demo .showcase__frame{--demo-scale:.85;aspect-ratio:3/4}
+  .demo__foot{font-size:.76rem;text-align:center}
+  /* Touch targets: the nav buttons measured 40px and the release pill 35px,
+     both under the 44px minimum for a finger. Height only — the labels and the
+     layout are unchanged. */
+  .nav__cta .btn--sm{min-height:44px}
+  .pill{min-height:44px}
+  .brand{min-height:44px}
+  .chapter{min-height:44px}
   .dl-card.is-primary{grid-column:span 1}
   .footer__inner{flex-direction:column;align-items:flex-start}
   .dl-card.is-primary .dl-card__icon::after{display:none}

@@ -1,5 +1,382 @@
 [
   {
+    "version": "2.2.11",
+    "date": "2026-08-04",
+    "sections": {
+      "new": [
+        {
+          "text": "sidebar and tabs say how long it has been working, or how long since it finished",
+          "scope": "timing"
+        },
+        {
+          "text": "stores the MODEL per message and repairs history that was inflated 3x",
+          "scope": "costs"
+        },
+        {
+          "text": "every tab has its own permalink /tab/<type>/<key>, copyable and resolvable",
+          "scope": "tab"
+        },
+        {
+          "text": "native AskUserQuestion panel over the MCP bridge",
+          "scope": "chat"
+        },
+        {
+          "text": "import_chrome now reads from Dia, Arc and Chromium too",
+          "scope": "browser"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "on every launch the app re-announced every chat that had already finished",
+          "scope": "notifications"
+        },
+        {
+          "text": "prices were stuck on retired models, and the bill came out three times too high",
+          "scope": "costs"
+        },
+        {
+          "text": "SessionActivity subscribed to the clock even for idle rows",
+          "scope": "perf"
+        },
+        {
+          "text": "stop adding up costs we know are wrong as if they were money",
+          "scope": "dashboard"
+        },
+        {
+          "text": "in split view it vanished from the cell you were NOT looking at as well",
+          "scope": "badge"
+        },
+        {
+          "text": "a model with no price, and a refused park, are now visible",
+          "scope": "observability"
+        },
+        {
+          "text": "on mobile, no card text below 12px",
+          "scope": "board"
+        },
+        {
+          "text": "responsive top bar on mobile, and no more double scrollbar on the columns",
+          "scope": "board"
+        },
+        {
+          "text": "a column keeps ONE scrollbar (standard thin) and no longer blanks the indicator",
+          "scope": "board"
+        },
+        {
+          "text": "one identity per pane, and a broken pane no longer takes the window down",
+          "scope": "layout"
+        },
+        {
+          "text": "the panel survives a human getting up from the desk",
+          "scope": "ask-user"
+        },
+        {
+          "text": "replaces the short-legged long-poll: the socket cannot hold through idle minutes",
+          "scope": "ask-user"
+        },
+        {
+          "text": "don't report open-project/create-project as ok when bind fails",
+          "scope": "topics"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.10",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "macOS ships LibreSSL as openssl, and it does not know `-legacy`",
+          "scope": "release"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.9",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "macOS signing needs TRUST as well, not just the key",
+          "scope": "release"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.8",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [
+        {
+          "text": "a DEDICATED, stable signing identity for Topics, with no Apple subscription",
+          "scope": "signing"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.7",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a forever «Reconnecting…» was an UNPAIRED device",
+          "scope": "pairing"
+        },
+        {
+          "text": "a MISSING macOS certificate must not throw away the entire release",
+          "scope": "release"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.6",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "aligns playwright-core, and tests that require an environment now say so",
+          "scope": "ci"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.5",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the test read a global it never reset, and `check` was missing Chromium",
+          "scope": "ci"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.4",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "realigns the client lockfile, and catches the red BEFORE CI does",
+          "scope": "ci"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.3",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [
+        {
+          "text": "/compact becomes a command, not just an emergency button",
+          "scope": "chat"
+        },
+        {
+          "text": "«Compact now» in the context ring as well",
+          "scope": "chat"
+        },
+        {
+          "text": "/compact has a real UI, not the generic spinner of a stuck turn",
+          "scope": "chat"
+        },
+        {
+          "text": "parks idle agent sessions, and brings them back on their own",
+          "scope": "terminal"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "the code that steals focus no longer ships in the release binary",
+          "scope": "shell"
+        },
+        {
+          "text": "a server restart no longer serves the old shell from cache",
+          "scope": "sw"
+        },
+        {
+          "text": "rotating a token no longer kills a live agent by mistake",
+          "scope": "agents"
+        },
+        {
+          "text": "the banner fired while you were LOOKING at the terminal",
+          "scope": "notifications"
+        },
+        {
+          "text": "quotes the wrapper path, and REPAIRS the ones already written wrong",
+          "scope": "hooks"
+        },
+        {
+          "text": "/boot.js answered 404 — the PWA had stopped registering the service worker",
+          "scope": "web"
+        },
+        {
+          "text": "the theme was NEVER saved to the server",
+          "scope": "ui-state"
+        },
+        {
+          "text": "«this project has no icon» is not an error, it is a 204",
+          "scope": "icons"
+        },
+        {
+          "text": "the first theme click after load was not saved",
+          "scope": "ui-state"
+        },
+        {
+          "text": "the visual review claimed 9 screenshots and delivered 7",
+          "scope": "evidence"
+        },
+        {
+          "text": "a terminal tab's 'opencode' type vanished on every hydration",
+          "scope": "pane"
+        },
+        {
+          "text": "the poll resurrected DURING unmount — one immortal orphan timer per cycle",
+          "scope": "scripts"
+        },
+        {
+          "text": "three package.json scripts crashed with ENOENT",
+          "scope": "spec-flow"
+        },
+        {
+          "text": "drops a model picker from the CommandMenu that was LYING",
+          "scope": "chat"
+        },
+        {
+          "text": "on a stalled gateway it finalized an EMPTY message without saying so",
+          "scope": "regenerate"
+        },
+        {
+          "text": "two hand-written type lists left it out",
+          "scope": "opencode"
+        },
+        {
+          "text": "the «don't use the thin context on a lost conversation» guard NEVER fired",
+          "scope": "resume"
+        },
+        {
+          "text": "«1000K» — five copies of formatTokens, three got the million boundary wrong",
+          "scope": "token"
+        },
+        {
+          "text": "a ref of nothing but disallowed characters bound the topic to the workspace ROOT",
+          "scope": "security"
+        },
+        {
+          "text": "the suite wiped PRODUCTION browser logins on every run",
+          "scope": "e2e"
+        },
+        {
+          "text": "the native webview stayed painted over the app after the tab was closed",
+          "scope": "browser"
+        },
+        {
+          "text": "regenerates the embedded manifest — migration 074 was missing",
+          "scope": "db"
+        },
+        {
+          "text": "a NATIVE pane left a ghost headless Chromium running",
+          "scope": "browser"
+        },
+        {
+          "text": "⌘W closed the tab here and left it open on the phone",
+          "scope": "browser"
+        },
+        {
+          "text": "no Browser in the «+» menu of a pop-out window",
+          "scope": "browser"
+        },
+        {
+          "text": "the context DELETE was CANCELLED when it fired during unload",
+          "scope": "browser"
+        },
+        {
+          "text": "the webview is born a child of the host window, not always of main",
+          "scope": "browser"
+        },
+        {
+          "text": "11 of 13 findings from the lifecycle audit — session, orphan contexts, vacuous tests",
+          "scope": "browser"
+        },
+        {
+          "text": "the ghost context dies when NOBODY is watching it, not only when I created it",
+          "scope": "browser"
+        },
+        {
+          "text": "UNDO_CLOSE no longer leaves a ghost pane — but the E2E red has another cause",
+          "scope": "pane"
+        },
+        {
+          "text": "the status-bar CPU was the processes' LIFETIME average, not the current one",
+          "scope": "perf"
+        },
+        {
+          "text": "dead background shells sweep their orphaned children instead of leaving them alive",
+          "scope": "processes"
+        },
+        {
+          "text": "the «Project» tab stayed blue on a chat that had already been read",
+          "scope": "attention"
+        },
+        {
+          "text": "a CLOSED chat kept the project lit, and there was no way to turn it off",
+          "scope": "attention"
+        },
+        {
+          "text": "browserState was a DEAD write — now it has a column",
+          "scope": "browser"
+        }
+      ],
+      "perf": [
+        {
+          "text": "the missing index on messages(timestamp) — 19 ms to 0.2 ms on the KPIs",
+          "scope": "db"
+        },
+        {
+          "text": "the orphan-tool cleanup no longer scans the whole history",
+          "scope": "boot"
+        },
+        {
+          "text": "scrolling a chat redrew App and the entire grid four times a second",
+          "scope": "chat"
+        },
+        {
+          "text": "three places loaded and re-parsed `blocks` only to throw it away",
+          "scope": "messages"
+        },
+        {
+          "text": "shards are split by DURATION, not by test count",
+          "scope": "e2e"
+        },
+        {
+          "text": "durations realigned from a single pass, and the stale shard folders removed",
+          "scope": "e2e"
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.2",
     "date": "2026-07-31",
     "sections": {
@@ -12,7 +389,7 @@
       "fixes": [
         {
           "text": "realigned the registry after the merge — 97 types",
-          "scope": "contratto ws"
+          "scope": "ws contract"
         },
         {
           "text": "the e2e suite was killing its own browsers",
@@ -61,7 +438,7 @@
         },
         {
           "text": "Topics sees external Claude sessions — ~/.claude/projects scanner, sidebar badge, dispatcher guard",
-          "scope": "sessioni"
+          "scope": "sessions"
         },
         {
           "text": "a census of EXTERNAL Claude sessions (board badge + dispatcher guard)",
@@ -77,7 +454,7 @@
         },
         {
           "text": "the ring shows the REAL context, and warns before compaction",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "one single surface, and a slider instead of the five pills",
@@ -101,7 +478,7 @@
         },
         {
           "text": "standardise stream:context on the ACP usage_update block",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "speak Agent Client Protocol — a new agent costs one line",
@@ -117,7 +494,7 @@
         },
         {
           "text": "the agent's background shells become live state",
-          "scope": "processi"
+          "scope": "processes"
         },
         {
           "text": "send pruned HTML + computed CSS + a crop of the element",
@@ -133,7 +510,7 @@
         },
         {
           "text": "a probe that names WHO holds the heap, instead of making you guess",
-          "scope": "diagnostica"
+          "scope": "diagnostics"
         },
         {
           "text": "a monitor that puts the bill next to the fuel tank",
@@ -141,7 +518,7 @@
         },
         {
           "text": "warn when every call re-reads too much, not only when the window runs out",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "the client presents the token, and an authenticated remote peer is no longer CSRF",
@@ -177,7 +554,7 @@
         },
         {
           "text": "a task that gives up now tells you",
-          "scope": "notifiche"
+          "scope": "notifications"
         },
         {
           "text": "preferences went up to the server and NEVER came back down",
@@ -311,7 +688,7 @@
         },
         {
           "text": "outbound messages no longer evaporate",
-          "scope": "coda"
+          "scope": "queue"
         },
         {
           "text": "the rollback cuts the branch, not the tree",
@@ -339,11 +716,11 @@
         },
         {
           "text": "the test's NULs become escapes, the file is greppable again",
-          "scope": "guardia"
+          "scope": "guard"
         },
         {
           "text": "close the WKWebViews a reload leaves ownerless",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "don't accuse of growth someone who merely has the watcher running",
@@ -351,7 +728,7 @@
         },
         {
           "text": "the key separator goes back to being an escape, not a NUL byte",
-          "scope": "guardia"
+          "scope": "guard"
         },
         {
           "text": "the turn reaches the end even if the stream detaches underneath it",
@@ -367,11 +744,11 @@
         },
         {
           "text": "a hidden surface has no visible panes, so it has no floors",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "stop believing the app is in the background when it isn't",
-          "scope": "terminale"
+          "scope": "terminal"
         },
         {
           "text": "give the counter a deterministic window, instead of whichever one happens along",
@@ -379,11 +756,11 @@
         },
         {
           "text": "never evict a pane that owns a WKWebView",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "drop the reaper — reloading was free again, and I was the one who had made it expensive",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "the message cache was eating the quota, and with it the messages waiting to be sent",
@@ -399,11 +776,11 @@
         },
         {
           "text": "release the audio elements, instead of merely pausing them",
-          "scope": "voce"
+          "scope": "voice"
         },
         {
           "text": "send only what changed, instead of repeating the project on every message",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "four holes found by stress-testing the preamble dedup",
@@ -419,11 +796,11 @@
         },
         {
           "text": "a million is the STOCK window, not a variant",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "empty a browser pane's document before closing it",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "the per-topic selector was dead on the terminal",
@@ -431,7 +808,7 @@
         },
         {
           "text": "the one-hour cache costs double, and the TTL is written in the usage",
-          "scope": "costi"
+          "scope": "costs"
         },
         {
           "text": "seven holes found by stress-testing today's work",
@@ -439,7 +816,7 @@
         },
         {
           "text": "an empty roster is no proof the session died",
-          "scope": "terminale"
+          "scope": "terminal"
         },
         {
           "text": "the load error is no longer a writable buffer — ⌘S was overwriting the file",
@@ -451,7 +828,7 @@
         },
         {
           "text": "a voice note that fails to start now says so",
-          "scope": "voce"
+          "scope": "voice"
         },
         {
           "text": "silence isn't death — the watchdog asks the server instead of passing sentence",
@@ -459,11 +836,11 @@
         },
         {
           "text": "one single truth about window and thresholds, instead of five copies",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "opencode panes were NEVER persisted",
-          "scope": "terminale"
+          "scope": "terminal"
         },
         {
           "text": "half the KPIs were reading tables nobody writes",
@@ -471,7 +848,7 @@
         },
         {
           "text": "the Context Inspector was off on every provider except openclaw",
-          "scope": "contesto"
+          "scope": "context"
         },
         {
           "text": "the default choice lived only in memory",
@@ -559,11 +936,11 @@
         },
         {
           "text": "the topic name is no longer cut in half in the banner",
-          "scope": "notifiche"
+          "scope": "notifications"
         },
         {
           "text": "a single delivery fired THREE banners",
-          "scope": "notifiche"
+          "scope": "notifications"
         },
         {
           "text": "the notification woke you up and then left you to hunt for it",
@@ -571,11 +948,11 @@
         },
         {
           "text": "Settings promised banners that NEVER arrive",
-          "scope": "notifiche"
+          "scope": "notifications"
         },
         {
           "text": "Escape with Settings open KILLED the AI turn",
-          "scope": "tastiera"
+          "scope": "keyboard"
         },
         {
           "text": "two red errors inherited from the token work",
@@ -583,11 +960,11 @@
         },
         {
           "text": "Escape interrupted NOTHING, and ⌘⇧R reloaded the window",
-          "scope": "tastiera"
+          "scope": "keyboard"
         },
         {
           "text": "Escape on a lightbox killed the AI reply behind it",
-          "scope": "modali"
+          "scope": "modals"
         },
         {
           "text": "/clear emptied the screen, not the model's memory",
@@ -595,7 +972,7 @@
         },
         {
           "text": "two spawns in the same millisecond and a resumed session restarted empty",
-          "scope": "sessioni"
+          "scope": "sessions"
         },
         {
           "text": "a pane that breaks no longer takes the others down",
@@ -631,7 +1008,7 @@
         },
         {
           "text": "a queued message no longer disappears if the send goes wrong",
-          "scope": "coda"
+          "scope": "queue"
         },
         {
           "text": "a single cause no longer sends N identical notifications",
@@ -639,7 +1016,7 @@
         },
         {
           "text": "the notification diagnosis refreshes, and Cmd+Shift+R dictates",
-          "scope": "guscio"
+          "scope": "shell"
         }
       ],
       "perf": [
@@ -717,11 +1094,11 @@
         },
         {
           "text": "no redraw for a pane with no layout — xterm's cache never fills",
-          "scope": "terminale"
+          "scope": "terminal"
         },
         {
           "text": "coalesce the fits during the native WINDOW resize too",
-          "scope": "terminale"
+          "scope": "terminal"
         },
         {
           "text": "a layout boundary on the pane shell — the caret no longer relayouts the whole app",
@@ -737,7 +1114,7 @@
         },
         {
           "text": "cap the mounted panes, instead of keeping them all forever",
-          "scope": "memoria"
+          "scope": "memory"
         },
         {
           "text": "switch off the per-pane loops that run when nobody is watching",
@@ -769,7 +1146,7 @@
         },
         {
           "text": "detection polled every 4s forever, even at idle",
-          "scope": "processi"
+          "scope": "processes"
         },
         {
           "text": "tool events went to EVERY window, even to the ones not watching",
@@ -781,11 +1158,11 @@
         },
         {
           "text": "the log is read when there's something, not every two seconds",
-          "scope": "processi"
+          "scope": "processes"
         },
         {
           "text": "the transcripts of chats nobody is watching are handed back",
-          "scope": "memoria"
+          "scope": "memory"
         }
       ]
     }

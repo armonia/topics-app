@@ -25,7 +25,15 @@
   var PROJECT = "/demo/acme-web";   // the open project (the rich split below)
   var P2 = "/demo/acme-api";        // sibling projects — shown in the sidebar with
   var P3 = "/demo/acme-mobile";     // their own running Claude Code sessions
-  var ISO = "2026-06-02T09:30:00.000Z";
+  /* The demo's "now". It used to be a frozen literal, and every duration the UI
+   * derives against the real clock drifted with it: by the time this build had
+   * been online two months, a "live" agent session was rendering as `1515.6h`
+   * and every task card was dated in the past. A shipped demo AGES, so its
+   * clock has to be the visitor's. Anchored a few minutes back so the sessions
+   * read as freshly active rather than started this very instant.
+   * Determinism is preserved where it matters: the charts are sine-shaped, not
+   * random, so only the date LABELS move. */
+  var ISO = new Date(Date.now() - 4 * 60000).toISOString();
 
   // The "figata": THREE projects open at once. acme-web full-width on top;
   // acme-api + acme-mobile side-by-side below. Each is its own ProjectWindow —
@@ -145,7 +153,12 @@
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
-  set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
+  // English, explicitly — not "auto". `resolveLocale` falls back to ITALIAN for
+  // any browser that doesn't announce English, and this demo is embedded in an
+  // English landing page: the language of the visitor's OS must not decide the
+  // language of a marketing screenshot. (lib/settings.loadSettings reads this
+  // key; useT re-resolves from it.)
+  set("app-settings", JSON.stringify({ sidebarCollapsed: false, language: "en" }));
   // Expand all three projects so their Claude Code sessions are visible at a
   // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
   set("topics-sidebar-state", JSON.stringify({

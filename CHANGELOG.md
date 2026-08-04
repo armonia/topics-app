@@ -2,6 +2,233 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.11 — 2026-08-04
+
+### Novità
+- **tempi** · sidebar e tab dicono da quanto lavora, o quanto fa che ha finito
+- **costi** · salva il MODELLO per messaggio e bonifica lo storico gonfiato 3x
+- **tab** · ogni tab ha il suo permalink /tab/<tipo>/<chiave>, copiabile e risolvibile
+- **chat** · pannello AskUserQuestion nativo via bridge MCP
+- **browser** · import_chrome legge anche da Dia, Arc e Chromium
+
+### Correzioni
+- **notifiche** · a ogni avvio l'app riannunciava ogni chat gia' finita
+- **costi** · i prezzi erano fermi a modelli ritirati, e il conto era il triplo
+- **perf** · SessionActivity sottoscriveva l'orologio anche per le righe inerti
+- **dashboard** · smetti di sommare come denaro i costi che sappiamo sbagliati
+- **badge** · in split view spariva anche dalla cella che NON stavi guardando
+- **osservabilita** · un modello senza prezzo e un parcheggio rifiutato ora si vedono
+- **board** · su mobile nessun testo delle card sotto i 12px
+- **board** · top bar responsive su mobile + stop alla scrollbar doppia sulle colonne
+- **board** · colonna tiene UNA barra (standard thin), non azzera l'indicatore
+- **layout** · una identità per pane + una pane rotta non abbatte la finestra
+- **ask-user** · il pannello sopravvive a un umano che si alza dalla scrivania
+- **ask-user** · sostituisci la long-poll con gambe corte, il socket non regge minuti a vuoto
+- **topics** · don't report open-project/create-project as ok when bind fails
+
+### Sotto il cofano
+- **badge** · fissa l'invariante «un numero mostrato deve essere spiegabile»
+- Rendi l'anteprima della consegna apribile come tab
+- inventario chat nativa Topics vs CLI (tool, rese a schermo, interazioni)
+- **layout** · lock 'una chiusura = un pane' (mai zero, mai due)
+- **ask-user** · copri la giuntura bridge⇄route, non i due pezzi separati
+- **ask-user** · l'e2e polla come il bridge vero e fa scadere le gambe apposta
+- Porta il pannello della domanda alla misura del corpo chat e ridagli l'orologio
+- Non dichiarare morto un turno fermo su una domanda, e non lasciare pannelli vivi su turni morti
+- Dire «ci sono ancora» a ogni gamba: il terzo orologio che ammazzava le domande
+- Distingui «aspetto te» da «sto lavorando» nella striscia del turno
+- Rispondi a una domanda scrivendo in chat, non solo dal pannello
+- Separa il tempo di lavoro dal tempo che l'agente passa ad aspettarci
+- Non archiviare l'attesa dell'umano come durata del turno
+- Distingui «ferma, aspetta te» da «sta lavorando» fuori dalla chat
+- Riporta a zero il typecheck del server dopo il landing di import_chrome
+- Chiedi al broker prima di uccidere un turno sopravvissuto
+- Riporta a 200k la finestra dei modelli Claude nudi
+- Smetti di inchiodare il modello di default a una generazione vecchia
+- Metti la finestra da 1M come default ovunque la CLI la serva
+- Distingui «l'hai fermato tu» da «la connessione è caduta»
+- Mostra in chiaro quanti token erano rilettura e quanti nuovi
+- Stampa i token in forma compatta anche nel totale
+- Ferma il cronometro mentre la domanda aspetta te
+- Misura la memoria del lato server come fa Monitoraggio Attività
+- Non far morire la domanda per un riavvio del server
+- Proponi l'attribuzione del consumo alla singola pane
+- topics/snowy-flounder
+- topics/seething-skiff
+- topics/boundless-horse
+- task/card-font-mobile-legibility
+- topics/anteprima-tab
+- Non buttare via il turno quando ricarichi la finestra
+- **e2e** · dichiara il confine ermetico in pane-identity.spec
+- Attribuisci il consumo del lato server alla singola sessione
+- Archivia un topic in un posto solo, e falla riparare
+- Aprire un progetto non rianima piu tutto cio che il parcheggio ha spento
+- Un task creato via API nasce in backlog, non in coda di esecuzione
+- browser_upload legge solo da radici consentite
+- Il delegato nativo non si registra piu su una pane che qualcun altro serve
+- Un diff si apre solo nella sua finestra di progetto
+- Una finestra sola non ne mostra quattro
+- Aprire una chat non ne archivia piu un'altra
+- Revert "Aprire una chat non ne archivia piu un'altra"
+- Il GC dei worktree dice PERCHE tiene quelli che tiene
+- La board dice quanti checkout tiene questo progetto
+- La todo della CLI 2.1.220 torna a essere una todo, non JSON
+- Valutazione chrome-devtools-mcp: dove il browser di Topics e indietro davvero
+- Un tentativo rimesso in coda non perde piu i commit che aveva fatto
+- Una tab fissata non si chiude finche non la togli dai Fissati
+- La tab riaperta con l'undo torna al suo posto, non in fondo
+- Al riavvio del server le sessioni Claude si parcheggiano invece di rilanciarsi
+- Bottone "Pulisci landati" sulla board, con l'esito che si spiega
+- Aprire una chat non ne archivia piu un'altra — stavolta senza rompere le anteprime
+- Il park e autoritativo: l'agente scartato non si riprende il task
+- Il gate Focus dice quando e spento, e come accenderlo
+- Il verso opposto dell'adozione: da Topics al terminale, in un click
+- GET /screen: lo schermo del terminale, non il suo scrollback
+- Il topic di un agente si ritira insieme al suo task
+- Modalita notturna della board: dispaccia a macchina scarica, si ferma a un orario
+- Il worktree impossibile si dice all'impostazione, non a ogni task
+- Il watchdog dice PERCHE ha ucciso, non solo che ha ucciso
+- Il test col browser vero esce dalla corsia unitaria (e smette di mentire)
+- Censimento delle sessioni orfane — solo lettura, nessuna azione
+- La board vede i rami che nessun task reclama
+- Due spec che cadevano nella run seriale: una chiedeva la cosa sbagliata, l'altra passava per il motivo sbagliato
+- Sessioni orfane: il censimento gira sul campo, in sola lettura
+- Quattro test descrivevano il mondo di prima (o l'ambiente di chi li lancia)
+- vedere le sessioni di un altro utente, e la parte che oggi non esiste
+- la card notturna passa da boardApi, e «controllo» non e' «non risponde»
+- Non far ripartire il server su un albero applicato a metà
+- Quando il turno muore dentro Topics, dillo — e non perdere il messaggio
+- Piano amicizia: deciso il relay cieco (end-to-end), con il prezzo scritto
+- Livelli di autonomia cablati davvero, e via il flag che teneva spento il Chromium
+- Mostra il consumo di una scheda passandoci sopra il mouse
+- Segna fatte le fasi 3, 4 e 5 di per-pane-resource-usage
+- convertito il file peggiore (TaskDetail), 760 → 740
+- Attribuisci il consumo di una pane browser alla sua webview
+- Segna fatta la fase 2: resta solo l'E2E
+- tieni solo gli ultimi N snapshot datati
+- Copri con un E2E il tooltip di consumo, e dove deve stare
+- Segna completa anche la fase 3: la change non ha più task aperti
+- la verifica che non riesce si riprova, e comunque lo dice
+- Archivia per-pane-resource-usage e promuovi la capability
+- secondo lotto — KanbanBoardPane, ChatInput, GitChanges (740 → 718)
+- Ripara tre modi in cui local-shell-swap.sh falliva
+
+## 2.2.10 — 2026-08-02
+
+### Correzioni
+- **release** · l'openssl di macOS e' LibreSSL e non conosce `-legacy`
+
+## 2.2.9 — 2026-08-02
+
+### Correzioni
+- **release** · la firma macOS ha bisogno anche della FIDUCIA, non solo della chiave
+
+## 2.2.8 — 2026-08-02
+
+### Novità
+- **signing** · identita' DEDICATA e stabile per Topics, senza abbonamento Apple
+
+## 2.2.7 — 2026-08-02
+
+### Correzioni
+- **pairing** · «Reconnecting…» per sempre era un dispositivo NON APPAIATO
+- **release** · un certificato macOS ASSENTE non deve buttare via l'intera release
+
+## 2.2.6 — 2026-08-02
+
+### Correzioni
+- **ci** · allinea playwright-core, e i test che pretendono un ambiente lo dicano
+
+## 2.2.5 — 2026-08-02
+
+### Correzioni
+- **ci** · il test leggeva uno stato globale che non azzerava, e a `check` mancava Chromium
+
+## 2.2.4 — 2026-08-02
+
+### Correzioni
+- **ci** · riallinea il lockfile del client, e prendi il git rosso PRIMA della CI
+
+## 2.2.3 — 2026-08-02
+
+### Novità
+- **chat** · /compact diventa un comando, non solo un bottone d'emergenza
+- **chat** · «Compatta ora» anche nell'anello del contesto
+- **chat** · /compact ha una UI vera, non lo spinner generico di un turno bloccato
+- **terminal** · parcheggia le sessioni agente ferme, e rianimale da sole
+
+### Correzioni
+- **guscio** · il codice che ruba il fuoco non finisce piu' nel binario di release
+- **sw** · un riavvio del server non serve piu' la shell vecchia dalla cache
+- **agenti** · ruotare un token non spegne piu' un agente vivo per sbaglio
+- **notifiche** · il banner partiva mentre GUARDAVI il terminale
+- **hooks** · quota il path del wrapper, e RIPARA chi ce l'ha gia' sbagliato
+- **web** · /boot.js rispondeva 404 — la PWA non registrava piu' il service worker
+- **ui-state** · il tema non veniva MAI salvato sul server
+- **icone** · «questo progetto non ha un'icona» non e' un errore, e' un 204
+- **ui-state** · il primo click sul tema dopo il caricamento non veniva salvato
+- **evidenza** · la review visiva dichiarava 9 screenshot e ne consegnava 7
+- **pane** · il tipo 'opencode' di una tab terminale spariva a ogni idratazione
+- **scripts** · il poll resuscitava DURANTE lo smontaggio, un timer orfano immortale per ciclo
+- **spec-flow** · tre script di package.json crashavano con ENOENT
+- **chat** · via dal CommandMenu un selettore di modelli che MENTIVA
+- **rigenera** · su gateway piantato finalizzava un messaggio VUOTO senza dire niente
+- **opencode** · due liste di tipi scritte a mano lo lasciavano fuori
+- **resume** · il guard «non usare il contesto magro su una conversazione persa» non scattava MAI
+- **token** · «1000K» — cinque copie di formatTokens, tre sbagliavano il confine col milione
+- **sicurezza** · un ref di soli caratteri non ammessi legava la topic alla RADICE del workspace
+- **e2e** · la suite cancellava i login dei browser di PRODUZIONE a ogni run
+- **browser** · la webview nativa restava dipinta sopra l'app dopo aver chiuso la tab
+- **db** · rigenera il manifest embedded — mancava la migration 074
+- **browser** · una pane NATIVA lasciava acceso un Chromium headless fantasma
+- **browser** · ⌘W chiudeva la tab qui e la lasciava aperta sul telefono
+- **browser** · niente Browser nel menu «+» di una finestra pop-out
+- **browser** · la DELETE del contesto veniva ANNULLATA quando partiva durante l'unload
+- **browser** · la webview nasce figlia della finestra ospite, non sempre di main
+- **browser** · 11/13 reperti dell'audit lifecycle — sessione, contesti orfani, test vacui
+- **browser** · il contesto fantasma muore se non lo guarda NESSUNO, non solo se l'ho creato io
+- **pane** · UNDO_CLOSE non lascia piu' una ghost pane — ma il rosso E2E ha un'altra causa
+- **perf** · la CPU nella status bar era la media di VITA dei processi, non quella attuale
+- **processes** · le shell in background morte spazzano i figli orfani invece di lasciarli vivi
+- **attenzione** · la tab «Progetto» restava blu su una chat gia' letta
+- **attenzione** · una chat CHIUSA teneva acceso il progetto, e non c'era modo di spegnerla
+- **browser** · browserState era una scrittura MORTA — ora ha una colonna
+
+### Prestazioni
+- **db** · l'indice mancante su messages(timestamp) — 19 ms -> 0,2 ms sui KPI
+- **boot** · la bonifica dei tool orfani non scandisce piu' tutta la storia
+- **chat** · scorrere una chat ridisegnava App e l'intera griglia 4 volte al secondo
+- **messaggi** · tre punti caricavano e riparsavano `blocks` per poi buttarlo via
+- **e2e** · gli shard si dividono per DURATA, non per numero di test
+- **e2e** · durate riallineate su una passata sola, e via le cartelle shard vecchie
+
+### Sotto il cofano
+- togli il codice che nessuno chiama — knip da 71 a ZERO
+- **objc2** · fetta 1 — traffic lights + appearance su objc2
+- **objc2** · fetta 3 — vibrancy su objc2
+- **objc2** · fette 4-6 — pane browser, residui e via cocoa/objc/block
+- **server** · via 18 residui che knip non poteva vedere
+- **sw** · il rimbalzo del server si simula rifiutando la connessione, non staccando la rete
+- **e2e** · i mock di pari origine vanno su context.route, non page.route
+- **e2e** · allinea le asserzioni ui-state al contratto nuovo
+- **pane-undo** · un rosso-atteso che falliva per il motivo SBAGLIATO copriva zero
+- **chat-scroll** · niente skip sulla precondizione — se lo scroller manca, e' IL difetto
+- **grid-split** · due test dei divisori saltavano SEMPRE, ora creano il divisore
+- **sidebar** · AC-1 seminava una chiave localStorage MORTA, e il fixme diceva la cosa sbagliata
+- **client** · via l'isola demo morta — 5 file typecheckati a ogni build per niente
+- **codice** · cinque commenti che descrivevano un guscio archiviato nella v2.0.0
+- archivia il referto dead-code e cancella una cartella fixture vuota
+- **contratti** · la scala effort riscritta 11 volte -> shared/effort.ts, e parsePatch derivato dai campi di AppSettings
+- **e2e** · lucchetto sul sorgente — globalSetup non puo' piu' cancellare fuori dai suoi dati
+- **split-sync** · il conteggio finale si polla, non si campiona a meta' rimonto
+- **e2e** · spezza i due file che facevano da pavimento allo sharding
+- **e2e** · sette test che non potevano fallire ora falliscono
+- **lint** · eslint pulito, e un comando per tenerlo tale
+- come si lanciano davvero i test, e le due trappole che costano una run
+- **e2e** · TOPICS_E2E_BUNDLE_DIR — un bundle costruito altrove
+- le spec browser-* cadono per CARICO, non per un difetto
+- **e2e** · lo screenshot di evidenza non va in un percorso della MIA macchina
+
 ## 2.2.2 — 2026-07-31
 
 ### Novità
@@ -19,6 +246,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · i tre rossi erano il dialog nativo diventato React
 - **board** · via la superficie 'output', non la costruiva piu' nessuno
 - **repo** · chiudo i 13 tag wip/* — inventario e verdetto
+- **versione** · 2.2.2 in lockstep + changelog rigenerato
 
 ## 2.2.1 — 2026-07-31
 
