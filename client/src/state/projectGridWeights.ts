@@ -35,16 +35,46 @@ const weights = new Map<string, ProjectGridWeight>();
 // clear + set) rebalances once, after the registry has settled.
 type WeightListener = (changed: ReadonlySet<string>) => void;
 const listeners = new Set<WeightListener>();
-let pendingChanged: Set<string> | null = null;
-function notifyWeightChange(projectPath: string): void {
+
+function sameWeight(a: ProjectGridWeight | undefined, b: ProjectGridWeight | undefined): boolean {
+  if (!a || !b) return a === b;
+  return a.cols === b.cols && a.rows === b.rows;
+}
+
+/**
+ * Pending notifications, each remembering the weight as it was BEFORE the
+ * mutation that queued it. At flush time the batch is compared against the
+ * SETTLED registry and anything whose net effect is nil is dropped.
+ *
+ * That netting is the whole point. A clear immediately followed by a re-publish
+ * of the same value is not a change, and it is what every re-run of
+ * ProjectWindow's publish effect looks like from here: the cleanup clears, the
+ * body sets it straight back. Dragging a divider inside a project window
+ * produced a new `rows` array, which re-ran that effect, which announced a
+ * change that had not happened — and PanelGrid's auto-rebalance answered by
+ * flattening the OUTER row heights to an equal split. So resizing a split
+ * inside one project silently threw away the sizing of the whole grid around
+ * it. Fixed at the call site too (the effect keys on the weight, not on `rows`),
+ * but the registry must not be one careless caller away from moving panes on
+ * its own — a remount, or React's StrictMode double-invoke, is the same shape.
+ */
+let pendingBefore = new Map<string, ProjectGridWeight | undefined>();
+function notifyWeightChange(projectPath: string, before: ProjectGridWeight | undefined): void {
   if (listeners.size === 0) return;
-  const first = pendingChanged === null;
-  (pendingChanged ??= new Set()).add(projectPath);
+  const first = pendingBefore.size === 0;
+  // Keep the EARLIEST "before" of the tick: the batch is netted against the
+  // settled value, so the comparison has to start from where the tick started.
+  if (!pendingBefore.has(projectPath)) pendingBefore.set(projectPath, before);
   if (!first) return;
   queueMicrotask(() => {
-    const batch = pendingChanged;
-    pendingChanged = null;
-    if (batch && listeners.size > 0) for (const l of listeners) l(batch);
+    const batch = pendingBefore;
+    pendingBefore = new Map();
+    if (listeners.size === 0) return;
+    const changed = new Set<string>();
+    for (const [path, was] of batch) {
+      if (!sameWeight(was, weights.get(path))) changed.add(path);
+    }
+    if (changed.size > 0) for (const l of listeners) l(changed);
   });
 }
 
@@ -98,8 +128,8 @@ export function setProjectGridWeight(projectPath: string, weight: ProjectGridWei
   // Only a real change (not the first publish, not a same-value re-publish)
   // should reflow the outer grid — the first publish on mount must NOT disturb
   // the persisted layout being restored.
-  if (prev && (prev.cols !== weight.cols || prev.rows !== weight.rows)) {
-    notifyWeightChange(projectPath);
+  if (prev && !sameWeight(prev, weight)) {
+    notifyWeightChange(projectPath, prev);
   }
 }
 
@@ -113,6 +143,8 @@ export function clearProjectGridWeight(projectPath: string): void {
   // A clear means the cell's visible project is changing (tab switch / close);
   // notify so the outer grid re-weights from whatever is now mounted there. The
   // coalescing microtask runs after the new active project has published, so the
-  // rebalance reads the settled registry.
-  if (weights.delete(projectPath)) notifyWeightChange(projectPath);
+  // rebalance reads the settled registry — and if what settles is identical to
+  // what was there, the netting in notifyWeightChange drops it.
+  const prev = weights.get(projectPath);
+  if (weights.delete(projectPath)) notifyWeightChange(projectPath, prev);
 }
