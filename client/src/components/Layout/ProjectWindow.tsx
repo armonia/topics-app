@@ -477,7 +477,12 @@ export function ProjectWindowPane({
           to this wrapper (grid-split flatten invariant). It used to live on the
           long-dead ProjectWindow wrapper component — matching nothing — which
           made that oracle silently vacuous. */}
-      <div data-testid="project-window" className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
+      {/* data-project-path: senza, "project-window" identifica il TIPO di
+          finestra ma non QUALE, e con due progetti affiancati un'asserzione
+          come «il diff è nella finestra giusta» non è nemmeno esprimibile —
+          si può solo contare. È il gancio che rende verificabile lo scoping
+          per progetto (tests/e2e/diff-project-scope.spec.ts). */}
+      <div data-testid="project-window" data-project-path={projectPath} className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
           displayName={taskDisplayName}
