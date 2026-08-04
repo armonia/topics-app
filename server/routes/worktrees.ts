@@ -40,7 +40,20 @@ function stripCtrl(input: unknown): string | null {
   return input.replace(/[\x00-\x1f\x7f]/g, "").trim();
 }
 
-export function createWorktreesRouter(ctx: AppContext): RouteHandler {
+export interface WorktreesRouterOpts {
+  /**
+   * Lancia una passata del GC dei worktree e restituisce il riepilogo.
+   *
+   * Il GC gira già da solo ogni 30 minuti; questo è il "adesso" — serve a chi
+   * guarda il contatore sulla board e vuole vedere l'effetto senza aspettare.
+   * Il lavoro vero lo fa `sweepWorktrees`, che reapa SOLO ciò che è
+   * provabilmente sicuro: il bottone non è più permissivo della passata
+   * automatica, è la stessa passata anticipata.
+   */
+  runGc?: () => Promise<unknown>;
+}
+
+export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts = {}): RouteHandler {
   const {
     json,
     readJSON,
@@ -87,6 +100,20 @@ export function createWorktreesRouter(ctx: AppContext): RouteHandler {
       }
       const worktrees = worktreeStore.list(opts);
       return json({ worktrees });
+    }
+
+    // POST /api/worktrees/gc — una passata del GC, adesso.
+    //
+    // Va PRIMA della create, o `pathname === "/api/worktrees"` non lo
+    // intercetterebbe comunque ma la rotta con suffisso deve precedere per
+    // leggibilità: qui l'ordine non è ambiguo, ma tenerle vicine sì.
+    if (method === "POST" && pathname === "/api/worktrees/gc") {
+      if (!opts.runGc) return errorResponse(501, "GC non disponibile su questo host");
+      const summary = await opts.runGc();
+      // Il riepilogo porta anche i MOTIVI dei kept (worktree-gc.ts): chi preme
+      // il bottone e vede "0 ripuliti" deve poter leggere perché, altrimenti il
+      // bottone sembra rotto quando invece sta facendo la cosa giusta.
+      return json({ ok: true, summary });
     }
 
     // POST /api/worktrees — create

@@ -1080,7 +1080,11 @@ claudeSessionTracker.recoverFromJsonl().catch((err) => {
 claudeSessionTracker.startReaper();
 claudeSessionTracker.startJsonlTail();
 const projectsRouter = createProjectsRouter(ctx);
-const worktreesRouter = createWorktreesRouter(ctx);
+const worktreesRouter = createWorktreesRouter(ctx, {
+  // `runWorktreeGc` è una function declaration definita più sotto: hoisted,
+  // quindi la closure è valida anche se il router nasce prima.
+  runGc: () => runWorktreeGc(),
+});
 const machinesRouter = createMachinesRouter(ctx);
 
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
