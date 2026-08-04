@@ -12,8 +12,11 @@
  * cambi stato e testo, e che al passaggio a `success` torni quella di prima —
  * cioè che lo stato d'attesa non si incolli addosso al turno che riparte.
  *
- * Il cronometro resta in entrambi gli stati: quanto dura il turno è un dato
- * onesto anche mentre l'attesa è nostra.
+ * Il cronometro invece CAMBIA POSTO. Mentre si lavora sta in riga e corre.
+ * Quando la domanda parcheggia il turno sparisce da lì — anche fermo, un
+ * numero accanto a «in attesa della tua risposta» si legge come il tempo che
+ * stai facendo perdere — e scende nella striscia di chiusura, dove sta in un
+ * messaggio finito, col lavoro fatto finora e la spiegazione nel tooltip.
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp, openTopic } from "./helpers";
@@ -103,19 +106,19 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
 
     await expect(strip).toHaveAttribute("data-waiting", "true", { timeout: 10_000 });
     await expect(page.getByTestId("turn-phrase").first()).toHaveText("in attesa della tua risposta");
-    // Il cronometro resta ma SI FERMA: mostra il lavoro, che durante un'attesa
-    // per costruzione non cresce. Prima contava l'attesa — vero, ma pur sempre
-    // un numero che corre mentre si legge una domanda, e l'umano l'ha chiamato
-    // brutto tre volte. Da quanto aspetta, e il totale grezzo, nel `title`.
-    const timer = page.getByTestId("turn-timer").first();
-    await expect(timer).toBeVisible();
-    await expect(timer).toHaveAttribute("data-clock", "worked");
-    await expect(timer).toHaveAttribute("title", /in attesa di te/);
-    // La prova che sta fermo: due letture a due secondi di distanza, stesso
-    // testo. Un cronometro che gira le avrebbe fatte diverse.
-    const primaLettura = await timer.textContent();
+    // Accanto alla frase d'attesa NON resta nessun numero: anche fermo, un
+    // cronometro lì si legge come il tempo che stai facendo perdere, e la
+    // domanda diventa un conto alla rovescia. L'umano l'ha detto quattro volte.
+    await expect(page.getByTestId("turn-timer")).toHaveCount(0);
+    // Il lavoro fatto finora non sparisce: scende nella striscia di chiusura,
+    // dove sta in un messaggio finito, e lì è FERMO — durante un'attesa ogni
+    // millisecondo nuovo è attesa, e l'attesa si sottrae.
+    const durata = page.getByTestId("message-duration").last();
+    await expect(durata).toBeVisible({ timeout: 10_000 });
+    await expect(durata).toHaveAttribute("title", /in attesa di te/);
+    const primaLettura = await durata.textContent();
     await page.waitForTimeout(2_200);
-    expect(await timer.textContent()).toBe(primaLettura);
+    expect(await durata.textContent()).toBe(primaLettura);
 
     // La domanda si chiude ⇒ il turno riparte davvero, e la striscia deve
     // tornare quella di prima. Senza questo, lo stato d'attesa resterebbe
@@ -130,9 +133,11 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     });
     await expect(strip).not.toHaveAttribute("data-waiting", "true", { timeout: 10_000 });
     await expect(page.getByTestId("turn-phrase").first()).not.toHaveText("in attesa della tua risposta");
-    // A domanda chiusa il cronometro torna a contare il LAVORO, con l'attesa
-    // sottratta: il tempo che ci ha messo l'umano non diventa merito o colpa
-    // dell'agente.
+    // A domanda chiusa il cronometro TORNA in riga, e conta il LAVORO con
+    // l'attesa sottratta: il tempo che ci ha messo l'umano non diventa merito
+    // o colpa dell'agente.
+    const timer = page.getByTestId("turn-timer").first();
+    await expect(timer).toBeVisible({ timeout: 10_000 });
     await expect(timer).toHaveAttribute("data-clock", "worked");
     await expect(timer).toHaveAttribute("title", /Lavorato/);
   });
