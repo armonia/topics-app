@@ -653,6 +653,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // capisce quale dei due sta crescendo — ed e' cresciuto in silenzio fino a
   // ~40 worktree il 21/07.
   const [worktreeCount, setWorktreeCount] = useState(0);
+  const [gcRunning, setGcRunning] = useState(false);
+  const [gcResult, setGcResult] = useState<string | null>(null);
   useEffect(() => {
     if (!projectPath || global) { setWorktreeCount(0); return; }
     let alive = true;
@@ -670,6 +672,41 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     const t = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(t); };
   }, [projectPath, global]);
+
+  // «Pulisci landati»: anticipa la passata del GC invece di aspettarne una.
+  //
+  // Non è più permissivo dell'automatico — è la STESSA passata, che reapa solo
+  // ciò che è provabilmente sicuro. Per questo l'esito deve dire anche quanti
+  // ne ha TENUTI e perché: un «0 ripuliti» secco farebbe sembrare rotto un
+  // bottone che sta facendo la cosa giusta.
+  const runGc = useCallback(async () => {
+    setGcRunning(true);
+    setGcResult(null);
+    try {
+      const r = await fetch('/api/worktrees/gc', { method: 'POST' });
+      const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; kept?: number; keptReasons?: Record<string, number> } };
+      const sm = b?.summary;
+      if (!sm) { setGcResult('Il GC non ha risposto'); return; }
+      const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
+        .map(([m, n]) => `${n}× ${m}`).join('; ');
+      setGcResult(
+        `${sm.reaped ?? 0} ripuliti, ${sm.landed ?? 0} landati, ${sm.kept ?? 0} tenuti`
+        + (motivi ? ` — ${motivi}` : ''),
+      );
+      // Il conteggio accanto deve riflettere la passata appena fatta.
+      if (projectPath) {
+        const rr = await fetch(`/api/worktrees?project_path=${encodeURIComponent(projectPath)}&status=ready`);
+        if (rr.ok) {
+          const bb = (await rr.json()) as { worktrees?: unknown[] };
+          if (Array.isArray(bb.worktrees)) setWorktreeCount(bb.worktrees.length);
+        }
+      }
+    } catch {
+      setGcResult('Il GC non ha risposto');
+    } finally {
+      setGcRunning(false);
+    }
+  }, [projectPath]);
 
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
@@ -893,6 +930,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary"
             data-testid="worktree-count-badge"
           >{worktreeCount} worktree</span>
+        )}
+        {worktreeCount > 0 && (
+          <button
+            onClick={runGc}
+            disabled={gcRunning}
+            title={gcResult ?? "Anticipa la passata del GC. Reapa SOLO cio che e provabilmente sicuro — la stessa regola della passata automatica ogni 30 minuti, non una piu aggressiva."}
+            className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            data-testid="worktree-gc-button"
+          >{gcRunning ? 'Pulisco…' : 'Pulisci landati'}</button>
+        )}
+        {gcResult && (
+          <span className="shrink-0 text-[11px] text-app-text-muted" data-testid="worktree-gc-result">{gcResult}</span>
         )}
         <div className="ml-2 min-w-0">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
