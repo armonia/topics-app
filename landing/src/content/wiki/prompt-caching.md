@@ -11,7 +11,7 @@ seeAlso:
 A conversation with an agent is not a series of independent questions. Every
 turn resends the whole context: the system prompt, the tool definitions, the
 project instructions, and the entire history so far. Without caching you pay
-full input price for all of it, every time — and the bill grows with the square
+full input price for all of it, every time, and the bill grows with the square
 of the conversation, not with its length.
 
 Caching marks a **prefix** as reusable. The provider keeps the processed form
@@ -37,14 +37,12 @@ byte-stable, and let everything volatile live behind it.
 
 ## What it does not do
 
-It does not make the model faster at thinking, and it does not reduce output
-cost — output is never cached. It also expires: leave a session idle past the
+It does not make the model faster at thinking, and it does not reduce output cost, because output is never cached. It also expires: leave a session idle past the
 cache window and the next turn pays full price to warm it again.
 
 ## In Topics
 
 The stable prefix of a session is marked cacheable explicitly, and what the
-cache actually did — how much was read from it against how much was written to
-it — is visible per turn rather than inferred at the end of the month. A cache
+cache actually did, how much was read from it against how much was written to it, is visible per turn rather than inferred at the end of the month. A cache
 that silently stopped working looks exactly like a cache that is working, until
 you can see the two numbers side by side.

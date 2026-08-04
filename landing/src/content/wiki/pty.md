@@ -29,14 +29,14 @@ escape sequences and no way to answer.
 
 The one that decides architecture: **a subscription is only reachable through
 the official CLI.** Anthropic's plans authorise the `claude` binary, not the
-API — there is no HTTP endpoint that accepts a subscription. So a workspace that
+API. There is no HTTP endpoint that accepts a subscription. So a workspace that
 wants to use the plan you already pay for has no choice: it has to run the real
 binary, and running the real binary means owning a PTY.
 
 ## The cost
 
 A PTY is a live kernel object owned by a process. Kill the owner and the session
-goes with it — which is why "reload the page and lose the terminal" is the
+goes with it, which is why "reload the page and lose the terminal" is the
 default behaviour of nearly every web terminal ever shipped.
 
 Keeping one alive across reloads means the PTY has to be owned by something

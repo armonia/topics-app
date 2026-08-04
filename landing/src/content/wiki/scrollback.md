@@ -23,8 +23,7 @@ run.
 
 ## What it actually is
 
-Not text. A terminal's output is a byte stream containing control sequences —
-cursor moves, colour changes, screen clears, alternate-buffer switches. Storing
+Not text. A terminal's output is a byte stream containing control sequences: cursor moves, colour changes, screen clears, alternate-buffer switches. Storing
 "the text" means storing a rendering, which cannot be replayed and loses colour
 and structure.
 
@@ -33,7 +32,7 @@ exactly.
 
 ## The alternate buffer trap
 
-Full-screen programs — `vim`, `htop`, an interactive installer — switch to the
+Full-screen programs (`vim`, `htop`, an interactive installer) switch to the
 alternate buffer, draw there, and switch back on exit. Their output should NOT
 join the scrollback, which is why your shell history looks unchanged after
 quitting an editor.
@@ -44,6 +43,5 @@ it is the sound of the buffer limit being consumed by nothing.
 
 ## The bound
 
-Scrollback has to be capped or a chatty process will eat memory. Per session, not
-globally — one noisy build should not evict the history of the session you care
+Scrollback has to be capped or a chatty process will eat memory. Per session, not globally. One noisy build should not evict the history of the session you care
 about.

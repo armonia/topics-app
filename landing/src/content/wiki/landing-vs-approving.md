@@ -17,9 +17,9 @@ different blast radii:
 | **Land** | Your local `main` gains the commits. | A local reset |
 | **Publish** | The remote gains them. CI runs. Others pull. | Depends who pulled |
 
-Treating these as one gesture is tempting — the work is good, so let it through —
-and it is exactly how an unattended board ends up pushing to a remote at three in
-the morning.
+Treating them as one gesture is tempting, because the work is good and you want
+it through. It is also how an unattended board ends up pushing to a remote at
+three in the morning.
 
 ## Why approving is not enough
 
@@ -48,4 +48,4 @@ not by ancestry.
 The three actions are three clicks. An agent can deliver, comment and move its
 own card to review; it cannot approve its own work, it cannot land, and it never
 pushes. The board also refuses to accept a task into review while its worktree
-is dirty — because "done" should mean something you can read as a diff.
+is dirty, because "done" should mean something you can read as a diff.

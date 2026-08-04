@@ -23,7 +23,7 @@ Because the whole window is input on every turn, a context you have let grow to
 half a million tokens is half a million tokens of input on turn one, on turn two,
 and on turn forty. The cost of a long session is not linear in its length; it is
 closer to quadratic, and the thing that bends the curve back down is
-[[prompt-caching]] — which only works on the stable prefix.
+[[prompt-caching]], which only works on the stable prefix.
 
 ## What actually fills it
 
@@ -33,8 +33,7 @@ Each of those is now permanent furniture until something removes it.
 
 ## Two ways to control it, and they are not the same
 
-**Compaction** summarises the middle to make room — cheaper per turn, lossy, and
-it happens whether or not you are ready. See [[auto-compaction]].
+**Compaction** summarises the middle to make room. It is cheaper per turn, lossy, and it happens whether or not you are ready. See [[auto-compaction]].
 
 **Scope** is deciding what enters at all. A grep that returns twenty lines
 instead of a file that returns two thousand costs one hundredth as much, forever,

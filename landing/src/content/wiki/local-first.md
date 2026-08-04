@@ -20,7 +20,7 @@ decides whether you can work.
 
 Your data outlives the vendor. There is no seat to lose, no export to request,
 no service to be sunset. It works on a plane. And nothing has to be trusted with
-your code, because nothing is sent — see [[byok]].
+your code, because nothing is sent. See [[byok]].
 
 ## What it costs, honestly
 
