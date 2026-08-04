@@ -1,26 +1,44 @@
 /**
  * Shoot the landing page's product images from the real app.
  *
- *   bun run build:landing && node scripts/landing-shots.mjs [--only ship,run]
+ *   bun run build:landing && node scripts/landing-shots.mjs [--only ship,run] [--strict]
  *
  * Every image here is the actual client running on the demo's sample data —
  * the same bundle the interactive demo embeds — so there is nothing to keep in
  * sync with the product by hand.
  *
- * The rule that makes these read as product shots rather than as screenshots
- * someone sliced up: SHOOT A WHOLE THING. A pane is captured with its tab bar,
- * its four edges and the backdrop just outside its corners; the window shots
- * are the whole window. The previous set clipped 650×340 rectangles out of the
- * middle of the UI, and every one of them ended mid-row, mid-word, mid-button —
- * which is exactly what "sembrano tagli di screenshot" describes.
+ * ── The rule ────────────────────────────────────────────────────────────────
+ *
+ * SHOOT A WHOLE THING, AT THE SIZE IT WILL BE SEEN. The first half of that was
+ * already here and it fixed a real defect: the set before this one clipped
+ * 650×340 rectangles out of the middle of the UI and every one ended mid-row,
+ * mid-word, mid-button. The second half was missing, and it is what made the
+ * images unreadable anyway.
+ *
+ * Two ratios, and they are not the same number:
+ *
+ *   OVERSAMPLE      = asset px ÷ rendered CSS px.  Must be exactly 2.00, so the
+ *                     asset is retina-sharp and not one byte heavier.
+ *   CONTENT SCALE   = rendered CSS px ÷ logical (captured) CSS px.  Must sit in
+ *                     0.90–1.10. Under it the app's own 13px type falls below
+ *                     ~11px and stops reading; over it the capture was too small
+ *                     and is being stretched, which collapses the oversample.
+ *
+ * Measured on the shipped set before this change: see 0.36 (13px type landing
+ * at 4.7px), organize 0.57, ship 0.64, reach 0.70, run 0.85, own 0.98. Only the
+ * last one was legible. For comparison val.town serves its product shots at
+ * content scale 1.00, and Cursor, Anthropic and Devin do not photograph the
+ * product at all — they rebuild the UI in live DOM at 11-13px real text.
+ *
+ * The consequence is the useful part: you cannot photograph a 1240px-wide
+ * window and show it 570px wide. Either the page renders the image bigger, or
+ * the shot is of something smaller — one pane, one card, one popover. The
+ * geometry and "show one feature at a time" turn out to be the same constraint,
+ * which is why `render` below is a required field and not a hint.
  *
  * Floating-splits is on for the desktop shots: it is a real mode of the app
  * (gaps instead of hairlines) and it is what gives a pane rounded corners of
  * its own, so one card can be lifted out and still look like a finished object.
- *
- * Geometry: each shot picks a viewport that makes its subject roughly the size
- * it will be rendered at, then captures at deviceScaleFactor 2 for the @2x
- * asset. Nothing is ever resampled — the app is rendered at that density.
  */
 import pw from '../node_modules/playwright-core/index.js';
 import { createServer } from 'node:http';
@@ -40,6 +58,60 @@ const only = (() => {
   const i = process.argv.indexOf('--only');
   return i > 0 && process.argv[i + 1] ? new Set(process.argv[i + 1].split(',')) : null;
 })();
+const strict = process.argv.includes('--strict');
+
+/* ---- the two ratios ------------------------------------------------------ */
+
+/** Capture density. Also the oversample ratio, when logical ≈ rendered. */
+const OVERSAMPLE = 2;
+/**
+ * rendered CSS px ÷ logical CSS px — a BAND, not a floor, because the two
+ * ratios are one constraint seen twice.
+ *
+ * Under 0.90 the app's own 13px type falls below ~11px and stops reading. Over
+ * 1.10 the opposite failure: the subject was captured too small, so the asset is
+ * being stretched and the oversample collapses — a 326px-wide capture served at
+ * 640px is 1.02× and looks soft no matter how sharp the source was.
+ *
+ * Both edges say the same thing: capture the subject at the width the page will
+ * serve it at.
+ */
+const MIN_CONTENT_SCALE = 0.9;
+const MAX_CONTENT_SCALE = 1.1;
+
+/**
+ * The widest CSS width the page ever renders each image at. Read off
+ * landing/styles.css, and it is the *widest* case rather than the desktop one:
+ * `.fitem__shot { max-width: 640px }` under the 1024px breakpoint is larger
+ * than the 569px the two-column grid gives at 1440px, so 640 is the number the
+ * asset has to satisfy.
+ *
+ * When the layout changes, these change with it — they are the contract between
+ * this script and the stylesheet, and the check below is what stops the two
+ * from drifting apart in silence.
+ */
+const RENDER = {
+  organize: 1132, // .fitem--slab: full container width (--maxw 1180 − 2×24 padding)
+  run: 640,
+  see: 640,
+  ship: 640,
+  reach: 390,     // .shot--phone max-width (was 272: that alone put it at 0.70)
+  own: 340,       // .shot--narrow max-width
+};
+
+const scales = [];
+
+/** Record and judge one shot's geometry. Returns the human-readable summary. */
+function record(name, logicalWidth, assetWidth, kb) {
+  const render = RENDER[name];
+  const scale = render / logicalWidth;
+  const oversample = assetWidth / render;
+  const ok = scale >= MIN_CONTENT_SCALE && scale <= MAX_CONTENT_SCALE;
+  const why = scale < MIN_CONTENT_SCALE ? 'shrunk' : scale > MAX_CONTENT_SCALE ? 'stretched' : '';
+  scales.push({ name, logicalWidth, render, assetWidth, scale, oversample, ok, why });
+  return `${Math.round(logicalWidth)}→${render} css · scale ${scale.toFixed(2)}${ok ? '' : ` ✗ ${why}`}`
+    + ` · ${oversample.toFixed(2)}× · ${kb} KB`;
+}
 
 async function serve() {
   const srv = createServer(async (req, res) => {
@@ -57,8 +129,11 @@ async function serve() {
 
 /* ---- in-page helpers: drive the app the way a user would, minus the ghost --- */
 
-async function boot(browser, { width, height, dsf = 2 }, base) {
-  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dsf });
+async function boot(browser, { width, height }, base) {
+  // deviceScaleFactor is not a per-shot choice: it *is* the oversample ratio,
+  // and the ratio is 2. `organize` used to boot at 1.6, which is how a shot ends
+  // up at 3.88× the width it is served at.
+  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: OVERSAMPLE });
   const page = await ctx.newPage();
   await page.goto(`${base}/app/index.html`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-pane-id="terminal:cc1"]', { timeout: 45000 });
@@ -116,6 +191,36 @@ const activate = async (page, paneId) => {
   await page.waitForTimeout(1400);
 };
 
+/**
+ * Quiet everything that is not the subject, then clip.
+ *
+ * This is the half of "one feature per picture" that cropping alone cannot do.
+ * A pane captured with its own four edges still arrives full of the sidebar and
+ * the other tabs; they are in frame because the frame is a rectangle. Draining
+ * their colour and contrast leaves the context legible as context — you can
+ * still tell it is a window — while the eye goes where the sentence next to it
+ * is pointing.
+ *
+ * Applied to siblings only, walking up from the subject, so nothing inside the
+ * subject is touched. `filter` on an ancestor would create a containing block
+ * and move fixed descendants, hence the sibling walk rather than a single rule
+ * on <body>.
+ */
+async function dim(page, selector, amount = 1) {
+  await page.locator(selector).first().evaluate((el, a) => {
+    const f = `saturate(${1 - 0.8 * a}) brightness(${1 - 0.45 * a}) blur(${0.6 * a}px)`;
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+      for (const sib of node.parentElement?.children ?? []) {
+        if (sib !== node && sib instanceof HTMLElement) {
+          sib.style.filter = f;
+          sib.style.transition = 'none';
+        }
+      }
+    }
+  }, amount);
+  await page.waitForTimeout(250);
+}
+
 /** Clip a rect with a little air around it, so corners and shadow survive. */
 async function shotOf(page, selector, file, pad = 16) {
   const r = await page.locator(selector).first().evaluate((el) => {
@@ -124,73 +229,103 @@ async function shotOf(page, selector, file, pad = 16) {
   });
   if (r.w < 40 || r.h < 40) throw new Error(`${file}: subject has no size (${r.w}x${r.h})`);
   const png = join(OUT, file);
+  const logical = r.w + pad * 2;
   await page.screenshot({
     path: png,
-    clip: { x: Math.max(0, r.x - pad), y: Math.max(0, r.y - pad), width: r.w + pad * 2, height: r.h + pad * 2 },
+    clip: { x: Math.max(0, r.x - pad), y: Math.max(0, r.y - pad), width: logical, height: r.h + pad * 2 },
     scale: 'device',
   });
   const kb = await toWebp(png);
-  return `${Math.round(r.w + pad * 2)}x${Math.round(r.h + pad * 2)} css · ${kb} KB`;
+  return record(file.replace(/\.png$/, ''), logical, logical * OVERSAMPLE, kb);
 }
 
 /* ---- the six ------------------------------------------------------------- */
 
 const SHOTS = {
-  /** The whole window: the Progetti group, three projects open at once. */
+  /**
+   * The whole window: the Progetti group, three projects open at once.
+   *
+   * This is the one L3 shot on the page, and it is the one that cannot satisfy
+   * the scale rule while the layout renders it at 640px: three projects inside
+   * 711 logical px would be unreadable for a different reason. It wants to be
+   * served full-bleed (~1132px), and at that width today's 1240px capture lands
+   * at scale 0.91. Until the layout offers a full-bleed slot, the check below
+   * reports it rather than pretending.
+   */
   async organize(browser, base) {
-    const { ctx, page } = await boot(browser, { width: 1240, height: 780, dsf: 1.6 }, base);
+    const { ctx, page } = await boot(browser, { width: 1240, height: 780 }, base);
     await useGroup(page, 'space:projects');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(700);
     await page.screenshot({ path: join(OUT, 'organize.png'), scale: 'device' });
     const kb = await toWebp(join(OUT, 'organize.png'));
     await ctx.close();
-    return `1240x780 css (whole window) · ${kb} KB`;
+    return record('organize', 1240, 1240 * OVERSAMPLE, kb);
   },
 
   /** One card: the Claude Code session, with its own tab bar and corners. */
   async run(browser, base) {
-    const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
+    // 1180 instead of 1820: the subject is one cell of a two-cell row, so the
+    // viewport is what decides how wide the card comes out. 1180 puts it near
+    // 700 logical px, which is what 640 rendered needs.
+    const { ctx, page } = await boot(browser, { width: 1930, height: 860 }, base);
     await activate(page, 'terminal:cc1');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(700);
-    const size = await shotOf(page, '[data-pane-id="terminal:cc1"] >> xpath=ancestor::*[@data-group-cell][1]', 'run.png');
+    const subject = '[data-pane-id="terminal:cc1"] >> xpath=ancestor::*[@data-group-cell][1]';
+    await dim(page, subject);
+    const size = await shotOf(page, subject, 'run.png');
     await ctx.close();
     return size;
   },
 
-  /** One card: the dashboard. */
+  /**
+   * The dashboard. A whole dashboard cannot be read at 640px — it is a wide
+   * object by nature — so this is the shot that has to become a crop of the part
+   * the sentence is about (the spend row and one chart) rather than the pane.
+   * Captured whole for now; the check reports the gap.
+   */
   async see(browser, base) {
-    const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
+    // 900, not 1180: the KPI grid fills the pane, so the viewport is what sets
+    // its width. At 1180 it came out 924 logical px for a 640px slot.
+    const { ctx, page } = await boot(browser, { width: 900, height: 860 }, base);
     await useGroup(page, 'space:agents');
     await activate(page, '__dashboard__');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(900);
-    const size = await shotOf(page, '[data-pane-id="__dashboard__"] >> xpath=ancestor::*[@data-panel-cell][1]', 'see.png');
+    // The subject is the numbers, not the pane. A whole dashboard is a wide
+    // object and cannot be read at 640px; the sentence next to this image is
+    // about what the agents cost, so the picture is the KPI grid and nothing
+    // else. This is what "one feature per picture" looks like in practice.
+    const subject = '[data-testid="kpi-card-grid"]';
+    await dim(page, subject);
+    const size = await shotOf(page, subject, 'see.png');
     await ctx.close();
     return size;
   },
 
   /** One card: the board, with a task in flight. */
   async ship(browser, base) {
-    const { ctx, page } = await boot(browser, { width: 1820, height: 800 }, base);
+    const { ctx, page } = await boot(browser, { width: 1546, height: 900 }, base);
     await activate(page, 'kanban:c1');
     await page.evaluate(floating(true), true);
     await page.waitForTimeout(900);
-    const size = await shotOf(page, '[data-pane-id="kanban:c1"] >> xpath=ancestor::*[@data-group-cell][1]', 'ship.png');
+    const subject = '[data-pane-id="kanban:c1"] >> xpath=ancestor::*[@data-group-cell][1]';
+    await dim(page, subject);
+    const size = await shotOf(page, subject, 'ship.png');
     await ctx.close();
     return size;
   },
 
   /** The whole app at phone width — a real 390pt viewport, not a mock frame. */
   async reach(browser, base) {
-    const { ctx, page } = await boot(browser, { width: 390, height: 844, dsf: 2 }, base);
+    const { ctx, page } = await boot(browser, { width: 390, height: 844 }, base);
     await useGroup(page, 'space:agents').catch(() => {});
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(OUT, 'reach.png'), scale: 'device' });
     const kb = await toWebp(join(OUT, 'reach.png'));
     await ctx.close();
-    return `390x844 css (whole phone window) · ${kb} KB`;
+    return record('reach', 390, 390 * OVERSAMPLE, kb);
   },
 
   /** The model picker: every provider you can point it at, in one popover. */
@@ -250,4 +385,33 @@ for (const [name, fn] of Object.entries(SHOTS)) {
 }
 await browser.close();
 server.close();
+
+/* ---- the check ------------------------------------------------------------
+ * Printed every run, enforced only with --strict. It is a report today because
+ * two of the six cannot pass until the page offers them the width they need —
+ * a full-bleed slot for the window shot, and a crop instead of the whole
+ * dashboard. Wiring --strict into CI is the last step of that layout work, not
+ * the first: a gate that is red on purpose teaches everyone to ignore it.
+ */
+if (scales.length) {
+  const bad = scales.filter((s) => !s.ok);
+  console.log(
+    '\ncontent scale (rendered ÷ logical), band %s–%s',
+    MIN_CONTENT_SCALE.toFixed(2), MAX_CONTENT_SCALE.toFixed(2),
+  );
+  for (const s of scales.sort((a, b) => a.scale - b.scale)) {
+    const lo = Math.round(s.render / MAX_CONTENT_SCALE);
+    const hi = Math.round(s.render / MIN_CONTENT_SCALE);
+    console.log(
+      `  ${s.name.padEnd(9)} ${s.scale.toFixed(2).padStart(5)}  ${s.oversample.toFixed(2)}×  ` +
+      `${String(Math.round(s.logicalWidth)).padStart(4)} logical → ${String(s.render).padStart(4)} rendered` +
+      (s.ok ? '   ok' : `   ✗ ${s.why}: capture it between ${lo} and ${hi} logical px`),
+    );
+  }
+  if (bad.length) {
+    console.log(`\n${bad.length}/${scales.length} below the floor: ${bad.map((b) => b.name).join(', ')}`);
+    if (strict) failed++;
+  }
+}
+
 process.exit(failed === 0 ? 0 : 1);
