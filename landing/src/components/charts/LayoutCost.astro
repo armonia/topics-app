@@ -23,7 +23,7 @@ const yTicks = [0, 16.7, 33, 50, 70];
   title="Milliseconds of layout per frame, by number of panes"
   subtitle="Moving the edge with padding costs layout and scales with the pane count. Moving it with a transform costs nothing at any count."
   summary="Line chart. Layout time per frame when animating with padding: 8 ms at 2 panes, 20 at 5, 33 at 8, 66 at 16. With a transform it is 0 ms at every count. The frame budget at 60 fps is 16.7 ms; padding crosses it between 5 and 8 panes."
-  source="Measured 29 June 2026 with performance/sidebar-flip-webkit-bench.cjs in headless WebKit via Playwright (AppleWebKit 605.1.15, Version 26.0 — the engine Tauri's WKWebView uses). Synchronous layout timing, which stays reliable even where headless WebKit throttles rAF."
+  source="Measured 29 June 2026 with performance/sidebar-flip-webkit-bench.cjs in headless WebKit via Playwright (AppleWebKit 605.1.15, Version 26.0, the engine Tauri's WKWebView uses). Synchronous layout timing, which stays reliable even where headless WebKit throttles rAF."
   columns={['Panes', 'Padding (ms)', 'Transform (ms)']}
   rows={N.map((n, i) => [n, padding[i], transform[i]])}
 >

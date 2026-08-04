@@ -1,6 +1,9 @@
 ---
 title: PTY bridge
-definition: A process that owns the terminal sessions independently of the window showing them. Because a PTY dies with whatever holds it, keeping sessions alive across a reload, a crash or a server restart means moving ownership somewhere longer-lived than the interface.
+definition: >-
+  A process that owns the terminal sessions independently of the window showing them. Because
+  a PTY dies with whatever holds it, keeping sessions alive across a reload, a crash or a
+  server restart means moving ownership somewhere longer-lived than the interface.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:

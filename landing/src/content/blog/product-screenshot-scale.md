@@ -19,7 +19,7 @@ a resolution.
 **Oversample** is asset pixels ÷ rendered CSS pixels. It is the one everybody
 knows: capture at 2×, serve at 1×, get a crisp image on a retina display.
 
-**Content scale** is rendered CSS pixels ÷ *logical* CSS pixels — the width the
+**Content scale** is rendered CSS pixels ÷ *logical* CSS pixels: the width the
 application actually laid itself out at before the capture doubled it. It is the
 one nobody watches, and it is the one that decides whether the picture can be
 read.
@@ -58,7 +58,7 @@ reading computed styles rather than eyeballing.
 Val.town uses real screenshots and serves them at 2560 → 1280: exactly 2.00×
 oversample, content scale 1.00. Never below one.
 
-Cursor, Anthropic and Devin do something else entirely — **they do not
+Cursor, Anthropic and Devin do something else entirely: **they do not
 photograph the product at all.** The interface in their hero is live DOM. Cursor's
 is 1080×620 with 250 elements and 89 text nodes, 55 of them at 13.5px or below,
 and zero images. Anthropic's is 1372×772 with 112 text nodes at 12.5px. Devin's
@@ -73,7 +73,7 @@ You cannot photograph a 1240px-wide window and show it 570px wide. There are
 exactly two ways out, and picking one is unavoidable:
 
 1. **The page renders it bigger**: a full-bleed slab instead of a column.
-2. **The subject is smaller** — one pane, one card, one popover.
+2. **The subject is smaller**: one pane, one card, one popover.
 
 Which is the interesting part, because option 2 is also the answer to a
 completely different complaint: *the pictures show too much and I do not know
@@ -100,7 +100,7 @@ content scale (rendered ÷ logical), band 0.90–1.10
 A band rather than a floor, because the failure is symmetric. We first shipped a
 floor of 0.90 and immediately produced the opposite defect: a card captured at
 326 logical pixels and served at 640 has a content scale of 1.97 and an
-oversample of **1.02×** — the asset is being stretched, and it looks soft no
+oversample of **1.02×**: the asset is being stretched, and it looks soft no
 matter how sharp the capture was. Both edges of the band say the same thing.
 Capture the subject at the width the page will serve it at.
 
@@ -114,7 +114,7 @@ the live pages, and element and text-node counts from the DOM.
 
 ## Limits
 
-Single measurement per site, one viewport, one day — a responsive layout can put
+Single measurement per site, one viewport, one day, and a responsive layout can put
 the same image at a different width on a different screen, and we did not sweep
 breakpoints. Reference sites change without notice, so the specific numbers above
 are a snapshot rather than a standing fact. And the rule is about legibility

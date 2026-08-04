@@ -1,6 +1,9 @@
 ---
 title: Context window
-definition: The ceiling on how much text a model can see in one turn. Now that a million tokens is an ordinary size, the binding question has changed from "will it fit" to "what does it cost to keep it there", because everything in the window is re-read and re-billed every turn.
+definition: >-
+  The ceiling on how much text a model can see in one turn. Now that a million tokens is an
+  ordinary size, the binding question has changed from "will it fit" to "what does it cost to
+  keep it there", because everything in the window is re-read and re-billed every turn.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:
@@ -15,7 +18,7 @@ file the agent has read along the way.
 
 ## The change nobody has fully absorbed
 
-When windows were small, the window was a *constraint* — the discipline was
+When windows were small, the window was a *constraint*: the discipline was
 fitting. Now that a million tokens is available, the constraint has moved. It
 fits. The question is what it costs to have it there.
 

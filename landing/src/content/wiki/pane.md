@@ -1,6 +1,9 @@
 ---
 title: Pane
-definition: A pane is one live surface inside a topic — a chat, a terminal, a browser, a diff. Unlike a tab in a text editor, a pane usually has a process behind it, which means it has a lifecycle and a measurable cost even when you are not looking at it.
+definition: >-
+  A pane is one live surface inside a topic: a chat, a terminal, a browser, a diff. Unlike a
+  tab in a text editor, a pane usually has a process behind it, which means it has a lifecycle
+  and a measurable cost even when you are not looking at it.
 updatedDate: 2026-08-04
 pillar: performance
 seeAlso:

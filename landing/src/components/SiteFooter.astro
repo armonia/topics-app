@@ -1,0 +1,70 @@
+---
+/**
+ * The footer, in one place, and in columns rather than as a single line of
+ * links.
+ *
+ * Same problem as the nav, worse: three footers offering three different sets,
+ * and the changelog's was the only one that linked to Releases while being the
+ * only one that did not link to Compare. A flat row also has no hierarchy —
+ * Privacy sat between RSS and GitHub as though the three were the same kind of
+ * thing.
+ */
+const columns = [
+  {
+    title: 'Product',
+    links: [
+      { label: 'Overview', href: '/#features' },
+      { label: 'Live demo', href: '/#demo' },
+      { label: 'Pricing', href: '/#pricing' },
+      { label: 'Download', href: '/#download' },
+      { label: 'Changelog', href: '/changelog' },
+    ],
+  },
+  {
+    title: 'Learn',
+    links: [
+      { label: 'Docs and glossary', href: '/wiki' },
+      { label: 'Blog', href: '/blog' },
+      { label: 'Compared to others', href: '/compare/claude-code-guis' },
+      { label: 'For agents', href: '/agents.md' },
+      { label: 'RSS', href: '/blog/rss.xml' },
+    ],
+  },
+  {
+    title: 'Project',
+    links: [
+      { label: 'GitHub', href: 'https://github.com/armonia/topics-app', external: true },
+      { label: 'Releases', href: 'https://github.com/armonia/topics-app/releases', external: true },
+      { label: 'Security', href: 'https://github.com/armonia/topics-app/blob/main/SECURITY.md', external: true },
+      { label: 'MIT licence', href: 'https://github.com/armonia/topics-app/blob/main/LICENSE', external: true },
+      { label: 'Privacy', href: '/privacy' },
+    ],
+  },
+];
+---
+
+<footer class="footer">
+  <div class="footer__grid">
+    <div class="footer__brand">
+      <a class="brand" href="/" aria-label="Topics home">
+        <img src="/icon-64.png" alt="" class="brand__mark" width="26" height="26" />
+        <span class="brand__name">Topics</span>
+      </a>
+      <p class="footer__tag">A desktop workspace for CLI coding agents. Your machine, your account, your data.</p>
+    </div>
+    {columns.map((c) => (
+      <nav class="footer__col" aria-label={c.title}>
+        <p class="footer__coltitle">{c.title}</p>
+        <ul>
+          {c.links.map((l) => (
+            <li><a href={l.href} {...(l.external ? { rel: 'noopener', target: '_blank' } : {})}>{l.label}</a></li>
+          ))}
+        </ul>
+      </nav>
+    ))}
+  </div>
+  <div class="footer__fine">
+    <p>MIT &copy; <span id="year">2026</span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>.</p>
+    <p class="footer__disc">An independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google, Cursor or Warp. Their names appear here only to say what Topics talks to.</p>
+  </div>
+</footer>

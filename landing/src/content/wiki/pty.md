@@ -1,6 +1,10 @@
 ---
 title: PTY (pseudo-terminal)
-definition: A pseudo-terminal is a pair of kernel devices that makes a program believe it is talking to a real terminal. It is why `vim`, `htop` and every interactive CLI behave differently when you pipe them, and it is the only channel through which a paid CLI subscription can be driven.
+definition: >-
+  A pseudo-terminal is a pair of kernel devices that makes a program believe it is talking to
+  a real terminal. It is why `vim`, `htop` and every interactive CLI behave differently when
+  you pipe them, and it is the only channel through which a paid CLI subscription can be
+  driven.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:

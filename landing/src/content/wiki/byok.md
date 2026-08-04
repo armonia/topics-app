@@ -1,6 +1,9 @@
 ---
 title: BYOK (bring your own key)
-definition: A model where the software holds no credential of its own and proxies nothing. It uses your API key or your signed-in CLI, so your prompts go straight to the model vendor and the tool never sees them, never resells inference and cannot take a margin on it.
+definition: >-
+  A model where the software holds no credential of its own and proxies nothing. It uses your
+  API key or your signed-in CLI, so your prompts go straight to the model vendor and the tool
+  never sees them, never resells inference and cannot take a margin on it.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:

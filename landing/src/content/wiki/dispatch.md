@@ -1,6 +1,9 @@
 ---
 title: Dispatch
-definition: Dispatch is handing a task to an agent along with the environment it needs (working directory, model, effort level and an isolated checkout) so that starting work does not require a human to set the stage first.
+definition: >-
+  Dispatch is handing a task to an agent along with the environment it needs (working
+  directory, model, effort level and an isolated checkout) so that starting work does not
+  require a human to set the stage first.
 updatedDate: 2026-08-04
 pillar: parallel-agents
 seeAlso:
@@ -18,7 +21,7 @@ from the task itself.
 
 - **A working directory**, which for parallel work means [[git-worktree-per-agent]]
   rather than the checkout you are using.
-- **A model and an [[effort-level]]**, decided per task rather than globally —
+- **A model and an [[effort-level]]**, decided per task rather than globally:
   a mechanical rename does not need deep reasoning and should not be billed for it.
 - **The brief**, which is what should happen, where to look, and how anyone will
   know it worked. The part that cannot be automated, and the part that decides

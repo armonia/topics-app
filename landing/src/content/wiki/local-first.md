@@ -1,6 +1,9 @@
 ---
 title: Local-first
-definition: An architecture where your data lives on your disk and the network is an optimisation rather than a requirement. It is not the same as offline support — the difference is which copy is authoritative when the two disagree.
+definition: >-
+  An architecture where your data lives on your disk and the network is an optimisation rather
+  than a requirement. It is not the same as offline support: the difference is which copy is
+  authoritative when the two disagree.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:

@@ -144,7 +144,7 @@ a{color:inherit;text-decoration:none}
 ::selection{background:var(--accent-line);color:var(--ink)}
 :focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px;border-radius:3px}
 
-.ic{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:middle;flex:none}
+.ic{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:middle;flex:none}
 .ic--fill{fill:currentColor;stroke:none}
 .ic--xs{width:13px;height:13px}.ic--lg{width:30px;height:30px}
 .btn .ic{width:1.08em;height:1.08em}
@@ -169,9 +169,13 @@ a{color:inherit;text-decoration:none}
 .brand{display:flex;align-items:center;gap:9px;font-family:var(--display-sm);font-weight:600;font-size:17px;letter-spacing:-.015em}
 .brand__mark{border-radius:7px}
 .nav__links{display:flex;gap:24px;margin-left:6px}
-.nav__links a{color:var(--ink-mute);font-size:15px;font-weight:500;transition:color var(--dur-1) var(--state);display:inline-flex;align-items:center;gap:6px}
+.nav__links a{position:relative;color:var(--ink-mute);font-size:15px;font-weight:500;transition:color var(--dur-1) var(--state);display:inline-flex;align-items:center;gap:6px}
 .nav__links .ic{width:15px;height:15px}
 .nav__links a:hover{color:var(--ink)}
+/* The nav says where you are. A colour change alone would be information by
+   colour only, so the current item also carries a rule under it. */
+.nav__links a[aria-current="page"]{color:var(--ink);font-weight:560}
+.nav__links a[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:2px;border-radius:2px;background:var(--accent)}
 .nav__cta{margin-left:auto;display:flex;gap:10px;align-items:center}
 .nav__stars{color:var(--ink-faint);font-variant-numeric:tabular-nums}
 
@@ -554,14 +558,19 @@ body.demo-expanded .expand{opacity:1}
   color:var(--dark-ink);background:hsl(220 25% 20%);border:1px solid var(--dark-rule);transition:background var(--dur-1) var(--state)}
 .copyline button:hover{background:hsl(220 25% 26%)}
 
-/* ── Footer ────────────────────────────────────────────────────────────── */
-.footer{max-width:var(--maxw);margin:130px auto 0;padding:40px 24px 60px;border-top:1px solid var(--rule)}
-.footer__inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
-.footer__brand{display:flex;align-items:center;gap:9px;font-weight:600}
-.footer__links{display:flex;gap:20px;flex-wrap:wrap}
-.footer__links a{color:var(--ink-mute);font-size:var(--t-sm);transition:color var(--dur-1) var(--state)}
-.footer__links a:hover{color:var(--ink)}
-.footer__fine{margin-top:26px;color:var(--ink-faint);font-size:13px}
+/* ── Footer ──────────────────────────────────────────────────────────────
+   Columns, not a line of links. A flat row gives every destination the same
+   weight, which is how Privacy ends up sitting between RSS and GitHub as
+   though the three were the same kind of thing. */
+.footer{max-width:var(--maxw);margin:130px auto 0;padding:46px 24px 60px;border-top:1px solid var(--rule)}
+.footer__grid{display:grid;grid-template-columns:1.6fr repeat(3,1fr);gap:36px}
+.footer__brand{display:flex;flex-direction:column;gap:12px;align-items:flex-start;max-width:38ch}
+.footer__tag{color:var(--ink-faint);font-size:var(--t-sm);line-height:1.55;text-wrap:pretty}
+.footer__coltitle{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.11em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:12px}
+.footer__col ul{list-style:none;display:grid;gap:9px}
+.footer__col a{color:var(--ink-mute);font-size:var(--t-sm);transition:color var(--dur-1) var(--state)}
+.footer__col a:hover{color:var(--ink)}
+.footer__fine{margin-top:44px;padding-top:22px;border-top:1px solid var(--rule);color:var(--ink-faint);font-size:13px}
 /* Underlined, not merely tinted: against the surrounding fine print the colour
    difference alone is 2.17:1, which does not mark a link. */
 .footer__fine a{color:var(--ink-mute);text-decoration:underline;text-underline-offset:2px}
@@ -584,8 +593,15 @@ body.demo-expanded .expand{opacity:1}
   .model__step:not(:first-child){padding-left:0}
   .model__step:last-child{border-bottom:0}
 }
+@media (max-width:1000px){
+  .footer__grid{grid-template-columns:1fr 1fr;gap:30px}
+  .footer__brand{grid-column:1 / -1}
+}
 @media (max-width:900px){
   .nav__links{display:none}
+  /* The GitHub button keeps its mark and loses its word: at this width the two
+     buttons and the brand are competing for the same row. */
+  .nav__ghlabel{display:none}
   /* One column: the alternation only means something when the halves sit side
      by side. Picture first every time — it is the reason to read the list. */
   .fitem{grid-template-columns:1fr;gap:28px;padding:48px 0}
@@ -616,7 +632,7 @@ body.demo-expanded .expand{opacity:1}
      both under the 44px a finger needs. Height only. */
   .nav__cta .btn--sm,.brand,.chapter{min-height:44px}
   .dl-card.is-primary{grid-column:span 1}
-  .footer__inner{flex-direction:column;align-items:flex-start}
+  .footer__grid{grid-template-columns:1fr;gap:26px}
   .cl-rel{padding:20px 18px}
   .proof__row{gap:12px 20px;padding:16px 0}
   .wedge__card{padding:38px 24px}

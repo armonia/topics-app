@@ -1,6 +1,9 @@
 ---
 title: Checkpoint
-definition: A saved point in a session you can return to, taking the working tree back with you. It is the answer to an agent that went somewhere wrong twenty minutes ago and has been building on it since.
+definition: >-
+  A saved point in a session you can return to, taking the working tree back with you. It is
+  the answer to an agent that went somewhere wrong twenty minutes ago and has been building on
+  it since.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:

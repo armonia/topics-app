@@ -1,6 +1,9 @@
 ---
 title: ACP (Agent Client Protocol)
-definition: A protocol that lets one interface talk to different coding agents without hard-wiring any of them. Where MCP standardises what an agent can reach, ACP standardises how a client and an agent talk to each other.
+definition: >-
+  A protocol that lets one interface talk to different coding agents without hard-wiring any
+  of them. Where MCP standardises what an agent can reach, ACP standardises how a client and
+  an agent talk to each other.
 updatedDate: 2026-08-04
 pillar: protocols
 seeAlso:
@@ -12,7 +15,7 @@ The two protocols are often confused because both have "agent" in the name and
 both are about interoperability. They sit on opposite sides of the agent.
 
 - **[[mcp]]** is between the agent and the *tools* it uses.
-- **ACP** is between the agent and the *client* that displays it — the thing
+- **ACP** is between the agent and the *client* that displays it: the thing
   showing the conversation, the diffs and the permission prompts.
 
 ## What it is for

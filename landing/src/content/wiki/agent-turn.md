@@ -1,6 +1,9 @@
 ---
 title: Agent turn
-definition: A turn is one complete cycle of request, reasoning, tool calls and reply. It is the unit that cost, latency and context growth are all measured in, which makes it the only honest thing to count when you want to know what an agent is spending.
+definition: >-
+  A turn is one complete cycle of request, reasoning, tool calls and reply. It is the unit
+  that cost, latency and context growth are all measured in, which makes it the only honest
+  thing to count when you want to know what an agent is spending.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:

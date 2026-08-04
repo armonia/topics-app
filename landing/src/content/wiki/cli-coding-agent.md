@@ -1,6 +1,9 @@
 ---
 title: CLI coding agent
-definition: A coding agent that runs as a command-line process on your machine (Claude Code, Codex, OpenCode, Gemini CLI) rather than inside an editor or behind a web app. It reads and writes your real files with your real permissions, which is both the appeal and the risk.
+definition: >-
+  A coding agent that runs as a command-line process on your machine (Claude Code, Codex,
+  OpenCode, Gemini CLI) rather than inside an editor or behind a web app. It reads and writes
+  your real files with your real permissions, which is both the appeal and the risk.
 updatedDate: 2026-08-04
 pillar: parallel-agents
 seeAlso:

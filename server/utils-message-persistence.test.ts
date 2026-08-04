@@ -20,6 +20,7 @@ import { closeDatabase } from "./db";
 import { createAppContext } from "./utils";
 import { beginAsk, hasPendingAsk } from "./lib/ask-user-bridge";
 import type { AppContext, Topic, ToolCall } from "./types";
+import { mergeReattachedRow } from "./routes/reattachMerge";
 
 let tmpRoot: string;
 let ctx: AppContext;
@@ -240,6 +241,51 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
     // The replay rebuilds the same row in place.
     ctx.appendToLastMessage(sk, "turno ricostruito dal replay");
     expect(ctx.getMessageById(original.id)!.content).toBe("turno ricostruito dal replay");
+  });
+
+  test("un replay MUTO non porta via il pannello: quel che c'era torna al suo posto", () => {
+    // La composizione che il 4 agosto ha fatto sparire una domanda a schermo
+    // sei volte di fila, una per ricarica del server: il riattacco SVUOTA la
+    // riga per riusarla, ma quando lo store del broker ha la coda chiusa il
+    // provider ri-consegna solo il testo finale — nessun tool. Senza il merge
+    // la riga restava senza `ask_user_question`, e il pannello moriva.
+    const sk = "topic:reatt04-ask";
+    const original = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendToLastMessage(sk, "Ho una domanda per te.");
+    ctx.addToolCallToLastMessage(sk, tool("ask1", {
+      name: "mcp__topics__ask_user_question",
+      status: "waiting_for_input",
+      userInputSchema: { kind: "questions", questions: [{ question: "Quale strada?", header: "Strada", options: [{ label: "A" }, { label: "B" }] }] },
+    }));
+
+    // Quello che fa la route un attimo prima di svuotare.
+    const before = ctx.db.prepare(
+      "SELECT content, thinking, tool_calls, blocks FROM messages WHERE id = ?",
+    ).get(original.id) as { content: string; thinking: string | null; tool_calls: string | null; blocks: string | null };
+    const snapshot = {
+      content: before.content, thinking: before.thinking,
+      toolCallsJson: before.tool_calls, blocksJson: before.blocks,
+    };
+
+    const reused = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(reused.id).toBe(original.id);
+    expect(ctx.getMessageById(original.id)!.toolCalls?.length ?? 0).toBe(0); // svuotata
+
+    // Replay muto: solo il testo finale, nessun tool visto da questo handler.
+    const merged = mergeReattachedRow(snapshot, { content: "Ho una domanda per te.", trackedTools: 0, blocks: [] });
+    expect(merged.nothingNew).toBe(true);
+    if (merged.toolCallsJson !== undefined) {
+      ctx.db.run("UPDATE messages SET tool_calls = ? WHERE id = ?", [merged.toolCallsJson, original.id]);
+    }
+    ctx.updateLastMessage(sk, { content: merged.content });
+
+    const after = ctx.getMessageById(original.id)!;
+    expect(after.content).toBe("Ho una domanda per te.");
+    expect(after.toolCalls?.[0]?.id).toBe("ask1");
+    expect(after.toolCalls?.[0]?.status).toBe("waiting_for_input");
+    // Lo schema della domanda è quello che fa comparire il pannello: se si
+    // perde lui, resta una riga grigia che non si può rispondere.
+    expect((after.toolCalls?.[0] as { userInputSchema?: unknown })?.userInputSchema).toBeTruthy();
   });
 
   test("creates a FRESH row when nothing survived (last message already finalized)", () => {

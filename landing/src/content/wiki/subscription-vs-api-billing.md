@@ -1,6 +1,10 @@
 ---
 title: Subscription vs API billing
-definition: Two different ways to pay for the same model, and they are not interchangeable. A subscription authorises the vendor's own CLI or app; the API bills per token against a key. Nothing bridges them, which is why a tool that wants to use your plan must run the real binary.
+definition: >-
+  Two different ways to pay for the same model, and they are not interchangeable. A
+  subscription authorises the vendor's own CLI or app; the API bills per token against a key.
+  Nothing bridges them, which is why a tool that wants to use your plan must run the real
+  binary.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:
@@ -38,4 +42,4 @@ revoked.
 ## What neither changes
 
 Where your prompts go. Both send them to the model vendor. What differs is who
-sits between you and them — with [[byok]] and a locally-run client, nobody.
+sits between you and them: with [[byok]] and a locally-run client, nobody.

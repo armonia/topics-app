@@ -1,6 +1,9 @@
 ---
 title: Effort level
-definition: Effort is how hard a model is asked to think before it answers. It is set per session rather than per account, it changes both the quality and the price of a turn, and a session started from a bare shell can silently get the cheapest tier without saying so.
+definition: >-
+  Effort is how hard a model is asked to think before it answers. It is set per session rather
+  than per account, it changes both the quality and the price of a turn, and a session started
+  from a bare shell can silently get the cheapest tier without saying so.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:
@@ -14,7 +17,7 @@ bill; less effort means a faster, cheaper answer that is worse at anything
 requiring several steps held in mind at once.
 
 It is a per-invocation setting. Nothing about your account or your plan fixes
-it — whoever launches the process decides, and if nobody decides, a default
+it: whoever launches the process decides, and if nobody decides, a default
 applies.
 
 ## The failure mode
