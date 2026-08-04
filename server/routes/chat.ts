@@ -1894,6 +1894,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 });
                 if (usd > 0) liveCost = Math.round(usd * 100);
               } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
+              // Gli stessi numeri, anche SULLA RIGA e non solo sul filo.
+              //
+              // Il broadcast lo vede chi è collegato in quel momento; chi apre
+              // la chat dopo, o ricarica, o guarda un turno fermo su una
+              // domanda, leggeva una riga senza consumo — e la striscia di
+              // chiusura restava con la sola durata, senza token né prezzo.
+              // Scriverli qui li rende durevoli: la finalizzazione poi li
+              // sovrascrive coi totali definitivi del provider.
+              try {
+                updateLastMessage(sessionKey, {
+                  usagePromptTokens: live.prompt,
+                  usageCompletionTokens: live.completion,
+                  cacheReadTokens: live.cacheRead,
+                  cacheCreationTokens: live.cacheCreation,
+                  cacheCreation1hTokens: live.cacheCreation1h,
+                  ...(liveCost != null ? { costCents: liveCost } : {}),
+                  ...(liveModel ? { model: liveModel } : {}),
+                });
+              } catch (err) { console.warn(`[usage] consumo vivo non scritto su ${sessionKey}:`, err); }
               broadcastToAll({
                 type: "stream:usage",
                 sessionKey,

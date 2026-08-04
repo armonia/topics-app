@@ -224,6 +224,19 @@ test.describe("Striscia di attività · turno in attesa di risposta", () => {
     ws.send({ type: "stream:tool_result", sessionKey, topicId, toolCallId, status: "success", result: "ok" });
     await expect(footer).toHaveCount(0, { timeout: 10_000 });
     await expect(inlineUsage.first()).toBeVisible();
+
+    // Un frame di consumo PARZIALE non deve cancellare quello che sapevamo:
+    // scriverli tutti a scatola chiusa azzerava i campi mancanti, e la striscia
+    // di fine turno spariva del tutto (nessuna durata, nessun token, nessun
+    // prezzo → il footer non disegna niente). Qui arriva un frame con i soli
+    // token letti: il costo e lo scorporo di prima devono sopravvivere.
+    ws.send({ type: "stream:usage", sessionKey, topicId, calls: 8, promptTokens: 1_100_000 });
+    await expect(inlineUsage.first()).toContainText("$0.42");
+
+    // E a turno FINITO la striscia di chiusura c'è, coi numeri.
+    ws.send({ type: "stream:end", sessionKey, topicId, messageId: "msg_awaiting_footer_e2e" });
+    await expect(footer).toBeVisible({ timeout: 10_000 });
+    await expect(footer).toContainText("$0.42");
   });
 
   test("fuori dalla chat il segnale dice «ferma», non «sta lavorando»", async ({ page, chatPage }) => {
