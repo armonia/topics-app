@@ -98,6 +98,18 @@ export interface TasksRouterOpts {
    */
   taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
   /**
+   * Il progetto di questa board può davvero avere un worktree isolato?
+   *
+   * È una condizione del BOARD, non del task, ma si scopriva una volta PER
+   * TASK: con «worktree isolato» acceso su un progetto che non è un repo git,
+   * ogni dispatch moriva con «worktree richiesto ma il progetto non è un repo
+   * git registrato». Il messaggio era corretto e arrivava nel posto sbagliato —
+   * a chi guarda un task, invece che a chi ha acceso l'impostazione.
+   *
+   * Esposto insieme alle impostazioni così il pannello può dirlo PRIMA.
+   */
+  worktreeReady?: (projectId: string) => boolean;
+  /**
    * The task branch's state relative to main, read from the PROJECT repo by
    * CONTENT (so a squash-land still reads "merged"). `null` ⇒ the task has no
    * branch worktree. Gates the post-land reap: a branch whose content isn't on
@@ -868,7 +880,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (bSettings) {
         const projectId = bSettings.projectId;
         if (method === "GET") {
-          try { return json(svc.getBoardSettings(projectId)); } catch (e) { return fail(e); }
+          try {
+            const settings = svc.getBoardSettings(projectId);
+            // `worktreeReady` NON è un'impostazione: è un fatto sul progetto,
+            // che il pannello mostra accanto all'interruttore che ne dipende.
+            return json({ ...settings, worktreeReady: opts?.worktreeReady?.(projectId) ?? true });
+          } catch (e) { return fail(e); }
         }
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
