@@ -400,15 +400,25 @@ test.describe("Kanban board", () => {
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
     // The copy-link button is present; clicking it writes an openable deep-link
-    // (?task=<projectId>~<taskId>) to the clipboard.
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]).catch(() => {});
+    // to the clipboard — and questa riga la LEGGE DAVVERO.
+    //
+    // Prima c'era un'asserzione che non poteva fallire: due `.catch(() => "")`
+    // annidati riducevano ogni errore a stringa vuota, e `if (clip)` saltava
+    // l'unica `expect` del blocco. Copia non avvenuta, permesso negato,
+    // `readText` in errore, link sbagliato in modo da risultare vuoto: tutti
+    // VERDI. Il permesso non è mai stato il problema — `playwright.config.ts`
+    // (`use.permissions`) concede clipboard-read/write a TUTTA la suite, quindi
+    // la `grantPermissions` per-test era anch'essa rumore.
+    //
+    // Il link è path-based (`/task/<uuid>`): la forma `?task=<slug>~<uuid>` è
+    // stata abbandonata (commit e5c10f37) e l'uuid è l'identificatore stabile.
+    // L'uguaglianza è ESATTA perché `buildTaskLink` compone `serverHttpBase()
+    // || window.location.origin` + `/task/<id>` senza query: sul web quel base
+    // è l'origine della pagina, cioè `BASE`.
     await drawer.getByTestId("task-copy-link").click();
-    const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => "")).catch(() => "");
-    if (clip) {
-      // Path-based deep-link (/task/<uuid>) — the ?task=slug~uuid query form was
-      // dropped (commit e5c10f37). The uuid is the stable identifier.
-      expect(clip).toContain(`/task/${task.id}`);
-    }
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
+      .toBe(`${BASE}/task/${task.id}`);
 
     // Esc closes the drawer (not editing, no menu open → the drawer's own Esc).
     await page.keyboard.press("Escape");

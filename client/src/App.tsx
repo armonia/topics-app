@@ -33,6 +33,8 @@ import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
+import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
+import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
 
@@ -55,7 +57,7 @@ import { WindowsSection } from './components/Sidebar/WindowsSection';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
-import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
+import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
@@ -87,6 +89,44 @@ const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m =
 const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
 const AgentAssignPanel = lazy(() => import('./components/Agents/AgentAssignPanel').then(m => ({ default: m.AgentAssignPanel })));
+/**
+ * Il target del deep-link che la URL porta al boot, o `null`.
+ *
+ * `currentTabTarget()` copre tutta la grammatica dei permalink (`/tab/…`) e gli
+ * alias `/task/<id>` e `/topic/<id>`. Resta fuori UNA forma sola: la query
+ * LEGACY `?task=<slug>~<id>`, che non sta nella grammatica di `/tab/` e la sa
+ * leggere solo `openTaskLink`. Il ponte serve perché quei link sono già
+ * incollati nei commenti di review: senza, aprirebbero il drawer al mount e poi
+ * si vedrebbero rubare il focus dall'hydrate — cioè esattamente la regressione
+ * che la ri-asserzione esiste per impedire.
+ */
+function bootDeepLinkTarget(): TabTarget | null {
+  try {
+    const direct = currentTabTarget();
+    if (direct) return direct;
+    const legacy = currentTaskTarget();
+    return legacy ? { kind: 'task', key: legacy.taskId } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Il deep-link del boot si legge UNA VOLTA SOLA, al caricamento del modulo —
+// prima che React monti. Non è un'ottimizzazione: una rotta `/tab/…` si CONSUMA
+// (viene strippata dalla URL), quindi rileggerla dopo darebbe `null`. In dev
+// StrictMode monta→smonta→rimonta, e con la lettura dentro l'effetto il secondo
+// giro troverebbe una URL già pulita: il permalink non aprirebbe niente proprio
+// mentre lo si sta provando. Stessa ragione per cui `detachedTopicIds` parsa la
+// query una volta.
+const BOOT_TAB_PERMALINK = (() => {
+  try {
+    return window.location.pathname.startsWith(TAB_PATH_PREFIX);
+  } catch {
+    return false;
+  }
+})();
+const BOOT_DEEP_LINK = bootDeepLinkTarget();
+
 const TOPICS_MENU_PAGES = [
   { id: 'board' as const, icon: LayoutGrid, label: 'Board generale' },
   { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
@@ -165,52 +205,6 @@ function App() {
   // navigarla senza ricaricare la SPA. Stessa via dei deep-link `/task/<id>`.
   useEffect(() => subscribeServiceWorkerTaskOpen(), []);
 
-  // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
-  // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
-  // board and jumps to the task.
-  //
-  // The single mount-time fire RACES the boot pane-store hydrate: the first
-  // `ui-state:init` re-runs the focus reconciliation and restores the
-  // previously-focused pane, stealing the board activation before its drawer
-  // opens (repro: open /task/<id> cold → the last project pane shows, no
-  // drawer). So we RE-ASSERT the deep-link on each pane-store hydrate during a
-  // short boot window, riding the same (proven-working) open path once the
-  // store is stable. Bounded and safe: it stops the instant the drawer opens
-  // (`topics:task-opened`), only re-fires while the URL still carries the
-  // target, and self-cancels after the boot window so it can never yank focus
-  // from a user who has since navigated elsewhere.
-  useEffect(() => {
-    if (!currentTaskTarget()) return;
-    openTaskFromUrl();
-    let done = false;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    const stop = () => {
-      if (done) return;
-      done = true;
-      unsub();
-      clearTimeout(settleTimer);
-      clearTimeout(deadline);
-      window.removeEventListener('topics:task-opened', stop);
-    };
-    // DEBOUNCED re-assert: a hydrate wave re-runs the focus reconciliation, so
-    // we wait for it to go QUIET (no new seq for 400ms) and then re-assert ONCE
-    // — matching the stable post-boot open path. Re-asserting on every wave
-    // instead flaps the drawer; firing only after the storm settles does not.
-    const scheduleReassert = () => {
-      clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        const target = currentTaskTarget();
-        if (!done && target) openTaskInApp(target);
-      }, 400);
-    };
-    const unsub = usePaneStore.subscribe((s) => s.lastSeq, scheduleReassert);
-    // Drawer opened → the deep-link is fulfilled, stand down.
-    window.addEventListener('topics:task-opened', stop);
-    // Boot window only — never yank focus long after load.
-    const deadline = setTimeout(stop, 8000);
-    return stop;
-  }, []);
-
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
   // scheduled so it never competes with the initial paint; guarded for Safari
@@ -265,6 +259,12 @@ function App() {
   }, []);
   const detachedTopicId = detachedTopicIds[0] ?? null;
   const isDetached = detachedTopicIds.length > 0;
+
+  // Il deep-link del boot vive in `<BootDeepLinkResolver>` (in fondo a questo
+  // file), montato DENTRO `<ToastProvider>`. Non è un vezzo di struttura: il
+  // rifiuto di un permalink morto deve dirlo all'utente, e `useToast()` qui
+  // restituirebbe il no-op — è App a RENDERIZZARE il provider, quindi non c'è
+  // nessun context sopra di lei. `isDetached` viaggia come prop.
 
   // Topics-menu modal state declared up-front so useSidebarAndLayout can
   // observe it for the macOS traffic-light effect (CRITIQUE C10: modal
@@ -854,6 +854,11 @@ function App() {
     <SplitPositionProvider>
     <ToastProvider>
     <ConfirmProvider>
+    {/* Il deep-link del boot (`/tab/…`, `/task/…`, `/topic/…`). Sta QUI dentro,
+        e non in un effetto di App, perché il rifiuto di un permalink morto deve
+        arrivare all'utente come toast — e `useToast()` sopra `<ToastProvider>`
+        (cioè dentro App) restituisce il no-op. Non renderizza niente. */}
+    <BootDeepLinkResolver isDetached={isDetached} />
     {/* Surfaces a toast (and optional sound) when an agent completes or
         errors on any topic. Reads settings live so the master toggle in
         Settings → Notifications takes effect without a reload. Native
@@ -1542,6 +1547,172 @@ function App() {
     </TabNotificationProvider>
     </TopicsProvider>
   );
+}
+
+/**
+ * Il deep-link del boot. TRE rotte, un solo effetto perché è UNA sola corsa:
+ *   /task/<taskId>  (+ la forma legacy ?task=<slug>~<taskId>) → drawer della board
+ *   /topic/<topicId>                                          → la chat
+ *   /tab/<kind>/…                                             → una tab qualunque
+ *
+ * ── Perché è un componente, e perché sta DENTRO ToastProvider ────────────────
+ * Perché un rifiuto MUTO è il peggiore dei tre esiti. `openTabInApp` sa dire
+ * «questa tab non esiste più», ma solo a chi gli passa un `notify` — e per un
+ * anno intero nessun call-site gliel'ha passato, quindi ogni vicolo cieco era
+ * un no-op silenzioso: clicchi il link, non succede niente, e non sai perché.
+ * Il toast però è un context, e App non può leggerlo: è LEI a renderizzare
+ * `<ToastProvider>`, quindi `useToast()` dentro App restituisce il no-op
+ * (Toast.tsx). Da qui l'estrazione: l'effetto è identico, ma gira in un
+ * componente montato sotto il provider, dove il toast c'è davvero.
+ *
+ * ── La ri-asserzione, e perché esiste ───────────────────────────────────────
+ * The single mount-time fire RACES the boot pane-store hydrate: the first
+ * `ui-state:init` re-runs the focus reconciliation and restores the
+ * previously-focused pane, stealing the board activation before its drawer
+ * opens (repro: open /task/<id> cold → the last project pane shows, no
+ * drawer). So we RE-ASSERT the deep-link on each pane-store hydrate during a
+ * short boot window, riding the same (proven-working) open path once the store
+ * is stable. Bounded and safe: it stops the instant the drawer opens
+ * (`topics:task-opened`) o quando il permalink dichiara di essere ARRIVATO — o
+ * di non avere destinazione — con `topics:tab-opened`; only re-fires while the
+ * URL still carries the target, and self-cancels after the boot window so it
+ * can never yank focus from a user who has since navigated elsewhere.
+ *
+ * ⚠︎ Perché l'ack di SUCCESSO conta quanto quello di fallimento: `stop` è
+ * l'unica cosa che spegne la finestra da 8s, e dentro quella finestra la
+ * sottoscrizione a `lastSeq` si sveglia a OGNI dispatch — un click su un'altra
+ * tab ne produce uno (FOCUS_PANE), quindi 400ms dopo la ri-asserzione
+ * ributtava l'utente sul permalink. A ogni click, per otto secondi.
+ *
+ * Il target si legge con `currentTabTarget()`, che è il SOVRAINSIEME: `/tab/…`
+ * più gli alias `/task/` e `/topic/`. Da qui due conseguenze volute: un
+ * `/topic/<id>` aperto a freddo — la destinazione della push di fine turno —
+ * prima moriva sulla guardia `currentTaskTarget()` e non apriva niente; e ogni
+ * permalink di tab eredita la stessa protezione anti-furto-di-focus del
+ * deep-link della board (l'intento `topics:open-tab` in usePanelLifecycle).
+ */
+function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
+  // Il valore del context dei toast NON è memoizzato (ToastProvider ricrea
+  // l'oggetto a ogni render), quindi metterlo fra le dipendenze rifarebbe
+  // partire l'intera corsa di boot a ogni toast mostrato. Rifless in un ref:
+  // l'effetto gira UNA volta, e legge il toast che c'è nel momento in cui
+  // deve parlare.
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  useEffect(() => {
+    // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
+    // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
+    // se risolvessero un permalink in casa propria conierebbero pane che
+    // nessuno persiste — l'incidente del 2026-07-20, nove browser pane orfane
+    // in group:default. Non consumano e non aprono: è la via meno invasiva,
+    // perché INOLTRARE alla main vorrebbe dire accendere qui il canale
+    // cross-tab che la finestra staccata si tiene spento di proposito. E
+    // soprattutto NON si strippa la URL: la query `?topics=` È l'identità della
+    // finestra, ripulirla la trasformerebbe in una main al primo reload.
+    // (`consumeTabLinkFromUrl` ha ora la stessa guardia in casa propria: questa
+    // resta perché qui c'è anche tutto il resto della corsa.)
+    if (isDetached) return;
+    const boot = BOOT_DEEP_LINK;
+    if (!BOOT_TAB_PERMALINK && !boot) return;
+    // Il canale per dire all'utente che il link non porta da nessuna parte.
+    // `warning` e non `error`: non è un guasto dell'app, è un indirizzo vecchio.
+    const notify = (message: string) => toastRef.current.warning(message);
+    // Una rotta `/tab/` si CONSUMA (il pane-store è già la persistenza della
+    // tab: lasciarla nella URL la riaprirebbe a ogni reload, per sempre — il
+    // difetto noto di `/topic/<id>`). Va consumata anche quando il target è
+    // ILLEGGIBILE: una `/tab/…` che non apre niente deve comunque sparire, o si
+    // ripresenta identica a ogni reload. `/task/` e `/topic/` invece restano
+    // dove sono: la prima è la riflessione viva del drawer, e non è roba nostra.
+    //
+    // `consumeTabLinkFromUrl` STRIPPA subito e INSTRADA dopo l'idratazione: è
+    // lui, ora, il colpo garantito per un permalink `/tab/…` (vedi `kick`).
+    const consumed = BOOT_TAB_PERMALINK ? consumeTabLinkFromUrl({ notify }) : null;
+    if (!BOOT_TAB_PERMALINK) openTaskFromUrl();
+    if (!boot) return;
+    let done = false;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      unsub();
+      kick();
+      clearTimeout(settleTimer);
+      clearTimeout(deadline);
+      window.removeEventListener('topics:task-opened', stop);
+      window.removeEventListener('topics:tab-opened', onTabAck);
+    };
+    // L'ack di un permalink spegne la ri-asserzione SOLO se è un vicolo cieco.
+    //
+    // Perché non anche sul successo, che pure sarebbe la lettura naturale di
+    // «la corsa è finita»: l'ack di successo lo emette `scheduleOpenAck` non
+    // appena la pane COMPARE nello store, cioè un istante dopo l'apertura —
+    // mentre l'onda di idratazione può avere ancora code (`ui-state:updated`
+    // dai peer). Fermarsi lì significa ritirare la guardia troppo presto: la
+    // tab si apre, un hydrate tardivo le ruba il fuoco e non resta più niente
+    // che gliela riporti (TABLINK-05/06, `data-active` che resta `false` per
+    // sempre). Su un vicolo cieco invece fermarsi subito resta giusto: non c'è
+    // nessuna pane da riportare a fuoco.
+    const onTabAck = (e: Event) => {
+      if (tabAckReleasesIntent((e as CustomEvent<unknown>).detail)) stop();
+    };
+    // DEBOUNCED re-assert: a hydrate wave re-runs the focus reconciliation, so
+    // we wait for it to go QUIET (no new seq for 400ms) and then re-assert ONCE
+    // — matching the stable post-boot open path. Re-asserting on every wave
+    // instead flaps the drawer; firing only after the storm settles does not.
+    const scheduleReassert = () => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        // La URL resta la fonte finché c'è: se il drawer l'ha già riportata a
+        // '/' (l'utente ha chiuso il task), NON si riapre niente. Il target
+        // catturato al boot vale SOLO per un permalink `/tab/`, che nella URL
+        // non c'è più per costruzione — l'abbiamo consumato noi.
+        const target = currentTabTarget() ?? (BOOT_TAB_PERMALINK ? boot : null);
+        if (done || !target) return;
+        openTabInApp(target, { notify });
+        // UNA sola ri-asserzione per un permalink di TAB, poi si smette.
+        // Cintura E bretelle: la tab ha già il suo ack (`topics:tab-opened`) e
+        // il suo intento di focus con TTL in usePanelLifecycle, quindi questa
+        // ri-asserzione è solo il rinforzo per il caso in cui l'ack tardi. Il
+        // deep-link della BOARD invece resta a ciclo aperto: il suo ack arriva
+        // dal drawer, che può metterci più di un assestamento, e lì la
+        // ri-asserzione è l'unica protezione.
+        if (BOOT_TAB_PERMALINK) stop();
+      }, 400);
+    };
+    const unsub = usePaneStore.subscribe((s) => s.lastSeq, scheduleReassert);
+    // Il colpo GARANTITO, e il motivo per cui non è più un `setTimeout(0)`.
+    //
+    // Gli ascoltatori del bus (`topics:open-topic`, `topics:open-terminal-pane`,
+    // `topics:open-utility`…) vivono in usePanelLifecycle e al primo giro di
+    // effetti non sono ancora registrati, quindi un'apertura al mount è persa:
+    // serviva comunque un rinvio. Ma il rinvio giusto non è «un tick» — è LA
+    // PRIMA IDRATAZIONE del pane-store (`openTabInAppWhenHydrated`, dove sta la
+    // matrice delle cinque configurazioni misurate). Aprire prima è TABLINK-06:
+    // il permalink verso una chat GIÀ APERTA che la faceva sparire dalla barra
+    // a ~1800ms. Ed è anche concettualmente giusto: il link dice «portami su
+    // questa tab», e per sapere se la tab c'è già bisogna aver ricevuto lo
+    // stato.
+    //
+    // Per una rotta `/tab/…` il colpo l'ha già armato `consumeTabLinkFromUrl`
+    // (stessa attesa): armarne un secondo vorrebbe dire aprire due volte, ed è
+    // la configurazione che TABLINK-06 trova rossa. Quando invece la consume
+    // non ha armato niente — `null`, cioè URL già ripulita: è il SECONDO mount
+    // di StrictMode in dev — il colpo lo diamo da qui, sul target catturato a
+    // livello di modulo. Senza questa distinzione, in dev il permalink non si
+    // aprirebbe mai.
+    const kick = consumed ?? openTabInAppWhenHydrated(boot, { notify });
+    // Drawer opened → the deep-link is fulfilled, stand down.
+    window.addEventListener('topics:task-opened', stop);
+    // Permalink ARRIVATO (la pane è comparsa) oppure senza destinazione (la tab
+    // non esiste più): in entrambi i casi non c'è più niente da ri-asserire, e
+    // fermarsi subito evita 8s in cui ogni click viene strattonato indietro.
+    window.addEventListener('topics:tab-opened', onTabAck);
+    // Boot window only — never yank focus long after load.
+    const deadline = setTimeout(stop, 8000);
+    return stop;
+  }, [isDetached]);
+  return null;
 }
 
 export default App;

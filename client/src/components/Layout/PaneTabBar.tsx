@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, isPaneClosable, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, isPaneClosable, tabTargetForPane, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
+import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
@@ -60,6 +62,23 @@ const ICONS: Record<string, React.FC<{ size: number; className?: string; style?:
 // surfaces can't drift: a StreamingSpinner ("working right now") and a
 // NotificationBadge ("needs you" — Claude awaiting/error, unread, finished
 // terminal turn, project rollup). There is no separate Claude phase dot.
+
+/**
+ * Chi OSPITA questa barra di tab, per il permalink «Copia link».
+ *
+ * Non è un campo del `Pane` e non deve diventarlo: la whitelist di
+ * `reducers/sanitizeSnapshot.ts` cancella a ogni round-trip col server tutto ciò
+ * che non conosce (classe di bug già occorsa due volte), e comunque l'ospite è
+ * un fatto della SUPERFICIE, non della pane — la stessa pane browser vale
+ * `?in=<progetto>` in una finestra di progetto e `?task=<id>` nel drawer di un
+ * task. Lo sa solo chi monta la barra, e da lì arriva.
+ */
+export interface TabLinkContext {
+  /** Il progetto la cui finestra ospita queste tab (ProjectWindow). */
+  projectPath?: string;
+  /** Il task il cui drawer ospita queste tab (useTaskBrowserGroupLayout). */
+  taskId?: string;
+}
 
 interface PaneTabBarProps {
   panes: Pane[];
@@ -132,6 +151,13 @@ interface PaneTabBarProps {
    * surfaces. Default undefined ⇒ every tab is closable (app unchanged).
    */
   nonClosablePaneIds?: Set<string>;
+  /**
+   * L'ospite di queste tab, per «Copia link» (vedi TabLinkContext). Senza, il
+   * link resta quello che la pane sa dire da sola: una chat/terminale/progetto
+   * si indirizza comunque, un file — che ha bisogno del progetto — non offre
+   * la voce invece di produrre un link non risolvibile.
+   */
+  linkContext?: TabLinkContext;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   /** Pop the WHOLE group (all its tabs) out into ONE window ("stacca il gruppo").
@@ -177,7 +203,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -329,6 +355,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     setRenameDraft(null);
     setCtxMenu(null);
   }, [panes, onRenameChat, onRenameBrowser]);
+  // «Copia link»: costruzione + copia + toast stanno in un posto solo, condiviso
+  // con il menu del topic in sidebar e con la palette ⌘K (useCopyTabLink), così
+  // le tre superfici non possono dire parole diverse per lo stesso gesto.
+  const { copyTabLink, copyUrl } = useCopyTabLink();
   // Registry read is cheap (identity-stable slice); only consulted when the
   // context menu offers the move entry.
   const spacesRegistry = usePaneStore((s) => s.spaces);
@@ -376,7 +406,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Anchor menu to the tab's bottom-left edge with viewport-aware flipping.
   const positionMenuForTab = useCallback((tabEl: HTMLElement) => {
     const menuWidth = 160;
-    const menuHeight = 240;
+    // Stima, non misura: serve solo a decidere se il menu ci sta SOTTO la tab o
+    // va ribaltato sopra. Va tenuta al passo con le voci — «Copia link» (e su
+    // una tab browser anche «Copia URL della pagina») ha aggiunto due righe da
+    // ~28px, e senza questo bump il menu usciva dal fondo della viewport.
+    const menuHeight = 296;
     const rect = tabEl.getBoundingClientRect();
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
     const fitsBelow = rect.bottom + 4 + menuHeight <= window.innerHeight - 8;
@@ -1256,6 +1290,54 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <Check size={14} />
                 </button>
               </div>
+            );
+          })()}
+          {/* «Copia link» — il permalink `/tab/…` di QUESTA tab.
+              Il gate è il `null` di `tabTargetForPane`: la voce compare solo se
+              la tab è davvero indirizzabile. Sono esclusi per costruzione i
+              pane il cui id è sorteggiato a ogni apertura (kanban, git, files,
+              log) e le pane SINTETICHE del drawer di un task — Thread (una chat
+              senza topicId), Piano, allegati — che non esistono nel pane-store
+              e non avrebbero niente da riaprire.
+              Su una tab BROWSER le voci sono due, perché le domande sono due:
+              «Copia link alla tab» dà l'indirizzo della tab dentro l'app,
+              «Copia URL della pagina» quello del sito che ci sta dentro.
+              Il feedback è un toast: il menu si chiude al click, quindi lo swap
+              d'icona alla TaskDetail non si vedrebbe mai. */}
+          {(() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            if (!ctxPane) return null;
+            const target = tabTargetForPane(ctxPane, linkContext);
+            // `pane.url` è la fonte per le pane di progetto e del drawer (non
+            // sono nel pane-store); `getBrowserPaneUrl` copre quelle di primo
+            // livello, che la barra standalone ricostruisce dai soli id.
+            const pageUrl = ctxPane.type === 'browser'
+              ? (isRealUrl(ctxPane.url) ? ctxPane.url : getBrowserPaneUrl(ctxPane.id))
+              : undefined;
+            if (!target && !pageUrl) return null;
+            return (
+              <>
+                {target && (
+                  <button
+                    onClick={() => { void copyTabLink(target); setCtxMenu(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    title="Copia l'indirizzo di questa scheda (si riapre qui dentro)"
+                  >
+                    <Link2 size={14} />
+                    <span className="flex-1 text-left">{pageUrl ? 'Copia link alla tab' : 'Copia link'}</span>
+                  </button>
+                )}
+                {pageUrl && (
+                  <button
+                    onClick={() => { void copyUrl(pageUrl); setCtxMenu(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    title={pageUrl}
+                  >
+                    <Globe size={14} />
+                    <span className="flex-1 text-left">Copia URL della pagina</span>
+                  </button>
+                )}
+              </>
             );
           })()}
           {/* Right-click "Close" is the explicit-confirmation path — bypass

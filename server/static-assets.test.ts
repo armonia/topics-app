@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { classifyStaticAsset } from "./static-assets";
+import { buildTabPath } from "../shared/tab-link";
 
 const PUBLIC = "/srv/topics/public";
 
@@ -42,6 +43,20 @@ describe("classifyStaticAsset — cosa NON si serve", () => {
     expect(classifyStaticAsset("/task/9f3c-uuid", PUBLIC)).toBeNull();
     expect(classifyStaticAsset("/settings", PUBLIC)).toBeNull();
     expect(classifyStaticAsset("/", PUBLIC)).toBeNull();
+  });
+
+  test("un permalink /tab/ non è MAI un asset — nemmeno con un punto nella chiave", () => {
+    // `ROOT_FILE` è `^\/[^/]+\.[^/]+$`: un solo segmento. Un permalink ne ha
+    // sempre almeno due, quindi non può essere scambiato per un file di radice
+    // e arriva intatto al fallback SPA — che è ciò che lo fa bootare. Pinnato
+    // qui perché è una premessa del comportamento di `shouldServeSpaFallback`,
+    // non una proprietà da dare per scontata leggendo l'altro file.
+    expect(classifyStaticAsset("/tab/chat/d8ea2ff3-d412-4771-810d-401faa1d1754", PUBLIC)).toBeNull();
+    expect(classifyStaticAsset("/tab/panel/board", PUBLIC)).toBeNull();
+    expect(classifyStaticAsset("/tab/project/my.app", PUBLIC)).toBeNull();
+    expect(classifyStaticAsset("/tab/file/my.app/src/App.tsx", PUBLIC)).toBeNull();
+    const encoded = buildTabPath({ kind: "file", key: "src/App.tsx", projectPath: "/Users/x/my.app" })!;
+    expect(classifyStaticAsset(encoded, PUBLIC)).toBeNull();
   });
 
   test("niente traversata fuori dal bundle", () => {

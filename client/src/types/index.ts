@@ -1242,6 +1242,16 @@ export interface AppSettings {
   // entry points are hidden and ⌘⇧N is inert. Surfaced in Settings → Features,
   // flagged as a paid feature.
   enableNewChat: boolean;
+  /**
+   * La lingua dell'interfaccia. `auto` segue il browser.
+   *
+   * Le stringhe convertite passano da `lib/i18n.ts`; quelle non ancora convertite
+   * restano com'erano, quindi cambiare lingua oggi sposta le superfici già
+   * migrate e lascia le altre — la migrazione è per superficie, non a tappeto,
+   * perché ~190 testi cambiati in un colpo renderebbero indistinguibile un
+   * errore vero da una stringa spostata nella suite e2e.
+   */
+  language?: 'auto' | 'it' | 'en';
   // EXPERIMENTAL, desktop-only. When on, every window split and the sidebar
   // render as detached, rounded "floating" cards separated by small gaps that
   // reveal the macOS window vibrancy underneath — making the split layout
