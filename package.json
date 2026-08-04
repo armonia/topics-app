@@ -25,6 +25,7 @@
     "changelog": "node scripts/gen-changelog.mjs",
     "og": "bun scripts/og-image.mjs",
     "check:contrast": "node scripts/landing-contrast.mjs",
+    "check:landing": "node scripts/landing-verify.mjs",
     "build:landing": "cd client && bun run build:landing",
     "deploy:landing": "bun run build:site && bunx wrangler@latest deploy",
     "deploy:landing:dry": "bun run build:site && bunx wrangler@latest deploy --dry-run",
