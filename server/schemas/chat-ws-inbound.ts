@@ -60,6 +60,17 @@ const dragDropSchema = z.object({
   sourceWindowId: z.string().optional(),
 });
 
+// One tab of a window, for the sidebar's "Finestre" grouping. Bounded on
+// purpose: a presence frame is re-broadcast to every socket on every tab
+// change, so the payload has to stay small even if a window somehow holds
+// hundreds of panes. `type` is a free string, not an enum — an older server
+// must not drop a pane kind it has never heard of.
+const presenceTabSchema = z.object({
+  id: z.string().max(400),
+  type: z.string().max(40),
+  title: z.string().max(200).optional(),
+});
+
 // WS-02 handshake: client → server hello after connection.open.
 // Defined here (rather than imported from ws-handshake.ts) so the main
 // inbound dispatch can validate it with the same parser as the other types.
@@ -79,6 +90,7 @@ const helloSchema = z.object({
   detached: z.boolean().optional(),
   topicIds: z.array(z.string()).optional(),
   focusedTopicId: z.string().optional(),
+  tabs: z.array(presenceTabSchema).max(200).optional(),
 });
 
 // Presence update after hello: sent when the window's open set / focus / detach
@@ -91,6 +103,7 @@ const presenceAnnounceSchema = z.object({
   detached: z.boolean().optional(),
   topicIds: z.array(z.string()),
   focusedTopicId: z.string().optional(),
+  tabs: z.array(presenceTabSchema).max(200).optional(),
 });
 
 export const chatWsInboundSchema = z.discriminatedUnion('type', [
