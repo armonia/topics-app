@@ -1,7 +1,16 @@
 <!DOCTYPE html>
-<!-- data-font / data-bg pick the type pairing and the backdrop. Append ?lab=1
-     to the URL for a switcher that changes both on the live page. -->
-<html lang="en" data-theme="dark" data-font="inter" data-bg="weave">
+<!-- Type: Instrument Serif for display, Inter for body, JetBrains Mono for code.
+     The two faces this replaced (Geist and Space Grotesk) were both grotesques,
+     so another grotesque would have been the same register under a new name; a
+     serif in the headings is an actual change of voice, and it reads as
+     considered next to a dense terminal screenshot. Body stays a sans because a
+     serif at 15px is harder to read, not nicer.
+     Backdrop: `weave`, a still dot lattice under one cool wash. It replaced
+     three saturated blobs that drifted on 24-30s loops and competed with the
+     product frame for attention.
+     Both are variants: append ?lab=1 for a switcher that compares all of them
+     on this page, and swap the two attributes below to change the default. -->
+<html lang="en" data-theme="dark" data-font="instrument" data-bg="weave">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -18,9 +27,11 @@
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <!-- All four candidate pairings load while the type is being chosen. Once one
-       is picked, drop the rest: five families is far more than a page needs. -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Instrument+Serif&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <!-- Only the three families the page actually renders. The other candidates
+       (Bricolage Grotesque, IBM Plex) are fetched by app.js on demand, and only
+       when ?lab=1 asks to compare them, so a normal visit never pays for type
+       it will not see. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500&display=swap" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
