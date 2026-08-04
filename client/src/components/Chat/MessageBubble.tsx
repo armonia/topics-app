@@ -309,13 +309,18 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           </div>
           )}
-          {/* Retry button for error messages */}
+          {/* Il bottone che rimanda il messaggio rimasto senza risposta.
+              `handleRetry` (ChatPane) ripesca l'ultimo turno dell'utente e lo
+              rispedisce: è il motivo per cui i cartelli ⚠️ possono permettersi
+              di dire «il tuo messaggio è ancora qui». */}
           {onRetry && msg.role === 'assistant' && msg.content.startsWith('⚠️') && (
             <button
               onClick={onRetry}
+              data-testid="message-retry"
+              title="Rimanda il messaggio rimasto senza risposta"
               className="mt-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
             >
-              ↻ Retry
+              ↻ Riprova
             </button>
           )}
           {/* Queued indicator for offline messages */}
