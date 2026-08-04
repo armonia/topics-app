@@ -9,8 +9,8 @@ seeAlso:
   - cli-coding-agent
 ---
 
-**A subscription** is a monthly price for using the vendor's client — their app,
-their CLI — with usage limits expressed in vaguer terms than tokens. **API
+**A subscription** is a monthly price for using the vendor's client (their app,
+their CLI) with usage limits expressed in vaguer terms than tokens. **API
 billing** is per-token against a key, metered exactly, with no monthly floor.
 
 They are separate products that happen to reach the same models.
@@ -21,8 +21,8 @@ There is no HTTP endpoint that accepts a subscription. The plan authorises the
 official client; the API authorises a key. So any third-party tool faces a fork:
 
 - Use the **API** and the user pays per token, on top of any subscription they
-  already have — which for a heavy user can be several times the monthly price.
-- Drive the **official CLI** as a subprocess and inherit the subscription — which
+  already have, which for a heavy user can be several times the monthly price.
+- Drive the **official CLI** as a subprocess and inherit the subscription, which
   means owning a [[pty]], because the CLI is an interactive terminal program.
 
 The second is more work and it is the only one that lets someone use the plan

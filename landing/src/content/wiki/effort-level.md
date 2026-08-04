@@ -44,4 +44,4 @@ that has to hold a design in mind, low for the mechanical sweep.
 Effort is passed explicitly on every spawn, so a session opens at the tier you
 chose rather than at whatever the environment defaults to. It is set per topic,
 which means the expensive setting applies to the work that earns it and the
-cheap one to the work that does not — and either way you can see which you got.
+cheap one to the work that does not, and either way you can see which you got.

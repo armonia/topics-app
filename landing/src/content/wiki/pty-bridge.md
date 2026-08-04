@@ -14,7 +14,7 @@ torn down and everything running in it receives a hangup.
 
 If the owner is the application window, then reloading the interface kills every
 session in it. This is why most embedded terminals lose your work when the page
-refreshes, and it is not a bug in their implementation — it is a consequence of
+refreshes, and it is not a bug in their implementation. It is a consequence of
 where they put ownership.
 
 ## What the bridge does
@@ -31,15 +31,12 @@ server without losing sessions, and attaching from a second device.
 
 A bridge is a long-lived process spawning shells, so anything ambient it inherits
 is inherited by every session it ever starts. Which means a test run, a dev
-instance and a production instance must not share a data directory, a home
-directory or a socket path — or a probe against one will terminate the sessions
+instance and a production instance must not share a data directory, a home directory or a socket path, or a probe against one will terminate the sessions
 of another.
 
 That failure is worth naming precisely because it looks like something else: to
 the person whose terminals just died, it reads as a crash, and the actual cause
 was a health check somewhere else on the machine.
-
-## In Topics
 
 A separate bridge process owns the PTYs. Reloading the app or restarting the
 server preserves the sessions and their scrollback.

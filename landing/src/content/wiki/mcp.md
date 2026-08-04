@@ -1,6 +1,6 @@
 ---
 title: MCP (Model Context Protocol)
-definition: A protocol for exposing tools, data and prompts to an AI agent over a standard interface, so a capability written once can be used by any client that speaks it. The interesting question it raises is not transport — it is who decides which tools an agent can see.
+definition: A protocol for exposing tools, data and prompts to an AI agent over a standard interface, so a capability written once can be used by any client that speaks it. The interesting question it raises is not transport. It is who decides which tools an agent can see.
 updatedDate: 2026-08-04
 pillar: protocols
 seeAlso:
@@ -25,17 +25,14 @@ with thirty tools available is worse than one with six, because every tool is
 context it pays for on every turn and one more chance to pick the wrong one.
 
 So the operational question is not "can this agent use MCP" but "which servers is
-this particular session allowed to see" — which is [[mcp-scoping]], and is
+this particular session allowed to see", which is [[mcp-scoping]], and is
 usually configured badly by default.
 
 ## Both directions
 
 A tool can *consume* MCP servers, and it can *be* one. The second is the more
-interesting direction for a workspace: it means another agent can drive it —
-create a task, open a browser pane, ask the user a typed question — rather than
+interesting direction for a workspace: it means another agent can drive it: create a task, open a browser pane, ask the user a typed question — rather than
 only being driven by a person.
-
-## In Topics
 
 Topics both mounts MCP servers for its sessions and exposes its own, so an agent
 can operate the workspace itself.

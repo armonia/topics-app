@@ -14,7 +14,7 @@ built on it, the files have moved on, and undoing means either arguing with the
 agent about what it did or unpicking the diff by hand.
 
 A checkpoint makes that a single action. Go back to the state before the wrong
-turn — conversation and files together — and try a different instruction.
+turn (conversation and files together) and try a different instruction.
 
 ## Conversation and files, or neither
 

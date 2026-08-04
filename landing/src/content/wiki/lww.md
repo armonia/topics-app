@@ -12,7 +12,7 @@ seeAlso:
 Two devices change the same thing while apart. When they meet, something has to
 choose. LWW chooses the later write.
 
-For interface state — which tabs are open, how the panes are arranged — this is
+For interface state (which tabs are open, how the panes are arranged) this is
 the right amount of machinery. Nobody wants a merge dialogue about a divider
 position, and losing one of two conflicting layouts costs a drag to fix.
 
