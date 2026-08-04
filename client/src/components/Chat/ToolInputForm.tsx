@@ -133,7 +133,7 @@ const OTHER_LABEL = 'Altro';
  * adeguino allo schema; e la parola in coda al titolo si toglie, o si
  * leggerebbe due volte.
  */
-const RECOMMENDED_RE = /\s*[（(\[]?\s*(consigliat[oa]|recommended)\s*[）)\]]?\s*$/i;
+const RECOMMENDED_RE = /\s*[（([]?\s*(consigliat[oa]|recommended)\s*[）)\]]?\s*$/i;
 function readRecommendation(opt: { label: string; description?: string; recommended?: boolean }) {
   const inLabel = RECOMMENDED_RE.test(opt.label);
   return {

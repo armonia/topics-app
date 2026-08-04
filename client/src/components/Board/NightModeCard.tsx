@@ -17,11 +17,10 @@
  */
 import { useEffect, useState } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
-import { boardApi, type NightStatus as ApiNightStatus } from '../../lib/board';
-import { t as translate, type Locale } from '../../lib/i18n';
-
-/** Il tipo vive in `lib/board.ts` accanto alla chiamata; qui si ri-esporta per i test. */
-export type NightStatus = ApiNightStatus;
+import { boardApi } from '../../lib/board';
+// Il testo sta in un modulo suo: e' la parte pura, e tenerla qui spegneva il
+// fast refresh di tutta la card.
+import { describeNight, formatCountdown, type NightStatus } from './nightModeText';
 
 interface Props {
   projectId: string;
@@ -46,61 +45,6 @@ async function defaultFetch(projectId: string): Promise<NightStatus | null> {
   }
 }
 
-/** «fra 2h 15min» — la scadenza come DURATA, che è come la si pensa alle 23. */
-export function formatCountdown(ms: number, locale: Locale = 'it'): string {
-  const min = Math.max(0, Math.round(ms / 60_000));
-  if (min < 1) return translate('time.lessThanAMinute', locale);
-  if (min < 60) return translate('time.minutes', locale, { n: min });
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m === 0
-    ? translate('time.hours', locale, { n: h })
-    : translate('time.hoursMinutes', locale, { h, m });
-}
-
-/**
- * Il testo dello stato. Separato dal componente perché è la parte che si può
- * sbagliare — e sbagliarla significa dire a qualcuno che la board sta lavorando
- * mentre è ferma.
- */
-export function describeNight(st: NightStatus | null, enabled: boolean, asked = true): {
-  tone: 'off' | 'go' | 'wait';
-  /** Chiave i18n del titolo. */
-  titleKey: string;
-  /** Chiave i18n del dettaglio, oppure `null` quando il dettaglio è testo del server. */
-  detailKey: string | null;
-  /** Il motivo così come lo dice il server — già in italiano, non traducibile qui. */
-  detailText: string | null;
-} {
-  if (!enabled) {
-    return { tone: 'off', titleKey: 'board.night.state.off', detailKey: 'board.night.state.off.detail', detailText: null };
-  }
-  if (!st) {
-    // «Non ho ancora chiesto» NON è «il server non risponde». Confonderli fa
-    // lampeggiare un errore per un secondo a ogni accensione, e un errore che
-    // sparisce da solo insegna a non fidarsi di quelli veri.
-    if (!asked) {
-      return { tone: 'wait', titleKey: 'board.night.state.checking', detailKey: null, detailText: null };
-    }
-    return { tone: 'wait', titleKey: 'board.night.state.unknown', detailKey: 'board.night.state.unknown.detail', detailText: null };
-  }
-  if (st.action === 'wait') {
-    // Il motivo lo calcola il server (`night-mode.ts`) e arriva già scritto: non
-    // si ritraduce qui, si mostra. Tradurlo significherebbe tenere due copie
-    // della stessa frase e farle divergere.
-    return { tone: 'wait', titleKey: 'board.night.state.wait', detailKey: null, detailText: st.reason };
-  }
-  if (st.action === 'expire') {
-    return {
-      tone: 'off',
-      titleKey: 'board.night.state.expired',
-      detailKey: st.reason ? null : 'board.night.state.expired.detail',
-      detailText: st.reason ?? null,
-    };
-  }
-  return { tone: 'go', titleKey: 'board.night.state.go', detailKey: 'board.night.state.go.detail', detailText: null };
-}
-
 export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus }: Props) {
   const [st, setSt] = useState<NightStatus | null>(null);
   /** Se una risposta è già arrivata (anche negativa). Serve a non spacciare
@@ -109,10 +53,22 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   const tr = useT();
   const locale = useLocale();
 
+  // Quando l'interruttore cambia, lo stato raccolto prima non vale piu'. Il
+  // reset si fa QUI, durante il render, che e' il modo che React documenta per
+  // reagire al cambio di una prop: farlo con due setState sincrone dentro
+  // l'effetto costava un render in piu' ogni volta e, riaccendendo, faceva
+  // lampeggiare per un istante lo stato della sessione precedente.
+  const [prevEnabled, setPrevEnabled] = useState(enabled);
+  if (prevEnabled !== enabled) {
+    setPrevEnabled(enabled);
+    setSt(null);
+    setAsked(false);
+  }
+
   useEffect(() => {
     // Spenta: nessun polling. Una card che non ha niente da raccontare non deve
     // nemmeno chiedere.
-    if (!enabled) { setSt(null); setAsked(false); return; }
+    if (!enabled) return;
     let alive = true;
     const load = async () => {
       const next = await (fetchStatus ?? defaultFetch)(projectId);
