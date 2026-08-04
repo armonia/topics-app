@@ -49,7 +49,11 @@ import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { chromium } = pw;
-const ROOT = resolve(fileURLToPath(new URL('../landing', import.meta.url)));
+// Since the site moved to Astro the hand-written assets — and the demo build —
+// live under landing/public/, which is what this server has to serve and where
+// the images have to land. dist/ would work too, but only after a build; public/
+// is the source and never stale.
+const ROOT = resolve(fileURLToPath(new URL('../landing/public', import.meta.url)));
 const OUT = join(ROOT, 'img');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
                 '.png': 'image/png', '.json': 'application/json', '.txt': 'text/plain' };
