@@ -633,12 +633,26 @@ function App() {
   // handleClosePanel at T+3s (double pushUndo + re-run archive side effects).
   // Mirrors the project-level guard in useProjectLayout.handleClosePaneNow.
   // Memoized so renderGroupForKey in PanelGrid doesn't regenerate per render.
+  // Una tab fissata non si chiude, da NESSUNA strada.
+  //
+  // Nascondere la X nella barra copre il click, non la scorciatoia da tastiera,
+  // il tasto centrale, «chiudi le altre», o un chiamante che arriverà domani.
+  // Siccome chiudere è diventato un ritiro (la chat si archivia, la sessione si
+  // ritira), la protezione deve stare sull'AZIONE, non sul bottone. Il criterio
+  // è `isPaneClosable`, la stessa chiave con cui il fissaggio è stato messo.
+  const isCloseBlockedByPin = useCallback((paneId: string): boolean => {
+    const pinKey = paneId.startsWith('chat:') ? paneId.slice('chat:'.length) : paneId;
+    return isPinnedRef.current?.(pinKey) ?? false;
+  }, [isPinnedRef]);
+
   const handleClosePanelImmediate = useCallback((topicId: string) => {
+    if (isCloseBlockedByPin(topicId)) return;
     cancelPendingAction(`close-tab:${topicId}`);
     handleClosePanel(topicId);
-  }, [handleClosePanel]);
+  }, [handleClosePanel, isCloseBlockedByPin]);
 
   const handleClosePanelDeferred = useCallback((topicId: string, onCommit?: () => void) => {
+    if (isCloseBlockedByPin(topicId)) return;
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
     // Pre-shift focus to the tab that WILL receive focus on commit, so the
@@ -680,7 +694,7 @@ function App() {
         ? () => handleFocusPanel(focusBeforeClose!)
         : undefined,
     });
-  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel]);
+  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel, isCloseBlockedByPin]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
     // Unarchive (archive=false) is restorative — commit immediately.
