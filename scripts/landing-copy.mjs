@@ -99,11 +99,22 @@ const hits = new Map();   // pattern name -> [{path, sample}]
 for (const p of pages) {
   await page.goto(base + p, { waitUntil: 'domcontentloaded' });
   // Prose only: code, SVG, timestamps and the chart data tables are not writing.
+  //
+  // The title and the meta description are IN, even though they are not on the
+  // page. They are the copy a reader meets first, in a search result and on a
+  // shared card, and leaving them out of the gate is how the one sentence with
+  // the widest reach ends up being the only one nobody proofread.
   const text = await page.evaluate(() => {
     const el = document.querySelector('main') || document.body;
     const c = el.cloneNode(true);
     c.querySelectorAll('script,style,svg,pre,code,time,.viz__data,[aria-hidden="true"]').forEach((n) => n.remove());
-    return c.innerText.replace(/\s+/g, ' ').trim();
+    const meta = [
+      document.title,
+      document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '',
+      document.querySelector('meta[property="og:description"]')?.getAttribute('content') ?? '',
+      document.querySelector('meta[property="og:image:alt"]')?.getAttribute('content') ?? '',
+    ].join(' ');
+    return (meta + ' ' + c.innerText).replace(/\s+/g, ' ').trim();
   });
   words += text.split(/\s+/).filter(Boolean).length;
   for (const pat of PATTERNS) {
