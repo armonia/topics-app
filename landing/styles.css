@@ -512,6 +512,17 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .pricing__faq p{color:var(--text-dim);font-size:.9rem;line-height:1.6}
 .pricing__faq em{color:var(--text);font-style:normal;font-weight:560}
 
+/* ───────── the long tail ───────── */
+.more{position:relative;max-width:var(--maxw);margin:120px auto 0;padding:0 24px}
+.more__grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:16px;overflow:hidden}
+/* A hairline grid rather than sixteen floating cards: at this density the
+   separators ARE the structure, which is only true now that a border is a
+   predictable line instead of an alpha that fades out on darker surfaces. */
+.more__item{background:var(--s-2);padding:16px 18px;font-size:.855rem;line-height:1.5;color:var(--text-dim)}
+.more__item b{display:block;color:var(--text);font-weight:560;font-size:.9rem;margin-bottom:3px;letter-spacing:-.012em}
+.more__item code{font-family:var(--mono);font-size:.85em;padding:0 4px;border-radius:4px;background:hsl(225 60% 60% / .14);white-space:nowrap}
+
 /* ── Elevation applied ────────────────────────────────────────────────────
    One place where every raised surface gets its light. Declared after the
    component rules so it wins on box-shadow without hunting through six
@@ -562,6 +573,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   .flow{grid-template-columns:1fr 1fr}
   .flow__step:nth-child(2)::after{display:none}
   .claims,.fmap,.plans{grid-template-columns:1fr 1fr}
+  .more__grid{grid-template-columns:1fr 1fr}
 }
 @media (max-width:900px){
   .nav__links{display:none}
@@ -581,7 +593,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   .chapters{grid-template-columns:1fr 1fr;gap:8px}
   .chapter__hint{display:none}          /* the name alone carries it on a phone */
   .fgroup__mock{height:82px}.mock{height:82px}
-  .flow,.claims,.fmap,.plans,.pricing__faq{grid-template-columns:1fr}
+  .flow,.claims,.fmap,.plans,.pricing__faq,.more__grid{grid-template-columns:1fr}
   .flow__step::after{display:none}
   /* A 16:9 stage on a phone is a letterbox of unreadable UI. Give it height and
      render the app at a smaller logical viewport so text stays legible. */

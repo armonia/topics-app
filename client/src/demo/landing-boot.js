@@ -647,6 +647,10 @@
 
   /* ---- 3. WebSocket stub ------------------------------------------------ */
   var FRAME_B64 = "__BROWSER_FRAME_B64__";
+  /* Replaced at build time with the contents of browser-dom-snapshot.json.
+   * Kept as a string literal so this file stays valid JS on its own. */
+  var DOM_SNAPSHOT = "__BROWSER_DOM_SNAPSHOT__";
+  if (typeof DOM_SNAPSHOT === "string") DOM_SNAPSHOT = [];   // un-substituted: skip
 
   function StubWS(url) {
     this.url = String(url || "");
@@ -686,12 +690,47 @@
       lines.forEach(function (l, i) { setTimeout(function () { self._msg(l.replace(/\n/g, "\r\n")); }, 120 + i * 90); });
       setTimeout(function () { self._msg(JSON.stringify({ type: "replay-end" })); }, 120 + lines.length * 90 + 40);
     } else if (/\/ws\/browser\//.test(u)) {
+      /* How this pane paints, and why it used to paint nothing.
+       *
+       * It has two surfaces. `video` shows a WebRTC track; `dom` (the default)
+       * rebuilds the page from rrweb events in a Replayer. The JPEG below is
+       * NEITHER: useRemoteBrowser treats an incoming `frame` as proof that the
+       * stream is alive and explicitly never renders it. So a stub that sent
+       * only a frame left the pane waiting on events that never came, and the
+       * Browser chapter showed "Avvio sessione condivisa…" and nothing else.
+       *
+       * DOM_SNAPSHOT is a real Meta + FullSnapshot recorded from
+       * src/demo/browser-page.html — the same shape the product sends over this
+       * socket — so the demo replays the product's own path instead of a
+       * special case. The frame still goes out, because it is the signal that
+       * clears the fallback-to-polling timer. */
       setTimeout(function () { self._msg(JSON.stringify({ type: "nav", url: "https://acme.example.com/dashboard", phase: "response" })); }, 80);
       setTimeout(function () { self._msg(JSON.stringify({ type: "agent_active", active: false })); }, 90);
       setTimeout(function () { self._msg(JSON.stringify({ type: "frame", data: FRAME_B64, metadata: { timestamp: 1748856600000, pageScaleFactor: 1 } })); }, 140);
+      DOM_SNAPSHOT.forEach(function (ev, i) {
+        setTimeout(function () { self._msg(JSON.stringify({ type: "dom_event", event: ev })); }, 160 + i * 30);
+      });
     } else {
       setTimeout(function () { self._msg(JSON.stringify({ type: "unread:init", data: UNREAD })); }, 90);
       setTimeout(function () { self._msg(JSON.stringify({ type: "terminal:sessions", sessions: SESSIONS })); }, 110);
+      /* Detached windows. Window presence is deliberately NOT persisted — it is
+       * fed only by `presence:windows` on the main socket — so no localStorage
+       * seed can show it and looking for a key would mean inventing one. This
+       * is the real channel.
+       * Shape is enforced by `presenceWindowsBroadcastSchema` (shared/ws-outbound.ts)
+       * BEFORE the frame reaches the bus: windowId / clientId / topicIds are
+       * required, and one wrong field drops the frame in silence. The ids must
+       * also differ from this tab's own `topics-window-id`, or the app reads its
+       * own reflection as a second window. */
+      setTimeout(function () { self._msg(JSON.stringify({
+        type: "presence:windows",
+        windows: [
+          { windowId: "w-demo-detached", clientId: "c-demo-2", windowLabel: "detach-acme-auth",
+            detached: true, topicIds: ["t-auth", "t-bugs"] },
+          { windowId: "w-demo-main", clientId: "c-demo-3",
+            detached: false, topicIds: ["t-ship"] },
+        ],
+      })); }, 130);
     }
   };
   try { window.WebSocket = StubWS; } catch (e) {}
