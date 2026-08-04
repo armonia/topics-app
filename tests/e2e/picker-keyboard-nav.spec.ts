@@ -142,10 +142,8 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     const popover = page.locator('[data-popover="provider-model-picker"]');
     await popover.waitFor({ state: "visible", timeout: 5_000 });
 
-    // Il server di test non ha override d'ambiente sull'effort, quindi
-    // claude-code risolve al tier di default "xhigh". Se claude-code non è
-    // pronto in questo ambiente non c'è niente da asserire — si salta, come fa
-    // il test di navigazione.
+    // Se claude-code non è pronto in questo ambiente non c'è niente da asserire
+    // — si salta, come fa il test di navigazione.
     if ((await popover.getByText("Claude Code", { exact: true }).count()) === 0) {
       test.skip(true, "claude-code non pronto in questo ambiente");
     }
@@ -162,8 +160,23 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
 
     // Il valore non è sparito: è sul trigger dell'effort, marcato come default
     // del provider perché questa chat non ha scelto niente.
+    //
+    // L'attesa NON è la costante "xhigh". `resolveClaudeEffort` risolve
+    // `TOPICS_CLAUDE_EFFORT` → `CLAUDE_EFFORT` → "xhigh", e il server di prova
+    // eredita l'ambiente di CHI LANCIA la suite: da una shell che esporta
+    // `CLAUDE_EFFORT=high` — quella di un agente dentro Topics, per dirne una —
+    // il default del provider È "high", e il codice sta funzionando. Il test
+    // cadeva su questo il 04/08 (`Expected "xhigh", Received "high"`), anche da
+    // solo: asseriva un ambiente invece del comportamento.
+    //
+    // Quello che il test vuole davvero sapere è che il badge mostri il DEFAULT
+    // DEL PROVIDER, qualunque sia, e che lo dichiari come tale. Quindi si
+    // ricalcola la stessa catena.
+    const defaultAtteso = (process.env.TOPICS_CLAUDE_EFFORT || process.env.CLAUDE_EFFORT || "xhigh")
+      .trim()
+      .toLowerCase();
     const badge = page.getByTestId("chat-session-config").getByTestId("session-effort-badge");
-    await expect(badge).toHaveText("xhigh", { timeout: 5_000 });
+    await expect(badge).toHaveText(defaultAtteso, { timeout: 5_000 });
     await expect(badge).toHaveAttribute("data-effort-source", "default");
   });
 });
