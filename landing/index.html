@@ -17,6 +17,7 @@
   <title>Topics · the workspace for coding agents</title>
   <meta name="description" content="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Sessions sorted into topics that keep their own terminal, branch and browser, a board that hands work to agents in isolated worktrees, and numbers that say what it cost. Free and open source." />
   <meta name="theme-color" content="#07090f" />
+  <link rel="canonical" href="https://topics.armonia.io/" />
   <link rel="icon" type="image/png" href="./icon-64.png" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Topics · the workspace for coding agents" />
@@ -35,6 +36,56 @@
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
   <link rel="stylesheet" href="./styles.css" />
+  <!-- Structured data. Deliberately small: MDN wins every definitional query with
+       zero JSON-LD, and the sites that stack twelve types are not the ones that
+       rank. What is here is the set Google still produces results for in 2026 —
+       Organization, WebSite, SoftwareApplication. There is no `aggregateRating`
+       and there will not be one until real ratings exist: inventing it is a
+       manual action, which is a stupid way to lose a domain. `FAQPage` is absent
+       for a different reason — the rich result was retired on 7 May 2026, so the
+       markup would cost effort and buy nothing. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://topics.armonia.io/#org",
+        "name": "Armonia",
+        "url": "https://armonia.io",
+        "logo": "https://topics.armonia.io/icon.png"
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://topics.armonia.io/#site",
+        "url": "https://topics.armonia.io/",
+        "name": "Topics",
+        "publisher": { "@id": "https://topics.armonia.io/#org" },
+        "inLanguage": "en"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Topics",
+        "url": "https://topics.armonia.io/",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux",
+        "softwareVersion": "2.2.11",
+        "license": "https://github.com/armonia/topics-app/blob/main/LICENSE",
+        "downloadUrl": "https://github.com/armonia/topics-app/releases/latest",
+        "softwareHelp": "https://topics.armonia.io/agents.md",
+        "releaseNotes": "https://topics.armonia.io/changelog.html",
+        "isAccessibleForFree": true,
+        "publisher": { "@id": "https://topics.armonia.io/#org" },
+        "description": "A desktop workspace for CLI coding agents. Several agents work the same repository at once, each in its own git worktree, and you review and land their work from one window. Free, MIT, runs on your machine, no account and no telemetry.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "EUR"
+        }
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <!-- Icon sprite. One 24×24 grid, 1.7 stroke, round joins, drawn so each glyph

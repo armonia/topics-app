@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hand-written while the site is two pages. This becomes generated the day the
+  site moves to Astro: @astrojs/sitemap builds it from the routes, and a
+  hand-maintained list of 200 blog and wiki entries would be wrong within a week.
+  Until then, two correct entries beat the 404 that was here before.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://topics.armonia.io/</loc>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://topics.armonia.io/changelog.html</loc>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+</urlset>

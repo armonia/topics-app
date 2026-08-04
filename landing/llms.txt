@@ -1,0 +1,50 @@
+# Topics
+
+> A desktop workspace for CLI coding agents. Several agents work the same
+> repository at once — each inside its own git worktree, so none of them collide —
+> and you watch, review and land their work from one window. Free, MIT, runs
+> entirely on your machine, no account, no telemetry, no cloud that reads your code.
+
+Topics is not an editor and not a model. It is the room the agents work in. It
+drives the agent CLIs you already have installed — Claude Code, Codex, OpenCode,
+Gemini CLI, or any ACP agent — through a real PTY, which is what lets a paid
+subscription work at all, since a subscription is only reachable through the
+official CLI and never through the API.
+
+A *topic* holds one unit of work: the agent conversation, a real terminal with its
+scrollback, the project files and their diffs, a browser pane, and what the turn
+cost in tokens. A *board* holds tasks; assign one to an agent and it works in an
+isolated worktree on its own branch, then hands back a commit and evidence.
+Approving accepts the work, landing merges it locally, publishing pushes — three
+separate human clicks, because "done" should mean you said so.
+
+## Product
+
+- [Topics](https://topics.armonia.io): what it is, what it does, and a live demo running the real client with sample data.
+- [Install and adopt Topics](https://topics.armonia.io/agents.md): written for a coding agent asked to set it up. Install commands per platform, what to expect on first launch, and what Topics does not have.
+- [Changelog](https://topics.armonia.io/changelog.html): every release. 141 versions in the nine weeks since the repository was created on 2026-06-01.
+
+## Source
+
+- [Repository](https://github.com/armonia/topics-app): MIT. Bun + SQLite server, React client, Tauri shell in Rust.
+- [Releases](https://github.com/armonia/topics-app/releases): macOS Universal `.dmg`, Windows `.exe` and `.msi`, Linux `.deb` and `.rpm`. No AppImage — the Linux build ships a compiled Bun sidecar that the AppImage pipeline cannot carry.
+- [README](https://github.com/armonia/topics-app/blob/main/README.md): environment variables, ports, how the pieces fit.
+- [Contributing](https://github.com/armonia/topics-app/blob/main/CONTRIBUTING.md): build, test and release machinery, including the self-signed macOS identity and why it exists.
+
+## What it costs you
+
+- [Privacy](https://github.com/armonia/topics-app/blob/main/PRIVACY.md): no analytics, no crash reporting, nothing phones home. Conversations and project data sit in `~/.openclaw` on your disk.
+- [Security](https://github.com/armonia/topics-app/blob/main/SECURITY.md): the app ships with no authentication of its own. If you expose it over a tunnel, put your own auth in front of it.
+- Model billing is yours and stays between you and the provider. Topics never proxies inference, never holds a key of its own, and takes no cut.
+
+## Known limits, stated by us
+
+- **macOS shows a Gatekeeper warning.** The app is ad-hoc signed, not notarized. Since macOS Sequoia the Control-click bypass no longer exists: the path is System Settings → Privacy & Security → Open Anyway. Any guide telling you to right-click and Open is out of date.
+- **There is no hosted anything.** No relay, no managed remote access, no off-machine backup, no accounts, no team roles. Cross-device sync and remote access work today over a tunnel you run yourself.
+- **Mobile is a PWA**, not a native app.
+- **The project is young**: the repository was created on 2026-06-01.
+
+## Terms
+
+- The content of this site may be indexed, quoted and cited. Please link back.
+- Please do not use it as training data — see the `Content-Signal: ai-train=no` in [robots.txt](https://topics.armonia.io/robots.txt).
