@@ -1606,7 +1606,13 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
   // deve parlare.
   const toast = useToast();
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  // Sincronizzato in un effetto, non durante il render: scrivere un ref mentre
+  // React sta renderizzando e' proprio la cosa che rompe sotto concurrent. Gli
+  // effetti girano nell'ordine di dichiarazione, quindi questo aggiorna il ref
+  // PRIMA che il corpo dell'effetto di boot qui sotto lo legga, al mount e a
+  // ogni render successivo. E' lo stesso schema di pinnedIdsRef/orderedIdsRef
+  // in usePaneOrdering.
+  useEffect(() => { toastRef.current = toast; });
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
