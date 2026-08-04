@@ -51,8 +51,17 @@ const canonical = new URL(path, Astro.site).href;
   <meta property="og:title" content={ogTitle} />
   <meta property="og:description" content={ogDescription} />
   <meta property="og:url" content={canonical} />
-  <meta property="og:image" content="https://topics.armonia.io/icon.png" />
+  {/* 1200×630. It used to be icon.png — a 1024×1024 square declared as
+      `summary_large_image`, which asks for 1.91:1, so every share either
+      squashed it or cropped it and the one picture a link gets was spent on a
+      logo. Regenerate with `node scripts/og-image.mjs`. */}
+  <meta property="og:image" content="https://topics.armonia.io/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Topics — four agents, one repo, nobody collides. A desktop workspace for Claude Code, Codex, OpenCode and Gemini CLI." />
+  <meta property="og:site_name" content="Topics" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://topics.armonia.io/og.png" />
   <link rel="alternate" type="application/rss+xml" title="Topics" href="/blog/rss.xml" />
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
