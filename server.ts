@@ -26,7 +26,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -788,6 +788,18 @@ const taskDispatcher = createTaskDispatcher({
   // reggono anche a un land in squash) e sporco reale nell'albero (junk
   // escluso). In caso di dubbio si risponde SI': non sapere non autorizza a
   // distruggere.
+  // Carico vivo per la modalità notturna. Stessa fonte del tetto "Auto", così
+  // le due decisioni non possono divergere leggendo due misure diverse.
+  capacity: () => {
+    const c = computeDispatchCapacity();
+    return { load1: c.load1, cores: c.cores };
+  },
+  // Sessioni di terminale con un client ATTACCATO: è il segnale «c'è qualcuno».
+  // Una sessione viva ma senza nessuno che la guarda non conta come presenza —
+  // altrimenti un agente dimenticato terrebbe il turno notturno bloccato.
+  humanSessionsLive: () => {
+    try { return countAttachedTerminalSessions(); } catch { return 0; }
+  },
   worktreeHasWork: async (worktreeId) => {
     const wt = ctx.worktreeStore.get(worktreeId);
     if (!wt) return false;               // riga sparita: non c'e' nulla da tutelare

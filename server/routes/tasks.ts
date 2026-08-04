@@ -883,6 +883,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
               dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
+              nightMode: typeof body?.nightMode === "boolean" ? body.nightMode : undefined,
+              nightModeUntil: typeof body?.nightModeUntil === "string" ? body.nightModeUntil : undefined,
               // Passa dal parser tollerante: il pannello manda una lista di
               // stringhe (una riga = un comando), la board può averne una lunga
               // salvata a mano. Una sola forma canonica esce da qui.

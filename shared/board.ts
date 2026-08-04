@@ -173,6 +173,18 @@ export interface BoardSettings {
    * minuti — un default così verrebbe spento il primo giorno).
    */
   reviewChecks: ReviewCheck[];
+  /**
+   * Modalità notturna: dispaccia la coda solo mentre la macchina è scarica, e
+   * si ferma a `nightModeUntil`. La accende una PERSONA — il senso è «vado
+   * via», e nessuna euristica lo sa. Default spento.
+   */
+  nightMode: boolean;
+  /** Quando smettere, `HH:MM` locale. Vuoto ⇒ nessuna fine (sconsigliato: un
+   *  turno che non sa finire resta armato il giorno dopo). */
+  nightModeUntil: string;
+  /** Quando è stata accesa (ISO). Serve a capire se «fino alle 10:00» significa
+   *  stamattina o domani mattina. */
+  nightModeStartedAt: string | null;
 }
 
 /**
@@ -185,7 +197,13 @@ export interface BoardSettings {
  * nessun writer tocca — `updateBoardSettings` non li scrive, si leggono soltanto.
  */
 export type BoardSettingsPatch = Partial<
-  Omit<BoardSettings, 'projectId' | 'requireApprovalForDone' | 'requireReviewBeforeDone'>
+  Omit<
+    BoardSettings,
+    // `nightModeStartedAt` lo TIMBRA il server quando l'interruttore si accende:
+    // lasciarlo scrivere al client significherebbe poter datare l'accensione a
+    // piacere e spostare la scadenza — cioè disarmare il turno dall'esterno.
+    'projectId' | 'requireApprovalForDone' | 'requireReviewBeforeDone' | 'nightModeStartedAt'
+  >
 >;
 
 /** Capacità viva della macchina per il tetto "Auto" (impostazioni board). */
