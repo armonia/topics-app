@@ -1410,13 +1410,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (body.contextFiles !== undefined) topic.contextFiles = body.contextFiles;
         if (body.pinnedMessages !== undefined) topic.pinnedMessages = body.pinnedMessages;
         if (body.projectPath !== undefined) topic.projectPath = body.projectPath || undefined;
-        if (body.autonomyLevel !== undefined) {
-          const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
-          topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
-        }
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
+        if (body.autonomyLevel !== undefined) {
+          const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
+          const next = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
+          // L'autonomia decide `--permission-mode`, quindi è un flag di SPAWN
+          // come provider e modello: senza il respawn la scelta non avrebbe
+          // effetto finché la chat non riparte da sola — cioè sembrerebbe
+          // un'impostazione che non fa niente.
+          if (next !== topic.autonomyLevel) spawnConfigChanged = true;
+          topic.autonomyLevel = next;
+        }
         if (body.provider !== undefined) {
           const prev = topic.provider ?? null;
           topic.provider = body.provider || null;

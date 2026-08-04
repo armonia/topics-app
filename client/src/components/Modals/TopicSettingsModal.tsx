@@ -1,7 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
+
 import { createPortal } from 'react-dom';
-import { X, FolderOpen, GitBranch, BellOff } from 'lucide-react';
-import type { Topic, UpdateTopicRequest, Worktree } from '../../types';
+import { X, FolderOpen, GitBranch, BellOff, ShieldCheck } from 'lucide-react';
+import type { Topic, UpdateTopicRequest, Worktree, AutonomyLevel } from '../../types';
+/** Le tre voci, descritte per quello che FANNO. Il nome da solo non basta:
+ *  «yolo» non dice a nessuno che quella chat può cancellarti un file. */
+const AUTONOMY_CHOICES: { value: AutonomyLevel; label: string; blurb: string }[] = [
+  { value: 'ask', label: 'Chiede prima', blurb: 'Propone un piano e aspetta il tuo ok: non tocca file né esegue comandi.' },
+  { value: 'auto-apply', label: 'Applica le modifiche', blurb: 'Scrive sui file da sé, il resto lo propone.' },
+  { value: 'yolo', label: 'Fa tutto', blurb: 'Nessuna domanda. È il comportamento di sempre.' },
+];
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
@@ -32,6 +40,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [newContextFile, setNewContextFile] = useState('');
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
   const [muted, setMuted] = useState(!!topic.muted);
+  const [autonomy, setAutonomy] = useState<AutonomyLevel | null>(topic.autonomyLevel ?? null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const toast = useToast();
@@ -106,9 +115,10 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       name: topicName,
       color: topicColor,
       projectPath: projectPath.trim() || undefined,
-      // `autonomyLevel` NON viene mandato: la PATCH è parziale (il server tocca
-      // solo i campi presenti), quindi il valore in colonna resta al suo posto
-      // invece di essere riscritto da un modal che non lo gestisce più.
+      // Il livello di autonomia ora si sceglie da qui, quindi si manda. Se non
+      // è mai stato scelto resta `undefined` e la PATCH parziale non tocca la
+      // colonna — un topic che non ha deciso continua a comportarsi come prima.
+      ...(autonomy ? { autonomyLevel: autonomy } : {}),
       systemPrompt,
       contextFiles: contextFilesList,
       provider,
@@ -278,6 +288,51 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   {p}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Livello di autonomia — esisteva nel modello dati e non era collegato
+              a niente: OGNI chat partiva comunque senza chiedere nulla. Ora
+              decide la modalità di permessi della CLI, e ogni voce dice cosa FA
+              invece del suo nome. Responsive: in colonna sotto i 640px, dove tre
+              bottoni affiancati diventerebbero illeggibili. */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck size={14} />
+                Autonomia
+              </span>
+            </label>
+            <p className="text-[11px] text-app-text-muted mb-2">
+              Quanto può fare da sé questa chat prima di fermarsi a chiederti qualcosa.
+              {!autonomy && ' Non hai ancora scelto: per ora fa tutto senza chiedere.'}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Livello di autonomia">
+              {AUTONOMY_CHOICES.map((c) => {
+                // Nessun livello scelto ⇒ nessuno evidenziato. Illuminare «Fa
+                // tutto» sarebbe mentire due volte: dice che qualcuno ha scelto,
+                // e sceglie il più potente al posto suo. (Il comportamento a
+                // runtime resta quello, ed è scritto nella riga sotto.)
+                const active = autonomy === c.value;
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={`autonomy-${c.value}`}
+                    onClick={() => setAutonomy(c.value)}
+                    className={`text-left px-3 py-2 rounded-lg border transition-colors ${
+                      active
+                        ? 'border-primary/50 bg-primary/10 text-app-text'
+                        : 'border-app-border-light bg-app-hover/40 text-app-text-muted hover:text-app-text'
+                    }`}
+                  >
+                    <span className="block text-[12px] font-medium">{c.label}</span>
+                    <span className="block text-[11px] leading-snug mt-0.5">{c.blurb}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

@@ -48,7 +48,7 @@ interface RemoteBrowserState {
    *  headless-Chromium stream; 'chromium' = the user's real Chromium (extensions). */
   engine: 'native' | 'chromium';
   /** Whether the Native↔Chromium toggle should be offered (server capability:
-   *  TOPICS_CHROMIUM_ENGINE on AND a real Chromium installed). */
+   *  un vero Chromium installato sulla macchina). */
   engineToggleAvailable: boolean;
   /** Extensions loaded in the chromium sidecar profile — the toolbar badge. */
   engineExtensions: number;
@@ -933,7 +933,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   }, [state.url]);
 
   // Engine capability (task 54601eeb): does the server offer the Native↔Chromium
-  // toggle (TOPICS_CHROMIUM_ENGINE on AND a real Chromium installed), and how many
+  // toggle (un vero Chromium installato sulla macchina), and how many
   // extensions would load? Fetched once — the toggle stays hidden unless enabled.
   useEffect(() => {
     let cancelled = false;

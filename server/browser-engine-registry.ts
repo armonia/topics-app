@@ -29,8 +29,22 @@ export type BrowserEngine = "native" | "chromium";
  *  default: the WS set_engine branch is a no-op, the DELETE route skips
  *  release(), and the /api/browsers/engines capability reports disabled — so
  *  the sidecar never launches and the client never shows the toggle. Flip with
- *  TOPICS_CHROMIUM_ENGINE=1 in the live (headful + Tauri) environment. */
-export const CHROMIUM_ENGINE_ENABLED = process.env.TOPICS_CHROMIUM_ENGINE === "1";
+ *  un Chromium installato sulla macchina (headful + Tauri). */
+/**
+ * Il motore Chromium NON è più dietro un flag.
+ *
+ * `TOPICS_CHROMIUM_ENGINE=1` teneva spenta una funzione **completa e collaudata**
+ * — sidecar, registro, scoperta delle estensioni, `applyEngineSwitch` con i suoi
+ * test, il messaggio WS `set_engine` e perfino il bottone nella barra della pane.
+ * Tutto costruito e invisibile, perché nessuno aveva quella variabile
+ * d'ambiente. Un flag che non spegne un rischio ma solo la scoperta di una
+ * capacità è un flag inutile.
+ *
+ * Al suo posto c'è la domanda giusta, che il codice già sapeva porsi: **c'è un
+ * Chromium installato?** Se non c'è, `discoverChromiumEngines()` torna vuoto,
+ * `available` è falso e il bottone resta nascosto esattamente come prima. Il
+ * degrado era già scritto: mancava solo smettere di anteporgli un interruttore.
+ */
 
 /** The subset of the chromium sidecar this registry needs (injectable for tests). */
 export interface EngineSidecar {
@@ -154,7 +168,6 @@ export interface ChromiumEngineInfo {
 
 let cachedEngineInfo: ChromiumEngineInfo | null = null;
 export function chromiumEngineInfo(): ChromiumEngineInfo {
-  if (!CHROMIUM_ENGINE_ENABLED) return { enabled: false };
   if (!cachedEngineInfo) {
     const engines = discoverChromiumEngines();
     cachedEngineInfo = {
