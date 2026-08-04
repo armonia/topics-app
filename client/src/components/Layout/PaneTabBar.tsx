@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
@@ -25,6 +25,7 @@ import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useDismissable } from '@/hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
@@ -210,6 +211,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
   // inglese finalmente dice qualcosa.
   const tr = useT();
+  // Ridisegna quando arriva uno snapshot di consumo nuovo. Senza, il title
+  // resterebbe fermo al valore del primo render e la fetch su hover non si
+  // vedrebbe mai. `useSyncExternalStore` e non uno stato locale: lo snapshot
+  // e' UNO per tutta l'app, e ogni tab bar deve leggere lo stesso.
+  useSyncExternalStore(subscribePaneUsage, getPaneUsageVersion, getPaneUsageVersion);
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -1038,7 +1044,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
-            <span className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            {/* Il consumo va QUI e non sulla tab: il contenitore usa apposta
+                `aria-label` e non `title` (vedi sopra), perché un title là
+                duplicherebbe il nome già scritto accanto e i title dei figli.
+                Questo span invece il title non ce l'aveva e il nome lo tronca,
+                quindi il tooltip serve già di suo — il consumo ci si appende
+                senza rubare il posto a nessuno. `onMouseEnter` aggiorna il dato
+                al momento giusto: un numero che nessuno guarda non vale una
+                richiesta ogni N secondi (e la fetch è condivisa fra tutte le
+                tab bar, vedi `paneUsage.ts`). */}
+            <span
+              className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}
+              onMouseEnter={ensurePaneUsageFresh}
+              title={`${label}${formatPaneUsageLine(
+                pane.type === 'terminal' ? termSid : null,
+                pane.type === 'terminal' || pane.type === 'browser',
+              )}`}
+            >{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
