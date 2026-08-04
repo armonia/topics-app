@@ -1,0 +1,83 @@
+# topics.armonia.io
+#
+# This file replaces Cloudflare's managed robots.txt, which was serving
+# `Disallow: /` to GPTBot, ClaudeBot, CCBot, Google-Extended, Applebot-Extended,
+# meta-externalagent, Amazonbot and Bytespider. That is the configuration of a
+# publisher who sells ads. We ship a free MIT desktop app to developers who ask
+# their coding agents for advice, so being readable by those agents is the point.
+#
+# The distinction we care about is between READING and TRAINING:
+#   - reading  → yes. Answer engines should be able to fetch and cite these pages.
+#   - training → no.  Expressed below via Content-Signal, not via a block, because
+#                     a block also stops the citation we do want.
+#
+# NOTE: robots.txt is a request, not a wall. The hard block lives at the zone
+# level (Cloudflare → AI Crawl Control). If the crawlers below still get a 403,
+# this file is not the thing that is stopping them.
+
+# ── Content Signals Policy — https://contentsignals.org ─────────────────────
+#   search:   building a search index and returning links and short excerpts
+#   ai-input: feeding content into a model at answer time (RAG, grounding)
+#   ai-train: training or fine-tuning a model
+
+User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=no
+Allow: /
+
+# ── Answer engines: explicitly welcome ──────────────────────────────────────
+# A named group replaces `*` for that crawler, so these are here to make the
+# permission unambiguous rather than inherited.
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+# ── Not welcome ─────────────────────────────────────────────────────────────
+# Bytespider has a documented history of ignoring robots.txt and returns nothing
+# to the ecosystem it scrapes.
+
+User-agent: Bytespider
+Disallow: /
+
+Sitemap: https://topics.armonia.io/sitemap.xml
