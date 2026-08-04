@@ -301,6 +301,30 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
         />
       </div>
 
+      {/* Lingua. La migrazione delle stringhe è PER SUPERFICIE (vedi
+          `lib/i18n.ts`): cambiare lingua sposta le superfici già convertite e
+          lascia le altre com'erano. È detto qui sotto invece di lasciarlo
+          scoprire — un selettore che sembra non fare niente è peggio di un
+          selettore che dice cosa fa. */}
+      <div className="mt-6">
+        <h3 className="text-[13px] font-medium text-app-text mb-1">Lingua · Language</h3>
+        <p className="text-[12px] text-app-text-muted mb-3">
+          Le superfici già tradotte seguono questa scelta; le altre restano come sono
+          finché non vengono convertite. · Translated surfaces follow this setting;
+          the rest stay as they are until converted.
+        </p>
+        <select
+          value={settings.language ?? 'auto'}
+          onChange={(e) => onChange('language', e.target.value as 'auto' | 'it' | 'en')}
+          className="rounded bg-white/5 px-2 py-1 text-[12px] text-app-text outline-none"
+          data-testid="settings-language"
+        >
+          <option value="auto">Automatica · Automatic</option>
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+
     </div>
   );
 }
