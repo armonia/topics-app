@@ -172,10 +172,19 @@ export function ProjectWindowPane({
   // the user double-clicks an outer divider to equalize — see projectGridWeights.
   // Keyed by projectPath; cleared on unmount / path change so a closed project
   // never lingers with a stale weight.
+  //
+  // Keyed on the EXTENT, not on `rows`. A divider drag inside this window
+  // rebuilds `rows` (new widths, same shape), which re-ran this effect, and the
+  // cleanup's `clear` announced a change the registry then had to un-say. What
+  // heard it was PanelGrid's auto-rebalance, which flattened the outer grid's
+  // row heights to an equal split: resize a split in one project, lose the
+  // sizing of every window around it.
+  const gridWeight = useMemo(() => computeProjectGridWeight(rows), [rows]);
   useEffect(() => {
-    setProjectGridWeight(projectPath, computeProjectGridWeight(rows));
+    setProjectGridWeight(projectPath, gridWeight);
     return () => clearProjectGridWeight(projectPath);
-  }, [projectPath, rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the extent IS the payload: depending on the `gridWeight` object would re-run on every rows rebuild, which is the bug this avoids
+  }, [projectPath, gridWeight.cols, gridWeight.rows]);
   const { setRows, setRowHeights, setSidebarCollapsed } = layout.setters;
   const pinPaneById = layout.handlers.pinPaneById;
   const handleOpenFile = layout.handlers.openFile;
