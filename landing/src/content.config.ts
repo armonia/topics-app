@@ -41,8 +41,12 @@ const blog = defineCollection({
     updatedDate: z.coerce.date().optional(),
     pillar: z.enum(PILLARS),
     format: z.enum(['deep-dive', 'field-notes', 'recipe', 'migration', 'narrative', 'comparison']),
-    author: z.string().default('Attilio Cianci'),
-    authorUrl: z.url().default('https://github.com/zorahrel'),
+    /* The byline is the organisation, not a person. It is a deliberate choice
+       rather than an oversight: E-E-A-T rewards a named author with a real
+       profile, and we are giving that up on purpose. If a piece ever wants a
+       personal byline it can set one in its own frontmatter. */
+    author: z.string().default('Armonia'),
+    authorUrl: z.url().default('https://armonia.io'),
     /** The query this piece is written to own. One, not a list. */
     seoTarget: z.string().optional(),
     /** Wiki slugs this piece leans on. Rendered as "Related", and the check

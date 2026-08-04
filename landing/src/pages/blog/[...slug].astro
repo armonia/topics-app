@@ -41,7 +41,7 @@ const jsonLd = {
   description: d.description,
   datePublished: d.pubDate.toISOString(),
   dateModified: (d.updatedDate ?? d.pubDate).toISOString(),
-  author: { '@type': 'Person', name: d.author, url: d.authorUrl },
+  author: { '@type': 'Organization', name: d.author, url: d.authorUrl },
   publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
   mainEntityOfPage: new URL(`/blog/${post.id}`, Astro.site).href,
   inLanguage: 'en',
