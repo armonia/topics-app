@@ -1,0 +1,63 @@
+---
+/**
+ * Before and after on the same measure, twice. A dumbbell rather than paired
+ * bars because the reader's question is the size of the gap, and a dumbbell
+ * draws the gap itself instead of asking anyone to subtract two bar lengths.
+ *
+ * Total blocking milliseconds are in the table and not on this axis: they are
+ * roughly ten times these values, and putting both on one scale would flatten
+ * the thing the chart is about. Two scales on one plot is the mistake that
+ * invents a relationship, so the second measure gets words instead.
+ */
+import ChartFrame from './ChartFrame.astro';
+
+const runs = [
+  { label: 'First run', before: 491, after: 352, blockBefore: 2447, blockAfter: 1642 },
+  { label: 'Second run', before: 770, after: 706, blockBefore: 5140, blockAfter: 4095 },
+];
+
+const W = 640, H = 150, L = 0, R = 118, T = 30;
+const ROW = 52;
+const maxX = 850;
+const x = (v: number) => L + 108 + (v / maxX) * (W - R - 108);
+const ticks = [0, 200, 400, 600, 800];
+---
+
+<ChartFrame
+  title="Median milliseconds per tab switch, before and after freezing"
+  subtitle="Twelve tabs, twenty switches, each awaited until the tab actually committed."
+  summary="Dumbbell chart. First run: median per switch fell from 491 ms to 352 ms. Second run: from 770 ms to 706 ms."
+  source="Measured 28 July 2026, CPU profile taken over CDP from Playwright. A fixed number of switches, not a fixed time window: with a fixed window a faster build performs more switches and scores worse."
+  columns={['Run', 'Median before', 'Median after', 'Blocking before', 'Blocking after']}
+  rows={runs.map((r) => [r.label, `${r.before} ms`, `${r.after} ms`, `${r.blockBefore} ms`, `${r.blockAfter} ms`])}
+>
+  <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMinYMin meet">
+    {ticks.map((t) => (
+      <g>
+        <line class="v-axis" x1={x(t)} y1={T - 14} x2={x(t)} y2={T + runs.length * ROW - 22} />
+        <text x={x(t)} y={H - 6} text-anchor="middle" font-size="12">{t}</text>
+      </g>
+    ))}
+    <text x={W - R + 4} y={H - 6} text-anchor="start" font-size="12">ms</text>
+
+    {runs.map((r, i) => {
+      const y = T + i * ROW;
+      const drop = Math.round(((r.before - r.after) / r.before) * 100);
+      return (
+        <g>
+          <text x="0" y={y + 4}>{r.label}</text>
+          <line x1={x(r.after)} y1={y} x2={x(r.before)} y2={y} stroke="var(--ink-faint)" stroke-width="2" stroke-linecap="round" />
+          <circle cx={x(r.before)} cy={y} r="5" fill="var(--ink-faint)" stroke="var(--paper)" stroke-width="2" />
+          <circle class="v-s1" cx={x(r.after)} cy={y} r="5" stroke="var(--paper)" stroke-width="2" />
+          <text class="v-val" x={W - R + 4} y={y + 4} font-size="13">−{drop}%</text>
+          <title>{r.label}: {r.before} ms before, {r.after} ms after ({drop}% faster)</title>
+        </g>
+      );
+    })}
+  </svg>
+
+  <div class="viz-legend">
+    <span><i style="background:var(--ink-faint)"></i>Before</span>
+    <span><i style="background:var(--s1)"></i>After</span>
+  </div>
+</ChartFrame>

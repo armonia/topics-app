@@ -1,0 +1,60 @@
+---
+/**
+ * Two ways to move a pane's left edge, measured in WebKit at four pane counts.
+ * One series is flat on zero at every N, which is the whole argument, so a line
+ * chart is the right form: the shape carries it without a single label.
+ */
+import ChartFrame from './ChartFrame.astro';
+
+const N = [2, 5, 8, 16];
+const padding = [8, 20, 33, 66];
+const transform = [0, 0, 0, 0];
+const BUDGET = 16.7;
+
+const W = 640, H = 250, L = 42, R = 96, T = 12, B = 34;
+const maxY = 70;
+const px = (i: number) => L + (i / (N.length - 1)) * (W - L - R);
+const py = (v: number) => T + (1 - v / maxY) * (H - T - B);
+const path = (vs: number[]) => vs.map((v, i) => `${i ? 'L' : 'M'}${px(i)},${py(v)}`).join(' ');
+const yTicks = [0, 16.7, 33, 50, 70];
+---
+
+<ChartFrame
+  title="Milliseconds of layout per frame, by number of panes"
+  subtitle="Moving the edge with padding costs layout and scales with the pane count. Moving it with a transform costs nothing at any count."
+  summary="Line chart. Layout time per frame when animating with padding: 8 ms at 2 panes, 20 at 5, 33 at 8, 66 at 16. With a transform it is 0 ms at every count. The frame budget at 60 fps is 16.7 ms; padding crosses it between 5 and 8 panes."
+  source="Measured 29 June 2026 with performance/sidebar-flip-webkit-bench.cjs in headless WebKit via Playwright (AppleWebKit 605.1.15, Version 26.0 — the engine Tauri's WKWebView uses). Synchronous layout timing, which stays reliable even where headless WebKit throttles rAF."
+  columns={['Panes', 'Padding (ms)', 'Transform (ms)']}
+  rows={N.map((n, i) => [n, padding[i], transform[i]])}
+>
+  <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMinYMin meet">
+    {yTicks.map((t) => (
+      <g>
+        <line class={t === BUDGET ? 'v-rule' : 'v-axis'} x1={L} y1={py(t)} x2={W - R} y2={py(t)} />
+        <text x={L - 8} y={py(t) + 4} text-anchor="end" font-size="12">{t === BUDGET ? '16.7' : t}</text>
+      </g>
+    ))}
+    <text x={W - R + 6} y={py(BUDGET) + 4} font-size="12" fill="currentColor">one frame at 60 fps</text>
+
+    {N.map((n, i) => <text x={px(i)} y={H - 10} text-anchor="middle" font-size="12">{n}</text>)}
+    <text x={(L + W - R) / 2} y={H + 12} text-anchor="middle" font-size="12">panes on screen</text>
+
+    <path class="v-line2" d={path(padding)} />
+    <path class="v-line1" d={path(transform)} />
+
+    {padding.map((v, i) => (
+      <g><circle class="v-s2" cx={px(i)} cy={py(v)} r="4.5" stroke="var(--paper)" stroke-width="2" /><title>{N[i]} panes, padding: {v} ms</title></g>
+    ))}
+    {transform.map((v, i) => (
+      <g><circle class="v-s1" cx={px(i)} cy={py(v)} r="4.5" stroke="var(--paper)" stroke-width="2" /><title>{N[i]} panes, transform: {v} ms</title></g>
+    ))}
+
+    <text class="v-val" x={px(3) + 10} y={py(66) + 4} font-size="13">66 ms</text>
+    <text class="v-val" x={px(3) + 10} y={py(0) + 4} font-size="13">0 ms</text>
+  </svg>
+
+  <div class="viz-legend">
+    <span><i style="background:var(--s2)"></i>Animated with padding</span>
+    <span><i style="background:var(--s1)"></i>Animated with a transform</span>
+  </div>
+</ChartFrame>
