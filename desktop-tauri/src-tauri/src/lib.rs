@@ -3702,6 +3702,31 @@ fn browser_open_inner(
     let nw_label = label.clone();
     let mut builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
         .initialization_script(CONSOLE_PROXY_JS)
+        // Il pid del WebContent si registra QUI, a pagina caricata, non solo al
+        // campionamento di `perf_metrics`.
+        //
+        // Il motivo è l'ordine dei tempi: `_webProcessIdentifier` ritorna 0
+        // finché il contenuto non è caricato, e la lettura deve passare dal main
+        // thread — quindi `refresh_webview_content_pids` scrive per il giro DOPO.
+        // Chi apriva una scheda e ci passava sopra il mouse subito leggeva
+        // «non ancora misurato», e non è un dettaglio: è la prima impressione
+        // della funzione, e invita a non riprovare.
+        //
+        // `on_page_load` scatta esattamente quando il processo esiste, quindi al
+        // primo passaggio del mouse il numero c'è già. Il campionamento resta
+        // come rete: copre i reload (WebContent nuovo) e le webview aperte prima
+        // che questo hook esistesse.
+        .on_page_load(|webview, _payload| {
+            let label = webview.label().to_string();
+            let _ = webview.with_webview(move |platform| {
+                let pid = unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
+                if pid > 0 {
+                    if let Ok(mut m) = webview_content_pid_map().lock() {
+                        m.insert(label, pid);
+                    }
+                }
+            });
+        })
         .on_new_window(move |url, _features| {
             let scheme = url.scheme();
             if scheme == "http" || scheme == "https" {

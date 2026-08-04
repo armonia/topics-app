@@ -216,6 +216,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // vedrebbe mai. `useSyncExternalStore` e non uno stato locale: lo snapshot
   // e' UNO per tutta l'app, e ogni tab bar deve leggere lo stesso.
   useSyncExternalStore(subscribePaneUsage, getPaneUsageVersion, getPaneUsageVersion);
+  // Una misura in anticipo, al montaggio della barra. Senza, il PRIMO passaggio
+  // del mouse trovava sempre lo store vuoto e leggeva «non ancora misurato»:
+  // tecnicamente esatto, praticamente una porta in faccia — la fetch parte in
+  // quel momento e il dato arriva quando il mouse se n'è già andato.
+  // Non è un polling e non rompe RES-ATTR-04: lo store dedupa, quindi N barre
+  // montate insieme fanno UNA richiesta, e poi non se ne fanno più finché
+  // qualcuno non passa davvero il mouse.
+  useEffect(() => { ensurePaneUsageFresh(); }, []);
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
