@@ -165,6 +165,20 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
     | while read -r _; do
         SP=$(cat "$SERVER_PIDFILE" 2>/dev/null)
         if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
+          # Cancello (2026-08-04): una modifica di più file è incoerente per
+          # qualche secondo — l'import c'è, il modulo che lo soddisfa no. Far
+          # ripartire il server proprio lì dentro l'ha già ucciso due volte il
+          # 3 agosto (crash-loop su un modulo mancante; `createHumanWaitLedger
+          # is not defined` su un export mancante, con un turno vivo perso e a
+          # schermo «No response received»). Un albero a metà non merita di
+          # sostituire un server che sta lavorando: se non compila si salta il
+          # giro e il prossimo salvataggio riproverà. ~30ms.
+          if ! GATE_OUT=$("$APP_DIR/scripts/server-reload-gate.sh" "$APP_DIR" 2>&1); then
+            echo "[start-prod] reload SALTATO — l'albero non compila, il server vecchio resta su:"
+            echo "$GATE_OUT" | sed 's/^/[start-prod]   /'
+            sleep 2
+            continue
+          fi
           echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
           kill -TERM "$SP" 2>/dev/null
           # Settle window: one save can emit TWO fswatch batches (write +
