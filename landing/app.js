@@ -180,6 +180,14 @@
     const qs = new URLSearchParams(location.search);
     if (qs.get('lab') !== '1') return;
 
+    // The page ships only the three families it renders. Pull the other
+    // candidates in now, so comparing them is honest rather than a preview of
+    // a system fallback wearing the right name.
+    const extra = document.createElement('link');
+    extra.rel = 'stylesheet';
+    extra.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap';
+    document.head.appendChild(extra);
+
     const FONTS = [
       ['inter', 'Inter', 'Neutral and extremely legible. The safe, invisible choice.'],
       ['instrument', 'Instrument Serif', 'Serif headlines over a sans body. Editorial and warmer.'],
