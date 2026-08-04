@@ -152,7 +152,7 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await expect(form.getByText("OAuth")).toBeVisible();
     await expect(form.getByText("JWT")).toBeVisible();
     // The always-present "Other" free-text escape hatch.
-    await expect(form.getByText("Other")).toBeVisible();
+    await expect(form.getByText("Altro")).toBeVisible();
 
     // Mentre la palla è dell'umano la riga NON tiene un cronometro acceso: un
     // contatore che scorre mentre si legge una domanda mette fretta e non dice
@@ -174,7 +174,7 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     // Pick OAuth and send.
     await form.locator('input[type="radio"][value="OAuth"]').check();
     await page.waitForTimeout(600);
-    await form.getByRole("button", { name: /Send/ }).click();
+    await form.getByRole("button", { name: /Invia/ }).click();
 
     // THE contract: the answer returns to the model as the tool's result —
     // exactly the chosen label, keyed by the question text.
@@ -244,8 +244,8 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     // Non si va avanti senza rispondere.
     await expect(form.getByTestId("ask-step-next")).toBeDisabled();
 
-    await form.locator('input[type="radio"][value="Bun"]').check();
-    await form.getByTestId("ask-step-next").click();
+    // Scegliere È il passo avanti: nessun tasto da cercare.
+    await form.locator('input[type="radio"][value="Bun"]').click();
 
     await expect(form.getByTestId("ask-step-progress")).toHaveText("2 di 3");
     await expect(form.locator("legend")).toContainText("Quale database?");
@@ -256,16 +256,14 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await form.getByTestId("ask-step-back").click();
     await expect(form.getByTestId("ask-step-progress")).toHaveText("1 di 3");
     await expect(form.locator('input[type="radio"][value="Bun"]')).toBeChecked();
-    await form.locator('input[type="radio"][value="Node"]').check();
-    await form.getByTestId("ask-step-next").click();
-
-    await form.locator('input[type="radio"][value="SQLite"]').check();
-    await form.getByTestId("ask-step-next").click();
+    await form.locator('input[type="radio"][value="Node"]').click();
+    await expect(form.getByTestId("ask-step-progress")).toHaveText("2 di 3");
+    await form.locator('input[type="radio"][value="SQLite"]').click();
 
     // Ultima: il tasto diventa l'invio, non un altro passo.
     await expect(form.getByTestId("ask-step-progress")).toHaveText("3 di 3");
     await expect(form.getByTestId("ask-step-next")).toHaveCount(0);
-    await form.locator('input[type="radio"][value="Cloud"]').check();
+    await form.locator('input[type="radio"][value="Cloud"]').check();  // ultima: niente salto, resta a schermo
     await form.getByTestId("ask-submit").click();
 
     // Al bridge arrivano TUTTE e tre insieme, con la correzione fatta a metà.
@@ -296,13 +294,13 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
     await expect(form).toBeVisible({ timeout: 15_000 });
 
-    // Choose "Other" → a free-text box appears → type an answer the options
-    // didn't offer.
-    await form.locator('input[type="radio"][value="Other"]').check();
+    // La casella libera è SEMPRE aperta: si scrive e basta, senza prima
+    // spuntare il pallino — scrivere seleziona «Altro» da sé.
     const other = form.locator("textarea");
     await expect(other).toBeVisible();
     await other.fill("DuckDB, per l'analitica");
-    await form.getByRole("button", { name: /Send/ }).click();
+    await expect(form.locator('input[type="radio"][value="Other"]')).toBeChecked();
+    await form.getByRole("button", { name: /Invia/ }).click();
 
     const result = await bridge;
     expect(result.cancelled).toBeFalsy();
@@ -333,10 +331,10 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await page.waitForTimeout(3000);
     // Il pannello è ancora lì, cliccabile, e nessuno ha inventato una risposta.
     await expect(form).toBeVisible();
-    await expect(form.getByRole("button", { name: /Send/ })).toBeVisible();
+    await expect(form.getByRole("button", { name: /Invia/ })).toBeVisible();
 
     await form.locator('input[type="radio"][value="Bun"]').check();
-    await form.getByRole("button", { name: /Send/ }).click();
+    await form.getByRole("button", { name: /Invia/ }).click();
 
     const result = await bridge;
     expect(result.cancelled).toBeFalsy();

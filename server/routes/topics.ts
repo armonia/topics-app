@@ -2516,7 +2516,32 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // and skip the provider stdin path entirely. Without this, the answer
       // would be written to stdin AND returned by the bridge — a double result
       // that desyncs the transcript.
-      if (response.kind === 'questions' && hasPendingAsk(sessionKey)) {
+      // Il tool che si sta rispondendo È il pannello del bridge?
+      //
+      // `hasPendingAsk` legge una mappa IN MEMORIA, e quella mappa si svuota a
+      // ogni riavvio del server mentre il figlio continua a pollare imperterrito
+      // (le sue gambe ripartono da sole). In quella finestra la risposta
+      // dell'umano cadeva nel ramo di sotto — stdin del provider — dove nessuno
+      // la aspetta: il pannello restava su «Invio…» per sempre e la risposta si
+      // perdeva. Osservato il 4 agosto su topic:ed2070df, con la POST arrivata
+      // al server e il figlio che continuava a chiedere.
+      //
+      // Il nome del tool è un fatto della RIGA, non della memoria di questo
+      // processo: se è il pannello, la risposta va al rendez-vous — che se non
+      // c'è nessuno in ascolto la mette da parte per la gamba successiva
+      // (`deliverAnswer` bufferizza apposta).
+      const answeringBridgeAsk = (() => {
+        if (response.kind !== 'questions') return false;
+        if (hasPendingAsk(sessionKey)) return true;
+        try {
+          const row = ctx.db.prepare(
+            "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
+          ).get(sessionKey) as { tool_calls?: string | null; blocks?: string | null } | undefined;
+          const haystack = `${row?.tool_calls ?? ''}${row?.blocks ?? ''}`;
+          return haystack.includes(toolCallId) && haystack.includes('ask_user_question');
+        } catch { return false; }
+      })();
+      if (answeringBridgeAsk) {
         const submittedAt = new Date().toISOString();
         const answers = (response.answers || {}) as Record<string, string>;
         const normalised = {
