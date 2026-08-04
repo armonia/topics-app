@@ -21,6 +21,7 @@ import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-us
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
+import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -2103,6 +2104,41 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
       const buffer = await getTerminalBuffer(bufferMatch.id);
       return json({ id: bufferMatch.id, buffer });
+    }
+
+    // GET /api/terminal/sessions/:id/screen — lo SCHERMO, non lo scrollback.
+    //
+    // `/buffer` restituisce i byte scritti dalla PTY: su un programma che
+    // ridisegna in place (un menu con le frecce, una barra) contiene TUTTE le
+    // versioni della stessa riga e non dice quale è quella attuale. Un agente
+    // che lo legge vede la storia e non lo stato: non sa quale voce è
+    // evidenziata, ne' se il tasto che ha premuto e' arrivato.
+    //
+    // Qui il flusso viene rigiocato su un emulatore headless e si restituisce
+    // la griglia. Stesso gate di `/buffer`: e' la stessa informazione, resa
+    // leggibile — se una e' un buco di esfiltrazione sulla LAN lo e' anche
+    // l'altra.
+    const screenMatch = matchRoute(pathname, "/api/terminal/sessions/:id/screen");
+    if (method === "GET" && screenMatch) {
+      if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+      const stream = await getTerminalBuffer(screenMatch.id);
+      // Le dimensioni VERE della sessione: rigiocare a una larghezza diversa
+      // manda a capo dove il programma non l'aveva fatto, e il risultato
+      // somiglia allo schermo senza esserlo.
+      const sess = sessions.get(screenMatch.id);
+      const screen = await renderScreen(stream, {
+        cols: sess?.cols,
+        rows: sess?.rows,
+        trimTrailingBlank: url.searchParams.get("full") !== "1",
+      });
+      return json({
+        id: screenMatch.id,
+        lines: screen.lines,
+        text: screenToText(screen),
+        cursor: screen.cursor,
+        cols: screen.cols,
+        rows: screen.rows,
+      });
     }
 
     // WRITE raw input straight into the PTY. On these
