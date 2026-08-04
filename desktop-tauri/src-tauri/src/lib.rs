@@ -127,6 +127,117 @@ fn register_ui_webview(window: &tauri::WebviewWindow, label: &str) {
     }
 }
 
+/// Pid del processo WebContent che rende ciascuna webview, per label.
+///
+/// PERCHE' SERVE: `responsible_pids` sa quali processi appartengono all'app, ma
+/// non QUALE webview stia dietro a quale — e senza quel legame la status bar puo'
+/// dire quanto consuma l'app in tutto, mai quale scheda se lo stia mangiando.
+/// Le pane browser di Topics sono webview NATIVE con un label esplicito
+/// (`WebviewBuilder::new(&label, ...)`), quindi il nome c'era gia': mancava il pid.
+///
+/// `-[WKWebView _webProcessIdentifier]` e' SPI, non API pubblica. Verificato sul
+/// runtime prima di scriverci sopra: il selettore esiste, ritorna un `int`, e su
+/// due webview distinte da' due pid distinti, entrambi `com.apple.WebKit.WebContent`.
+/// Prima che il contenuto sia caricato ritorna **0** — non un errore: il processo
+/// non c'e' ancora. Uno 0 non entra mai nella mappa, cosi' quella scheda risulta
+/// "non ancora misurata" invece che ferma a zero.
+///
+/// Essendo SPI puo' sparire con un aggiornamento di WebKit: `responds_to_selector`
+/// e' controllato a ogni giro e l'assenza degrada a mappa vuota — si perde
+/// l'attribuzione per scheda, non la misura complessiva.
+#[cfg(target_os = "macos")]
+static WEBVIEW_CONTENT_PID: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, i32>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn webview_content_pid_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, i32>> {
+    WEBVIEW_CONTENT_PID.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Chiede a ogni webview il pid del suo WebContent e aggiorna la mappa.
+///
+/// ASINCRONA PER FORZA: `with_webview` esegue la closure sul MAIN THREAD, e
+/// `perf_metrics` non gira di la'. Quindi questa scrive per il giro SUCCESSIVO e
+/// il chiamante legge quanto raccolto finora — al primo campionamento la mappa e'
+/// vuota e le schede risultano "non ancora misurate", che e' esattamente lo stato
+/// che la specifica prevede per una pane appena aperta. E' anche il motivo per
+/// cui non si puo' restituire un valore da qui: stesso vincolo che ha portato
+/// `register_ui_webview` a passare per una mappa statica.
+#[cfg(target_os = "macos")]
+fn refresh_webview_content_pids(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let map: &'static _ = webview_content_pid_map();
+    for (label, wv) in app.webviews() {
+        let label = label.clone();
+        let _ = wv.with_webview(move |platform| {
+            let pid = unsafe { web_process_identifier(platform.inner() as *mut crate::mac::Object) };
+            if let Ok(mut m) = map.lock() {
+                match pid {
+                    // >0 = processo vivo. 0 = contenuto non ancora caricato, e va
+                    // TOLTO invece di lasciare il pid vecchio: dopo un reload il
+                    // WebContent cambia, e un pid stantio attribuirebbe a questa
+                    // scheda la memoria di un processo morto (o peggio, di uno
+                    // nuovo che il kernel ha riassegnato allo stesso numero).
+                    p if p > 0 => { m.insert(label, p); }
+                    _ => { m.remove(&label); }
+                }
+            }
+        });
+    }
+}
+
+/// Footprint e CPU di ogni webview associata, saltando quelle il cui WebContent
+/// e' morto nel frattempo.
+///
+/// `live` e' l'insieme dei pid dell'app in questo giro: un WebContent che non c'e'
+/// piu' (scheda chiusa, reload) sparisce dal risultato invece di comparire con la
+/// sua ultima misura, che sarebbe un numero vero riferito a un processo che non
+/// esiste. Non si sfoltisce la mappa qui: e' `refresh_webview_content_pids` a
+/// riscriverla, e questa funzione resta di sola lettura.
+#[cfg(target_os = "macos")]
+fn collect_webview_usage(live: &std::collections::HashSet<i32>) -> Vec<WebviewUsage> {
+    const MB: f64 = 1_048_576.0;
+    let map = match webview_content_pid_map().lock() {
+        Ok(m) => m,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<WebviewUsage> = map
+        .iter()
+        .filter(|(_, pid)| live.contains(pid))
+        .map(|(label, &pid)| WebviewUsage {
+            label: label.clone(),
+            pid,
+            memory_mb: proc_memory(pid).map(|(fp, _)| fp as f64 / MB).unwrap_or(0.0),
+            cpu_percent: proc_cpu_percent(pid, live),
+        })
+        .collect();
+    // Ordine stabile: una `HashMap` itera a caso, e una lista che si rimescola a
+    // ogni campionamento farebbe ballare qualunque UI la mostri in colonna.
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
+}
+
+/// `-[WKWebView _webProcessIdentifier]`, o 0 se il selettore non c'e' piu'.
+///
+/// # Safety
+/// `view` deve essere il `WKWebView` restituito da `PlatformWebview::inner()`.
+#[cfg(target_os = "macos")]
+unsafe fn web_process_identifier(view: *mut crate::mac::Object) -> i32 {
+    use crate::mac::{msg_send, sel};
+    if view.is_null() {
+        return 0;
+    }
+    let sel = sel!(_webProcessIdentifier);
+    // SPI: se un aggiornamento di WebKit la togliesse, chiamarla a scatola chiusa
+    // sarebbe un crash. Il controllo costa una `respondsToSelector:` per giro.
+    let responds: bool = msg_send![view, respondsToSelector: sel];
+    if !responds {
+        return 0;
+    }
+    msg_send![view, _webProcessIdentifier]
+}
+
 /// Whole-app footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU.
 ///
@@ -188,6 +299,30 @@ struct PerfMetrics {
     /// True when the figure covers only the shell process. Now false on macOS;
     /// still true elsewhere, where we have no equivalent attribution API.
     partial: bool,
+    /// Consumo attribuito alla singola webview, per label — il pezzo che i totali
+    /// qui sopra non possono dare: quale SCHEDA sta consumando.
+    ///
+    /// Vuoto finche' nessun WebContent e' associato (primo campionamento, o
+    /// WebKit che ritira la SPI): le schede risultano allora "non ancora
+    /// misurate", che e' diverso da "ferme a zero" e il client lo dice.
+    webviews: Vec<WebviewUsage>,
+}
+
+/// Quanto consuma UNA webview, con il label che la lega alla sua pane.
+#[derive(Serialize, Clone)]
+struct WebviewUsage {
+    /// Lo stesso label con cui la webview e' stata creata, cioe' l'aggancio alla
+    /// pane lato client.
+    label: String,
+    /// Pid del processo WebContent che la rende.
+    pid: i32,
+    /// `phys_footprint` in MB: la stessa metrica dei totali e di Monitoraggio
+    /// Attivita', non `rss` — cosi' la parte e il tutto si possono confrontare.
+    memory_mb: f64,
+    /// `None` = NON MISURATA. Un WebContent appena nato non ha ancora un delta
+    /// da cui ricavare una percentuale, e uno 0 lo farebbe passare per fermo.
+    /// Per-core come il resto di questo payload: il client normalizza sui core.
+    cpu_percent: Option<f32>,
 }
 
 // macOS process-responsibility + libproc entry points, declared by hand: they
@@ -483,6 +618,8 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
                 cpu_pids: 0,
                 process_count: 0,
                 partial: true,
+                // Non sappiamo nemmeno il nostro pid: niente da attribuire.
+                webviews: Vec::new(),
             }
         }
     };
@@ -616,6 +753,24 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         cpu_pids,
         process_count: pids.len() as u32,
         partial,
+        // Legge quanto raccolto FINORA e chiede il giro successivo: la lettura
+        // del pid deve passare dal main thread (vedi `refresh_webview_content_pids`),
+        // quindi al primo campionamento questa e' vuota di proposito.
+        webviews: {
+            #[cfg(target_os = "macos")]
+            {
+                // `live` era locale al blocco di campionamento, chiuso sopra;
+                // `pids` no, ed e' la stessa lista.
+                let alive: std::collections::HashSet<i32> = pids.iter().copied().collect();
+                let out = collect_webview_usage(&alive);
+                refresh_webview_content_pids(&app);
+                out
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Vec::new()
+            }
+        },
     };
     // Pubblica la misura: chi legge nei prossimi PERF_SAMPLE_WINDOW riceve
     // questa, invece di far ripartire il cronometro e misurare la CPU su pochi
@@ -7731,6 +7886,78 @@ mod perf_cpu_tests {
         assert_eq!(mach_ticks_to_ns(0), 0);
         assert!(mach_ticks_to_ns(1_000_000) >= 1_000_000);
         assert!(mach_ticks_to_ns(2_000_000) > mach_ticks_to_ns(1_000_000));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod webview_usage_tests {
+    use super::{collect_webview_usage, web_process_identifier, webview_content_pid_map};
+    use std::collections::HashSet;
+
+    /// La mappa dei pid e' UNA per processo e `cargo test` esegue i test in
+    /// parallelo: senza serializzare, un test azzera la mappa mentre un altro la
+    /// legge (visto: due rossi intermittenti alla prima stesura). Il lock rende
+    /// questi quattro sequenziali fra loro senza rallentare il resto della suite.
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Sostituisce il contenuto della mappa: ogni test riscrive da zero invece
+    /// di aggiungere a quello che ha lasciato il precedente.
+    fn set_map(entries: &[(&str, i32)]) {
+        let mut m = webview_content_pid_map().lock().unwrap_or_else(|e| e.into_inner());
+        m.clear();
+        for (l, p) in entries {
+            m.insert((*l).to_string(), *p);
+        }
+    }
+
+    #[test]
+    fn una_webview_il_cui_processo_e_morto_non_compare() {
+        let _g = guard();
+        // Il difetto che chiude: una scheda chiusa (o ricaricata, che cambia
+        // WebContent) resterebbe in lista con la sua ultima misura — un numero
+        // vero riferito a un processo che non esiste piu'. Peggio ancora se il
+        // kernel ha nel frattempo riassegnato quel pid a qualcun altro.
+        set_map(&[("viva", 1), ("morta", 999_999)]);
+        let live: HashSet<i32> = [1].into_iter().collect();
+        let out = collect_webview_usage(&live);
+        assert_eq!(out.len(), 1, "solo la webview viva");
+        assert_eq!(out[0].label, "viva");
+        assert_eq!(out[0].pid, 1);
+    }
+
+    #[test]
+    fn l_ordine_e_stabile_fra_due_letture() {
+        let _g = guard();
+        // Una `HashMap` itera in ordine casuale: senza il sort, una lista
+        // mostrata in colonna si rimescolerebbe a ogni campionamento.
+        set_map(&[("zeta", 1), ("alfa", 1), ("mezzo", 1)]);
+        let live: HashSet<i32> = [1].into_iter().collect();
+        let a: Vec<String> = collect_webview_usage(&live).into_iter().map(|w| w.label).collect();
+        let b: Vec<String> = collect_webview_usage(&live).into_iter().map(|w| w.label).collect();
+        assert_eq!(a, b, "due letture, stesso ordine");
+        assert_eq!(a, vec!["alfa", "mezzo", "zeta"], "ordinate per label");
+    }
+
+    #[test]
+    fn nessuna_webview_associata_da_lista_vuota_non_zeri() {
+        let _g = guard();
+        // Vuoto = "non ancora misurato" e il client lo dice; una lista di zeri
+        // direbbe "tutte ferme", che e' un'altra affermazione.
+        set_map(&[]);
+        let live: HashSet<i32> = [1, 2, 3].into_iter().collect();
+        assert!(collect_webview_usage(&live).is_empty());
+    }
+
+    #[test]
+    fn un_puntatore_nullo_non_fa_crashare_la_spi() {
+        // `_webProcessIdentifier` e' SPI: la difesa e' `respondsToSelector`, ma
+        // prima ancora il puntatore va controllato — `with_webview` puo'
+        // consegnare un inner nullo su una webview in via di distruzione.
+        assert_eq!(unsafe { web_process_identifier(std::ptr::null_mut()) }, 0);
     }
 }
 

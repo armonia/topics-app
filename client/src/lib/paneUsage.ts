@@ -14,6 +14,9 @@
  * secondi.
  */
 
+import { isTauri } from './shell';
+import { tauriInvoke } from './shell/tauri';
+
 /** Allineata a `FLEET_TTL_MS` lato server: chiedere più spesso della finestra
  *  in cui il server ricampiona restituirebbe lo stesso oggetto. */
 const TTL_MS = 4000;
@@ -27,10 +30,26 @@ export interface PaneUsageEntry {
 
 interface UsageSnapshot {
   at: number;
+  /** Terminali e sessioni Claude: dal SERVER, che tiene il pid di testa di
+   *  ciascuna sessione PTY. */
   bySession: Map<string, PaneUsageEntry>;
+  /** Pane browser: dalla SHELL, che sa quale processo WebContent rende quale
+   *  webview. Chiave = il label con cui la webview è stata creata
+   *  (`browserpane-<paneId>`, vedi `browser_label` in `lib.rs`).
+   *
+   *  Sono due sorgenti perché sono due mondi: il server non vede le webview
+   *  (vivono nella shell) e la shell non vede i sidecar (sono figli del server
+   *  reparentati a launchd). Si uniscono qui, sulle stesse unità. */
+  byWebviewLabel: Map<string, PaneUsageEntry>;
   cpuCores: number;
   /** `footprint` | `rss` | `mixed` — per etichettare la memoria come fa la barra. */
   memMetric: string;
+}
+
+/** Il label con cui la shell registra la webview di una pane browser. Deve
+ *  restare allineato a `browser_label` in `desktop-tauri/src-tauri/src/lib.rs`. */
+export function browserPaneLabel(paneId: string): string {
+  return `browserpane-${paneId}`;
 }
 
 let snapshot: UsageSnapshot | null = null;
@@ -51,6 +70,45 @@ export function getPaneUsageVersion(): number {
   return version;
 }
 
+/** Core logici, per riportare la CPU per-core della shell sulla scala della
+ *  macchina — la stessa normalizzazione che fa `usePerfMetrics`. */
+const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
+
+interface FleetPayload {
+  sessions?: { sessionId: string; memoryMB: number; cpuPercent: number | null; processCount: number }[];
+  cpuCores?: number;
+  memMetric?: string;
+}
+
+interface ShellWebview {
+  label: string;
+  memory_mb: number;
+  cpu_percent: number | null;
+}
+
+async function fetchFleet(): Promise<FleetPayload | null> {
+  try {
+    const res = await fetch('/api/system/status');
+    if (!res.ok) return null;
+    return (await res.json())?.server?.fleet ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Le webview dalla shell. Su web non esiste `perf_metrics` e si torna `null`,
+ *  che il chiamante tratta come "nessuna webview attribuita" — le pane browser
+ *  restano "non ancora misurate" invece di sembrare a zero. */
+async function fetchWebviews(): Promise<ShellWebview[] | null> {
+  if (!isTauri) return null;
+  try {
+    const m = await tauriInvoke<{ webviews?: ShellWebview[] }>('perf_metrics');
+    return m?.webviews ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function subscribePaneUsage(fn: () => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
@@ -65,24 +123,36 @@ export function ensurePaneUsageFresh(): void {
   if (inFlight) return;
   inFlight = (async () => {
     try {
-      const res = await fetch('/api/system/status');
-      if (!res.ok) return;
-      const data = await res.json();
-      const fleet = data?.server?.fleet;
-      if (!fleet) return;
+      // Le due sorgenti in parallelo, e una che cade non porta giù l'altra:
+      // senza shell (web) restano i terminali, senza server restano le webview.
+      const [fleet, shell] = await Promise.all([fetchFleet(), fetchWebviews()]);
+      if (!fleet && !shell) return;
+
       const bySession = new Map<string, PaneUsageEntry>();
-      for (const s of fleet.sessions ?? []) {
+      for (const s of fleet?.sessions ?? []) {
         bySession.set(s.sessionId, {
           memoryMB: s.memoryMB,
           cpuPercent: s.cpuPercent,
           processCount: s.processCount,
         });
       }
+      const byWebviewLabel = new Map<string, PaneUsageEntry>();
+      for (const w of shell ?? []) {
+        byWebviewLabel.set(w.label, {
+          memoryMB: Math.round(w.memory_mb),
+          // La shell riporta per-core (come `ps`); qui si normalizza sui core
+          // per parlare la stessa lingua della sessione e della status bar.
+          cpuPercent: w.cpu_percent == null ? null : w.cpu_percent / CPU_CORES,
+          // Una webview = un processo WebContent.
+          processCount: 1,
+        });
+      }
       snapshot = {
         at: Date.now(),
         bySession,
-        cpuCores: fleet.cpuCores ?? 1,
-        memMetric: fleet.memMetric ?? 'rss',
+        byWebviewLabel,
+        cpuCores: fleet?.cpuCores ?? CPU_CORES,
+        memMetric: fleet?.memMetric ?? 'rss',
       };
       emit();
     } catch {
@@ -97,6 +167,12 @@ export function ensurePaneUsageFresh(): void {
 export function getPaneUsage(sessionId: string | null | undefined): PaneUsageEntry | null {
   if (!sessionId || !snapshot) return null;
   return snapshot.bySession.get(sessionId) ?? null;
+}
+
+/** Consumo di una pane browser, per id di pane. */
+export function getBrowserPaneUsage(paneId: string | null | undefined): PaneUsageEntry | null {
+  if (!paneId || !snapshot) return null;
+  return snapshot.byWebviewLabel.get(browserPaneLabel(paneId)) ?? null;
 }
 
 /** Metrica con cui è misurata la memoria, per dirlo quando è solo una stima. */
@@ -118,9 +194,11 @@ export function getPaneUsageMemMetric(): string | null {
 export function formatPaneUsageLine(
   sessionId: string | null | undefined,
   hasOwnProcess: boolean,
+  /** Pane browser: il consumo si cerca per label di webview, non per sessione. */
+  browserPaneId?: string | null,
 ): string {
   if (!hasOwnProcess) return '\nConsumo: questa scheda non ha un processo proprio';
-  const u = getPaneUsage(sessionId);
+  const u = browserPaneId ? getBrowserPaneUsage(browserPaneId) : getPaneUsage(sessionId);
   if (!u) return '\nConsumo: non ancora misurato';
   const cpu = u.cpuPercent === null
     ? 'CPU non ancora misurata'
@@ -139,12 +217,15 @@ export function _resetPaneUsage(): void {
 /** Test seam: inietta uno snapshot senza passare dalla rete. */
 export function _setPaneUsageSnapshot(
   sessions: { sessionId: string; memoryMB: number; cpuPercent: number | null; processCount: number }[],
-  opts?: { cpuCores?: number; memMetric?: string },
+  opts?: { cpuCores?: number; memMetric?: string; webviews?: { label: string; memoryMB: number; cpuPercent: number | null }[] },
 ): void {
   snapshot = {
     at: Date.now(),
     bySession: new Map(sessions.map(s => [s.sessionId, {
       memoryMB: s.memoryMB, cpuPercent: s.cpuPercent, processCount: s.processCount,
+    }])),
+    byWebviewLabel: new Map((opts?.webviews ?? []).map(w => [w.label, {
+      memoryMB: w.memoryMB, cpuPercent: w.cpuPercent, processCount: 1,
     }])),
     cpuCores: opts?.cpuCores ?? 12,
     memMetric: opts?.memMetric ?? 'footprint',
