@@ -321,6 +321,22 @@ export interface WSDragMessage {
   topicId?: string;
 }
 
+/** One tab a window holds, as that window describes it. Every KIND of pane —
+ *  terminals, projects, browsers and chats — because a window is the group its
+ *  tabs belong to, and a window made of three terminals used to announce
+ *  nothing and render as an empty row in the sidebar's "Finestre".
+ *  `topicIds` stays the chat-only set: it drives per-topic delta routing and
+ *  the "open in another window" markers, which are about topics specifically. */
+export interface PresenceTab {
+  /** Pane id, as used by `focusPane` / tab links. */
+  id: string;
+  /** Pane type (`chat`, `terminal`, `project`, `browser`, …) — free-form on the
+   *  wire so a peer running an older build never drops a tab it cannot name. */
+  type: string;
+  /** Title the owning window shows on the tab. */
+  title?: string;
+}
+
 /** Cross-window presence — this window declaring the topics it holds (outbound
  *  client → server). Server rebroadcasts the full window list as
  *  `presence:windows`. WS-ephemeral; never persisted. */
@@ -331,6 +347,9 @@ export interface WSPresenceAnnounceMessage {
   detached?: boolean;
   topicIds: string[];
   focusedTopicId?: string;
+  /** Every tab, not just the chats — see PresenceTab. Optional so an older
+   *  client still announces successfully. */
+  tabs?: PresenceTab[];
 }
 
 /** Per-topic delta routing — this window declaring the set of topics it
@@ -353,6 +372,7 @@ export interface WSPresenceWindowsMessage {
     detached?: boolean;
     topicIds: string[];
     focusedTopicId?: string;
+    tabs?: PresenceTab[];
   }>;
 }
 

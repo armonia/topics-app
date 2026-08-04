@@ -144,3 +144,40 @@ describe("buildPresenceSnapshot — finestre fantasma", () => {
     expect(out[0]!.windowId).toBe("w-vivo");
   });
 });
+
+describe('presence tabs — the window carries what it holds', () => {
+  test('tabs ride through the snapshot untouched', () => {
+    const tabs = [
+      { id: 't-auth', type: 'chat', title: 'auth flow' },
+      { id: 'terminal:cc1', type: 'terminal', title: 'Claude Code' },
+      { id: 'project:%2Fsrv', type: 'project', title: 'acme-api' },
+    ];
+    const [w] = buildPresenceSnapshot([
+      { id: 'c1', windowId: 'w1', presenceTopicIds: ['t-auth'], presenceTabs: tabs },
+    ]);
+    expect(w.tabs).toEqual(tabs);
+    // topicIds stays the CHAT-only set: it drives per-topic delta routing and
+    // the "open in another window" markers, which are about topics specifically.
+    expect(w.topicIds).toEqual(['t-auth']);
+  });
+
+  test('a socket that announces no tabs reports undefined, not an empty list', () => {
+    // The difference matters downstream: `windowTabs()` falls back to topicIds
+    // for undefined, and an empty array would read as "this window is empty".
+    const [w] = buildPresenceSnapshot([
+      { id: 'c1', windowId: 'w1', presenceTopicIds: ['t-ship'] },
+    ]);
+    expect(w.tabs).toBeUndefined();
+  });
+
+  test('the label collapse keeps the surviving socket\'s tabs', () => {
+    // Same OS window, two sockets (a reload before the old one dropped): the
+    // LAST announce wins, so its tab list must win with it.
+    const wins = buildPresenceSnapshot([
+      { id: 'c1', windowId: 'w1', windowLabel: 'main', presenceTabs: [{ id: 'a', type: 'chat' }] },
+      { id: 'c2', windowId: 'w2', windowLabel: 'main', presenceTabs: [{ id: 'b', type: 'terminal' }] },
+    ]);
+    expect(wins).toHaveLength(1);
+    expect(wins[0].tabs).toEqual([{ id: 'b', type: 'terminal' }]);
+  });
+});

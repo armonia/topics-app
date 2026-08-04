@@ -323,6 +323,10 @@ export interface UsePanelLifecycleReturn {
   };
 }
 
+/** Field separator for the presence-tab snapshot string. A control character
+ *  no pane title can contain, so the encode/decode round-trip is total. */
+const PRESENCE_TAB_SEP = '\u0001';
+
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
     isDetached, detachedTopicId, detachedTopicIds, isMobile,
@@ -2332,6 +2336,34 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   );
   const focusedTopicForPresence =
     focusedPanelId && presenceTopicIds.includes(focusedPanelId) ? focusedPanelId : undefined;
+
+  // Every tab this window holds, not just its chats: a window is the group its
+  // tabs belong to, and the sidebar's "Finestre" section listed only chats — so
+  // a window made of three terminals and a project announced nothing and drew
+  // as an empty row.
+  //
+  // Subscribed as a flat array of STRINGS with useShallow, never as `s.panes`.
+  // That store's identity changes on every pane write — `setPaneScrollOffset`
+  // does one every 250ms while a chat scrolls — and subscribing to it would
+  // re-announce presence to every socket four times a second (the same trap
+  // documented above `visibleFromStore`). Encoded this way the snapshot only
+  // changes when a tab is added, removed, renamed or retyped.
+  const paneTabsEncoded = usePaneStore(
+    useShallow((s) =>
+      openPanels.map((id) => {
+        const p = s.panes[id];
+        return [id, p?.type ?? 'chat', p?.title ?? ''].join(PRESENCE_TAB_SEP);
+      }),
+    ),
+  );
+  const presenceTabs = useMemo(
+    () => paneTabsEncoded.map((enc) => {
+      const [id, type, ...rest] = enc.split(PRESENCE_TAB_SEP);
+      const title = rest.join(PRESENCE_TAB_SEP);
+      return title ? { id, type, title } : { id, type };
+    }),
+    [paneTabsEncoded],
+  );
   const prevPresenceWsStatus = useRef(wsStatus);
   useEffect(() => {
     const reconnected =
@@ -2349,13 +2381,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       detached: isDetached,
       topicIds: presenceTopicIds,
       focusedTopicId: focusedTopicForPresence,
+      tabs: presenceTabs,
     });
     // Same trigger, same topic set: declare the open topics for per-token delta
     // routing (server → WSData.openTopicIds). Kept in lock-step with the presence
     // announce so a window never has a stale subscription and misses its stream;
     // a window that never sends this still receives everything (legacy branch).
     sendWS({ type: 'subscribe', topicIds: presenceTopicIds });
-  }, [wsStatus, windowId, isDetached, presenceTopicIds, focusedTopicForPresence, sendWS]);
+  }, [wsStatus, windowId, isDetached, presenceTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
 
   return {
     state: {

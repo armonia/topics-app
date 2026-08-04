@@ -8,6 +8,14 @@
  * output = the deduped window list) lets server.ts stay a thin adapter over it.
  */
 
+/** One tab of a window, as that window described it (chats, terminals,
+ *  projects, browsers alike) — the sidebar's "Finestre" groups these. */
+export interface PresenceTab {
+  id: string;
+  type: string;
+  title?: string;
+}
+
 /** The presence-bearing subset of a socket's WSData (what the builder reads). */
 export interface PresenceSource {
   id: string;
@@ -16,6 +24,7 @@ export interface PresenceSource {
   detached?: boolean;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
+  presenceTabs?: PresenceTab[];
   /**
    * Il socket è ancora aperto? (`readyState === 1`)
    *
@@ -38,6 +47,9 @@ export interface PresenceWindowEntry {
   detached?: boolean;
   topicIds: string[];
   focusedTopicId?: string;
+  /** Absent when the window runs a client that predates the field — consumers
+   *  fall back to `topicIds` rather than rendering an empty window. */
+  tabs?: PresenceTab[];
 }
 
 /**
@@ -80,6 +92,7 @@ export function buildPresenceSnapshot(sources: Iterable<PresenceSource>): Presen
       detached: s.detached,
       topicIds: s.presenceTopicIds ?? [],
       focusedTopicId: s.presenceFocusedTopicId,
+      tabs: s.presenceTabs,
     });
   }
   return collapseByWindowLabel(windows);

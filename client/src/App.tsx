@@ -1045,7 +1045,7 @@ function App() {
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
           <WindowsSection
             topics={topics}
-            onTopicClick={(id) => handleTopicClick(id)}
+            onFocusTab={(id) => handleFocusPanel(id)}
             onReopenTopic={(id) => handleTopicClick(id)}
           />
           <ErrorBoundary fallbackMessage="Sidebar error">

@@ -57,6 +57,10 @@ export interface WSData {
   detached?: boolean;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
+  /** Every tab this window holds (chats, terminals, projects, browsers), as it
+   *  describes them. `presenceTopicIds` stays the chat-only set that drives
+   *  delta routing; this is what the sidebar groups under each window. */
+  presenceTabs?: { id: string; type: string; title?: string }[];
 }
 
 // ─── Tipi del messaggio: dichiarati in shared/, non qui ────────────────

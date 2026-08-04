@@ -169,6 +169,14 @@ const presenceWindowsBroadcastSchema = z.object({
       detached: z.optional(z.boolean()),
       topicIds: z.array(z.string()),
       focusedTopicId: z.optional(z.string()),
+      // Every tab the window holds, not just its chats — what the sidebar's
+      // "Finestre" section groups. Optional: a window running an older client
+      // announces none, and the row falls back to its topics.
+      tabs: z.optional(z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        title: z.optional(z.string()),
+      }))),
     }),
   ),
 });
