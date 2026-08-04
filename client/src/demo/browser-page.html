@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  The page the demo's Browser pane is previewing: a plain localhost app, the
+  kind you would actually have open next to an agent that is editing it.
+
+  This file is not shipped. It is the SOURCE for `browser-dom-snapshot.json`,
+  which is what the demo replays. Regenerate with:
+      node scripts/gen-browser-snapshot.mjs
+
+  Everything is inline on purpose. rrweb serialises the DOM and inline styles,
+  but an external stylesheet or image would be a URL the replaying iframe
+  cannot fetch, and the snapshot would paint a broken page.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Acme — Dashboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+       background:#f6f7fb;color:#131722;-webkit-font-smoothing:antialiased}
+  .top{display:flex;align-items:center;gap:14px;padding:14px 22px;background:#fff;border-bottom:1px solid #e6e9f2}
+  .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#4d7cff,#8b6cff)}
+  .brand{font-weight:640;letter-spacing:-.02em}
+  .nav{display:flex;gap:18px;margin-left:18px;font-size:13.5px;color:#5a6480}
+  .nav .on{color:#131722;font-weight:560}
+  .who{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:13px;color:#5a6480}
+  .avatar{width:26px;height:26px;border-radius:50%;background:#dfe4f2}
+  .wrap{padding:22px}
+  h1{font-size:22px;letter-spacing:-.03em;margin-bottom:3px}
+  .sub{color:#6b7590;font-size:13.5px;margin-bottom:18px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+  .card{background:#fff;border:1px solid #e6e9f2;border-radius:11px;padding:14px 15px}
+  .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:#8b94ad;margin-bottom:6px}
+  .v{font-size:23px;font-weight:640;letter-spacing:-.03em}
+  .up{font-size:12px;color:#12a56a;margin-top:3px}
+  .down{font-size:12px;color:#d1495b;margin-top:3px}
+  .panel{background:#fff;border:1px solid #e6e9f2;border-radius:11px;overflow:hidden}
+  .ph{padding:12px 15px;border-bottom:1px solid #eef0f7;font-weight:580;font-size:13.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:9px 15px;color:#8b94ad;font-weight:520;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;background:#fafbfe}
+  td{padding:10px 15px;border-top:1px solid #f0f2f8}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:560}
+  .ok{background:#e4f7ee;color:#12855a}
+  .warn{background:#fdf1dc;color:#9a6a12}
+  .bar{height:52px;display:flex;align-items:flex-end;gap:5px;padding:0 15px 12px}
+  .bar i{flex:1;background:linear-gradient(180deg,#7ea3ff,#4d7cff);border-radius:3px 3px 0 0;display:block}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logo"></div><span class="brand">Acme</span>
+    <nav class="nav"><span class="on">Dashboard</span><span>Orders</span><span>Customers</span><span>Settings</span></nav>
+    <div class="who"><span>ops@acme.dev</span><span class="avatar"></span></div>
+  </div>
+  <div class="wrap">
+    <h1>Dashboard</h1>
+    <p class="sub">Last 7 days, updated a minute ago</p>
+    <div class="cards">
+      <div class="card"><p class="k">Revenue</p><p class="v">€48,210</p><p class="up">+12.4%</p></div>
+      <div class="card"><p class="k">Orders</p><p class="v">1,284</p><p class="up">+3.1%</p></div>
+      <div class="card"><p class="k">Refunds</p><p class="v">37</p><p class="down">+0.8%</p></div>
+      <div class="card"><p class="k">Avg. basket</p><p class="v">€37.55</p><p class="up">+1.9%</p></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="ph">Orders per day</div>
+      <div class="bar">
+        <i style="height:38%"></i><i style="height:56%"></i><i style="height:44%"></i><i style="height:71%"></i>
+        <i style="height:63%"></i><i style="height:88%"></i><i style="height:74%"></i><i style="height:96%"></i>
+        <i style="height:69%"></i><i style="height:81%"></i><i style="height:58%"></i><i style="height:77%"></i>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Recent orders</div>
+      <table>
+        <tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr>
+        <tr><td>#10482</td><td>M. Rossi</td><td>€128.00</td><td><span class="pill ok">Shipped</span></td></tr>
+        <tr><td>#10481</td><td>J. Andersen</td><td>€64.50</td><td><span class="pill ok">Shipped</span></td></tr>
+        <tr><td>#10480</td><td>P. Nakamura</td><td>€212.90</td><td><span class="pill warn">Packing</span></td></tr>
+        <tr><td>#10479</td><td>L. Dupont</td><td>€39.00</td><td><span class="pill ok">Shipped</span></td></tr>
+        <tr><td>#10478</td><td>S. Okafor</td><td>€87.20</td><td><span class="pill warn">Packing</span></td></tr>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
