@@ -295,6 +295,10 @@ export function TurnActivityIndicator({
       <MessageMetaFooter
         latencyMs={clock.primaryMs}
         latencyTitle={clock.title}
+        // Il numero va NOMINATO, o si legge come il tempo che stai facendo
+        // perdere: è il lavoro fatto finora, e finché la domanda è aperta non
+        // cresce di un millisecondo.
+        latencyPrefix="lavorato"
         promptTokens={promptTokens}
         completionTokens={completionTokens}
         costCents={costCents}

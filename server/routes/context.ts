@@ -58,7 +58,16 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       // quando la tabella delle finestre era sbagliata: si correggono da sole,
       // invece di restare congelate su un 200k che non è mai stato vero.
       const topic = ctx.getTopicBySessionKey?.(sessionKey) ?? null;
-      const usage = classifyContext(row.usedTokens, windowForMeasure(row, topic?.model));
+      // Il pin del topic, e se non c'è il DEFAULT del provider — che è il
+      // modello con cui la chat gira davvero. Trattare il pin vuoto come «non
+      // lo so» lasciava il denominatore sul nome nudo degli eventi della CLI
+      // (`claude-opus-5`, mai `[1m]`): 200k su una chat da un milione.
+      const currentModel = topic?.model
+        || (() => {
+          try { return (topic ? getProvider(topic.provider ?? undefined) : getDefaultProvider())?.defaultModel?.() ?? null; }
+          catch { return null; }
+        })();
+      const usage = classifyContext(row.usedTokens, windowForMeasure(row, currentModel));
       // Stessa forma dell'evento vivo (`usage_update` ACP, 3.1): chi apre
       // l'app a turno finito legge lo stesso oggetto di chi era collegato.
       const update = contextUpdateFromUsage(usage, row.model);

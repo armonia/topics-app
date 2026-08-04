@@ -10,6 +10,12 @@ interface Props {
    * senza una riga che lo dica sembrerebbe un cronometro che si è piantato.
    */
   latencyTitle?: string;
+  /**
+   * Parola che precede la durata, quando il numero da solo si presterebbe a
+   * essere letto per un'altra cosa. Serve al turno fermo su una domanda:
+   * «lavorato 8s» non si confonde col tempo che stai facendo aspettare.
+   */
+  latencyPrefix?: string;
   promptTokens?: number | null;
   completionTokens?: number | null;
   costCents?: number | null;
@@ -45,7 +51,7 @@ interface Props {
  *
  * The format mirrors the reference screenshot: `<duration>s · <tokens> tokens · $<cost>`.
  */
-export function MessageMetaFooter({ latencyMs, latencyTitle, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
+export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
   const prompt = safeNum(promptTokens);
   const completion = safeNum(completionTokens);
   const total = prompt + completion;
@@ -86,7 +92,8 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, promptTokens, compl
   if (safeLatency > 0) {
     // Same formatter as the tool/turn timers so a slow turn reads "1m 30s",
     // not "90s" — one consistent duration language across the chat.
-    parts.push({ text: formatDurationMs(safeLatency), ...(latencyTitle ? { title: latencyTitle } : {}), testId: 'message-duration' });
+    const shown = formatDurationMs(safeLatency);
+    parts.push({ text: latencyPrefix ? `${latencyPrefix} ${shown}` : shown, ...(latencyTitle ? { title: latencyTitle } : {}), testId: 'message-duration' });
   }
   if (total > 0) {
     // Compatto: `4.5M`, non `4.531.312`. Il numero esatto resta nel title —
