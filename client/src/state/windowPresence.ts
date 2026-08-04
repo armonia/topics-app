@@ -22,6 +22,15 @@ import { useMemo } from 'react';
 import { subscribeFrames } from '../lib/wsFrameBus';
 import { currentWindowLabel } from '../lib/shell/tauri';
 
+/** One tab a window holds. Chats, terminals, projects, browsers alike — a
+ *  window is the group its tabs belong to, so the group has to know all of
+ *  them. See `PresenceTab` in types/index.ts for the wire contract. */
+export interface PresenceWindowTab {
+  id: string;
+  type: string;
+  title?: string;
+}
+
 export interface PresenceWindow {
   /** Client-stable window id (sessionStorage `topics-window-id`). */
   windowId: string;
@@ -36,6 +45,22 @@ export interface PresenceWindow {
   topicIds: string[];
   /** The topic focused inside that window, if any. */
   focusedTopicId?: string;
+  /** Every tab the window holds, in its own order. Absent from a window running
+   *  a client that predates the field — read it through `windowTabs()`, which
+   *  falls back to the topic ids so an older peer still lists something. */
+  tabs?: PresenceWindowTab[];
+}
+
+/**
+ * The tabs of a window, with the pre-`tabs` fallback in ONE place.
+ *
+ * A window that announces no tabs is not an empty window; it is a window whose
+ * client only knew how to announce chats. Falling back keeps its row populated
+ * instead of rendering a heading over nothing.
+ */
+export function windowTabs(w: PresenceWindow): PresenceWindowTab[] {
+  if (w.tabs && w.tabs.length > 0) return w.tabs;
+  return w.topicIds.map((id) => ({ id, type: 'chat' }));
 }
 
 interface WindowPresenceState {

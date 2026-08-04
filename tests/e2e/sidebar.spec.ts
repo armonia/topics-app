@@ -685,4 +685,58 @@ test.describe("Sidebar — Project icons", () => {
       "only the labelled OS window offers 'Vai'",
     ).toHaveCount(1);
   });
+
+  // A window is the GROUP its tabs belong to — all of them. The section used to
+  // list chat topics only, so a window made of terminals, a project and a
+  // browser announced nothing and drew as a heading over an empty list.
+  test("SIDEBAR-WINDOWS: a window groups every tab it holds, not only its chats", async ({ page }) => {
+    await page.routeWebSocket(/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => ws.send(msg));
+      ws.onMessage((msg) => server.send(msg));
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: "presence:windows",
+          windows: [
+            // Announces `tabs`: two of them are not chats at all, and one chat
+            // is not in `topicIds` — the two sets are answers to two different
+            // questions (delta routing vs. what the window holds).
+            {
+              windowId: "e2e-tabful", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
+              topicIds: ["e2e-detached-topic"],
+              tabs: [
+                { id: "e2e-detached-topic", type: "chat", title: "auth flow" },
+                { id: "terminal:e2e-cc", type: "terminal", title: "Claude Code" },
+                { id: "browser:e2e-b", type: "browser", title: "localhost:3000" },
+              ],
+            },
+            // Announces NO tabs (an older client): its row must fall back to the
+            // topics rather than render as an empty window.
+            { windowId: "e2e-legacy", clientId: "e2e-c2", detached: false, topicIds: ["e2e-main-topic"] },
+          ],
+        }));
+      }, 1200);
+    });
+    await goToApp(page);
+
+    const section = page.getByTestId("sidebar-windows");
+    await expect(section).toBeVisible({ timeout: 10000 });
+    // 3 from the tab-announcing window + 1 from the fallback + whatever this
+    // window holds; the two that matter are the ones no chat-only list had.
+    await expect(
+      section.locator('[data-testid="window-tab"][data-pane-type="terminal"]'),
+      "a terminal tab is part of the window it lives in",
+    ).toHaveCount(1);
+    await expect(
+      section.locator('[data-testid="window-tab"][data-pane-type="browser"]'),
+      "so is a browser tab",
+    ).toHaveCount(1);
+    await expect(section).toContainText("Claude Code");
+    await expect(section).toContainText("localhost:3000");
+    // The pre-`tabs` peer still lists something.
+    await expect(
+      section.locator('[data-testid="window-tab"]').filter({ hasText: "e2e-main-topic" }),
+      "a window that announced no tabs falls back to its topics",
+    ).toHaveCount(1);
+  });
 });

@@ -2287,6 +2287,7 @@ const server = Bun.serve<WSData>({
               ws.data.detached = data.detached;
               ws.data.presenceTopicIds = data.topicIds ?? [];
               ws.data.presenceFocusedTopicId = data.focusedTopicId;
+              ws.data.presenceTabs = data.tabs;
               broadcastPresence();
             }
             break;
@@ -2298,6 +2299,7 @@ const server = Bun.serve<WSData>({
             ws.data.detached = data.detached;
             ws.data.presenceTopicIds = data.topicIds;
             ws.data.presenceFocusedTopicId = data.focusedTopicId;
+            ws.data.presenceTabs = data.tabs;
             broadcastPresence();
             break;
         }
