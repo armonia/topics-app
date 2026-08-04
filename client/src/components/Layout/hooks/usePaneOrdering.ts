@@ -284,6 +284,22 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         }
       }
 
+      // A single-tab RESTORE (undo of a close) must return to its ORIGINAL slot,
+      // not the end. `topicIds` mirrors the store group order (openPanels ←
+      // group.paneIds), where UNDO_CLOSE re-inserted the pane at its recorded
+      // groupIndex — so splicing the restored id into `existing` at its
+      // topicIds position reconstructs [t1, t2, t3] instead of [t1, t3, t2].
+      // Without this the ghost-pane fix in pane/reducers/undo.ts repairs the
+      // store but this local order would still leave the tab appended (PANE-03).
+      // The Cmd+Shift+T reopen path is unaffected: it appends to the group, so
+      // topicIds places the id last and the splice degenerates to a push.
+      if (isRestore && added.length === 1) {
+        const at = topicIds.indexOf(added[0]);
+        const result = [...existing];
+        result.splice(at < 0 ? result.length : Math.min(at, result.length), 0, added[0]);
+        return result;
+      }
+
       return [...existing, ...added];
     });
     setPinnedIds(prev => {

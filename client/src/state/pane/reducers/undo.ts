@@ -6,25 +6,50 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   const record = state.closedStack.pop();
   if (!record) return;
 
-  // Stale-record guard (mirrors OPEN_PANE's idempotent early-exit): if the
-  // pane was already re-opened via OPEN_PANE after the close, re-inserting
-  // here would put the same id in paneIds twice — duplicate tabs sharing one
-  // entity and React key collisions. Popping the record IS the right outcome;
-  // there is nothing left to undo.
+  // Stale-record guard (mirrors OPEN_PANE's idempotent early-exit): bail ONLY
+  // when the pane is already SLOTTED in a group — i.e. genuinely re-opened via
+  // OPEN_PANE, which inserts into BOTH state.panes AND a group. Re-inserting
+  // then would duplicate the id in paneIds (React key collisions).
   //
-  // La domanda però è «ha già un POSTO in un gruppo?», non «esiste l'entità?».
-  // Con il test sulla sola entità questa guardia produceva una GHOST PANE:
-  // l'undo di App fa partire un unarchive PRIMA del dispatch
-  // (usePanelLifecycle), e una ri-idratazione può rimettere l'entità in `panes`
-  // mentre nessun gruppo la contiene ancora. Il reducer usciva qui, il record
-  // era già stato consumato dalla `pop`, e la pane restava senza posto:
-  // invisibile allo store, visibile alla UI attraverso `openPanels`, e appesa
-  // in fondo invece che al suo indice. Misurato nell'E2E pane-undo:
+  // A bare presence in state.panes is NOT enough to bail: the undo callback
+  // (usePanelLifecycle) fires an async `archiveTopic(id, false)` unarchive
+  // BEFORE this dispatch, and a hydrate racing on its response can resurrect
+  // the entity into state.panes WITHOUT a group slot — a ghost pane. The
+  // OLD `if (state.panes[record.id]) return` swallowed exactly that case:
+  // the record was popped, nobody re-slotted the pane, and the tab surfaced
+  // appended at the end (PANE-03). When the entity is a ghost, this record is
+  // precisely what re-slots it, so we must fall through and repair the group.
+  //
+  // Misurato nell'E2E pane-undo, chiudendo la tab di mezzo di tre:
   //   store  group:default = [t1, t3]   ·   UI  [t1, t3, t2]
-  // A duplicare la tab è l'id ripetuto nei `paneIds`, ed è quello che si
-  // controlla.
-  const alreadySlotted = Object.values(state.groups).some((g) => g.paneIds.includes(record.id));
-  if (alreadySlotted) return;
+  //
+  // BUT "already slotted" is not always "leave it alone". The same racing
+  // hydrate that resurrects the entity can re-slot it into the RECORDED group
+  // at the WRONG index — a stale peer/server still had the pane in the group
+  // (the close hadn't propagated), so the union hydrate appends it at the tail.
+  // The store then reads `[t1, t3, t2]` while the record says t2 belongs at
+  // index 1. If we bailed here the tab would settle appended in the store, and
+  // any surface that trusts store order (reload, a fresh client) would show it
+  // at the end again. So: when the pane sits in its recorded group at the wrong
+  // slot, MOVE it to `groupIndex`; only a genuine reopen already at the right
+  // slot (or reopened into a different group) is a true no-op.
+  const slottedGroupId = Object.keys(state.groups).find(gid =>
+    state.groups[gid].paneIds.includes(record.id),
+  );
+  if (slottedGroupId) {
+    if (slottedGroupId === record.groupId) {
+      const g = state.groups[slottedGroupId];
+      const cur = g.paneIds.indexOf(record.id);
+      const target = Math.min(Math.max(0, record.groupIndex), g.paneIds.length - 1);
+      if (cur !== target) {
+        g.paneIds.splice(cur, 1);
+        g.paneIds.splice(target, 0, record.id);
+      }
+    }
+    if (record.focusedAtClose) state.focusedPaneId = record.id;
+    if (state.tombstones) delete state.tombstones[record.id];
+    return;
+  }
 
   // Re-insert the pane entity. Strip `scrollOffset` defensively — it is a
   // device-local field that CLOSE_PANE no longer copies onto the record
@@ -47,8 +72,9 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   // sotto. `openedAt` si ristampa comunque: l'undo è una transizione
   // chiuso→aperto, e senza quel timbro un marcatore superstite di un peer
   // stantio vince il confronto all'hydrate e richiude la tab.
-  state.panes[record.id] = state.panes[record.id]
-    ? { ...state.panes[record.id], openedAt: Date.now() }
+  const existing = state.panes[record.id];
+  state.panes[record.id] = existing
+    ? { ...existing, openedAt: Date.now() }
     : { ...paneWithoutScroll, openedAt: Date.now() };
 
   // Undo re-opens the pane — retract its durable tombstone so the restored tab

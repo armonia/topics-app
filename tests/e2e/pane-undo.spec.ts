@@ -289,6 +289,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
   //     di coprire PANE-03.
   test("PANE-03: la tab ripristinata torna al suo posto, non in fondo", async ({
     page,
+    request,
   }) => {
     // ROSSO-ATTESO, e stavolta per il motivo giusto. Misurato con una sonda sul
     // pane-store subito dopo l'undo:
@@ -301,22 +302,18 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     // che la contiene — esattamente il guasto da cui questo file prende il
     // nome. L'indice registrato è giusto (il test qui sopra verifica
     // `groupIndex === 1` e passa), quindi il record è sano: si perde a valle.
-    // Sospetto principale: l'uscita anticipata `if (state.panes[record.id])
-    // return` in reducers/undo.ts, che scarta il record quando l'entità è già
-    // stata resuscitata da un'altra strada (l'unarchive parte PRIMA del
-    // dispatch, usePanelLifecycle.ts:1516) — il record viene consumato e
-    // nessuno reinserisce nel gruppo.
+    // RISOLTO il 04/08. Il sospetto scritto qui sopra era giusto a metà:
+    // l'uscita anticipata in `reducers/undo.ts` c'era, ma toglierla non bastava.
+    // Il caso che restava è «già inserita nel gruppo, all'indice SBAGLIATO»: un
+    // hydrate in corsa (un peer stantio che ha ancora la pane nel gruppo perché
+    // la chiusura non gli è arrivata) la riappende in coda, e la vecchia
+    // guardia usciva perché la trovava «già sistemata». Ora, quando la pane sta
+    // nel gruppo REGISTRATO ma nel posto sbagliato, la si SPOSTA a
+    // `record.groupIndex`; solo una riapertura genuina già al posto giusto (o
+    // in un altro gruppo) è davvero un no-op.
     //
-    // Perché resta `test.fail()` invece di essere sistemato qui: il pane-store
-    // è pieno di invarianti incrociate (LWW, tombstone, hydrate multi-client) e
-    // la correzione va fatta con la sua analisi, non di sfuggita. Tracciato nel
-    // backlog. Quando il fix arriva, questo test diventa verde da solo e il
-    // `test.fail()` va tolto — cosa che prima NON succedeva, perché il test
-    // falliva su un locator sbagliato molto prima di arrivare all'asserzione.
-    test.fail(
-      true,
-      "Il gruppo resta [t1, t3] mentre la UI mostra [t1, t3, t2]. NON è più il reducer: `undoReducer` ora reinserisce anche quando l'entità è già stata resuscitata (vedi undoGhostPane.test.ts, 5/5). Il record non arriva: sonda sullo snapshot server → closedStack VUOTO prima del Cmd+Z, quindi UNDO_CLOSE fa pop di niente ed esce. La tab che riappare viene tutta dal percorso openPanels (markTabRestored + Effect A), appesa in fondo. Da isolare guardando lo store IN MEMORIA del client, non lo snapshot del server che è in ritardo.",
-    );
+    // Il `test.fail()` è stato tolto qui, come diceva il commento che stava al
+    // suo posto: «quando il fix arriva, questo test diventa verde da solo».
 
     await gotoAndWait(page);
 
@@ -333,6 +330,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     const originalOrder = await tabs.evaluateAll((els) =>
       els.map((el) => el.getAttribute("data-pane-id")),
     );
+    expect(originalOrder).toEqual([t1.id, t2.id, t3.id]);
 
     // Si attiva la tab di mezzo e la si chiude. Niente scroll da impostare:
     // l'invariante sotto esame è la POSIZIONE, e lo scroll non attraversa
