@@ -1229,3 +1229,86 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     expect(preview(t.id)).toBe("/m/finale.png");
   });
 });
+
+// ── Il park deve essere autoritativo ───────────────────────────────────────
+//
+// `release()` toglie il task all'agente (azzera `assigned_topic_id`), ma il suo
+// TURNO non muore con quella riga: continua a girare. La sua `update_task`
+// passava senza che nessuno controllasse se quel task gli appartenesse ancora.
+// Misurato: parcheggiato alle 22:48, tornato `in_progress` 79 secondi dopo, e
+// rimasto lì SETTE GIORNI — nessun reaper lo guardava, perché per il DB stava
+// lavorando, e falsava anche la capacità di dispatch.
+describe("il park è autoritativo: l'agente scartato non si riprende il task", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => {
+    db = freshDb(); s = svc(db);
+    db.run("INSERT INTO topics (id) VALUES ('top-1'), ('top-2')");
+  });
+
+  function dispatched(): string {
+    const t = s.create({ projectId: PID, text: "lavoro", status: "in_progress" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
+    return t.id;
+  }
+
+  test("dopo il PARK l'agente non può riportarlo in_progress", () => {
+    const id = dispatched();
+    s.release({ taskId: id, requeue: false, parkState: "failed", reason: "tentativi esauriti" });
+    expect(s.get(id)!.task.status).toBe("backlog");
+
+    expect(() => s.update({
+      taskId: id, actor: "agent", by: "claude", agentTopicId: "top-1",
+      patch: { status: "in_progress" },
+    })).toThrow(/non è più assegnato a te/);
+
+    // E lo stato NON si è mosso: è la parte che contava.
+    expect(s.get(id)!.task.status).toBe("backlog");
+  });
+
+  test("dopo un REQUEUE vale lo stesso (il task è tornato in coda, non è più tuo)", () => {
+    const id = dispatched();
+    s.release({ taskId: id, requeue: true, reason: "rimesso in coda" });
+    expect(s.get(id)!.task.status).toBe("todo");
+    expect(() => s.update({
+      taskId: id, actor: "agent", by: "claude", agentTopicId: "top-1",
+      patch: { status: "in_progress" },
+    })).toThrow(/non è più assegnato a te/);
+  });
+
+  test("un task MAI dispacciato resta lavorabile: la guardia non deve allargarsi", () => {
+    // Nessun legame e nessuna firma di rilascio: qui nessuno ha tolto niente a
+    // nessuno, e bloccare sarebbe impedire lavoro legittimo.
+    const t = s.create({ projectId: PID, text: "mai dispacciato", status: "todo" });
+    const out = s.update({
+      taskId: t.id, actor: "agent", by: "claude", agentTopicId: "top-1",
+      patch: { status: "in_progress" },
+    });
+    expect(out.status).toBe("in_progress");
+  });
+
+  test("il task di un ALTRO agente resta intoccabile", () => {
+    const id = dispatched(); // legato a top-1
+    expect(() => s.update({
+      taskId: id, actor: "agent", by: "claude", agentTopicId: "top-2",
+      patch: { status: "review" },
+    })).toThrow(/non è più assegnato a te/);
+  });
+
+  test("l'agente legittimo continua a lavorare normalmente", () => {
+    const id = dispatched();
+    s.addComment({ taskId: id, author: "claude", content: "fatto: sintesi" });
+    const out = s.update({
+      taskId: id, actor: "agent", by: "claude", agentTopicId: "top-1",
+      patch: { status: "review" },
+    });
+    expect(out.status).toBe("review");
+  });
+
+  test("un UMANO può sempre rimetterci le mani dopo un park", () => {
+    // La guardia è sull'agente: il park non deve incastrare anche te.
+    const id = dispatched();
+    s.release({ taskId: id, requeue: false, parkState: "failed" });
+    const out = s.update({ taskId: id, actor: "human", by: "user", patch: { status: "todo" } });
+    expect(out.status).toBe("todo");
+  });
+});

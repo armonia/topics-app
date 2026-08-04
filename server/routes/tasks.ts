@@ -39,6 +39,10 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
+  // Il task e stato tolto all'agente (park/requeue): 409 come gli altri rifiuti
+  // di proprieta, non 403 — non e un problema di permessi, e uno stato che nel
+  // frattempo e cambiato sotto.
+  task_not_yours: 409,
 };
 
 /**
@@ -483,7 +487,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * `topicId` (chat sessions only) feeds the "own steps" carve-out: it lets the
    * service recognise subtasks of the task dispatched to THIS agent.
    */
-  function resolveSession(sessionKey: string): { projectId: string; author: string; topicId: string | null } | null {
+  function resolveSession(sessionKey: string): { projectId: string; author: string; actor: string; topicId: string | null } | null {
     const topic = getTopicBySessionKey(sessionKey);
     if (topic?.projectPath) {
       // A dispatched agent's board is the board of the task bound to its topic,
@@ -493,11 +497,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // ops. When the topic carries a bound task, scope to THAT board.
       const boundProject = topic.id ? svc.boardProjectForTopic(topic.id) : null;
       const projectId = boundProject ?? projectIdForPath(topic.projectPath);
-      return { projectId, author: topic.name?.trim() || "claude", topicId: topic.id ?? null };
+      // `author` e `actor` sono due cose diverse e finivano nello stesso campo.
+      // `author` è un NOME DA MOSTRARE nel thread — e per un topic di agente è
+      // il titolo del task, il che va benissimo sopra un commento. `actor` è
+      // CHI ha fatto la transizione, e finisce nello storico di stato: lì il
+      // titolo del task rendeva la timeline illeggibile, perché non distingueva
+      // umano, agente e dispatcher (erano tutti "il nome del task").
+      return {
+        projectId,
+        author: topic.name?.trim() || "claude",
+        actor: topic.id ? `agent:${topic.id}` : "agent",
+        topicId: topic.id ?? null,
+      };
     }
     const term = getTerminalSessionById(sessionKey);
     if (term?.cwd) {
-      return { projectId: projectIdForPath(term.cwd), author: (term.name || "").trim() || "claude", topicId: null };
+      // Tab di terminale: nessun topic, quindi l'attore è la sessione stessa.
+      return {
+        projectId: projectIdForPath(term.cwd),
+        author: (term.name || "").trim() || "claude",
+        actor: `agent:${sessionKey.slice(0, 16)}`,
+        topicId: null,
+      };
     }
     return null;
   }
@@ -1426,7 +1447,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           let task = svc.update({
             taskId: item.taskId,
             actor: "agent",
-            by: sess.author,
+            // L'ATTORE, non il nome da mostrare: questo finisce nello storico
+            // di stato, dove serve sapere CHI ha mosso il task.
+            by: sess.actor,
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
             patch: {
