@@ -65,9 +65,20 @@ export function createWorktreesRouter(ctx: AppContext): RouteHandler {
     // GET /api/worktrees (with optional filters)
     if (method === "GET" && pathname === "/api/worktrees") {
       const projectId = url.searchParams.get("project_id");
+      // `project_path` e' il filtro che serve a chi conosce il PROGETTO ma non
+      // il suo id di store: la board, per esempio, nasce da un path. Senza,
+      // ogni chiamante dovrebbe scaricarsi l'elenco progetti solo per tradurre
+      // un percorso in un uuid, e quella traduzione vive gia' qui.
+      // Un path che non corrisponde a nessun progetto NON e' un errore: e' zero
+      // worktree, che e' la risposta onesta (un progetto mai registrato non ne
+      // ha). Filtrare su un id impossibile lo rende vero per costruzione.
+      const projectPath = url.searchParams.get("project_path");
       const statusParam = url.searchParams.get("status");
       const opts: { projectId?: string; status?: "pending" | "ready" | "error" } = {};
       if (projectId !== null) opts.projectId = projectId;
+      else if (projectPath !== null) {
+        opts.projectId = ctx.projectStore.getByPath(projectPath)?.id ?? "\u0000nessun-progetto";
+      }
       if (statusParam !== null) {
         if (!ALLOWED_STATUSES.has(statusParam)) {
           return errorResponse(400, `status must be one of: ${[...ALLOWED_STATUSES].join(", ")}`);
