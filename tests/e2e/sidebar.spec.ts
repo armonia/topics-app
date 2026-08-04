@@ -85,7 +85,7 @@ test.describe("Sidebar — Unified Timeline", () => {
     });
 
     // The sidebar tree should be visible
-    const sidebar = page.getByRole("tree", { name: "Sidebar" });
+    const sidebar = page.getByRole("tree", { name: "Barra laterale" });
     await expect(sidebar).toBeVisible({ timeout: 10000 });
 
     // Items with open tabs should be visible

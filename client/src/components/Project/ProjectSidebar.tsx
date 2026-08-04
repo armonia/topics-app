@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -34,6 +35,7 @@ export function ProjectSidebar({
   onWSMessage,
   onOpenProcessLog,
 }: ProjectSidebarProps) {
+  const tr = useT();
   // Project name = the display override (task title) or the path's folder name.
   const projectName = displayName || projectPath.split('/').filter(Boolean).pop() || 'Project';
   // Auto-collapse on mobile
@@ -182,26 +184,26 @@ export function ProjectSidebar({
     const btnClass = `${'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
     return (
       <div className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
-        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Expand sidebar" icon={PanelLeftOpen} />
+        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
         <div className="w-6 h-px bg-app-border my-1" />
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, files: true })); }}
           className={`${btnClass} ${expandedSections.files ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title="Files"
+          title={tr('project.sidebar.files')}
         >
           <FolderTree size={iconSize} />
         </button>
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, git: true })); }}
           className={`${btnClass} ${expandedSections.git ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title="Git Changes"
+          title={tr('project.sidebar.gitChanges')}
         >
           <GitBranch size={iconSize} />
         </button>
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, processes: true })); }}
           className={`${btnClass} ${expandedSections.processes ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title="Processes"
+          title={tr('project.sidebar.processes')}
         >
           <Zap size={iconSize} />
         </button>
@@ -223,7 +225,7 @@ export function ProjectSidebar({
           {/* Header */}
           <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
             <span className="text-[12px] font-semibold text-app-text truncate" title={projectName}>{projectName}</span>
-            <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
+            <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom */}
           <div className="flex-1 flex flex-col min-h-0">
@@ -233,14 +235,14 @@ export function ProjectSidebar({
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
               >
                 <FolderTree size={14} className="flex-shrink-0" />
-                <span>Files</span>
+                <span>{tr('project.sidebar.files')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
                 {expandedSections.files && (
                   <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File"><FilePlus size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New Folder"><FolderPlus size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Collapse All"><ChevronsDownUp size={12} /></button>
-                    <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Refresh"><RefreshCw size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
                   </div>
                 )}
               </div>
@@ -259,7 +261,7 @@ export function ProjectSidebar({
                 <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
-                    <span>Git</span>
+                    <span>{tr('project.sidebar.gitChanges')}</span>
                     <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                   </div>
                 </div>
@@ -277,7 +279,7 @@ export function ProjectSidebar({
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               >
                 <Zap size={14} className="flex-shrink-0" />
-                <span>Processes</span>
+                <span>{tr('project.sidebar.processes')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
                   <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
@@ -303,7 +305,7 @@ export function ProjectSidebar({
       {/* Header — height matches the pane tab bar (h-10) */}
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
         <span className="text-[12px] font-semibold text-app-text-secondary truncate" title={projectName}>{projectName}</span>
-        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
+        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.hide')} icon={PanelLeftClose} />
       </div>
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}
@@ -316,14 +318,14 @@ export function ProjectSidebar({
             className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
           >
             <FolderTree size={14} className="flex-shrink-0" />
-            <span>Files</span>
+            <span>{tr('project.sidebar.files')}</span>
             <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
             {expandedSections.files && (
               <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File"><FilePlus size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New Folder"><FolderPlus size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Collapse All"><ChevronsDownUp size={12} /></button>
-                <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Refresh"><RefreshCw size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
               </div>
             )}
           </div>
@@ -360,7 +362,7 @@ export function ProjectSidebar({
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
-                <span>Git</span>
+                <span>{tr('project.sidebar.gitChanges')}</span>
                 <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                 {cachedGit && (
                   <span className="text-app-text-muted truncate">{cachedGit.branch}</span>
@@ -422,7 +424,7 @@ export function ProjectSidebar({
             className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
           >
             <Zap size={14} className="flex-shrink-0" />
-            <span>Processes</span>
+            <span>{tr('project.sidebar.processes')}</span>
             <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
               <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">

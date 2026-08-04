@@ -301,7 +301,7 @@ test.describe("Panels & Views", () => {
     // La finestra progetto e' aperta quando rende il suo file explorer sul
     // contenuto REALE della cartella: il file seminato in beforeAll.
     const main = page.locator('[role="main"]');
-    await expect(main.getByText("Files", { exact: true }).first()).toBeVisible({ timeout: 10000 });
+    await expect(main.getByText("File", { exact: true }).first()).toBeVisible({ timeout: 10000 });
     await expect(main.getByText(PROJECT_FILE).first()).toBeVisible({ timeout: 10000 });
     await expect(main).not.toContainText("directory not found");
   });

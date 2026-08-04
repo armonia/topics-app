@@ -41,4 +41,19 @@ describe("scanFile", () => {
     // Molte etichette dell'app sono minuscole: escluderle nasconderebbe lavoro.
     expect(scanFile('<span>nessuna sessione attiva</span>')).toBe(1);
   });
+
+  test("un'etichetta di UNA PAROLA conta: sono tante, e sono vere", () => {
+    // Una regola «senza spazi non conta» e stata provata e tolta subito:
+    // nascondeva `Fissati`, `Rifiuta`, `Priorita`. Il conto scendeva di colpo e
+    // sembrava progresso — era il contatore che smetteva di vedere.
+    expect(scanFile('<span>Fissati</span>')).toBe(1);
+    expect(scanFile('<button>Rifiuta</button>')).toBe(1);
+  });
+
+  test("NON conta i frammenti di codice finiti fra > e <", () => {
+    // Un accesso a proprieta' o un pezzo di espressione JSX non sono frasi:
+    // gonfiavano il conto di qualche decina.
+    expect(scanFile('<span>React.Dispatch</span>')).toBe(0);
+    expect(scanFile('<div>a && b || c</div>')).toBe(0);
+  });
 });

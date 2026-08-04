@@ -35,13 +35,31 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Una stringa «da tradurre» somiglia a una frase: ha una lettera maiuscola o uno spazio. */
+/**
+ * Una stringa «da tradurre» somiglia a una FRASE, non a del codice.
+ *
+ * Il filtro sul codice è arrivato dopo: la prima versione contava anche
+ * `window.innerWidth`, `Promise` e i frammenti di espressioni JSX che finiscono
+ * fra `>` e `<`. Gonfiavano il numero di qualche decina — e un contatore che
+ * gonfia è un contatore che si smette di guardare, cioè inutile proprio nel
+ * momento in cui serve a dire «quanto manca».
+ */
 function looksHuman(s: string): boolean {
   const t = s.trim();
   if (t.length < 3 || t.length > 120) return false;
   if (!/[A-Za-zÀ-ÿ]/.test(t)) return false;          // simboli, numeri, unità
   if (/^[a-z0-9_.-]+$/.test(t)) return false;         // chiavi, slug, classi
   if (/^https?:\/\//.test(t)) return false;
+  // Sintassi: se c'è dentro, è un frammento di codice, non una frase.
+  if (/[(){};]|=>|&&|\|\||\?\?|===|!==/.test(t)) return false;
+  // Accesso a proprietà (`window.innerWidth`, `React.Dispatch`).
+  if (/[A-Za-z]\.[A-Za-z]/.test(t)) return false;
+  // NIENTE regola «senza spazi non conta»: provata e tolta subito. Escludeva
+  // anche `Fissati`, `Rifiuta`, `Priorità` — etichette vere di una parola sola,
+  // che sono tante. Il numero scendeva di colpo da 672 a 372 e sembrava
+  // progresso: era il contatore che smetteva di vedere. Sbagliare per ECCESSO
+  // (qualche `Promise` contato di troppo) si scopre aprendo il file; sbagliare
+  // per difetto dichiara finita una migrazione che non lo è.
   return /[A-ZÀ-Ý]/.test(t) || /\s/.test(t);
 }
 
