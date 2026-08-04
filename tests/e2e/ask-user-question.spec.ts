@@ -201,6 +201,44 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await page.waitForTimeout(800); // il video mostra la chat che riparte
   });
 
+  test("l'opzione consigliata si vede, comunque il modello l'abbia detta", async ({ page, chatPage, request }) => {
+    // Chi propone tre strade ha quasi sempre un'idea di quale sia la migliore.
+    // Il campo `recommended` è la via pulita, ma la CLI lo scrive in coda al
+    // titolo — «(Recommended)» — e un modello che non conosce il campo fa lo
+    // stesso a parole: si riconoscono entrambe, e la parola in coda si toglie
+    // dal titolo perché il chip la dice già.
+    const toolCallId = "toolu_ask_reco";
+    const question = "Quale runtime?";
+    const options = [
+      { label: "Bun (Recommended)", description: "Quello che usiamo" },
+      { label: "Node", description: "Il più diffuso" },
+    ];
+    await seedAsk(request, toolCallId, question, options);
+    const bridge = registerBridgeAsk(request, [{ question, header: "Runtime", options }]);
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+    // Il chip c'è, UNO solo, e sta sull'opzione giusta.
+    await expect(form.getByTestId("ask-recommended")).toHaveCount(1);
+    await expect(form.getByTestId("ask-recommended")).toHaveText("consigliato");
+    // Il titolo non ripete la parola.
+    await expect(form.getByText("Bun", { exact: true })).toBeVisible();
+    await expect(form.getByText("(Recommended)")).toHaveCount(0);
+    // Consigliata NON vuol dire preselezionata: la scelta resta un gesto.
+    await expect(form.locator('input[type="radio"]:checked')).toHaveCount(0);
+
+    // E sul filo torna l'etichetta ORIGINALE, quella che il modello ha offerto.
+    await form.locator('input[type="radio"][value="Bun (Recommended)"]').check();
+    await form.getByRole("button", { name: /Invia/ }).click();
+    const result = await bridge;
+    expect(result.answers).toEqual({ [question]: "Bun (Recommended)" });
+  });
+
   test("tre domande insieme si rispondono A STEP, una alla volta", async ({ page, chatPage, request }) => {
     // Uscivano tutte in un blocco solo: tre domande con le loro opzioni sono un
     // muro, e chi risponde all'ultima deve tenere a mente le prime due. Adesso

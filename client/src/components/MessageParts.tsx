@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { HelpCircle } from 'lucide-react';
+import { GridLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { formatDurationMs } from './Chat/toolGrouping';
 import { turnClock } from '../state/turnClock';
@@ -211,14 +211,18 @@ export function TurnActivityIndicator({
             : 'L’assistente sta elaborando'
       }
     >
-      {state === 'waiting' ? (
-        // Stessa icona della riga del tool in attesa: chi guarda collega le due
-        // cose senza doverle leggere.
-        <HelpCircle size={11} className="text-amber-500 shrink-0" />
+      {/* LO STESSO glifo della sidebar e delle tab: la matrice che si accende
+          cella per cella mentre lavora, e la stessa matrice ferma in ambra
+          quando la palla è dell'umano. Qui c'era un pallino che pulsava — un
+          terzo linguaggio per dire la cosa che le altre due superfici dicevano
+          già a modo loro, e da fuori la chat sembravano stati diversi. Il glifo
+          vive in un posto solo (`StreamingIndicator`), così non possono più
+          divergere. Lo stato "lento" tiene il pallino ambra: è l'unico che NON
+          è «sta lavorando», ed è giusto che si distingua. */}
+      {state === 'slow' ? (
+        <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
       ) : (
-        <span
-          className={`turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 ${state === 'slow' ? 'bg-amber-500' : 'bg-primary'}`}
-        />
+        <GridLoader className="shrink-0" still={state === 'waiting'} />
       )}
       <span
         // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il
