@@ -1,0 +1,26 @@
+# Keep the knowledge graph about SOURCE, not build output.
+#
+# Why this file exists: graphify walks the tree and extracts an AST per file.
+# Minified bundles extract as thousands of one-letter functions, so the graph's
+# "god nodes" came out as `n()`, `r()`, `e()` — the report was structurally
+# useless and the node count (22.9k) blew past the 5k HTML-viz limit.
+#
+# graphify already honours .gitignore, which covers `public/assets/` and
+# `landing/dist/`. What it could not know is that `landing/public/app/` is a
+# COMMITTED snapshot of the built client app (a static demo the landing site
+# serves), so it is tracked, not ignored — and it was the bulk of the noise.
+
+# Committed build snapshot of the client app served by the landing site.
+landing/public/app/
+
+# Vendored minified libraries — bundled third-party code, not our source.
+**/*.min.js
+
+# Bundler output, wherever a build happens to land it.
+**/dist/
+
+# Lockfiles: large, churny, and contribute no structure to a code graph.
+**/bun.lock
+
+# graphify's own output, so a rebuild never re-ingests the previous graph.
+graphify-out/

@@ -175,11 +175,6 @@ export function getBrowserPaneUsage(paneId: string | null | undefined): PaneUsag
   return snapshot.byWebviewLabel.get(browserPaneLabel(paneId)) ?? null;
 }
 
-/** Metrica con cui è misurata la memoria, per dirlo quando è solo una stima. */
-export function getPaneUsageMemMetric(): string | null {
-  return snapshot?.memMetric ?? null;
-}
-
 /**
  * La riga di consumo da appendere al `title` di una tab.
  *
