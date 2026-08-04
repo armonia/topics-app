@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
+import { useT } from '../../hooks/useT';
 import { NightModeCard } from './NightModeCard';
 import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, ShieldX, Sparkles, Square, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -54,12 +55,13 @@ function hostLabel(url: string): string {
  * SOPRA i bottoni perché cambia la decisione, non a fondo pagina come una nota.
  */
 function SystemDeliveryNotice({ task }: { task: BoardTask }) {
+  const tr = useT();
   if (task.deliveredBy !== 'system') return null;
   return (
     <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
       <Hourglass className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
-        <span className="font-medium">Portato in review dal sistema.</span>{' '}
+        <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
         {systemDeliveryNote(task.deliveredReason)}
       </span>
     </div>
@@ -67,6 +69,7 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
 }
 
 function ChecksSection({ task }: { task: BoardTask }) {
+  const tr = useT();
   const [open, setOpen] = useState(false);
   if (!task.checksState) return null;
 
@@ -121,7 +124,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
             </div>
           ))}
           <p className="text-app-text-secondary">
-            La strada normale è <b>Rifiuta</b>: l'agent riparte con questo output. Approvare qui significa accettarlo rosso.
+            La strada normale è <b>{tr('board.task.reject')}</b>: l'agent riparte con questo output. Approvare qui significa accettarlo rosso.
           </p>
         </div>
       )}
@@ -267,6 +270,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
   onChanged: () => void;
   onOpenTopic?: (topicId: string) => void;
 }) {
+  const tr = useT();
   const [attempts, setAttempts] = useState<TaskAttempt[]>([]);
   const [openDiff, setOpenDiff] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
@@ -348,7 +352,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
                     className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
-                  >Apri la chat</button>
+                  >{tr('board.task.openChat')}</button>
                 )}
                 {!decided && running === 0 && a.topicId && (
                   <button
@@ -379,6 +383,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
  *  riparte da 'loading' senza un setState dentro l'effetto (che sarebbe un
  *  render a cascata — e il lint lo rifiuta, giustamente). */
 function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; taskId: string; attemptId: string }) {
+  const tr = useT();
   const [state, setState] = useState<DiffBundle | 'loading' | 'error'>('loading');
   useEffect(() => {
     let alive = true;
@@ -388,8 +393,8 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
     return () => { alive = false; };
   }, [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> carico il diff…</div>;
-  if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">Diff non leggibile.</p>;
-  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">Nessuna modifica da mostrare.</p>;
+  if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
+  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">{tr('board.task.noChanges')}</p>;
   return (
     <div className="mt-1.5 max-h-[38vh] overflow-y-auto">
       <UnifiedDiff bundle={state} defaultOpenFirst />
@@ -418,6 +423,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    */
   focusPaneId?: string;
 }) {
+  const tr = useT();
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [children, setChildren] = useState<BoardTask[]>([]);
@@ -955,7 +961,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     if (!task) return null;
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">Nessun commento.</p>}
+        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-app-text-muted">{tr('board.task.noComments')}</p>}
         {comments.map((c, i) => (
           <div key={c.id} className="space-y-2">
             {task.assignedTopicId && (
@@ -1074,7 +1080,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Sposta in…</p>
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
             <button
               key={s} role="option" aria-selected={s === task?.status}
@@ -1101,14 +1107,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {task && (
             <Menu open={optionsMenuOpen} anchorRef={optionsBtnRef} onClose={() => setOptionsMenuOpen(false)} align="right" minWidth={240}>
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Opzioni task</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
                 title="L'agent consegna un piano da approvare PRIMA di implementare"
                 className={`${POPOVER_ITEM} disabled:opacity-40`}
               >
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
-                <span className="min-w-0 flex-1">Piano prima</span>
+                <span className="min-w-0 flex-1">{tr('board.task.planFirst')}</span>
                 {task.planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
               <button
@@ -1126,7 +1132,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
                   <Bot className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
-                  <span className="min-w-0 flex-1">Riusa il contesto del bloccante</span>
+                  <span className="min-w-0 flex-1">{tr('board.task.reuseBlockerContext')}</span>
                   {task.reuseBlockerContext && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               )}
@@ -1182,7 +1188,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           il commento si perde, la banda no. */}
       {task?.status === 'done' && task.landingState === 'unlanded' && (
         <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          ⚠️ Chiuso ma <strong>non su main</strong>: il commit consegnato
+          ⚠️ Chiuso ma <strong>{tr('board.task.notOnMain')}</strong>: il commit consegnato
           {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
           {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
           {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
@@ -1299,7 +1305,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
                 </button>
                 <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
                   {PRIORITY_ORDER.map((p) => (
                     <button
                       key={p} role="option" aria-selected={p === task?.priority}
@@ -1327,7 +1333,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
                 </button>
                 <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello agent</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
                   <button
                     role="option" aria-selected={!task?.model} disabled={busy}
                     onClick={() => changeModel(null)}
@@ -1352,20 +1358,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     Only the blocker PICKER stays here — portaled, anchored to the
                     ⋯ button, opened from that menu. */}
                 <Menu open={blockerMenuOpen} anchorRef={optionsBtnRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus>
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Bloccato da…</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
                   <button
                     role="option" aria-selected={!task.blockedByTaskId}
                     onClick={() => pickBlocker(null)}
                     className={POPOVER_ITEM}
                   >
-                    <span className="min-w-0 flex-1">Nessuno</span>
+                    <span className="min-w-0 flex-1">{tr('common.none')}</span>
                     {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                   </button>
                   <div className="max-h-52 overflow-y-auto">
                     {boardTasks === null ? (
                       <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
                     ) : blockerCandidates.length === 0 ? (
-                      <p className="px-2.5 py-2 text-xs text-app-text-muted">Nessun altro task su questa board.</p>
+                      <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
                     ) : blockerCandidates.map((t) => (
                       <button
                         key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
@@ -1443,7 +1449,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 il risultato è tab + lista scaricabili. */}
             {mediaPaths.length > 0 && (
               <div className="mt-3" data-testid="task-downloads">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">File consegnati</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint">{tr('board.task.deliveredFiles')}</div>
                 <ul className="flex flex-col gap-1">
                   {mediaPaths.map((p) => {
                     const name = p.split('/').pop() || p;
@@ -1732,13 +1738,14 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
  * caller places this inside a flex-col so flex-1 children fill.
  */
 export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; taskId?: string }) {
+  const tr = useT();
   void taskId;
   if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
   if (surface.kind === 'browser') return null; // handled by GroupLayout in TaskDetail
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
+        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">{tr('board.task.proposedPlan')}</p>
         <div className={`text-sm text-app-text ${PLAN_MD_CLS}`}>
           <ChatMarkdown components={{}}>{surface.content}</ChatMarkdown>
         </div>
@@ -1754,6 +1761,7 @@ export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; task
  * agent-controlled web pages: the URL-sandbox rationale doesn't apply.
  */
 export function MediaViewer({ url, path }: { url: string; path: string }) {
+  const tr = useT();
   const isImg = isImagePath(path);
   const isPdf = isPdfPath(path);
   // Una clip di review è un artefatto di prima classe come lo screenshot: prima
@@ -1779,7 +1787,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
   }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <p className="text-sm text-app-text-secondary">Nessuna anteprima per questo tipo di file.</p>
+      <p className="text-sm text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={() => openExternalOnce(url)}
         className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
@@ -2011,6 +2019,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   onClose: () => void;
   onError: (e: string) => void;
 }) {
+  const tr = useT();
   const patch = async (p: BoardSettingsPatch) => {
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
@@ -2019,7 +2028,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   return (
     <div className="shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading">
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-app-text">Auto-dispatch</span>
+        <span className="font-semibold text-app-text">{tr('board.settings.autoDispatch')}</span>
         <button onClick={onClose} className="rounded p-0.5 text-app-text-secondary hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
