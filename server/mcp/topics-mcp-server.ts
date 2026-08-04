@@ -292,6 +292,21 @@ const TOOLS = [
       },
       required: ["questions"],
     },
+    // Chiedere a un umano non modifica niente: è la lettura più pura che
+    // esista. Dichiararlo conta perché la CLI in `--permission-mode plan`
+    // lascia passare solo i tool che si dicono di sola lettura — e senza
+    // questa riga il pannello tornava «Cannot call
+    // mcp__topics__ask_user_question while in plan mode», cioè proprio la
+    // chat impostata su «chiedi prima» era l'unica che non poteva chiedere
+    // (topic:ed2070df, 4 agosto). `openWorldHint: false` perché non esce da
+    // Topics: la domanda va alla persona che ha la chat aperta.
+    annotations: {
+      title: "Chiedi all'umano (pannello in chat)",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "move_session_to_project",
