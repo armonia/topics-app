@@ -284,17 +284,22 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
     const sig = objectSignature(hello);
     // The REQUIRED set is unchanged — 724284d3 added only OPTIONAL presence
     // fields (windowId/windowLabel/detached/topicIds/focusedTopicId) so old
-    // clients keep parsing. topicIds is an optional array; hence arrayKeys now
-    // includes it alongside the still-required capabilities.
+    // clients keep parsing, e fe9cb377 ha aggiunto `tabs` con la stessa
+    // regola: una finestra annuncia TUTTE le sue tab (terminali e browser
+    // compresi), non solo le chat, e un peer più vecchio che non la manda
+    // continua a essere accettato. topicIds is an optional array; hence
+    // arrayKeys now includes it alongside the still-required capabilities.
     expect(sig.requiredKeys).toEqual(['capabilities', 'clientVersion', 'protocolVersion', 'type']);
     expect([...sig.optionalKeys].sort()).toEqual([
       'detached',
       'focusedTopicId',
+      'tabs',
       'topicIds',
       'windowId',
       'windowLabel',
     ]);
-    expect([...sig.arrayKeys].sort()).toEqual(['capabilities', 'topicIds']);
+    // `tabs` è un array come `topicIds`: la finestra ne manda uno per pane.
+    expect([...sig.arrayKeys].sort()).toEqual(['capabilities', 'tabs', 'topicIds']);
     expect(sig.numberKeys).toEqual(['protocolVersion']);
   });
 });
