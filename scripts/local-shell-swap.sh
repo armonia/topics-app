@@ -142,6 +142,26 @@ BACKUP="${TMPDIR:-/tmp}/topics-app-$(date +%Y%m%d-%H%M%S).bak"
 cp -p "$APP/Contents/MacOS/app" "$BACKUP"
 echo "  backup: $BACKUP"
 
+# Da qui in poi l'app è CHIUSA e il binario a metà strada: qualunque errore
+# successivo (o un Ctrl-C) la lascerebbe giù, e nel caso peggiore non firmata.
+# Successo davvero, il 2026-08-04: lo script è morto sulla riga della firma e
+# Topics è rimasta chiusa con un Mach-O senza firma — recuperata a mano.
+# Il trap ripristina il backup e riapre: meglio l'app di prima che nessuna app.
+_swap_done=0
+_rollback() {
+  local rc=$?
+  trap - ERR EXIT INT TERM
+  [ "$_swap_done" = 1 ] && return 0            # già arrivati in fondo
+  echo "✗ interrotto (exit $rc) — ripristino il binario precedente" >&2
+  cp -p "$BACKUP" "$APP/Contents/MacOS/app" 2>/dev/null || true
+  codesign --remove-signature "$APP" 2>/dev/null || true
+  codesign --force --deep --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP" 2>/dev/null || true
+  open -a "$APP" 2>/dev/null || true
+  echo "  Topics riaperta con la versione precedente. Backup: $BACKUP" >&2
+  exit "$rc"
+}
+trap _rollback ERR EXIT INT TERM
+
 if pgrep -f "$APP/Contents/MacOS/app" >/dev/null; then
   pkill -f "$APP/Contents/MacOS/app" || true
   for _ in $(seq 1 20); do
@@ -155,7 +175,7 @@ fi
 cp "$BIN" "$APP/Contents/MacOS/app.new"
 mv -f "$APP/Contents/MacOS/app.new" "$APP/Contents/MacOS/app"
 
-echo "▸ 4/5  firma con «$SIGN_IDENTITY»"
+echo "▸ 4/5  firma con «${SIGN_IDENTITY}»"
 codesign --remove-signature "$APP" 2>/dev/null || true
 codesign --force --deep --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 codesign --verify --deep --strict "$APP" || die "verifica della firma fallita"
@@ -173,6 +193,8 @@ open -a "$APP"
 sleep 5
 PID="$(pgrep -f "$APP/Contents/MacOS/app" | head -1 || true)"
 [ -n "$PID" ] || die "l'app non è ripartita — ripristina con: cp '$BACKUP' '$APP/Contents/MacOS/app'"
+_swap_done=1                      # da qui il trap non deve più ripristinare
+trap - ERR EXIT INT TERM
 echo "  ✓ viva (pid $PID)"
 echo
 echo "Fatto. La versione del bundle resta quella del .app installato finché non"
