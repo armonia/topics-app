@@ -740,6 +740,16 @@ test.describe("H: Mixed Pane Types in Split", () => {
     // survive unharmed with its single tab bar (no empty pool cell, no
     // lost tab). PanelGrid.handleSplitPane documents this fallback.
     const termPaneId = `terminal:${session.id}`;
+    // CHIUDERE la topic della prima metà, altrimenti la pane «sola» non è sola.
+    //
+    // Nel modello dell'app «aperta = tab, chiusa = archiviata»: una topic non
+    // archiviata torna come tab a ogni carico, e seminare `[termPaneId]` non la
+    // chiude — la lascia semplicemente fuori dal seme. Finché aprire una chat ne
+    // ARCHIVIAVA un'altra (il bug corretto in `217ff8f5`), il terminale la
+    // sostituiva in silenzio e la barra restava una sola: il test passava per il
+    // motivo sbagliato. Ora che l'apertura aggiunge invece di sostituire, il
+    // presupposto va reso vero esplicitamente.
+    await request.delete(`${E2E_BASE}/api/topics/${idA}`, { data: { archived: true } }).catch(() => {});
     await seedAndLoad(page, [termPaneId]);
     await waitForTabs(page, 1);
 
