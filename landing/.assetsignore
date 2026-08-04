@@ -1,0 +1,11 @@
+# Paths under landing/ that must never be published.
+#
+# demo-src/ is 4.9 MB of node_modules left over from an earlier attempt at the
+# embedded demo. Nothing references it — the demo is built from client/ via
+# vite.landing.config.ts — and it is untracked, so it exists only on whichever
+# machine last ran that experiment. Uploading it would triple the deploy for
+# nothing.
+demo-src
+
+# Editor and OS debris that can appear in a working copy.
+.DS_Store
