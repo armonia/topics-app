@@ -20,6 +20,7 @@
 import { create } from 'zustand';
 import { useMemo } from 'react';
 import { subscribeFrames } from '../lib/wsFrameBus';
+import { currentWindowLabel } from '../lib/shell/tauri';
 
 export interface PresenceWindow {
   /** Client-stable window id (sessionStorage `topics-window-id`). */
@@ -138,8 +139,20 @@ export function computeDetachedWindows(
 export function computeOtherWindows(
   windows: Record<string, PresenceWindow>,
   selfWindowId: string,
+  selfWindowLabel?: string | null,
 ): PresenceWindow[] {
-  const others = Object.values(windows).filter((w) => w.windowId !== selfWindowId);
+  // Escludersi per ID non basta. `windowId` sta in `sessionStorage`, e ne nasce
+  // uno NUOVO ogni volta che quello storage è vuoto: la stessa finestra Tauri
+  // può quindi annunciarsi con id diversi (è così che la sezione "Finestre"
+  // mostrava 4 "principali" con una sola finestra aperta). Il `windowLabel`,
+  // quando c'è, È l'identità della finestra del sistema operativo: una voce col
+  // MIO label non è un'altra finestra, è un altro contesto della mia.
+  //
+  // Solo quando il label c'è: sul web è assente, e lì le altre tab sono davvero
+  // altre finestre — escluderle sarebbe il bug opposto.
+  const others = Object.values(windows).filter(
+    (w) => w.windowId !== selfWindowId && !(selfWindowLabel && w.windowLabel === selfWindowLabel),
+  );
   return [
     ...others.filter((w) => !w.detached),
     ...others.filter((w) => w.detached),
@@ -163,5 +176,7 @@ export function useDetachedWindows(): PresenceWindow[] {
 /** See computeOtherWindows — every other window, main included. */
 export function useOtherWindows(): PresenceWindow[] {
   const windows = useWindowPresenceStore((s) => s.windows);
-  return useMemo(() => computeOtherWindows(windows, ownWindowId()), [windows]);
+  // Anche il PROPRIO label, non solo il proprio id: vedi computeOtherWindows.
+  const selfLabel = currentWindowLabel();
+  return useMemo(() => computeOtherWindows(windows, ownWindowId(), selfLabel), [windows, selfLabel]);
 }
