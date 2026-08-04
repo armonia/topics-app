@@ -56,6 +56,9 @@
       <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.8 12.4l4.7 4.7 9.7-10.2"/></symbol>
       <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.6" y="10.2" width="14.8" height="9.4" rx="2.2"/><path d="M8.2 10.2V7.8a3.8 3.8 0 0 1 7.6 0v2.4"/></symbol>
       <symbol id="ic-key" viewBox="0 0 24 24"><circle cx="7.6" cy="12" r="3.4"/><path d="M11 12h9.4"/><path d="M17.2 12v3.2M20.4 12v2.4"/></symbol>
+      <symbol id="ic-expand" viewBox="0 0 24 24"><path d="M9.4 4.6H4.6v4.8M14.6 4.6h4.8v4.8M9.4 19.4H4.6v-4.8M14.6 19.4h4.8v-4.8"/></symbol>
+      <symbol id="ic-collapse" viewBox="0 0 24 24"><path d="M4.6 9.4h4.8V4.6M19.4 9.4h-4.8V4.6M4.6 14.6h4.8v4.8M19.4 14.6h-4.8v4.8"/></symbol>
+      <symbol id="ic-float" viewBox="0 0 24 24"><rect x="3" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="4.4" width="8.4" height="7" rx="1.8"/><rect x="3" y="12.6" width="8.4" height="7" rx="1.8"/><rect x="12.6" y="12.6" width="8.4" height="7" rx="1.8"/></symbol>
       <symbol id="ic-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8.4 5.8v12.4L18 12z"/></symbol>
       <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3.6v11.8M8.2 11.6L12 15.4l3.8-3.8M5 20h14"/></symbol>
       <symbol id="ic-star" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .6l3.668 7.43 8.2 1.193-5.934 5.784 1.401 8.168L12 18.9l-7.335 3.866 1.401-8.168L.132 9.223l8.2-1.193z"/></symbol>
@@ -148,6 +151,14 @@
           <iframe class="window-real" id="demoFrame" src="./app/index.html"
                   title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."
                   loading="lazy"></iframe>
+          <!-- Expanding only adds a class to <body>. Moving the iframe in the
+               DOM would re-create it, which reloads the app and throws away the
+               session the tour is in the middle of. -->
+          <button class="expand" id="demoExpand" type="button" aria-expanded="false"
+                  aria-label="Expand the demo to fill the window">
+            <svg class="ic" aria-hidden="true"><use href="#ic-expand"/></svg>
+            <span class="expand__label">Expand</span>
+          </button>
         </div>
         <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">Everything here is clickable. It is the product, not a screenshot.</span></p>
       </div>
@@ -187,6 +198,11 @@
           <svg class="ic"><use href="#ic-files"/></svg>
           <span class="chapter__name">Files</span>
           <span class="chapter__hint">Explorer, editor, search</span>
+        </button>
+        <button class="chapter" data-scene="floating" type="button">
+          <svg class="ic"><use href="#ic-float"/></svg>
+          <span class="chapter__name">Floating splits</span>
+          <span class="chapter__hint">Desktop mode: panels detach into cards</span>
         </button>
         <button class="chapter" data-scene="workspace" type="button">
           <svg class="ic"><use href="#ic-split"/></svg>

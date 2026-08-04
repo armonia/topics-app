@@ -335,6 +335,53 @@
       }).then(function () { return hold(tok, 500); });
     },
 
+    /* Floating splits: the desktop paint mode, shown by toggling the app's own
+     * class on the app's own root with the app's own CSS. Nothing is drawn or
+     * faked — the panels really do detach into cards, the dividers really do go
+     * transparent, and the gaps really do show what is behind.
+     *
+     * What is NOT real here, and the hint on the button says so: on macOS those
+     * gaps show the desktop through a native vibrancy view (App.tsx wires
+     * useFloatingVibrancy, which streams the card rects to `vibrancy_set_regions`).
+     * A browser cannot host an NSVisualEffectView, so here they show the
+     * demo's own emulated backdrop. The geometry is the product; the material
+     * behind it is not, and claiming otherwise would be a lie told in CSS.
+     *
+     * Why the class survives: on web `isDesktop` is false, so the className
+     * React computes for the root is constant between renders and React never
+     * rewrites the attribute. That is true today by accident rather than by
+     * contract, so the scene re-asserts the class instead of assuming it. */
+    floating: function (tok) {
+      /* The class lands on the element App.tsx builds at its root — a div whose
+       * className is a Tailwind string (`flex bg-app-bg overflow-hidden
+       * max-w-[100vw]`), not a stable hook. Match on the two classes that
+       * identify it rather than on a brittle escaped selector, and walk up from
+       * a pane so this keeps working if the tree gains a wrapper. */
+      var root = (function () {
+        var el = q("#root");
+        if (!el) return null;
+        var cands = el.querySelectorAll("div.bg-app-bg.overflow-hidden");
+        for (var i = 0; i < cands.length; i++) {
+          if (cands[i].className.indexOf("max-w-[100vw]") >= 0) return cands[i];
+        }
+        return cands[0] || null;
+      })();
+      if (!root) return Promise.resolve();
+      return act(tok, function () {
+        // Park the pointer over the seam that is about to open, so the eye is
+        // already where the change happens.
+        var d = innerDivider();
+        var p = d ? pointOf(d) : null;
+        return p ? glide(p.x, p.y, 700) : null;
+      }).then(function () {
+        return act(tok, function () { root.classList.add("floating-splits"); return sleep(120); });
+      }).then(function () { return hold(tok, 2600); })
+        .then(function () {
+          // Back off. Leaving it on would turn a demonstration into a costume.
+          return act(tok, function () { root.classList.remove("floating-splits"); });
+        }).then(function () { return hold(tok, 500); });
+    },
+
     browser:   function (tok) { return showStage(tok, "browser:c1", 1500); },
     board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
     agents:    function (tok) { return showStage(tok, "agents:c1", 1600); },
