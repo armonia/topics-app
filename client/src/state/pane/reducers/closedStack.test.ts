@@ -99,6 +99,64 @@ describe("UNDO_CLOSE restore fidelity", () => {
     expect(state.groups["g2"].splitRatio).toBe(0.4);
     expect(state.groups["g2"].splitAxis).toBe("vertical");
   });
+
+  // PANE-03 ghost pane: the app-level undo fires an async unarchive whose
+  // hydrate can resurrect the entity into state.panes BEFORE UNDO_CLOSE runs.
+  // The old guard (`if (state.panes[id]) return`) then swallowed the record —
+  // the pane lived in state.panes without a group slot and the tab surfaced
+  // appended at the end. The undo must still re-slot it at its groupIndex.
+  test("re-slots a ghost entity (in state.panes but absent from its group) at the recorded index", () => {
+    const state = blankState();
+    state.groups["g1"] = { id: "g1", paneIds: ["a", "c"], splitRatio: 0.5, splitAxis: "horizontal" };
+    state.groupOrder = ["g1"];
+    state.panes["a"] = chatPane("a");
+    state.panes["c"] = chatPane("c");
+    // A racing hydrate already put `b` back in state.panes — but NOT in g1.
+    state.panes["b"] = chatPane("b");
+    state.closedStack = [record("b", { groupId: "g1", groupIndex: 1 })];
+
+    paneReducer(state, { type: "UNDO_CLOSE" });
+
+    // Re-slotted at index 1 exactly once — no duplicate, back in the group.
+    expect(state.groups["g1"].paneIds).toEqual(["a", "b", "c"]);
+    expect(state.closedStack).toHaveLength(0);
+  });
+
+  // A racing unarchive-hydrate can re-slot the resurrected pane into its
+  // recorded group but at the WRONG index (a stale peer still had it at the
+  // tail). Undo must MOVE it to `groupIndex`, not leave it appended.
+  test("repositions a pane already slotted in its recorded group at the wrong index", () => {
+    const state = blankState();
+    // Hydrate put `b` back — but appended at the tail, not at its close slot.
+    state.groups["g1"] = { id: "g1", paneIds: ["a", "c", "b"], splitRatio: 0.5, splitAxis: "horizontal" };
+    state.groupOrder = ["g1"];
+    state.panes["a"] = chatPane("a");
+    state.panes["b"] = chatPane("b");
+    state.panes["c"] = chatPane("c");
+    state.closedStack = [record("b", { groupId: "g1", groupIndex: 1 })];
+
+    paneReducer(state, { type: "UNDO_CLOSE" });
+
+    expect(state.groups["g1"].paneIds).toEqual(["a", "b", "c"]);
+    expect(state.closedStack).toHaveLength(0);
+  });
+
+  test("is a no-op when the pane is already slotted in a group (genuine reopen)", () => {
+    const state = blankState();
+    state.groups["g1"] = { id: "g1", paneIds: ["a", "b", "c"], splitRatio: 0.5, splitAxis: "horizontal" };
+    state.groupOrder = ["g1"];
+    state.panes["a"] = chatPane("a");
+    state.panes["b"] = chatPane("b");
+    state.panes["c"] = chatPane("c");
+    // Record lingering from a close that was already undone via OPEN_PANE.
+    state.closedStack = [record("b", { groupId: "g1", groupIndex: 1 })];
+
+    paneReducer(state, { type: "UNDO_CLOSE" });
+
+    // No duplicate `b` in paneIds; record still consumed (nothing to undo).
+    expect(state.groups["g1"].paneIds).toEqual(["a", "b", "c"]);
+    expect(state.closedStack).toHaveLength(0);
+  });
 });
 
 describe("PANE_ID_REMAP rewrites stack records", () => {
