@@ -79,6 +79,7 @@ import {
 // riesumerebbe l'annotazione nel contenuto finale.
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
+import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 
@@ -640,6 +641,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
 
       console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
+      // La riga assistente di QUESTO turno, raggiungibile anche dal `catch` in
+      // fondo: se schiantiamo dopo averla aperta, va chiusa lì — vedi
+      // crashedTurnNotice.ts. Dichiarata fuori dal `try` apposta.
+      let crashedPartialId: string | null = null;
       if (useWS) {
         // === WS-based chat: sends via chat.send, receives tool + text events ===
         try {
@@ -790,6 +795,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // morto — la chat "appesa a caricare" che si sbloccava solo con un
           // reload. Il listener sotto trasforma quell'abort nella chiusura che
           // mancava.
+          crashedPartialId = partialMsg.id;
           const externalAbort = new AbortController();
           startStream(sessionKey, partialMsg.id, externalAbort);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1218,7 +1224,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               } catch { return false; }
             })();
             if (reason === "done" && !fullContent.trim() && !rowHasTools) {
-              const emptyErrorMsg = "⚠️ No response received. The AI service may be temporarily unavailable. Please try again.";
+              // Il testo non dà più la colpa al servizio AI: qui sappiamo solo
+              // che il turno si è chiuso a mani vuote, e le volte in cui è
+              // successo il guasto era in casa nostra. Dice invece la cosa che
+              // all'utente serve davvero sapere — che il suo messaggio non è
+              // perso e come rimandarlo.
+              const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui — «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               console.warn(`[StreamWS] Empty response for ${sessionKey}`);
               if (matchedTopic) {
@@ -2238,6 +2249,36 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
         } catch (err: any) {
           console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
+          // Uscire di qui con un 502 e basta lasciava tre cose sul campo: la
+          // riga assistente APERTA (e `partial` è il perno che il setaccio di
+          // boot legge per decidere chi è vivo), lo stream registrato in
+          // memoria — quindi la chat che gira per sempre nelle altre finestre —
+          // e nessuna traccia del perché. Il 3 agosto quella riga è finita
+          // etichettata «No response received. The AI service may be
+          // temporarily unavailable»: generico, e falso, perché il guasto era
+          // nostro. Si chiude qui, dicendo cosa è successo davvero.
+          try {
+            endStream(sessionKey);
+            if (crashedPartialId) {
+              const row = db.prepare("SELECT content, tool_calls FROM messages WHERE id = ?")
+                .get(crashedPartialId) as { content?: string; tool_calls?: string | null } | undefined;
+              const notice = crashedTurnNotice(
+                row ? { content: row.content ?? "", toolCallsJson: row.tool_calls ?? null } : null,
+                err,
+              );
+              // Il flag `partial` cade comunque: aperta, quella riga farebbe
+              // credere a un turno in volo che non esiste più.
+              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0 WHERE id = ?").run(notice, crashedPartialId);
+              else db.prepare("UPDATE messages SET partial = 0 WHERE id = ?").run(crashedPartialId);
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}` });
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: crashedPartialId });
+              }
+            }
+          } catch (cleanupErr) {
+            // La pulizia non deve mai coprire il guasto vero.
+            console.error(`[StreamWS] anche la chiusura del turno è fallita su ${sessionKey}:`, cleanupErr);
+          }
           return json({ error: "Gateway WS error: " + err.message }, 502);
         }
 
