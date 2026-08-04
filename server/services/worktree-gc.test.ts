@@ -3,8 +3,8 @@
  * destructive action when there is anything to lose; the sweep must honour a
  * live turn and degrade to keep on a landing that can't complete.
  */
-import { describe, test, expect } from "bun:test";
-import { decidePostLandReap, decideWorktreeReap, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { describe, test, it, expect } from "bun:test";
+import { decidePostLandReap, decideWorktreeReap, normalizeKeepReason, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
   const base = {
@@ -438,5 +438,97 @@ describe("sweepWorktrees — riga fantasma sotto un task ancora attivo", () => {
     }));
     expect(reaped).toEqual(["ghost"]);
     expect(s.reaped).toBe(1);
+  });
+});
+
+// ── I motivi dei kept ───────────────────────────────────────────────────────
+//
+// «38 kept» non è un'informazione: un accumulo legittimo (lavoro non ancora
+// landato) e uno patologico (righe fantasma, decisioni bloccate) danno lo
+// stesso numero. Il motivo veniva calcolato e buttato via.
+describe("sweepWorktrees — perché i kept sono tenuti", () => {
+  const wt = (id: string, over: Partial<GcWorktree> = {}): GcWorktree => ({
+    id, projectId: "p1", absPath: `/tmp/${id}`, branchName: `topics/${id}`, mode: "branch", ...over,
+  });
+
+  function deps(over: Partial<WorktreeGcDeps> & { worktrees: GcWorktree[] }): WorktreeGcDeps {
+    const { worktrees, ...rest } = over;
+    return {
+      listWorktrees: () => worktrees,
+      resolveTask: (id) => ({ taskId: `t-${id}`, status: "in_progress", archived: false }),
+      isBusy: () => false,
+      branchStatus: async () => "unmerged",
+      diskPresent: () => true,
+      realDirt: async () => [],
+      autoMergeEnabled: () => false,
+      reap: async () => true,
+      tryLand: async () => "landed",
+      log: () => {},
+      ...rest,
+    } as WorktreeGcDeps;
+  }
+
+  it("raggruppa i kept per motivo, non solo li conta", async () => {
+    const s = await sweepWorktrees(deps({
+      worktrees: [wt("a"), wt("b"), wt("c")],
+      resolveTask: (id) => ({
+        taskId: `t-${id}`,
+        status: id === "c" ? "review" : "in_progress",
+        archived: false,
+      }),
+    }));
+    expect(s.kept).toBe(3);
+    expect(s.keptReasons["task 'in_progress' attivo"]).toBe(2);
+    expect(s.keptReasons["task 'review' attivo"]).toBe(1);
+  });
+
+  it("un turno in corso è un motivo, non un keep muto", async () => {
+    const s = await sweepWorktrees(deps({ worktrees: [wt("a")], isBusy: () => true }));
+    expect(s.kept).toBe(1);
+    expect(s.keptReasons["turno in corso sul task"]).toBe(1);
+  });
+
+  it("i numeri variabili si normalizzano, o ogni worktree sarebbe una categoria a sé", async () => {
+    const s = await sweepWorktrees(deps({
+      worktrees: [wt("a"), wt("b")],
+      resolveTask: (id) => ({ taskId: `t-${id}`, status: "done", archived: false }),
+      realDirt: async (p) => (p.endsWith("a") ? ["x.ts"] : ["y.ts", "z.ts"]),
+    }));
+    // Due worktree, quantità di sporco diverse, UNA categoria.
+    expect(Object.keys(s.keptReasons)).toEqual(["modifiche non committate (junk escluso)"]);
+    expect(s.keptReasons["modifiche non committate (junk escluso)"]).toBe(2);
+  });
+
+  it("la somma dei motivi torna sempre col totale dei kept", async () => {
+    const s = await sweepWorktrees(deps({
+      worktrees: [wt("a"), wt("b"), wt("c"), wt("d")],
+      resolveTask: (id) => ({ taskId: `t-${id}`, status: id === "d" ? "todo" : "in_progress", archived: false }),
+    }));
+    const somma = Object.values(s.keptReasons).reduce((n, v) => n + v, 0);
+    expect(somma).toBe(s.kept);
+  });
+
+  it("nessun kept ⇒ nessun motivo (non una categoria vuota)", async () => {
+    const s = await sweepWorktrees(deps({
+      worktrees: [wt("a")],
+      resolveTask: () => ({ taskId: "t", status: "done", archived: false }),
+      branchStatus: async () => "merged",
+    }));
+    expect(s.reaped).toBe(1);
+    expect(s.keptReasons).toEqual({});
+  });
+});
+
+describe("normalizeKeepReason", () => {
+  it("toglie i numeri", () => {
+    expect(normalizeKeepReason("task fermo in 'in_progress' da 9 giorni"))
+      .toBe(normalizeKeepReason("task fermo in 'in_progress' da 12 giorni"));
+  });
+
+  it("TIENE gli stati fra apici: sono l'informazione utile", () => {
+    // «tenuti perché in review» e «tenuti perché in backlog» chiedono due azioni
+    // diverse: collassarli renderebbe il riepilogo inutile.
+    expect(normalizeKeepReason("task 'review' attivo"))
+      .not.toBe(normalizeKeepReason("task 'backlog' attivo"));
   });
 });

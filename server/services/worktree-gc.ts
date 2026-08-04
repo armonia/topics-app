@@ -241,6 +241,33 @@ export interface WorktreeGcSummary {
   abandoned: number;
   kept: number;
   errors: number;
+  /**
+   * PERCHÉ i `kept` sono stati tenuti, contati per motivo.
+   *
+   * Il motivo veniva calcolato (`decideWorktreeReap` lo restituisce) e poi
+   * buttato via: la passata stampava «38 kept» e nient'altro. Con quel numero
+   * soltanto, un accumulo LEGITTIMO (lavoro non ancora landato) e uno PATOLOGICO
+   * (righe fantasma, decisioni bloccate) sono indistinguibili — e uno sprawl che
+   * non si sa spiegare ricresce in silenzio, che è esattamente com'è ricresciuto.
+   *
+   * Il testo è la ragione della decisione, normalizzata: le parti variabili
+   * (numero di giorni, di file) sono tolte, altrimenti ogni worktree sarebbe una
+   * categoria a sé e il conteggio non aggregherebbe niente.
+   */
+  keptReasons: Record<string, number>;
+}
+
+/**
+ * Toglie le parti variabili da una ragione, così motivi uguali si sommano.
+ *
+ * Solo i NUMERI: «fermo da 9 giorni» e «fermo da 12 giorni» sono la stessa
+ * categoria. Gli stati fra apici (`task 'review' attivo`) restano, perché sono
+ * un insieme chiuso di cinque valori e distinguerli è l'informazione utile —
+ * «tenuti perché il task è in review» e «tenuti perché è in backlog» chiedono
+ * due azioni diverse.
+ */
+export function normalizeKeepReason(reason: string): string {
+  return reason.replace(/\d+/g, "N").trim();
 }
 
 /**
@@ -250,7 +277,15 @@ export interface WorktreeGcSummary {
  */
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
-  const summary: WorktreeGcSummary = { total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, kept: 0, errors: 0 };
+  const summary: WorktreeGcSummary = {
+    total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, kept: 0, errors: 0, keptReasons: {},
+  };
+  /** Un keep senza motivo registrato e' un keep che nessuno puo' spiegare. */
+  const keep = (reason: string) => {
+    summary.kept += 1;
+    const k = normalizeKeepReason(reason);
+    summary.keptReasons[k] = (summary.keptReasons[k] ?? 0) + 1;
+  };
 
   for (const wt of worktrees) {
     try {
@@ -258,7 +293,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       const taskId = t.taskId;
 
       // Never reap under a live turn, even if the task row reads terminal.
-      if (taskId && deps.isBusy(taskId)) { summary.kept += 1; continue; }
+      if (taskId && deps.isBusy(taskId)) { keep("turno in corso sul task"); continue; }
 
       const branch = wt.mode === "branch" ? await deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus) : "merged";
 
@@ -276,7 +311,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         if (taskId && stillClaimed && deps.abandon) {
           const ok = await deps.abandon(taskId, wt, "il branch del worktree non esiste più");
           if (ok) { summary.abandoned += 1; deps.log(`[worktree-gc] abbandonato ${wt.branchName ?? wt.id} — branch sparito sotto un task '${status}'`); }
-          else summary.kept += 1;
+          else keep("parcheggio fallito su branch sparito");
           continue;
         }
         const ok = await deps.reap(wt.id);
@@ -307,18 +342,18 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         abandonAfterDays: deps.abandonAfterDays,
       });
 
-      if (decision.action === "keep") { summary.kept += 1; continue; }
+      if (decision.action === "keep") { keep(decision.reason); continue; }
 
       if (decision.action === "abandon") {
         // Needs both a task to park and a host able to do it; without either,
         // keeping is the only safe answer.
-        if (!taskId || !deps.abandon) { summary.kept += 1; continue; }
+        if (!taskId || !deps.abandon) { keep(taskId ? "da abbandonare ma l'host non sa parcheggiare" : "da abbandonare ma senza task a cui agganciarsi"); continue; }
         const ok = await deps.abandon(taskId, wt, decision.reason);
         if (ok) {
           summary.abandoned += 1;
           deps.log(`[worktree-gc] abbandonato ${wt.branchName ?? wt.id} — ${decision.reason} (branch conservato)`);
         } else {
-          summary.kept += 1;
+          keep("parcheggio del task abbandonato fallito");
         }
         continue;
       }
@@ -326,7 +361,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (decision.action === "land-then-reap") {
         // Needs a real task to land. An orphan (taskId null) with unmerged
         // commits can't be landed → keep it for a human rather than lose work.
-        if (!taskId) { summary.kept += 1; continue; }
+        if (!taskId) { keep("commit non su main e nessun task a cui landarli (orfano)"); continue; }
         const outcome = await deps.tryLand(taskId);
         if (outcome === "landed") summary.landed += 1;
 
@@ -347,7 +382,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
               `⚠️ Worktree NON ripulito: ${post.reason}. Il branch \`${wt.branchName ?? wt.id}\` è stato conservato — verifica a mano prima di cancellarlo.`,
             );
           }
-          summary.kept += 1;
+          keep(post.reason);
           continue;
         }
       }
@@ -369,6 +404,23 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     deps.log(
       `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
       `${summary.abandoned} abbandonati, ${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
+    );
+  }
+  // I MOTIVI dei kept, sempre — anche quando la passata non ha fatto altro.
+  //
+  // La riga sopra è condizionata a reap/land/abbandoni/errori: una passata che
+  // tiene TUTTO non stampava niente. È così che 38 worktree tenuti sono
+  // diventati invisibili — nessuna riga, nessun numero, nessun perché, mentre
+  // sul disco crescevano. Un GC che tace quando non agisce è indistinguibile da
+  // un GC che non gira.
+  //
+  // Ordinati per frequenza: la categoria più grossa è quella su cui vale la
+  // pena agire, e va letta per prima.
+  const reasons = Object.entries(summary.keptReasons).sort((a, b) => b[1] - a[1]);
+  if (reasons.length > 0) {
+    deps.log(
+      `[worktree-gc] ${summary.kept} tenuti (di ${summary.total}) — ` +
+      reasons.map(([r, n]) => `${n}× ${r}`).join("; "),
     );
   }
   return summary;
