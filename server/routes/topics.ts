@@ -306,10 +306,25 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
    * scelto. Best-effort per costruzione: se non c'è ancora una misura non c'è
    * nulla da correggere, e un errore qui non deve far fallire la PATCH.
    */
+  /**
+   * Il modello contro cui va letto il contesto di questa chat.
+   *
+   * Non è `topic.model`: quello è il PIN, e una chat senza pin non gira senza
+   * modello — gira col default del provider, che oggi è la variante a finestra
+   * lunga (`claude-opus-5[1m]`). Leggere il pin vuoto come «non lo so» faceva
+   * cadere il denominatore sul nome nudo che la CLI riporta nei suoi eventi,
+   * cioè 200k su una chat da un milione: l'anello segnava pieno a un quinto.
+   */
+  function currentModelOf(topic: Topic): string | null {
+    if (topic.model) return topic.model;
+    try { return resolveProvider(topic).defaultModel?.() ?? null; }
+    catch { return null; }
+  }
+
   function broadcastContextForModelChange(topic: Topic): void {
     const row = getSessionContext(ctx.db, topic.sessionKey);
     if (!row) return;
-    const usage = classifyContext(row.usedTokens, windowForMeasure(row, topic.model));
+    const usage = classifyContext(row.usedTokens, windowForMeasure(row, currentModelOf(topic)));
     const update = contextUpdateFromUsage(usage, row.model);
     broadcastToAll({ type: "stream:context", sessionKey: topic.sessionKey, topicId: topic.id, ...update });
   }

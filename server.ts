@@ -2661,7 +2661,26 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
         })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
-        .finally(() => {
+        .finally(async () => {
+          // La gamba di riadozione è finita — ma il TURNO può non esserlo: un
+          // figlio fermo su `ask_user_question` resta aperto per ore, e il
+          // replay muto che ci riattacca dura un attimo. Azzerare `partial`
+          // qui dentro chiudeva la riga di un turno vivo, e al riavvio dopo
+          // `reuseOrCreatePartialForReattach` non aveva più niente da
+          // riutilizzare: ne apriva una NUOVA. Su topic:ed2070df sono uscite
+          // cinque copie dello stesso messaggio, una per ricarica del server,
+          // ognuna con una durata da 100ms che non misurava niente.
+          //
+          // Quindi si richiede al broker: se il turno è ancora aperto la riga
+          // resta com'è, ed è la stessa che il prossimo riattacco riprende.
+          try {
+            const prov = getProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
+            const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
+            if (state === "open") {
+              console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
+              return;
+            }
+          } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
           // The turn is over (completed, died, or timed out): clear any
           // partial leftovers for the session — including the pre-reload row
           // the startup reset deliberately skipped while the child was alive.
