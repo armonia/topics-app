@@ -1139,6 +1139,20 @@ function requestBuffer(sessionId: string): Promise<Uint8Array> {
  * scrape the human-driven `claude` PTY's output — NOT a model call, so it
  * stays on the subscription. Returns "" if the bridge is down or times out.
  */
+/**
+ * Quante sessioni di terminale hanno un client ATTACCATO adesso.
+ *
+ * È il segnale «c'è qualcuno al lavoro» che la modalità notturna aspetta. Si
+ * conta chi è attaccato, non chi è vivo: una sessione viva che nessuno sta
+ * guardando — un agente dimenticato, una tab lasciata aperta — non è una
+ * presenza, e contarla terrebbe il turno notturno bloccato per sempre.
+ */
+export function countAttachedTerminalSessions(): number {
+  let n = 0;
+  for (const set of sessionSockets.values()) if (set.size > 0) n++;
+  return n;
+}
+
 export async function getTerminalBuffer(sessionId: string): Promise<string> {
   const bytes = await requestBuffer(sessionId);
   return new TextDecoder().decode(bytes);

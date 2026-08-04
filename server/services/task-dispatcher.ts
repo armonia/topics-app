@@ -27,6 +27,7 @@ import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { MAX_FANOUT } from "../../shared/board";
+import { decideNight } from "./night-mode";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -87,6 +88,12 @@ export interface DispatcherDeps {
    * server.ts; qui il valore di default tiene in piedi i test.
    */
   worktreeHasWork?: (worktreeId: string) => Promise<boolean>;
+  /** Capacità viva della macchina (`computeDispatchCapacity`). Serve alla
+   *  modalità notturna per sapere se il carico è sceso. */
+  capacity?: () => { load1: number; cores: number };
+  /** Quante sessioni UMANE sono vive adesso. È il segnale «sono via» del turno
+   *  notturno: finché c'è qualcuno al lavoro, non si dispaccia. */
+  humanSessionsLive?: () => number;
   /**
    * A private per-task working dir for a CATCH-ALL task (creates it, returns the
    * path). Giving each project-less task its own cwd makes its topic's
@@ -1479,6 +1486,40 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { settings = deps.svc.getBoardSettings(projectId); }
     catch (err) { log(`getBoardSettings failed for ${projectId}`, err); return; }
     if (!settings.autoDispatch) return;
+
+    // Modalità notturna: la coda si dispaccia solo mentre la macchina è libera,
+    // e il turno si SPEGNE da solo all'orario di fine.
+    //
+    // Lo spegnimento non è cosmetico. Se la scadenza si limitasse a bloccare il
+    // dispatch, l'interruttore resterebbe acceso all'infinito e la mattina dopo
+    // la board sembrerebbe rotta («ho task in coda e non parte niente») invece
+    // che semplicemente tornata normale. Un turno che non sa finire è peggio di
+    // uno che non parte.
+    if (settings.nightMode) {
+      const cap = deps.capacity?.();
+      const decision = decideNight({
+        enabled: true,
+        untilHHMM: settings.nightModeUntil || null,
+        startedAt: settings.nightModeStartedAt ? new Date(settings.nightModeStartedAt) : null,
+        now: new Date(),
+        load1: cap?.load1 ?? 0,
+        cores: cap?.cores ?? 1,
+        // Le sessioni umane vive: è il «sono via» del turno. Assente ⇒ 0, cioè
+        // si guarda solo il carico — meno preciso, mai più permissivo del
+        // dovuto perché il carico resta comunque un gate.
+        busySessions: deps.humanSessionsLive?.() ?? 0,
+      });
+      if (decision.action === "expire") {
+        log(`modalità notturna spenta su ${projectId}: ${decision.reason}`);
+        try { deps.svc.updateBoardSettings(projectId, { nightMode: false }); }
+        catch (err) { log(`spegnimento della modalità notturna fallito su ${projectId}`, err); }
+        return;
+      }
+      if (decision.action === "wait") {
+        log(`modalità notturna in attesa su ${projectId}: ${decision.reason}`);
+        return;
+      }
+    }
 
     const resolved = deps.resolveProject(projectId);
 

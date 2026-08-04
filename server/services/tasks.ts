@@ -1470,6 +1470,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
         requireReviewBeforeDone: r ? !!r.require_review_before_done : false,
         reviewChecks: parseReviewChecks(r?.review_checks),
+        nightMode: r ? !!r.night_mode : false,
+        nightModeUntil: r?.night_mode_until ?? "",
+        nightModeStartedAt: r?.night_mode_started_at ?? null,
       };
     },
 
@@ -1511,6 +1514,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // modo di saturare la macchina — e ogni tentativo è un agente vero che
       // occupa uno slot del tetto globale.
       if (patch.dispatchFanOut !== undefined) { sets.push("dispatch_fanout = ?"); params.push(clampInt(patch.dispatchFanOut, 1, MAX_FANOUT)); }
+      // Accendere la modalità notturna STAMPA l'istante: senza, «fino alle
+      // 10:00» non si sa se sia stamattina o domani mattina. Spegnendola si
+      // cancella, così un riaccendere non eredita una scadenza vecchia.
+      if (patch.nightMode !== undefined) {
+        sets.push("night_mode = ?"); params.push(patch.nightMode ? 1 : 0);
+        sets.push("night_mode_started_at = ?"); params.push(patch.nightMode ? now() : null);
+      }
+      if (patch.nightModeUntil !== undefined) {
+        const v = String(patch.nightModeUntil ?? "").trim();
+        sets.push("night_mode_until = ?"); params.push(v || null);
+      }
       if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
       if (patch.dispatchRetryBackoffS !== undefined) { sets.push("dispatch_retry_backoff_s = ?"); params.push(clampInt(patch.dispatchRetryBackoffS, 10, 600)); }
       // NULL, non `[]`: "gate spento" è UNO stato solo, e due modi di scriverlo
