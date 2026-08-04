@@ -1,0 +1,42 @@
+---
+import { getCollection } from 'astro:content';
+import Reading from '../../layouts/Reading.astro';
+import { PILLARS } from '../../content.config';
+import { PILLAR_LABEL } from '../../lib/format';
+
+const entries = (await getCollection('wiki', ({ data }) => !data.draft))
+  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+
+const byPillar = PILLARS
+  .map((p) => ({ pillar: p, items: entries.filter((e) => e.data.pillar === p) }))
+  .filter((g) => g.items.length > 0);
+---
+
+<Reading
+  title="Wiki · Topics"
+  description="Plain definitions for the vocabulary of running coding agents: git worktrees per agent, PTYs, effort levels, prompt caching, MCP, tombstones. What each term means, and what it means when you are running several agents at once."
+  path="/wiki"
+>
+  <header class="index-head">
+    <h1>Wiki</h1>
+    <p>
+      The vocabulary, defined once. These entries are the terms this whole product is
+      built out of — what each one means in general, and what changes about it when
+      several agents are working the same repository at the same time.
+    </p>
+  </header>
+
+  {byPillar.map((g) => (
+    <section>
+      <h2 class="article-kicker" style="margin-top:44px">{PILLAR_LABEL[g.pillar]}</h2>
+      <ul class="entry-list">
+        {g.items.map((e) => (
+          <li>
+            <h2><a href={`/wiki/${e.id}`}>{e.data.title}</a></h2>
+            <p>{e.data.definition}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Reading>
