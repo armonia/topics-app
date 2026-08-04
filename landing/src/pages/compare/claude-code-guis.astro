@@ -1,0 +1,284 @@
+---
+/**
+ * The comparison page.
+ *
+ * Rules this page is written under, because a comparison written by one of the
+ * things being compared is worth nothing unless it is checkable:
+ *
+ *  1. Every claim about someone else is quoted from THEIR OWN public page, with
+ *     the URL and the date it was read. Nothing inferred, nothing remembered.
+ *  2. Where a fact is not stated by them, it says "not stated" rather than a
+ *     guess.
+ *  3. No measurement of a competitor we did not run. We measure our own memory
+ *     footprint; we have not measured theirs, so it is not in the table.
+ *  4. Every product gets a "choose this instead if" written straight. If we
+ *     cannot name a case where someone else is the better answer, we have not
+ *     understood the category.
+ *
+ * The table is HTML, not an image, because the point is for it to be readable
+ * and quotable by whatever is reading it.
+ */
+import Reading from '../../layouts/Reading.astro';
+
+const READ_ON = '4 August 2026';
+
+const tools = [
+  {
+    name: 'Topics',
+    us: true,
+    url: 'https://topics.armonia.io',
+    licence: 'MIT, open source',
+    platforms: 'macOS, Windows, Linux · PWA on phone',
+    price: '$0 — the whole app',
+    where: 'Your machine',
+    account: 'None',
+    agents: 'Claude Code, Codex, OpenCode, Gemini CLI, any ACP agent, Anthropic and OpenAI APIs',
+    source: 'This site',
+  },
+  {
+    name: 'Conductor',
+    url: 'https://www.conductor.build/pricing',
+    licence: 'Not stated',
+    platforms: '“Local workspaces on your Mac”',
+    price: 'Free $0 · Pro $50/mo · Teams $60/mo/user',
+    where: 'Local, or their cloud on Pro and above',
+    account: 'Required for the paid plans',
+    agents: '“Bring your own subscriptions and keys”',
+    source: 'conductor.build/pricing',
+  },
+  {
+    name: 'Devin Desktop',
+    url: 'https://devin.ai/desktop',
+    licence: 'Not stated',
+    platforms: '“Download for MacOS” — no other build offered',
+    price: 'Not stated on the product page',
+    where: '“Fleets of local and cloud agents”',
+    account: 'Sign-up required',
+    agents: 'Agent Client Protocol (ACP)',
+    source: 'devin.ai/desktop',
+  },
+  {
+    name: 'Zed',
+    url: 'https://zed.dev/pricing',
+    licence: 'Open source',
+    platforms: 'macOS, Linux, Windows',
+    price: 'Personal $0 forever · Pro $10/mo · Business $30/seat/mo',
+    where: 'Your machine',
+    account: 'Not for the free plan',
+    agents: '“Unlimited use with your API keys or external agents like Claude Agent, Codex CLI, and more”',
+    source: 'zed.dev/pricing',
+  },
+  {
+    name: 'Cline',
+    url: 'https://cline.bot/pricing',
+    licence: 'Open source',
+    platforms: 'VS Code extension and a CLI, not a desktop app',
+    price: 'Free for individuals · Enterprise on request',
+    where: 'Your machine',
+    account: 'Not for the open-source extension',
+    agents: 'Bring your own key across many providers',
+    source: 'cline.bot/pricing',
+  },
+  {
+    name: 'Claude Code alone',
+    url: 'https://docs.anthropic.com/en/docs/claude-code',
+    licence: 'Proprietary CLI',
+    platforms: 'Any terminal',
+    price: 'Your Anthropic plan or API key',
+    where: 'Your machine',
+    account: 'Anthropic account',
+    agents: 'Itself',
+    source: 'Anthropic docs',
+  },
+];
+
+const rows = [
+  ['Licence', 'licence'],
+  ['Platforms', 'platforms'],
+  ['Price', 'price'],
+  ['Where the work runs', 'where'],
+  ['Account required', 'account'],
+  ['Agents it drives', 'agents'],
+] as const;
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: 'Desktop apps for running coding agents, compared',
+  description:
+    'Topics, Conductor, Devin Desktop, Zed, Cline and bare Claude Code: licence, platforms, price, where the work runs and whether anyone else can read it. Every claim quoted from the vendor’s own page.',
+  dateModified: '2026-08-04',
+  author: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  inLanguage: 'en',
+};
+---
+
+<Reading
+  title="Desktop apps for running coding agents, compared · Topics"
+  description="Topics, Conductor, Devin Desktop, Zed, Cline and bare Claude Code: licence, platforms, price, where the work runs, and whether anyone else can read it. Every claim quoted from the vendor's own page, with the date it was read."
+  path="/compare/claude-code-guis"
+  jsonLd={jsonLd}
+>
+  <header class="article-head">
+    <p class="article-kicker">Comparison · read {READ_ON}</p>
+    <h1>Desktop apps for running coding agents, compared</h1>
+    <p class="article-standfirst">
+      We make one of these, so treat the opinions accordingly — but not the facts.
+      Every claim below about someone else is quoted from their own public page and
+      dated, and each product has a straight answer for when it is the better pick.
+    </p>
+    <div class="article-meta"><span>Sources read {READ_ON}</span></div>
+  </header>
+
+  <div class="article-body">
+    <article class="prose">
+      <p>
+        The useful split in this category is not features, it is <strong>where the
+        work runs and who can read it</strong>. Everything else — how the panes are
+        arranged, which agents are wired up — moves in a release. That does not.
+      </p>
+
+      <div class="wide" style="margin-block:36px">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              {tools.map((t) => <th>{t.us ? <strong>{t.name}</strong> : t.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, key]) => (
+              <tr>
+                <th scope="row">{label}</th>
+                {tools.map((t) => <td>{t[key]}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="where-the-work-runs-is-the-only-line-that-matters">Where the work runs is the only line that matters</h2>
+      <p>
+        Conductor states the trade-off more plainly than we could, so here it is in
+        their words. Asked whether they can see your data in a cloud workspace,
+        their pricing FAQ answers:
+      </p>
+      <blockquote>
+        “Yes. Unlike with local Conductor sessions, chat messages sent in cloud
+        workspaces are stored on Conductor’s servers.”
+      </blockquote>
+      <p>
+        That is not a criticism — it is the honest consequence of running an agent
+        in a sandbox you do not own, and they document it clearly. Their local mode
+        carries the opposite promise: “Conductor never accesses your coding inputs /
+        outputs.”
+      </p>
+      <p>
+        The reason it is the dividing line is that it decides what you can use the
+        thing for. Cloud workspaces keep working when you close the laptop, which
+        local ones cannot. Local workspaces cannot leak a client’s codebase to a
+        third party, which cloud ones can be made to but have to be trusted about.
+        Pick the constraint you actually have.
+      </p>
+      <p>
+        Topics has nothing to disclose here, which is a statement about its
+        architecture and not about its virtue: there is no server of ours in the
+        path, so there is nothing for us to store. The corollary is that if you
+        close the laptop, your agents stop.
+      </p>
+
+      <h2 id="choose-something-else-if">Choose something else if</h2>
+
+      <h3>Conductor — if you want agents to keep working after you close the lid</h3>
+      <p>
+        Their cloud workspaces run in Vercel sandboxes (8 cores, 16 GB, us-east-1,
+        per their FAQ) and survive the app being closed. Topics has no equivalent
+        and none is running today. Conductor is also further along on multiplayer.
+        Note that as of {READ_ON} their pricing page describes local workspaces as
+        being “on your Mac”.
+      </p>
+
+      <h3>Devin Desktop — if you want the IDE and the agents in one window</h3>
+      <p>
+        It ships a full editor around the agent surface, and it is built on the
+        Agent Client Protocol. If your objection to a separate workspace is that you
+        would rather not leave your editor, that objection is exactly what it is
+        for. As of {READ_ON} the download button offers macOS only.
+      </p>
+
+      <h3>Zed — if what you actually want is a fast editor</h3>
+      <p>
+        Zed is a code editor first, open source, and its free tier explicitly covers
+        “unlimited use with your API keys or external agents like Claude Agent,
+        Codex CLI, and more”. If you spend your day writing code by hand and want an
+        agent nearby, that is a better shape than a workspace built around watching
+        several agents at once.
+      </p>
+
+      <h3>Cline — if you live in VS Code</h3>
+      <p>
+        It is an extension and a CLI rather than an application, open source, free
+        for individuals, and its own FAQ answers “Is there vendor lock-in?” with
+        “No!” and a list of eleven providers. Nothing to install alongside your
+        editor because it is inside it.
+      </p>
+
+      <h3>Claude Code on its own — if you run one agent at a time</h3>
+      <p>
+        This is the honest one. If you start one session, watch it, and finish, a
+        workspace is overhead. Everything Topics adds is in service of the case
+        where there are three or four of them and you have lost track of which is
+        waiting on you. Below that number, the terminal is fine and you should keep
+        using it.
+      </p>
+
+      <h2 id="what-topics-does-not-have">What Topics does not have</h2>
+      <p>
+        No hosted anything: no relay, no managed remote access, no off-machine
+        backup. No accounts, no team roles, no authentication layer at all — if you
+        expose it over a tunnel you have to put your own auth in front of it. Mobile
+        is a PWA, not a native app. It is not an editor, and it is two months old.
+      </p>
+
+      <h2 id="method">Method</h2>
+      <p>
+        Every cell about a product other than ours is quoted or paraphrased from
+        that vendor’s own public page, fetched on {READ_ON}: conductor.build/pricing,
+        devin.ai/desktop, zed.dev/pricing, cline.bot/pricing. Where a page does not
+        state something, the table says “not stated” rather than filling it in.
+      </p>
+
+      <h2 id="limits">Limits</h2>
+      <p>
+        Prices and platform support change without notice, and at least two of these
+        products have been renamed or repositioned in the past year — this is a
+        snapshot, not a standing fact. There are no performance numbers in the table
+        because we have not measured anyone else’s, and publishing a benchmark of a
+        competitor we ran ourselves would deserve exactly the scepticism it would
+        get. Feature depth is not compared at all: it moves too fast to be true for
+        long, and it is the part you should check yourself.
+      </p>
+    </article>
+
+    <nav class="toc" aria-label="On this page">
+      <p class="toc__label">On this page</p>
+      <ul>
+        <li><a href="#where-the-work-runs-is-the-only-line-that-matters">Where the work runs</a></li>
+        <li><a href="#choose-something-else-if">Choose something else if</a></li>
+        <li><a href="#what-topics-does-not-have">What Topics does not have</a></li>
+        <li><a href="#method">Method</a></li>
+        <li><a href="#limits">Limits</a></li>
+      </ul>
+    </nav>
+  </div>
+
+  <section class="article-foot">
+    <h2>Sources</h2>
+    <ul class="related">
+      {tools.filter((t) => !t.us).map((t) => (
+        <li><a href={t.url} rel="noopener nofollow" target="_blank">{t.source}</a><p>Read {READ_ON}.</p></li>
+      ))}
+    </ul>
+  </section>
+</Reading>
