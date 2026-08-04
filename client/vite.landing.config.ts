@@ -21,7 +21,16 @@ function inlineBootShim(): Plugin {
     transformIndexHtml(html) {
       const shimSrc = fs.readFileSync(path.resolve(__dirname, 'src/demo/landing-boot.js'), 'utf8');
       const frameB64 = fs.readFileSync(path.resolve(__dirname, 'src/demo/browser-frame.b64.txt'), 'utf8').trim();
-      const shim = shimSrc.replace('__BROWSER_FRAME_B64__', frameB64);
+      // The rrweb Meta + FullSnapshot the Browser pane replays. Generated from
+      // src/demo/browser-page.html by scripts/gen-browser-snapshot.mjs; the pane
+      // paints from dom_events, not from the JPEG, which the app now treats as a
+      // bootstrap signal and never renders.
+      const domSnapshot = fs
+        .readFileSync(path.resolve(__dirname, 'src/demo/browser-dom-snapshot.json'), 'utf8')
+        .trim();
+      const shim = shimSrc
+        .replace('__BROWSER_FRAME_B64__', frameB64)
+        .replace('"__BROWSER_DOM_SNAPSHOT__"', domSnapshot);
       // Ghost mouse-cursor choreography: a second inline classic script at BODY
       // END (after the app root) that animates a macOS-style pointer driving
       // the real UI — tab switches + divider drags via synthetic MouseEvents.
