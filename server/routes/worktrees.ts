@@ -51,6 +51,11 @@ export interface WorktreesRouterOpts {
    * automatica, è la stessa passata anticipata.
    */
   runGc?: () => Promise<unknown>;
+  /**
+   * I rami locali non su main del progetto, con il task a cui appartengono.
+   * Due letture (git e DB) che vivono nel boot del server, non qui.
+   */
+  branchInventory?: (projectPath: string) => Promise<unknown>;
 }
 
 export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts = {}): RouteHandler {
@@ -100,6 +105,25 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       }
       const worktrees = worktreeStore.list(opts);
       return json({ worktrees });
+    }
+
+    // GET /api/worktrees/branches?project_path=… — i rami locali NON su main,
+    // con il task a cui appartengono.
+    //
+    // Il chip «N non su main» della board conta solo i task CHIUSI: un ramo di
+    // un task ancora in backlog — o di nessun task — non compariva da nessuna
+    // parte. È così che quattro rami con lavoro fatto sono rimasti invisibili
+    // per settimane mentre la board riproponeva come «da fare» cose già scritte
+    // lì dentro.
+    if (method === "GET" && pathname === "/api/worktrees/branches") {
+      if (!opts.branchInventory) return errorResponse(501, "inventario dei rami non disponibile su questo host");
+      const projectPath = url.searchParams.get("project_path");
+      if (!projectPath) return errorResponse(400, "project_path richiesto");
+      try {
+        return json(await opts.branchInventory(projectPath));
+      } catch (e) {
+        return errorResponse(500, e instanceof Error ? e.message : String(e));
+      }
     }
 
     // POST /api/worktrees/gc — una passata del GC, adesso.

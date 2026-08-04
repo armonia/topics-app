@@ -42,6 +42,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { scanOrphanSessions, referencedSessionIdsIn } from "./server/lib/orphan-sessions";
+import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
@@ -1111,6 +1112,36 @@ claudeSessionTracker.startReaper();
 claudeSessionTracker.startJsonlTail();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx, {
+  // I rami locali non su main, col task a cui appartengono. Due letture: git
+  // per QUALI rami e quanti commit, il DB per DI CHI sono.
+  branchInventory: async (projectPath) => {
+    const proc = Bun.spawn(
+      ["git", "for-each-ref", "--format=%(refname:short)", "--no-merged=main", "refs/heads"],
+      { cwd: projectPath, stdout: "pipe", stderr: "pipe" },
+    );
+    const outText = await new Response(proc.stdout).text();
+    if ((await proc.exited) !== 0) throw new Error(`git: ${projectPath} non e' un repo, o main non esiste`);
+    const names = outText.split("\n").map((l) => l.trim()).filter(Boolean);
+    const branches = await Promise.all(names.map(async (name) => {
+      const c = Bun.spawn(["git", "rev-list", "--count", `main..${name}`], { cwd: projectPath, stdout: "pipe", stderr: "pipe" });
+      const n = Number((await new Response(c.stdout).text()).trim());
+      await c.exited;
+      return { name, ahead: Number.isFinite(n) ? n : 0 };
+    }));
+    // I task del board di QUESTO percorso: e' l'unico insieme che puo'
+    // reclamare quei rami.
+    const boardId = projectIdForPath(projectPath);
+    const rows = ctx.db.prepare(
+      `SELECT t.id AS taskId, t.text AS taskText, t.status AS taskStatus,
+              t.delivery_branch AS deliveryBranch, w.branch_name AS worktreeBranch
+         FROM tasks t
+    LEFT JOIN topics tp ON tp.id = t.assigned_topic_id
+    LEFT JOIN worktrees w ON w.id = tp.worktree_id
+        WHERE t.project_id = ? AND t.archived = 0`,
+    ).all(boardId) as Array<{ taskId: string; taskText: string; taskStatus: string; deliveryBranch: string | null; worktreeBranch: string | null }>;
+    const entries = buildBranchInventory(branches, rows);
+    return { entries, summary: summarizeInventory(entries) };
+  },
   // `runWorktreeGc` è una function declaration definita più sotto: hoisted,
   // quindi la closure è valida anche se il router nasce prima.
   runGc: () => runWorktreeGc(),
