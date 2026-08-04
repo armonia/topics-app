@@ -21,7 +21,6 @@ const { title, description, path, jsonLd } = Astro.props;
 
 <Base title={title} description={description} path={path} jsonLd={jsonLd}>
   <div class="grain" aria-hidden="true"></div>
-  <div class="grain grain--fine" aria-hidden="true"></div>
 
   <header class="nav" id="nav">
     <div class="nav__inner">
@@ -30,8 +29,8 @@ const { title, description, path, jsonLd } = Astro.props;
         <span class="brand__name">Topics</span>
       </a>
       <nav class="nav__links" aria-label="Primary">
+        <a href="/wiki">Docs</a>
         <a href="/blog">Blog</a>
-        <a href="/wiki">Wiki</a>
         <a href="/compare/claude-code-guis">Compare</a>
         <a href="/changelog">Changelog</a>
         <a href="/#pricing">Pricing</a>
@@ -51,19 +50,20 @@ const { title, description, path, jsonLd } = Astro.props;
       <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
         <a href="/">Home</a>
+        <a href="/wiki">Docs</a>
         <a href="/blog">Blog</a>
-        <a href="/wiki">Wiki</a>
         <a href="/compare/claude-code-guis">Compare</a>
         <a href="/changelog">Changelog</a>
+        <a href="/privacy">Privacy</a>
         <a href="/blog/rss.xml">RSS</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
       </nav>
     </div>
     <div class="footer__fine">
-      <p>MIT &copy; 2026 <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
+      <p>MIT &copy; <span id="year">2026</span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
       <p class="footer__disc">An independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google, Cursor or Warp.</p>
     </div>
   </footer>
 
-  <script src="/app.js" defer></script>
+  <script>import '../scripts/site';</script>
 </Base>

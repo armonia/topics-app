@@ -139,11 +139,15 @@ const jsonLd = {
         arranged, which agents are wired up — moves in a release. That does not.
       </p>
 
-      <div class="wide" style="margin-block:36px">
+      {/* Six columns cannot fit a phone, so the box scrolls rather than the
+          page: at 390px the table forced the document to 712px wide and every
+          section of the article inherited a horizontal scrollbar. `tabindex`
+          because a scroll box that only a pointer can reach is not reachable. */}
+      <div class="wide table-scroll" style="margin-block:36px" tabindex="0" role="region" aria-label="Comparison table, scrolls horizontally">
         <table>
           <thead>
             <tr>
-              <th></th>
+              <th><span class="sr-only">Question</span></th>
               {tools.map((t) => <th>{t.us ? <strong>{t.name}</strong> : t.name}</th>)}
             </tr>
           </thead>

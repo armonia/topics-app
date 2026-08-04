@@ -1,0 +1,58 @@
+---
+/**
+ * The release list, rendered server-side.
+ *
+ * Every version is a real `<article>` with a real `<time datetime>` in the
+ * HTML, which is what makes the page's freshness legible to a crawler and to
+ * anything summarising the site. The previous client-side version produced the
+ * same pixels and none of the meaning.
+ */
+import { versions, SECTIONS } from '../lib/changelog';
+
+export interface Props {
+  /** Cap the number of releases shown. Omit for the full history. */
+  limit?: number;
+  /**
+   * The level the version number takes. It has to fit whatever is above it:
+   * `h2` on /changelog, where the page heading is the `h1`, and `h3` on the
+   * home page, where the section already spent the `h2`. Getting this wrong is
+   * a skipped level, which is the one thing that makes a 127-item list
+   * unnavigable for anyone moving through it by heading.
+   */
+  level?: 2 | 3;
+}
+const { limit, level = 3 } = Astro.props;
+const list = versions(limit);
+const Title = `h${level}` as 'h2' | 'h3';
+/** One below the version, always. */
+const Bucket = `h${level + 1}` as 'h3' | 'h4';
+---
+
+<div class="cl-list">
+  {list.map((v) => (
+    <article class="cl-rel" id={`v${v.version}`}>
+      {/* The version number is a real heading, not a styled link. It used to be
+          an <a>, which left the bucket labels below it as an <h4> directly
+          under the section's <h2> — a skipped level, and the one thing on this
+          page a screen reader needs in order to move release by release. */}
+      <header class="cl-rel__head">
+        <Title class="cl-rel__title"><a class="cl-ver" href={`#v${v.version}`}>v{v.version}</a></Title>
+        {v.date && <time class="cl-date mono" datetime={v.date}>{v.date}</time>}
+      </header>
+      <div class="cl-secs">
+        {SECTIONS.map(([key, label]) =>
+          v.sections[key].length > 0 && (
+            <div class="cl-sec">
+              <Bucket class={`cl-sec__h cl-sec__h--${key}`}>{label}</Bucket>
+              <ul>
+                {v.sections[key].map((e) => (
+                  <li>{e.scope && <span class="cl-scope">{e.scope}</span>}{e.scope ? ' ' : ''}{e.text}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+        )}
+      </div>
+    </article>
+  ))}
+</div>

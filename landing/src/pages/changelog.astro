@@ -1,13 +1,36 @@
 ---
 /**
- * Every release. Its own type pairing (Geist / Space Grotesk) is deliberate and
- * predates this migration — it is the one page on the site that is a document
- * rather than an argument.
+ * Every release.
+ *
+ * Three things changed here at once, and they were the same mistake three
+ * times. It pulled a second type pairing off Google Fonts — a render-blocking
+ * stylesheet, for a page that already had three families loaded; it carried
+ * five decorative layers belonging to a backdrop that no longer exists; and its
+ * list was written by JavaScript at runtime, so 127 versions of dated release
+ * notes were invisible to every crawler and to anything summarising the site.
+ * The page is now rendered, on the site's own type, with nothing in the head it
+ * does not use.
  *
  * The URL was /changelog.html and is now /changelog; public/_redirects keeps the
  * old one working, because it is linked from the home page and from og:url.
  */
 import Base from '../layouts/Base.astro';
+import ChangelogList from '../components/ChangelogList.astro';
+import { versions, latestDate } from '../lib/changelog';
+
+const all = versions();
+const updated = latestDate();
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: 'Topics changelog',
+  url: 'https://topics.armonia.io/changelog',
+  description: `Every Topics release, version by version — ${all.length} of them.`,
+  ...(updated ? { dateModified: updated } : {}),
+  publisher: { '@type': 'Organization', name: 'Armonia', url: 'https://armonia.io' },
+  inLanguage: 'en',
+};
 ---
 
 <Base
@@ -15,30 +38,17 @@ import Base from '../layouts/Base.astro';
   description="Every Topics release, version by version — new features, fixes and performance improvements for the agent-first desktop workspace."
   ogDescription="Every Topics release, version by version."
   path="/changelog"
-  themeColor="#06080f"
   bodyClass="cl-page"
-  googleFonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+  jsonLd={jsonLd}
 >
-<!-- icon sprite (subset used here) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <symbol id="ic-gh" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.72c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></symbol>
-      <symbol id="ic-dl" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 20h14"/></symbol>
     </defs>
   </svg>
 
-  <!-- texture & light layers -->
   <div class="grain" aria-hidden="true"></div>
-  <div class="grain grain--fine" aria-hidden="true"></div>
-  <div class="aurora" aria-hidden="true">
-    <span class="orb orb--blue"></span>
-    <span class="orb orb--violet"></span>
-    <span class="orb orb--teal"></span>
-  </div>
-  <div class="noise-grad" aria-hidden="true"></div>
-  <div class="spotlight" aria-hidden="true"></div>
 
-  <!-- NAV -->
   <header class="nav" id="nav">
     <div class="nav__inner">
       <a class="brand" href="/" aria-label="Topics home">
@@ -47,9 +57,10 @@ import Base from '../layouts/Base.astro';
       </a>
       <nav class="nav__links" aria-label="Primary">
         <a href="/#features">Features</a>
-        <a href="/#workspace">Workspace</a>
-        <a href="/changelog">Changelog</a>
-        <a href="/#download">Download</a>
+        <a href="/wiki">Docs</a>
+        <a href="/blog">Blog</a>
+        <a href="/compare/claude-code-guis">Compare</a>
+        <a href="/#pricing">Pricing</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank"><svg class="ic ic--fill"><use href="#ic-gh"/></svg>GitHub</a>
       </nav>
       <div class="nav__cta">
@@ -62,30 +73,32 @@ import Base from '../layouts/Base.astro';
     <header class="cl-page-hero">
       <span class="eyebrow">changelog</span>
       <h1>Every release, in full.</h1>
-      <p>Topics ships continuously — every merge to main goes live through the auto-updater. Here's what changed, version by version.</p>
+      <p>
+        {all.length} versions{updated ? `, the most recent on ${updated}` : ''}. Topics ships
+        continuously — every merge to main goes out through the auto-updater.
+      </p>
     </header>
 
-    <div class="cl-list" data-changelog data-limit="all">
-      <p class="cl-empty">Loading…</p>
-    </div>
+    <ChangelogList level={2} />
   </main>
 
   <footer class="footer">
     <div class="footer__inner">
       <div class="footer__brand"><img src="/icon-64.png" alt="" width="24" height="24" /><span>Topics</span></div>
       <nav class="footer__links" aria-label="Footer">
-        <a href="/#features">Features</a>
-        <a href="/changelog">Changelog</a>
-        <a href="/#download">Download</a>
+        <a href="/">Home</a>
+        <a href="/wiki">Docs</a>
+        <a href="/blog">Blog</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
         <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">Releases</a>
       </nav>
     </div>
     <div class="footer__fine">
-      <p>MIT © <span id="year"></span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
+      <p>MIT &copy; <span id="year"></span> <a href="https://armonia.io" rel="noopener" target="_blank">Armonia</a>. Built for the agent era.</p>
     </div>
   </footer>
 
-  <script src="/app.js" defer></script>
-  <script src="/changelog.js" defer></script>
+  <script>import '../scripts/site';</script>
 </Base>

@@ -12,7 +12,7 @@ export interface Props {
   path: string;
   ogTitle?: string;
   ogDescription?: string;
-  /** Extra <html> attributes — the home page carries the type/backdrop variants. */
+  /** Extra <html> attributes, for the rare page that needs one. */
   htmlAttrs?: Record<string, string>;
   bodyClass?: string;
   /** Structured data, serialised rather than inlined so braces stay JSON. */
@@ -32,13 +32,13 @@ const {
   bodyClass,
   jsonLd,
   googleFonts,
-  themeColor = '#07090f',
+  themeColor = '#faf9f5',
 } = Astro.props;
 
 const canonical = new URL(path, Astro.site).href;
 ---
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" {...htmlAttrs}>
+<html lang="en" {...htmlAttrs}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -68,9 +68,7 @@ const canonical = new URL(path, Astro.site).href;
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   {googleFonts && <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />}
   {googleFonts && <link rel="stylesheet" href={googleFonts} />}
-  {/* Only the three families the page renders. The lab candidates are fetched by
-      app.js on demand behind ?lab=1, so a normal visit never pays for type it
-      will not see. */}
+  {/* Three families, and only the weights the site actually sets. */}
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
   <link rel="stylesheet" href="/styles.css" />
