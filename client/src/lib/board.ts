@@ -374,6 +374,19 @@ export interface BoardProjectRef {
 
 const enc = encodeURIComponent;
 
+/** Lo stato della modalità notturna, come lo riporta il server. */
+export interface NightStatus {
+  enabled: boolean;
+  until: string | null;
+  startedAt: string | null;
+  action: 'off' | 'dispatch' | 'wait' | 'expire';
+  reason: string | null;
+  load1: number;
+  cores: number;
+  busySessions: number;
+  endsInMs: number | null;
+}
+
 export const boardApi = {
   list: (projectId: string, status?: TaskStatus) =>
     req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
@@ -442,6 +455,13 @@ export const boardApi = {
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  /**
+   * Lo stato della modalità notturna di una board: accesa sì, ma sta dispacciando
+   * o aspettando, e perché. Passa dallo STESSO calcolo del gate del dispatcher,
+   * quindi l'interfaccia non può dire una cosa diversa da quella che succede.
+   */
+  nightStatus: (projectId: string) =>
+    req<NightStatus>(`/boards/${enc(projectId)}/night-status`),
   /** Recommended auto concurrency cap for this machine right now (CPU/load). */
   dispatchCapacity: () =>
     req<DispatchCapacity>('/system/dispatch-capacity'),
