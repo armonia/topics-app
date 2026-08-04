@@ -143,6 +143,36 @@
       });
     });
 
+    /* The scroll shield. An iframe consumes the wheel, so a visitor scrolling
+     * past the demo used to get trapped: the pointer crosses the frame, the
+     * app's own scroll containers eat the gesture, and the page stops. The
+     * shield is a transparent layer in THIS document, so a wheel over it
+     * scrolls the page like any other pixel of the page.
+     *
+     * Click to hand the demo over — the layer goes away and the app is fully
+     * live underneath. It re-arms when the pointer leaves the frame, so the
+     * next time you scroll past you scroll past. Chapters and the ghost tour
+     * are unaffected: they drive the app from inside the iframe. */
+    const shield = $('#demoShield');
+    const stageEl = frame.closest('.showcase');
+    if (shield && stageEl) {
+      const setLive = (on) => {
+        stageEl.classList.toggle('is-live', on);
+        if (on) { try { frame.focus(); } catch (_) { /* focus is a nicety */ } }
+      };
+      shield.addEventListener('click', () => setLive(true));
+      // Leaving the frame re-arms it. `mouseleave` does not fire while the
+      // pointer is inside the iframe, so this only triggers on a real exit.
+      stageEl.addEventListener('mouseleave', () => setLive(false));
+      // Keyboard route: the shield is a real button, so Enter/Space reach it
+      // through the click handler above. Escape gives control back.
+      addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.body.classList.contains('demo-expanded')) setLive(false);
+      });
+      // Picking a chapter is a request to WATCH, not to drive: keep the shield.
+      chapterBtns.forEach((btn) => btn.addEventListener('click', () => setLive(false)));
+    }
+
     /* Expand. A class on <body>, never a DOM move: re-parenting the iframe
      * re-creates it, the app reloads, and whatever the tour was doing is gone.
      * Scroll position is saved and restored by hand because `overflow:hidden`

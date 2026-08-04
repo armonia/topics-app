@@ -9,11 +9,12 @@
  *
  * Event contracts it relies on (see the components):
  *   - PaneTabBar tab activation = onClick on `[data-pane-id]` (bubbles).
- *   - GroupLayout inner divider  = `[data-divider-row][data-divider-col]`,
- *     onMouseDown on the divider, then window mousemove / window mouseup
- *     (useGridResize — plain MouseEvents, NO pointer capture).
- *   - PanelGrid app-level divider = `[data-panel-divider-row][data-panel-divider-col]`,
- *     same mousedown→window-move→window-up protocol.
+ *   - Every divider = Layout/SplitTree.tsx, `[data-split-divider="row|col"]`:
+ *     onMouseDown on the bar, then window mousemove / window mouseup (plain
+ *     MouseEvents, NO pointer capture). It commits ONCE on mouseup with the
+ *     total delta, so a multi-waypoint drag is free — only the last position
+ *     counts. During the drag it lays a full-screen overlay at the top of the
+ *     stacking order, which is why the pointer re-appends itself below.
  *
  * Hard rules: never opens menus/modals, never navigates, never touches
  * localStorage. Skips entirely under prefers-reduced-motion; pauses between
@@ -200,6 +201,11 @@
     return glide(p.x, p.y, 700).then(function () {
       press();
       fire(el, "mousedown", p.x, p.y, 1);
+      // SplitTree covers the screen with a fixed overlay at z-index 2147483647
+      // for the duration of the drag. The pointer is at the same z-index, so
+      // the later element wins and the pointer would vanish exactly while it is
+      // doing the most visible thing on the page. Re-appending puts it last.
+      try { if (cursor && document.body) document.body.appendChild(cursor); } catch (e) {}
       var chain = Promise.resolve({ x: p.x, y: p.y });
       waypoints.forEach(function (w) {
         chain = chain.then(function (cur) {
@@ -219,20 +225,92 @@
   /* ---- target lookups (always FRESH — layout may have changed) ------------ */
   // acme-web's Claude Code tabs: pane ids are seeded by landing-boot.js.
   function tabCC(n) { return q('[data-pane-id="terminal:cc' + n + '"]'); }
-  // The terminal|preview split divider INSIDE acme-web. Scope through the
-  // cc1 tab's group cell so the (divider-less) acme-api/mobile GroupLayouts
-  // can never be confused for it; fall back to the only inner column divider.
-  function innerDivider() {
-    var tab = tabCC(1) || tabCC(2);
-    var cell = tab && tab.closest ? tab.closest("[data-group-cell]") : null;
-    var row = cell && cell.parentElement;
-    var d = row ? q("[data-divider-row][data-divider-col]", row) : null;
-    return d || q("[data-divider-row][data-divider-col]");
+
+  /* Every seam in the app is now ONE component (Layout/SplitTree.tsx), marked
+   * `data-split-divider="row|col"`: `row` = a left|right split, so a vertical
+   * bar dragged along X; `col` = a top|bottom split, a horizontal bar dragged
+   * along Y. What tells the app-level seams from a project's inner ones is not
+   * a different attribute but WHERE they sit — inside a `[data-testid=
+   * "project-window"]` or outside it.
+   *
+   * This used to look for `[data-divider-row][data-divider-col]` and
+   * `[data-panel-divider-row]`, attributes the old GroupLayout/PanelGrid
+   * dividers carried and the shared component does not. Every lookup returned
+   * null, and because a missing target is a deliberate no-op here, three
+   * scenes had quietly stopped dragging anything at all. A selector that
+   * cannot match is a test that cannot fail. */
+  function projectWindowOf(paneId) {
+    var t = q('[data-pane-id="' + paneId + '"]');
+    return t && t.closest ? t.closest('[data-testid="project-window"]') : null;
   }
-  // App-level divider between acme-api and acme-mobile (bottom row, col 0).
-  function appDivider() {
-    return q('[data-panel-divider-row="1"][data-panel-divider-col="0"]') ||
-           q("[data-panel-divider-row][data-panel-divider-col]");
+  function outsideProjectWindows(dir) {
+    try {
+      var all = document.querySelectorAll('[data-split-divider="' + dir + '"]');
+      for (var i = 0; i < all.length; i++) {
+        if (!all[i].closest('[data-testid="project-window"]')) return all[i];
+      }
+    } catch (e) { /* fall through */ }
+    return null;
+  }
+  // The terminals|stage seam INSIDE acme-web. Scoped to that project's window so
+  // the app-level column seam below can never stand in for it.
+  function innerDivider() {
+    var w = projectWindowOf("terminal:cc1") || projectWindowOf("terminal:cc2");
+    return (w && q('[data-split-divider="row"]', w)) || null;
+  }
+  // App-level seam between acme-api and acme-mobile (side by side, bottom row).
+  function appDivider() { return outsideProjectWindows("row"); }
+  // App-level seam between the acme-web row and the row under it.
+  function rowDivider() { return outsideProjectWindows("col"); }
+
+  /* ---- shape: give the thing you asked for the room to be read -------------
+   * The stage used to be one quarter of a window split four ways, so a chapter
+   * about the board showed a board the size of a business card. A chapter now
+   * RESIZES the window first — with the app's own dividers, dragged by the same
+   * pointer, so the visitor watches the layout being made rather than finding
+   * it already made.
+   *
+   * Targets are FRACTIONS of the live container, never pixels: the frame is
+   * 1300px on a desktop and 350 on a phone, and a hardcoded delta would put the
+   * divider through the floor on one of them. Both are inside PanelGrid's
+   * [MIN_PANE_FRACTION, 1-MIN] clamp (0.1), so nothing here fights the app. */
+  var shape = "grid";   // matches the layout landing-boot.js seeds
+
+  /** Drag `el` so its centre lands at `frac` across `box` on one axis. */
+  function dragToFraction(el, box, frac, axis) {
+    var b = box.getBoundingClientRect(), p = pointOf(el);
+    if (!p || !b.width || !b.height) return Promise.resolve(false);
+    var d = axis === "y"
+      ? { dy: Math.round(b.top + b.height * frac - p.y) }
+      : { dx: Math.round(b.left + b.width * frac - p.x) };
+    if (Math.abs(d.dx || d.dy) < 8) return Promise.resolve(true); // already there
+    d.ms = 620;
+    return glideAndDrag(el, [d]);
+  }
+
+  /**
+   * `focus` — acme-web takes the window, its two groups split at `col`.
+   * `grid`  — back to three projects sharing the window, the demo's rest state.
+   * A no-op when the layout is already in that shape, so switching between two
+   * stage chapters costs nothing.
+   */
+  function setShape(tok, name, col) {
+    if (shape === name + (col || "")) return Promise.resolve();
+    // 0.74, not 0.8: past that the two projects underneath stop reading as
+    // windows kept open and start reading as a squashed strip, which is the
+    // opposite of the point they are there to make.
+    var rowFrac = name === "focus" ? 0.74 : 0.56;
+    return act(tok, function () {
+      var d = rowDivider();
+      return d && d.parentElement ? dragToFraction(d, d.parentElement, rowFrac, "y") : null;
+    }).then(function () {
+      return act(tok, function () {
+        var d = innerDivider();
+        var row = d && d.parentElement;
+        if (!d || !row) return null;
+        return dragToFraction(d, row, name === "focus" ? col : 0.54, "x");
+      });
+    }).then(function () { shape = name + (col || ""); });
   }
 
   /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
@@ -276,12 +354,16 @@
    * its targets, so a scene whose pane is missing degrades to a no-op rather
    * than throwing. Keep them under ~6s: they are illustrations, not films. */
 
-  /** Switch the right-hand stage to a chapter tab and let the eye land on it. */
+  /** Switch the right-hand stage to a chapter tab and let the eye land on it.
+   *  Makes room first: a board, a dashboard or a diff in a quarter of a window
+   *  is a thumbnail, and a thumbnail is what the visitor came here to avoid. */
   function showStage(tok, paneId, dwellMs) {
-    return act(tok, function () {
-      var el = stageTab(paneId);
-      if (!el) return;
-      return glideAndClick(el, 0.5, 0.5);
+    return setShape(tok, "focus", 0.3).then(function () {
+      return act(tok, function () {
+        var el = stageTab(paneId);
+        if (!el) return;
+        return glideAndClick(el, 0.5, 0.5);
+      });
     }).then(function () {
       return act(tok, function () {
         // Drift into the pane body so the visitor looks at the CONTENT, not the tab.
@@ -295,12 +377,16 @@
   }
 
   var SCENES = {
-    /* Several whole projects open at once — the app-level split. */
+    /* Several whole projects open at once — the app-level split. This is the
+     * chapter that puts the three windows back on equal terms after a stage
+     * chapter has given acme-web the room. */
     workspace: function (tok) {
-      return act(tok, function () {
-        var el = tabCC(3); // focus acme-api (bottom-left window)
-        if (!el) return;
-        return glideAndClick(el, 0.42, 0.5);
+      return setShape(tok, "grid").then(function () {
+        return act(tok, function () {
+          var el = tabCC(3); // focus acme-api (bottom-left window)
+          if (!el) return;
+          return glideAndClick(el, 0.42, 0.5);
+        });
       }).then(function () {
         return act(tok, function () {
           var el = appDivider();
@@ -310,12 +396,16 @@
       }).then(function () { return hold(tok, 500); });
     },
 
-    /* Two live Claude Code sessions in one project, side by side with the app. */
+    /* Two live Claude Code sessions in one project, side by side with the app.
+     * Here the room goes the OTHER way: the terminals are the subject, so the
+     * split lands at 62% and the preview keeps the rest. */
     terminals: function (tok) {
-      return act(tok, function () {
-        var el = tabCC(2);
-        if (!el) return;
-        return glideAndClick(el, 0.42, 0.5);
+      return setShape(tok, "focus", 0.62).then(function () {
+        return act(tok, function () {
+          var el = tabCC(2);
+          if (!el) return;
+          return glideAndClick(el, 0.42, 0.5);
+        });
       }).then(function () { return hold(tok, 1400); })
         .then(function () {
           return act(tok, function () {
@@ -332,7 +422,12 @@
         var el = innerDivider();
         if (!el) return;
         return glideAndDrag(el, [{ dx: -110, ms: 1000, holdMs: 350 }, { dx: 6, ms: 800 }]);
-      }).then(function () { return hold(tok, 500); });
+      }).then(function () {
+        // Hand-dragged: the shape is no longer one we can claim to know, so the
+        // next chapter re-asserts its own instead of trusting a stale label.
+        shape = "custom";
+        return hold(tok, 500);
+      });
     },
 
     /* Floating splits: the desktop paint mode, shown by toggling the app's own
@@ -367,7 +462,9 @@
         return cands[0] || null;
       })();
       if (!root) return Promise.resolve();
-      return act(tok, function () {
+      // Four balanced panes make four cards; a 16%-tall strip makes two slivers.
+      // The shape IS part of what this chapter shows.
+      return setShape(tok, "grid").then(function () { return act(tok, function () {
         // Park the pointer over the seam that is about to open, so the eye is
         // already where the change happens.
         var d = innerDivider();
@@ -380,6 +477,7 @@
           // Back off. Leaving it on would turn a demonstration into a costume.
           return act(tok, function () { root.classList.remove("floating-splits"); });
         }).then(function () { return hold(tok, 500); });
+      });
     },
 
     browser:   function (tok) { return showStage(tok, "browser:c1", 1500); },
