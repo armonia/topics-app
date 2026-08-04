@@ -7,7 +7,7 @@
  *   - only DETACHED windows drive the marker (not plain browser tabs);
  *   - setWindows replaces the whole set (full-snapshot semantics, self-healing).
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, it, expect } from 'bun:test';
 import {
   computeDetachedTopicMap,
   computeDetachedWindows,
@@ -124,5 +124,39 @@ describe('store.setWindows', () => {
     // A later snapshot dropping 'a' (its socket died) must not leave a stale row.
     store.setWindows([win({ windowId: 'b', topicIds: ['2'] })]);
     expect(Object.keys(useWindowPresenceStore.getState().windows)).toEqual(['b']);
+  });
+});
+
+// ── Contesti della PROPRIA finestra, non altre finestre ────────────────────
+//
+// `windowId` vive in sessionStorage e ne nasce uno nuovo ogni volta che quello
+// storage è vuoto: la stessa finestra Tauri può annunciarsi con id diversi. È
+// così che la sezione "Finestre" mostrava 4 "principali" con una finestra sola.
+describe('computeOtherWindows — self per label, non solo per id', () => {
+  const w = (windowId: string, windowLabel?: string, detached?: boolean): PresenceWindow => ({
+    windowId, clientId: `c-${windowId}`, windowLabel, detached, topicIds: [],
+  });
+  const byId = (list: PresenceWindow[]) =>
+    Object.fromEntries(list.map((x) => [x.windowId, x]));
+
+  it('una voce col MIO label non è un\'altra finestra, anche con id diverso', () => {
+    const windows = byId([w('io', 'main'), w('altro-contesto-mio', 'main')]);
+    expect(computeOtherWindows(windows, 'io', 'main')).toEqual([]);
+  });
+
+  it('senza label si esclude solo per id (caso web: le altre tab CI SONO)', () => {
+    const windows = byId([w('io'), w('altra-tab')]);
+    expect(computeOtherWindows(windows, 'io').map((x) => x.windowId)).toEqual(['altra-tab']);
+  });
+
+  it('una finestra STACCATA resta visibile: ha un label suo', () => {
+    const windows = byId([w('io', 'main'), w('d1', 'detach-1', true)]);
+    expect(computeOtherWindows(windows, 'io', 'main').map((x) => x.windowId)).toEqual(['d1']);
+  });
+
+  it('label self assente o vuoto non filtra niente (nessun collasso accidentale)', () => {
+    const windows = byId([w('io', 'main'), w('altra', 'main')]);
+    expect(computeOtherWindows(windows, 'io', null).map((x) => x.windowId)).toEqual(['altra']);
+    expect(computeOtherWindows(windows, 'io', '').map((x) => x.windowId)).toEqual(['altra']);
   });
 });

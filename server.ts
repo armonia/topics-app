@@ -208,7 +208,11 @@ const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
 function broadcastPresence() {
   const windows = buildPresenceSnapshot(
     (function* () {
-      for (const client of wsClients) yield client.data;
+      // `alive`: un socket mezzo aperto (chiuso lato client senza che il close
+      // handler sia scattato) restava una "finestra" per sempre — `wsClients`
+      // lo ripulisce solo per quella via. Tutte le altre vie di broadcast qui
+      // dentro filtrano già su readyState; questa era l'unica che non lo faceva.
+      for (const client of wsClients) yield { ...client.data, alive: client.readyState === 1 };
     })(),
   );
   broadcastToAll({ type: 'presence:windows', windows });
