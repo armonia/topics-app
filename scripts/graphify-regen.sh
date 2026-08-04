@@ -60,6 +60,19 @@ echo "$token" >"$req" 2>/dev/null || exit 0
   {
     echo "=== graphify update @ $(date '+%Y-%m-%d %H:%M:%S') (${repo}) ==="
     graphify update "$repo"
+
+    # Retention. A full `/graphify` run drops a dated YYYY-MM-DD/ snapshot next
+    # to the live outputs, ~20 MB each. Nothing reads them — the server resolves
+    # "$out/graph.json" (server/context/assemble.ts) — so left alone they grew to
+    # 361 MB / 17 copies. Keep the newest few for rollback, drop the rest.
+    keep="${GRAPHIFY_KEEP_SNAPSHOTS:-3}"
+    snaps="$(ls -1d "$out"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] 2>/dev/null | sort)"
+    total="$(printf '%s\n' "$snaps" | grep -c . || true)"
+    if [ "${total:-0}" -gt "$keep" ]; then
+      printf '%s\n' "$snaps" | sed -n "1,$((total - keep))p" | while IFS= read -r snap; do
+        [ -n "$snap" ] && rm -rf "$snap" && echo "retention: rimosso $(basename "$snap")"
+      done
+    fi
   } >"$log" 2>&1 || true
 ) </dev/null >/dev/null 2>&1 &
 
