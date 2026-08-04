@@ -272,7 +272,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_status",
     description:
-      "Report the pane's current state: { url, title, viewport: {width,height}, loading }. Use to confirm where the pane is, read its REAL viewport size (e.g. before responsive checks), or poll whether a navigation has finished.",
+      "Report the pane's current state: { url, title, viewport: {width,height}, loading, lastDialog? }. `lastDialog` appears when an alert/confirm/prompt showed up: it is auto-closed (an unhandled dialog freezes every later event on the page) but reported here, so 'nothing happens after I click' has an answer instead of a silence. Use to confirm where the pane is, read its REAL viewport size (e.g. before responsive checks), or poll whether a navigation has finished.",
     schema: { type: "object", properties: {}, required: [] },
     surfaces: { passthrough: true, mcp: true },
   },

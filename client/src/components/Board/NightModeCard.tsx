@@ -16,18 +16,12 @@
  * interrogare più spesso aggiungerebbe carico proprio a ciò che sta misurando.
  */
 import { useEffect, useState } from 'react';
+import { useT, useLocale } from '../../hooks/useT';
+import { boardApi, type NightStatus as ApiNightStatus } from '../../lib/board';
+import { t as translate, type Locale } from '../../lib/i18n';
 
-export interface NightStatus {
-  enabled: boolean;
-  until: string | null;
-  startedAt: string | null;
-  action: 'off' | 'dispatch' | 'wait' | 'expire';
-  reason: string | null;
-  load1: number;
-  cores: number;
-  busySessions: number;
-  endsInMs: number | null;
-}
+/** Il tipo vive in `lib/board.ts` accanto alla chiamata; qui si ri-esporta per i test. */
+export type NightStatus = ApiNightStatus;
 
 interface Props {
   projectId: string;
@@ -43,23 +37,25 @@ const POLL_MS = 15_000;
 const MAX_LOAD_PER_CORE = 1.5;
 
 async function defaultFetch(projectId: string): Promise<NightStatus | null> {
+  // Via `boardApi` come tutto il resto della board: un `fetch` a mano qui si
+  // porterebbe dietro base URL, errori e intestazioni diverse dagli altri.
   try {
-    const r = await fetch(`/api/boards/${encodeURIComponent(projectId)}/night-status`);
-    if (!r.ok) return null;
-    return (await r.json()) as NightStatus;
+    return await boardApi.nightStatus(projectId);
   } catch {
     return null;
   }
 }
 
 /** «fra 2h 15min» — la scadenza come DURATA, che è come la si pensa alle 23. */
-export function formatCountdown(ms: number): string {
+export function formatCountdown(ms: number, locale: Locale = 'it'): string {
   const min = Math.max(0, Math.round(ms / 60_000));
-  if (min < 1) return 'meno di un minuto';
-  if (min < 60) return `${min} min`;
+  if (min < 1) return translate('time.lessThanAMinute', locale);
+  if (min < 60) return translate('time.minutes', locale, { n: min });
   const h = Math.floor(min / 60);
   const m = min % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}min`;
+  return m === 0
+    ? translate('time.hours', locale, { n: h })
+    : translate('time.hoursMinutes', locale, { h, m });
 }
 
 /**
@@ -67,48 +63,68 @@ export function formatCountdown(ms: number): string {
  * sbagliare — e sbagliarla significa dire a qualcuno che la board sta lavorando
  * mentre è ferma.
  */
-export function describeNight(st: NightStatus | null, enabled: boolean): {
+export function describeNight(st: NightStatus | null, enabled: boolean, asked = true): {
   tone: 'off' | 'go' | 'wait';
-  title: string;
-  detail: string | null;
+  /** Chiave i18n del titolo. */
+  titleKey: string;
+  /** Chiave i18n del dettaglio, oppure `null` quando il dettaglio è testo del server. */
+  detailKey: string | null;
+  /** Il motivo così come lo dice il server — già in italiano, non traducibile qui. */
+  detailText: string | null;
 } {
   if (!enabled) {
-    return {
-      tone: 'off',
-      title: 'Spenta',
-      detail: 'La board dispaccia come sempre, senza guardare il carico.',
-    };
+    return { tone: 'off', titleKey: 'board.night.state.off', detailKey: 'board.night.state.off.detail', detailText: null };
   }
   if (!st) {
-    return { tone: 'wait', title: 'Stato non disponibile', detail: 'Il server non ha risposto: riprovo fra poco.' };
+    // «Non ho ancora chiesto» NON è «il server non risponde». Confonderli fa
+    // lampeggiare un errore per un secondo a ogni accensione, e un errore che
+    // sparisce da solo insegna a non fidarsi di quelli veri.
+    if (!asked) {
+      return { tone: 'wait', titleKey: 'board.night.state.checking', detailKey: null, detailText: null };
+    }
+    return { tone: 'wait', titleKey: 'board.night.state.unknown', detailKey: 'board.night.state.unknown.detail', detailText: null };
   }
   if (st.action === 'wait') {
-    return { tone: 'wait', title: 'In attesa', detail: st.reason };
+    // Il motivo lo calcola il server (`night-mode.ts`) e arriva già scritto: non
+    // si ritraduce qui, si mostra. Tradurlo significherebbe tenere due copie
+    // della stessa frase e farle divergere.
+    return { tone: 'wait', titleKey: 'board.night.state.wait', detailKey: null, detailText: st.reason };
   }
   if (st.action === 'expire') {
-    return { tone: 'off', title: 'Scaduta', detail: st.reason ?? 'Orario di fine raggiunto: si spegne al prossimo giro.' };
+    return {
+      tone: 'off',
+      titleKey: 'board.night.state.expired',
+      detailKey: st.reason ? null : 'board.night.state.expired.detail',
+      detailText: st.reason ?? null,
+    };
   }
-  return { tone: 'go', title: 'Sta dispacciando', detail: 'Macchina libera: i task in coda partono.' };
+  return { tone: 'go', titleKey: 'board.night.state.go', detailKey: 'board.night.state.go.detail', detailText: null };
 }
 
 export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus }: Props) {
   const [st, setSt] = useState<NightStatus | null>(null);
+  /** Se una risposta è già arrivata (anche negativa). Serve a non spacciare
+   *  «sto ancora chiedendo» per «il server non risponde». */
+  const [asked, setAsked] = useState(false);
+  const tr = useT();
+  const locale = useLocale();
 
   useEffect(() => {
     // Spenta: nessun polling. Una card che non ha niente da raccontare non deve
     // nemmeno chiedere.
-    if (!enabled) { setSt(null); return; }
+    if (!enabled) { setSt(null); setAsked(false); return; }
     let alive = true;
     const load = async () => {
       const next = await (fetchStatus ?? defaultFetch)(projectId);
-      if (alive) setSt(next);
+      if (alive) { setSt(next); setAsked(true); }
     };
     void load();
     const t = setInterval(load, POLL_MS);
     return () => { alive = false; clearInterval(t); };
   }, [projectId, enabled, fetchStatus]);
 
-  const info = describeNight(st, enabled);
+  const info = describeNight(st, enabled, asked);
+  const detail = info.detailText ?? (info.detailKey ? tr(info.detailKey) : null);
   const soglia = Math.max(1, (st?.cores ?? 1)) * MAX_LOAD_PER_CORE;
   const caricoPct = st ? Math.min(100, Math.round((st.load1 / soglia) * 100)) : 0;
 
@@ -130,7 +146,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
       <label className="flex cursor-pointer items-center justify-between gap-2">
         <span className="flex items-center gap-1.5">
           <span aria-hidden>🌙</span>
-          <span className="font-medium">Modalità notturna</span>
+          <span className="font-medium">{tr('board.night.title')}</span>
         </span>
         <input
           type="checkbox"
@@ -141,15 +157,12 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
         />
       </label>
 
-      <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
-        Mentre sei via, la coda parte solo a macchina libera — e si spegne da sola
-        all'orario di fine, invece di restare armata addosso a chi lavora.
-      </p>
+      <p className="mt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.night.blurb')}</p>
 
       {enabled && (
         <>
           <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-[11px] text-app-text-muted">Si ferma alle</span>
+            <span className="text-[11px] text-app-text-muted">{tr('board.night.until')}</span>
             <input
               type="time"
               value={until}
@@ -162,9 +175,9 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
           <div className="mt-2 flex items-start gap-2" data-testid="night-mode-state">
             <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${toneDot}`} aria-hidden />
             <div className="min-w-0">
-              <div className="text-[11px] font-medium text-app-text">{info.title}</div>
-              {info.detail && (
-                <div className="text-[11px] leading-snug text-app-text-muted">{info.detail}</div>
+              <div className="text-[11px] font-medium text-app-text">{tr(info.titleKey)}</div>
+              {detail && (
+                <div className="text-[11px] leading-snug text-app-text-muted">{detail}</div>
               )}
             </div>
           </div>
@@ -176,9 +189,9 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
                   barra significa la stessa cosa su macchine diverse. */}
               <div className="mt-2">
                 <div className="flex items-baseline justify-between text-[10px] text-app-text-muted">
-                  <span>Carico</span>
+                  <span>{tr('board.night.load')}</span>
                   <span className="tabular-nums">
-                    {st.load1.toFixed(1)} / {soglia.toFixed(1)} ({st.cores} core)
+                    {st.load1.toFixed(1)} / {soglia.toFixed(1)} ({tr('board.night.cores', { n: st.cores })})
                   </span>
                 </div>
                 <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
@@ -192,11 +205,15 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-app-text-muted">
                 <span>
                   {st.busySessions === 0
-                    ? 'Nessuno attaccato a una sessione'
-                    : `${st.busySessions} ${st.busySessions === 1 ? 'sessione attiva' : 'sessioni attive'}`}
+                    ? tr('board.night.nobodyAttached')
+                    : st.busySessions === 1
+                      ? tr('board.night.sessions.one')
+                      : tr('board.night.sessions.many', { n: st.busySessions })}
                 </span>
                 {st.endsInMs != null && (
-                  <span data-testid="night-mode-countdown">Si spegne fra {formatCountdown(st.endsInMs)}</span>
+                  <span data-testid="night-mode-countdown">
+                    {tr('board.night.endsIn', { t: formatCountdown(st.endsInMs, locale) })}
+                  </span>
                 )}
               </div>
             </>

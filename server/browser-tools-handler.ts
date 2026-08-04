@@ -357,14 +357,21 @@ export async function handleBrowserUpload(
 export async function handleBrowserStatus(
   service: BrowserService,
   contextId: string,
-): Promise<{ url?: string; title?: string; viewport?: { width: number; height: number }; loading?: boolean; error?: string }> {
+): Promise<{ url?: string; title?: string; viewport?: { width: number; height: number }; loading?: boolean; lastDialog?: { type: string; message: string; handled: string }; error?: string }> {
   const ops = await resolveOps(service, contextId);
   try {
     const { result } = await ops.evalExpression(STATUS_JS);
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
-    return parsed && typeof parsed === "object"
-      ? (parsed as { url?: string; title?: string })
-      : { error: "browser_status: unexpected result" };
+    if (!parsed || typeof parsed !== "object") return { error: "browser_status: unexpected result" };
+    // L'ultimo dialogo, se ce n'è stato uno. Il listener lo chiude da sé
+    // (altrimenti la pagina si pianta e all'umano arriva «il browser non
+    // risponde»), ma chiuderlo in silenzio renderebbe la diagnosi impossibile:
+    // qui l'agente scopre CHE c'era e COSA diceva. Va nello status invece che in
+    // un tool nuovo perché è la domanda «com'è messa la pagina», che l'agente
+    // fa già.
+    const d = service.getLastDialog?.(contextId) ?? null;
+    const base = parsed as { url?: string; title?: string };
+    return d ? { ...base, lastDialog: { type: d.type, message: d.message, handled: d.handled } } : base;
   } catch (err: unknown) {
     return { error: `browser_status failed: ${err instanceof Error ? err.message : String(err)}` };
   }
