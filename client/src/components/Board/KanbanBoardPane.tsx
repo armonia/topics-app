@@ -654,6 +654,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // ~40 worktree il 21/07.
   const [worktreeCount, setWorktreeCount] = useState(0);
   const [gcRunning, setGcRunning] = useState(false);
+  /** Rami locali non su main: quanti, e quanti non li reclama nessun task. */
+  const [branchInv, setBranchInv] = useState<{ total: number; orphan: number; onOpenTasks: number } | null>(null);
   const [gcResult, setGcResult] = useState<string | null>(null);
   useEffect(() => {
     if (!projectPath || global) { setWorktreeCount(0); return; }
@@ -671,6 +673,27 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     // un conteggio letto una volta sola al mount invecchia sotto gli occhi.
     const t = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(t); };
+  }, [projectPath, global]);
+
+  // I RAMI non su main, col task che li reclama.
+  //
+  // Il chip «N non su main» accanto conta solo i task CHIUSI: un ramo di un task
+  // ancora in backlog — o di nessun task — non compariva da nessuna parte. È
+  // così che quattro rami con lavoro fatto sono rimasti invisibili per
+  // settimane, mentre la board riproponeva come «da fare» cose già scritte lì
+  // dentro. Il numero che conta è quello degli ORFANI: nessuno li reclamerà.
+  useEffect(() => {
+    if (!projectPath || global) { setBranchInv(null); return; }
+    let alive = true;
+    fetch(`/api/worktrees/branches?project_path=${encodeURIComponent(projectPath)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { summary?: { total: number; orphan: number; onOpenTasks: number } } | null) => {
+        if (alive && b?.summary) setBranchInv(b.summary);
+      })
+      // Un progetto che non è un repo git risponde 500: nessun inventario, e va
+      // bene — non è un errore da mostrare, è un progetto senza rami.
+      .catch(() => {});
+    return () => { alive = false; };
   }, [projectPath, global]);
 
   // «Pulisci landati»: anticipa la passata del GC invece di aspettarne una.
@@ -930,6 +953,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-app-text-secondary"
             data-testid="worktree-count-badge"
           >{worktreeCount} worktree</span>
+        )}
+        {branchInv && branchInv.total > 0 && (branchInv.orphan > 0 || branchInv.onOpenTasks > 0) && (
+          <span
+            title={`${branchInv.total} rami locali non su main.\n${branchInv.orphan} non appartengono a nessun task — nessuno li reclamerà.\n${branchInv.onOpenTasks} sono di task ancora aperti: quel lavoro esiste già.`}
+            className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300"
+            data-testid="branch-inventory-badge"
+          >{branchInv.orphan > 0 ? `${branchInv.orphan} rami orfani` : `${branchInv.onOpenTasks} rami su task aperti`}</span>
         )}
         {worktreeCount > 0 && (
           <button
