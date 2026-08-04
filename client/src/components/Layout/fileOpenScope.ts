@@ -33,3 +33,35 @@ export function shouldHandleOpenFile(
   const target = detail.topicId ?? focusedPanelId;
   return target === wrapperPaneId;
 }
+
+/**
+ * Stessa regola per `open-file-diff`, che il suo scoping non ce l'aveva: con due
+ * finestre di progetto affiancate, un click su un file nel pannello Git di B
+ * faceva comparire la tab diff ANCHE in A. Non è un bug nuovo (GitChanges
+ * dispatcha quell'evento da sempre), ma il permalink lo rende raggiungibile da
+ * fuori: un `/tab/diff/<progetto>/<file>` incollato in chat apriva il diff
+ * ovunque.
+ *
+ * L'evento porta un `projectPath` invece del `topicId` di `open-file`, quindi il
+ * bersaglio si costruisce da lì. La regola resta una sola — cambia solo da dove
+ * si legge il progetto di destinazione.
+ *
+ * Un `projectPath` mancante ricade sulla finestra a fuoco, come `open-file`: è
+ * la stessa scelta, non una nuova.
+ *
+ * @param detail          `{ projectPath }` dell'evento
+ * @param wrapperPaneId   il pane id di QUESTA finestra di progetto
+ * @param focusedPanelId  il pannello a fuoco (bersaglio di ripiego)
+ * @param toPaneId        `createPaneId('project', …)`, iniettata per tenere
+ *                        questo modulo puro e indipendente da come si compone
+ *                        un pane id
+ */
+export function shouldHandleOpenDiff(
+  detail: { projectPath?: string | null },
+  wrapperPaneId: string,
+  focusedPanelId: string | null,
+  toPaneId: (projectPath: string) => string,
+): boolean {
+  const target = detail.projectPath ? toPaneId(detail.projectPath) : focusedPanelId;
+  return target === wrapperPaneId;
+}

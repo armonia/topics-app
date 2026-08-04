@@ -78,7 +78,7 @@ import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSp
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
-import { shouldHandleOpenFile } from '../fileOpenScope';
+import { shouldHandleOpenFile, shouldHandleOpenDiff } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 import { stripWrapperPaneId } from './projectPersistence';
@@ -1928,11 +1928,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { filePath: string; projectPath: string };
+      if (!detail?.filePath) return;
+      // SCOPE a QUESTA finestra di progetto — la guardia che il gemello
+      // 'open-file' aveva e questo no. Senza, con due finestre affiancate un
+      // click nel pannello Git di B faceva comparire la tab diff anche in A, e
+      // quella tab portava il `diffProjectPath` di B pur essendo ospitata in A.
+      if (!shouldHandleOpenDiff(detail, wrapperPaneId, focusedPanelIdRef.current, p => createPaneId('project', p))) return;
       handleOpenDiff(detail.filePath, detail.projectPath);
     };
     window.addEventListener('open-file-diff', handler);
     return () => window.removeEventListener('open-file-diff', handler);
-  }, [handleOpenDiff]);
+  }, [handleOpenDiff, wrapperPaneId, focusedPanelIdRef]);
 
   useEffect(() => {
     const handler = (e: Event) => {
