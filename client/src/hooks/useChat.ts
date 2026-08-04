@@ -1271,15 +1271,22 @@ export function useChat() {
           cacheReadTokens?: number; cacheCreationTokens?: number; cacheCreation1hTokens?: number;
           model?: string;
         };
-        updateLastMessage(sessionKey, {
-          usagePromptTokens: u.promptTokens,
-          usageCompletionTokens: u.completionTokens,
-          ...(u.costCents != null ? { costCents: u.costCents } : {}),
-          cacheReadTokens: u.cacheReadTokens,
-          cacheCreationTokens: u.cacheCreationTokens,
-          cacheCreation1hTokens: u.cacheCreation1hTokens,
-          ...(u.model ? { model: u.model } : {}),
-        });
+        // Ogni campo si scrive SOLO se c'è davvero.
+        //
+        // Scriverli tutti significava che un frame senza uno di quei numeri —
+        // il provider non li manda sempre tutti — lo azzerava a `undefined`, e
+        // la striscia di fine turno spariva: `MessageMetaFooter` non disegna
+        // niente quando non ha né durata né token né costo. Un aggiornamento
+        // non deve poter CANCELLARE quello che sapevamo già.
+        const patch: Partial<ChatMessage> = {};
+        if (u.promptTokens != null) patch.usagePromptTokens = u.promptTokens;
+        if (u.completionTokens != null) patch.usageCompletionTokens = u.completionTokens;
+        if (u.costCents != null) patch.costCents = u.costCents;
+        if (u.cacheReadTokens != null) patch.cacheReadTokens = u.cacheReadTokens;
+        if (u.cacheCreationTokens != null) patch.cacheCreationTokens = u.cacheCreationTokens;
+        if (u.cacheCreation1hTokens != null) patch.cacheCreation1hTokens = u.cacheCreation1hTokens;
+        if (u.model) patch.model = u.model;
+        if (Object.keys(patch).length > 0) updateLastMessage(sessionKey, patch);
         break;
       }
 
