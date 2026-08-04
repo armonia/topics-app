@@ -192,8 +192,20 @@ test.describe("Command Palette", () => {
 
     // Palette should close, and a new draft pane opens with the welcome text.
     await expect(commandPalettePage.overlay).toBeHidden();
+    // Scoped al PANNELLO della nuova chat, non alla pagina.
+    //
+    // «Start a conversation» è il vuoto di QUALUNQUE chat senza messaggi: se
+    // un'altra chat vuota è aperta accanto — cosa che dipende da cosa ha
+    // lasciato la spec precedente — il locator sulla pagina ne trova due e
+    // Playwright fallisce per strict mode. Misurato il 04/08: la spec da sola è
+    // verde (15/15), preceduta da `cloud-session-server` cade con
+    //   1) getByLabel('Messages for E2E-CmdAlpha-…')
+    //   2) getByLabel('New Chat panel')
+    // Il test non stava sbagliando diagnosi: stava chiedendo la cosa sbagliata.
+    // Quello che vuole sapere è «la NUOVA chat si è aperta», e scoprirlo dentro
+    // il suo pannello lo rende vero indipendentemente da cosa c'è accanto.
     await expect(
-      page.getByText("Start a conversation")
+      page.getByLabel("New Chat panel").getByText("Start a conversation")
     ).toBeVisible({ timeout: 10000 });
   });
 
