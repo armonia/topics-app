@@ -26,6 +26,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
+import { censusOnce, formatCensus } from "./server/services/orphan-census";
 import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, listTerminalSessionSnapshot } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
@@ -3169,6 +3170,45 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
   .then(r => console.log(`[server] browser restore: ${r.restored} restored, ${r.failed} failed`))
   .catch(err => console.warn(`[server] browser restore failed (non-fatal):`, err.message));
+
+// Censimento delle sessioni orfane — SOLA LETTURA (task `90762124`, punto 2).
+//
+// Prima di collegare qualunque azione si guarda il giudizio girare sul campo:
+// «nessuna interfaccia la referenzia» attraversa quattro strutture di `ui_state`,
+// e un falso positivo, il giorno in cui l'azione ci sarà, spegnerebbe una
+// sessione che qualcuno stava usando. Qui non si tocca niente: si logga cosa
+// SAREBBE stato parcheggiato, e l'azione (che sarà il parcheggio, non la
+// cancellazione) si collega solo quando questo log smette di nominare sessioni
+// vive.
+//
+// Il ritardo serve, e 90 secondi NON bastavano: le sessioni di terminale non
+// vengono ripristinate all'avvio, ma quando un client si attacca. Misurato il
+// 04/08 sul server vivo, il primo giro riportava «0 sessioni esaminate» — vero
+// e inutile. A quindici minuti l'app ha attaccato le sue pane e il censimento
+// guarda qualcosa. Poi ogni sei ore, che è la frequenza giusta per una cosa che
+// si legge nei log e non fa nulla.
+const ORPHAN_CENSUS_DELAY_MS = 15 * 60_000;
+const ORPHAN_CENSUS_EVERY_MS = 6 * 60 * 60_000;
+function runOrphanCensus(): void {
+  try {
+    const r = censusOnce({
+      listSessions: () => listTerminalSessionSnapshot(),
+      listUiStateValues: () =>
+        (ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>)
+          .map((row) => row.value ?? "")
+          .filter(Boolean),
+    });
+    console.log(formatCensus(r));
+  } catch (err) {
+    // Un censimento che non riesce non deve mai essere un problema del server:
+    // non serve a farlo funzionare, serve a farci sapere una cosa.
+    console.warn("[orphan-census] salto questo giro:", (err as Error).message);
+  }
+}
+setTimeout(() => {
+  runOrphanCensus();
+  setInterval(runOrphanCensus, ORPHAN_CENSUS_EVERY_MS).unref?.();
+}, ORPHAN_CENSUS_DELAY_MS).unref?.();
 
 // Quiescence gate: a PLANNED restart (approve self-restart, or an explicit
 // restart-when-idle request) must not cut an agent mid-turn. Poll the
