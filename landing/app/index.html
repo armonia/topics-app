@@ -278,11 +278,20 @@
       ],
     };
   }
+  /* Board cards are stamped a day back, not minutes back, and it is a language
+   * decision rather than a cosmetic one. `fmtUpdatedAt` prints "4m fa" inside
+   * the first hour and falls through to `commentTime` — a numeric dd/MM HH:MM —
+   * once the card is older than twelve hours. This site is in English while the
+   * board still has a handful of hardcoded Italian strings (the i18n migration
+   * is in flight elsewhere), so an older stamp is the one that reads the same
+   * in both languages. The live agent sessions keep their fresh timestamps:
+   * those already format neutrally ("40m", "1.3h"). */
+  var BOARD_ISO = new Date(Date.now() - 26 * 3600 * 1000).toISOString();
   function mkTask(id, text, status, order, priority, assignedTo, agentId, desc) {
-    return { id: id, text: text, status: status, kanbanOrder: order, createdAt: ISO,
-      completedAt: status === "done" ? ISO : null, projectId: PROJECT, description: desc || null,
+    return { id: id, text: text, status: status, kanbanOrder: order, createdAt: BOARD_ISO,
+      completedAt: status === "done" ? BOARD_ISO : null, projectId: PROJECT, description: desc || null,
       priority: priority || 2, assignedTo: assignedTo || null, assignedAgentId: agentId || null, assignedTopicId: null,
-      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: status === "in_progress" ? ISO : null, updatedAt: ISO,
+      claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: status === "in_progress" ? BOARD_ISO : null, updatedAt: BOARD_ISO,
       archived: false, blocks: [], blockedBy: [], tags: [] };
   }
   /* The board tells the WHOLE loop in one screen: queued → an agent picked it up
@@ -293,7 +302,12 @@
     mkTask("k2", "Localize onboarding", "backlog", 1, 1),
     mkTask("k3", "Sign release builds", "todo", 0, 3),
     mkTask("k4", "Empty-state polish", "todo", 1, 2),
-    mkTask("k5", "Ship v2.2 release notes", "in_progress", 0, 4, "claude", "a2", "Agent working in an isolated worktree."),
+    /* Priority 2 on purpose. The card renders a priority pill only when the
+     * value is hand-set and non-default (`showPriority` in Card.tsx), and that
+     * pill's label is one of the strings still hardcoded in Italian. This card
+     * is the one the site crops for its "Ship" image, and "Urgente" sits inline
+     * before the title where no crop can avoid it. */
+    mkTask("k5", "Ship v2.2 release notes", "in_progress", 0, 2, "claude", "a2", "Agent working in an isolated worktree."),
     mkTask("k6", "Landing site rebuild", "in_progress", 1, 3, "claude", "a1"),
     mkTask("k7", "Token hashing", "review", 0, 3, "claude", "a3", "Delivered — waiting for your approval."),
     mkTask("k11", "Reload-safe dispatch", "review", 1, 2, "claude", "a2"),
@@ -775,7 +789,7 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-Dfyo9uAn.js"></script>
+    <script type="module" crossorigin src="./assets/index-CiE8TW1n.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/icons-Bf6S1DM3.js">
     <link rel="modulepreload" crossorigin href="./assets/markdown-DPMNvPOV.js">
     <link rel="modulepreload" crossorigin href="./assets/react-vendor-Bpw9NJ6-.js">
