@@ -37,7 +37,7 @@ chat anche prima che la shell sappia attribuire le webview.
   Serializzati con un lock — condividono la mappa statica e `cargo test` va in
   parallelo (due rossi intermittenti alla prima stesura).
 
-## Phase 3 — Canale unico e tipi (RES-ATTR-01/02) — FATTA per il lato server
+## Phase 3 — Canale unico e tipi (RES-ATTR-01/02) — FATTA
 - [x] 3.1 `lib/paneUsage.ts`: store condiviso con cache, dedup e finestra allineata a
   `FLEET_TTL_MS`. NON `useSystemStatus`, che fa un `setInterval` per istanza —
   `PaneTabBar` è montata una volta per gruppo, quindi riusarlo avrebbe moltiplicato le
