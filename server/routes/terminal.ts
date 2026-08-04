@@ -20,6 +20,7 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
+import { decideOnRestart } from "../lib/terminal-restart-policy";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -1046,39 +1047,31 @@ async function reconcileSessions(attempt = 0): Promise<void> {
     }
   }
 
-  // DB has session, bridge doesn't → recreate or remove
+  // DB has session, bridge doesn't → parcheggia, rilancia o rimuovi.
+  // CHI fa cosa lo decide `lib/terminal-restart-policy.ts`, che è puro e ha i
+  // suoi test: qui restano solo gli effetti.
   for (const row of dbRows) {
     if (!bridgeIds.has(row.id)) {
-      if ((row.type === 'claude-code' || row.type === 'claude-code-team') && row.claude_session_id) {
-        // Claude Code (or team-mode) session — recreate with --resume
-        console.log(`[Terminal] Recreating ${row.type} session ${row.id} with --resume`);
-        try {
-          await createSession(
-            row.id, row.name, row.cwd, undefined,
-            row.cols || 120, row.rows || 30,
-            row.topic_id || undefined, row.type as 'claude-code' | 'claude-code-team',
-            row.skip_permissions !== 0, row.claude_session_id,
-            row.parent_session_key || undefined,
-            (row.name_source as 'default' | 'auto' | 'user') || 'default',
-          );
-        } catch (err: any) {
-          console.warn(`[Terminal] Failed to recreate session ${row.id}: ${err.message}`);
-          // Don't lose a resumable session over a transient boot failure (bridge
-          // not ready, momentary spawn error). If its transcript is still on
-          // disk it can be revived later, so park it as dormant rather than
-          // deleting. Only when the transcript is GONE (truly unrevivable — a
-          // --resume would fail forever and re-trigger the "appears then closes"
-          // flicker) do we drop the row.
-          try {
-            const hasTranscript = fs.existsSync(claudeTranscriptPath(row.cwd, row.claude_session_id));
-            if (hasTranscript) {
-              db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]);
-            } else {
-              db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]);
-            }
-          } catch { /* swallow */ }
-        }
-      } else if (row.type === 'codex') {
+      const isClaude = row.type === 'claude-code' || row.type === 'claude-code-team';
+      // Il transcript si guarda solo dove conta (tipi claude con un id di
+      // ripresa): è l'unico caso in cui la sua assenza cambia la decisione, e
+      // uno `stat` per riga a ogni avvio non si regala.
+      const hasTranscript = isClaude && row.claude_session_id
+        ? (() => { try { return fs.existsSync(claudeTranscriptPath(row.cwd, row.claude_session_id)); } catch { return false; } })()
+        : false;
+      const decision = decideOnRestart({
+        type: row.type || 'shell',
+        claudeSessionId: row.claude_session_id,
+        hasTranscript,
+      });
+
+      if (decision.action === 'drop') {
+        console.log(`[Terminal] Rimossa ${row.type} ${row.id}: transcript assente, non ripristinabile`);
+        try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch { /* swallow */ }
+      } else if (decision.action === 'park') {
+        console.log(`[Terminal] Parcheggiata ${row.type} ${row.id} (dormiente, si rianima al focus)`);
+        try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch { /* swallow */ }
+      } else {
         // Codex — RECREATE (don't park dormant) so the pane re-enters the live
         // roster and the client reattaches, exactly like claude-code does with
         // --resume. createSession resumes the prior conversation when we
@@ -1108,11 +1101,6 @@ async function reconcileSessions(attempt = 0): Promise<void> {
           console.warn(`[Terminal] Failed to recreate codex session ${row.id}: ${err.message} — parking dormant`);
           try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch {}
         }
-      } else {
-        // Shell session — mark dormant instead of deleting.
-        // Client can revive it (creates new PTY in same cwd) or it gets cleaned up after 1h.
-        console.log(`[Terminal] Marking shell session ${row.id} as dormant`);
-        try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch {}
       }
     }
   }
