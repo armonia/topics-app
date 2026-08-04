@@ -1,6 +1,10 @@
 ---
 title: MCP scoping
-definition: Restricting which MCP servers a given session can see. It matters because every tool an agent is offered costs context on every turn and adds one more way to pick the wrong thing, and because inherited configuration is the usual reason an agent has tools nobody meant to give it.
+definition: >-
+  Restricting which MCP servers a given session can see. It matters because every tool an
+  agent is offered costs context on every turn and adds one more way to pick the wrong thing,
+  and because inherited configuration is the usual reason an agent has tools nobody meant to
+  give it.
 updatedDate: 2026-08-04
 pillar: protocols
 seeAlso:
@@ -33,7 +37,7 @@ it was asked to read now has them too.
 ## The rule
 
 Start each session from an explicit set rather than from whatever the environment
-merged together, and make it easy to say "this one, nothing else" — most clients
+merged together, and make it easy to say "this one, nothing else". Most clients
 support exactly this and almost nobody uses it.
 
 Sessions are spawned with an explicit configuration rather than inheriting the

@@ -1,6 +1,9 @@
 ---
 title: Window (group)
-definition: A group is a set of tabs you live in — the unit a window represents. Confusing it with a cell of a split layout is the most common mistake in tiling interfaces, because the two look identical on screen and behave nothing alike.
+definition: >-
+  A group is a set of tabs you live in: the unit a window represents. Confusing it with a cell
+  of a split layout is the most common mistake in tiling interfaces, because the two look
+  identical on screen and behave nothing alike.
 updatedDate: 2026-08-04
 pillar: performance
 seeAlso:
@@ -13,7 +16,7 @@ apart decides how the whole interface behaves.
 
 A **cell of a split** is a position in a layout tree. It exists because a pane
 was divided. Close everything in it and it disappears, because the tree
-rebalances — a cell is not a thing you own, it is a consequence of an
+rebalances. A cell is not a thing you own; it is a consequence of an
 arrangement.
 
 A **group** is a set of tabs that belongs together. It survives being emptied.

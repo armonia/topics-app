@@ -48,7 +48,8 @@ const jsonLd = {
 };
 ---
 
-<Reading title={`${d.title} · Topics`} description={d.description} path={`/blog/${post.id}`} jsonLd={jsonLd}>
+<Reading title={`${d.title} · Topics`} description={d.description} path={`/blog/${post.id}`} jsonLd={jsonLd}
+  current="blog">
   <header class="article-head">
     <p class="article-kicker">{FORMAT_LABEL[d.format]}</p>
     <h1>{d.title}</h1>

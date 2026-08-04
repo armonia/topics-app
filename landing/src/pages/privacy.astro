@@ -27,9 +27,10 @@ const jsonLd = {
 
 <Reading
   title="Privacy · Topics"
-  description="The Topics app collects nothing and talks to no server of ours. This website is a separate question, and this page answers both — including what would change if analytics were ever added."
+  description="The Topics app collects nothing and talks to no server of ours. This website is a separate question, and this page answers both, including what would change if analytics were ever added."
   path="/privacy"
   jsonLd={jsonLd}
+  current="docs"
 >
   <header class="article-head">
     <p class="article-kicker">Updated {UPDATED}</p>
@@ -71,7 +72,7 @@ const jsonLd = {
       <p>Two things do happen, and they are worth naming:</p>
       <ul>
         <li>
-          <strong>Cloudflare logs requests.</strong> Any web server does — IP address, user
+          <strong>Cloudflare logs requests.</strong> Any web server does: IP address, user
           agent, which page. It is what serving a request consists of. We do not build
           anything on top of those logs.
         </li>
@@ -89,7 +90,7 @@ const jsonLd = {
 
       <h2 id="if-analytics-are-ever-added">If analytics are ever added</h2>
       <p>
-        They might be — knowing whether anybody reads the blog is a reasonable thing to want.
+        They might be. Knowing whether anybody reads the blog is a reasonable thing to want.
         If it happens it will be Cloudflare Web Analytics, which is cookieless and records no
         cross-site identifier, and this page will say so with the date, before the script goes
         up rather than after.
@@ -105,7 +106,7 @@ const jsonLd = {
       <p>
         <a href="mailto:topics@armonia.io">topics@armonia.io</a>. If you find a network call
         the app makes that is not described here, that is a bug and we would like to know
-        about it — the <a href="https://github.com/armonia/topics-app/blob/main/SECURITY.md" rel="noopener" target="_blank">security policy</a> is the fast route.
+        about it, and the <a href="https://github.com/armonia/topics-app/blob/main/SECURITY.md" rel="noopener" target="_blank">security policy</a> is the fast route.
       </p>
     </article>
   </div>

@@ -1,6 +1,9 @@
 ---
 title: Squash-landed branch
-definition: A branch whose changes are all in main but whose commits are not, because landing squashed them into one new commit. Git's "is it merged" check answers about ancestry, so it says no, and any cleanup that trusts that answer either keeps everything or deletes the wrong thing.
+definition: >-
+  A branch whose changes are all in main but whose commits are not, because landing squashed
+  them into one new commit. Git's "is it merged" check answers about ancestry, so it says no,
+  and any cleanup that trusts that answer either keeps everything or deletes the wrong thing.
 updatedDate: 2026-08-04
 pillar: worktrees
 seeAlso:
@@ -11,7 +14,7 @@ seeAlso:
 
 A merge commit has two parents, so the branch remains an ancestor of `main` and
 `git branch --merged` lists it. A squash creates one *new* commit with the same
-tree and a single parent — the branch's commits are not in the history at all.
+tree and a single parent, and the branch's commits are not in the history at all.
 
 Same result in the files. Completely different answer to "is this merged".
 

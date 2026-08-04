@@ -1,6 +1,9 @@
 ---
 title: Kanban agent task
-definition: A unit of work on a board that an agent can pick up on its own, work in an isolated checkout, and hand back with evidence. It differs from an ordinary ticket in that the acceptance criteria have to be machine-checkable, not just human-readable.
+definition: >-
+  A unit of work on a board that an agent can pick up on its own, work in an isolated
+  checkout, and hand back with evidence. It differs from an ordinary ticket in that the
+  acceptance criteria have to be machine-checkable, not just human-readable.
 updatedDate: 2026-08-04
 pillar: parallel-agents
 seeAlso:
@@ -33,7 +36,7 @@ reviewed. A task that reaches review with an uncommitted working tree is not
 ready, it is a description of something that happened on a machine.
 
 The corollary is that the agent should move its own card to review. It is the
-only party that knows when it is finished — while a human decides what happens
+only party that knows when it is finished, while a human decides what happens
 next. See [[landing-vs-approving]].
 
 ## Subtasks are a checklist, not a queue

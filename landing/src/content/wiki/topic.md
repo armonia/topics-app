@@ -1,6 +1,9 @@
 ---
 title: Topic
-definition: A topic is one unit of work that holds everything belonging to it — the agent conversation, a real terminal, the project files and their diffs, a browser, and what the turns cost — instead of scattering them across four windows that only your memory connects.
+definition: >-
+  A topic is one unit of work that holds everything belonging to it (the agent conversation, a
+  real terminal, the project files and their diffs, a browser, and what the turns cost)
+  instead of scattering them across four windows that only your memory connects.
 updatedDate: 2026-08-04
 pillar: parallel-agents
 seeAlso:

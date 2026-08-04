@@ -1,6 +1,10 @@
 ---
 title: Prompt caching
-definition: Prompt caching lets a provider reuse the already-processed prefix of a prompt instead of reading it again. It is the difference between paying for your system prompt once and paying for it on every single turn, and it breaks the moment anything near the front of the context changes.
+definition: >-
+  Prompt caching lets a provider reuse the already-processed prefix of a prompt instead of
+  reading it again. It is the difference between paying for your system prompt once and paying
+  for it on every single turn, and it breaks the moment anything near the front of the context
+  changes.
 updatedDate: 2026-08-04
 pillar: cost
 seeAlso:

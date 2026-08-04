@@ -2,7 +2,7 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.11 — 2026-08-04
+## 2.2.11 — 2026-08-05
 
 ### Novità
 - **tempi** · sidebar e tab dicono da quanto lavora, o quanto fa che ha finito
@@ -112,6 +112,43 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Archivia per-pane-resource-usage e promuovi la capability
 - secondo lotto — KanbanBoardPane, ChatInput, GitChanges (740 → 718)
 - Ripara tre modi in cui local-shell-swap.sh falliva
+- Il sito racconta il prodotto vero, e torna deployabile dal repo
+- Il deploy non porta con sé una cartella che non è il sito
+- Traccia anche le chat e le webview, non solo i terminali
+- Il sito si legge meglio, e l'anteprima arriva prima di tutto
+- Scelto il carattere: serif nei titoli, e la pagina smette di caricare i provini
+- terzo lotto e un contatore che non mente
+- Profondità vera, caratteri ricercati, e il download Linux che non scaricava
+- La pane Browser dipinge di nuovo, e il sito nomina le sedici cose che taceva
+- Dichiara il pannello domande per quello che è: sola lettura
+- Le card mostrano il prodotto, non un disegno del prodotto
+- I numeri del turno vivono sul messaggio, non nella striscia che li ascolta
+- Togli il cronometro da accanto alla domanda
+- La demo smette di essere una finestrella, e le floating splits si vedono
+- Quattro cose che la chat diceva sbagliate
+- Il consumo del turno non si azzera, e sopravvive a una ricarica
+- Il pannello risponde come si risponde a voce
+- Ridimensionare uno split dentro un progetto non riscrive più il grid intorno
+- Una finestra raggruppa le sue TAB, non solo le sue chat
+- La demo smette di rubarti lo scroll, e i capitoli si fanno spazio
+- Un solo glifo per «sta lavorando», e il consiglio si vede
+- Il gruppo è l'unità: la sidebar li mostra, e "Finestre" sparisce
+- Una sola dichiarazione per PresenceTab, e il contratto WS dice la verità
+- Il sito smette di sbattere fuori i lettori che contano
+- Le immagini del prodotto smettono di essere illeggibili
+- Il sito prende un motore, e con esso blog e wiki
+- Gli script del sito seguono il sito
+- La card di condivisione smette di essere un logo schiacciato
+- Le regole di cache seguono gli asset generati
+- La firma e' l'organizzazione, non una persona
+- Il confronto, con i fatti presi dalle loro pagine e non dalla memoria
+- Il lint torna verde, e non con dei disable
+- Il wiki arriva a ventinove voci, e i collegamenti non possono marcire
+- Passo di humanizer sul contenuto, misurato non a sentimento
+- Quattro articoli, e il grafico che ha smentito il titolo
+- Carta e strumento: il sito si ribalta, il prodotto resta l'unica cosa scura
+- Un cancello per il sito, che prova anche quello che non e' markup
+- Un commit sulla landing che cancella due componenti React
 
 ## 2.2.10 — 2026-08-02
 

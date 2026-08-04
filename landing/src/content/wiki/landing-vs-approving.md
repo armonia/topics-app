@@ -1,6 +1,9 @@
 ---
 title: Landing vs approving
-definition: Approving accepts an agent's work; landing merges it into your main branch; publishing pushes it to a remote. Collapsing the three into one button is how code you have not read ends up somewhere you cannot easily take it back from.
+definition: >-
+  Approving accepts an agent's work; landing merges it into your main branch; publishing
+  pushes it to a remote. Collapsing the three into one button is how code you have not read
+  ends up somewhere you cannot easily take it back from.
 updatedDate: 2026-08-04
 pillar: worktrees
 seeAlso:
@@ -39,7 +42,7 @@ commit with it. Ask git whether the branch is merged and it says no, because it
 is answering a question about ancestry, not about content.
 
 Any cleanup that deletes "unmerged" branches will therefore refuse to delete
-branches that are actually done — or, worse, a cleanup that trusts the opposite
+branches that are actually done. Or, worse, a cleanup that trusts the opposite
 heuristic will delete work that never landed. The reliable test is by content,
 not by ancestry.
 

@@ -112,6 +112,42 @@ const SCOPE_EN = {
 };
 const scopeEn = (s) => (s ? SCOPE_EN[s] || s : s);
 
+/**
+ * Em dashes out, for the PUBLIC SITE ONLY.
+ *
+ * Release notes here come from commit subjects, and the commit style is
+ * "scope — what changed", so 298 of them arrived on the site carrying an em
+ * dash. That is 299 of the 408 em dashes in 44,310 words of published copy, and
+ * a density of em dashes is one of the listed tells of machine-written prose —
+ * on a site whose credibility rests on a person having written it.
+ *
+ * The shape is uniform enough to transform safely: every one of the 298 is a
+ * single space-wrapped dash separating a subject from its explanation, which is
+ * a colon. Where the subject already contains a colon, a comma instead, so the
+ * line does not end up with two.
+ *
+ * CHANGELOG.md and the in-app changelog keep their dashes: this is about how the
+ * public site reads, not about rewriting the repository's own history.
+ */
+function undash(text) {
+  return String(text).replace(/ — /g, (_m, i, s) => (s.slice(0, i).includes(':') ? ', ' : ': '));
+}
+
+/**
+ * Empty adjectives, same reasoning, same scope: public site only.
+ *
+ * "robust" carries no information in any of the four entries that use it —
+ * "robust Chromium cleanup" is Chromium cleanup — and it is on the list of
+ * words that make prose read as generated. Deleting it costs the sentence
+ * nothing, which is the test for whether an adjective was doing work.
+ *
+ * Deliberately NOT here: `vibrancy`. That is NSVisualEffectView's own name for
+ * the effect, it appears twenty times, and every one of them is correct.
+ */
+function deflate(text) {
+  return String(text).replace(/\brobust\s+/gi, '');
+}
+
 // Public site: EN only, user-facing buckets, drop internal churn. Fallback to IT
 // so a not-yet-translated entry still shows rather than vanishing.
 const siteJson = versions
@@ -119,9 +155,9 @@ const siteJson = versions
     version: v.version,
     date: v.date,
     sections: {
-      new: v.sections.new.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
-      fixes: v.sections.fixes.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
-      perf: v.sections.perf.map((e) => ({ text: e.en || e.it, scope: scopeEn(e.scope) })),
+      new: v.sections.new.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
+      fixes: v.sections.fixes.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
+      perf: v.sections.perf.map((e) => ({ text: deflate(undash(e.en || e.it)), scope: scopeEn(e.scope) })),
     },
   }))
   .filter((v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0);

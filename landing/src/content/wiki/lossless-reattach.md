@@ -1,6 +1,9 @@
 ---
 title: Lossless reattach
-definition: Reconnecting to a terminal session and getting back the whole scrollback, not just the last screen. Almost every embedded terminal gets this wrong, and the difference shows up exactly when it matters — when you want to know what happened while you were not looking.
+definition: >-
+  Reconnecting to a terminal session and getting back the whole scrollback, not just the last
+  screen. Almost every embedded terminal gets this wrong, and the difference shows up exactly
+  when it matters: when you want to know what happened while you were not looking.
 updatedDate: 2026-08-04
 pillar: substrate
 seeAlso:

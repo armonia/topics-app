@@ -11,12 +11,13 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft))
   title="Blog · Topics"
   description="What we measured while building a desktop workspace for coding agents: memory footprints, token costs, terminal internals, and the things that broke on the way."
   path="/blog"
+  current="blog"
 >
   <header class="index-head">
     <h1>Blog</h1>
     <p>
       What we measured while building this. Numbers we took ourselves, with the method
-      next to them, and the failures included — a claim without a way to check it is
+      next to them, and the failures included. A claim without a way to check it is
       just marketing with a decimal point.
     </p>
   </header>
