@@ -1000,6 +1000,23 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   autoMerge: taskAutoMerge,
   // Structural review gate: real uncommitted changes in the task's branch
   // worktree (junk excluded); null = no worktree, gate skipped.
+  // Il progetto di questa board puo' avere un worktree isolato? Stessa
+  // risoluzione che usa il dispatch, cosi' il pannello non puo' dire una cosa e
+  // il dispatch farne un'altra.
+  worktreeReady: (projectId) => {
+    try {
+      const c = resolveProjectPath(
+        projectId,
+        buildProjectCandidates({
+          projectStore: ctx.projectStore,
+          workspaceDir: DISPATCH_WORKSPACE_DIR,
+          extraPaths: dispatchExtraPaths,
+        }),
+      );
+      if (!c) return false;
+      return !!c.projectStoreId || existsSync(join(c.path, ".git"));
+    } catch { return true; } // in dubbio non si accusa il progetto
+  },
   taskWorktreeDirt: async (taskId) => {
     const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch") return null;
