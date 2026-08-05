@@ -731,7 +731,14 @@ export function consumeTabLinkFromUrl(opts?: OpenTabOptions): (() => void) | nul
     try {
       const u = new URL(window.location.href);
       u.pathname = '/';
+      // `?space=` sopravvive allo strip: in una finestra-GRUPPO quella query è
+      // l'identità della finestra (chi è il gruppo che disegna), non un
+      // parametro di navigazione. Cancellarla la trasformerebbe in una
+      // finestra principale al primo reload — lo stesso guasto che `?topics=`
+      // evita uscendo prima da questa funzione.
+      const pinnedSpace = u.searchParams.get('space');
       u.search = '';
+      if (pinnedSpace) u.searchParams.set('space', pinnedSpace);
       window.history.replaceState(null, '', u.toString());
     } catch {
       /* history non disponibile: la tab è comunque aperta */

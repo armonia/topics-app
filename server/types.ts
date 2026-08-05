@@ -55,6 +55,8 @@ export interface WSData {
   windowId?: string;
   windowLabel?: string;
   detached?: boolean;
+  /** Lo Spazio (gruppo) che questa finestra ospita da sola (`?space=`). */
+  presenceSpaceId?: string;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
   /** Every tab this window holds (chats, terminals, projects, browsers), as it

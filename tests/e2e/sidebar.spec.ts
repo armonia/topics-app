@@ -634,14 +634,14 @@ test.describe("Sidebar — Project icons", () => {
     await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
 
-  // Un gruppo è l'unità; una finestra è solo un gruppo staccato. La sezione
-  // "Finestre" è sparita per questo — quello che sapeva fare (raggiungere la
-  // finestra che tiene una tab) vive qui, per TAB, dentro il gruppo di
-  // appartenenza.
-  test("SIDEBAR-GROUPS: a tab held by another window is marked, and reachable, inside its group", async ({ page }) => {
+  // Una tab tenuta da un'ALTRA finestra resta visibile qui, col glifo della
+  // finestra: è l'unica cosa che la vecchia sezione "Finestre" sapeva fare, e
+  // sopravvive alla sua rimozione (e a quella della sezione "Gruppi", che
+  // ri-elencava le stesse tab con un albero parallelo).
+  test("SIDEBAR-GROUPS: una tab tenuta da un'altra finestra porta il glifo, e le vecchie sezioni non ci sono più", async ({ page, request }) => {
+    const topic = await createTopic(request, `SIDEBAR-ELSEWHERE-${Date.now()}`);
     // La presenza è WS-driven: si inietta un frame `presence:windows` e si
-    // guarda cosa ne fa la sidebar. La finestra annuncia le sue TAB (non solo
-    // le chat), che è la forma su cui questa sezione lavora.
+    // guarda cosa ne fa la sidebar.
     await page.routeWebSocket(/ws/, (ws) => {
       const server = ws.connectToServer();
       server.onMessage((msg) => ws.send(msg));
@@ -652,9 +652,9 @@ test.describe("Sidebar — Project icons", () => {
           windows: [
             {
               windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
-              topicIds: ["e2e-detached-topic"],
+              topicIds: [topic.id],
               tabs: [
-                { id: "e2e-detached-topic", type: "chat", title: "auth flow" },
+                { id: topic.id, type: "chat", title: topic.name },
                 { id: "terminal:e2e-cc", type: "terminal", title: "Claude Code" },
               ],
             },
@@ -664,16 +664,25 @@ test.describe("Sidebar — Project icons", () => {
     });
     await goToApp(page);
 
-    // Con zero gruppi creati dall'utente la sezione si accende lo stesso,
-    // perché c'è una tab altrove: è la regressione da non introdurre
-    // togliendo "Finestre".
-    const section = page.getByTestId("sidebar-groups");
-    await expect(section, "the groups section renders when a tab lives elsewhere").toBeVisible({ timeout: 10000 });
-    await expect(section).toContainText("Gruppi");
-    await expect(section).toContainText("Principale");
+    const sidebar = page.getByTestId("sidebar-topic-list");
+    await expect(
+      sidebar.getByText(topic.name, { exact: false }).first(),
+      "la riga della chat tenuta altrove resta nella lista",
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      sidebar.locator('[aria-label="Aperto in un\'altra finestra"]').first(),
+      "e porta il glifo della finestra che la tiene",
+    ).toBeVisible({ timeout: 10000 });
+
     await expect(
       page.getByTestId("sidebar-windows"),
-      "the old windows section is gone: a window is a detached group",
+      "la vecchia sezione Finestre non c'è: una finestra è un gruppo staccato",
     ).toHaveCount(0);
+    await expect(
+      page.getByTestId("sidebar-groups"),
+      "e nemmeno la sezione Gruppi: i gruppi stanno in fondo, e le tab sono già elencate qui",
+    ).toHaveCount(0);
+
+    await deleteTopic(request, topic.id).catch(() => {});
   });
 });

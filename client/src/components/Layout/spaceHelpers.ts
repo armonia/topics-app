@@ -27,9 +27,12 @@ export function createSpaceId(): string {
   return `space:${generateUUID()}`;
 }
 
-/** Default name for the Nth user space ("Spazio 2", …). */
+/** Default name for the Nth user group ("Gruppo 2", …). Nel codice restano
+ *  "space"/"Spazio" (id, azioni, chiavi); a schermo si dice GRUPPO, che è la
+ *  parola che l'utente usa e quella che il modello merita: il gruppo è
+ *  l'unità, e una finestra è un gruppo staccato. */
 export function nextSpaceName(spaces: Record<string, SpaceMeta>): string {
-  return `Spazio ${liveSpacesOrdered(spaces).length + 2}`;
+  return `Gruppo ${liveSpacesOrdered(spaces).length + 2}`;
 }
 
 /** Detached pop-out windows (`?topics=`) skip every pane-store bridge — the

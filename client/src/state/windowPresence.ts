@@ -41,6 +41,10 @@ export interface PresenceWindow {
   windowLabel?: string;
   /** True for a popped-out OS window. */
   detached?: boolean;
+  /** Lo Spazio (gruppo) che questa finestra ospita da sola (`?space=`). È il
+   *  fatto su cui la barra dei gruppi decide se un chip commuta qui o porta
+   *  davanti un'altra finestra. */
+  spaceId?: string;
   /** Topic ids this window currently holds open. */
   topicIds: string[];
   /** The topic focused inside that window, if any. */

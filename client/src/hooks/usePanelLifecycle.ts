@@ -84,6 +84,7 @@ import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
 import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
+import { spaceWindowId } from '../lib/windowRole';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
@@ -414,6 +415,19 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   );
   const visiblePanels = isDetached ? openPanels : visibleFromStore;
 
+  // Finestra-GRUPPO (`?space=<id>`): lo Spazio lo decide la query, e va
+  // RI-affermato. Al boot la registry può non contenerlo ancora (il gruppo
+  // nasce su un'altra finestra e arriva col primo hydrate), e SET_ACTIVE_SPACE
+  // risolve un id sconosciuto sul default: senza questo la finestra staccata
+  // resterebbe sul gruppo principale, cioè mostrerebbe le tab di un altro.
+  const pinnedSpaceId = spaceWindowId();
+  useEffect(() => {
+    if (!pinnedSpaceId) return;
+    if (activeSpaceId === pinnedSpaceId) return;
+    if (!isLiveSpaceId(pinnedSpaceId, storeSpaces)) return;
+    usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: pinnedSpaceId } });
+  }, [pinnedSpaceId, activeSpaceId, storeSpaces]);
+
   // Space died remotely (a hydrate brought its deleted:true tombstone) while
   // this window was looking at it → fall back to the default space. Read-time
   // resolution (resolvePaneSpace) already reassigned the panes; this just
@@ -433,6 +447,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // SET_ACTIVE_SPACE reducer's focus handoff, so the two rules can't fight.
   useEffect(() => {
     if (isDetached) return;
+    // In una finestra-gruppo il fuoco non porta MAI altrove: quella finestra è
+    // un gruppo solo, e seguire il fuoco vorrebbe dire cambiarle identità sotto
+    // i piedi (e portarci le tab di un'altra).
+    if (pinnedSpaceId) return;
     if (!focusedPanelId) return;
     if (!openPanels.includes(focusedPanelId)) return;
     if (visiblePanels.includes(focusedPanelId)) return;
@@ -448,7 +466,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       s.dispatch({ type: 'FOCUS_PANE', payload: { id: focusedPanelId } });
       s.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: target } });
     }
-  }, [isDetached, focusedPanelId, openPanels, visiblePanels]);
+  }, [isDetached, pinnedSpaceId, focusedPanelId, openPanels, visiblePanels]);
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----
   const storeSyncInternalRef = useRef(false);
@@ -2366,6 +2384,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       windowId,
       windowLabel: currentWindowLabel() ?? undefined,
       detached: isDetached,
+      spaceId: spaceWindowId() ?? undefined,
       topicIds: presenceTopicIds,
       focusedTopicId: focusedTopicForPresence,
       tabs: presenceTabs,
