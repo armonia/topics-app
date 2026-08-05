@@ -278,36 +278,22 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           branch. Four agents can be mid-edit at the same time, in the same repository,
           and never see each other's uncommitted files.
         </p>
-        <ul class="act__points">
-          <li><b>One checkout per task.</b> Named for the task, cleaned up when it lands.</li>
-          <li><b>Concurrency sized to the machine</b>, so eight agents do not thrash one laptop.</li>
-          <li><b>Outside sessions count.</b> Claude Code in your own terminal still shows up here.</li>
-        </ul>
+                <ol class="beats">
+          <li><b>You write the task.</b> One card, in the project's own board.</li>
+          <li><b>Topics cuts it a checkout.</b><code>git worktree add ../acme-web@release-signing -b topics/release-signing</code></li>
+          <li><b>The agent works in there.</b> Its uncommitted edits are invisible to the other three, and to you. Nobody stashes anything.</li>
+          <li><b>You keep working on main the whole time.</b> Four checkouts, one <code>.git</code>, one clone on disk.</li>
+        </ol>
+        <p class="act__also">Concurrency is sized to the machine, so eight agents do not thrash one laptop. A Claude Code session you started yourself, in your own terminal, shows up here too.</p>
       </div>
       <figure class="act__stage">
+        <span class="scene__tag">acme-web · main</span>
         <div class="scene scene--worktrees">
-          <span class="scene__tag">acme-web · main</span>
-          {/* Four rows, because the act above it says four agents and the hero
-               float says four worktrees. A picture that shows three while the
-               sentence beside it says four is the kind of small untruth a
-               reader notices without being able to say why. */}
           {/* The real window, at the state this act is about: the same client
                that is running in the hero, driven to this tab and captured.
                Nothing in this picture is drawn by hand. */}
           <img class="scene__shot" src="/img/act-worktrees.webp" width="1400" height="1054"
                loading="lazy" decoding="async" alt="The Git pane of the Topics window: the branch list on the left and the diff of the selected file beside it." />
-          <div class="scene__fg card--wt">
-            <div class="fg__bar">
-              <span class="fg__av" aria-hidden="true"></span>
-              <span class="fg__who">Claude Code <span class="fg__mute">· Opus 5</span></span>
-              <span class="fg__st"><span class="pip pip--go"></span>working · 4m</span>
-            </div>
-            <div class="fg__body">
-              <p class="fg__title">Add the signing step to the release script</p>
-              <p class="fg__path">topics/release-signing <span class="fg__mute">· isolated checkout</span></p>
-              <p class="fg__term"><b>Bash</b>(bun run build &amp;&amp; npm run release:sign) <span class="ok"><svg class="ic ic--xs"><use href="#ic-check"/></svg> 2.3s</span></p>
-            </div>
-          </div>
         </div>
         <figcaption>Four worktrees open on the same repository. The one in front is the agent you are watching; the other three are working too, and cannot touch its files.</figcaption>
       </figure>
@@ -324,44 +310,23 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           board: the agent picks the card up itself, works it, and moves it to review with
           the evidence attached.
         </p>
-        <ul class="act__points">
-          <li><b>It brings proof.</b> A commit, a summary, and a clip of the thing running.</li>
-          <li><b>Rejecting sends it back</b> with your notes, into the same worktree.</li>
-          <li><b>Night mode</b> dispatches only while the machine is idle, and stops when you come back.</li>
-        </ul>
+                <ol class="beats">
+          <li><b>The card moves itself.</b> An agent takes it from <span class="chip">todo</span>, works it, and puts it in <span class="chip">review</span>. You are not the dispatcher.</li>
+          <li><b>It has to pass your checks first.</b> The commands you named for that board run in its worktree; a red one means it comes back to you and says so.</li>
+          <li><b>It arrives with evidence.</b> A commit, a summary of what changed and why, and, for anything with behaviour, a clip of the thing running.</li>
+          <li><b>You read the diff and decide.</b> Approving accepts the work. Landing it on main is a second, deliberate click.</li>
+        </ol>
+        <p class="act__also">Rejecting sends it back into the same worktree with your notes, so the agent picks up where it was rather than starting again. Night mode dispatches only while the machine is idle, and stops when you touch it.</p>
         <a class="act__cta btn btn--glass" href="#download"><span>Download Topics</span><svg class="ic"><use href="#ic-arrow"/></svg></a>
       </div>
       <figure class="act__stage">
+        <span class="scene__tag">board · acme-web</span>
         <div class="scene scene--board">
-          <span class="scene__tag">board · acme-web</span>
           {/* The real window, at the state this act is about: the same client
                that is running in the hero, driven to this tab and captured.
                Nothing in this picture is drawn by hand. */}
           <img class="scene__shot" src="/img/act-board.webp" width="1400" height="1054"
                loading="lazy" decoding="async" alt="The board inside the Topics window: backlog, in progress, review and done, with agent cards in each column." />
-          <div class="scene__fg card--review">
-            <div class="fg__bar">
-              <span class="fg__av" aria-hidden="true"></span>
-              <span class="fg__who">Opus 5 <span class="fg__mute">· moved it to review</span></span>
-              <span class="fg__st"><span class="pip pip--rev"></span>waiting on you</span>
-            </div>
-            <div class="fg__body">
-              <p class="fg__title">Add the signing step to the release script</p>
-              <div class="chips">
-                <span class="chip chip--tree">topics/release-signing</span>
-                <span class="chip"><i class="add">+48</i> <i class="del">−0</i></span>
-                <span class="chip">12 tests green</span>
-              </div>
-              {/* The product's three review actions, in the product's order.
-                   They are three on purpose: approving accepts the task and
-                   nothing else, and the merge is its own deliberate click. */}
-              <div class="fg__acts">
-                <span class="mini mini--go"><svg class="ic"><use href="#ic-check"/></svg>Approve</span>
-                <span class="mini mini--land"><svg class="ic"><use href="#ic-git"/></svg>Land on main</span>
-                <span class="mini">Reject</span>
-              </div>
-            </div>
-          </div>
         </div>
         <figcaption>The card an agent picked up, worked, and moved to review by itself. Approving accepts it; landing it into main is a second, separate click.</figcaption>
       </figure>
@@ -378,37 +343,22 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           a restart. Split any pane, drag a tab into another group, or move a whole group
           into a window of its own.
         </p>
-        <ul class="act__points">
-          <li><b>Lossless reattach.</b> Reload the app or shut the lid; the session is still there, with its scrollback.</li>
-          <li><b>A real browser per topic</b>, for localhost and for letting an agent drive the page.</li>
-          <li><b>The layout syncs</b> to your other machine and comes back in the same shape.</li>
-        </ul>
+                <ol class="beats">
+          <li><b>A topic carries its own room.</b> Terminals, a browser, the files it touched, the layout you left them in.</li>
+          <li><b>Shut the lid.</b> Reopen it and the session is still attached, scrollback included, at the line it was on.</li>
+          <li><b>Split, drag, detach.</b> Any pane splits; any tab moves to another group; any group becomes its own window.</li>
+          <li><b>Open the same project on the laptop.</b> The layout syncs and comes back in the shape you left it.</li>
+        </ol>
+        <p class="act__also">The browser is a real one, not an iframe: it runs your localhost, keeps its logins, and an agent can drive it and read back what it sees.</p>
       </div>
       <figure class="act__stage">
+        <span class="scene__tag">group · Progetti</span>
         <div class="scene scene--window">
-          <span class="scene__tag">group · Progetti</span>
           {/* The real window, at the state this act is about: the same client
                that is running in the hero, driven to this tab and captured.
                Nothing in this picture is drawn by hand. */}
           <img class="scene__shot" src="/img/act-group.webp" width="1400" height="877"
                loading="lazy" decoding="async" alt="The Progetti group: three project windows tiled in one frame, each with its own Claude Code session." />
-          <div class="scene__fg card--tabs">
-            <div class="tabs">
-              <span class="tab is-active"><span class="pip pip--work"></span>Claude Code<span class="tab__x" aria-hidden="true">×</span></span>
-              <span class="tab"><span class="pip pip--rev"></span>Claude Code<span class="tab__x" aria-hidden="true">×</span></span>
-              <span class="tab"><span class="pip pip--go"></span>Preview<span class="tab__x" aria-hidden="true">×</span></span>
-              <span class="tab tab--add">+</span>
-            </div>
-            <div class="fg__body">
-              <p class="fg__term"><b>Edit</b>(src/sync/queue.ts) <span class="add">+6</span> <span class="del">−3</span></p>
-              <p class="fg__term"><b>Bash</b>(bun test sync) <span class="ok"><svg class="ic ic--xs"><use href="#ic-check"/></svg> 28 passed (1.1s)</span></p>
-              <p class="fg__legend">
-                <span><span class="pip pip--work"></span>working</span>
-                <span><span class="pip pip--rev"></span>waiting on you</span>
-                <span><span class="pip pip--go"></span>done</span>
-              </p>
-            </div>
-          </div>
         </div>
         <figcaption>The tab itself says what its session is doing. A native notification arrives when one finishes, or gets stuck on a question.</figcaption>
       </figure>
@@ -425,29 +375,23 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           database the app writes. Plus the one number nobody else shows you: which tab is
           eating your RAM.
         </p>
-        <ul class="act__points">
-          <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
-          <li><b>Prompt caching</b> marks the stable prefix, which is most of what you were paying twice for.</li>
-          <li><b>Per-pane resource usage</b>, not just a total for the app.</li>
-        </ul>
+                <ol class="beats">
+          <li><b>What went through.</b> Tasks finished, time from review to landed, and how many are waiting on you right now.</li>
+          <li><b>What it cost.</b> Tokens and money per day, per project, per model, read from the sessions themselves rather than estimated.</li>
+          <li><b>What is filling the window.</b> The context inspector shows every source in the prompt, and lets you switch one off and watch the number fall.</li>
+          <li><b>What the machine is doing.</b> Memory and CPU per pane, so a runaway terminal is a row and not a hunch.</li>
+        </ol>
+        <p class="act__also">Prompt caching marks the stable prefix of every conversation, which is most of what a long session was paying for twice.</p>
         <a class="act__cta btn btn--glass" href="#pricing"><span>What it costs</span><svg class="ic"><use href="#ic-arrow"/></svg></a>
       </div>
       <figure class="act__stage">
+        <span class="scene__tag">dashboard · last 7 days</span>
         <div class="scene scene--kpi">
-          <span class="scene__tag">dashboard · last 7 days</span>
           {/* The real window, at the state this act is about: the same client
                that is running in the hero, driven to this tab and captured.
                Nothing in this picture is drawn by hand. */}
           <img class="scene__shot" src="/img/act-numbers.webp" width="1400" height="877"
                loading="lazy" decoding="async" alt="The Topics dashboard: tasks in flight, error rate, token spend for today and the week, and a throughput chart." />
-          <div class="scene__fg card--kpi">
-            <div class="kpis">
-              <div><span class="kpi__l">tasks shipped</span><b class="kpi__v">37</b><span class="kpi__d up">+9</span></div>
-              <div><span class="kpi__l">cycle time</span><b class="kpi__v">18m</b><span class="kpi__d down">−4m</span></div>
-              <div><span class="kpi__l">token spend</span><b class="kpi__v">€37.55</b><span class="kpi__d up">+€4.10</span></div>
-              <div><span class="kpi__l">cache hit</span><b class="kpi__v">71%</b><span class="kpi__d up">+12</span></div>
-            </div>
-          </div>
         </div>
         <figcaption>The headline row at the size it is in the app. Every figure comes from the SQLite file on your disk, and the bill stays between you and your provider.</figcaption>
       </figure>
@@ -464,28 +408,22 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           already signed in to. We are never in the path, so there is no bill from us and
           nothing of yours passing through anything of ours.
         </p>
-        <ul class="act__points">
-          <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
-          <li><b>No telemetry and no account.</b> Not a weak one: none.</li>
-          <li><b>A native shell</b>, not a browser wearing a costume.</li>
-        </ul>
+                <ol class="beats">
+          <li><b>Your account, your key.</b> Topics spawns the CLI you already use, signed in the way you already signed in. We are not a proxy and there is nothing to route through us.</li>
+          <li><b>Your disk.</b> Conversations, layouts and boards are SQLite and files under your home directory. You can read them with <code>sqlite3</code>.</li>
+          <li><b>No account and no telemetry.</b> Not a weak one, not an opt-out: there is no endpoint to send anything to.</li>
+          <li><b>MIT.</b> Read it, fork it, ship it, sell it.</li>
+        </ol>
+        <p class="act__also">The shell is native (WKWebView on macOS, WebView2 on Windows) rather than a browser in a costume, which is why it idles at tens of megabytes instead of hundreds.</p>
       </div>
       <figure class="act__stage">
+        <span class="scene__tag">provider · per topic</span>
         <div class="scene scene--own">
-          <span class="scene__tag">provider · per topic</span>
           {/* The real window, at the state this act is about: the same client
                that is running in the hero, driven to this tab and captured.
                Nothing in this picture is drawn by hand. */}
           <img class="scene__shot" src="/img/act-own.webp" width="1100" height="1560"
                loading="lazy" decoding="async" alt="A Claude Code session running in a Topics terminal pane, tool calls and results in the scrollback." />
-          <div class="scene__fg card--pick">
-            <p class="pick__h">Provider</p>
-            <p class="pick__row is-on"><span class="pick__dot"></span>Claude Code <span class="fg__mute">· your subscription</span><svg class="ic ic--xs pick__ok"><use href="#ic-check"/></svg></p>
-            <p class="pick__row"><span class="pick__dot"></span>Codex <span class="fg__mute">· your subscription</span></p>
-            <p class="pick__row"><span class="pick__dot"></span>Anthropic API <span class="fg__mute">· your key</span></p>
-            <p class="pick__row"><span class="pick__dot"></span>OpenAI <span class="fg__mute">· your key</span></p>
-            <p class="pick__foot">Billed by them, to you. Never through us.</p>
-          </div>
         </div>
         <figcaption>Pick the provider per topic. The three paths behind it are everywhere Topics writes on your machine.</figcaption>
       </figure>
@@ -527,14 +465,44 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         <h2>When Topics is the wrong tool.</h2>
         <p class="shead__lead">Written by the people who make it, which is the only reason it is worth reading.</p>
       </header>
-      <div class="limits__grid">
-        <article class="limits__item"><h3>You run one agent at a time</h3><p>Start a session, watch it, finish. A workspace is overhead. Everything here is in service of the case where three or four are running and you have lost track of which one is waiting on you.</p></article>
-        <article class="limits__item"><h3>You want work to continue after you close the lid</h3><p>It will not. The agents run on your machine, so they stop when it sleeps. If that is the requirement, a product with cloud workspaces is the right shape, and we say which ones on the <a href="/compare/claude-code-guis">comparison page</a>.</p></article>
-        <article class="limits__item"><h3>You wanted an editor</h3><p>Topics is not an IDE and is not becoming one. It hosts the terminal agents and the surfaces around them; you keep whatever editor you already use.</p></article>
-        <article class="limits__item"><h3>You need accounts, roles or a shared board</h3><p>There is no authentication layer at all. Boards sync between <em>your</em> machines. Exposing one over a tunnel means putting your own auth in front of it.</p></article>
-        <article class="limits__item"><h3>macOS will say the developer cannot be verified</h3><p>The build is signed ad-hoc, so Gatekeeper stops it on first launch and since Sequoia the control-click bypass is gone. <a href="#download">The three steps are below</a>, and if that is a dealbreaker it is a fair one.</p></article>
-        <article class="limits__item"><h3>It is young, and macOS gets the most use</h3><p>First commit {longDate(stats.since)}. Windows and Linux are built and released every time, and are used far less than macOS, which is exactly where you should expect the rough edges.</p></article>
-      </div>
+      {/* SIX VERDICTS, NOT SIX PARAGRAPHS. What was here was six h3+p cards in a
+           grid: honest, and a wall. A disqualification list only does its job if
+           you can SCAN it and find yourself in it, so each row now states the
+           situation in the reader's own voice, gives the verdict as a word, and
+           then says where to go instead. Naming the alternative is the part that
+           makes it worth reading — a page that only apologises is still selling. */}
+      <ul class="verdicts">
+        <li class="verdict">
+          <p class="verdict__if">You run one agent, watch it, and finish.</p>
+          <p class="verdict__tag" data-v="wrong">Wrong tool</p>
+          <p class="verdict__why">Then a workspace is overhead and the terminal you already have is better. Everything here is built for the case where three or four are running and you have lost track of which one is waiting on you.</p>
+        </li>
+        <li class="verdict">
+          <p class="verdict__if">You want the work to carry on after you shut the lid.</p>
+          <p class="verdict__tag" data-v="wrong">Wrong tool</p>
+          <p class="verdict__why">It will not. The agents are processes on your machine and they stop when it sleeps. If that is the requirement you want cloud workspaces, and the <a href="/compare/claude-code-guis">comparison page</a> says which products have them.</p>
+        </li>
+        <li class="verdict">
+          <p class="verdict__if">You need accounts, roles or a board your team shares.</p>
+          <p class="verdict__tag" data-v="wrong">Wrong tool</p>
+          <p class="verdict__why">There is no authentication layer at all, which is also why there is no telemetry and no sign-up. Boards sync between <em>your</em> machines; exposing one over a tunnel means putting your own auth in front of it.</p>
+        </li>
+        <li class="verdict">
+          <p class="verdict__if">You were hoping it would replace your editor.</p>
+          <p class="verdict__tag" data-v="design">By design</p>
+          <p class="verdict__why">Topics is not an IDE and is not becoming one. It hosts the terminal agents and the surfaces around them, and it expects you to keep whatever editor you already use, open beside it.</p>
+        </li>
+        <li class="verdict">
+          <p class="verdict__if">macOS will tell you the developer cannot be verified.</p>
+          <p class="verdict__tag" data-v="cost">A real cost</p>
+          <p class="verdict__why">The build is signed ad-hoc rather than with a paid Apple certificate, so Gatekeeper stops the first launch, and since Sequoia the control-click bypass is gone. <a href="#download">Three steps in Settings</a>, about fifteen seconds, once. If that is a dealbreaker it is a fair one.</p>
+        </li>
+        <li class="verdict">
+          <p class="verdict__if">You are on Windows or Linux.</p>
+          <p class="verdict__tag" data-v="young">Not yet</p>
+          <p class="verdict__why">First commit {longDate(stats.since)}. Both are built and released on every tag and both work, and both are used far less than macOS, which is exactly where you should expect to find the rough edges first.</p>
+        </li>
+      </ul>
       {/* Anyone convinced by this section had 3,000px to scroll before finding a
            button on the live page. */}
       <div class="limits__cta">
@@ -734,46 +702,52 @@ bun run check:lint</code></pre>
           <a class="btn btn--primary btn--block halo" href="#download"><svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span></a>
           <p class="plan__fine">MIT. No sign-up, no email, nothing to cancel.</p>
         </article>
-        <article class="plan">
-          <h3>Supporter</h3>
-          <p class="plan__price"><span class="plan__amount">€5</span><span class="plan__per">/ month, or €49 a year</span></p>
-          <p class="plan__for">You use it daily and would rather it kept being made.</p>
-          <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>No features attached.</b> That is the point</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A private channel with the person building it</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Your issues looked at first</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A vote on what gets built next</span></li>
-          </ul>
-          <a class="btn btn--glass btn--block" data-checkout="supporter" href="#pricing"><span>Support the project</span></a>
-          <p class="plan__fine">Cancel whenever. Nothing in the app changes either way.</p>
-        </article>
-        <article class="plan plan--feature">
-          <span class="plan__badge">Best value</span>
-          <h3>Founding</h3>
-          <p class="plan__price"><span class="plan__amount">€99</span><span class="plan__per">once, not a subscription</span></p>
-          <p class="plan__for">Everything Supporter gives, plus the hosted side when it exists.</p>
-          <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>Everything in Supporter</b>, for good</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Any future hosted plan, free for life</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Early builds before they are tagged</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>Refunded in full</b> if nothing hosted ships within a year</span></li>
-          </ul>
-          <a class="btn btn--accent btn--block" data-checkout="founding" href="#pricing"><span>Become a founding user</span></a>
-          <p class="plan__fine">Nothing hosted exists today. You are buying a promise with a refund attached, and you should read that as exactly what it is.</p>
-        </article>
-        <article class="plan">
-          <h3>Commercial</h3>
-          <p class="plan__price"><span class="plan__amount">€490</span><span class="plan__per">/ year, per company</span></p>
-          <p class="plan__for">Your finance department needs a counterparty, not a GitHub repo.</p>
-          <ul class="plan__list">
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A proper invoice, PO and VAT number</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Named contact, two working days to a reply</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Help getting it running on your setup</span></li>
-            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>The licence stays MIT.</b> You are paying for the relationship, not permission</span></li>
-          </ul>
-          <a class="btn btn--glass btn--block" data-checkout="commercial" href="#pricing"><span>Request an invoice</span></a>
-          <p class="plan__fine">Unlimited seats. There is no per-seat count to police because there are no accounts.</p>
-        </article>
+        {/* THE THREE WAYS TO PAY, and they are a sub-group rather than three
+             more tiers. The four sat in one row of equal columns, which said
+             the free one is a quarter of the offer — while the section's own
+             headline says it is the whole product. */}
+        <div class="plans__paid">
+          <article class="plan">
+            <h3>Supporter</h3>
+            <p class="plan__price"><span class="plan__amount">€5</span><span class="plan__per">/ month, or €49 a year</span></p>
+            <p class="plan__for">You use it daily and would rather it kept being made.</p>
+            <ul class="plan__list">
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>No features attached.</b> That is the point</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A private channel with the person building it</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Your issues looked at first</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A vote on what gets built next</span></li>
+            </ul>
+            <a class="btn btn--glass btn--block" data-checkout="supporter" href="#pricing"><span>Support the project</span></a>
+            <p class="plan__fine">Cancel whenever. Nothing in the app changes either way.</p>
+          </article>
+          <article class="plan plan--feature">
+            <span class="plan__badge">Best value</span>
+            <h3>Founding</h3>
+            <p class="plan__price"><span class="plan__amount">€99</span><span class="plan__per">once, not a subscription</span></p>
+            <p class="plan__for">Everything Supporter gives, plus the hosted side when it exists.</p>
+            <ul class="plan__list">
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>Everything in Supporter</b>, for good</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Any future hosted plan, free for life</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Early builds before they are tagged</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>Refunded in full</b> if nothing hosted ships within a year</span></li>
+            </ul>
+            <a class="btn btn--accent btn--block" data-checkout="founding" href="#pricing"><span>Become a founding user</span></a>
+            <p class="plan__fine">Nothing hosted exists today. You are buying a promise with a refund attached, and you should read that as exactly what it is.</p>
+          </article>
+          <article class="plan">
+            <h3>Commercial</h3>
+            <p class="plan__price"><span class="plan__amount">€490</span><span class="plan__per">/ year, per company</span></p>
+            <p class="plan__for">Your finance department needs a counterparty, not a GitHub repo.</p>
+            <ul class="plan__list">
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>A proper invoice, PO and VAT number</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Named contact, two working days to a reply</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span>Help getting it running on your setup</span></li>
+              <li><svg class="ic ic--xs"><use href="#ic-check"/></svg><span><b>The licence stays MIT.</b> You are paying for the relationship, not permission</span></li>
+            </ul>
+            <a class="btn btn--glass btn--block" data-checkout="commercial" href="#pricing"><span>Request an invoice</span></a>
+            <p class="plan__fine">Unlimited seats. There is no per-seat count to police because there are no accounts.</p>
+          </article>
+        </div>
       </div>
       <div class="faq">
         <div><h4>Is there lock-in?</h4><p>No, and the shape of the product is the answer rather than the promise. Your data is SQLite and files on your own disk, the licence is MIT, and there is no account to close.</p></div>
