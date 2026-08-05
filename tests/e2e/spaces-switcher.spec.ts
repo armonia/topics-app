@@ -494,4 +494,47 @@ test.describe.serial("Gruppi (Spazi)", () => {
       "e le tab NON si disegnano due volte",
     ).toHaveCount(0);
   });
+
+  test("SPACE-14: se c'è dove andare, la finestra si sposta invece di mostrare il cartello", async ({ page }) => {
+    // Il cartello «è aperto in un'altra finestra» è l'ULTIMA risorsa: la cosa
+    // giusta è portare davanti la finestra del gruppo e mettersi su un altro.
+    await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
+    const spaceId = await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).getAttribute("data-space-id");
+    expect(spaceId).toBeTruthy();
+
+    // La presenza dichiara che GRUPPO 2 vive in un'altra finestra, e si passa
+    // lì: la finestra deve rimbalzare da sola su Principale.
+    await page.routeWebSocket(/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => ws.send(msg));
+      ws.onMessage((msg) => server.send(msg));
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: "presence:windows",
+          windows: [
+            {
+              windowId: "e2e-space-window",
+              clientId: "e2e-c1",
+              windowLabel: "space-e2e",
+              detached: true,
+              spaceId,
+              topicIds: [idA],
+              tabs: [{ id: idA, type: "chat" }],
+            },
+          ],
+        }));
+      }, 500);
+    });
+    await page.reload();
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // Nessun cartello: c'era dove andare.
+    await expect(page.getByTestId("space-row-active"), "resta su Principale").toContainText("Principale", { timeout: 10000 });
+    await expect(page.getByTestId("space-elsewhere")).toHaveCount(0);
+    // E la card dell'altro dice che è in una finestra sua.
+    await expect(
+      page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).getByTestId("space-detached"),
+    ).toBeVisible({ timeout: 5000 });
+  });
 });
