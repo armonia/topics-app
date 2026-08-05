@@ -62,7 +62,8 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
   <header class="capsule" id="capsule">
     <div class="capsule__in">
       <a class="capsule__brand" href="/" aria-label="Topics home">
-        <img src="/icon-64.png" alt="" width="24" height="24" />
+        <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-mark"/></svg>
         <span>Topics</span>
       </a>
       <nav class="capsule__links" aria-label="Primary">
@@ -230,6 +231,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     {/* ══ ACT 1 ══ ISOLATION ═════════════════════════════════════════════ */}
     <section class="act" id="atto-1" data-field="dense">
       <div class="act__body">
+        <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-isolation"/></svg>
         <p class="act__kicker"><span class="act__n">01</span> Isolation</p>
         <h2>Run four agents on one repository and watch none of them collide.</h2>
         <p class="act__lead">
@@ -271,13 +273,14 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
             </div>
           </div>
         </div>
-        <figcaption>Three worktrees open on the same repository. The one in front is the agent you are watching; the others are working too, and cannot touch its files.</figcaption>
+        <figcaption>Four worktrees open on the same repository. The one in front is the agent you are watching; the other three are working too, and cannot touch its files.</figcaption>
       </figure>
     </section>
 
     {/* ══ ACT 2 ══ DISPATCH ══════════════════════════════════════════════ */}
     <section class="act act--flip" id="atto-2" data-field="quiet">
       <div class="act__body">
+        <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-dispatch"/></svg>
         <p class="act__kicker"><span class="act__n">02</span> Dispatch</p>
         <h2>Hand a card to an agent and get a diff back.</h2>
         <p class="act__lead">
@@ -346,6 +349,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     {/* ══ ACT 3 ══ THE WINDOW ════════════════════════════════════════════ */}
     <section class="act" id="atto-3" data-field="dense">
       <div class="act__body">
+        <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-window"/></svg>
         <p class="act__kicker"><span class="act__n">03</span> The window</p>
         <h2>Keep the agent, the dev server and the page it renders in one window.</h2>
         <p class="act__lead">
@@ -404,6 +408,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     {/* ══ ACT 4 ══ THE NUMBERS ═══════════════════════════════════════════ */}
     <section class="act act--flip" id="atto-4" data-field="quiet">
       <div class="act__body">
+        <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-numbers"/></svg>
         <p class="act__kicker"><span class="act__n">04</span> The numbers</p>
         <h2>See what the agents got through, and what the tokens cost.</h2>
         <p class="act__lead">
@@ -447,6 +452,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     {/* ══ ACT 5 ══ OWNERSHIP ═════════════════════════════════════════════ */}
     <section class="act" id="atto-5" data-field="dense">
       <div class="act__body">
+        <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-ownership"/></svg>
         <p class="act__kicker"><span class="act__n">05</span> Ownership</p>
         <h2>Point it at your own account, and keep the data on your disk.</h2>
         <p class="act__lead">
@@ -544,22 +550,22 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         <p class="shead__lead">All of it shipped, all of it free, none of it worth its own headline.</p>
       </header>
       <div class="more__grid">
-        <div class="more__item"><b>Checkpoints</b> Roll a conversation back to any point, and the working tree with it.</div>
-        <div class="more__item"><b>Auto-merge</b> Opt in per board and an approved task lands itself, unless the merge conflicts.</div>
-        <div class="more__item"><b>Voice</b> Speak to an agent and hear it answer. Transcription runs locally through Whisper.</div>
-        <div class="more__item"><b>Tab permalinks</b> Copy a link to any tab. Opening it focuses that exact pane, on any device.</div>
-        <div class="more__item"><b>Slash commands</b> Yours and the project's, plus <code>@</code> mentions for files and topics.</div>
-        <div class="more__item"><b>Model per task</b> Big tasks get the strong model, small ones do not, and you set the rule.</div>
-        <div class="more__item"><b>Pre-review checks</b> Commands that must pass in the worktree before a task may ask for review.</div>
-        <div class="more__item"><b>Topic goals</b> A standing objective re-sent every turn, which survives a compaction.</div>
-        <div class="more__item"><b>Sub-agents on screen</b> When an agent spawns a fleet, the children appear in the session tree.</div>
-        <div class="more__item"><b>Typed questions</b> When an agent asks something, you get a real form instead of guessing the syntax.</div>
-        <div class="more__item"><b>Conversation branches</b> Edit an earlier message and continue from there without losing the original.</div>
-        <div class="more__item"><b>Mobile and PWA</b> Check on a running agent from your phone, over a tunnel you run.</div>
-        <div class="more__item"><b>Cron and webhooks</b> Work that repeats, and work triggered from outside.</div>
-        <div class="more__item"><b>Full effort by default</b> Topics passes <code>--effort</code> on every spawn, so a session opens at the top tier.</div>
-        <div class="more__item"><b>Command palette</b> Everything from the keyboard, including reopening the tab you just closed.</div>
-        <div class="more__item"><b>Two languages</b> The interface speaks English and Italian.</div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-checkpoint"/></svg><b>Checkpoints</b><span>Roll a conversation back to any point, and the working tree with it.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-merge"/></svg><b>Auto-merge</b><span>Opt in per board and an approved task lands itself, unless the merge conflicts.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-voice"/></svg><b>Voice</b><span>Speak to an agent and hear it answer. Transcription runs locally through Whisper.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-permalink"/></svg><b>Tab permalinks</b><span>Copy a link to any tab. Opening it focuses that exact pane, on any device.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-slash"/></svg><b>Slash commands</b><span>Yours and the project's, plus <code>@</code> mentions for files and topics.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-model"/></svg><b>Model per task</b><span>Big tasks get the strong model, small ones do not, and you set the rule.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-checks"/></svg><b>Pre-review checks</b><span>Commands that must pass in the worktree before a task may ask for review.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-goal"/></svg><b>Topic goals</b><span>A standing objective re-sent every turn, which survives a compaction.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-subagents"/></svg><b>Sub-agents on screen</b><span>When an agent spawns a fleet, the children appear in the session tree.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-form"/></svg><b>Typed questions</b><span>When an agent asks something, you get a real form instead of guessing the syntax.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-branchchat"/></svg><b>Conversation branches</b><span>Edit an earlier message and continue from there without losing the original.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-phone"/></svg><b>Mobile and PWA</b><span>Check on a running agent from your phone, over a tunnel you run.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-cron"/></svg><b>Cron and webhooks</b><span>Work that repeats, and work triggered from outside.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-effort"/></svg><b>Full effort by default</b><span>Topics passes <code>--effort</code> on every spawn, so a session opens at the top tier.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-palette"/></svg><b>Command palette</b><span>Everything from the keyboard, including reopening the tab you just closed.</span></div>
+        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-langs"/></svg><b>Two languages</b><span>The interface speaks English and Italian.</span></div>
       </div>
     </section>
 

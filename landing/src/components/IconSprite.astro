@@ -89,5 +89,79 @@
          hard-coded near-black: the glyph sits on a light tile with ink as its
          body, so dark counters inside a dark silhouette disappear. */}
     <symbol id="os-linux" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.2c-2.05 0-3.3 1.7-3.3 3.8 0 .95.18 1.55.18 2.35 0 1.05-1.4 2.05-2.1 3.55-.78 1.62-1.55 3.4-1.55 4.95 0 1 .62 1.6 1.55 1.6.6 0 1 .5 1.7.92.66.42 1.45.83 3.02.83s2.36-.41 3.02-.83c.7-.42 1.1-.92 1.7-.92.93 0 1.55-.6 1.55-1.6 0-1.55-.77-3.33-1.55-4.95-.7-1.5-2.1-2.5-2.1-3.55 0-.8.18-1.4.18-2.35 0-2.1-1.25-3.8-3.3-3.8z"/><circle cx="10.4" cy="7.1" r=".95" fill="var(--p-0)" stroke="none"/><circle cx="13.6" cy="7.1" r=".95" fill="var(--p-0)" stroke="none"/><path d="M11 8.7h2l-1 1.5z" fill="var(--p-0)" stroke="none"/></symbol>
+    {/* ── THE FIVE ACTS ─────────────────────────────────────────────────────
+         One per act, and the only glyphs in this file drawn on a 40 grid: they
+         render at 40px above a headline rather than at 17px in a row, and a
+         24-unit drawing blown up to 40 is a 24-unit drawing with fat strokes.
+         Stroke 1.75 keeps the same optical weight at the larger size.
+
+         Each is the act's OBJECT, not its mood — a trunk whose branches never
+         rejoin, a card crossing a column boundary, a window split into panes,
+         a series that rises, a disk with a lock on it. Drawn from the product,
+         same as the scenes beside them. */}
+    <symbol id="ac-isolation" viewBox="0 0 40 40" stroke-width="1.9"><path d="M8 6v28"/><path d="M8 11h14"/><path d="M8 20h14"/><path d="M8 29h14"/><rect x="22" y="7" width="11" height="8" rx="2.4"/><rect x="22" y="16" width="11" height="8" rx="2.4"/><rect x="22" y="25" width="11" height="8" rx="2.4"/></symbol>
+    <symbol id="ac-dispatch" viewBox="0 0 40 40" stroke-width="1.9"><rect x="4" y="6" width="13" height="28" rx="3"/><rect x="23" y="6" width="13" height="28" rx="3"/><rect x="7" y="10" width="7" height="5.5" rx="1.8" fill="currentColor" stroke="none"/><path d="M17.6 21h5.2"/><path d="M20.4 18l3 3-3 3"/><rect x="26" y="24" width="7" height="5.5" rx="1.8"/></symbol>
+    <symbol id="ac-window" viewBox="0 0 40 40" stroke-width="1.9"><rect x="4" y="6" width="32" height="28" rx="3.5"/><path d="M4.5 14.5h31"/><path d="M20 15V34"/><rect x="7.5" y="8.6" width="7" height="3.6" rx="1.4" fill="currentColor" stroke="none"/><rect x="16.6" y="8.6" width="7" height="3.6" rx="1.4"/></symbol>
+    <symbol id="ac-numbers" viewBox="0 0 40 40" stroke-width="1.9"><path d="M5 33.5h30"/><rect x="7" y="22" width="6.5" height="9.5" rx="1.9"/><rect x="16.8" y="16" width="6.5" height="15.5" rx="1.9"/><rect x="26.6" y="8.5" width="6.5" height="23" rx="1.9" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="ac-ownership" viewBox="0 0 40 40" stroke-width="1.9"><ellipse cx="20" cy="10" rx="13" ry="4.6"/><path d="M7 10v10.5c0 2.5 5.6 4.6 12.6 4.6"/><path d="M33 10v6.5"/><rect x="22" y="23.5" width="13" height="10" rx="2.4"/><path d="M25 23.5v-3a3.5 3.5 0 0 1 7 0v3"/></symbol>
+
+    {/* ── THE LONG TAIL ─────────────────────────────────────────────────────
+         Sixteen, one per row of the "also in the box" grid, which was sixteen
+         cells of flat text with nothing for the eye to catch on — the one list
+         on the page you could not scan. Same grid as everything above: 24×24,
+         3px inset, stroke 1.5, round caps.
+
+         Each one draws the MECHANISM rather than a mood: the checkpoint is a
+         timeline with a ring you can return to, auto-merge is a branch
+         actually joining, effort is a gauge pinned at the top of its arc. */}
+    <symbol id="ic-checkpoint" viewBox="0 0 24 24"><path d="M3.5 12h17"/><circle cx="7" cy="12" r="1.5"/><circle cx="17" cy="12" r="1.5"/><circle cx="12" cy="12" r="3.4"/></symbol>
+    <symbol id="ic-merge" viewBox="0 0 24 24"><path d="M6.5 4.5v6a4 4 0 0 0 4 4h7"/><path d="M6.5 20v-5.5"/><path d="M14.6 11.5l3 3-3 3"/></symbol>
+    <symbol id="ic-voice" viewBox="0 0 24 24"><rect x="9.5" y="3.5" width="5" height="9.5" rx="2.5"/><path d="M5.8 11.2a6.2 6.2 0 0 0 12.4 0"/><path d="M12 17.4v3.1"/></symbol>
+    <symbol id="ic-permalink" viewBox="0 0 24 24"><path d="M10.4 13.6a4 4 0 0 0 5.6 0l2.8-2.8a4 4 0 1 0-5.6-5.6l-1.1 1.1"/><path d="M13.6 10.4a4 4 0 0 0-5.6 0l-2.8 2.8a4 4 0 1 0 5.6 5.6l1.1-1.1"/></symbol>
+    <symbol id="ic-slash" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M13.6 9.2l-3.2 5.6"/></symbol>
+    <symbol id="ic-model" viewBox="0 0 24 24"><rect x="3.5" y="5.2" width="17" height="5.6" rx="2.5"/><rect x="3.5" y="13.6" width="9.5" height="5.6" rx="2.5"/></symbol>
+    <symbol id="ic-checks" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M7.4 10.4l1.8 1.8 3.6-3.6"/><path d="M7.4 15.8h9.2"/></symbol>
+    <symbol id="ic-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.15" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="ic-subagents" viewBox="0 0 24 24"><circle cx="12" cy="5.4" r="2.3"/><circle cx="6.6" cy="18.6" r="2.3"/><circle cx="17.4" cy="18.6" r="2.3"/><path d="M12 7.7v3.6"/><path d="M6.6 16.3v-1.6a3.4 3.4 0 0 1 3.4-3.4h4a3.4 3.4 0 0 1 3.4 3.4v1.6"/></symbol>
+    <symbol id="ic-form" viewBox="0 0 24 24"><rect x="3.5" y="6.4" width="17" height="11.2" rx="2.5"/><path d="M7.4 12h4"/><path d="M15.2 9.6v4.8"/></symbol>
+    <symbol id="ic-branchchat" viewBox="0 0 24 24"><path d="M7 6.9v12.6"/><circle cx="7" cy="4.6" r="2.3"/><path d="M7 10.6h5.6a4 4 0 0 1 4 4v2.5"/><circle cx="16.6" cy="19.4" r="2.3"/></symbol>
+    <symbol id="ic-phone" viewBox="0 0 24 24"><rect x="7" y="3.5" width="10" height="17" rx="2.5"/><path d="M10.7 17.4h2.6"/></symbol>
+    <symbol id="ic-cron" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.4V12l3 2"/></symbol>
+    <symbol id="ic-effort" viewBox="0 0 24 24"><path d="M4 17.2a8.5 8.5 0 1 1 16 0"/><path d="M12 17.2l4.6-5.1"/></symbol>
+    <symbol id="ic-palette" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M3.5 9.4h17"/><path d="M7.8 14.2h8.4"/></symbol>
+    <symbol id="ic-langs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.6 12h16.8"/><path d="M12 3.5c2.15 2.4 3.35 5.35 3.35 8.5S14.15 18.1 12 20.5c-2.15-2.4-3.35-5.35-3.35-8.5S9.85 5.9 12 3.5z"/></symbol>
+
+    {/* ── THE MARK ──────────────────────────────────────────────────────────
+         The brand, and the only glyph in this file allowed off the icon grid:
+         it carries stroke 2 rather than 1.5 because a logo has to hold at 16px
+         in a browser tab, where 1.5 goes to grey mush, and because it is read
+         as one shape rather than scanned as one of a set.
+
+         What it draws is the product's own model, in the product's own words:
+         THE GROUP WRAPS ITS TABS. A bracket whose arms turn back in — so it
+         encloses rather than merely sitting beside — holding two tabs, the
+         first one live.
+
+         What it replaces said the opposite. The shipped icon is two chat
+         bubbles on blue: the mark of a messaging app, on a page whose whole
+         argument is that Topics is not one. Four candidate families were drawn
+         and measured down to 16px before this one: horizontal lanes read as
+         text, vertical lanes read as an audio meter, a split rectangle is the
+         "toggle sidebar" glyph every editor already owns, and a bracket around
+         a dot is a radio button. This shape is in none of those families.
+
+         NOTE: the application still ships the old icon. Changing what is inside
+         `desktop-tauri/src-tauri/icons/` alters the product and needs a build,
+         so it is a separate, deliberate step. */}
+    <symbol id="ic-mark" viewBox="0 0 24 24" stroke-width="2">
+      <path d="M9.5 3.5H8A4.5 4.5 0 0 0 3.5 8v8A4.5 4.5 0 0 0 8 20.5h1.5"/>
+      <rect x="12" y="6.4" width="8.5" height="4.4" rx="1.7" fill="currentColor" stroke="none"/>
+      <rect x="12" y="13.2" width="8.5" height="4.4" rx="1.7"/>
+    </symbol>
+
+    {/* The mark's bracket on its own, at icon weight. It marks every eyebrow on
+         the page, which is what turns a logo into a system: the same gesture
+         that encloses the tabs in the mark encloses each section's name. */}
+    <symbol id="ic-bracket" viewBox="0 0 24 24"><path d="M15 4.5h-6A4.5 4.5 0 0 0 4.5 9v6A4.5 4.5 0 0 0 9 19.5h6"/></symbol>
   </defs>
 </svg>
