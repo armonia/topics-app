@@ -361,16 +361,6 @@ export function TopicTree({
     [allItems, searchQuery]
   );
 
-  // ── Appartenenza al gruppo ───────────────────────────────────────────────
-  // Con i gruppi accesi ogni riga va nella card del SUO gruppo, e chi non è la
-  // tab di nessuno resta fuori dalle card (senza etichette: è semplicemente
-  // roba che non sta in un gruppo). Senza gruppi non si smista niente: la
-  // sidebar resta la lista unica di sempre.
-  const { bySpace, loose } = useMemo(() => {
-    if (!spaceScoped) return { bySpace: new Map<string, SidebarItem[]>(), loose: [] as SidebarItem[] };
-    return groupSidebarItemsBySpace(filteredItems, paneSpaceById ?? new Map<string, string>());
-  }, [filteredItems, spaceScoped, paneSpaceById]);
-
   // Le card da disegnare (una per gruppo) e l'accordion. Chiuse per scelta
   // dell'utente, quindi si RICORDA: un gruppo richiuso che si riapre a ogni
   // ricarica è un gruppo che non si può chiudere.
@@ -416,6 +406,20 @@ export function TopicTree({
     () => filteredItems.filter(i => !i.pinned),
     [filteredItems]
   );
+
+  // ── Appartenenza al gruppo ───────────────────────────────────────────────
+  // Con i gruppi accesi ogni riga va nella card del SUO gruppo, e chi non è la
+  // tab di nessuno resta fuori dalle card (senza etichette: è semplicemente
+  // roba che non sta in un gruppo). Senza gruppi non si smista niente: la
+  // sidebar resta la lista unica di sempre.
+  //
+  // Si smistano gli UNpinned: i fissati stanno nel loro blocco in cima, sopra
+  // ogni gruppo — è la ragione per cui li hai fissati — e disegnarli anche
+  // dentro la card sarebbe la stessa riga due volte.
+  const { bySpace, loose } = useMemo(() => {
+    if (!spaceScoped) return { bySpace: new Map<string, SidebarItem[]>(), loose: [] as SidebarItem[] };
+    return groupSidebarItemsBySpace(unpinnedItems, paneSpaceById ?? new Map<string, string>());
+  }, [unpinnedItems, spaceScoped, paneSpaceById]);
 
   const groupedItems = useMemo(
     () => viewMode === 'grouped' ? groupSidebarItems(unpinnedItems) : null,
@@ -988,7 +992,23 @@ export function TopicTree({
              restano al ramo senza gruppi. Sezionare due o tre righe per volta,
              card per card, moltiplicherebbe le intestazioni fino a coprire il
              contenuto — e il raggruppamento, qui, lo fa già il gruppo. */
-          <div data-testid="sidebar-groups">
+          <>
+            {/* I FISSATI stanno sopra ogni gruppo: è esattamente ciò che hai
+                chiesto fissandoli — "questo lo voglio sempre a portata", quindi
+                sopra anche al gruppo in cui vive. La riga sta qui e non anche
+                dentro la sua card: la stessa riga due volte non è una
+                scorciatoia, è un doppione. */}
+            {pinnedBlock.length > 0 && (
+              <div data-testid="sidebar-pinned-section" className="mb-1">
+                <div className="flex items-center gap-1.5 px-3 h-6 select-none">
+                  <Pin size={10} className="text-app-text-tertiary flex-shrink-0" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">{tr('sidebar.pinnedSection')}</span>
+                </div>
+                {pinnedBlock.map(item => renderItem(item))}
+                <div className="h-px bg-app-border mx-3 my-1" />
+              </div>
+            )}
+            <div data-testid="sidebar-groups">
             {spaceCards.map(card => {
               const rows = bySpace.get(card.id) ?? [];
               return (
@@ -1006,8 +1026,9 @@ export function TopicTree({
                 </SpaceGroupCard>
               );
             })}
-            <NewGroupRow />
-          </div>
+              <NewGroupRow />
+            </div>
+          </>
         ) : viewMode === 'timeline' ? (
           // Timeline: the Fissati block first (user pin order), then the flat
           // list sorted by activity. Pinned rows keep badges/attention fills —
