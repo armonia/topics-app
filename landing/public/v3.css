@@ -1,0 +1,520 @@
+/* ===========================================================================
+   Topics landing v3 — THE FIELD, and the five acts.
+
+   Loaded AFTER styles.css, which keeps its tokens, its buttons, its tables and
+   its contrast guarantees. This file adds three things and overrides nothing it
+   does not have to.
+
+   ── 1. THE FIELD ─────────────────────────────────────────────────────────
+   The two reference sites solve the animated background in opposite ways. One
+   (peachworlds/Vexel) puts a three.js canvas with a bloom pass at the top of the
+   page in `position: static`, so it scrolls away after 900px and never returns:
+   an overture with no opera. The other (nextsaas/ai-solutions) has no canvas at
+   all — its intro is an mp4 — but its GROUND runs unbroken for all 15,315px,
+   and a small kit of parts (a glow that follows the cursor, a gradient that
+   travels through the headline, a beam on a border) keeps saying the same thing
+   the whole way down.
+
+   The field is those two joined. ONE element, `position: fixed`, behind
+   everything, alive from the first pixel to the last. Because it is fixed it is
+   outside the flow, so it can never move the page: CLS stays 0.00 by
+   construction rather than by luck.
+
+   Sections declare what they want from it with `data-field`, and the field
+   crossfades between those states over 700ms. That is what makes it a system
+   rather than a decoration: the background is telling you which of the three
+   registers of the page you are standing in.
+
+     dense  the product is on screen — lattice up, wash present
+     quiet  you are reading — lattice down 45%, wash almost gone
+     deep   the page is being serious (the limits, the download) — lattice off
+
+   ── 2. WHY THE DECORATION IS BACK ────────────────────────────────────────
+   All of it was removed once, for a reason worth quoting: the dot lattice, the
+   radial wash and two grain layers "competed with the screenshots, and a
+   multiply-blended noise layer over a cool near-white ground reads as a dirty
+   display rather than as a material."
+
+   Every word of that was true of the old implementation, and the answers are
+   structural rather than cosmetic:
+
+   • COMPETING WITH THE SCREENSHOTS. The field is masked OUT behind every dark
+     slab (`.scene`, `.hero__shot`) — those elements are opaque and sit above it,
+     and the wash is aimed at the gutters rather than the centre column. The
+     lattice also drops to zero in `deep` sections. It cannot compete with a
+     picture it is never behind.
+   • GRAIN READING AS DIRT. The old layer was `multiply`, which can only ever
+     darken, and it sat over the reading column. This one is `soft-light`, which
+     modulates lightness in both directions around the mid point, at 4.5%, and it
+     is masked to fade to nothing across the middle 760px of the viewport — which
+     is exactly where the text is. Grain at the edges reads as a surface; grain
+     under a paragraph reads as a dirty screen.
+
+   ── 3. THE COST ──────────────────────────────────────────────────────────
+   The page contains a same-origin iframe that boots the real React client, so
+   anything that eats the main thread steals frames from the product. The field
+   is one canvas of ~1,300 dots redrawn at 24fps with a single batched path, and
+   it stops completely when: the tab is hidden, the demo is live, the pointer has
+   not moved and the page has not scrolled for 4s, or the visitor asked for
+   reduced motion. The wash and the grain are CSS only and never repaint.
+   =========================================================================== */
+
+:root {
+  /* Display is Switzer now, not Gambarino. The serif carried forty headings on
+     a page that was recalibrated to read as an instrument, and the stylesheet
+     itself said the face is drawn for 32px and up while --t-xl starts at 25.
+     One family for reading, the mono for machine facts. */
+  --display: "Switzer", var(--sans-fallback);
+  --display-tracking: -.034em;
+  --display-weight: 560;
+
+  /* The dimmed half of a two-tone headline. Taken from the reference, which
+     gets its second tone from the ALPHA of the same white rather than a second
+     hue — but resolved to an opaque value here, because the contrast gate
+     measures the composite and an alpha over a moving background is not a
+     number anybody can promise. Worst case 4.76:1 on the deepest surface. */
+  --ink-dim: #666c76;
+
+  --dur-enter: 620ms;
+  --field-fade: 700ms;
+
+  /* Fractal noise, rasterised once by the browser and then cached. An SVG
+     filter rather than a PNG because it costs no request and no bytes, and
+     because the frequency is a number in this file rather than a property of
+     an image nobody can edit. */
+  /* One knob multiplies every alpha in the field. `--field-gain: 1.6` in the
+     dev tools is how you check that the system is still invisible enough at
+     well past its shipped strength. */
+  --field-gain: 1;
+
+  --grain-src: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='168' height='168'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='168' height='168' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── THE FIELD ───────────────────────────────────────────────────────────── */
+body.v3 .grain { display: none; }   /* the old, dead layer */
+
+.field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  /* layout paint style, never `strict`: strict adds SIZE containment, and a
+     size-contained fixed box computes its own dimensions from nothing. */
+  contain: layout paint style;
+  isolation: isolate;
+  /* set by the section observer, crossfaded */
+  --lattice: 1;
+  --wash: 1;
+  transition: none;
+}
+.field__lattice,
+.field__wash,
+.field__grain { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.field__lattice {
+  opacity: calc(var(--lattice) * .85 * var(--field-gain));
+  transition: opacity var(--field-fade) var(--state);
+}
+
+/* One wash, one hue, and it is the accent — the page's only hue break, so the
+   background cannot introduce a second one. 5% at the strongest. It is what
+   carries continuity from the first screen to the last, which is the job the
+   reference does with a dark ground it never leaves. */
+.field__wash {
+  opacity: calc(var(--wash) * 1 * var(--field-gain));
+  transition: opacity var(--field-fade) var(--state);
+  background:
+    radial-gradient(60% 44% at 12% 8%, color-mix(in oklab, var(--accent) 5%, transparent), transparent 70%),
+    radial-gradient(52% 38% at 92% 42%, color-mix(in oklab, var(--accent) 4%, transparent), transparent 72%),
+    radial-gradient(70% 50% at 50% 104%, color-mix(in oklab, var(--accent) 4%, transparent), transparent 68%);
+}
+
+/* Grain. soft-light, not multiply, and masked away from the reading column. */
+.field__grain {
+  opacity: calc(.045 * var(--field-gain));
+  mix-blend-mode: soft-light;
+  background-image: var(--grain-src);
+  background-size: 168px 168px;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 14%, transparent 34%, transparent 66%, #000 86%, #000 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 14%, transparent 34%, transparent 66%, #000 86%, #000 100%);
+}
+@media (max-width: 900px) { .field__grain { display: none; } }
+
+/* Content rides above the field. z-index 1 on the wrappers only — every section
+   inherits it, so no section needs to know the field exists. */
+body.v3 > .capsule,
+body.v3 > main,
+body.v3 > .footer { position: relative; z-index: 1; }
+
+/* ── The capsule nav ─────────────────────────────────────────────────────── */
+/* Detached from the top edge, the way all four references do it. It is the one
+   place the page borrows a pill, and it earns it: a floating bar has to read as
+   an object rather than as an edge of the page. */
+.capsule { position: sticky; top: 12px; z-index: 100; padding: 0 24px; }
+.capsule__in {
+  max-width: var(--maxw); margin: 0 auto;
+  display: flex; align-items: center; gap: 24px;
+  padding: 9px 10px 9px 16px;
+  border-radius: 999px;
+  background: hsl(220 33% 98% / .82);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--dur-2) var(--state), background var(--dur-2) var(--state);
+}
+.capsule.is-stuck .capsule__in { box-shadow: var(--shadow-2); background: hsl(220 33% 98% / .93); }
+.capsule__brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; letter-spacing: -.02em; }
+.capsule__brand img { border-radius: var(--r-ctl); }
+.capsule__links { display: flex; gap: 22px; }
+.capsule__links a { font-size: 14.5px; font-weight: 500; color: var(--ink-mute); transition: color var(--dur-1) var(--state); }
+.capsule__links a:hover { color: var(--ink); }
+.capsule__cta { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+@media (max-width: 900px) { .capsule__links { display: none; } .capsule__ghlabel { display: none; } }
+
+/* The halo. A second ring, offset, on the one control that matters most.
+   Reference B puts it on its primary CTA and it is the cheapest way to make a
+   button read as an instrument rather than as a rectangle. */
+.halo { position: relative; }
+.halo::after {
+  content: ""; position: absolute; inset: -6px;
+  border: 1px solid var(--rule-2); border-radius: calc(var(--r-ctl) + 6px);
+  pointer-events: none;
+  transition: inset var(--dur-2) var(--out), border-color var(--dur-2) var(--state), opacity var(--dur-2) var(--state);
+}
+.btn--lg.halo::after { border-radius: calc(var(--r-card) + 6px); }
+.halo:hover::after { inset: -9px; border-color: var(--accent-line); }
+
+/* ── HERO ────────────────────────────────────────────────────────────────── */
+.hero { max-width: var(--maxw); margin: 0 auto; padding: 46px 24px 0; text-align: center; }
+.hero__in { max-width: 900px; margin: 0 auto; }
+.hero__badge {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 6px 14px 6px 12px; border-radius: 999px;
+  font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .02em;
+  color: var(--ink-mute); background: var(--p-2); box-shadow: var(--shadow-1);
+}
+.hero__title {
+  font-family: var(--display); font-weight: var(--display-weight);
+  font-size: var(--t-3xl); line-height: 1.0; letter-spacing: var(--display-tracking);
+  margin: 20px 0 18px; text-wrap: balance;
+}
+/* The second tone. One colour, one step down — not a second hue, and not an
+   alpha, so the gate can measure it. */
+.hero__title .dim { color: var(--ink-dim); }
+
+/* The gradient that travels through the headline. Both ends of it are legal
+   reading colours (4.76 and 5.95 at worst), so there is no frame of the
+   animation where the text fails the contrast gate — which is the only honest
+   way to animate the colour of type. */
+@property --grad-pos { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+@keyframes travel { to { --grad-pos: 100%; } }
+body.v3.is-ready .hero__title .dim {
+  background: linear-gradient(100deg,
+    var(--ink-dim) calc(var(--grad-pos) - 26%),
+    var(--accent-ink) var(--grad-pos),
+    var(--ink-dim) calc(var(--grad-pos) + 26%));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+@supports not (background-clip: text) { body.v3.is-ready .hero__title .dim { color: var(--ink-dim); -webkit-text-fill-color: currentColor; } }
+
+.hero__sub { font-size: var(--t-lg); color: var(--ink-mute); max-width: 660px; margin: 0 auto 26px; line-height: 1.45; text-wrap: pretty; }
+.hero__actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+
+.hero__proof {
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 0;
+  margin: 40px auto 0; max-width: 660px;
+}
+.hero__proof > div { flex: 1 1 0; min-width: 120px; padding: 0 14px; border-left: 1px solid var(--rule); }
+.hero__proof > div:first-child { border-left: 0; }
+.hero__proof dt { font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); }
+.hero__proof dd {
+  margin: 5px 0 0; font-family: var(--display); font-weight: var(--display-weight);
+  font-size: 27px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.05;
+}
+.hero__proof dd.is-word { color: var(--accent-ink); }
+
+/* The window, cropped by the fold. The crop IS the invitation to scroll: a
+   poster with a play button on it asks for a decision before the visitor has a
+   reason to make one. */
+.hero__stage {
+  max-width: 1240px; margin: 52px auto 0; padding: 0 24px;
+  height: clamp(280px, 46vh, 460px); overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 62%, transparent 100%);
+  mask-image: linear-gradient(#000 62%, transparent 100%);
+}
+.hero__shot {
+  display: block; width: 100%; height: auto;
+  border-radius: var(--r-slab) var(--r-slab) 0 0;
+  background: var(--dark); box-shadow: var(--shadow-slab);
+  will-change: transform;
+}
+
+/* ── Section heads ───────────────────────────────────────────────────────── */
+/* Left, not centred. A centred head over a left-aligned body makes the eye
+   start in a different place for every block. */
+.shead { max-width: 760px; margin: 0 0 40px; }
+.shead h2 {
+  font-family: var(--display); font-weight: var(--display-weight);
+  font-size: var(--t-2xl); line-height: 1.06; letter-spacing: var(--display-tracking);
+  margin: 12px 0 12px; text-wrap: balance;
+}
+.shead__lead { color: var(--ink-mute); font-size: var(--t-md); text-wrap: pretty; }
+.shead__lead a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── The model ───────────────────────────────────────────────────────────── */
+.model { max-width: var(--maxw); margin: 118px auto 0; padding: 0 24px; }
+.model__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; list-style: none; border-top: 1px solid var(--rule); }
+.model__step { padding: 28px 30px 0 0; border-right: 1px solid var(--rule); }
+.model__step:last-child { border-right: 0; padding-right: 0; }
+.model__step:not(:first-child) { padding-left: 30px; }
+.model__n { display: inline-block; font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .11em; color: var(--accent-ink); margin-bottom: 10px; }
+.model__step h3 { font-size: var(--t-md); letter-spacing: -.024em; margin-bottom: 8px; }
+.model__step p { color: var(--ink-mute); font-size: var(--t-base); line-height: 1.55; text-wrap: pretty; }
+.model__step code { font-family: var(--mono); font-size: .86em; background: var(--p-3); padding: 1px 5px; border-radius: var(--r-ctl); white-space: nowrap; }
+
+/* ── THE ACTS ────────────────────────────────────────────────────────────── */
+/* One idea, one scene, ~1,100px. On the live page all five of these live inside
+   a single 5,300px block with 33 bullets and no order of precedence. */
+.act {
+  max-width: var(--maxw); margin: 128px auto 0; padding: 0 24px;
+  display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+  gap: clamp(36px, 4.4vw, 72px); align-items: center;
+}
+/* Flipping the order must flip the WIDTHS too, or the scene lands in the
+   narrow column on every other act and the page loses its rhythm. */
+.act--flip { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); }
+.act--flip .act__stage { order: -1; }
+.act__kicker { display: flex; align-items: center; gap: 11px; font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 16px; }
+.act__n { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-ctl); font-size: 11px; letter-spacing: 0; color: var(--ink); background: var(--p-2); box-shadow: var(--shadow-1); }
+.act h2 {
+  font-family: var(--display); font-weight: var(--display-weight);
+  font-size: var(--t-xl); line-height: 1.1; letter-spacing: var(--display-tracking);
+  margin-bottom: 16px; text-wrap: balance;
+}
+.act__lead { color: var(--ink-mute); font-size: var(--t-base); line-height: 1.6; margin-bottom: 20px; text-wrap: pretty; }
+.act__lead code { font-family: var(--mono); font-size: .86em; background: var(--p-3); padding: 1px 5px; border-radius: var(--r-ctl); white-space: nowrap; }
+.act__points { list-style: none; display: grid; gap: 10px; }
+.act__points li { position: relative; padding-left: 17px; color: var(--ink-mute); font-size: 15px; line-height: 1.55; text-wrap: pretty; }
+.act__points li::before { content: ""; position: absolute; left: 0; top: .62em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.act__points b { color: var(--ink); font-weight: 600; }
+.act__cta { margin-top: 24px; }
+.act__stage { margin: 0; min-width: 0; }
+.act__stage figcaption { margin-top: 15px; color: var(--ink-faint); font-size: var(--t-sm); line-height: 1.55; text-wrap: pretty; }
+
+/* ── THE SCENE ───────────────────────────────────────────────────────────── */
+/* The unit that replaces the six photographs. Two layers: an ACTOR in front at
+   1:1 with real 13px text, and the CONTEXT behind it, dimmed and a hair out of
+   focus. It is what Linear does — measured on their page today: 271 text nodes
+   at 13.6px or less, and no screenshot anywhere near them. A 1,240px window
+   photographed into a 640px column can only shrink; DOM re-lays out.
+   It also means the scene stays legible on a phone, which no photograph does. */
+.scene {
+  position: relative; border-radius: var(--r-slab); overflow: hidden;
+  background: var(--dark); color: var(--dark-ink);
+  box-shadow: var(--shadow-slab);
+  font-size: 13px; line-height: 1.45;
+  /* 2.6:1 at the width the stage gives it. At 330px the scene was 3.3:1 — a
+     letterbox, when the thing it is a picture of is a desktop window. */
+  min-height: 424px; display: flex; align-items: stretch;
+  isolation: isolate;
+}
+.scene__tag {
+  position: absolute; left: 14px; top: 13px; z-index: 3;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dark-ink-mute); background: hsl(222 40% 10% / .8);
+  padding: 3px 9px; border-radius: 3px; border: 1px solid var(--dark-rule);
+}
+.scene__ctx {
+  flex: 1; padding: 46px 16px 18px; opacity: .40; filter: blur(.7px);
+  display: flex; flex-direction: column; justify-content: center;
+  pointer-events: none; user-select: none;
+  transform: translate3d(0, calc(var(--par, 0) * 10px), 0);
+}
+.scene__fg {
+  position: absolute; left: 50%; top: 50%; z-index: 2;
+  transform: translate3d(-50%, calc(-50% - var(--par, 0) * 16px), 0);
+  width: min(430px, 86%);
+  background: #0f1420; border: 1px solid #38456b; border-radius: 7px;
+  box-shadow: 0 26px 64px -20px #000, 0 0 0 1px hsl(222 40% 4% / .6);
+  overflow: hidden; will-change: transform;
+}
+/* THE PARALLAX THAT MEANS SOMETHING. The actor and its context move at
+   different rates, so the front card genuinely floats above the board it came
+   from. Both are transforms on composited layers inside an `overflow:hidden`
+   box, so nothing reflows and nothing can shift the page. */
+
+.fg__bar { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--dark-rule); background: #131a29; }
+.fg__av { width: 18px; height: 18px; border-radius: 4px; background: linear-gradient(135deg, #d97757, #b8543a); flex: none; }
+.fg__who { font-size: 12px; }
+.fg__mute { color: var(--dark-ink-mute); }
+.fg__st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+.fg__body { padding: 11px 12px 12px; }
+.fg__title { font-size: 13.5px; font-weight: 550; letter-spacing: -.01em; }
+.fg__path { margin-top: 6px; font-family: var(--mono); font-size: 11px; color: #8fb7ff; }
+.fg__term { margin-top: 9px; font-family: var(--mono); font-size: 11.5px; color: var(--dark-ink-mute); }
+.fg__term b { color: var(--dark-ink); font-weight: 500; }
+.fg__term + .fg__term { margin-top: 5px; }
+/* The tick is the sprite icon, not the check character: the copy gate reads
+   the rendered page and counts a bare glyph as an emoji, which on a page
+   selling a terminal tool it is right to do. */
+.ok, .add { color: #7fd7a2; }
+.ok .ic { width: 11px; height: 11px; vertical-align: -1px; }
+.del { color: #e79a8c; }
+.fg__legend { display: flex; gap: 14px; margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--dark-rule); font-size: 10.5px; color: var(--dark-ink-mute); }
+.fg__legend span { display: inline-flex; align-items: center; gap: 5px; }
+.fg__acts { display: flex; gap: 6px; margin-top: 11px; }
+.mini { font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid var(--dark-rule); color: var(--dark-ink-mute); }
+.mini--go { background: #16302a; border-color: #275c48; color: #8fe0b2; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.chip { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 3px; background: #1a2234; border: 1px solid var(--dark-rule); color: var(--dark-ink-mute); }
+.chip--tree { color: #8fb7ff; border-color: #2c3d63; }
+
+.pip { width: 7px; height: 7px; border-radius: 50%; background: #6b7690; flex: none; display: inline-block; }
+.pip--go { background: #7fd7a2; }
+.pip--work { background: #e6b45c; }
+.pip--rev { background: #6ea8ff; }
+
+/* scene 1 — worktrees */
+.wt { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 11px; margin-bottom: 7px; border: 1px solid var(--dark-rule); border-radius: 5px; background: var(--dark-2); }
+.wt__branch { font-family: var(--mono); font-size: 11px; color: #8fb7ff; }
+.wt__stat { font-family: var(--mono); font-size: 11px; grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap; }
+.wt__file { font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+
+/* scene 2 — board */
+.kcols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.kcol__h { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dark-ink-mute); margin-bottom: 8px; }
+.kcol__c { margin-left: auto; }
+.kcard { background: var(--dark-2); border: 1px solid var(--dark-rule); border-radius: 5px; padding: 8px 9px; margin-bottom: 6px; display: grid; gap: 2px; }
+.kcard__id { font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+/* One line with an ellipsis. A dimmed context is allowed to be partial, but
+   a word cut mid-glyph reads as a rendering bug rather than as depth. */
+.kcard__t { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* scene 3 — the window */
+.win { display: grid; grid-template-columns: 128px 1fr; gap: 10px; height: 100%; }
+.win__side { border-right: 1px solid var(--dark-rule); padding-right: 10px; }
+.win__grp { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dark-ink-mute); margin: 8px 0 5px; }
+.win__it { font-size: 12px; padding: 3px 7px; border-radius: 4px; color: var(--dark-ink-mute); }
+.win__it.is-on { background: #1a2234; color: var(--dark-ink); }
+.win__main { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; }
+.win__pane { border: 1px solid var(--dark-rule); border-radius: 5px; background: var(--dark-2); min-height: 72px; }
+.win__pane--wide { grid-column: span 2; }
+.tabs { display: flex; gap: 4px; padding: 7px 8px; border-bottom: 1px solid var(--dark-rule); background: #131a29; }
+.tab { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 8px; border-radius: 4px; color: var(--dark-ink-mute); }
+.tab.is-active { background: #1c2740; color: var(--dark-ink); }
+.tab__x { opacity: .45; }
+.tab--add { color: var(--dark-ink-mute); }
+
+/* scene 4 — the numbers */
+.spark { display: flex; align-items: flex-end; gap: 5px; height: 150px; padding: 0 4px; }
+.spark i { flex: 1; height: var(--h); border-radius: 3px 3px 0 0; background: #263149; }
+.spark i.is-now { background: var(--dark-accent); }
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--dark-rule); }
+.kpis > div { background: #0f1420; padding: 11px 13px; }
+.kpi__l { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--dark-ink-mute); }
+.kpi__v { display: inline-block; margin-top: 4px; font-size: 22px; font-weight: 560; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.kpi__d { margin-left: 7px; font-family: var(--mono); font-size: 11px; }
+.kpi__d.up { color: #7fd7a2; }
+.kpi__d.down { color: #7fd7a2; }
+
+/* scene 5 — ownership */
+.scene--own .scene__ctx { display: flex; flex-direction: column; justify-content: center; gap: 9px; padding-left: 22px; }
+.path { font-family: var(--mono); font-size: 12px; color: var(--dark-ink-mute); }
+.path--none { color: #7fd7a2; font-size: 11px; max-width: 34ch; line-height: 1.4; }
+.card--pick { padding: 12px 13px 13px; }
+.pick__h { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dark-ink-mute); margin-bottom: 9px; }
+.pick__row { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 5px; font-size: 12.5px; }
+.pick__row.is-on { background: #1a2234; }
+.pick__dot { width: 8px; height: 8px; border-radius: 2px; background: #38456b; flex: none; }
+.pick__row.is-on .pick__dot { background: var(--dark-accent); }
+.pick__ok { margin-left: auto; color: #7fd7a2; width: 13px; height: 13px; }
+.pick__foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--dark-rule); font-size: 11px; color: var(--dark-ink-mute); }
+
+/* ── Sections that keep the old styling but change alignment ─────────────── */
+.compare, .limits, .more, .pricing, .changelog, .download { max-width: var(--maxw); margin: 128px auto 0; padding: 0 24px; }
+.compare__scroll { overflow-x: auto; }
+.fine { margin-top: 18px; font-size: var(--t-sm); color: var(--ink-faint); text-wrap: pretty; }
+.fine a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.fine.centered { text-align: center; }
+.limits__cta { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 30px; font-size: var(--t-md); color: var(--ink-mute); flex-wrap: wrap; }
+.faq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px 40px; margin-top: 52px; padding-top: 36px; border-top: 1px solid var(--rule); }
+.faq h4 { font-size: var(--t-base); letter-spacing: -.015em; margin-bottom: 7px; }
+.faq p { color: var(--ink-mute); font-size: 15px; line-height: 1.6; text-wrap: pretty; }
+.faq code { font-family: var(--mono); font-size: .86em; padding: 0 5px; border-radius: var(--r-ctl); background: var(--p-3); white-space: nowrap; }
+.plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: stretch; }
+.plan h3 { font-family: var(--display); font-weight: 600; font-size: var(--t-md); letter-spacing: -.02em; margin-bottom: 10px; }
+
+/* ── Entry ───────────────────────────────────────────────────────────────── */
+/* The reference does opacity 0 → 1, translateY(60px) → 0 and blur(16px) → 0 in
+   0.6s. Sixty pixels and sixteen of blur is a lot of theatre for a page a
+   developer is scanning: this keeps the SHAPE of that recipe — the blur is what
+   makes it feel expensive, and the live page has no blur at all — at
+   24px and 10px, which reads as arrival rather than as performance. */
+@keyframes v3-enter {
+  from { opacity: 0; transform: translate3d(0, 24px, 0); filter: blur(10px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+body.v3 .reveal { opacity: 0; }
+body.v3 .reveal.in { animation: v3-enter var(--dur-enter) var(--out) both; animation-delay: calc(var(--d, 0) * 60ms); }
+
+/* The headline composes itself out of characters. 6ms apart, the interval the
+   reference uses: below 10ms it stops reading as an animation and starts
+   reading as matter settling. The whole string stays in an aria-label, or a
+   screen reader announces forty loose letters. */
+.hero__title .ch { display: inline-block; white-space: pre; }
+body.v3.is-ready .hero__title .ch { animation: v3-enter 520ms var(--out) both; animation-delay: calc(var(--i) * 6ms); }
+/* Two animations on one element, in one declaration. Declared in two separate
+   rules the later `animation` shorthand replaces the earlier one outright, and
+   the gradient simply never travels — which is what happened first. */
+body.v3.is-ready .hero__title .ch-block {
+  animation: v3-enter 520ms var(--out) both, travel 6s cubic-bezier(.65,0,.35,1) 3 forwards;
+  animation-delay: calc(var(--i) * 6ms), 640ms;
+}
+/* The gradient phrase animates as a block, so it needs its own compositing
+   context or the arrival transform and the clipped background fight. */
+.hero__title .ch-block { display: inline-block; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .act { grid-template-columns: 1fr; gap: 30px; }
+  .act--flip .act__stage { order: 0; }
+  .model__grid { grid-template-columns: 1fr; }
+  .model__step { border-right: 0; border-bottom: 1px solid var(--rule); padding: 22px 0; }
+  .model__step:not(:first-child) { padding-left: 0; }
+  .faq { grid-template-columns: 1fr 1fr; }
+  .plans { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
+  .hero { padding-top: 30px; }
+  .hero__actions { flex-direction: column; }
+  .hero__actions .btn { width: 100%; }
+  .hero__proof > div { flex-basis: 50%; border-left: 0; padding: 10px 0; }
+  .hero__stage { height: clamp(200px, 34vh, 300px); }
+  .scene { min-height: 340px; }
+  .scene__fg { width: 92%; }
+  .kcols { grid-template-columns: 1fr; }
+  .win { grid-template-columns: 1fr; }
+  .win__side { display: none; }
+  .kpis { grid-template-columns: 1fr; }
+  .faq, .plans { grid-template-columns: 1fr; }
+  .limits__cta { flex-direction: column; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+/* Everything the field does is decoration, so all of it stops. The lattice
+   canvas is also told to stop drawing in JS rather than merely being hidden:
+   a hidden canvas that still runs a rAF loop is the same battery. */
+@media (prefers-reduced-motion: reduce) {
+  /* A scroll-driven animation is not an `animation-duration`, so the global
+     reduced-motion rule in styles.css cannot reach it. Nothing here uses one
+     today; this is so nothing ever ships one without meaning to. */
+  *, *::before, *::after { animation-timeline: none !important; }
+  body.v3 .reveal, body.v3 .reveal.in { opacity: 1; animation: none; }
+  body.v3.is-ready .hero__title .ch { animation: none; }
+  body.v3.is-ready .hero__title .dim { animation: none; }
+  .field__lattice { display: none; }
+  .scene__ctx, .scene__fg { transform: translate3d(-50%, -50%, 0); }
+  .scene__ctx { transform: none; }
+  .hero__shot { transform: none !important; }
+}

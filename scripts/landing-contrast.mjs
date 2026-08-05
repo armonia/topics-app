@@ -31,7 +31,7 @@ import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('../landing/dist', import.meta.url)));
-const PAGES = ['/', '/changelog/', '/privacy/', '/blog/', '/wiki/', '/wiki/pty/',
+const PAGES = ['/', '/v3/', '/changelog/', '/privacy/', '/blog/', '/wiki/', '/wiki/pty/',
                '/compare/claude-code-guis/', '/blog/electron-vs-tauri-memory-measured/'];
 const WIDTHS = [1440, 390];
 const MAX_READING_L = 56;
@@ -94,18 +94,43 @@ const PROBE = () => {
     if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) continue;
-    const fgRaw = parse(cs.color);
-    if (!fgRaw) continue;
     const bg = backdrop(el);
-    const fg = fgRaw.a < 1 ? over(fgRaw, bg) : fgRaw;
+
+    /* Type painted from a gradient. `background-clip: text` with a transparent
+       fill means `color` is not the colour of anything: read literally it
+       measures 1.00:1 against its own backdrop and fails a headline that is
+       perfectly legible. The colour of the glyphs is the gradient, and since
+       every sRGB interpolation between two stops has a luminance between
+       theirs, checking the stops checks every frame of an animated one.
+       Each stop is emitted as its own row, so the report names the stop that
+       is too light rather than the element. */
+    const clipsText = /text/.test(cs.webkitBackgroundClip || cs.backgroundClip || '');
+    const fillRaw = parse(cs.webkitTextFillColor || cs.color);
+    const painted = [];
+    if (clipsText && fillRaw && fillRaw.a === 0) {
+      for (const m of (cs.backgroundImage || '').matchAll(/rgba?\([^)]+\)/g)) {
+        const c = parse(m[0]);
+        if (c && c.a > 0) painted.push(c.a < 1 ? over(c, bg) : c);
+      }
+      /* A gradient with no readable stop at all is a real failure, not a skip. */
+      if (!painted.length) painted.push({ r: bg.r, g: bg.g, b: bg.b, a: 1 });
+    } else {
+      const fgRaw = parse(cs.color);
+      if (!fgRaw) continue;
+      painted.push(fgRaw.a < 1 ? over(fgRaw, bg) : fgRaw);
+    }
     const size = parseFloat(cs.fontSize);
     const weight = Number(cs.fontWeight) || 400;
-    out.push({
-      sel: (el.id ? '#' + el.id : el.tagName.toLowerCase() + (el.className && el.className.toString ? '.' + el.className.toString().trim().split(/\s+/).slice(0, 2).join('.') : '')),
-      text: text.slice(0, 44),
-      fg: [fg.r, fg.g, fg.b], bg: [bg.r, bg.g, bg.b],
-      size, weight,
-    });
+    const sel = el.id ? '#' + el.id
+      : el.tagName.toLowerCase() + (el.className && el.className.toString ? '.' + el.className.toString().trim().split(/\s+/).slice(0, 2).join('.') : '');
+    for (const fg of painted) {
+      out.push({
+        sel: painted.length > 1 ? `${sel} (gradient stop)` : sel,
+        text: text.slice(0, 44),
+        fg: [fg.r, fg.g, fg.b], bg: [bg.r, bg.g, bg.b],
+        size, weight,
+      });
+    }
   }
   return out;
 };
