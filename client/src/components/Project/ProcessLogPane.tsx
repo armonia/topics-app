@@ -6,7 +6,9 @@ import type { WSMessage } from '../../types';
 // Strip ANSI escape sequences (colors, bold, cursor, etc.)
 // Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
 const stripAnsi = (text: string) =>
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- il byte ESC è ciò che questa
+  // regex deve riconoscere per poterlo togliere. La regola serve a intercettare
+  // i byte di controllo finiti in un pattern per sbaglio; qui sono il soggetto.
   text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
       .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');
 

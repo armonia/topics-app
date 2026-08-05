@@ -19,6 +19,7 @@ import IconSprite from '../components/IconSprite.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import ChangelogList from '../components/ChangelogList.astro';
+import ModelDiagram from '../components/ModelDiagram.astro';
 import { homeTools, READ_ON } from '../data/compare';
 import { repoStats, longDate } from '../lib/repo-stats';
 
@@ -232,16 +233,19 @@ const jsonLd = {
       </header>
       <div class="model__grid reveal">
         <div class="model__step">
+          <ModelDiagram kind="topic" />
           <span class="model__n">1</span>
           <h3>A topic is a session with a workspace attached</h3>
           <p>One conversation, and the things it needs: a terminal, a branch, a browser, the files it touched. Close the app and it comes back the same, scrollback included.</p>
         </div>
         <div class="model__step">
+          <ModelDiagram kind="panes" />
           <span class="model__n">2</span>
           <h3>Panes and groups are the room they live in</h3>
           <p>Split any pane, drag tabs between groups, keep three whole projects open beside each other. The layout persists, and syncs to your other machine.</p>
         </div>
         <div class="model__step">
+          <ModelDiagram kind="board" />
           <span class="model__n">3</span>
           <h3>The board is where you hand work over</h3>
           <p>Write a task, an agent takes it in a <code>git worktree</code> of its own, and hands back a commit and evidence. You read the diff and decide.</p>

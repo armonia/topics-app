@@ -167,7 +167,10 @@ export function wrapPty(argv: string[]): string[] {
 }
 
 const ANSI_RE =
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- le sequenze ANSI che il PTY
+  // emette: la regex CONTIENE byte di controllo perché è esattamente ciò che
+  // deve riconoscere. La regola serve a intercettarli quando ci finiscono per
+  // sbaglio; qui sono il soggetto.
   /[][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PRZcf-ntqry=><~]))/g;
 
 // Non-printable control bytes the PTY/script(1) injects (BEL, BS, etc.)
