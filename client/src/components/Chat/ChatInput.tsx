@@ -1009,15 +1009,19 @@ export function ChatInput({
                   finestra da 1M il problema non è la capienza, è che ogni chiamata
                   rilegge per intero un prompt già enorme. */}
               {contextNotice.reason === 'cost'
-                ? `Every call re-reads ${formatTokens(contextNotice.used)}`
+                ? `Ogni risposta rilegge ${formatTokens(contextNotice.used)} token`
                 : contextNotice.level === 'critical'
-                  ? `Context almost full — ${contextNotice.percent}%`
-                  : `Context filling up — ${contextNotice.percent}%`}
+                  ? `Contesto quasi pieno — ${contextNotice.percent}%`
+                  : `Contesto che si riempie — ${contextNotice.percent}%`}
             </div>
             <div className={`text-[11px] truncate ${contextNotice.level === 'critical' ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
+              {/* La seconda riga non ripete il numero della prima: dice COSA
+                  comporta. Nel caso 'cost' la capienza non è il problema — nella
+                  finestra ci sta — quindi si spiega la conseguenza vera, che è
+                  il conto e la lentezza a ogni chiamata. */}
               {contextNotice.reason === 'cost'
-                ? `${formatTokens(contextNotice.used)} / ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — room to spare, but every tool call pays for all of it. Compact now, or start a fresh chat.`
-                : `${formatTokens(contextNotice.used)} / ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — compacting soon drops detail. Compact now, or start a fresh chat.`}
+                ? `Nella finestra ci stanno (${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}), ma ogni chiamata al modello se li rilegge tutti: è quello che paghi e che rallenta le risposte. Compattare li riduce; una chat nuova riparte da zero.`
+                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — quando si compatta si perde dettaglio, meglio farlo adesso che a ridosso. Oppure apri una chat nuova.`}
             </div>
           </div>
           <button
@@ -1025,7 +1029,7 @@ export function ChatInput({
             onClick={() => { dismissNotice(contextNotice); void sendMessageDirect('/compact'); }}
             className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.level === 'critical' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
           >
-            Compact now
+            Compatta adesso
           </button>
           <button
             type="button"
