@@ -11,7 +11,7 @@ import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { spawnDragGhost } from './dragGhost';
-import { popOutTopics } from '../../lib/popOutTopic';
+import { detachPaneToNewSpace } from '../../lib/popOutSpace';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
@@ -1288,12 +1288,14 @@ export function PanelGrid({
       const windowHeight = window.innerHeight;
 
       if (clientX < 0 || clientX > windowWidth || clientY < 0 || clientY > windowHeight) {
-        // Pop the dragged tab out into a real OS window. Only close the source
-        // pane if the window actually opened (see popOutTopics) — otherwise the
-        // pane vanishes with nowhere for it to go.
-        void popOutTopics([draggedId]).then((opened) => {
-          if (opened) onClosePanel(draggedId);
-        });
+        // FUORI dalla finestra = la tab vuole una casa sua: le si dà un GRUPPO
+        // nuovo e la finestra di quel gruppo (`detachPaneToNewSpace`). Prima
+        // qui nasceva una pop-out `?topics=`, cioè una vista morta senza
+        // pane-store, e la pane di partenza andava chiusa a mano. Ora non si
+        // chiude niente: cambiando gruppo la tab lascia da sola l'insieme
+        // visibile di questa finestra, e se la finestra non si apre il gruppo
+        // si scioglie e la tab torna dov'era.
+        void detachPaneToNewSpace(draggedId);
       }
     }
   }, [draggingId, onClosePanel, windowId, sendWS]);

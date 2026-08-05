@@ -6433,6 +6433,27 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     .unwrap_or(false)
 }
 
+/// Ricarica TUTTE le finestre della app (chrome inclusa), non solo quella che
+/// chiede. Il bundle è uno solo: dopo un build, una finestra ricaricata e le
+/// altre ferme sono due versioni dello stesso client che si parlano — e chi
+/// preme ⌘R non sta chiedendo "ricarica questa", sta chiedendo "riparti".
+/// Le pane native dei browser non si toccano: si ricarica il documento UI.
+#[tauri::command]
+fn app_reload_all(app: tauri::AppHandle) -> usize {
+    use tauri::Manager;
+    no_abort("app_reload_all", || {
+        let mut n = 0usize;
+        for (label, win) in app.webview_windows() {
+            // Le pane native del browser sono webview a sé: si saltano, o si
+            // ricaricherebbe la pagina che l'utente sta guardando.
+            if label.starts_with("browserpane-") { continue; }
+            if win.eval("location.reload()").is_ok() { n += 1; }
+        }
+        Ok(n)
+    })
+    .unwrap_or(0)
+}
+
 /// Chiude la finestra `label` (una finestra-gruppo, di solito): è il "riporta
 /// qui" del menu di un gruppo staccato. `false` = quella finestra non esiste su
 /// questa macchina, e chi chiama si limita a riaprire il gruppo dov'è.
@@ -7996,6 +8017,7 @@ pub fn run() {
             window_detach_space,
             window_focus_label,
             window_close_label,
+            app_reload_all,
             window_close_self
         ])
         .build(tauri::generate_context!())

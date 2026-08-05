@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { isPairingRequired, subscribePairingRequired } from '@/lib/shell/pairing';
+import { reloadAllWindows } from '@/lib/shell/app';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -291,8 +292,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
         if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
       }
     } catch {}
-    // Hard reload (bypass cache)
-    window.location.reload();
+    // Hard reload (bypass cache) — su desktop TUTTE le finestre, vedi
+    // reloadAllWindows.
+    void reloadAllWindows();
   };
 
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
