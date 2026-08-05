@@ -9,6 +9,12 @@
  * Privacy sat between RSS and GitHub as though the three were the same kind of
  * thing.
  */
+interface Props {
+  /** Draw the brand with the vector mark rather than the shipped raster icon. */
+  vector?: boolean;
+}
+const { vector = false } = Astro.props;
+
 const columns = [
   {
     title: 'Product',
@@ -47,7 +53,14 @@ const columns = [
   <div class="footer__grid">
     <div class="footer__brand">
       <a class="brand" href="/" aria-label="Topics home">
-        <img src="/icon-64.png" alt="" class="brand__mark" width="26" height="26" />
+        {/* The vector mark, opt-in per page. It is a DIFFERENT mark from the
+             raster icon the application still ships, so switching the shared
+             footer wholesale would change the live home page's identity
+             without anyone having decided to — see the note on `#ic-mark`. */}
+        {vector
+          ? <svg class="brand__mark brand__mark--vector" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-mark"/></svg>
+          : <img src="/icon-64.png" alt="" class="brand__mark" width="26" height="26" />}
         <span class="brand__name">Topics</span>
       </a>
       <p class="footer__tag">A desktop workspace for CLI coding agents. Your machine, your account, your data.</p>
