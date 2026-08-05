@@ -350,10 +350,13 @@ body.demo-expanded .expand{opacity:1}
 .model__step{padding:30px 30px 30px 0;border-right:1px solid var(--rule)}
 .model__step:last-child{border-right:0;padding-right:0}
 .model__step:not(:first-child){padding-left:30px}
-/* --ink-quiet, not --rule-3: a rule colour behind a 38px numeral measured
-   2.11:1, and the step number is the one piece of this block that says which
-   order to read it in. */
-.model__n{font-family:var(--display);font-size:38px;line-height:1;color:var(--ink-quiet);letter-spacing:-.03em;display:block;margin-bottom:14px}
+/* The numeral was a 38px display figure carrying the whole visual weight of the
+   step. Now that each step has a diagram, the diagram carries it and the
+   numeral goes back to being what it is: a marker saying which order to read
+   them in. Small, mono, ink-faint, which also puts it back inside the reading
+   contrast rule instead of needing an exception. */
+.model__n{display:inline-block;font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.11em;color:var(--ink-faint);margin-bottom:8px}
+.model__n::after{content:" /"}
 .model__step h3{font-size:var(--t-md);letter-spacing:-.02em;margin-bottom:8px}
 .model__step p{color:var(--ink-mute);font-size:var(--t-base);line-height:1.55;text-wrap:pretty}
 .model__step code{font-family:var(--mono);font-size:.86em;color:var(--ink);background:var(--p-3);padding:1px 5px;border-radius:4px;white-space:nowrap}
