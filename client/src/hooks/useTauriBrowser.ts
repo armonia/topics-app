@@ -37,7 +37,8 @@ import {
   type ElementDescription,
 } from '../../../shared/element-describe';
 import { cropToElement } from '../lib/imageCrop';
-import { navErrorMessage } from '../components/Browser/navErrorMessage';
+import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../components/Browser/navErrorMessage';
+import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
@@ -497,7 +498,22 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     const queuedClose = pendingBrowserCloses.get(id);
     if (queuedClose) { clearTimeout(queuedClose); pendingBrowserCloses.delete(id); }
     retainBrowserView(id);
-    const startUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
+    const wantedUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
+    // Una scheda verso una porta LOCALE non parte alla cieca: si chiede prima al
+    // server se lì c'è ancora qualcuno in ascolto.
+    //
+    // Perché proprio qui: le schede sono persistite con la loro URL e moltissime
+    // puntano all'ANTEPRIMA di un task — un server effimero che muore con la
+    // sessione dell'agente mentre la URL resta salvata per sempre. Riaprire quel
+    // task faceva partire una richiesta destinata a fallire e lasciava a video la
+    // pagina d'errore di WebKit, muta su cosa mancasse.
+    //
+    // La view si crea SUBITO su about:blank e la navigazione arriva dopo la
+    // risposta: la sonda è su loopback (millisecondi) ma non deve comunque stare
+    // sul percorso critico della creazione, che è quello che tiene la pane su
+    // «Initializing native browser…».
+    const gateLoopback = isLoopbackUrl(wantedUrl);
+    const startUrl = gateLoopback ? 'about:blank' : wantedUrl;
     // isolate: each pane gets its OWN persistent WKWebsiteDataStore keyed on the
     // contextId (stable across restarts) — per-topic cookie/localStorage
     // isolation, matching Electron's persist:topic-<contextId> partition. One
@@ -539,8 +555,21 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0
         );
         setReady(true);
-        setUrl(startUrl === 'about:blank' ? '' : startUrl);
+        // La barra mostra la URL VOLUTA anche quando la view è ferma su
+        // about:blank in attesa della sonda: è l'indirizzo di questa scheda, e
+        // farlo sparire per mezzo secondo (o per sempre, se la porta è spenta)
+        // renderebbe la scheda anonima proprio nel momento in cui serve sapere
+        // quale porta non risponde.
+        setUrl(wantedUrl === 'about:blank' ? '' : wantedUrl);
         if (pendingRectRef.current) setBounds(pendingRectRef.current);
+        if (!gateLoopback) return;
+        void loopbackAlive(wantedUrl).then((alive) => {
+          if (cancelled) return;
+          if (!alive) { setNavError({ ...deadLoopbackNotice(wantedUrl, new Date()), url: wantedUrl }); return; }
+          setLoading(true);
+          void tauriInvoke('browser_navigate', { id, url: wantedUrl }).catch(() => {});
+          window.setTimeout(() => { if (!cancelled) setLoading(false); }, 700);
+        });
     };
     // browser_open used to fail silently: a transient IPC/shell hiccup left the
     // pane stuck on "Initializing native browser…" forever, with no signal to
@@ -599,6 +628,27 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       window.setTimeout(() => setLoading(false), 700);
     },
     [id],
+  );
+
+  /**
+   * Il «Riprova» della strip d'errore, che non è un `navigate` qualunque.
+   *
+   * Su una porta locale spenta ricaricare non può funzionare, e ricaricando non
+   * cambiava NIENTE a video: stessa strip, stesso testo — il bottone sembrava
+   * rotto. Qui si sonda prima: se è ancora morta la risposta è la stessa frase
+   * con l'ora aggiornata, che è il modo di dire «ho guardato adesso». Se nel
+   * frattempo qualcuno ha riacceso quel server, si naviga davvero.
+   */
+  const retryNav = useCallback(
+    async (u: string) => {
+      const target = normalizeUrl(u);
+      if (isLoopbackUrl(target) && !(await loopbackAlive(target))) {
+        setNavError({ ...deadLoopbackNotice(target, new Date()), url: target });
+        return;
+      }
+      await navigate(target);
+    },
+    [navigate],
   );
 
   const clearNavError = useCallback(() => setNavError(null), []);
@@ -1117,6 +1167,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     frozenImage,
     navError,
     clearNavError,
+    retryNav,
     navigate,
     goBack,
     goForward,
@@ -1145,7 +1196,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     goToNavIndex,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
-    navError, clearNavError,
+    navError, clearNavError, retryNav,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
