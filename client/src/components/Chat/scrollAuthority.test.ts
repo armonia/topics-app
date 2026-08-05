@@ -43,8 +43,30 @@ describe('riancoraggi espliciti', () => {
     expect(d.pin).toBe(true);
   });
 
-  it('cambio topic e inizio stream riancorano ma NON pinnano — lo fa chi aspetta il caricamento', () => {
-    for (const type of ['topic-switch', 'stream-start'] as const) {
+  it('un turno che comincia NON trascina in fondo chi era andato a leggere indietro', () => {
+    // Un turno non è sempre dell'utente: lo avviano la board, un agente,
+    // un'altra finestra. Se la vista era sganciata deve restarci — «ho appena
+    // inviato» ha il suo evento, `user-sent`, che riancora comunque.
+    const staccato = { anchored: false, guardUntil: 0 };
+    const d = reduceScroll(staccato, { type: 'stream-start' }, 1_000);
+    expect(d.state.anchored).toBe(false);
+    expect(d.pin).toBe(false);
+    // …e la guardia non si arma: non c'è nessuno scroll forzato da coprire.
+    expect(d.state.guardUntil).toBe(0);
+  });
+
+  it('inviare vince comunque sulla vista sganciata (è l\'intento di seguire)', () => {
+    const staccato = { anchored: false, guardUntil: 0 };
+    const d = reduceScroll(staccato, { type: 'user-sent' }, 1_000);
+    expect(d.state.anchored).toBe(true);
+    expect(d.pin).toBe(true);
+  });
+
+  it('il cambio topic riancora ma NON pinna — lo fa chi aspetta il caricamento', () => {
+    // `stream-start` NON è più in questa lista: da vista sganciata ri-afferma e
+    // basta, perché un turno che comincia non è per forza dell'utente. Il caso
+    // sta nel test qui sopra.
+    for (const type of ['topic-switch'] as const) {
       const d = reduceScroll(at({ anchored: false }), { type }, T0);
       expect(d.state.anchored).toBe(true);
       expect(d.pin).toBe(false);
@@ -67,6 +89,30 @@ describe('lo scroll dell\'utente', () => {
     const d = reduceScroll(at(), { type: 'user-scrolled-up', streaming: true }, T0);
     expect(d.state.anchored).toBe(false);
     expect(shouldPin(d.state, { jumpPending: false })).toBe(false);
+  });
+
+  it('fuori dallo stream, una tirata VERA sgancia subito: non si aspetta Virtuoso', () => {
+    // Virtuoso tace finché non supera la sua soglia, e in quel silenzio la vista
+    // restava «ancorata» mentre l'utente stava già leggendo indietro: il
+    // messaggio dopo gliela ributtava in fondo. Con la distanza misurata lo
+    // sgancio è immediato.
+    const d = reduceScroll(
+      { anchored: true, guardUntil: 0 },
+      { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 900 },
+      1_000,
+    );
+    expect(d.state.anchored).toBe(false);
+  });
+
+  it('fuori dallo stream, un colpetto di rotellina vicino al fondo NON sgancia', () => {
+    // Sotto la tolleranza sei ancora «in fondo»: sganciare qui farebbe comparire
+    // il bottone «torna in fondo» per due pixel.
+    const d = reduceScroll(
+      { anchored: true, guardUntil: 0 },
+      { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 40 },
+      1_000,
+    );
+    expect(d.state.anchored).toBe(true);
   });
 
   it('fuori dallo stream NON sgancia da solo: decide la geometria', () => {

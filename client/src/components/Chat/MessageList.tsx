@@ -54,7 +54,6 @@ interface MessageListProps {
   onRegenerate?: (msg: ChatMessage) => void;
   onDeleteMessage?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
-  onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
@@ -98,7 +97,6 @@ export function MessageList({
   onRegenerate,
   onDeleteMessage,
   onSwitchBranch,
-  onOpenSessionViewer,
   onMessage,
   onRetry,
   inputAreaHeight = 0,
@@ -427,7 +425,16 @@ export function MessageList({
     const el = scrollerElRef.current;
     if (!el) return;
     lastScrollTopRef.current = el.scrollTop;
-    const releaseToUser = () => dispatchScroll({ type: 'user-scrolled-up', streaming: _currentStreaming });
+    // La distanza dal fondo si misura QUI, dove il DOM ce l'ha sotto mano: fuori
+    // dallo stream è quella a decidere lo sgancio, invece di aspettare che
+    // Virtuoso superi la sua soglia (nel frattempo la vista si diceva ancorata
+    // mentre l'utente stava già leggendo indietro, e il messaggio dopo gliela
+    // ributtava in fondo).
+    const releaseToUser = () => dispatchScroll({
+      type: 'user-scrolled-up',
+      streaming: _currentStreaming,
+      distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
+    });
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) releaseToUser();
     };
@@ -781,7 +788,6 @@ export function MessageList({
                   onRegenerate={onRegenerate}
                   onDeleteMessage={onDeleteMessage}
                   onSwitchBranch={onSwitchBranch}
-                  onOpenSessionViewer={onOpenSessionViewer}
                   onMessage={onMessage}
                   onRetry={isLastAssistant ? onRetry : undefined}
                 />

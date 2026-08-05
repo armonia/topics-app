@@ -69,14 +69,22 @@ export const initialScrollAuthority: ScrollAuthorityState = {
 export type ScrollEvent =
   /** Cambio di topic: la lista si rimonta, si riparte ancorati. */
   | { type: 'topic-switch' }
-  /** Un turno inizia a streammare: si riparte ancorati (l'utente ha appena inviato). */
+  /**
+   * Un turno comincia a streammare. NON è per forza un turno dell'utente: può
+   * averlo avviato la board, un'altra finestra, o un agente. Ri-AFFERMA
+   * l'ancoraggio, non lo crea — vedi la transizione.
+   */
   | { type: 'stream-start' }
   /** L'utente ha inviato: intento esplicito di seguire la risposta, comunque fosse la vista. */
   | { type: 'user-sent' }
   /** Il bottone "torna in fondo", o qualunque richiesta esplicita di riancorare. */
   | { type: 'scroll-to-bottom' }
-  /** Rotellina verso l'alto, o `scrollTop` calato oltre soglia: è l'utente. */
-  | { type: 'user-scrolled-up'; streaming: boolean }
+  /**
+   * Rotellina verso l'alto, o `scrollTop` calato oltre soglia: è l'utente.
+   * `distanceFromBottom` (quando il chiamante sa misurarla) evita di aspettare
+   * Virtuoso fuori dallo stream.
+   */
+  | { type: 'user-scrolled-up'; streaming: boolean; distanceFromBottom?: number }
   /** Virtuoso: la vista è tornata in fondo. */
   | { type: 'reached-bottom' }
   /** Virtuoso: la vista non è più in fondo. Può essere l'utente o la crescita del contenuto. */
@@ -109,7 +117,14 @@ export function reduceScroll(
     // Virtuoso può riportare atBottom=false per un frame mentre i due nuovi item
     // (messaggio utente + placeholder) vengono misurati: senza riancorare qui,
     // quel falso negativo bloccherebbe il pin per tutto il turno.
+    //
+    // Ma ri-afferma soltanto: se l'utente era andato indietro a leggere, un
+    // turno che comincia NON deve trascinarlo in fondo. Un turno non è sempre
+    // suo — lo avviano anche la board, un agente, un'altra finestra — e
+    // «l'utente ha appena inviato» ha già il suo evento (`user-sent`), che
+    // riancora comunque. Questo era il salto in fondo mentre si leggeva.
     case 'stream-start':
+      if (!state.anchored) return { state, pin: false };
       return reanchor(now, false);
 
     // Inviare È l'intento di seguire la risposta: vince anche su una vista che
@@ -122,11 +137,18 @@ export function reduceScroll(
       // Durante lo stream sganciare deve essere IMMEDIATO: il pin gira a ogni
       // chunk e, se aspettassimo l'atBottomStateChange di Virtuoso, ributterebbe
       // la vista in fondo prima che quello arrivi — l'utente resterebbe
-      // inchiodato al fondo. Fuori dallo stream nessuno sta combattendo con lui:
-      // decide la geometria (`left-bottom` con la sua tolleranza), così un
-      // colpo di rotellina da pochi pixel non fa comparire il bottone.
-      if (!event.streaming) return { state, pin: false };
-      return { state: { ...state, anchored: false }, pin: false };
+      // inchiodato al fondo.
+      if (event.streaming) return { state: { ...state, anchored: false }, pin: false };
+      // Fuori dallo stream nessuno sta combattendo con lui, quindi un colpo di
+      // rotellina da pochi pixel non deve far comparire il bottone: sgancia
+      // solo se la vista è DAVVERO lontana dal fondo. Con la distanza si
+      // sgancia subito; senza (chiamante che non sa misurarla) decide come
+      // prima la geometria di Virtuoso, che però tace finché non supera la sua
+      // soglia — ed è lì che l'aggancio sembrava incollato.
+      if (event.distanceFromBottom != null && event.distanceFromBottom > AT_BOTTOM_TOLERANCE_PX) {
+        return { state: { ...state, anchored: false }, pin: false };
+      }
+      return { state, pin: false };
 
     case 'reached-bottom':
       // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
