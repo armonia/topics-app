@@ -191,7 +191,10 @@ a{color:inherit;text-decoration:none}
 
 /* ── Nav ───────────────────────────────────────────────────────────────── */
 .nav{position:sticky;top:0;z-index:100;border-bottom:1px solid transparent;transition:border-color var(--dur-2) var(--state),background var(--dur-2) var(--state)}
-.nav.is-stuck{background:hsl(50 33% 97% / .86);border-bottom-color:var(--rule);-webkit-backdrop-filter:blur(14px) saturate(120%);backdrop-filter:blur(14px) saturate(120%)}
+/* hue 220, not 50. This bar was still painting the cream of the warm system
+   that was dropped for the cold ramp: 170 degrees of hue away from the page it
+   covers, on the most-seen surface of the site. */
+.nav.is-stuck{background:hsl(220 33% 98% / .86);border-bottom-color:var(--rule);-webkit-backdrop-filter:blur(14px) saturate(120%);backdrop-filter:blur(14px) saturate(120%)}
 .nav__inner{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:26px}
 .brand{display:flex;align-items:center;gap:9px;font-family:var(--display-sm);font-weight:600;font-size:17px;letter-spacing:-.015em}
 .brand__mark{border-radius:var(--r-ctl)}
@@ -218,12 +221,18 @@ a{color:inherit;text-decoration:none}
    paper a saturated fill would be the loudest thing above the fold and would
    out-shout the screenshot, which is what the visitor came for. */
 .btn--primary{color:var(--p-0);background:var(--ink);box-shadow:var(--shadow-2)}
-.btn--primary:hover{background:#2b2b28;box-shadow:var(--shadow-3)}
+/* Same move as before — six and a half points of lightness up from --ink — but
+   in the page's own hue family. #2b2b28 was hue 60, which is 162 degrees from
+   the ink it lifts from, so the main download button warmed under the pointer. */
+.btn--primary:hover{background:#252932;box-shadow:var(--shadow-3)}
 .btn--glass,.btn--ghost{color:var(--ink);background:var(--p-0);border-color:var(--rule-2);box-shadow:var(--shadow-1)}
 .btn--glass:hover,.btn--ghost:hover{border-color:var(--rule-3);background:var(--p-1)}
 .btn--ghost{background:transparent;box-shadow:none}
 .btn--accent{color:var(--p-0);background:var(--accent-ink);box-shadow:var(--shadow-2)}
-.btn--accent:hover{background:#8f320f;box-shadow:var(--shadow-3)}
+/* --accent-ink is teal at hue 185. #8f320f is terracotta at hue 16, left over
+   from the warm palette: the Founding CTA flipped 169 degrees under the
+   pointer. This is the same teal, one step down. */
+.btn--accent:hover{background:#01555d;box-shadow:var(--shadow-3)}
 .btn--block{width:100%}
 
 /* ── Hero ──────────────────────────────────────────────────────────────── */
@@ -281,7 +290,7 @@ a{color:inherit;text-decoration:none}
 .window-real{position:relative;margin:0;border-radius:var(--r-card);overflow:hidden}
 .showcase__frame{--demo-scale:.70;position:relative;aspect-ratio:16/10;overflow:hidden;border-radius:var(--r-slab);
   background:var(--dark);box-shadow:var(--shadow-slab);transition:box-shadow var(--dur-2) var(--state)}
-.showcase:hover .showcase__frame{box-shadow:0 0 0 1px hsl(60 3% 8% / .16),0 3px 6px -2px hsl(60 3% 8% / .10),0 36px 76px -24px hsl(60 3% 8% / .34)}
+.showcase:hover .showcase__frame{box-shadow:0 0 0 1px hsl(226 22% 12% / .16),0 3px 6px -2px hsl(226 22% 12% / .10),0 36px 76px -24px hsl(226 22% 12% / .34)}
 iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-scale));height:calc(100% / var(--demo-scale));
   transform:scale(var(--demo-scale));transform-origin:top left;border:0;display:block;background:var(--dark);color-scheme:dark}
 
@@ -298,7 +307,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   background:var(--dark);font:inherit;color:var(--dark-ink)}
 .showcase__poster img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top center}
 .showcase__play{position:relative;display:inline-flex;align-items:center;gap:10px;padding:13px 22px;border-radius:999px;
-  font-size:var(--t-base);font-weight:560;color:var(--ink);background:hsl(50 33% 97% / .94);
+  font-size:var(--t-base);font-weight:560;color:var(--ink);background:hsl(220 33% 98% / .94);
   box-shadow:0 8px 30px -8px hsl(220 60% 4% / .7);transition:transform var(--dur-1) var(--out)}
 .showcase__poster:hover .showcase__play{transform:translateY(-2px)}
 .showcase__play .ic{width:17px;height:17px;color:var(--accent-ink)}
@@ -307,7 +316,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .shield{position:absolute;inset:0;z-index:3;cursor:pointer;background:transparent;border:0;padding:0;font:inherit;color:inherit;
   display:grid;place-items:center;-webkit-appearance:none;appearance:none}
 .shield__hint{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;
-  font-size:var(--t-sm);font-weight:540;color:var(--ink);background:hsl(50 33% 97% / .94);
+  font-size:var(--t-sm);font-weight:540;color:var(--ink);background:hsl(220 33% 98% / .94);
   box-shadow:0 8px 26px -10px hsl(220 60% 4% / .7);
   opacity:0;transform:translateY(5px);transition:opacity var(--dur-1) var(--state),transform var(--dur-1) var(--out)}
 .shield:hover .shield__hint,.shield:focus-visible .shield__hint{opacity:1;transform:none}
@@ -341,13 +350,13 @@ body.demo-expanded .shield{display:none}
 
 .expand{position:absolute;right:12px;bottom:12px;z-index:4;display:inline-flex;align-items:center;gap:7px;
   padding:7px 11px;border-radius:var(--r-ctl);cursor:pointer;font-family:inherit;font-size:var(--t-sm);font-weight:540;
-  color:var(--ink);background:hsl(50 33% 97% / .92);border:0;box-shadow:0 6px 20px -8px hsl(220 60% 4% / .7);
+  color:var(--ink);background:hsl(220 33% 98% / .92);border:0;box-shadow:0 6px 20px -8px hsl(220 60% 4% / .7);
   opacity:0;transition:opacity var(--dur-1) var(--state),background var(--dur-1) var(--state)}
 .showcase:hover .expand,.expand:focus-visible{opacity:1}
 .expand:hover{background:var(--p-0)}
 .expand .ic{width:15px;height:15px}
 body.demo-expanded{overflow:hidden}
-body.demo-expanded .demo{position:fixed;inset:0;z-index:9995;max-width:none;margin:0;padding:0;display:flex;flex-direction:column;background:hsl(50 20% 92% / .96);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+body.demo-expanded .demo{position:fixed;inset:0;z-index:9995;max-width:none;margin:0;padding:0;display:flex;flex-direction:column;background:hsl(220 20% 93% / .96);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 body.demo-expanded .showcase{flex:1;min-height:0;margin:0;padding:16px 16px 0}
 body.demo-expanded .showcase__frame{height:100%;border-radius:var(--r-card)}
 body.demo-expanded .demo__foot{display:none}
@@ -442,7 +451,7 @@ body.demo-expanded .expand{opacity:1}
 .fitem__note a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
 .tag{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:var(--r-ctl);vertical-align:middle}
 .tag--pro{color:var(--accent-ink);background:var(--accent-wash)}
-.tag--team{color:var(--warn);background:#f7f0df}
+.tag--team{color:var(--warn);background:#eef1f6}
 
 /* ── Comparison ────────────────────────────────────────────────────────────
    HTML, never an image: this is the table a listicle will copy, and an image
@@ -555,7 +564,7 @@ body.demo-expanded .expand{opacity:1}
   border:1px solid var(--rule);transition:color var(--dur-1) var(--state),border-color var(--dur-1) var(--state),background var(--dur-1) var(--state)}
 .dl-link:hover{color:var(--ink);border-color:var(--rule-3);background:var(--p-1)}
 .dl-link.is-primary{background:var(--ink);color:var(--p-0);border-color:transparent;font-weight:560}
-.dl-link.is-primary:hover{background:#2b2b28;color:var(--p-0)}
+.dl-link.is-primary:hover{background:#252932;color:var(--p-0)}
 .dl-note{text-align:center;color:var(--ink-faint);font-size:var(--t-sm);margin-top:24px}
 .dl-note a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
 
