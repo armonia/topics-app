@@ -12,7 +12,7 @@ import { describe, test, expect } from "bun:test";
 import {
   buildSidebarItems,
   groupSidebarItems,
-  partitionSidebarItemsBySpace,
+  groupSidebarItemsBySpace,
   sidebarItemPaneId,
   type SidebarItem,
 } from "./buildSidebarItems";
@@ -713,7 +713,7 @@ describe("buildSidebarItems — terminal lastActivity reflects real Claude activ
  * "Gruppo 2" e compariva lo stesso — con dentro la sua sessione — sotto
  * l'intestazione di "Principale".
  */
-describe("partitionSidebarItemsBySpace", () => {
+describe("groupSidebarItemsBySpace", () => {
   const item = (over: Partial<SidebarItem> & Pick<SidebarItem, "id" | "type">): SidebarItem => ({
     name: over.id,
     icon: "",
@@ -726,53 +726,46 @@ describe("partitionSidebarItemsBySpace", () => {
   test("un progetto si riconosce dal path CODIFICATO della sua pane", () => {
     const project = item({ id: `project:${PP}`, type: "project", projectPath: PP });
     expect(sidebarItemPaneId(project)).toBe(projectPaneId);
-    // Aperto in questo gruppo → dentro.
-    expect(
-      partitionSidebarItemsBySpace([project], new Set([projectPaneId]), new Set()).inSpace,
-    ).toHaveLength(1);
-  });
-
-  test("ciò che vive in un altro gruppo non si disegna affatto", () => {
-    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP });
-    const { inSpace, loose } = partitionSidebarItemsBySpace(
+    const { bySpace, loose } = groupSidebarItemsBySpace(
       [project],
-      new Set(),
-      new Set([projectPaneId]),
+      new Map([[projectPaneId, "space:1"]]),
     );
-    expect(inSpace).toEqual([]);
+    expect(bySpace.get("space:1")).toHaveLength(1);
     expect(loose).toEqual([]);
   });
 
-  test("una riga senza tab aperta da nessuna parte finisce FUORI dai gruppi", () => {
+  test("ogni riga finisce nel SUO gruppo, non in quello che stai guardando", () => {
+    const a = item({ id: "a", type: "chat" });
+    const b = item({ id: "b", type: "chat" });
+    const { bySpace } = groupSidebarItemsBySpace(
+      [a, b],
+      new Map([["a", "space:1"], ["b", "space:2"]]),
+    );
+    expect(bySpace.get("space:1")?.map((i) => i.id)).toEqual(["a"]);
+    expect(bySpace.get("space:2")?.map((i) => i.id)).toEqual(["b"]);
+  });
+
+  test("una riga senza pane aperta non sta in nessun gruppo", () => {
     const chat = item({ id: "t1", type: "chat", notificationCount: 3 });
-    const { inSpace, loose } = partitionSidebarItemsBySpace([chat], new Set(), new Set());
-    expect(inSpace).toEqual([]);
+    const { bySpace, loose } = groupSidebarItemsBySpace([chat], new Map());
+    expect(bySpace.size).toBe(0);
     expect(loose.map((i) => i.id)).toEqual(["t1"]);
   });
 
-  test("un fissato di un altro gruppo non è un lasciapassare", () => {
+  test("nemmeno un fissato inventa un gruppo", () => {
     const pinned = item({ id: "terminal:x", type: "terminal", pinned: true });
-    const { inSpace, loose } = partitionSidebarItemsBySpace(
-      [pinned],
-      new Set(),
-      new Set(["terminal:x"]),
-    );
-    expect([...inSpace, ...loose]).toEqual([]);
+    const { loose } = groupSidebarItemsBySpace([pinned], new Map());
+    expect(loose.map((i) => i.id)).toEqual(["terminal:x"]);
   });
 
-  test("l'ordine dentro ciascun blocco è quello che aveva il builder", () => {
-    const items = [
-      item({ id: "a", type: "chat" }),
-      item({ id: "b", type: "chat" }),
-      item({ id: "c", type: "chat" }),
-      item({ id: "d", type: "chat" }),
-    ];
-    const { inSpace, loose } = partitionSidebarItemsBySpace(
+  test("l'ordine dentro ciascun gruppo è quello che aveva il builder", () => {
+    const items = ["a", "b", "c", "d"].map((id) => item({ id, type: "chat" }));
+    const { bySpace, loose } = groupSidebarItemsBySpace(
       items,
-      new Set(["a", "c"]),
-      new Set(["b"]),
+      new Map([["a", "space:1"], ["b", "space:2"], ["c", "space:1"]]),
     );
-    expect(inSpace.map((i) => i.id)).toEqual(["a", "c"]);
+    expect(bySpace.get("space:1")?.map((i) => i.id)).toEqual(["a", "c"]);
+    expect(bySpace.get("space:2")?.map((i) => i.id)).toEqual(["b"]);
     expect(loose.map((i) => i.id)).toEqual(["d"]);
   });
 });

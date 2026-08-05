@@ -52,7 +52,6 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { SpaceGroups } from './components/Sidebar/SpaceGroups';
 import { groupChromeActive, isDetachedWindow } from './components/Layout/spaceHelpers';
 import { spaceWindowId } from './lib/windowRole';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
@@ -65,6 +64,8 @@ import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelP
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
+import { useShallow } from 'zustand/react/shallow';
+import { resolvePaneSpace } from './state/pane/reducers/spaces';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -545,14 +546,18 @@ function App() {
   } = panelLifecycle.handlers;
 
   // ── Il gruppo, per la sidebar ────────────────────────────────────────────
-  // `openPanels` è l'insieme PIENO, `visiblePanels` il sottoinsieme del gruppo
-  // attivo: la differenza è già, esattamente, "vive in un altro gruppo". Niente
-  // seconda iscrizione allo store, e nessun rischio che le due superfici
-  // rispondano in modo diverso alla stessa domanda.
-  const otherSpacePaneIds = useMemo(() => {
-    const visible = new Set(visiblePanels);
-    return new Set(openPanels.filter((id) => !visible.has(id)));
-  }, [openPanels, visiblePanels]);
+  // In quale gruppo vive ciascuna pane aperta. Ci si iscrive al RISULTATO (un
+  // array di stringhe, con `useShallow`) e non a `s.panes`: quello cambia
+  // identità a ogni scrittura di pane — `setPaneScrollOffset` ne fa una ogni
+  // 250 ms mentre scorri una chat — e ridisegnerebbe la sidebar per un dato
+  // che nessuno di questi due guarda.
+  const paneSpaces = usePaneStore(
+    useShallow((s) => openPanels.map((id) => resolvePaneSpace(s.panes[id], s.spaces))),
+  );
+  const paneSpaceById = useMemo(
+    () => new Map(openPanels.map((id, i) => [id, paneSpaces[i]])),
+    [openPanels, paneSpaces],
+  );
   // Vero quando l'intestazione del gruppo c'è: allora l'albero si divide in
   // "le tab di questo gruppo" e "fuori dai gruppi". Stessa risposta che dà
   // SpaceGroups per decidere se disegnarsi.
@@ -1059,20 +1064,17 @@ function App() {
             bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
-          {/* Il GRUPPO è il contenitore delle sue tab: l'albero qui sotto è il
-              suo contenuto (`openPanels` filtrato per gruppo), e l'intestazione
-              che lo avvolge è ciò che lo dice. Gli altri gruppi sono righe
-              chiuse sopra — nessuna barra separata da nessun'altra parte. */}
-          <SpaceGroups>
+          {/* I GRUPPI sono card dentro l'albero (TopicTree): ognuna tiene in
+              mano le sue tab e si apre e si chiude per conto suo. Non esiste
+              nessun posto separato dove i gruppi «vivono». */}
           <ErrorBoundary fallbackMessage="Sidebar error">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
           ) : (
-          // `openPanels={visiblePanels}`: LE TAB DEL GRUPPO ATTIVO, non tutte.
-          // La sidebar è il gruppo che stai guardando; una riga che appartiene
-          // a un altro gruppo si raggiunge commutando in fondo, non
-          // trovandosela qui in mezzo senza sapere da dove viene. Stessa fonte
-          // della griglia, così le due superfici non divergono.
+          // `openPanels={openPanels}`: TUTTE le tab aperte, non solo quelle del
+          // gruppo attivo — perché la sidebar mostra TUTTI i gruppi insieme, e
+          // ciascuna riga va nella card del suo (`paneSpaceById`). È la griglia
+          // che resta filtrata sul gruppo attivo: lì una cosa alla volta.
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
@@ -1082,7 +1084,7 @@ function App() {
             focusedTopicId={focusedPanelId}
             projectActiveTopics={projectActiveTopics}
             previewPanelId={previewPanelId}
-            openPanels={visiblePanels}
+            openPanels={spaceScoped ? openPanels : visiblePanels}
             onTopicClick={handleTopicClick}
             onTopicDoubleClick={handleTopicDoubleClick}
             onTopicContextMenu={handleTopicContextMenu}
@@ -1114,14 +1116,13 @@ function App() {
             pinnedItems={sidebar.pinnedItems}
             onTogglePin={handleTogglePin}
             boardTaskCount={boardTaskCount}
-            boardOpen={visiblePanels.includes('__board__')}
+            boardOpen={openPanels.includes('__board__')}
             onOpenBoard={() => handleOpenAsPage('board')}
             spaceScoped={spaceScoped}
-            otherSpacePaneIds={otherSpacePaneIds}
+            paneSpaceById={paneSpaceById}
           />
           )}
           </ErrorBoundary>
-          </SpaceGroups>
         </div>
 
         {/* Status bar */}

@@ -162,7 +162,9 @@ test.describe.serial("Gruppi (Spazi)", () => {
     // che il sottomenu leggeva una pane ricostruita, senza `spaceId`).
     await tabAinSpace.click({ button: "right" });
     await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    const principaleEntry = page.getByRole("button", { name: "Principale", exact: true });
+    // Scoped al MENU: "Principale" è anche il nome sull'intestazione della sua
+    // card, e senza lo scope il locator è ambiguo.
+    const principaleEntry = page.getByRole("menu").getByRole("button", { name: "Principale", exact: true });
     await expect(principaleEntry, "la riga di ritorno c'è").toBeVisible({ timeout: 3000 });
     await expect(principaleEntry, "ed è cliccabile").toBeEnabled();
   });
@@ -267,30 +269,12 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await expect(page.getByTestId("space-row")).toHaveCount(0);
   });
 
-  test("SPACE-07: dentro il filo ci sono SOLO le tab del gruppo; ciò che non sta in nessun gruppo sta sotto", async ({ page, request }) => {
-    // La sidebar è guidata dalle tab, ma con vie di fuga: una riga fissata resta
-    // anche a tab chiusa. Quella riga non è la tab di nessun gruppo — e finché
-    // stava dentro il filo, il gruppo sembrava un'etichetta appoggiata su una
-    // lista che non governava.
-    //
-    // La scena: A e C aperte in Principale, B FISSATA e senza tab da nessuna
-    // parte. Poi A se ne va in un gruppo nuovo. (C resta aperta apposta: con
-    // Principale vuota la finestra seguirebbe la tab spostata, e non si
-    // starebbe più guardando il gruppo che si vuole osservare.)
+  test("SPACE-07: le card ci sono TUTTE, ognuna con le sue tab, e si aprono e chiudono da sole", async ({ page, request }) => {
+    // La scena: A e C aperte, poi A se ne va in un gruppo nuovo. I due gruppi
+    // devono coesistere — non alternarsi — ognuno con la sua tab dentro.
     const c = await createTopic(request, "SPACE-C-" + Date.now());
     try {
       await resetPaneStore(page.request, [idA, c.id]);
-      // Il pin vive sia in localStorage sia nella ui-state del server (LWW):
-      // seminarne uno solo lo farebbe sovrascrivere dall'altro al primo giro.
-      await page.request.put(`${BASE}/api/ui-state/sidebar-state`, {
-        data: { pinnedItems: [idB], viewMode: "timeline", showArchived: false },
-      }).catch(() => {});
-      await page.addInitScript((pinned: string) => {
-        localStorage.setItem(
-          "topics-sidebar-state",
-          JSON.stringify({ pinnedItems: [pinned], viewMode: "timeline", showArchived: false }),
-        );
-      }, idB);
       await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [idA, c.id] } }).catch(() => {});
       await page.request.put(`${BASE}/api/ui-state/panel-order`, { data: { order: [idA, c.id], pinned: [] } }).catch(() => {});
       await page.goto("/");
@@ -298,29 +282,43 @@ test.describe.serial("Gruppi (Spazi)", () => {
       await expect(page.locator(`[data-pane-id="${idA}"]`).first()).toBeVisible({ timeout: 10000 });
 
       await moveTabToNewGroup(page, idA);
-      await expect(page.getByTestId("space-row-active"), "si resta su Principale").toContainText("Principale");
 
-      const tabs = page.getByTestId("space-tabs");
-      const loose = page.getByTestId("sidebar-loose");
+      // Due card, entrambe disegnate: quella attiva e l'altra.
+      const active = page.getByTestId("space-card-active");
+      const other = page.getByTestId("space-card");
+      await expect(active).toHaveCount(1);
+      await expect(other, "l'altro gruppo NON sparisce per far posto").toHaveCount(1);
 
-      // Il filo si vede: è ciò che dice "queste stanno dentro".
-      await expect(tabs).toHaveCSS("border-left-width", "2px");
-      await expect(tabs.getByText("SPACE-C-", { exact: false }).first(), "la tab del gruppo sta dentro").toBeVisible();
+      // E ciascuna tiene la SUA tab, non la lista di tutti.
+      await expect(active.getByText("SPACE-C-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
+      await expect(active.getByText("SPACE-A-", { exact: false })).toHaveCount(0);
+      await expect(other.getByText("SPACE-A-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
+      await expect(other.getByText("SPACE-C-", { exact: false })).toHaveCount(0);
 
-      // A vive in Gruppo 2: qui non si disegna affatto, né dentro né fuori. La
-      // sua riga di gruppo, sopra, ne porta il conto.
-      await expect(tabs.getByText("SPACE-A-", { exact: false })).toHaveCount(0);
-      await expect(loose.getByText("SPACE-A-", { exact: false })).toHaveCount(0);
-
-      // B non ha tab da nessuna parte: sta fuori dal filo, non dentro.
-      await expect(loose.getByText("SPACE-B-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
-      await expect(tabs.getByText("SPACE-B-", { exact: false })).toHaveCount(0);
+      // L'accordion chiude SOLO la sua card (comportamento dei progetti).
+      await other.locator("button[aria-expanded]").first().click();
+      await expect(other.getByText("SPACE-A-", { exact: false })).toHaveCount(0);
+      await expect(active.getByText("SPACE-C-", { exact: false }).first(), "l'altra resta aperta").toBeVisible();
     } finally {
-      // Il gruppo è `.serial`: un fissato lasciato lì sporcherebbe il prossimo giro.
-      await page.request.put(`${BASE}/api/ui-state/sidebar-state`, {
-        data: { pinnedItems: [], viewMode: "timeline", showArchived: false },
-      }).catch(() => {});
       await deleteTopic(request, c.id).catch(() => {});
     }
+  });
+
+  test("SPACE-08: cliccare la tab di un altro gruppo ci porta la finestra (o non si vedrebbe)", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
+    await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+
+    // La riga di A vive nella card dell'altro gruppo. Aprirla senza commutare
+    // farebbe apparire una pane dove non la guardi: la card intercetta il clic
+    // in cattura e porta prima la finestra là.
+    const other = page.getByTestId("space-card");
+    await other.getByText("SPACE-A-", { exact: false }).first().click();
+
+    await expect(page.getByTestId("space-row-active"), "il gruppo attivo segue la riga").toContainText("Gruppo 2", { timeout: 5000 });
+    await expect(
+      page.locator(`[data-pane-id="${idA}"]`).first(),
+      "e la sua tab è davvero visibile",
+    ).toBeVisible({ timeout: 5000 });
   });
 });
