@@ -706,49 +706,47 @@ export function sidebarItemPaneId(item: SidebarItem): string {
   return item.id;
 }
 
-export interface SpacePartition {
-  /** Le tab del gruppo che stai guardando: il contenuto del gruppo. */
-  inSpace: SidebarItem[];
-  /** Righe che non stanno in nessun gruppo — di solito compaiono per un
-   *  segnale (non letto, "attende te") senza avere una tab aperta da nessuna
-   *  parte. Vanno mostrate FUORI dal gruppo: aprirne una la fa entrare nel
-   *  gruppo attivo. */
+export interface SpaceGrouping {
+  /** Le righe di ciascun gruppo, per id di gruppo, NELL'ORDINE che avevano. */
+  bySpace: Map<string, SidebarItem[]>;
+  /** Righe che non sono la tab di nessun gruppo: compaiono per un segnale
+   *  (non letto, "attende te", un fissato) senza avere una pane aperta da
+   *  nessuna parte. Vanno disegnate fuori dalle card — aprirne una la fa
+   *  entrare nel gruppo attivo, e da lì in poi vive lì. */
   loose: SidebarItem[];
 }
 
 /**
- * Divide le righe della sidebar in "sta in questo gruppo" e "non sta in nessun
- * gruppo", buttando via quelle che stanno in un ALTRO gruppo.
+ * Smista le righe della sidebar nel gruppo a cui appartengono.
  *
  * Perché serve. La sidebar è guidata dalle tab, ma con parecchie vie di fuga:
  * una chat con non letti, un progetto con un figlio che ti aspetta, un
- * terminale orchestratore compaiono ANCHE senza tab aperta. Con i gruppi
- * addosso quelle vie di fuga producevano righe che non appartenevano al gruppo
- * che stavi guardando — l'intestazione diceva "Principale" e sotto, dentro il
- * suo filo, c'era il progetto di un altro gruppo con le sue sessioni. Il
- * gruppo sembrava un'etichetta appoggiata su una lista che non governava.
+ * terminale orchestratore compaiono ANCHE senza tab aperta. Senza questo
+ * smistamento ogni gruppo mostrava la stessa lista di tutti — l'intestazione
+ * diceva "Principale" e sotto c'era il progetto di un altro gruppo con le sue
+ * sessioni, cioè il gruppo era un'etichetta appoggiata su una lista che non
+ * governava.
  *
- * Una riga che vive in un altro gruppo NON si disegna qui: la sua riga di
- * gruppo, sopra, ne porta il conto e il pallino di attenzione, ed è a un clic.
- * Vale anche per i fissati: un fissato è una scorciatoia DENTRO il suo gruppo,
- * non un lasciapassare per comparire in tutti.
+ * `paneSpaceById` mappa la PANE al suo gruppo: chi non è una pane aperta non
+ * sta in nessun gruppo, e finisce in `loose`.
  *
- * Pura di proposito, come tutto questo file: due insiemi di id in ingresso,
- * nessuno store.
+ * Pura di proposito, come tutto questo file: una mappa in ingresso, nessuno
+ * store.
  */
-export function partitionSidebarItemsBySpace(
+export function groupSidebarItemsBySpace(
   items: SidebarItem[],
-  openPaneIds: ReadonlySet<string>,
-  otherSpacePaneIds: ReadonlySet<string>,
-): SpacePartition {
-  const inSpace: SidebarItem[] = [];
+  paneSpaceById: ReadonlyMap<string, string>,
+): SpaceGrouping {
+  const bySpace = new Map<string, SidebarItem[]>();
   const loose: SidebarItem[] = [];
   for (const item of items) {
-    const paneId = sidebarItemPaneId(item);
-    if (otherSpacePaneIds.has(paneId)) continue;
-    (openPaneIds.has(paneId) ? inSpace : loose).push(item);
+    const spaceId = paneSpaceById.get(sidebarItemPaneId(item));
+    if (!spaceId) { loose.push(item); continue; }
+    const bucket = bySpace.get(spaceId);
+    if (bucket) bucket.push(item);
+    else bySpace.set(spaceId, [item]);
   }
-  return { inSpace, loose };
+  return { bySpace, loose };
 }
 
 export function groupSidebarItems(items: SidebarItem[]): Record<SidebarItemType, SidebarItem[]> {

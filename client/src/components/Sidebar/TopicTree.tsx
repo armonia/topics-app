@@ -37,7 +37,8 @@ import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, partitionSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { SpaceGroupCard, NewGroupRow, useSpaceCards } from './SpaceGroups';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
@@ -56,6 +57,24 @@ const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labe
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/** Gruppi richiusi dall'utente (accordion). Device-local come tutto ciò che
+ *  riguarda "cosa vedo io adesso": un altro dispositivo ha altri occhi. */
+const COLLAPSED_GROUPS_KEY = 'topics-collapsed-groups';
+
+function loadCollapsedGroups(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedGroups(ids: Set<string>): void {
+  try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...ids])); } catch { /* private mode */ }
+}
 
 // `relativeTime` locale rimosso: era la terza copia della stessa formattazione e,
 // come le altre due, leggeva `Date.now()` dentro il render — quindi il numero si
@@ -159,13 +178,13 @@ export interface TopicTreeProps {
   /** Opens the global board pane (the '__board__' utility tab). */
   onOpenBoard?: () => void;
   /** True quando esiste almeno un gruppo (o siamo in una finestra-gruppo): la
-   *  sidebar allora è IL GRUPPO, e l'albero si divide in "le tab di questo
-   *  gruppo" (dentro il filo) e "fuori dai gruppi". Con il solo gruppo
-   *  implicito resta una lista sola, come è sempre stata. */
+   *  sidebar diventa allora un elenco di CARD, una per gruppo, ognuna con le
+   *  sue tab dentro. Con il solo gruppo implicito resta una lista sola, come è
+   *  sempre stata (fissati + viste per tipo/stato). */
   spaceScoped?: boolean;
-  /** Le pane che vivono in un ALTRO gruppo: le loro righe non si disegnano qui
-   *  (vedi partitionSidebarItemsBySpace). */
-  otherSpacePaneIds?: ReadonlySet<string>;
+  /** In quale gruppo vive ciascuna pane aperta. Chi non è qui dentro non è la
+   *  tab di nessun gruppo e finisce fuori dalle card. */
+  paneSpaceById?: ReadonlyMap<string, string>;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -211,7 +230,7 @@ export function TopicTree({
   boardOpen = false,
   onOpenBoard,
   spaceScoped = false,
-  otherSpacePaneIds,
+  paneSpaceById,
 }: TopicTreeProps) {
   const tr = useT();
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
@@ -342,19 +361,33 @@ export function TopicTree({
     [allItems, searchQuery]
   );
 
-  // ── Appartenenza al gruppo (prima di ogni altra partizione) ──────────────
-  // Con i gruppi accesi la sidebar È il gruppo: dentro il filo ci vanno le SUE
-  // tab, fuori le righe che non stanno in nessun gruppo (compaiono per un non
-  // letto o un "attende te" senza tab aperta). Ciò che vive in un altro gruppo
-  // non si disegna: lo porta la sua riga, sopra, col conto e il pallino.
-  const { inSpace, loose } = useMemo(() => {
-    if (!spaceScoped) return { inSpace: filteredItems, loose: [] as SidebarItem[] };
-    return partitionSidebarItemsBySpace(
-      filteredItems,
-      new Set(openPanels),
-      otherSpacePaneIds ?? new Set<string>(),
-    );
-  }, [filteredItems, spaceScoped, openPanels, otherSpacePaneIds]);
+  // ── Appartenenza al gruppo ───────────────────────────────────────────────
+  // Con i gruppi accesi ogni riga va nella card del SUO gruppo, e chi non è la
+  // tab di nessuno resta fuori dalle card (senza etichette: è semplicemente
+  // roba che non sta in un gruppo). Senza gruppi non si smista niente: la
+  // sidebar resta la lista unica di sempre.
+  const { bySpace, loose } = useMemo(() => {
+    if (!spaceScoped) return { bySpace: new Map<string, SidebarItem[]>(), loose: [] as SidebarItem[] };
+    return groupSidebarItemsBySpace(filteredItems, paneSpaceById ?? new Map<string, string>());
+  }, [filteredItems, spaceScoped, paneSpaceById]);
+
+  // Le card da disegnare (una per gruppo) e l'accordion. Chiuse per scelta
+  // dell'utente, quindi si RICORDA: un gruppo richiuso che si riapre a ogni
+  // ricarica è un gruppo che non si può chiudere.
+  const spaceCards = useSpaceCards();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(loadCollapsedGroups);
+  const toggleGroup = useCallback((id: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveCollapsedGroups(next);
+      return next;
+    });
+  }, []);
+  /** Il gruppo in cui vive la tab della board, quando è aperta: la sua riga va
+   *  disegnata lì dentro invece che in cima. */
+  const boardCardSpaceId = spaceScoped && boardOpen ? paneSpaceById?.get('__board__') : undefined;
 
   // ── Fissati partition (render-side; the builder's sort stays untouched) ──
   // The pinned block lists EVERY pinned item — top-level rows AND project
@@ -368,7 +401,7 @@ export function TopicTree({
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
     const byId = new Map<string, SidebarItem>();
-    for (const item of inSpace) {
+    for (const item of filteredItems) {
       if (item.pinned) byId.set(item.id, item);
       for (const child of item.children ?? []) {
         if (child.pinned) byId.set(child.id, child);
@@ -378,10 +411,10 @@ export function TopicTree({
       const item = byId.get(id);
       return item ? [item] : [];
     });
-  }, [inSpace, pinnedItems]);
+  }, [filteredItems, pinnedItems]);
   const unpinnedItems = useMemo(
-    () => inSpace.filter(i => !i.pinned),
-    [inSpace]
+    () => filteredItems.filter(i => !i.pinned),
+    [filteredItems]
   );
 
   const groupedItems = useMemo(
@@ -897,36 +930,9 @@ export function TopicTree({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  return (
-    <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
-      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
-          above the first row and below the last — the SAME 6px the cards keep
-          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
-          sidebar's padding reads identical on every axis. */}
-      <div
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
-        style={{ paddingBlock: ROW_INSET - 1 }}
-      >
-        {/* Le tab DI QUESTO GRUPPO. Il filo a sinistra è ciò che rende visibile
-            il "dentro": parte sotto l'intestazione del gruppo (SpaceGroups) e
-            finisce dove finiscono le sue tab — non dove finisce la sidebar.
-            Senza gruppi non c'è filo: è una lista sola, come è sempre stata. */}
-        <div
-          className={spaceScoped ? 'border-l-2 border-app-border/60' : undefined}
-          data-testid="space-tabs"
-        >
-        {/* Board generale — THE single sidebar row for the board, above the
-            Fissati block. Shown when there is active (non-done) work across all
-            projects OR while its tab is open, so an open board is never without
-            a sidebar presence (the guarantee the generic utility row used to
-            provide before it was suppressed as a duplicate — see
-            buildSidebarItems §5b). Being the only row, it is tab-aware:
-            aria-selected + a selected surface while open, exactly like the tab
-            rows below. Position is fixed at the top either way, so opening the
-            board never makes its row jump. Quando la board è aperta in un ALTRO
-            gruppo la riga sparisce: è una tab di là, e cliccarla da qui non
-            porterebbe da nessuna parte. */}
-        {!otherSpacePaneIds?.has('__board__') && (boardTaskCount > 0 || boardOpen) && onOpenBoard && (
+  // La riga della board, disegnata una volta e piazzata dove appartiene: dentro
+  // la card del suo gruppo se la sua tab è aperta, in cima se non lo è.
+  const boardRow = onOpenBoard && (boardTaskCount > 0 || boardOpen) ? (
           <button
             type="button"
             onClick={onOpenBoard}
@@ -944,8 +950,65 @@ export function TopicTree({
               </span>
             )}
           </button>
-        )}
-        {viewMode === 'timeline' ? (
+  ) : null;
+
+  return (
+    <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
+      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
+          above the first row and below the last — the SAME 6px the cards keep
+          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
+          sidebar's padding reads identical on every axis. */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
+        style={{ paddingBlock: ROW_INSET - 1 }}
+      >
+        {/* Board generale — THE single sidebar row for the board, above the
+            Fissati block. Shown when there is active (non-done) work across all
+            projects OR while its tab is open, so an open board is never without
+            a sidebar presence (the guarantee the generic utility row used to
+            provide before it was suppressed as a duplicate — see
+            buildSidebarItems §5b). Being the only row, it is tab-aware:
+            aria-selected + a selected surface while open, exactly like the tab
+            rows below. Position is fixed at the top either way, so opening the
+            board never makes its row jump.
+
+            Quando la board è APERTA sta dentro la card del suo gruppo, come
+            ogni altra tab (`boardCardSpaceId`): è una tab, e le tab stanno nel
+            loro gruppo. Chiusa, resta qui in cima: è la porta d'ingresso al
+            lavoro, e non appartiene a nessuno. */}
+        {!boardCardSpaceId && boardRow}
+
+        {spaceScoped ? (
+          /* I GRUPPI, tutti insieme: ognuno è una card che tiene in mano le sue
+             tab e si apre e si chiude per conto suo, come i progetti. Non si
+             alternano — vedere cosa c'è nell'altro non costa lasciare questo.
+
+             Dentro una card le righe stanno PIATTE, nell'ordine del builder
+             (notifiche prima, poi attività): le viste per tipo e per stato
+             restano al ramo senza gruppi. Sezionare due o tre righe per volta,
+             card per card, moltiplicherebbe le intestazioni fino a coprire il
+             contenuto — e il raggruppamento, qui, lo fa già il gruppo. */
+          <div data-testid="sidebar-groups">
+            {spaceCards.map(card => {
+              const rows = bySpace.get(card.id) ?? [];
+              return (
+                <SpaceGroupCard
+                  key={card.id}
+                  card={card}
+                  expanded={!collapsedGroups.has(card.id)}
+                  onToggle={() => toggleGroup(card.id)}
+                >
+                  {card.id === boardCardSpaceId && boardRow}
+                  {rows.map(item => renderItem(item))}
+                  {rows.length === 0 && card.id !== boardCardSpaceId && (
+                    <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>
+                  )}
+                </SpaceGroupCard>
+              );
+            })}
+            <NewGroupRow />
+          </div>
+        ) : viewMode === 'timeline' ? (
           // Timeline: the Fissati block first (user pin order), then the flat
           // list sorted by activity. Pinned rows keep badges/attention fills —
           // they just don't jump position with the notification-first sort.
@@ -986,7 +1049,7 @@ export function TopicTree({
             "di cosa devo occuparmi" invece del tipo di pane. L'ordine è la
             priorità di lettura: chi aspetta una tua risposta in cima, poi chi sta
             lavorando, poi il resto. Una sezione vuota non si disegna. */}
-        {viewMode === 'state' && stateGroups && (
+        {!spaceScoped && viewMode === 'state' && stateGroups && (
           <>
             {pinnedBlock.length > 0 && (
               <div data-testid="sidebar-pinned-section">
@@ -1005,28 +1068,12 @@ export function TopicTree({
           </>
         )}
 
-        {spaceScoped && inSpace.length === 0 && !boardOpen && (
-          <div className="px-3 py-2 text-[11px] text-app-text-muted">
-            Nessuna tab in questo gruppo
-          </div>
-        )}
-        </div>
-
-        {/* FUORI DAI GRUPPI. Righe che non sono la tab di nessun gruppo:
-            compaiono per un non letto o un "attende te" e non hanno una tab
-            aperta da nessuna parte. Stanno sotto il filo, non dentro, perché
-            dire che appartengono al gruppo che stai guardando sarebbe falso —
-            ed è esattamente ciò che faceva sembrare i gruppi un'etichetta
-            appoggiata su una lista qualsiasi. Aprirne una la fa entrare nel
-            gruppo attivo, e la riga sale dentro il filo da sola. */}
+        {/* Ciò che non sta in nessun gruppo: nessuna etichetta, perché non è
+            una categoria — è semplicemente roba che non è la tab di nessuno
+            (un non letto, un "attende te", un fissato a tab chiusa). Aprirne
+            una la fa entrare nel gruppo attivo, e da lì in poi vive lì. */}
         {spaceScoped && loose.length > 0 && (
-          <div data-testid="sidebar-loose">
-            <div className="h-px bg-app-border mx-3 my-1" />
-            <div className="flex items-center gap-1.5 px-3 h-6 select-none">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">
-                Fuori dai gruppi
-              </span>
-            </div>
+          <div data-testid="sidebar-loose" className="mt-1">
             {loose.map(item => renderItem(item))}
           </div>
         )}
