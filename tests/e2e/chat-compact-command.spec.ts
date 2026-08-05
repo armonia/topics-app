@@ -13,7 +13,7 @@ hermetic(test);
  *
  * La compattazione esisteva già — l'app la esegue e ne disegna pure l'esito (i
  * divider «context compacted», vedi partitionMarkers.ts) — ma l'unico modo di
- * chiederla era il bottone «Compact now» dentro l'avviso del contesto: compare
+ * chiederla era il bottone «Compatta adesso» dentro l'avviso del contesto: compare
  * solo sopra soglia, e sparisce appena lo si chiude (`dismissed[reason]` ricorda
  * il livello). A contesto tranquillo non esisteva nessun modo di lanciarla, e
  * `/help` non la nominava nemmeno: chi non aveva mai visto l'avviso non poteva

@@ -29,7 +29,11 @@ import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
-import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
+import { waitForAnswer, deliverAnswer, hasPendingAsk, pendingAskAgeMs, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
+// «Aspetta te» si legge anche dalla RIGA: le domande del pannello passano dal
+// bridge MCP, non dal canale nativo del provider, e dopo un riavvio nessuna
+// mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
+import { waitingAskStartedAt } from "../lib/waiting-ask";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -815,6 +819,24 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         // Un provider che non sa sospendersi non espone il metodo, e un provider
         // morto non deve far fallire lo scatto di tutti gli altri.
         try { awaitingSince = resolveProvider(topic).pendingInputSince?.(topic.sessionKey) ?? null; } catch { /* provider gone */ }
+        // Tre fonti, in ordine di precisione. La prima conosce le domande del
+        // canale NATIVO della CLI; il pannello di Topics però passa dal bridge
+        // MCP, e lì la prima non vede niente — una chat ferma su una domanda si
+        // diceva «sta lavorando» in sidebar e sulle tab. La terza è la riga, ed
+        // è l'unica che sopravvive a un riavvio del server: le due mappe in
+        // memoria si svuotano, il figlio la domanda ce l'ha ancora aperta.
+        if (awaitingSince == null) {
+          const askAge = pendingAskAgeMs(topic.sessionKey);
+          if (askAge != null) awaitingSince = Date.now() - askAge;
+        }
+        if (awaitingSince == null) {
+          try {
+            const row = ctx.db.prepare(
+              "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
+            ).get(topic.sessionKey) as { tool_calls?: string | null; blocks?: string | null } | undefined;
+            awaitingSince = waitingAskStartedAt(row?.tool_calls, row?.blocks, Date.now());
+          } catch { /* riga illeggibile: resta «streaming», come prima */ }
+        }
         sessions.push({
           topicId: topic.id,
           sessionKey: topic.sessionKey,
