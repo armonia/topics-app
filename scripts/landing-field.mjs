@@ -29,10 +29,11 @@
  * fail. It passes, and it keeps passing.
  *
  * ── WHAT IT GATES NOW ──────────────────────────────────────────────────────
- * Four things, and each is a failure no other gate on this page can see. The
- * field renders in three passes — a lit surface, nine thousand additive points,
- * and a composite that clamps what they add up to — and `window.__field.freeze`
- * can draw any one of them alone, which is what makes them separable here.
+ * Three things, and each is a failure no other gate on this page can see. The
+ * field is one lit body rendered into a framebuffer plus a composite pass that
+ * rolls its luminance off against a ceiling; `window.__field.freeze` pins both
+ * at a chosen time and page position, which is what makes any of this
+ * reproducible.
  *
  *   PRESENT   the surface has to paint something. If the shader fails to
  *             compile, or a driver refuses a context, `fluid.ts` removes its own
@@ -40,17 +41,10 @@
  *             correctly, which is exactly why it needs a gate. A page that has
  *             silently lost its background still looks fine in a screenshot.
  *
- *   SWARM     the points have to be drawing too. Nine thousand vertices that
- *             quietly stop — a bad attribute location, a shape function
- *             returning NaN — leave a page that still looks finished.
- *
  *   SMOOTH    is it a glow or an edge. A per-pixel maximum cannot tell those
  *             apart: a strong glow and a hard seam have the same peak and are
  *             opposite designs. What separates them is how much the layer
- *             changes between ADJACENT pixels. Measured on the SURFACE pass
- *             alone: every point the swarm draws is an edge by construction, so
- *             over the composite this test reports 6-9/255 everywhere and means
- *             nothing.
+ *             changes between ADJACENT pixels.
  *
  *   CHANNEL   below the hero, the surface has to be quieter down the middle
  *             than at the flanks. That invariant is what keeps the reading
@@ -81,9 +75,8 @@ const HEIGHT = 900;
    guessed. Never loosen one to make a change pass — the note above about a gate
    pointed at the wrong element is what that costs. */
 const MIN_PRESENT = 8;      // /255. Below this the surface is off, not subtle.
-const MAX_STEP = 5;         // adjacent-pixel change in the SHADER's contribution
+const MAX_STEP = 5;         // adjacent-pixel change in the field's contribution
 const MAX_CHANNEL = 0.75;   // column mean ÷ gutter mean, below the hero
-const MIN_SWARM = 6;        // /255. The points have to be drawing.
 
 /* The shader is pinned before every shot. It runs on a rAF loop, so two
    screenshots a frame apart are of two different backgrounds and the diff would
@@ -207,11 +200,10 @@ if (!(await page.evaluate(() => !!window.__field))) {
   process.exit(1);
 }
 
-const pin = (only) => page.evaluate(([t, o]) => {
+const pin = () => page.evaluate((t) => {
   const max = document.documentElement.scrollHeight - innerHeight;
-  window.__field.freeze(t, max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0,
-                        undefined, o || undefined);
-}, [FREEZE_T, only ?? null]);
+  window.__field.freeze(t, max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0);
+}, FREEZE_T);
 
 /** Scroll there, pin the surface, and do not come back until it has stopped. */
 const settle = async (y) => {
@@ -232,19 +224,6 @@ for (const s of SAMPLES) {
   await settle(s.y);
   const withAll = (await page.screenshot({ type: 'png' })).toString('base64');
 
-  /* THE SURFACE ALONE, for the smoothness and channel budgets. Everything the
-     swarm draws is high-frequency by construction — a point IS an edge — so
-     running the roughness test over the composite reports 6-9/255 at every
-     sample and means nothing. The pass separation exists for exactly this. */
-  await pin('surface');
-  const surfaceOnly = (await page.screenshot({ type: 'png' })).toString('base64');
-
-  /* THE SWARM ALONE, for its own floor. Nine thousand points that quietly stop
-     drawing — a bad attribute location, a shape function returning NaN — leave
-     a page that still looks finished, which is the failure this catches. */
-  await pin('swarm');
-  const swarmOnly = (await page.screenshot({ type: 'png' })).toString('base64');
-
   await page.evaluate(() => { document.querySelector('.field').style.display = 'none'; });
   await page.waitForTimeout(90);
   const without = (await page.screenshot({ type: 'png' })).toString('base64');
@@ -253,19 +232,14 @@ for (const s of SAMPLES) {
   await pin();
 
   const all = await page.evaluate(DIFF, [withAll, without, WIDTH, HEIGHT]);
-  const surface = await page.evaluate(DIFF, [surfaceOnly, without, WIDTH, HEIGHT]);
-  const swarm = await page.evaluate(DIFF, [swarmOnly, without, WIDTH, HEIGHT]);
-  const channel = surface.meanGut > 0 ? +(surface.meanRead / surface.meanGut).toFixed(2) : 0;
-  rows.push({ ...s, ...all, step: surface.localStep, channel, swarm: swarm.peak });
+  const channel = all.meanGut > 0 ? +(all.meanRead / all.meanGut).toFixed(2) : 0;
+  rows.push({ ...s, ...all, step: all.localStep, channel });
 
   if (all.peak < MIN_PRESENT) {
     fails.push(`${s.name}: the field contributes at most ${all.peak}/255 (floor ${MIN_PRESENT}) — it is off, not subtle`);
   }
-  if (swarm.peak < MIN_SWARM) {
-    fails.push(`${s.name}: the swarm contributes at most ${swarm.peak}/255 (floor ${MIN_SWARM}) — the points are not drawing`);
-  }
-  if (surface.localStep > MAX_STEP) {
-    fails.push(`${s.name}: the surface steps ${surface.localStep}/255 between adjacent pixels (max ${MAX_STEP}) — that is an edge, not a glow`);
+  if (all.localStep > MAX_STEP) {
+    fails.push(`${s.name}: the surface steps ${all.localStep}/255 between adjacent pixels (max ${MAX_STEP}) — that is an edge, not a glow`);
   }
   if (!s.hero && channel > MAX_CHANNEL) {
     fails.push(`${s.name}: the reading column is ${channel}× the gutters (max ${MAX_CHANNEL}) — the channel that protects the text is not open`);
@@ -277,9 +251,9 @@ server.close();
 
 const pad = (v, n) => String(v).padStart(n);
 console.log(`\nthe field measured at ${SAMPLES.length} scroll positions, ${WIDTH}×${HEIGHT}, surface pinned at t=${FREEZE_T}\n`);
-console.log('  position       peak   swarm   column mean   gutter mean   column÷gutter   local step');
+console.log('  position       peak   column mean   gutter mean   column÷gutter   local step');
 for (const r of rows) {
-  console.log(`  ${r.name.padEnd(13)}${pad(r.peak, 5)}${pad(r.swarm, 8)}${pad(r.meanRead, 14)}${pad(r.meanGut, 14)}` +
+  console.log(`  ${r.name.padEnd(13)}${pad(r.peak, 5)}${pad(r.meanRead, 14)}${pad(r.meanGut, 14)}` +
               `${pad(r.hero ? r.channel + ' (hero)' : r.channel, 16)}${pad(r.step, 13)}`);
 }
 
@@ -289,4 +263,4 @@ if (fails.length) {
   console.log('');
   process.exit(1);
 }
-console.log('\n✓ surface and swarm are both present everywhere, the surface reads as a glow rather than an edge, and the reading column is handed back below the hero');
+console.log('\n✓ the field is present everywhere, reads as a glow rather than an edge, and hands the reading column back below the hero');
