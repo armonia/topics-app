@@ -111,69 +111,17 @@ if ('fonts' in document) {
 } else ready();
 
 /* ── The capsule ─────────────────────────────────────────────────────────── */
-/* Two states, and the second one exists because the page now has two grounds.
- * The bar floats over both, so it cannot pick a colour once: over paper it is
- * dark ink on light glass, over an ink band it has to invert.
- *
- * It is decided by GEOMETRY, not by the section observer. The observer answers
- * "what am I reading", which is the middle of the viewport; the bar needs
- * "what is directly underneath me", which is 46px from the top. Those two
- * disagree for about 60px on either side of every seam, and a nav that flips
- * colour half a section early is worse than one that never flips at all.
- *
- * Cost: three getBoundingClientRect() calls on a scroll that is already
- * running one. Both classes are set in the same handler so there is no second
- * listener and no second layout read. */
+/* One state now, not two. The bar used to compute which ground was underneath
+ * it on every scroll frame — three getBoundingClientRect() calls testing each
+ * ink band against the bar's centre line — because the page had a light half and
+ * a dark half. It has one ground, so the answer is always "ink" and the class is
+ * gone from the stylesheet with it. What is left is whether the bar has left the
+ * top of the page. */
 const capsule = $('#capsule');
 if (capsule) {
-  const bands = $$<HTMLElement>('.band--ink');
-  const CAPSULE_MID = 46;
-  const onScroll = () => {
-    capsule.classList.toggle('is-stuck', scrollY > 14);
-    let overInk = false;
-    for (const b of bands) {
-      const r = b.getBoundingClientRect();
-      if (r.top <= CAPSULE_MID && r.bottom >= CAPSULE_MID) { overInk = true; break; }
-    }
-    document.body.classList.toggle('is-ink', overInk);
-  };
+  const onScroll = () => capsule.classList.toggle('is-stuck', scrollY > 14);
   onScroll();
   addEventListener('scroll', onScroll, { passive: true });
-}
-
-/* ── The orb ─────────────────────────────────────────────────────────────── */
-/* A light that follows the pointer, one per ink band, clipped to ink by the
- * band's own clip-path. Written as two custom properties on the root so all
- * four orbs read the same pair and there is one style write per frame rather
- * than four.
- *
- * The position is NOT transitioned in CSS — the glow snaps and only its
- * presence fades — so this handler has to be the thing that is smooth. It
- * coalesces to one rAF: a pointermove can fire far more often than the display
- * refreshes, and writing a custom property on every one of them is how an
- * effect this cheap ends up costing frames on a page that also runs a canvas
- * and a live React iframe.
- */
-if (!matchMedia('(hover: none), (pointer: coarse)').matches
-    && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  const root = document.documentElement;
-  let px = 0, py = 0, queued = false;
-  const paint = () => {
-    queued = false;
-    root.style.setProperty('--orb-x', px + 'px');
-    root.style.setProperty('--orb-y', py + 'px');
-  };
-  addEventListener('pointermove', (e) => {
-    px = e.clientX; py = e.clientY;
-    if (!document.body.classList.contains('is-hovering')) document.body.classList.add('is-hovering');
-    if (!queued) { queued = true; requestAnimationFrame(paint); }
-  }, { passive: true });
-  /* Leaving the window takes the light with you, rather than leaving it stuck
-     wherever the pointer crossed the edge. */
-  addEventListener('pointerleave', () => document.body.classList.remove('is-hovering'), { passive: true });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) document.body.classList.remove('is-hovering');
-  });
 }
 
 /* ── Counters ────────────────────────────────────────────────────────────── */
@@ -199,177 +147,16 @@ if (!reduceMotion) {
   }
 }
 
-/* ── The field: which register the page is in ────────────────────────────── */
-/* Sections declare `data-field`; the field crossfades between the states. The
-   observer watches the middle band of the viewport, so the state belongs to
-   whatever you are actually looking at rather than to whatever is entering. */
-const field = $<HTMLElement>('.field');
-const STATES: Record<string, { lattice: number; wash: number }> = {
-  dense: { lattice: 1, wash: 1 },
-  quiet: { lattice: 0.42, wash: 0.45 },
-  deep: { lattice: 0, wash: 0.7 },
-};
-let latticeWanted = 1;
-
-if (field) {
-  const marked = $$<HTMLElement>('[data-field]');
-  const setState = (name: string) => {
-    const s = STATES[name] ?? STATES.quiet;
-    field.style.setProperty('--lattice', String(s.lattice));
-    field.style.setProperty('--wash', String(s.wash));
-    latticeWanted = s.lattice;
-  };
-  setState('dense');
-  const io = new IntersectionObserver(
-    (entries) => {
-      for (const en of entries) {
-        if (!en.isIntersecting) continue;
-        setState((en.target as HTMLElement).dataset.field ?? 'quiet');
-      }
-    },
-    { rootMargin: '-45% 0px -45% 0px', threshold: 0 },
-  );
-  for (const el of marked) io.observe(el);
-}
-
-/* ── The field: the lattice ──────────────────────────────────────────────── */
-/*
- * A grid of dots on a 30px pitch, with a slow wave crossing it. Two things move
- * and neither of them is an element: the wave phase, and a vertical offset
- * derived from scroll — that offset is the parallax. Because it happens inside
- * the canvas, the parallax costs no layout and cannot shift anything.
+/* ── The field ───────────────────────────────────────────────────────────────
+ * Nothing here. The background is one WebGL surface — see `fluid.ts` — and it
+ * reads scroll and pointer itself, because it is the only consumer of either and
+ * a uniform write beats a custom event.
  *
- * Everything about this is throttled on purpose. See rule 2 at the top.
- */
-const canvas = $<HTMLCanvasElement>('#fieldLattice');
-if (canvas && !reduceMotion) {
-  const ctx = canvas.getContext('2d', { alpha: true });
-  if (ctx) {
-    /*
-     * A first version of this drew a dot every 30px across the whole viewport:
-     * about 1,300 marks, on a fixed pitch, related to nothing. That is
-     * wallpaper, and wallpaper behind a screenshot is the exact thing this site
-     * removed once already.
-     *
-     * What it draws instead is the page's OWN GRID: five vertical hairlines at
-     * the edges and quarter points of the 1,180px content column — the same
-     * divisions the long-tail grid and the pricing row are built on — and a tick
-     * every 96px along the two outer ones. About forty marks instead of
-     * thirteen hundred.
-     *
-     * The lines do not move, because they are registered to the layout and a
-     * ruler that drifts is not a ruler. The TICKS move, at 0.12 of the scroll:
-     * a travelling index against a fixed reference, which is what a measuring
-     * instrument looks like and what a field of drifting dots never does.
-     */
-    const TICK = 96;
-    const FPS = 20;
-    const FRAME = 1000 / FPS;
-    const IDLE_AFTER = 6000;
-    const MAXW = 1180, PAD = 24;
-
-    let dpr = 1, w = 0, h = 0;
-    let xs: number[] = [];
-    let raf = 0, last = 0, phase = 0;
-    let lastActivity = performance.now();
-    let running = false;
-
-    const resize = () => {
-      dpr = Math.min(devicePixelRatio || 1, 2);
-      w = innerWidth; h = innerHeight;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const inner = Math.min(MAXW, w - PAD * 2);
-      const left = (w - inner) / 2;
-      /* Half-pixel offsets, or a 1px line straddles two device pixels and
-         renders as a 2px smear at 40% alpha. */
-      xs = [0, .25, .5, .75, 1].map((f) => Math.round(left + inner * f) + 0.5);
-    };
-
-    const draw = () => {
-      const off = (scrollY * 0.12) % TICK;      // the travelling index
-      ctx.clearRect(0, 0, w, h);
-      ctx.strokeStyle = '#13161d';
-      ctx.fillStyle = '#13161d';
-      ctx.lineWidth = 1;
-
-      /* The rules. Outer pair a touch stronger than the quarter marks, the way
-         a scale reads: majors and minors. */
-      for (let i = 0; i < xs.length; i++) {
-        ctx.globalAlpha = i === 0 || i === xs.length - 1 ? 0.055 : 0.032;
-        ctx.beginPath();
-        ctx.moveTo(xs[i], 0);
-        ctx.lineTo(xs[i], h);
-        ctx.stroke();
-      }
-
-      /* The index. One slow breath across it so it reads as alive rather than
-         as a static overlay — 0.024 of amplitude, which is under the threshold
-         where anyone would call it an animation. */
-      const breathe = 0.012 * Math.sin(phase) + 0.052;
-      for (let y = -TICK + off; y < h + TICK; y += TICK) {
-        ctx.globalAlpha = breathe;
-        for (const edge of [xs[0], xs[xs.length - 1]]) {
-          ctx.beginPath();
-          ctx.moveTo(edge - 4.5, Math.round(y) + 0.5);
-          ctx.lineTo(edge + 4.5, Math.round(y) + 0.5);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = breathe * 0.7;
-        for (let i = 1; i < xs.length - 1; i++) {
-          ctx.beginPath();
-          ctx.arc(xs[i], Math.round(y), 1.15, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.globalAlpha = 1;
-    };
-
-    const frame = (now: number) => {
-      if (!running) return;
-      raf = requestAnimationFrame(frame);
-      if (now - last < FRAME) return;
-      last = now;
-      if (now - lastActivity > IDLE_AFTER) { stop(); return; }
-      phase += 0.028;
-      draw();
-    };
-
-    /* Nine ways this stops, and every one of them is a real machine somebody
-       is using. The one that matters most is the third: once the demo iframe
-       has been asked for, the React client is booting on this same thread, and
-       a background animation stealing frames from the product you are trying to
-       sell is the worst trade on the page. */
-    type Nav = Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
-    const nav = navigator as Nav;
-    const cheapDevice =
-      nav.connection?.saveData === true ||
-      (typeof nav.deviceMemory === 'number' && nav.deviceMemory < 4) ||
-      matchMedia('(pointer: coarse)').matches;
-
-    const start = () => {
-      if (running || document.hidden || latticeWanted === 0 || cheapDevice) return;
-      if ($('.showcase.is-booted') || $('.showcase.is-live')) return;
-      running = true; last = 0;
-      raf = requestAnimationFrame(frame);
-    };
-    const stop = () => { running = false; cancelAnimationFrame(raf); };
-
-    const poke = () => { lastActivity = performance.now(); start(); };
-
-    resize();
-    draw();          // the grid exists even where it never animates
-    start();
-
-    addEventListener('resize', () => { resize(); draw(); poke(); }, { passive: true });
-    addEventListener('scroll', poke, { passive: true });
-    addEventListener('pointermove', poke, { passive: true });
-    document.addEventListener('visibilitychange', () => { document.hidden ? stop() : poke(); });
-  }
-}
+ * What this replaced: a pointer-tracking orb writing two custom properties per
+ * frame, a section observer crossfading two field strengths, and a 2D canvas
+ * drawing five hairlines and a travelling tick in #13161d — an ink colour, on a
+ * ground that is now ink. That last one was the tell: a rAF loop, throttled to
+ * 20fps and idled after six seconds, painting marks nobody could see. */
 
 /* ── Parallax that means something ───────────────────────────────────────── */
 /*

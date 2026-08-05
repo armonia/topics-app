@@ -40,6 +40,15 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
   path="/v3"
   htmlAttrs={{ 'data-v3': 'true' }}
   bodyClass="v3"
+  {/* The ground, declared once for the whole document. It sits on <body> and
+      not on <html> because the ground's token block resolves --accent from
+      --brand-on-dark, which `body.v3` declares: a custom property whose var()
+      points at an ancestor that does not define it is invalid at computed-value
+      time and quietly becomes nothing. That is not theoretical — with the
+      attribute on <html>, --accent computed to the empty string and every act
+      glyph fell back to inheriting --ink. */}
+  bodyAttrs={{ 'data-ground': 'dark' }}
+  themeColor="#0a0d14"
   fontshare="https://api.fontshare.com/v2/css?f%5B%5D=switzer@400,500,600,700&display=swap"
 >
   <meta slot="head" name="robots" content="noindex,nofollow" />
@@ -50,20 +59,36 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
   <IconSprite />
 
   {/* ── THE FIELD ──────────────────────────────────────────────────────────
-       One element, fixed to the viewport, behind everything, for the whole
-       page. Sections declare what the field should be doing where; the field
-       itself never moves in the flow, so it can never cause a layout shift. */}
+       One fixed layer behind the whole document, and inside it one WebGL
+       surface: a lit, domain-warped height field whose flow, key light, hue and
+       drift are all functions of how far down the page you are. The full note is
+       at the top of `src/scripts/fluid.ts`.
+
+       The two divs under the canvas are not decoration and not a placeholder —
+       they are the complete picture for a browser that will not give us a
+       context. The script adds `has-field` to <body> only after the first
+       successful draw, and that is what takes the fallback away.
+
+       Nothing here is in the flow, so none of it can shift anything. */}
   <div class="field" aria-hidden="true">
-    <canvas class="field__lattice" id="fieldLattice"></canvas>
-    <div class="field__wash"></div>
+    <canvas id="field"></canvas>
+    <div class="field__aurora"></div>
+    <div class="field__weave"></div>
     <div class="field__grain"></div>
   </div>
 
   <header class="capsule" id="capsule">
     <div class="capsule__in">
+      {/* THE SHIPPED ICON, not a drawing of one. A previous pass replaced this
+          with an invented vector mark on the argument that two chat bubbles are
+          the wrong metaphor for a workspace. That may even be true, but a
+          landing page is not where a product renames itself: the icon in the
+          dock, in the tab, on the releases page and in every screenshot on this
+          page is the blue tile, and a header that shows something else is a
+          header showing the wrong product. Raster on purpose — it is the exact
+          file the app ships, at 64px for a 26px slot. */}
       <a class="capsule__brand" href="/" aria-label="Topics home">
-        <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-mark"/></svg>
+        <img class="mark" src="/icon-64.png" alt="" width="26" height="26" decoding="async" />
         <span>Topics</span>
       </a>
       <nav class="capsule__links" aria-label="Primary">
@@ -89,17 +114,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
          The product is in here, cropped by the bottom of the screen. On the
          live page the frame starts at y 516 with a poster over it, which is
          1,211px between the claim and the only thing that proves it. */}
-    {/* ── BAND 1 · INK ───────────────────────────────────────────────────────
-         The product. `data-field="deep"` turns the paper field's canvas OFF
-         rather than leaving it drawing 1,300 ink-coloured dots behind an opaque
-         band that nobody can see through — the band brings its own material.
-         See the ink-ground block in v3.css for why there is a second material
-         at all. */}
-    <div class="band band--ink band--hero" data-ground="dark">
-      <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
-      <div class="glow-hero" aria-hidden="true"></div>
-
-    <section class="hero" data-field="deep">
+    <section class="hero">
       <div class="hero__in">
         <p class="hero__badge">
           <span class="dot-live"></span>
@@ -118,9 +133,13 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
             <svg class="ic"><use href="#ic-dl"/></svg>
             <span id="primaryDownloadLabel">Download</span>
           </a>
-          <a class="btn btn--glass btn--lg" href="#demo">
-            <svg class="ic ic--fill"><use href="#ic-play"/></svg>
-            <span>See it working</span>
+          {/* The old second button said "See it working" and scrolled to a
+              poster with a play triangle on it. The thing it pointed at is now
+              directly below, already running, so a button that points at it is
+              a button that points at itself. */}
+          <a class="btn btn--glass btn--lg" href="#model">
+            <span>How it works</span>
+            <svg class="ic"><use href="#ic-arrow"/></svg>
           </a>
         </div>
 
@@ -134,13 +153,46 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         </dl>
       </div>
 
-      {/* The window, cropped. Not a poster with a play button on it: the crop
-           is the invitation, and the demo is one section down where a click
-           can pay for a 449KB React boot. */}
-      <div class="hero__stage">
-        <img class="hero__shot" src="/img/organize.webp" width="2480" height="1560"
-             fetchpriority="high" decoding="async"
-             alt="The Topics window: three projects open at once, each with its own Claude Code session." />
+      {/* ── THE ONE DEMO ────────────────────────────────────────────────────
+           The real client, on sample data, running from the moment the page
+           settles. There is no second demo and no play button anywhere on this
+           page, and both of those are deliberate.
+
+           WHAT WAS HERE BEFORE. A photograph of the window in the hero, and
+           then 1,100px lower a SECOND window — the live one — behind a poster
+           with a play triangle on it. Two pictures of the same product, one of
+           them fake, and the real one gated behind a decision the visitor has
+           no reason to make yet. A play button on a product demo asks someone
+           who has read one sentence to commit to watching something.
+
+           So the poster stays and the button goes. `home.ts` sets `src` on the
+           next idle callback rather than on a click: the page paints first, the
+           449KB client boots a moment later, and the poster underneath is
+           replaced by the thing it is a picture of. Nobody presses anything.
+
+           The frame is NOT cropped by the fold any more. A crop is the right
+           gesture for a photograph — it says "there is more, scroll" — and the
+           exact wrong one for something you can click, because the half you cut
+           off is the half that was interactive. */}
+      <div class="hero__stage showcase">
+        <div class="showcase__frame">
+          <iframe class="window-real" id="demoFrame" data-src="/app/index.html"
+                  title="Interactive Topics demo: the real app on sample data. Pick a chapter below, or click in and drive it yourself."></iframe>
+          <div class="showcase__poster" id="demoPoster" aria-hidden="true">
+            <img src="/img/demo-poster.webp" alt="" width="2560" height="1440"
+                 fetchpriority="high" decoding="async" />
+          </div>
+          {/* An iframe eats the wheel, so without this a visitor scrolling past
+              the demo gets trapped in the app's own scroll containers. It is a
+              layer in THIS document; one click hands the pointer over. */}
+          <button class="shield" id="demoShield" type="button" aria-label="Take control of the demo">
+            <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
+          </button>
+          <button class="expand" id="demoExpand" type="button" aria-expanded="false" aria-label="Expand the demo to fill the window">
+            <svg class="ic" aria-hidden="true"><use href="#ic-expand"/></svg>
+            <span class="expand__label">Expand</span>
+          </button>
+        </div>
       </div>
 
       {/* THE FLOAT. The headline makes a claim — four agents, one repo, nobody
@@ -166,12 +218,25 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         </ul>
         <p class="hf__foot"><svg class="ic"><use href="#ic-check"/></svg>No shared working tree. No stashing between them.</p>
       </aside>
+
+      {/* The chapter rail. Each button asks the running app to switch GROUP —
+           a real tab click inside the real client, not a slideshow — so the
+           demo above is also the table of contents for the page below it. */}
+      <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
+        <button class="chapter" data-scene="terminals" type="button"><svg class="ic"><use href="#ic-terminal"/></svg><span class="chapter__name">Live terminals</span><span class="chapter__hint">Two Claude Code sessions, mid-run</span></button>
+        <button class="chapter" data-scene="board" type="button"><svg class="ic"><use href="#ic-board"/></svg><span class="chapter__name">Agent board</span><span class="chapter__hint">Queued, working, waiting on you</span></button>
+        <button class="chapter" data-scene="fleet" type="button"><svg class="ic"><use href="#ic-agents"/></svg><span class="chapter__name">Its own group</span><span class="chapter__hint">A group wraps its tabs</span></button>
+        <button class="chapter" data-scene="dashboard" type="button"><svg class="ic"><use href="#ic-chart"/></svg><span class="chapter__name">Dashboard</span><span class="chapter__hint">Throughput and spend</span></button>
+        <button class="chapter" data-scene="browser" type="button"><svg class="ic"><use href="#ic-browser"/></svg><span class="chapter__name">Browser pane</span><span class="chapter__hint">Your localhost, inside the window</span></button>
+        <button class="chapter" data-scene="git" type="button"><svg class="ic"><use href="#ic-git"/></svg><span class="chapter__name">Git and diffs</span><span class="chapter__hint">Read the change before you take it</span></button>
+        <button class="chapter" data-scene="files" type="button"><svg class="ic"><use href="#ic-files"/></svg><span class="chapter__name">Files</span><span class="chapter__hint">Explorer, editor, search</span></button>
+        <button class="chapter" data-scene="workspace" type="button"><svg class="ic"><use href="#ic-split"/></svg><span class="chapter__name">Groups</span><span class="chapter__hint">Three projects, one group</span></button>
+      </div>
+      <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">The real application, on sample data. Not a video: click in and drive it.</span></p>
     </section>
-    </div>{/* /band 1 */}
-    <div class="seam seam--out" aria-hidden="true"></div>
 
     {/* ── THE MODEL ─────────────────────────────────────────────────────── */}
-    <section class="model" id="model" data-field="quiet">
+    <section class="model" id="model">
       <header class="shead">
         <p class="eyebrow">the whole idea</p>
         <h2>Three things, and you know the app.</h2>
@@ -196,61 +261,14 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       </ol>
     </section>
 
-    {/* ── THE DEMO ───────────────────────────────────────────────────────────
-         Kept, and moved. On thirty competitor home pages not one embeds the
-         real application, so this is the site's only unique asset and removing
-         it would have been the most expensive edit on the page. It sits after
-         the model rather than at the top because a visitor who has just been
-         told what a topic is has a reason to poke at one — and because the
-         client is 449KB on the wire and ~1.55MB to parse, on this page's own
-         main thread, so it stays a poster until asked for.
-         The ids and classes are the ones `scripts/home.ts` already drives. */}
-    <section class="demo" id="demo" data-field="deep">
-      <div class="showcase">
-        <div class="showcase__frame">
-          <iframe class="window-real" id="demoFrame" data-src="/app/index.html"
-                  title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."></iframe>
-          <button class="showcase__poster" id="demoPoster" type="button" aria-label="Start the interactive demo">
-            <img src="/img/demo-poster.webp" alt="" width="2560" height="1440" fetchpriority="low" decoding="async" />
-            <span class="showcase__play"><svg class="ic ic--fill" aria-hidden="true"><use href="#ic-play"/></svg>Start the live demo</span>
-          </button>
-          <button class="shield" id="demoShield" type="button" aria-label="Take control of the demo">
-            <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
-          </button>
-          <button class="expand" id="demoExpand" type="button" aria-expanded="false" aria-label="Expand the demo to fill the window">
-            <svg class="ic" aria-hidden="true"><use href="#ic-expand"/></svg>
-            <span class="expand__label">Expand</span>
-          </button>
-        </div>
-        <p class="demo__lead">
-          The actual application, running here on sample data. Not a video and not a mock:
-          pick a chapter, or click in and drive it yourself.
-        </p>
-        <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">Every chapter switches GROUP: a set of tabs you live in.</span></p>
-      </div>
-      <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
-        <button class="chapter" data-scene="terminals" type="button"><svg class="ic"><use href="#ic-terminal"/></svg><span class="chapter__name">Live terminals</span><span class="chapter__hint">Two Claude Code sessions, mid-run</span></button>
-        <button class="chapter" data-scene="board" type="button"><svg class="ic"><use href="#ic-board"/></svg><span class="chapter__name">Agent board</span><span class="chapter__hint">Queued, working, waiting on you</span></button>
-        <button class="chapter" data-scene="fleet" type="button"><svg class="ic"><use href="#ic-agents"/></svg><span class="chapter__name">Its own group</span><span class="chapter__hint">A group wraps its tabs</span></button>
-        <button class="chapter" data-scene="dashboard" type="button"><svg class="ic"><use href="#ic-chart"/></svg><span class="chapter__name">Dashboard</span><span class="chapter__hint">Throughput and spend</span></button>
-        <button class="chapter" data-scene="browser" type="button"><svg class="ic"><use href="#ic-browser"/></svg><span class="chapter__name">Browser pane</span><span class="chapter__hint">Your localhost, inside the window</span></button>
-        <button class="chapter" data-scene="git" type="button"><svg class="ic"><use href="#ic-git"/></svg><span class="chapter__name">Git and diffs</span><span class="chapter__hint">Read the change before you take it</span></button>
-        <button class="chapter" data-scene="files" type="button"><svg class="ic"><use href="#ic-files"/></svg><span class="chapter__name">Files</span><span class="chapter__hint">Explorer, editor, search</span></button>
-        <button class="chapter" data-scene="workspace" type="button"><svg class="ic"><use href="#ic-split"/></svg><span class="chapter__name">Groups</span><span class="chapter__hint">Three projects, one group</span></button>
-      </div>
-    </section>
-
     {/* ══ ACT 1 ══ ISOLATION ═════════════════════════════════════════════ */}
-    <div class="seam seam--in" aria-hidden="true"></div>
 
     {/* ── BAND 2 · INK ───────────────────────────────────────────────────────
          The five acts, one continuous ink run of ~3,000px. The scenes stop
          being framed pictures here: on this ground the mock has no card, so the
          only card left in an act is the one the product itself draws. */}
-    <div class="band band--ink band--acts" data-ground="dark">
-      <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
 
-    <section class="act" id="atto-1" data-field="deep">
+    <section class="act" id="atto-1">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-isolation"/></svg>
         <p class="act__kicker"><span class="act__n">01</span> Isolation</p>
@@ -273,14 +291,11 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
                float says four worktrees. A picture that shows three while the
                sentence beside it says four is the kind of small untruth a
                reader notices without being able to say why. */}
-          <div class="scene__ctx" aria-hidden="true">
-            <p class="panel__h">worktrees<span class="panel__c">4 · 1 checkout</span></p>
-            <div class="wt"><span class="wt__branch">topics/offline-sync</span><span class="wt__file">server/sync/queue.ts</span><span class="wt__stat"><i class="add">+31</i> <i class="del">−4</i></span></div>
-            <div class="wt"><span class="wt__branch">topics/context-sources</span><span class="wt__file">client/src/state/context.ts</span><span class="wt__stat"><i class="add">+12</i> <i class="del">−9</i></span></div>
-            <div class="wt"><span class="wt__branch">topics/webhook-signature</span><span class="wt__file">server/routes/webhooks.ts</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
-            <div class="wt"><span class="wt__branch">topics/release-signing</span><span class="wt__file">scripts/release.sh</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
-            <p class="panel__f">main is clean · nothing staged</p>
-          </div>
+          {/* The real window, at the state this act is about: the same client
+               that is running in the hero, driven to this tab and captured.
+               Nothing in this picture is drawn by hand. */}
+          <img class="scene__shot" src="/img/act-worktrees.webp" width="1400" height="1054"
+               loading="lazy" decoding="async" alt="The Git pane of the Topics window: the branch list on the left and the diff of the selected file beside it." />
           <div class="scene__fg card--wt">
             <div class="fg__bar">
               <span class="fg__av" aria-hidden="true"></span>
@@ -299,7 +314,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 2 ══ DISPATCH ══════════════════════════════════════════════ */}
-    <section class="act act--flip" id="atto-2" data-field="deep">
+    <section class="act act--flip" id="atto-2">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-dispatch"/></svg>
         <p class="act__kicker"><span class="act__n">02</span> Dispatch</p>
@@ -319,30 +334,11 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--board">
           <span class="scene__tag">board · acme-web</span>
-          <div class="scene__ctx" aria-hidden="true">
-            <div class="kcols">
-              <div>
-                <p class="kcol__h"><span class="pip"></span>To do <span class="kcol__c">7</span></p>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Rate limit on the public API</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Move the cron jobs to UTC</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Sign the Windows release</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Drop the legacy /v1 endpoints</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-docs</span><span class="kcard__t"><i class="kcard__pri"></i>Screenshot pass for the guide</span></div>
-              </div>
-              <div>
-                <p class="kcol__h"><span class="pip pip--work"></span>In progress <span class="kcol__c">3</span></p>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri kcard__pri--hi"></i>Offline sync without races</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Context inspector: sources off</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri kcard__pri--hi"></i>Retry the flaky upload test</span></div>
-              </div>
-              <div>
-                <p class="kcol__h"><span class="pip pip--rev"></span>Review <span class="kcol__c">2</span></p>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Webhook signature header</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Reattach without losing scrollback</span></div>
-                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Cache the provider token lookup</span></div>
-              </div>
-            </div>
-          </div>
+          {/* The real window, at the state this act is about: the same client
+               that is running in the hero, driven to this tab and captured.
+               Nothing in this picture is drawn by hand. */}
+          <img class="scene__shot" src="/img/act-board.webp" width="1400" height="1054"
+               loading="lazy" decoding="async" alt="The board inside the Topics window: backlog, in progress, review and done, with agent cards in each column." />
           <div class="scene__fg card--review">
             <div class="fg__bar">
               <span class="fg__av" aria-hidden="true"></span>
@@ -372,7 +368,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 3 ══ THE WINDOW ════════════════════════════════════════════ */}
-    <section class="act" id="atto-3" data-field="deep">
+    <section class="act" id="atto-3">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-window"/></svg>
         <p class="act__kicker"><span class="act__n">03</span> The window</p>
@@ -391,23 +387,11 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--window">
           <span class="scene__tag">group · Progetti</span>
-          <div class="scene__ctx" aria-hidden="true">
-            <div class="win">
-              <div class="win__side">
-                <p class="win__grp">Principale</p>
-                <p class="win__it">acme-web</p>
-                <p class="win__grp">Progetti</p>
-                <p class="win__it is-on">acme-api</p>
-                <p class="win__it">acme-mobile</p>
-                <p class="win__it">acme-docs</p>
-              </div>
-              <div class="win__main">
-                <div class="win__pane"></div>
-                <div class="win__pane"></div>
-                <div class="win__pane win__pane--wide"></div>
-              </div>
-            </div>
-          </div>
+          {/* The real window, at the state this act is about: the same client
+               that is running in the hero, driven to this tab and captured.
+               Nothing in this picture is drawn by hand. */}
+          <img class="scene__shot" src="/img/act-group.webp" width="1400" height="877"
+               loading="lazy" decoding="async" alt="The Progetti group: three project windows tiled in one frame, each with its own Claude Code session." />
           <div class="scene__fg card--tabs">
             <div class="tabs">
               <span class="tab is-active"><span class="pip pip--work"></span>Claude Code<span class="tab__x" aria-hidden="true">×</span></span>
@@ -431,7 +415,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 4 ══ THE NUMBERS ═══════════════════════════════════════════ */}
-    <section class="act act--flip" id="atto-4" data-field="deep">
+    <section class="act act--flip" id="atto-4">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-numbers"/></svg>
         <p class="act__kicker"><span class="act__n">04</span> The numbers</p>
@@ -451,16 +435,11 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--kpi">
           <span class="scene__tag">dashboard · last 7 days</span>
-          <div class="scene__ctx" aria-hidden="true">
-            <p class="panel__h">tasks shipped<span class="panel__c">14 days</span></p>
-            <div class="spark" role="img" aria-label="Tasks shipped per day over the last fourteen days, rising from four to eleven.">
-              <i style="--h:38%"></i><i style="--h:52%"></i><i style="--h:44%"></i><i style="--h:61%"></i>
-              <i style="--h:57%"></i><i style="--h:73%"></i><i style="--h:66%"></i><i style="--h:80%"></i>
-              <i style="--h:71%"></i><i style="--h:88%"></i><i style="--h:79%"></i><i style="--h:94%"></i>
-              <i style="--h:86%"></i><i class="is-now" style="--h:100%"></i>
-            </div>
-            <p class="panel__f">22 Jul<span class="panel__c">today</span></p>
-          </div>
+          {/* The real window, at the state this act is about: the same client
+               that is running in the hero, driven to this tab and captured.
+               Nothing in this picture is drawn by hand. */}
+          <img class="scene__shot" src="/img/act-numbers.webp" width="1400" height="877"
+               loading="lazy" decoding="async" alt="The Topics dashboard: tasks in flight, error rate, token spend for today and the week, and a throughput chart." />
           <div class="scene__fg card--kpi">
             <div class="kpis">
               <div><span class="kpi__l">tasks shipped</span><b class="kpi__v">37</b><span class="kpi__d up">+9</span></div>
@@ -475,7 +454,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 5 ══ OWNERSHIP ═════════════════════════════════════════════ */}
-    <section class="act" id="atto-5" data-field="deep">
+    <section class="act" id="atto-5">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-ownership"/></svg>
         <p class="act__kicker"><span class="act__n">05</span> Ownership</p>
@@ -494,16 +473,11 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--own">
           <span class="scene__tag">provider · per topic</span>
-          <div class="scene__ctx" aria-hidden="true">
-            <p class="panel__h">on this machine<span class="panel__c">everything</span></p>
-            <p class="path">~/.topics/topics.db<span class="path__s">18.4 MB</span></p>
-            <p class="path">~/.topics/media/<span class="path__s">241 MB</span></p>
-            <p class="path">~/.topics/worktrees/<span class="path__s">4 checkouts</span></p>
-            <p class="path">~/Projects/acme-web/.git<span class="path__s">your repo</span></p>
-            <p class="path">~/.topics/logs/<span class="path__s">plain text</span></p>
-            <p class="path">~/.topics/ui-state-backups/<span class="path__s">your layout</span></p>
-            <p class="path path--none">no request leaves this machine except the one you asked for</p>
-          </div>
+          {/* The real window, at the state this act is about: the same client
+               that is running in the hero, driven to this tab and captured.
+               Nothing in this picture is drawn by hand. */}
+          <img class="scene__shot" src="/img/act-own.webp" width="1100" height="1560"
+               loading="lazy" decoding="async" alt="A Claude Code session running in a Topics terminal pane, tool calls and results in the scrollback." />
           <div class="scene__fg card--pick">
             <p class="pick__h">Provider</p>
             <p class="pick__row is-on"><span class="pick__dot"></span>Claude Code <span class="fg__mute">· your subscription</span><svg class="ic ic--xs pick__ok"><use href="#ic-check"/></svg></p>
@@ -516,11 +490,9 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         <figcaption>Pick the provider per topic. The three paths behind it are everywhere Topics writes on your machine.</figcaption>
       </figure>
     </section>
-    </div>{/* /band 2 */}
-    <div class="seam seam--out" aria-hidden="true"></div>
 
     {/* ── COMPARE ───────────────────────────────────────────────────────── */}
-    <section class="compare" id="compare" data-field="quiet">
+    <section class="compare" id="compare">
       <header class="shead">
         <p class="eyebrow">against the alternatives</p>
         <h2>The line that actually separates these.</h2>
@@ -549,7 +521,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ── LIMITS ────────────────────────────────────────────────────────── */}
-    <section class="limits" id="limits" data-field="deep">
+    <section class="limits" id="limits">
       <header class="shead">
         <p class="eyebrow">before you download it</p>
         <h2>When Topics is the wrong tool.</h2>
@@ -565,52 +537,178 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       </div>
       {/* Anyone convinced by this section had 3,000px to scroll before finding a
            button on the live page. */}
-      <p class="limits__cta">
-        Still the right shape for you?
-        <a class="btn btn--primary halo" href="#download"><svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span></a>
-      </p>
+      <div class="limits__cta">
+        <p>Still the right shape for you?</p>
+        <a class="btn btn--primary btn--lg halo" href="#download"><svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span></a>
+      </div>
     </section>
 
-    <div class="seam seam--in" aria-hidden="true"></div>
 
     {/* ── BAND 3 · INK ───────────────────────────────────────────────────────
          The close. This is the stretch that measured 1.5-7.4% dark pixels —
          5,961px, 51% of the page, without one dark element in it — and it is
          also where the page asks for the download. It ends on ink, the way
          every one of the references does. */}
-    <div class="band band--ink band--close" data-ground="dark">
-      <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
 
-    {/* ── THE LONG TAIL ─────────────────────────────────────────────────── */}
-    <section class="more" id="more" data-field="deep">
+    {/* ── THE LONG TAIL ───────────────────────────────────────────────────
+         Sixteen tiles, each an icon and one sentence in a 282×125 box, average
+         84 characters. Which is to say: sixteen feature NAMES, arranged. A
+         reader could not tell from any of them what the thing does, only that it
+         exists, and a grid of things that exist is a spec sheet.
+
+         So it is told instead. Six that have a mechanism worth a paragraph get
+         one, with the evidence beside them — the actual flag, the actual
+         keystroke, the actual file that gets written — and the rest are a
+         sentence at the bottom, in prose, which is what a genuinely minor
+         feature deserves. No icons: a 17px glyph beside "Checkpoints" was
+         decoration standing in for an explanation. */}
+    <section class="more" id="more">
       <header class="shead">
         <p class="eyebrow">also in the box</p>
-        <h2>And a long tail of things you only miss once.</h2>
-        <p class="shead__lead">All of it shipped, all of it free, none of it worth its own headline.</p>
+        <h2>Six more, told properly.</h2>
+        <p class="shead__lead">All shipped, all free. None of them is the reason to install Topics, and each is a reason to keep it.</p>
       </header>
-      <div class="more__grid">
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-checkpoint"/></svg><b>Checkpoints</b><span>Roll a conversation back to any point, and the working tree with it.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-merge"/></svg><b>Auto-merge</b><span>Opt in per board and an approved task lands itself, unless the merge conflicts.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-voice"/></svg><b>Voice</b><span>Speak to an agent and hear it answer. Transcription runs locally through Whisper.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-permalink"/></svg><b>Tab permalinks</b><span>Copy a link to any tab. Opening it focuses that exact pane, on any device.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-slash"/></svg><b>Slash commands</b><span>Yours and the project's, plus <code>@</code> mentions for files and topics.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-model"/></svg><b>Model per task</b><span>Big tasks get the strong model, small ones do not, and you set the rule.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-checks"/></svg><b>Pre-review checks</b><span>Commands that must pass in the worktree before a task may ask for review.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-goal"/></svg><b>Topic goals</b><span>A standing objective re-sent every turn, which survives a compaction.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-subagents"/></svg><b>Sub-agents on screen</b><span>When an agent spawns a fleet, the children appear in the session tree.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-form"/></svg><b>Typed questions</b><span>When an agent asks something, you get a real form instead of guessing the syntax.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-branchchat"/></svg><b>Conversation branches</b><span>Edit an earlier message and continue from there without losing the original.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-phone"/></svg><b>Mobile and PWA</b><span>Check on a running agent from your phone, over a tunnel you run.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-cron"/></svg><b>Cron and webhooks</b><span>Work that repeats, and work triggered from outside.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-effort"/></svg><b>Full effort by default</b><span>Topics passes <code>--effort</code> on every spawn, so a session opens at the top tier.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-palette"/></svg><b>Command palette</b><span>Everything from the keyboard, including reopening the tab you just closed.</span></div>
-        <div class="more__item"><svg class="ic more__ic" aria-hidden="true"><use href="#ic-langs"/></svg><b>Two languages</b><span>The interface speaks English and Italian.</span></div>
+
+      <div class="tail">
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>Checkpoints roll back the working tree, not just the chat</h3>
+            <p>
+              Every coding assistant lets you delete messages. That undoes the conversation and
+              leaves the files exactly as the agent left them, which is the half that matters.
+              A checkpoint in Topics is a marker on the conversation <em>and</em> a snapshot of the
+              worktree: return to it and the branch goes back with you, staged changes included.
+              It is how you let an agent try something expensive without a decision to make first.
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">what a restore touches</p>
+            <ul class="tail__list">
+              <li><span>conversation</span><b>truncated to the mark</b></li>
+              <li><span>worktree</span><b>restored, staged and all</b></li>
+              <li><span>branch head</span><b>moved back</b></li>
+              <li><span>scrollback</span><b>kept, so you can read why</b></li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>A task cannot ask for review until your checks pass</h3>
+            <p>
+              Per board, you name the commands that have to succeed inside the worktree before an
+              agent is allowed to move a card to review. They run where the work is, not on your
+              checkout, so a failing test blocks that one task and nothing else. An agent that
+              cannot get them green comes back and says so instead of handing you a red branch
+              and a paragraph about how it should work.
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">a board's gate</p>
+            <pre class="tail__code"><code>bun run typecheck
+bun test tests/unit
+bun run check:lint</code></pre>
+            <p class="tail__note">Run in the task's own checkout, before <b>review</b> is offered.</p>
+          </div>
+        </article>
+
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>A goal survives the compaction that eats your first message</h3>
+            <p>
+              Long sessions compact, and when they do the instruction you gave at the top is the
+              first thing summarised into vagueness, which is why an agent forty turns in starts
+              solving a slightly different problem. A topic goal is re-sent with every turn, so it
+              is never the oldest thing in the window. Set it once per topic; it is the standing
+              answer to "what are we actually doing".
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">set for this topic</p>
+            <p class="tail__quote">Port the sync layer to the new schema. Do not change the public API, and keep every existing test green.</p>
+            <p class="tail__note">Re-sent every turn · survives <span class="mono">/compact</span></p>
+          </div>
+        </article>
+
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>Speak to it, and transcription never leaves the machine</h3>
+            <p>
+              Hold the key, talk, let go. The audio goes to a local Whisper build, not to us and not
+              to a transcription API, and the text lands in the composer for you to edit before
+              it is sent. Answers can be read back the same way. It is the difference between
+              dictating a paragraph of context and typing it, on the days you would have typed a
+              worse one.
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">where the audio goes</p>
+            <ul class="tail__list">
+              <li><span>capture</span><b>your machine</b></li>
+              <li><span>transcription</span><b>whisper.cpp, on device</b></li>
+              <li><span>network</span><b>nothing sent</b></li>
+              <li><span>result</span><b>editable, before it sends</b></li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>Every pane has an address you can paste to anyone</h3>
+            <p>
+              Copy a link to a tab and it names that exact pane: this terminal, in this group, in
+              this project. Open it on the laptop and the laptop focuses it; open it on the phone
+              over your tunnel and the phone does. Nothing is uploaded to make that work: the link
+              is a locator, and both machines already sync their layout to each other.
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">the link is the locator</p>
+            <pre class="tail__code"><code>topics://project/acme-web
+  /group/principale
+  /pane/terminal:cc1</code></pre>
+            <p class="tail__note">Resolves on any device signed into the same sync.</p>
+          </div>
+        </article>
+
+        <article class="tail__row">
+          <div class="tail__say">
+            <h3>Work that starts without you being there</h3>
+            <p>
+              A schedule, or an HTTP call from anything that can make one. The nightly runs at
+              three, the webhook fires when CI goes red, and the agent picks the task up in a
+              worktree the way it would if you had written the card yourself. You wake up to a
+              branch and a diff to read, or to nothing, which is also an answer.
+            </p>
+          </div>
+          <div class="tail__ev">
+            <p class="tail__evh">two ways in</p>
+            <ul class="tail__list">
+              <li><span>cron</span><b>0 3 * * 1-5 · nightly triage</b></li>
+              <li><span>webhook</span><b>POST /hooks/&lt;token&gt;</b></li>
+              <li><span>lands as</span><b>a card on a board</b></li>
+              <li><span>runs in</span><b>its own worktree</b></li>
+            </ul>
+          </div>
+        </article>
       </div>
+
+      {/* The genuinely small ones. A sentence, in prose, because that is what
+           they are worth — and putting them in cards was the thing that made
+           sixteen features read as sixteen equals. */}
+      <p class="tail__rest">
+        Also, without ceremony: <b>auto-merge</b> per board for approved tasks that do not conflict ·
+        <b>slash commands</b>, yours and the project's, with <code>@</code> for files and topics ·
+        <b>a model per task</b>, so the cheap ones stay cheap · <b>sub-agents on screen</b> when one
+        agent spawns a fleet · <b>typed questions</b>, a real form instead of guessing an agent's
+        syntax · <b>conversation branches</b> from any earlier message · <b>full effort</b> passed on
+        every spawn, so a session opens at the top tier · <b>a command palette</b> that will reopen
+        the tab you just closed · and <b>two languages</b>, English and Italian.
+      </p>
     </section>
 
-    
     {/* ── PRICING ───────────────────────────────────────────────────────── */}
-    <section class="pricing" id="pricing" data-field="deep">
+    <section class="pricing" id="pricing">
       <header class="shead">
         <p class="eyebrow">pricing</p>
         <h2>The app is €0 and stays €0.</h2>
@@ -685,7 +783,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ── CHANGELOG ─────────────────────────────────────────────────────── */}
-    <section class="changelog" id="changelog" data-field="deep">
+    <section class="changelog" id="changelog">
       <header class="shead">
         <p class="eyebrow">changelog</p>
         <h2>What's new.</h2>
@@ -695,7 +793,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ── DOWNLOAD ──────────────────────────────────────────────────────── */}
-    <section class="download" id="download" data-field="deep">
+    <section class="download" id="download">
       <header class="shead">
         <p class="eyebrow">get topics</p>
         <h2>Download for your machine.</h2>
@@ -748,21 +846,18 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
 
       <p class="fine centered">Every asset and checksum lives on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.</p>
     </section>
-    </div>{/* /band 3 */}
   </main>
 
-  {/* The footer is its own band only because it lives outside <main> and a
-       wrapper cannot legally span that boundary. It is the SAME ink run: the
-       seam beam is off and there is no top padding, so the join is invisible
-       and the page ends on one continuous ground. */}
-  <div class="band band--ink band--foot" data-ground="dark">
-    <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
-    <SiteFooter vector />
-  </div>
+  <SiteFooter />
 
   <script>
     import '../scripts/site';
     import '../scripts/home';
     import '../scripts/v3';
+    /* Last, and on its own: everything above it is DOM work, and this one takes
+       a GL context. If it throws — no WebGL, a blocked context, a driver that
+       refuses — it removes its own canvas and the CSS field underneath is
+       already a finished picture. */
+    import '../scripts/fluid';
   </script>
 </Base>
