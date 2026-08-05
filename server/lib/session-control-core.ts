@@ -137,13 +137,45 @@ export interface DetachedTopicOptions {
    * profile); absent = inherit the user's full fleet (interactive default).
    */
   mcpPolicy?: string;
+  /**
+   * Autonomy tier for the topic's spawns. Absent = `yolo`, and that default is
+   * the whole point of this option existing — see `createDetachedTopic`.
+   */
+  autonomyLevel?: Topic["autonomyLevel"];
 }
+
+/**
+ * Autonomy a dispatcher-spawned agent is born with.
+ *
+ * NOT the interactive default (`ask`, migration 001): `ask` maps to
+ * `--permission-mode plan` (server/lib/autonomy-mode.ts), and in plan mode the
+ * CLI refuses every tool not declared read-only — the agent cannot edit a file,
+ * cannot commit, cannot even call `get_task`. An agent born there burns its
+ * turns explaining that it is unable to work. It happened four times on
+ * 2026-08-04/05 (tasks 46480579 and 8f635484), with this exact shape:
+ *
+ *   «Cannot call mcp__topics__get_task while in plan mode … I have no
+ *   ExitPlanMode … a relaunch in yolo is needed»
+ *
+ * Patching `topics.autonomy_level` afterwards does NOT rescue a live session:
+ * `--permission-mode` is an argv flag fixed at spawn, so the row flips to
+ * `yolo` while the running child stays in plan mode. The tier has to be right
+ * when the topic is BORN — which is here.
+ *
+ * A human-created topic is unaffected: it goes through `createTopicCore` / the
+ * POST route and keeps inheriting the `ask` default.
+ */
+export const DETACHED_TOPIC_AUTONOMY: NonNullable<Topic["autonomyLevel"]> = "yolo";
 
 /**
  * Create a NEW chat topic WITHOUT switching to it — emits only `topic:created`,
  * never `topic:switch`, so it appears as a background tab without stealing focus.
  * Used by the task dispatcher, which needs a topic bound to an explicit project
  * (and optionally a worktree) with no "current" topic to inherit from.
+ *
+ * Born in `yolo` unless told otherwise (DETACHED_TOPIC_AUTONOMY): this is the
+ * birth of an AGENT session, and the interactive `ask` default would hand it a
+ * permission mode in which it cannot edit, commit, or reach the board.
  */
 export function createDetachedTopic(
   opts: DetachedTopicOptions,
@@ -175,6 +207,10 @@ export function createDetachedTopic(
   if (opts.model) newTopic.model = opts.model;
   if (opts.standalone) newTopic.standalone = true;
   if (opts.mcpPolicy) newTopic.mcpPolicy = opts.mcpPolicy;
+  // Always written, never left to the persistence fallback: `saveSingleTopic`
+  // resolves an absent tier to 'ask' (server/utils.ts), i.e. plan mode, i.e. an
+  // agent that cannot work. See DETACHED_TOPIC_AUTONOMY.
+  newTopic.autonomyLevel = opts.autonomyLevel ?? DETACHED_TOPIC_AUTONOMY;
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };
