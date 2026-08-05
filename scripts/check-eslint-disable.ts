@@ -15,13 +15,17 @@
  * ── Cosa conta come motivo ──────────────────────────────────────────────────
  * Due forme, entrambe valide — quale usare dipende da quanto c'è da dire:
  *
- *   1. Inline, dopo `--` (la sintassi ufficiale di ESLint):
+ *   1. Inline, dopo `--` (la sintassi ufficiale di ESLint), su UNA riga:
  *        // eslint-disable-next-line react-hooks/exhaustive-deps -- `ref` è stabile
  *
- *   2. Nel commento sopra, quando il motivo non sta in una riga:
+ *   2. Nel commento SOPRA, quando il motivo non sta in una riga:
  *        // Position dipende dalla dimensione MISURATA del menu montato,
  *        // ignota in render: è il canonico measure-then-place.
  *        // eslint-disable-next-line react-hooks/set-state-in-effect
+ *
+ * Sopra, mai sotto: `-next-line` silenzia la riga SEGUENTE, quindi un commento
+ * di continuazione infilato sotto la direttiva se ne prende il bersaglio e
+ * lascia il codice scoperto — senza che niente cambi d'aspetto.
  *
  * In entrambi i casi servono almeno MIN_REASON_CHARS caratteri di prosa: la
  * soglia esiste perché `-- ok` e `// serve` non sono motivi, sono rumore con
@@ -76,19 +80,15 @@ function commentProse(rawLine: string): string {
  * accumulano: una motivazione può essere un paragrafo, e spesso lo è.
  */
 function isJustified(lines: string[], idx: number): boolean {
-  // Forma 1 — `-- <motivo>`. Il motivo può continuare sulle righe di commento
-  // SOTTO: una spiegazione seria supera gli 80 caratteri, e obbligarla a stare
-  // su una riga sola la farebbe scrivere corta invece che chiara.
-  const inlineHead = lines[idx].split(/--/).slice(1).join("--").replace(/\*\/\s*$/, "").trim();
-  if (inlineHead !== "") {
-    let reason = inlineHead;
-    for (let i = idx + 1; i < lines.length && reason.length < MIN_REASON_CHARS; i++) {
-      const body = commentProse(lines[i]);
-      if (body === "" || DISABLE_RE.test(lines[i])) break;
-      reason += ` ${body}`;
-    }
-    if (reason.length >= MIN_REASON_CHARS) return true;
-  }
+  // Forma 1 — `-- <motivo>`, tutto sulla riga della direttiva. NON può
+  // continuare sotto, e la tentazione è forte: `eslint-disable-next-line`
+  // silenzia LA RIGA SEGUENTE, quindi ogni riga di commento infilata sotto la
+  // direttiva diventa il suo bersaglio e il codice resta scoperto. È un errore
+  // che si fa scrivendo proprio queste motivazioni — l'ho fatto io su undici
+  // siti prima che `reportUnusedDisableDirectives` lo dicesse. Se il motivo non
+  // ci sta in una riga, va sopra: è la Forma 2.
+  const inline = lines[idx].split(/--/).slice(1).join("--").replace(/\*\/\s*$/, "").trim();
+  if (inline.length >= MIN_REASON_CHARS) return true;
 
   // Forma 2 — il commento SOPRA. Si accumula all'insù: una motivazione può
   // essere un paragrafo, e in questo repo spesso lo è.

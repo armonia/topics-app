@@ -290,6 +290,13 @@ export function useProjectChatSync(
     }
 
     applyChatReconciliation({ add, remove, retitle, activateInGroup });
+    // `panes` manca di proposito, e si legge da `panesRef.current`: questo
+    // effetto AGGIUNGE e TOGLIE pane, quindi dipendere da loro vorrebbe dire
+    // ripartire sul proprio output — un ciclo, non una sincronizzazione.
+    // `applyChatReconciliation` è una prop che il chiamante non memoizza, e
+    // passa comunque per updater funzionali (vedi l'intestazione del file),
+    // quindi non invecchia. Gli ingressi veri sono i tre elencati: quali topic
+    // esistono, come si chiamano, e in quale progetto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topicIds, topics, projectPath]);
 

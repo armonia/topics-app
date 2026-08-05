@@ -968,6 +968,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         );
       }
     }
+    // `rows` e `rowHeights` si leggono dalle ref di proposito: sono l'OUTPUT di
+    // questo effetto, non il suo input. Metterli fra le dipendenze lo farebbe
+    // ripartire su ciò che ha appena scritto — un ciclo che si combatte da solo
+    // a ogni ridimensionamento. L'unico ingresso vero è `groups`: questa è la
+    // passata che riconcilia righe e altezze all'insieme dei gruppi vivi.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups]);
 
@@ -981,6 +986,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setGroups(defaultGroups);
       setRows(defaultRows);
     }
+    // I CONTEGGI, non gli array: la migrazione scatta al più una volta
+    // (`migrated.current`) e legge le pane da `panesRef.current`. Dipendere
+    // dall'identità degli array rifarebbe partire l'effetto a ogni modifica di
+    // una pane, per un lavoro che può accadere una volta sola.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups.length, panes.length]);
 
@@ -1791,6 +1800,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       );
     }
     setFocusedGroupId(targetGroup.id);
+    // `[]` è il punto, non una dimenticanza: il corpo legge lo stato vivo dalle
+    // ref (`panesRef`/`groupsRef`/`focusedGroupIdRef`) e scrive solo con
+    // setState funzionale, quindi non chiude su niente che possa diventare
+    // stantio. In cambio l'identità dell'handler resta stabile — e questa passa
+    // a ogni pane dell'albero: farla cambiare a ogni modifica del layout
+    // vorrebbe dire ri-renderizzare tutto a ogni tab spostata.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1834,6 +1849,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       ),
     );
     setFocusedGroupId(targetGroup.id);
+    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
+    // setState funzionale, identità stabile per non ri-renderizzare l'albero
+    // delle pane.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1903,6 +1921,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       );
     }
     setFocusedGroupId(targetGroup.id);
+    // Refs-only, come `handleOpenFile`: stato vivo dalle ref, scritture con
+    // setState funzionale, identità stabile per non ri-renderizzare l'albero
+    // delle pane.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

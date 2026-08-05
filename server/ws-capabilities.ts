@@ -55,11 +55,11 @@ export const SERVER_CAPABILITIES = [
  */
 export const SERVER_VERSION: string = (() => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- il
-    // `try/catch` è il punto di questo blocco, e un `import` statico non ci sta
-    // dentro: viene issato e risolto prima del corpo del modulo, quindi un
+    // Il `try/catch` è il punto di questo blocco, e un `import` statico non ci
+    // sta dentro: viene issato e risolto prima del corpo del modulo, quindi un
     // package.json assente (bundle di test) farebbe fallire l'INTERO modulo
     // invece di ricadere sull'etichetta generica qui sotto.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pkg = require('../package.json') as { version?: string };
     return typeof pkg.version === 'string' ? pkg.version : '0.0.0-unknown';
   } catch {
