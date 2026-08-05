@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isLoopbackUrl, navErrorMessage } from './navErrorMessage';
+import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from './navErrorMessage';
 
 describe('navErrorMessage', () => {
   test('porta locale spenta: dice CHI non risponde e che nessuno è in ascolto', () => {
@@ -53,6 +53,23 @@ describe('navErrorMessage', () => {
   test('senza descrizione e senza URL leggibile resta almeno il codice', () => {
     expect(navErrorMessage({ url: '', description: '', code: -1004 }).message)
       .toBe('Caricamento fallito (codice -1004)');
+  });
+});
+
+describe('deadLoopbackNotice', () => {
+  test('dice chi non risponde e a che ora l\'abbiamo controllato', () => {
+    const t = deadLoopbackNotice('http://localhost:3210/login', new Date(2026, 7, 5, 16, 3));
+    expect(t.message).toContain('localhost:3210');
+    expect(t.hint).toContain('Controllato alle 16:03');
+    expect(t.hint).toContain('anteprima');
+  });
+
+  test('l\'ora cambia fra due controlli: è il segnale che «Riprova» ha fatto qualcosa', () => {
+    const a = deadLoopbackNotice('http://localhost:3210/', new Date(2026, 7, 5, 9, 5));
+    const b = deadLoopbackNotice('http://localhost:3210/', new Date(2026, 7, 5, 9, 6));
+    expect(a.hint).toContain('09:05');
+    expect(b.hint).toContain('09:06');
+    expect(a.hint).not.toBe(b.hint);
   });
 });
 
