@@ -39,4 +39,17 @@ describe('loopbackAlive', () => {
     stubFetch(() => Response.json({ port: 3210 }));
     expect(await loopbackAlive('http://localhost:3210/')).toBe(true);
   });
+
+  /**
+   * Il tetto conta più della risposta: la pane resta su «Initializing native
+   * browser…» finché questa promessa non si risolve, quindi un server di Topics
+   * impallato o in riavvio bloccherebbe la scheda per sempre. Una sonda nata per
+   * evitare un fastidio non può diventare un blocco.
+   */
+  test('server che non risponde mai: si smette di aspettare e si prova a caricare', async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const t0 = Date.now();
+    expect(await loopbackAlive('http://localhost:3210/', 50)).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(400);
+  });
 });

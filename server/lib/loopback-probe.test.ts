@@ -38,6 +38,19 @@ describe("isPortListening", () => {
     expect(await isPortListening(port)).toBe(false);
   });
 
+  test("un server in ascolto SOLO su ::1 non va dato per morto", async () => {
+    // `server.listen(port)` senza host finisce spesso sul solo IPv6: sondare
+    // solo 127.0.0.1 parcheggerebbe una scheda viva.
+    const srv = net.createServer();
+    const port: number = await new Promise((resolve, reject) => {
+      srv.once("error", reject);
+      srv.listen(0, "::1", () => resolve((srv.address() as net.AddressInfo).port));
+    });
+
+    expect(await isPortListening(port)).toBe(true);
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  });
+
   test("una porta libera non fa aspettare il timeout intero", async () => {
     const t0 = Date.now();
     expect(await isPortListening(1, 300)).toBe(false);
