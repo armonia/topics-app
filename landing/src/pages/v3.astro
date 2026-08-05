@@ -571,8 +571,18 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       </p>
     </section>
 
+    <div class="seam seam--in" aria-hidden="true"></div>
+
+    {/* ── BAND 3 · INK ───────────────────────────────────────────────────────
+         The close. This is the stretch that measured 1.5-7.4% dark pixels —
+         5,961px, 51% of the page, without one dark element in it — and it is
+         also where the page asks for the download. It ends on ink, the way
+         every one of the references does. */}
+    <div class="band band--ink band--close" data-ground="dark">
+      <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
+
     {/* ── THE LONG TAIL ─────────────────────────────────────────────────── */}
-    <section class="more" id="more" data-field="quiet">
+    <section class="more" id="more" data-field="deep">
       <header class="shead">
         <p class="eyebrow">also in the box</p>
         <h2>And a long tail of things you only miss once.</h2>
@@ -598,16 +608,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       </div>
     </section>
 
-    <div class="seam seam--in" aria-hidden="true"></div>
-
-    {/* ── BAND 3 · INK ───────────────────────────────────────────────────────
-         The close. This is the stretch that measured 1.5-7.4% dark pixels —
-         5,961px, 51% of the page, without one dark element in it — and it is
-         also where the page asks for the download. It ends on ink, the way
-         every one of the references does. */}
-    <div class="band band--ink band--close" data-ground="dark">
-      <div class="band__field" aria-hidden="true"><div class="orb"></div></div>
-
+    
     {/* ── PRICING ───────────────────────────────────────────────────────── */}
     <section class="pricing" id="pricing" data-field="deep">
       <header class="shead">

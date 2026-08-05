@@ -107,16 +107,22 @@ const MAX_INK_STEP = 4;        // adjacent-pixel change in the AURORA's contribu
 const MIN_INK_PRESENT = 8;     // an aurora you cannot measure is an aurora that is off
 const MIN_INK_DOTS = 1;        // the grid has to be painting too
 
-/* The scroll offsets to sample, one set per material. Positions taken from the
-   built page's own section map rather than remembered: `bun run build` then
-   scripts/landing-field.mjs prints what it found if these ever drift. */
+/* The scroll offsets to sample, one set per material, each one inside a single
+   ground rather than straddling a seam. Taken from the built page's section map
+   — the previous set was written before the long-tail grid moved onto ink, and
+   two of its three "paper" samples had drifted onto a seam and a band, which is
+   the same way this gate went blind the first time. If the rhythm changes
+   again, re-read the map before trusting these:
+
+     ink   58-1192   ·  paper 1550-2916  ·  ink 3155-6104
+     paper 6472-7819 ·  ink 8059-12587 */
 const SAMPLES = [
-  { name: 'model (quiet)', y: 1500, material: 'paper' },
-  { name: 'limits (deep)', y: 6650, material: 'paper' },
-  { name: 'more (quiet)', y: 7500, material: 'paper' },
+  { name: 'model (quiet)', y: 1700, material: 'paper' },
+  { name: 'demo (deep)', y: 2100, material: 'paper' },
+  { name: 'limits (deep)', y: 6700, material: 'paper' },
   { name: 'hero (ink)', y: 300, material: 'ink' },
-  { name: 'act 1 (ink)', y: 3200, material: 'ink' },
-  { name: 'close (ink)', y: 9000, material: 'ink' },
+  { name: 'acts (ink)', y: 3400, material: 'ink' },
+  { name: 'close (ink)', y: 9200, material: 'ink' },
 ];
 
 /** Which element is the material, per sample. */
