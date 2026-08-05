@@ -84,7 +84,26 @@ export type ScrollEvent =
    * `distanceFromBottom` (quando il chiamante sa misurarla) evita di aspettare
    * Virtuoso fuori dallo stream.
    */
-  | { type: 'user-scrolled-up'; streaming: boolean; distanceFromBottom?: number }
+  | {
+      type: 'user-scrolled-up';
+      streaming: boolean;
+      distanceFromBottom?: number;
+      /**
+       * DA DOVE arriva la notizia, e non è un dettaglio: le due sorgenti hanno
+       * affidabilità opposte.
+       *
+       *  • `gesture` — rotellina all'insù, trascinamento: un gesto, e di gesti
+       *    l'app non ne produce. Non c'è niente da cui difendersi, quindi vince
+       *    sempre, anche dentro la finestra di guardia.
+       *  • `delta` — `scrollTop` è calato oltre soglia. AMBIGUO: lo fa anche
+       *    Virtuoso quando rimisura le altezze dopo un nostro scroll forzato,
+       *    ed è esattamente ciò per cui la guardia esiste.
+       *
+       * Assente = `delta`, cioè la lettura prudente: chi non dichiara la
+       * sorgente non ottiene il permesso di scavalcare la guardia.
+       */
+      source?: 'gesture' | 'delta';
+    }
   /**
    * Virtuoso: la vista è tornata in fondo.
    *
@@ -171,7 +190,14 @@ export function reduceScroll(
       // `scrollTop = scrollHeight` e basta — alza e non abbassa mai — quindi lì
       // un calo è davvero l'utente, e farlo aspettare la fine della guardia
       // vorrebbe dire tenerlo inchiodato al fondo mentre cerca di leggere.
-      if (!event.streaming && now < state.guardUntil) return { state, pin: false };
+      // …ma la guardia vale solo per la sorgente AMBIGUA. Un gesto vero
+      // (rotellina, trascinamento) l'app non lo produce mai, quindi non c'è
+      // niente da cui difendersi: sopprimerlo voleva dire ignorare l'utente per
+      // 600ms dopo ogni nostro scroll forzato — cioè proprio nell'istante in cui
+      // uno reagisce a un salto che non voleva.
+      if (!event.streaming && (event.source ?? 'delta') === 'delta' && now < state.guardUntil) {
+        return { state, pin: false };
+      }
       // Durante lo stream sganciare deve essere IMMEDIATO: il pin gira a ogni
       // chunk e, se aspettassimo l'atBottomStateChange di Virtuoso, ributterebbe
       // la vista in fondo prima che quello arrivi — l'utente resterebbe
@@ -206,11 +232,24 @@ export function reduceScroll(
       if (event.streaming) {
         return { state, pin: state.anchored };
       }
-      // Fuori dallo stream: dentro la finestra di guardia uno scarto piccolo è
-      // il riassestamento del nostro stesso scroll forzato, non l'utente.
-      if (now < state.guardUntil && event.distanceFromBottom < AT_BOTTOM_TOLERANCE_PX) {
-        return { state, pin: false };
-      }
+      // Fuori dallo stream, DENTRO la finestra di guardia: non sgancia mai, e
+      // la distanza non c'entra.
+      //
+      // Prima si perdonava solo uno scarto piccolo, e il caso che rompeva era
+      // quello grande — che è anche il più comune. Premi «Riprova» (o invii, o
+      // apri la chat): riancoriamo e pinniamo, poi arriva la riga nuova, il
+      // banner sparisce, il composer cambia altezza e la lista si rimisura. Per
+      // un attimo Virtuoso annuncia una distanza dal fondo di parecchie
+      // centinaia di pixel — roba NOSTRA, non un gesto — e con la vecchia
+      // condizione quello sganciava: da lì in poi ogni pin era vietato e la
+      // risposta scorreva via sotto una vista ferma. È il «faccio Riprova e si
+      // perde l'aggancio».
+      //
+      // Perdonare tutto qui non toglie all'utente il controllo: il suo gesto ha
+      // il suo evento (`user-scrolled-up`, sorgente `gesture`), che sgancia
+      // subito anche dentro la guardia. Questo evento invece non sa chi l'ha
+      // causato, e in questa finestra la risposta giusta è: l'abbiamo causato noi.
+      if (now < state.guardUntil) return { state, pin: false };
       return detach(state);
 
     case 'offset-restored':
