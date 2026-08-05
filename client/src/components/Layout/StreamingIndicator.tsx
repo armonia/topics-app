@@ -32,7 +32,7 @@
  * same loading facade and the same component so they can't drift.
  */
 
-import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useBrowserLoading } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -338,8 +338,18 @@ export function ProjectStreamingSpinner({
   // itself (TopicTree), like the chat/terminal/browser rows — this stays the bare
   // busy glyph on every surface.
   const loading = useProjectLoading(projectPath);
+  // Se dentro c'è qualcuno che aspetta TE, il glifo sta fermo in ambra come
+  // quello di una chat: sulla stessa riga il fill era già ambra e l'onda blu lo
+  // contraddiceva — un segno diceva «tocca a te», l'altro «lascialo lavorare».
+  const waiting = useProjectAwaitingInput(projectPath);
   if (!loading) return null;
-  return <LoaderSlot title={title ?? 'Una chat di questo progetto sta rispondendo'} className={className} />;
+  return (
+    <LoaderSlot
+      title={title ?? (waiting ? 'Una chat di questo progetto aspetta una tua risposta' : 'Una chat di questo progetto sta rispondendo')}
+      className={className}
+      waiting={waiting}
+    />
+  );
 }
 
 interface TerminalSpinnerProps {
@@ -383,21 +393,4 @@ export function BrowserStreamingSpinner({
   const active = useBrowserLoading(paneId);
   if (!active) return null;
   return <LoaderSlot title={title ?? 'Browser is working'} className={className} />;
-}
-
-/**
- * Agents tab spinner — pulses while ANY agent session is active (the agents
- * pane is a global list, not project-scoped). Reads the agentActivity store
- * App mirrors from its live useAgents subscription.
- */
-export function AgentStreamingSpinner({
-  title,
-  className = '',
-}: {
-  className?: string;
-  title?: string;
-}) {
-  const active = useAnyAgentActive();
-  if (!active) return null;
-  return <LoaderSlot title={title ?? 'An agent is running'} className={className} />;
 }

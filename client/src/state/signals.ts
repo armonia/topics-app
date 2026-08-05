@@ -256,7 +256,6 @@ interface SignalsState {
   // loading inputs
   liveStreamTopics: Set<string>;     // useChat live stream (sessionKey resolved to topicId)
   hydratedStreamTopics: Set<string>; // server "mid-reply" (DB partial flag), survives reload
-  agentActiveTopics: Set<string>;    // agent sessions active, by topic
   terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
   // claude-code terminals whose known phase is active (running/tool-running).
@@ -372,7 +371,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics' | 'watchingTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics' | 'watchingTopics';
 
 export function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
@@ -471,7 +470,6 @@ export function reconcileOrphanStreams(
 export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),
-  agentActiveTopics: new Set(),
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
@@ -614,7 +612,6 @@ function sessionLastActivityEqual(a: Map<string, number>, b: Map<string, number>
 export const signalsActions = {
   setLiveStreamTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('liveStreamTopics', ids),
   setHydratedStreamTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('hydratedStreamTopics', ids),
-  setAgentActiveTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('agentActiveTopics', ids),
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
@@ -854,11 +851,10 @@ function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
 export function useProjectLoading(projectPath: string | undefined): boolean {
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
-  const { live, hydrated, agent, term, phaseActive, phaseResting } = useSignalsStore(
+  const { live, hydrated, term, phaseActive, phaseResting } = useSignalsStore(
     useShallow((s) => ({
       live: s.liveStreamTopics,
       hydrated: s.hydratedStreamTopics,
-      agent: s.agentActiveTopics,
       term: s.terminalBusyIds,
       phaseActive: s.claudePhaseActiveTermIds,
       phaseResting: s.claudePhaseRestingTermIds,
@@ -867,7 +863,7 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
   return useMemo(() => {
     if (!projectPath) return false;
     for (const t of Object.values(topics)) {
-      if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id) || agent.has(t.id))) return true;
+      if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id))) return true;
     }
     for (const ts of terminalSessions) {
       // Plain shells are the user's own background processes (dev servers,
@@ -881,7 +877,41 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
       if (terminalLoadingFrom(ts.id, phaseActive, term, phaseResting)) return true;
     }
     return false;
-  }, [projectPath, topics, terminalSessions, live, hydrated, agent, term, phaseActive, phaseResting]);
+  }, [projectPath, topics, terminalSessions, live, hydrated, term, phaseActive, phaseResting]);
+}
+
+/**
+ * Il progetto sta aspettando TE?
+ *
+ * Serve al glifo del progetto, che finora ondeggiava in blu — «sto lavorando» —
+ * anche quando l'unica cosa che succedeva lì dentro era una chat ferma su una
+ * domanda. Sulla stessa riga il fill era già ambra, e i due segni si
+ * contraddicevano: uno diceva «tocca a te», l'altro «lascialo lavorare».
+ *
+ * Stessa fonte del fill (`projectAttentionTier`), così non possono divergere.
+ * Il tier 'input' è il più forte: se un figlio aspetta te, il progetto aspetta
+ * te — anche se un altro figlio sta ancora macinando, perché la cosa che devi
+ * fare non smette di esistere.
+ */
+export function useProjectAwaitingInput(projectPath: string | undefined): boolean {
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const { awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen } = useSignalsStore(
+    useShallow((s) => ({
+      awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingTerms: s.claudePhaseAwaitingTermIds,
+      inputTopics: s.awaitingInputTopics,
+      inputTerms: s.claudePhaseAwaitingInputTermIds,
+      seen: s.seenSubjects,
+    })),
+  );
+  return useMemo(() => {
+    if (!projectPath) return false;
+    return projectAttentionTier(
+      projectPath, topics, terminalSessions,
+      awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen,
+    ) === 'input';
+  }, [projectPath, topics, terminalSessions, awaitingTopics, awaitingTerms, inputTopics, inputTerms, seen]);
 }
 
 /** The attention TIER a project row/tab should paint: 'input' (amber) if ANY
@@ -964,11 +994,10 @@ export function projectAttentionTier(
 
 // ---- Id-based loading hooks (keep the spinner component API stable) ---------
 
-/** A topic is loading if it has a live stream, hydrated mid-reply, or an
- *  active agent. */
+/** A topic is loading if it has a live stream or a hydrated mid-reply. */
 export function useTopicLoading(topicId: string | undefined): boolean {
   return useSignalsStore((s) =>
-    !!topicId && (s.liveStreamTopics.has(topicId) || s.hydratedStreamTopics.has(topicId) || s.agentActiveTopics.has(topicId)),
+    !!topicId && (s.liveStreamTopics.has(topicId) || s.hydratedStreamTopics.has(topicId)),
   );
 }
 
@@ -1161,11 +1190,6 @@ export function useTerminalReloading(sessionId: string | undefined): boolean {
 /** A browser pane is loading (page load or an agent driving it). */
 export function useBrowserLoading(paneId: string | undefined): boolean {
   return useSignalsStore((s) => !!paneId && s.browserBusyPaneIds.has(paneId));
-}
-
-/** Any agent session active anywhere (global agents tab). */
-export function useAnyAgentActive(): boolean {
-  return useSignalsStore((s) => s.agentActiveTopics.size > 0);
 }
 
 /** Pure: how many of `ids` belong to a topic that is actually ON SCREEN.
