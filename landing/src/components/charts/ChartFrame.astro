@@ -47,17 +47,17 @@ const { title, subtitle, summary, source, columns, rows } = Astro.props;
   /* One hue per entity, never per rank. Blue #3987e5 and orange #d95926, both
      at L 62.2, run through the palette validator: lightness band, chroma floor,
      CVD separation ΔE 26.8 (protan), normal-vision ΔE 31.8, all pass. They were
-     picked against the dark page and re-measured when it became paper — 3.45:1
-     and 3.69:1 on #faf9f5, so both clear the 3:1 floor for a mark and neither
-     had to move. Text never wears them. */
+     picked against the dark page and re-measured through two ground changes:
+     3.48:1 and 3.72:1 on the current #f9fafc, so both clear the 3:1 floor for a
+     mark and neither has ever had to move. Text never wears them.
+
+     --s3 was added when a chart needed three parts. Violet, not the obvious
+     green: with blue and orange already placed, green's worst adjacent
+     separation is ΔE 8.6 under deuteranopia, barely over the floor, while this
+     is 25.6 under protanopia. Chosen by running the validator, not by eye. */
   .viz {
     --s1: #3987e5;
     --s2: #d95926;
-    /* The third slot, added when a chart needed three parts. Violet, not the
-       obvious green: with the blue and the orange already placed, green's worst
-       adjacent separation is ΔE 8.6 under deuteranopia, barely over the floor,
-       while this is 25.6 under protanopia and 22.5 under tritanopia. Chosen by
-       running the validator on both, not by looking at them. */
     --s3: #8a63d2;
     --viz-grid: color-mix(in oklab, var(--ink) 14%, transparent);
     margin-block: 40px;
