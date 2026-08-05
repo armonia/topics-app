@@ -53,6 +53,7 @@ import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow } from './components/Layout/spaceHelpers';
+import { useGoToSpace } from './components/Sidebar/SpaceGroups';
 import { spaceWindowId } from './lib/windowRole';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
@@ -562,6 +563,7 @@ function App() {
   // "le tab di questo gruppo" e "fuori dai gruppi". Stessa risposta che dà
   // SpaceGroups per decidere se disegnarsi.
   const spaceChrome = usePaneStore((s) => groupChromeActive(s.spaces, spaceWindowId()));
+  const goToSpace = useGoToSpace();
   const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
@@ -1117,7 +1119,15 @@ function App() {
             onTogglePin={handleTogglePin}
             boardTaskCount={boardTaskCount}
             boardOpen={openPanels.includes('__board__')}
-            onOpenBoard={() => handleOpenAsPage('board')}
+            // La board sta ferma in cima alla sidebar, sopra i fissati e sopra
+            // ogni gruppo — ma la sua TAB vive in un gruppo come tutte. Se è in
+            // un altro, ci si porta prima la finestra: aprirla e basta la
+            // farebbe comparire dove non stai guardando.
+            onOpenBoard={() => {
+              const boardSpace = paneSpaceById.get('__board__');
+              if (boardSpace) goToSpace(boardSpace);
+              handleOpenAsPage('board');
+            }}
             spaceScoped={spaceScoped}
             paneSpaceById={paneSpaceById}
           />

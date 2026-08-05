@@ -375,9 +375,6 @@ export function TopicTree({
       return next;
     });
   }, []);
-  /** Il gruppo in cui vive la tab della board, quando è aperta: la sua riga va
-   *  disegnata lì dentro invece che in cima. */
-  const boardCardSpaceId = spaceScoped && boardOpen ? paneSpaceById?.get('__board__') : undefined;
 
   // ── Fissati partition (render-side; the builder's sort stays untouched) ──
   // The pinned block lists EVERY pinned item — top-level rows AND project
@@ -976,11 +973,12 @@ export function TopicTree({
             rows below. Position is fixed at the top either way, so opening the
             board never makes its row jump.
 
-            Quando la board è APERTA sta dentro la card del suo gruppo, come
-            ogni altra tab (`boardCardSpaceId`): è una tab, e le tab stanno nel
-            loro gruppo. Chiusa, resta qui in cima: è la porta d'ingresso al
-            lavoro, e non appartiene a nessuno. */}
-        {!boardCardSpaceId && boardRow}
+            Sta FERMA qui, sopra i fissati e sopra ogni gruppo, anche quando la
+            sua tab vive dentro un gruppo: la board generale è di tutti i
+            progetti, non di un gruppo, ed è il primo posto dove si guarda. Se
+            la sua tab sta altrove, cliccarla porta prima la finestra là (vedi
+            `onOpenBoard` in App). */}
+        {boardRow}
 
         {spaceScoped ? (
           /* I GRUPPI, tutti insieme: ognuno è una card che tiene in mano le sue
@@ -1018,9 +1016,8 @@ export function TopicTree({
                   expanded={!collapsedGroups.has(card.id)}
                   onToggle={() => toggleGroup(card.id)}
                 >
-                  {card.id === boardCardSpaceId && boardRow}
                   {rows.map(item => renderItem(item))}
-                  {rows.length === 0 && card.id !== boardCardSpaceId && (
+                  {rows.length === 0 && (
                     <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>
                   )}
                 </SpaceGroupCard>
