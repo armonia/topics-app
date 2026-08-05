@@ -31,7 +31,7 @@
  */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AppWindow, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { AppWindow, ChevronDown, ChevronRight, CornerDownLeft, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDismissable } from '../../hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
@@ -41,13 +41,16 @@ import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useSpaceWindows } from '../../state/windowPresence';
-import { focusSpaceWindow, popOutSpace } from '../../lib/popOutSpace';
+import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
+import { DND_TYPES } from '../../lib/dndTypes';
 import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
+  firstOtherLiveSpace,
   liveSpacesOrdered,
+  movePaneToSpace,
 } from '../Layout/spaceHelpers';
 import { spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
@@ -252,15 +255,54 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   const meta = spaces[card.id];
   const isDefault = card.id === DEFAULT_SPACE_ID;
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const [dropping, setDropping] = useState(false);
+
+  // ── Trascinare una tab dentro un gruppo ──────────────────────────────────
+  // Le sorgenti sono due e le porta già il resto dell'app: una riga della
+  // sidebar (`PANEL_ID`) e una tab della barra (`PANE_TAB`, che è l'id della
+  // pane — quello buono). Durante il dragover il contenuto non è leggibile per
+  // sicurezza: si guardano i TIPI, e il valore si legge al drop.
+  //
+  // Fra FINESTRE funziona senza plumbing nativo: le card ci sono in ogni
+  // finestra, anche quelle dei gruppi staccati, e spostare una tab in un
+  // gruppo che vive di là la fa comparire di là (il pane-store è sincronizzato,
+  // LWW + server_seq). Trascinare fisicamente da una finestra all'altra invece
+  // no: due WKWebView non si passano un drag HTML5, e nessun trucco lo cambia.
+  const dragCarriesPane = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
+    e.dataTransfer.types.includes(DND_TYPES.PANEL_ID);
 
   return (
     <div
       data-space-id={card.id}
       data-testid={card.active ? 'space-card-active' : 'space-card'}
+      onDragOver={(e) => {
+        if (!dragCarriesPane(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!dropping) setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        // Solo quando si esce DAVVERO dalla card: `dragleave` scatta anche
+        // passando da un figlio all'altro.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDropping(false);
+      }}
+      onDrop={(e) => {
+        setDropping(false);
+        if (!dragCarriesPane(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
+          || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+        if (paneId) movePaneToSpace(paneId, card.id);
+      }}
       className={`mx-1.5 mb-1 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
-        card.active
-          ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
-          : 'border-app-border/50'
+        dropping
+          ? 'border-primary bg-primary/10'
+          : card.active
+            ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
+            : 'border-app-border/50'
       }`}
     >
       <div
@@ -363,7 +405,14 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
             onClick={() => {
               setMenu(null);
               if (card.detachedLabel) { void focusSpaceWindow(card.detachedLabel); return; }
-              void popOutSpace(card.id);
+              void popOutSpace(card.id).then((ok) => {
+                if (!ok) return;
+                // Il gruppo ora vive di là: questa finestra lo MOLLA, o le due
+                // disegnano la stessa griglia (è il "la finestra è duplicata").
+                if (card.id !== usePaneStore.getState().activeSpaceId) return;
+                const next = firstOtherLiveSpace(usePaneStore.getState().spaces, card.id);
+                if (next) dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
+              });
             }}
             className={POPOVER_ITEM}
             title={card.detachedLabel
@@ -374,6 +423,25 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
             <AppWindow size={14} />
             <span className="flex-1">{card.detachedLabel ? 'Vai alla sua finestra' : 'Sposta in una finestra'}</span>
           </button>
+          {card.detachedLabel && (
+            <button
+              onClick={() => {
+                const label = card.detachedLabel!;
+                setMenu(null);
+                // Riprenderselo = chiudere la sua finestra e riaprirlo qui. Le
+                // tab non si toccano: cambia solo CHI le disegna.
+                void closeSpaceWindow(label).then(() => {
+                  dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: card.id } });
+                });
+              }}
+              className={POPOVER_ITEM}
+              title="Chiude la sua finestra e riporta il gruppo qui"
+              data-testid="space-reattach"
+            >
+              <CornerDownLeft size={14} />
+              <span className="flex-1">Riporta in questa finestra</span>
+            </button>
+          )}
           {!isDefault && meta && !meta.deleted && (
             <>
               <div className={POPOVER_DIVIDER} />

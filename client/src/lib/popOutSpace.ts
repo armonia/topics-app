@@ -29,11 +29,18 @@ export async function popOutSpace(spaceId: string): Promise<boolean> {
   if (isTauri) {
     try {
       const label = await tauriInvoke<string>('window_detach_space', { space: spaceId });
-      return typeof label === 'string' && label.length > 0;
-    } catch {
+      const ok = typeof label === 'string' && label.length > 0;
+      if (!ok) console.error('[space] detach: risposta vuota dal guscio', label);
+      return ok;
+    } catch (e) {
+      // NON si ingoia. Un `catch {}` muto qui è costato una diagnosi intera:
+      // il comando falliva, l'utente vedeva un clic che non faceva niente, e
+      // nel log non compariva nulla da nessuna parte.
+      console.error('[space] detach fallito:', e);
       return false;
     }
   }
+  console.warn('[space] detach: non siamo sotto Tauri, ripiego su window.open');
   // Web: `window.open` con la stessa URL. Il nome della finestra è lo spazio,
   // così un secondo click riusa quella già aperta invece di clonarla.
   const win = window.open(spaceWindowUrl(spaceId), `space-${spaceId}`, 'width=1100,height=760');
@@ -55,6 +62,22 @@ export async function focusSpaceWindow(windowLabel: string): Promise<boolean> {
   try {
     return (await tauriInvoke<boolean>('window_focus_label', { label: windowLabel })) === true;
   } catch {
+    return false;
+  }
+}
+
+/**
+ * Chiude la finestra di un gruppo staccato — cioè se lo riprende questa.
+ *
+ * Ritorna true se la finestra c'era ed è stata chiusa. Le tab non si toccano:
+ * la membership vive nel pane-store, la finestra è solo chi le disegna.
+ */
+export async function closeSpaceWindow(windowLabel: string): Promise<boolean> {
+  if (!windowLabel || !isTauri) return false;
+  try {
+    return (await tauriInvoke<boolean>('window_close_label', { label: windowLabel })) === true;
+  } catch (e) {
+    console.error('[space] chiusura della finestra fallita:', e);
     return false;
   }
 }
