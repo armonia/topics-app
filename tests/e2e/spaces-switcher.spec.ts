@@ -201,6 +201,54 @@ test.describe.serial("Gruppi (Spazi)", () => {
     expect(opened[0], "e porta l'id del GRUPPO, non delle sue chat").toMatch(/[?&]space=space%3A/);
   });
 
+  test("SPACE-05b: un gruppo che vive in un'altra finestra si VEDE, e il click la porta davanti", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
+
+    const bar = page.getByTestId("sidebar-space-bar");
+    const spaceId = await bar.getByRole("tab", { name: /Gruppo 2/ }).getAttribute("data-space-id");
+    expect(spaceId).toBeTruthy();
+
+    // La presenza è WS-driven: si inietta la finestra-gruppo invece di aprirla
+    // davvero (fuori da Tauri non esiste `window_focus_label`, e il punto qui è
+    // il SEGNO sul chip + la rotta del click).
+    await page.routeWebSocket(/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => ws.send(msg));
+      ws.onMessage((msg) => server.send(msg));
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: "presence:windows",
+          windows: [
+            {
+              windowId: "e2e-space-window",
+              clientId: "e2e-c1",
+              windowLabel: "space-e2e",
+              detached: true,
+              spaceId,
+              topicIds: [idA],
+              tabs: [{ id: idA, type: "chat" }],
+            },
+          ],
+        }));
+      }, 800);
+    });
+    await page.reload();
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    const chip = page.getByTestId("sidebar-space-bar").getByRole("tab", { name: /Gruppo 2/ });
+    await expect(
+      chip.getByTestId("space-detached"),
+      "il chip dice che quel gruppo vive in una finestra sua",
+    ).toBeVisible({ timeout: 10000 });
+
+    // Il click NON commuta qui: prova ad alzare quella finestra. Fuori da Tauri
+    // non c'è, quindi il ripiego dichiarato (commutare) è ciò che si osserva —
+    // ed è la prova che il ramo "porta davanti" è stato preso per primo.
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
+  });
+
   test("SPACE-06: una finestra `?space=` mostra QUEL gruppo, e non offre di cambiarlo", async ({ page }) => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
