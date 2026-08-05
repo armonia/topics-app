@@ -6291,10 +6291,14 @@ async fn window_detach_space(
             return Ok(label);
         }
     }
+    // Le etichette morte non devono bloccare i vivi: si spazza la mappa dalle
+    // voci la cui finestra non esiste più, così un gruppo chiuso male non
+    // resta "già aperto" per sempre.
+    purge_dead_space_labels(&app);
     let label = space_window_label(&space);
-    // label → gruppo: il label è un hash, quindi senza questa mappa non si
-    // saprebbe più quale finestra ospita quale gruppo (serve al ramo "già
-    // aperta?" qui sopra).
+    // label → gruppo: il label non contiene l'id alla lettera, quindi senza
+    // questa mappa non si saprebbe più quale finestra ospita quale gruppo
+    // (serve al ramo "già aperta?" qui sopra).
     if let Ok(mut m) = SPACE_WINDOWS.lock() {
         m.insert(label.clone(), space.clone());
     }
@@ -6389,16 +6393,42 @@ async fn window_detach_space(
     }
 }
 
-/// `space-<hex>`: un label stabile PER GRUPPO, così riaprire lo stesso gruppo
-/// ritrova la sua finestra invece di clonarla. L'id non entra nel label alla
-/// lettera — un label Tauri deve restare un identificatore semplice.
+/// `space-<hex>-<n>`: l'etichetta di UNA finestra-gruppo.
+///
+/// Era stabile per gruppo (il solo hash), e sembrava elegante: riaprire lo
+/// stesso gruppo ritrovava la sua finestra invece di clonarla. In realtà legava
+/// il gruppo a un NOME che Tauri non libera sempre quando la finestra se ne va:
+/// il 06/08/2026 una finestra chiusa ha lasciato l'etichetta occupata e da lì
+/// in poi OGNI detach di quel gruppo falliva con «a webview with label
+/// `space-…` already exists» — un gruppo che non si poteva più staccare finché
+/// l'app non ripartiva.
+///
+/// Ora l'etichetta è unica per finestra (contatore di processo) e la domanda
+/// "quel gruppo ha già una finestra?" la risponde la MAPPA `SPACE_WINDOWS`, che
+/// è ciò che sa la verità e si può spazzare (`purge_dead_space_labels`). Un
+/// nome bruciato non blocca più niente.
 fn space_window_label(space: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in space.as_bytes() {
         h ^= *b as u64;
         h = h.wrapping_mul(0x1000_0000_01b3);
     }
-    format!("space-{:016x}", h)
+    let n = DETACH_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("space-{h:016x}-{n}")
+}
+
+/// Toglie dalla mappa le finestre-gruppo che non esistono più.
+///
+/// La mappa si pulisce da sé sull'evento `Destroyed`, ma quell'evento non è
+/// garantito su ogni percorso di chiusura (ed è esattamente il caso che ha
+/// prodotto l'etichetta zombie). Questa spazzata è la rete: costa un giro sulle
+/// finestre aperte e rende il ramo "già aperta?" onesto.
+fn purge_dead_space_labels(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let alive: std::collections::HashSet<String> = app.webview_windows().into_keys().collect();
+    if let Ok(mut m) = SPACE_WINDOWS.lock() {
+        m.retain(|label, _| alive.contains(label));
+    }
 }
 
 /// L'id del gruppo dietro un label `space-…`, ricavato dalla URL della finestra
