@@ -100,7 +100,10 @@ import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
-import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, hasPendingAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
+// palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
+import { armTurnDeadline } from "./server/lib/turn-deadline";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -538,13 +541,18 @@ async function runHeadlessTurn(
   // signal). A wall-clock backstop aborts a runaway turn.
   const reader = resp.body.getReader();
   let timedOut = false;
-  const deadline = setTimeout(() => {
-    timedOut = true;
-    abortHeadlessTurn(sessionKey).catch(() => {});
-    reader.cancel().catch(() => {});
-  }, opts.timeoutMs);
+  const deadline = armTurnDeadline({
+    ms: opts.timeoutMs,
+    isWaitingForHuman: () => hasPendingAsk(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    onExpired: () => {
+      timedOut = true;
+      abortHeadlessTurn(sessionKey).catch(() => {});
+      reader.cancel().catch(() => {});
+    },
+  });
   try { while (true) { const { done } = await reader.read(); if (done) break; } }
-  finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
+  finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
   // Il tetto a orologio è NOSTRO: vince su qualunque fine la route abbia
   // depositato nel frattempo (l'abort che manda arriva dopo).
   if (timedOut) {
@@ -575,13 +583,18 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   if (rejected) return rejected;
   const reader = resp.body.getReader();
   let timedOut = false;
-  const deadline = setTimeout(() => {
-    timedOut = true;
-    abortHeadlessTurn(sessionKey).catch(() => {});
-    reader.cancel().catch(() => {});
-  }, opts.timeoutMs);
+  const deadline = armTurnDeadline({
+    ms: opts.timeoutMs,
+    isWaitingForHuman: () => hasPendingAsk(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    onExpired: () => {
+      timedOut = true;
+      abortHeadlessTurn(sessionKey).catch(() => {});
+      reader.cancel().catch(() => {});
+    },
+  });
   try { while (true) { const { done } = await reader.read(); if (done) break; } }
-  finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
+  finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
   // Il tetto a orologio è NOSTRO e vince: prima lanciava un errore generico che
   // il dispatcher classificava come guasto del provider — era la stessa bugia.
   if (timedOut) {
