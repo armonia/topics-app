@@ -46,9 +46,9 @@ export function loopbackPortOf(raw: string): number | null {
  *
  * Timeout corto: è loopback, o risponde subito o non c'è.
  */
-export function isPortListening(port: number, timeoutMs = 300): Promise<boolean> {
+function connectsTo(host: string, port: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const sock = net.connect({ port, host: "127.0.0.1" });
+    const sock = net.connect({ port, host });
     let settled = false;
     const done = (listening: boolean) => {
       if (settled) return;
@@ -65,4 +65,24 @@ export function isPortListening(port: number, timeoutMs = 300): Promise<boolean>
     sock.once("connect", () => done(true));
     sock.once("error", () => done(false));
   });
+}
+
+/**
+ * In ascolto su UNA QUALUNQUE delle due facce del loopback.
+ *
+ * Sondare solo `127.0.0.1` dava per morto un server che ascolta solo su `::1` —
+ * e non è un caso di scuola: `server.listen(port)` senza host, su Node come su
+ * Bun, finisce spesso sul solo IPv6. Un falso «è spenta» è il danno peggiore
+ * qui, perché parcheggia una scheda VIVA: quindi si chiede a entrambi e basta
+ * che uno risponda.
+ *
+ * In parallelo, non in sequenza: due timeout in fila raddoppierebbero l'attesa
+ * proprio nel caso più comune, quello della porta davvero morta.
+ */
+export async function isPortListening(port: number, timeoutMs = 300): Promise<boolean> {
+  const [v4, v6] = await Promise.all([
+    connectsTo("127.0.0.1", port, timeoutMs),
+    connectsTo("::1", port, timeoutMs),
+  ]);
+  return v4 || v6;
 }

@@ -513,7 +513,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // sul percorso critico della creazione, che è quello che tiene la pane su
     // «Initializing native browser…».
     const gateLoopback = isLoopbackUrl(wantedUrl);
-    const startUrl = gateLoopback ? 'about:blank' : wantedUrl;
     // isolate: each pane gets its OWN persistent WKWebsiteDataStore keyed on the
     // contextId (stable across restarts) — per-topic cookie/localStorage
     // isolation, matching Electron's persist:topic-<contextId> partition. One
@@ -556,43 +555,49 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         );
         setReady(true);
         // La barra mostra la URL VOLUTA anche quando la view è ferma su
-        // about:blank in attesa della sonda: è l'indirizzo di questa scheda, e
-        // farlo sparire per mezzo secondo (o per sempre, se la porta è spenta)
-        // renderebbe la scheda anonima proprio nel momento in cui serve sapere
-        // quale porta non risponde.
+        // about:blank perché la porta è spenta: è l'indirizzo di questa scheda,
+        // e farlo sparire la renderebbe anonima proprio nel momento in cui serve
+        // sapere quale porta non risponde.
         setUrl(wantedUrl === 'about:blank' ? '' : wantedUrl);
         if (pendingRectRef.current) setBounds(pendingRectRef.current);
-        if (!gateLoopback) return;
-        void loopbackAlive(wantedUrl).then((alive) => {
-          if (cancelled) return;
-          if (!alive) { setNavError({ ...deadLoopbackNotice(wantedUrl, new Date()), url: wantedUrl }); return; }
-          setLoading(true);
-          void tauriInvoke('browser_navigate', { id, url: wantedUrl }).catch(() => {});
-          window.setTimeout(() => { if (!cancelled) setLoading(false); }, 700);
-        });
     };
     // browser_open used to fail silently: a transient IPC/shell hiccup left the
     // pane stuck on "Initializing native browser…" forever, with no signal to
     // the user and no recovery. Do one bounded retry, then surface the failure
     // in the nav-error strip so the pane can offer a retry instead of hanging.
-    const attemptOpen = (attempt: number): void => {
+    const attemptOpen = (attempt: number, openUrl: string): void => {
       // windowLabel: la webview nativa deve nascere figlia della finestra che
       // ospita QUESTA pane (pop-out inclusi), non sempre di `main` — vedi
       // browser_open_inner in lib.rs. Fuori da Tauri currentWindowLabel() è null.
-      void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' })
+      void tauriInvoke('browser_open', { id, url: openUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true, windowLabel: currentWindowLabel() ?? 'main' })
         .then(() => { if (!cancelled) applyOpened(); })
         .catch((e) => {
           if (cancelled) return;
           if (attempt < 1) {
             console.warn(`[tauri-browser] open failed (attempt ${attempt + 1}), retrying`, e);
-            window.setTimeout(() => { if (!cancelled) attemptOpen(attempt + 1); }, 400);
+            window.setTimeout(() => { if (!cancelled) attemptOpen(attempt + 1, openUrl); }, 400);
             return;
           }
           console.warn('[tauri-browser] open failed (giving up)', e);
-          setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: startUrl });
+          setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
         });
     };
-    attemptOpen(0);
+    if (!gateLoopback) {
+      attemptOpen(0, wantedUrl);
+    } else {
+      // La sonda PRIMA dell'apertura, non dopo: aprire su about:blank e navigare
+      // alla risposta farebbe lampeggiare bianca ogni pane su un server locale
+      // VIVO, a ogni rimontaggio (l'auto-split ne fa parecchi), e su una view
+      // RIUSATA butterebbe via la pagina che stava già mostrando —
+      // `browser_open` è idempotente e il suo ramo di riuso naviga. Costa un
+      // giro su loopback, che su una porta rifiutata è immediato: il timeout da
+      // 300ms riguarda una porta filtrata, cosa che in locale non capita.
+      void loopbackAlive(wantedUrl).then((alive) => {
+        if (cancelled) return;
+        if (!alive) setNavError({ ...deadLoopbackNotice(wantedUrl, new Date()), url: wantedUrl });
+        attemptOpen(0, alive ? wantedUrl : 'about:blank');
+      });
+    }
     return () => {
       cancelled = true;
       openedRef.current = false;
