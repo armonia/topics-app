@@ -53,9 +53,12 @@ export function isDetachedWindow(): boolean {
  *
  * Ciò che cambia rispetto a una finestra normale è tutto qui:
  *   - `activeSpaceId` lo decide la query, non l'ultima scelta locale;
- *   - la barra dei gruppi non si disegna (non c'è dove andare);
  *   - lo `activeSpaceId` non si scrive in localStorage — è per-finestra, e
  *     quella chiave è condivisa fra le finestre della stessa origine.
+ *
+ * La sidebar invece mostra TUTTI i gruppi anche qui: una finestra che non sa
+ * dire cosa c'è nelle altre è una finestra cieca. Il gruppo che disegna può
+ * anche cambiare — vedi `repinSpaceWindow`.
  */
 export function spaceWindowId(): string | null {
   try {
@@ -64,5 +67,27 @@ export function spaceWindowId(): string | null {
     return trimmed ? trimmed : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Cambia il gruppo che questa finestra-gruppo disegna.
+ *
+ * L'inchiodatura vive nella QUERY, non in una variabile: al boot la legge
+ * `spaceWindowId()`, e un effetto la ri-afferma quando la registry arriva
+ * (`usePanelLifecycle`). Cambiare solo `activeSpaceId` verrebbe quindi disfatto
+ * al primo hydrate — l'unico modo onesto di spostare una finestra su un altro
+ * gruppo è riscrivere la query, che è la sua identità.
+ *
+ * `replaceState` e non `push`: non è una tappa di navigazione, è la stessa
+ * finestra che cambia contenuto.
+ */
+export function repinSpaceWindow(spaceId: string): void {
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.set('space', spaceId);
+    window.history.replaceState(null, '', u.toString());
+  } catch {
+    /* history non disponibile: resta il SET_ACTIVE_SPACE del chiamante */
   }
 }

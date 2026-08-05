@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { isDesktop, isTauri } from '../lib/shell';
+import { reloadAllWindows } from '../lib/shell/app';
 import { hasOpenModalSurface } from '../lib/modalSurface';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
@@ -282,7 +283,9 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // esso se ne andava anche il testo non ancora inviato.
       if (isTauri && isMod && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault();
-        window.location.reload();
+        // TUTTE le finestre: con i gruppi staccati, ricaricarne una sola lascia
+        // due versioni dello stesso client sullo stesso pane-store.
+        void reloadAllWindows();
         return;
       }
 

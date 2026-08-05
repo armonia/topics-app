@@ -52,7 +52,7 @@ import {
   liveSpacesOrdered,
   movePaneToSpace,
 } from '../Layout/spaceHelpers';
-import { spaceWindowId } from '../../lib/windowRole';
+import { repinSpaceWindow, spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
 
 interface AttentionSets {
@@ -188,10 +188,13 @@ export function useSpaceCards(): SpaceCard[] {
       { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
       ...ordered.map((s) => ({ id: s.id, name: s.name || 'Gruppo' })),
     ];
-    // In una finestra-GRUPPO esiste solo il suo: da lì non si va da nessuna
-    // parte, e mostrare le card degli altri sarebbe un invito a un vicolo cieco.
-    const visible = pinnedSpace ? rows.filter((r) => r.id === pinnedSpace) : rows;
-    return visible.map((r) => ({
+    // TUTTI i gruppi, in OGNI finestra — anche in una finestra-gruppo. Prima
+    // lì se ne vedeva uno solo: una finestra che non sa dire cosa c'è nelle
+    // altre è cieca, e per passare da un gruppo all'altro toccava tornare alla
+    // principale. Cliccare un altro gruppo porta davanti la sua finestra se ce
+    // l'ha, altrimenti se lo prende questa (vedi `useGoToSpace`).
+    void pinnedSpace;
+    return rows.map((r) => ({
       id: r.id,
       name: r.name,
       active: r.id === activeSpaceId,
@@ -208,18 +211,25 @@ export function useGoToSpace(): (spaceId: string) => void {
   const dispatch = usePaneStore((s) => s.dispatch);
   const spaceWindows = useSpaceWindows();
   return useCallback((spaceId: string) => {
+    // Questa finestra si sposta sul gruppo: in una finestra-GRUPPO significa
+    // ri-inchiodarla (la query È la sua identità, un SET_ACTIVE_SPACE da solo
+    // verrebbe disfatto al primo hydrate).
+    const take = () => {
+      if (spaceWindowId()) repinSpaceWindow(spaceId);
+      if (spaceId !== usePaneStore.getState().activeSpaceId) {
+        dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
+      }
+    };
     const label = spaceWindows.get(spaceId);
     if (label) {
       void focusSpaceWindow(label).then((focused) => {
         // Se quella finestra non c'è più (chiusa, altra macchina) si ricade sul
         // mostrarlo qui: meglio un gruppo che si apre di un clic che non fa niente.
-        if (!focused) dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
+        if (!focused) take();
       });
       return;
     }
-    if (spaceId !== usePaneStore.getState().activeSpaceId) {
-      dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
-    }
+    take();
   }, [dispatch, spaceWindows]);
 }
 

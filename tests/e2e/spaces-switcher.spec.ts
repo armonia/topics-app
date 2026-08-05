@@ -242,18 +242,18 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await expect(page.getByTestId("space-row-active"), "il ripiego apre il gruppo qui").toContainText("Gruppo 2", { timeout: 5000 });
   });
 
-  test("SPACE-06: una finestra `?space=` mostra QUEL gruppo, e non offre di cambiarlo", async ({ page }) => {
+  test("SPACE-06: una finestra `?space=` disegna QUEL gruppo, ma li mostra tutti — e può cambiare", async ({ page }) => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    // L'id del gruppo appena creato, letto dal suo chip.
+    // L'id del gruppo appena creato, letto dalla sua riga.
     const spaceId = await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).getAttribute("data-space-id");
     expect(spaceId, "la riga porta l'id del suo gruppo").toBeTruthy();
 
     await page.goto(`/?space=${encodeURIComponent(spaceId!)}`);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
-    // La finestra è INCHIODATA a quel gruppo: mostra le sue tab…
+    // Disegna il SUO gruppo…
     await expect(
       page.locator(`[data-pane-id="${idA}"]`).first(),
       "la finestra-gruppo mostra le tab del suo gruppo",
@@ -262,10 +262,18 @@ test.describe.serial("Gruppi (Spazi)", () => {
       page.locator(`[data-pane-id="${idB}"]`),
       "e non quelle degli altri",
     ).toHaveCount(0);
-    // …dice quale gruppo è…
     await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
-    // …e non offre di andarsene: non c'è dove.
-    await expect(page.getByTestId("space-row")).toHaveCount(0);
+
+    // …ma la sidebar li mostra TUTTI: una finestra che non sa dire cosa c'è
+    // nelle altre è cieca.
+    await expect(page.getByTestId("space-row").filter({ hasText: "Principale" })).toHaveCount(1);
+
+    // E il gruppo che disegna può cambiare: la query È la sua identità, quindi
+    // deve cambiare anche quella o il primo hydrate riporterebbe indietro tutto.
+    await page.getByTestId("space-row").filter({ hasText: "Principale" }).click();
+    await expect(page.getByTestId("space-row-active")).toContainText("Principale", { timeout: 5000 });
+    await expect(page.locator(`[data-pane-id="${idB}"]`).first()).toBeVisible({ timeout: 5000 });
+    expect(new URL(page.url()).searchParams.get("space"), "la query segue il gruppo").toBe("space:default");
   });
 
   test("SPACE-07: le card ci sono TUTTE, ognuna con le sue tab, e si aprono e chiudono da sole", async ({ page, request }) => {
