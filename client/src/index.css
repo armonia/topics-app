@@ -1797,3 +1797,55 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 .dark .tool-card-code .hljs-built_in,
 .dark .tool-card-code .hljs-title.class_ { color: #e5c07b; }
 .dark .tool-card-code .hljs-deletion { color: #e06c75; }
+
+/* ── La cornice del GRUPPO, sul lavoro ───────────────────────────────────────
+ *
+ * Quando i gruppi esistono, la sidebar li disegna come card che avvolgono le
+ * loro tab. Di là — nella griglia — le stesse tab stavano invece a filo della
+ * finestra, senza niente che dicesse "queste sono di quel gruppo". Questa è la
+ * stessa card, dall'altra parte: un filo di bordo e lo stesso raggio, minimo,
+ * niente etichette (il nome del gruppo lo dice già la sidebar).
+ *
+ * ANIMAZIONE. Il wrapper è keyed su `activeSpaceId` — come già `<PanelGrid>` —
+ * quindi cambiare gruppo lo rimonta e l'ingresso si rigioca da solo: una
+ * dissolvenza breve, e il bordo che si accende un istante. Solo OPACITÀ e
+ * COLORE: muovere o scalare il contenitore sfaserebbe le pane native
+ * (WKWebView), che non sono nel DOM e stanno ferme dove il layout le ha messe
+ * — l'animazione le lascerebbe indietro di mezzo secondo.
+ *
+ * FLOATING. In modalità floating i bordi sono FLUSH e le uniche distanze
+ * stanno FRA le card (vedi `.floating-splits` più su): una cornice attorno a
+ * tutto sarebbe esattamente il "double wrapper" che quella modalità evita per
+ * gli split annidati, e mangerebbe la vibrancy sui bordi. Lì la cornice si
+ * annulla e resta la sola dissolvenza. */
+.space-frame {
+  /* Niente margine a sinistra: la sidebar è già il confine da quel lato. */
+  margin: 3px 3px 3px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  animation: space-frame-in 220ms ease-out, space-frame-edge 700ms ease-out;
+}
+
+@keyframes space-frame-in {
+  from { opacity: 0.001; }
+  to { opacity: 1; }
+}
+
+/* Il bordo si accende e torna al suo grigio: è il segno che il gruppo è
+ * cambiato, e dura quanto basta per vederlo senza diventare un lampeggio. */
+@keyframes space-frame-edge {
+  0%   { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
+  100% { border-color: var(--border); }
+}
+
+.floating-splits .space-frame {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  animation: space-frame-in 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .space-frame { animation: none; }
+}

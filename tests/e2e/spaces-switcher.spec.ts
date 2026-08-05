@@ -362,4 +362,27 @@ test.describe.serial("Gruppi (Spazi)", () => {
       await deleteTopic(request, c.id).catch(() => {});
     }
   });
+
+  test("SPACE-10: quando c'è un gruppo il lavoro sta dentro la sua cornice, e cambiando gruppo non si sposta", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+    // Senza gruppi non c'è cornice: non c'è niente da avvolgere.
+    await expect(page.locator(".space-frame")).toHaveCount(0);
+
+    await moveTabToNewGroup(page, idA);
+
+    const frame = page.locator(".space-frame");
+    await expect(frame, "la griglia ha la sua cornice").toHaveCount(1);
+    await expect(frame).toHaveCSS("border-top-width", "1px");
+    await expect(frame).toHaveCSS("border-top-left-radius", "10px");
+
+    // La geometria NON cambia cambiando gruppo: una cornice che si muove
+    // sfaserebbe le pane native (WKWebView), che non stanno nel DOM e restano
+    // dove il layout le ha messe. L'ingresso è animato in sola opacità.
+    const before = await frame.boundingBox();
+    await page.getByTestId("space-row").first().click();
+    await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2", { timeout: 5000 });
+    const after = await frame.boundingBox();
+    expect({ x: after!.x, y: after!.y, w: after!.width, h: after!.height })
+      .toEqual({ x: before!.x, y: before!.y, w: before!.width, h: before!.height });
+  });
 });
