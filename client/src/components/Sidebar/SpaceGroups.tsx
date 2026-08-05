@@ -31,13 +31,12 @@
  */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AppWindow, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AppWindow, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDismissable } from '../../hooks/useDismissable';
-import { useMobile } from '../../hooks/useMobile';
 import { usePaneStore } from '../../state/pane/store';
-import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
-import { DEFAULT_SPACE_ID, SPACES_MAX, type SpaceMeta, type Pane } from '../../state/pane/types';
+import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID, type SpaceMeta, type Pane } from '../../state/pane/types';
 import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -49,8 +48,6 @@ import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
   liveSpacesOrdered,
-  createSpaceId,
-  nextSpaceName,
 } from '../Layout/spaceHelpers';
 import { spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
@@ -406,36 +403,12 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   );
 }
 
-/**
- * "Nuovo gruppo", sotto le card.
- *
- * Su desktop si accende passando sulla sidebar: acceso sempre sarebbe
- * arredamento, e l'azione non è di ogni minuto. Su mobile non esiste hover —
- * lì resta visibile, o sarebbe irraggiungibile. Il focus da tastiera lo rivela
- * comunque.
+/*
+ * Qui stava "Nuovo gruppo", sotto le card: creava un gruppo VUOTO e ci portava
+ * dentro. Tolto, perché un gruppo vuoto non è uno stato utile — l'unico modo in
+ * cui un gruppo nasce davvero è portandoci una tab, e quella strada esiste già
+ * nel menu contestuale della tab («Sposta nel gruppo → Nuovo gruppo», in
+ * PaneTabBar): crea il gruppo E ci mette dentro qualcosa, in un gesto solo.
+ * Due comandi con lo stesso nome per due esiti diversi erano solo un modo di
+ * sbagliare.
  */
-export function NewGroupRow() {
-  const dispatch = usePaneStore((s) => s.dispatch);
-  const spaces = usePaneStore((s) => s.spaces);
-  const { isMobile, isTouch } = useMobile();
-  if (spaceWindowId()) return null;
-  if (liveSpaceCount(spaces) >= SPACES_MAX) return null;
-  const reveal = isMobile || isTouch
-    ? ''
-    : 'opacity-0 transition-opacity group-hover/sidebar:opacity-100 focus-visible:opacity-100';
-  return (
-    <button
-      onClick={() => {
-        const id = createSpaceId();
-        dispatch({ type: 'SPACE_UPSERT', payload: { space: { id, name: nextSpaceName(spaces) } } });
-        dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id } });
-      }}
-      data-testid="space-add"
-      title="Nuovo gruppo"
-      className={`mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] text-app-text-tertiary transition-colors hover:bg-app-hover hover:text-app-text ${reveal}`}
-    >
-      <Plus size={12} className="flex-shrink-0" />
-      <span>Nuovo gruppo</span>
-    </button>
-  );
-}
