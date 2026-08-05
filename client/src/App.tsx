@@ -1188,8 +1188,12 @@ function App() {
             PanelGrid prunes soloCells/gridRows against its openPanels prop,
             and a filtered set against a SHARED layout would erase the other
             spaces' geometry on every switch. */}
+        {/* La cornice del gruppo (`.space-frame`, index.css): la stessa card
+            che la sidebar disegna attorno alle tab, qui attorno al lavoro. C'è
+            solo quando i gruppi esistono; keyed su activeSpaceId come la
+            griglia, così cambiare gruppo rigioca l'ingresso. */}
+        <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}>
         <PanelGrid
-          key={activeSpaceId}
           openPanels={visiblePanels}
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
@@ -1242,6 +1246,7 @@ function App() {
           promoteDraft={promoteDraft}
           draftMeta={draftMeta}
         />
+        </div>{/* /space-frame */}
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}
       </div>
