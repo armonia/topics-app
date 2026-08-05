@@ -1,30 +1,35 @@
 /**
- * SpaceGroups — i GRUPPI come CONTENITORE delle tab, nella sidebar.
+ * SpaceGroups — i GRUPPI come CARD che avvolgono le loro tab, nella sidebar.
  *
- * Un gruppo è un insieme di tab che vivi insieme, e qui si vede: il gruppo
- * aperto ha la sua intestazione e SOTTO, dentro di sé, la lista delle sue tab
- * (l'albero che questo componente riceve come figlio). Gli altri gruppi stanno
- * sopra, chiusi, una riga ciascuno.
+ * Un gruppo è un insieme di tab che vivi insieme, e qui si vede letteralmente:
+ * ogni gruppo è una card con la sua intestazione e dentro, racchiuse, le sue
+ * tab. Ci sono TUTTI i gruppi contemporaneamente, e ognuno si apre e si chiude
+ * per conto suo con la freccia — come fanno i progetti.
  *
  * ── Cosa c'era prima, e perché non c'è più ─────────────────────────────────
- * Tre tentativi, tutti con lo stesso difetto: parlavano dei gruppi ALTROVE
- * rispetto alle tab che governavano.
+ * Quattro tentativi, e i primi tre parlavano dei gruppi ALTROVE rispetto alle
+ * tab che governavano:
  *   1. una striscia di chip sopra la griglia (a destra, lontanissima);
  *   2. una sezione "Gruppi" nella sidebar che ri-elencava le stesse tab in un
  *      albero parallelo — due liste della stessa cosa;
  *   3. una barra di chip in fondo alla sidebar (stile Arc/Dia): meglio, ma
- *      leggeva come un SECONDO concetto ("gli spazi") accanto ai gruppi, e due
- *      nomi per la stessa cosa sono peggio di zero.
- * Ora il gruppo è il contenitore, e non esiste nessun posto separato dove i
- * gruppi «vivono»: vivono attorno alle loro tab.
+ *      leggeva come un SECONDO concetto ("gli spazi") accanto ai gruppi.
+ *   4. un solo gruppo aperto alla volta, con gli altri come righe chiuse
+ *      sopra: il contenitore c'era, ma i gruppi si ALTERNAVANO — per vedere
+ *      cosa c'era nell'altro dovevi lasciare quello in cui eri, e la sidebar
+ *      continuava a mostrare una lista sola alla volta.
+ * Ora ci sono tutti, ognuno tiene in mano le sue tab, e nessuno sparisce per
+ * far posto a un altro.
  *
- * ── Zero chrome finché non serve ───────────────────────────────────────────
- * Con il solo gruppo implicito non si disegna niente: nessuna intestazione
- * sopra l'unica lista possibile. Il primo gruppo nasce dal menu di una tab
- * ("Sposta nel gruppo → Nuovo gruppo"); da lì in poi il "+" sta qui, sul rail
- * dell'intestazione, e si accende passando sulla sidebar.
+ * ── Gruppo APERTO ≠ gruppo ATTIVO ──────────────────────────────────────────
+ * L'accordion dice cosa VEDI nella sidebar; il gruppo ATTIVO dice cosa vive
+ * nella griglia (`activeSpaceId`, device-local). Sono due cose diverse apposta:
+ * puoi guardare l'elenco di un altro gruppo senza portarci dentro la finestra.
+ * Cliccare una sua riga invece ci porta — la card intercetta il clic in cattura
+ * e commuta il gruppo prima che la riga apra la sua pane, altrimenti aprirebbe
+ * qualcosa che resta invisibile.
  */
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AppWindow, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -38,16 +43,14 @@ import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useSpaceWindows } from '../../state/windowPresence';
 import { focusSpaceWindow, popOutSpace } from '../../lib/popOutSpace';
-import { SELECTED_SURFACE, ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
+import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
-  groupChromeActive,
   liveSpacesOrdered,
   createSpaceId,
   nextSpaceName,
-  isDetachedWindow,
 } from '../Layout/spaceHelpers';
 import { spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
@@ -62,10 +65,11 @@ interface AttentionSets {
 }
 
 /**
- * Il tier di attenzione di un gruppo CHIUSO: il più forte fra i suoi pane
- * ('input' batte 'done'), o null. Costruito sugli STESSI insiemi per-soggetto
- * che leggono la barra delle tab e le righe della sidebar — parità di badge,
- * nessuna matematica privata di questo componente.
+ * Il tier di attenzione di un gruppo: il più forte fra i suoi pane ('input'
+ * batte 'done'), o null. Costruito sugli STESSI insiemi per-soggetto che
+ * leggono la barra delle tab e le righe della sidebar — parità di badge,
+ * nessuna matematica privata di questo componente. Serve soprattutto quando la
+ * card è chiusa: è l'unica cosa che dice "là dentro ti aspettano".
  */
 function spaceAttentionTier(
   spaceId: string,
@@ -118,27 +122,34 @@ const MENU_MIN_W = 190;
  *  contiene, così encode/decode è totale. */
 const SEP = '';
 
-interface ChipMenuState {
-  spaceId: string;
-  x: number;
-  y: number;
+/** Una card della sidebar: un gruppo, con quello che serve per disegnarlo. */
+export interface SpaceCard {
+  id: string;
+  name: string;
+  /** È il gruppo che vive nella griglia (`activeSpaceId`). */
+  active: boolean;
+  /** Quante tab tiene. */
+  count: number;
+  /** Il più forte segnale dei suoi pane, o null. */
+  tier: AttentionTier | null;
+  /** L'etichetta della finestra in cui vive, se è stato staccato. */
+  detachedLabel?: string;
 }
 
-interface SpaceGroupsProps {
-  /** L'albero delle tab del gruppo ATTIVO: è il contenuto del gruppo aperto,
-   *  e viene reso dentro il suo contenitore. */
-  children: ReactNode;
-}
-
-export function SpaceGroups({ children }: SpaceGroupsProps) {
-  const dispatch = usePaneStore((s) => s.dispatch);
+/**
+ * Le card da disegnare, in ordine, con tutto ciò che serve: una sola serie di
+ * iscrizioni allo store per tutte le card, invece di una per card.
+ *
+ * Il gruppo principale c'è sempre ed è il primo — è implicito nella registry
+ * (nessun record), ma nella sidebar è una card come le altre.
+ */
+export function useSpaceCards(): SpaceCard[] {
   const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
   const spaces = usePaneStore((s) => s.spaces);
   const panes = usePaneStore((s) => s.panes);
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
   const spaceWindows = useSpaceWindows();
-  const { isMobile, isTouch } = useMobile();
   const sig = useSignalsStore(
     useShallow((s) => ({
       awaitingInputTopics: s.awaitingInputTopics,
@@ -151,7 +162,7 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
   );
 
   // Quante tab tiene ciascun gruppo. Codificato come STRINGHE piatte e
-  // decodificato sotto: iscriversi a `s.panes` ridisegnerebbe queste righe a
+  // decodificato sotto: iscriversi a `s.panes` qui ridisegnerebbe le card a
   // ogni scrittura di pane — `setPaneScrollOffset` ne fa una ogni 250 ms
   // mentre scorri una chat — perché Immer restituisce un'identità nuova ogni
   // volta.
@@ -169,176 +180,170 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
     return m;
   }, [encodedSpaces]);
 
-  const [chipMenu, setChipMenu] = useState<ChipMenuState | null>(null);
-  const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useDismissable({
-    open: chipMenu !== null,
-    onClose: () => setChipMenu(null),
-    refs: [menuRef],
-  });
-
-  const ordered = useMemo(() => liveSpacesOrdered(spaces), [spaces]);
   const pinnedSpace = spaceWindowId();
+  const ordered = useMemo(() => liveSpacesOrdered(spaces), [spaces]);
 
-  // Una pop-out `?topics=` salta ogni bridge del pane-store: lì l'albero si
-  // disegna nudo. In una FINESTRA-GRUPPO invece l'intestazione resta — è
-  // l'unica cosa che dice quale gruppo stai guardando — ma senza le altre
-  // righe: da lì non si va da nessuna parte.
-  if (isDetachedWindow()) return <>{children}</>;
-  if (!groupChromeActive(spaces, pinnedSpace)) return <>{children}</>;
+  return useMemo(() => {
+    const rows: { id: string; name: string }[] = [
+      { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
+      ...ordered.map((s) => ({ id: s.id, name: s.name || 'Gruppo' })),
+    ];
+    // In una finestra-GRUPPO esiste solo il suo: da lì non si va da nessuna
+    // parte, e mostrare le card degli altri sarebbe un invito a un vicolo cieco.
+    const visible = pinnedSpace ? rows.filter((r) => r.id === pinnedSpace) : rows;
+    return visible.map((r) => ({
+      id: r.id,
+      name: r.name,
+      active: r.id === activeSpaceId,
+      count: countBySpace.get(r.id) ?? 0,
+      tier: spaceAttentionTier(r.id, panes, spaces, sig, topics, terminalSessions),
+      detachedLabel: spaceWindows.get(r.id),
+    }));
+  }, [ordered, pinnedSpace, activeSpaceId, countBySpace, panes, spaces, sig, topics, terminalSessions, spaceWindows]);
+}
 
-  const addSpace = () => {
-    const id = createSpaceId();
-    dispatch({ type: 'SPACE_UPSERT', payload: { space: { id, name: nextSpaceName(spaces) } } });
-    dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id } });
-  };
-
-  const rows: { id: string; name: string }[] = [
-    { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
-    ...ordered.map((s) => ({ id: s.id, name: s.name || 'Gruppo' })),
-  ];
-  const activeRow = rows.find((r) => r.id === activeSpaceId) ?? rows[0];
-  const others = pinnedSpace ? [] : rows.filter((r) => r.id !== activeRow.id);
-
-  // «+» e comandi rari si accendono sull'hover della sidebar (desktop): tenerli
-  // accesi sempre li trasforma in arredamento. Su mobile non esiste hover — lì
-  // restano visibili, o sarebbero irraggiungibili. Il focus da tastiera li
-  // rivela comunque.
-  const revealOnHover = isMobile || isTouch
-    ? ''
-    : 'opacity-0 transition-opacity group-hover/sidebar:opacity-100 focus-visible:opacity-100';
-
-  const openMenu = (spaceId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    setRenameDraft(null);
-    setChipMenu({ spaceId, x: e.clientX, y: e.clientY });
-  };
-
-  const goToSpace = (spaceId: string) => {
-    // Staccato: il click porta in primo piano la SUA finestra. Se non c'è più
-    // (chiusa, altra macchina), si ricade sul mostrarlo qui.
+/** Porta la finestra sul gruppo `spaceId` — o, se quel gruppo vive in una
+ *  finestra sua, porta davanti quella. */
+export function useGoToSpace(): (spaceId: string) => void {
+  const dispatch = usePaneStore((s) => s.dispatch);
+  const spaceWindows = useSpaceWindows();
+  return useCallback((spaceId: string) => {
     const label = spaceWindows.get(spaceId);
     if (label) {
       void focusSpaceWindow(label).then((focused) => {
-        if (!focused && spaceId !== activeSpaceId) {
-          dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
-        }
+        // Se quella finestra non c'è più (chiusa, altra macchina) si ricade sul
+        // mostrarlo qui: meglio un gruppo che si apre di un clic che non fa niente.
+        if (!focused) dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
       });
       return;
     }
-    if (spaceId !== activeSpaceId) dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
-  };
+    if (spaceId !== usePaneStore.getState().activeSpaceId) {
+      dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
+    }
+  }, [dispatch, spaceWindows]);
+}
 
-  const menuSpace = chipMenu ? spaces[chipMenu.spaceId] : undefined;
-  const menuDetachedLabel = chipMenu ? spaceWindows.get(chipMenu.spaceId) : undefined;
+interface CardMenuState {
+  x: number;
+  y: number;
+}
+
+interface SpaceGroupCardProps {
+  card: SpaceCard;
+  /** Accordion: la card è aperta? */
+  expanded: boolean;
+  onToggle: () => void;
+  /** Le righe del gruppo: le sue tab. */
+  children: ReactNode;
+}
+
+/**
+ * Un gruppo, disegnato: intestazione + le sue tab racchiuse dentro.
+ *
+ * Il bordo non è decorazione — è ciò che rende visibile il "dentro". Senza,
+ * l'intestazione sarebbe solo una riga che capita di stare sopra ad altre.
+ */
+export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGroupCardProps) {
+  const dispatch = usePaneStore((s) => s.dispatch);
+  const spaces = usePaneStore((s) => s.spaces);
+  const goToSpace = useGoToSpace();
+  const [menu, setMenu] = useState<CardMenuState | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismissable({ open: menu !== null, onClose: () => setMenu(null), refs: [menuRef] });
+
+  const meta = spaces[card.id];
+  const isDefault = card.id === DEFAULT_SPACE_ID;
+  const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="sidebar-groups">
-      {/* I gruppi CHIUSI: una riga ciascuno, sopra quello aperto. Stanno qui e
-          non in fondo alla sidebar perché sono la stessa cosa dell'apertura —
-          un elenco solo, non una barra separata che parlerebbe di "spazi". */}
-      {others.map((row) => {
-        const detachedLabel = spaceWindows.get(row.id);
-        const tier = spaceAttentionTier(row.id, panes, spaces, sig, topics, terminalSessions);
-        return (
-          <button
-            key={row.id}
-            role="tab"
-            aria-selected={false}
-            data-space-id={row.id}
-            data-testid="space-row"
-            onClick={() => goToSpace(row.id)}
-            onContextMenu={(e) => openMenu(row.id, e)}
-            className="group/row flex w-full flex-shrink-0 items-center gap-1.5 py-1 text-[12px] text-app-text-secondary transition-colors hover:bg-app-hover hover:text-app-text"
-            style={{ paddingLeft: ROW_INSET + 2, paddingRight: ROW_INSET }}
-            title={detachedLabel ? `${row.name} — in una finestra sua (clic per portarla davanti)` : `Vai a ${row.name}`}
-          >
-            <ChevronRight size={12} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">{row.name}</span>
-            {detachedLabel && (
-              <AppWindow size={11} className="flex-shrink-0 text-app-text-tertiary" data-testid="space-detached" aria-label="in una finestra sua" />
-            )}
-            {tier && (
-              <span
-                aria-label={tier === 'input' ? 'richiede input' : 'attività completata'}
-                className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                  tier === 'input' ? `${TIER_INPUT_BG} animate-pulse` : TIER_DONE_BG
-                }`}
-              />
-            )}
-            <span className="flex-shrink-0 text-[11px] tabular-nums text-app-text-tertiary">
-              {countBySpace.get(row.id) ?? 0}
-            </span>
-          </button>
-        );
-      })}
-
-      {/* Il gruppo APERTO, e sotto — dentro di lui — le sue tab. */}
+    <div
+      data-space-id={card.id}
+      data-testid={card.active ? 'space-card-active' : 'space-card'}
+      className={`mx-1.5 mb-1 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
+        card.active
+          ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
+          : 'border-app-border/50'
+      }`}
+    >
       <div
         role="tab"
-        aria-selected
-        data-space-id={activeRow.id}
-        data-testid="space-row-active"
-        onContextMenu={(e) => openMenu(activeRow.id, e)}
-        className={`flex flex-shrink-0 items-center gap-1.5 py-1 text-[12px] font-medium text-app-text ${SELECTED_SURFACE}`}
-        style={{ paddingLeft: ROW_INSET + 2, paddingRight: ROW_INSET }}
+        aria-selected={card.active}
+        data-space-id={card.id}
+        data-testid={card.active ? 'space-row-active' : 'space-row'}
+        onContextMenu={(e) => { e.preventDefault(); setRenameDraft(null); setMenu({ x: e.clientX, y: e.clientY }); }}
+        className={`flex items-center gap-1 py-1 text-[12px] ${
+          card.active ? 'font-medium text-app-text' : 'text-app-text-secondary'
+        }`}
+        style={{ paddingLeft: 4, paddingRight: ROW_INSET }}
       >
-        <ChevronDown size={12} className="flex-shrink-0 opacity-60" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{activeRow.name}</span>
-        {(pinnedSpace || spaceWindows.has(activeRow.id)) && (
-          <AppWindow size={11} className="flex-shrink-0 opacity-70" data-testid="space-detached" aria-label="in una finestra sua" />
+        <button
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Chiudi ${card.name}` : `Apri ${card.name}`}
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+        >
+          <Chevron size={12} aria-hidden="true" />
+        </button>
+        <button
+          onClick={() => goToSpace(card.id)}
+          className="min-w-0 flex-1 truncate text-left"
+          title={card.detachedLabel
+            ? `${card.name} — in una finestra sua (clic per portarla davanti)`
+            : card.active ? `${card.name}: è il gruppo che stai usando` : `Passa a ${card.name}`}
+        >
+          {card.name}
+        </button>
+        {card.detachedLabel && (
+          <AppWindow size={11} className="flex-shrink-0 text-app-text-tertiary" data-testid="space-detached" aria-label="in una finestra sua" />
         )}
-        {!pinnedSpace && liveSpaceCount(spaces) < SPACES_MAX && (
-          <button
-            onClick={addSpace}
-            className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:bg-black/10 dark:hover:bg-white/10 ${revealOnHover}`}
-            title="Nuovo gruppo"
-            aria-label="Nuovo gruppo"
-            data-testid="space-add"
-          >
-            <Plus size={12} />
-          </button>
+        {card.tier && (
+          <span
+            aria-label={card.tier === 'input' ? 'richiede input' : 'attività completata'}
+            className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+              card.tier === 'input' ? `${TIER_INPUT_BG} animate-pulse` : TIER_DONE_BG
+            }`}
+          />
         )}
-        <span className="flex-shrink-0 text-[11px] tabular-nums opacity-70">
-          {countBySpace.get(activeRow.id) ?? 0}
-        </span>
-      </div>
-      {/* Il contenuto del gruppo. Il filo a sinistra — ciò che rende visibile il
-          "dentro" — lo disegna l'ALBERO (TopicTree, `space-tabs`), non questo
-          wrapper: qui correrebbe per tutta l'altezza della sidebar e finirebbe
-          per abbracciare anche le righe che in questo gruppo non stanno. */}
-      <div className="flex min-h-0 flex-1 flex-col" data-testid="space-content">
-        {children}
+        <span className="flex-shrink-0 text-[11px] tabular-nums text-app-text-tertiary">{card.count}</span>
       </div>
 
-      {chipMenu && createPortal(
+      {expanded && (
+        <div
+          data-testid={card.active ? 'space-content' : 'space-content-inactive'}
+          // Cattura: cliccare una riga di un gruppo che non è quello attivo
+          // deve PRIMA portarci la finestra, altrimenti la pane si aprirebbe
+          // dove non la vedi. In cattura, cioè prima che la riga faccia la sua
+          // parte, e il dispatch di zustand è sincrono: quando la riga apre, il
+          // gruppo giusto è già quello.
+          onClickCapture={card.active ? undefined : () => goToSpace(card.id)}
+          className="pb-1"
+        >
+          {children}
+        </div>
+      )}
+
+      {menu && createPortal(
         <div
           ref={menuRef}
           className={`fixed ${POPOVER_SURFACE} min-w-[190px] overflow-y-auto overscroll-contain`}
           style={{
-            top: chipMenu.y,
-            left: Math.max(
-              POPOVER_MARGIN,
-              Math.min(chipMenu.x, window.innerWidth - MENU_MIN_W - POPOVER_MARGIN),
-            ),
-            maxHeight: `calc(100vh - ${chipMenu.y + POPOVER_MARGIN}px)`,
+            top: menu.y,
+            left: Math.max(POPOVER_MARGIN, Math.min(menu.x, window.innerWidth - MENU_MIN_W - POPOVER_MARGIN)),
+            maxHeight: `calc(100vh - ${menu.y + POPOVER_MARGIN}px)`,
             zIndex: Z_POPOVER,
           }}
           data-testid="space-menu"
         >
-          {menuSpace && !menuSpace.deleted && (
+          {meta && !meta.deleted && (
             renameDraft !== null ? (
               <form
                 className="px-2 py-1"
                 onSubmit={(e) => {
                   e.preventDefault();
                   const name = renameDraft.trim();
-                  if (name) {
-                    dispatch({ type: 'SPACE_UPSERT', payload: { space: { id: chipMenu.spaceId, name } } });
-                  }
-                  setChipMenu(null);
+                  if (name) dispatch({ type: 'SPACE_UPSERT', payload: { space: { id: card.id, name } } });
+                  setMenu(null);
                 }}
               >
                 <input
@@ -351,7 +356,7 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
                 />
               </form>
             ) : (
-              <button onClick={() => setRenameDraft(menuSpace.name)} className={POPOVER_ITEM}>
+              <button onClick={() => setRenameDraft(meta.name)} className={POPOVER_ITEM}>
                 <Pencil size={14} />
                 <span className="flex-1">Rinomina</span>
               </button>
@@ -359,36 +364,32 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
           )}
           <button
             onClick={() => {
-              const spaceId = chipMenu.spaceId;
-              setChipMenu(null);
-              if (menuDetachedLabel) {
-                void focusSpaceWindow(menuDetachedLabel);
-                return;
-              }
-              void popOutSpace(spaceId);
+              setMenu(null);
+              if (card.detachedLabel) { void focusSpaceWindow(card.detachedLabel); return; }
+              void popOutSpace(card.id);
             }}
             className={POPOVER_ITEM}
-            title={menuDetachedLabel
+            title={card.detachedLabel
               ? 'È già in una finestra sua: la porto davanti'
               : 'Il gruppo si apre in una finestra sua; le sue tab restano queste'}
             data-testid="space-detach"
           >
             <AppWindow size={14} />
-            <span className="flex-1">{menuDetachedLabel ? 'Vai alla sua finestra' : 'Sposta in una finestra'}</span>
+            <span className="flex-1">{card.detachedLabel ? 'Vai alla sua finestra' : 'Sposta in una finestra'}</span>
           </button>
-          {menuSpace && !menuSpace.deleted && (
+          {!isDefault && meta && !meta.deleted && (
             <>
               <div className={POPOVER_DIVIDER} />
               <button
                 onClick={() => {
                   // Cancellazione morbida: le tab tornano nel gruppo principale
                   // (il reducer fa entrambe le mosse), niente si chiude.
-                  dispatch({ type: 'SPACE_DELETE', payload: { id: chipMenu.spaceId } });
+                  dispatch({ type: 'SPACE_DELETE', payload: { id: card.id } });
                   // La griglia di quel gruppo era salvata su una chiave
                   // localStorage suffissata: il reducer è puro e non può
                   // toccarla, quindi la si pulisce qui.
-                  clearPanelGridStorage(chipMenu.spaceId);
-                  setChipMenu(null);
+                  clearPanelGridStorage(card.id);
+                  setMenu(null);
                 }}
                 className={POPOVER_ITEM_DANGER}
                 title="Le schede tornano nel gruppo principale"
@@ -402,5 +403,39 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
         document.body,
       )}
     </div>
+  );
+}
+
+/**
+ * "Nuovo gruppo", sotto le card.
+ *
+ * Su desktop si accende passando sulla sidebar: acceso sempre sarebbe
+ * arredamento, e l'azione non è di ogni minuto. Su mobile non esiste hover —
+ * lì resta visibile, o sarebbe irraggiungibile. Il focus da tastiera lo rivela
+ * comunque.
+ */
+export function NewGroupRow() {
+  const dispatch = usePaneStore((s) => s.dispatch);
+  const spaces = usePaneStore((s) => s.spaces);
+  const { isMobile, isTouch } = useMobile();
+  if (spaceWindowId()) return null;
+  if (liveSpaceCount(spaces) >= SPACES_MAX) return null;
+  const reveal = isMobile || isTouch
+    ? ''
+    : 'opacity-0 transition-opacity group-hover/sidebar:opacity-100 focus-visible:opacity-100';
+  return (
+    <button
+      onClick={() => {
+        const id = createSpaceId();
+        dispatch({ type: 'SPACE_UPSERT', payload: { space: { id, name: nextSpaceName(spaces) } } });
+        dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id } });
+      }}
+      data-testid="space-add"
+      title="Nuovo gruppo"
+      className={`mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] text-app-text-tertiary transition-colors hover:bg-app-hover hover:text-app-text ${reveal}`}
+    >
+      <Plus size={12} className="flex-shrink-0" />
+      <span>Nuovo gruppo</span>
+    </button>
   );
 }
