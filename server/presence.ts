@@ -21,6 +21,10 @@ export interface PresenceSource {
   windowId?: string;
   windowLabel?: string;
   detached?: boolean;
+  /** Lo Spazio che questa finestra ospita da sola (`?space=`), se è una
+   *  finestra-gruppo. Il server non lo interpreta: lo ritrasmette, e la barra
+   *  dei gruppi lo usa per dire "quel gruppo è là" e alzare la finestra. */
+  presenceSpaceId?: string;
   presenceTopicIds?: string[];
   presenceFocusedTopicId?: string;
   presenceTabs?: PresenceTab[];
@@ -44,6 +48,7 @@ export interface PresenceWindowEntry {
   clientId: string;
   windowLabel?: string;
   detached?: boolean;
+  spaceId?: string;
   topicIds: string[];
   focusedTopicId?: string;
   /** Absent when the window runs a client that predates the field — consumers
@@ -89,6 +94,7 @@ export function buildPresenceSnapshot(sources: Iterable<PresenceSource>): Presen
       clientId: s.id,
       windowLabel: s.windowLabel,
       detached: s.detached,
+      spaceId: s.presenceSpaceId,
       topicIds: s.presenceTopicIds ?? [],
       focusedTopicId: s.presenceFocusedTopicId,
       tabs: s.presenceTabs,

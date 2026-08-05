@@ -334,6 +334,10 @@ export interface WSPresenceAnnounceMessage {
   windowId: string;
   windowLabel?: string;
   detached?: boolean;
+  /** Lo Spazio (gruppo) a cui questa finestra è inchiodata (`?space=`), se lo
+   *  è. È ciò che permette alla barra dei gruppi di dire "questo gruppo vive in
+   *  una finestra sua" e di portarcela davanti invece di commutare. */
+  spaceId?: string;
   topicIds: string[];
   focusedTopicId?: string;
   /** Every tab, not just the chats — see PresenceTab. Optional so an older
@@ -359,6 +363,7 @@ export interface WSPresenceWindowsMessage {
     clientId: string;
     windowLabel?: string;
     detached?: boolean;
+    spaceId?: string;
     topicIds: string[];
     focusedTopicId?: string;
     tabs?: PresenceTab[];

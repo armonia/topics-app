@@ -41,6 +41,7 @@ import { usePaneStore, type PaneStore } from '../store';
 import { selectLocalSnapshot } from '../selectors';
 import { DEFAULT_SPACE_ID } from '../types';
 import { getTabId } from './syncCrossTab';
+import { spaceWindowId } from '../../../lib/windowRole';
 
 const LOCAL_KEY = 'pane-store-v2';
 const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
@@ -101,6 +102,10 @@ function writeScrollOffsetsNow(): void {
 }
 
 function writeActiveSpaceNow(activeSpaceId: string): void {
+  // Una finestra-gruppo non scrive MAI questa chiave: è per-origine, quindi
+  // scriverla vorrebbe dire spostare il gruppo attivo della finestra
+  // principale ogni volta che ne stacchi una.
+  if (spaceWindowId()) return;
   try {
     // Absent key ⟺ default space — the same canonical encoding the pane's
     // `spaceId` field uses (and the focus key's remove-on-null precedent).
@@ -169,7 +174,12 @@ export function hydrateFromLocalSnapshot(): void {
     // already in the store — SET_ACTIVE_SPACE resolves a dead/unknown id to
     // the default space against that registry. Applied BEFORE the focus
     // restore so the reducer's focus handoff can't override the saved focus.
-    const activeSpace = localStorage.getItem(LOCAL_ACTIVE_SPACE_KEY);
+    //
+    // In una FINESTRA-GRUPPO (`?space=<id>`) comanda la query, non la chiave:
+    // quella chiave è dell'ORIGINE, quindi è condivisa fra tutte le finestre, e
+    // leggerla qui farebbe partire la finestra staccata sul gruppo dell'altra.
+    const pinnedSpace = spaceWindowId();
+    const activeSpace = pinnedSpace ?? localStorage.getItem(LOCAL_ACTIVE_SPACE_KEY);
     if (activeSpace) {
       usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: activeSpace } });
     }

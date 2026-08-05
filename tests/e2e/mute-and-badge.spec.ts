@@ -27,11 +27,12 @@ test.use({ video: "on" });
 const TS = Date.now();
 const BASE = E2E_BASE;
 
-/** The server-assigned `sessionKey` of a topic (the notifier keys on it). */
+/** The server-assigned `sessionKey` of a topic (the notifier keys on it).
+ *  Letta dall'elenco: non esiste un GET per singolo topic. */
 async function sessionKeyOf(page: import("@playwright/test").Page, topicId: string): Promise<string> {
-  const res = await page.request.get(`${BASE}/api/topics/${topicId}`, { ignoreHTTPSErrors: true });
-  const topic = (await res.json()) as { sessionKey?: string };
-  const key = topic.sessionKey;
+  const res = await page.request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const body = (await res.json()) as { topics?: Record<string, { id: string; sessionKey?: string }> };
+  const key = body.topics?.[topicId]?.sessionKey;
   if (!key) throw new Error(`topic ${topicId} has no sessionKey`);
   return key;
 }

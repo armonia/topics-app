@@ -41,3 +41,28 @@ export function isDetachedWindow(): boolean {
     return false;
   }
 }
+
+/**
+ * Lo SPAZIO (gruppo) a cui questa finestra è inchiodata, o `null`.
+ *
+ * `?space=<id>` è il terzo ruolo, e non è una pop-out: una finestra-gruppo è
+ * l'app INTERA con tutti i bridge accesi (apre e chiude tab, le persiste, le
+ * sincronizza), solo che disegna un gruppo solo e non ne può cambiare. È la
+ * ragione per cui non basta `isDetachedWindow()`: quella spegne la persistenza,
+ * e qui spegnerla vorrebbe dire perdere ogni tab aperta in quella finestra.
+ *
+ * Ciò che cambia rispetto a una finestra normale è tutto qui:
+ *   - `activeSpaceId` lo decide la query, non l'ultima scelta locale;
+ *   - la barra dei gruppi non si disegna (non c'è dove andare);
+ *   - lo `activeSpaceId` non si scrive in localStorage — è per-finestra, e
+ *     quella chiave è condivisa fra le finestre della stessa origine.
+ */
+export function spaceWindowId(): string | null {
+  try {
+    const value = new URLSearchParams(window.location.search).get('space');
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  } catch {
+    return null;
+  }
+}

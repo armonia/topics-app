@@ -11,7 +11,6 @@ import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { spawnDragGhost } from './dragGhost';
-import { SpaceSwitcher } from './SpaceSwitcher';
 import { popOutTopics } from '../../lib/popOutTopic';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
@@ -2490,12 +2489,12 @@ export function PanelGrid({
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
-    // The switcher stays reachable when the ACTIVE space is empty (its tabs
-    // may all live in other Spazi) — on mobile too, or hidden panes become
-    // unreachable. It renders null while no user space exists.
+    // I gruppi non stanno più qui sopra: stanno in fondo alla SIDEBAR, accanto
+    // alle tab che governano (SpaceBar). Una striscia di chip in cima alla
+    // griglia, a destra, era il posto più lontano possibile dalla lista che
+    // decideva.
     return (
       <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-      <SpaceSwitcher />
       <div
         ref={containerRef}
         className={`flex-1 flex items-center justify-center bg-surface transition-colors ${
@@ -2554,14 +2553,8 @@ export function PanelGrid({
   // it — would render the same window twice. Skip any key already painted. Reset
   // per render; purely subtractive by exact key.
   const seenGridKeys = new Set<string>();
-  // The SpaceSwitcher mounts OUTSIDE the grid container: the container's
-  // absolute overlays (drop zones, row-gap strips) compute percentages
-  // against ITS height, so the strip must not sit inside it. Renders null
-  // until a user space exists; renders on mobile too (the legacy <768px
-  // branch shares this wrapper).
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-    <SpaceSwitcher />
     <div
       ref={containerRef}
       data-split-surface

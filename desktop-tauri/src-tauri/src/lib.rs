@@ -6189,6 +6189,117 @@ async fn window_detach(
     Ok(label)
 }
 
+/// Open a window that hosts one GROUP (Spazio), addressed by id.
+///
+/// Not a pop-out. `window_detach` above loads `?topics=a,b` — a read-only view
+/// of a few chats, whose pane-store bridges are deliberately dead. A GROUP is
+/// alive: it has a name, tabs of every kind, its own grid, and it must keep
+/// opening and closing tabs like any other window. So this loads the app whole
+/// with `?space=<id>`, and the client pins its active Spazio to that id (see
+/// `lib/windowRole.ts`). Two windows writing one pane-store is exactly the
+/// "two devices" case the store already survives (LWW + server_seq).
+///
+/// Chrome parity with the main window is set here for the same reason as
+/// `window_detach`: tauri.conf.json grants it to "main" only.
+#[tauri::command]
+async fn window_detach_space(
+    app: tauri::AppHandle,
+    space: String,
+    width: Option<f64>,
+    height: Option<f64>,
+) -> Result<String, String> {
+    if space.trim().is_empty() {
+        return Err("no space to detach".into());
+    }
+    // Already open? Raise it instead of minting a second window on the same
+    // group — two windows drawing one group would fight over its grid.
+    {
+        use tauri::Manager;
+        let existing = app
+            .webview_windows()
+            .into_iter()
+            .find(|(label, _)| label.starts_with("space-") && window_space_of(label) == Some(space.clone()));
+        if let Some((label, win)) = existing {
+            ensure_window_visible(&win);
+            return Ok(label);
+        }
+    }
+    let label = space_window_label(&space);
+    // label → gruppo: il label è un hash, quindi senza questa mappa non si
+    // saprebbe più quale finestra ospita quale gruppo (serve al ramo "già
+    // aperta?" qui sopra).
+    if let Ok(mut m) = SPACE_WINDOWS.lock() {
+        m.insert(label.clone(), space.clone());
+    }
+    let url = format!("index.html?space={}", urlencoding_encode(&space));
+    let w = width.unwrap_or(1100.0);
+    let h = height.unwrap_or(760.0);
+
+    let build = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
+        .title("Topics")
+        .inner_size(w, h)
+        .min_inner_size(480.0, 400.0)
+        .resizable(true)
+        .transparent(true)
+        .decorations(true)
+        .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
+
+    #[cfg(target_os = "macos")]
+    let build = build
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let win = build.build().map_err(|e| format!("build space window: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        apply_traffic_lights(&win, false);
+        wire_live_resize_cover(&win);
+        register_ui_webview(&win, &label);
+        // Same bookkeeping purge as window_detach: the vibrancy maps are keyed
+        // by NSWindow pointer, and a freed address gets reused.
+        if let Ok(p) = win.ns_window() {
+            let wkey = p as usize;
+            let label_for_event = label.clone();
+            win.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                    vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                    unwire_live_resize_cover(wkey);
+                    if let Ok(mut m) = SPACE_WINDOWS.lock() {
+                        m.remove(&label_for_event);
+                    }
+                }
+            });
+        }
+    }
+    Ok(label)
+}
+
+/// `space-<hex>`: un label stabile PER GRUPPO, così riaprire lo stesso gruppo
+/// ritrova la sua finestra invece di clonarla. L'id non entra nel label alla
+/// lettera — un label Tauri deve restare un identificatore semplice.
+fn space_window_label(space: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in space.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("space-{:016x}", h)
+}
+
+/// L'id del gruppo dietro un label `space-…`, ricavato dalla URL della finestra
+/// aperta. Ritorna `None` per ogni altra finestra.
+fn window_space_of(label: &str) -> Option<String> {
+    if !label.starts_with("space-") { return None; }
+    SPACE_WINDOWS.lock().ok()?.get(label).cloned()
+}
+
+/// label della finestra → id del gruppo che ospita. Serve solo a riconoscere
+/// una finestra già aperta sullo stesso gruppo (il label è un hash, non l'id).
+static SPACE_WINDOWS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 /// Focus (show + unminimize + raise) the window with `label`. Returns false when
 /// no such window exists on THIS machine, so the client can fall back to a local
 /// reopen (the topic may be detached on another device, or the window just died).
@@ -7742,6 +7853,7 @@ pub fn run() {
             updater_check,
             updater_install,
             window_detach,
+            window_detach_space,
             window_focus_label,
             window_close_self
         ])
