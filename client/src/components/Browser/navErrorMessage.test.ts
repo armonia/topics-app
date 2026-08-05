@@ -1,0 +1,71 @@
+import { describe, expect, test } from 'bun:test';
+import { isLoopbackUrl, navErrorMessage } from './navErrorMessage';
+
+describe('navErrorMessage', () => {
+  test('porta locale spenta: dice CHI non risponde e che nessuno è in ascolto', () => {
+    const t = navErrorMessage({
+      url: 'http://localhost:3210/login',
+      description: 'Could not connect to the server.',
+      code: -1004,
+    });
+    expect(t.message).toContain('localhost:3210');
+    expect(t.message).toContain('nessun server in ascolto');
+    // La frase di Cocoa non deve sopravvivere: è quella che non si capiva.
+    expect(t.message).not.toContain('Could not connect');
+  });
+
+  test('la porta locale spiega anche PERCHÉ, che è quasi sempre un anteprima morta', () => {
+    const t = navErrorMessage({ url: 'http://127.0.0.1:8791/report.html', description: '', code: -1004 });
+    expect(t.message).toContain('127.0.0.1:8791');
+    expect(t.hint).toContain('anteprima');
+  });
+
+  test('stesso codice su un host vero: nessuna storia sulle anteprime', () => {
+    const t = navErrorMessage({ url: 'https://example.com/x', description: 'Could not connect.', code: -1004 });
+    expect(t.message).toBe('example.com non accetta la connessione.');
+    expect(t.hint).toBeUndefined();
+  });
+
+  test('host inesistente, timeout e rete assente hanno frasi proprie', () => {
+    expect(navErrorMessage({ url: 'https://nope.invalid/', description: '', code: -1003 }).message)
+      .toContain('Indirizzo non trovato');
+    expect(navErrorMessage({ url: 'https://slow.example/', description: '', code: -1001 }).message)
+      .toContain('non ha risposto in tempo');
+    expect(navErrorMessage({ url: 'https://x.example/', description: '', code: -1009 }).message)
+      .toBe('Nessuna connessione a internet.');
+  });
+
+  test('TLS: la frase è nostra, il dettaglio di WebKit resta come seconda riga', () => {
+    const t = navErrorMessage({
+      url: 'https://self-signed.example/',
+      description: 'The certificate for this server is invalid.',
+      code: -1202,
+    });
+    expect(t.message).toContain('certificato non valido');
+    expect(t.hint).toBe('The certificate for this server is invalid.');
+  });
+
+  test('un codice sconosciuto tiene le parole di WebKit invece di nasconderle', () => {
+    const t = navErrorMessage({ url: 'https://x.example/', description: 'Something odd happened.', code: -9999 });
+    expect(t).toEqual({ message: 'Something odd happened.' });
+  });
+
+  test('senza descrizione e senza URL leggibile resta almeno il codice', () => {
+    expect(navErrorMessage({ url: '', description: '', code: -1004 }).message)
+      .toBe('Caricamento fallito (codice -1004)');
+  });
+});
+
+describe('isLoopbackUrl', () => {
+  test('riconosce le forme di «questa macchina»', () => {
+    for (const u of ['http://localhost:1/', 'http://127.0.0.1/', 'http://[::1]:5/', 'http://app.localhost:3/']) {
+      expect(isLoopbackUrl(u)).toBe(true);
+    }
+  });
+
+  test('non scambia per locale un host che ci somiglia', () => {
+    for (const u of ['https://localhost.example.com/', 'https://example.com/', 'not a url']) {
+      expect(isLoopbackUrl(u)).toBe(false);
+    }
+  });
+});

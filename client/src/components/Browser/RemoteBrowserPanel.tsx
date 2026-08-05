@@ -444,8 +444,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           role="alert"
         >
           <AlertTriangle size={13} className="flex-shrink-0" />
-          <span className="flex-1 min-w-0 truncate" title={browser.navError.message}>
-            {browser.navError.message}
+          {/* Due righe, non una troncata: la prima dice cosa è successo, la
+              seconda perché (vedi navErrorMessage). Il testo viene già scritto
+              corto apposta — `truncate` qui tagliava proprio la parte che
+              spiegava il problema. */}
+          <span className="flex-1 min-w-0 leading-tight" title={[browser.navError.message, browser.navError.hint].filter(Boolean).join('\n')}>
+            <span className="block line-clamp-2">{browser.navError.message}</span>
+            {browser.navError.hint && (
+              <span className="block line-clamp-2 opacity-70">{browser.navError.hint}</span>
+            )}
           </span>
           {(browser.navError.url || browser.url) && (
             <button
