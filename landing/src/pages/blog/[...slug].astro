@@ -55,12 +55,12 @@ const jsonLd = {
     <h1>{d.title}</h1>
     <p class="article-standfirst">{d.description}</p>
     <div class="article-meta">
-      <span>{d.author}</span><span class="sep">·</span>
-      <span>{readingTime(words)}</span><span class="sep">·</span>
+      <span>{d.author}</span><span class="sep" aria-hidden="true">·</span>
+      <span>{readingTime(words)}</span><span class="sep" aria-hidden="true">·</span>
       <time datetime={d.pubDate.toISOString()}>{formatDate(d.pubDate)}</time>
       {d.updatedDate && (
         <>
-          <span class="sep">·</span>
+          <span class="sep" aria-hidden="true">·</span>
           <span>updated <time datetime={d.updatedDate.toISOString()}>{formatDate(d.updatedDate)}</time></span>
         </>
       )}

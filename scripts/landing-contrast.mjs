@@ -68,17 +68,50 @@ const PROBE = () => {
     b: fg.b * fg.a + bg.b * (1 - fg.a),
     a: 1,
   });
-  /** The first opaque-enough background painted behind an element. */
-  const backdrop = (el) => {
-    let acc = null;
+  const mix = (a, b, t) => ({          // t of a, (1-t) of b
+    r: a.r * t + b.r * (1 - t),
+    g: a.g * t + b.g * (1 - t),
+    b: a.b * t + b.b * (1 - t),
+    a: 1,
+  });
+
+  /* What is ACTUALLY painted, root → element, folding in every layer on the
+     way. The chain is read once and reused by both passes — walking it is the
+     expensive part. `inner` is the text colour on the foreground pass and null
+     on the background pass; nothing else differs between the two.
+
+     ANCESTOR `opacity` used to be ignored here entirely, and that was a hole
+     big enough to hide a real failure: a scene's dimmed context layer reported
+     6.14:1 while what actually reached the glass was 1.98:1. An opacity group
+     composites as a unit — the text inside it and the background inside it are
+     BOTH blended by the same α over whatever lies outside the group — so the
+     honest model is to carry α down the chain and apply it to both passes.
+     That is also why α is not simply folded into the text's own alpha: doing
+     that fades the text toward its background instead of toward the page, and
+     reports a dimmed group as less legible than it actually is. */
+  const chainOf = (el) => {
+    const chain = [];
     for (let n = el; n; n = n.parentElement) {
-      const c = parse(getComputedStyle(n).backgroundColor);
-      if (!c || c.a === 0) continue;
-      acc = acc ? over(acc, c) : c;
-      if (acc.a >= 0.99) return acc;
+      const cs = getComputedStyle(n);
+      chain.push({ bg: parse(cs.backgroundColor), op: Number(cs.opacity) });
     }
-    return acc && acc.a >= 0.99 ? acc : { r: 255, g: 255, b: 255, a: 1 };
+    return chain;
   };
+  const composite = (chain, inner) => {
+    let base = { r: 255, g: 255, b: 255, a: 1 };   // the canvas under everything
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const { bg, op } = chain[i];
+      const outside = base;
+      if (bg && bg.a > 0) base = bg.a >= 1 ? { r: bg.r, g: bg.g, b: bg.b, a: 1 } : over(bg, base);
+      if (i === 0 && inner) base = inner.a >= 1 ? { r: inner.r, g: inner.g, b: inner.b, a: 1 } : over(inner, base);
+      if (op < 1) base = mix(base, outside, op);
+    }
+    return base;
+  };
+  /* Product of every opacity on the chain. Zero means the element is not on
+     screen at all, which is not a contrast question — the same reason the
+     element's own `opacity: 0` is skipped below. */
+  const visibility = (chain) => chain.reduce((acc, l) => acc * l.op, 1);
 
   const out = [];
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -94,7 +127,9 @@ const PROBE = () => {
     if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) continue;
-    const bg = backdrop(el);
+    const chain = chainOf(el);
+    if (visibility(chain) === 0) continue;
+    const bg = composite(chain, null);
 
     /* Type painted from a gradient. `background-clip: text` with a transparent
        fill means `color` is not the colour of anything: read literally it
@@ -110,14 +145,14 @@ const PROBE = () => {
     if (clipsText && fillRaw && fillRaw.a === 0) {
       for (const m of (cs.backgroundImage || '').matchAll(/rgba?\([^)]+\)/g)) {
         const c = parse(m[0]);
-        if (c && c.a > 0) painted.push(c.a < 1 ? over(c, bg) : c);
+        if (c && c.a > 0) painted.push(composite(chain, c));
       }
       /* A gradient with no readable stop at all is a real failure, not a skip. */
       if (!painted.length) painted.push({ r: bg.r, g: bg.g, b: bg.b, a: 1 });
     } else {
       const fgRaw = parse(cs.color);
       if (!fgRaw) continue;
-      painted.push(fgRaw.a < 1 ? over(fgRaw, bg) : fgRaw);
+      painted.push(composite(chain, fgRaw));
     }
     const size = parseFloat(cs.fontSize);
     const weight = Number(cs.fontWeight) || 400;
@@ -167,6 +202,20 @@ for (const path of PAGES) {
     // Reveal animations start at opacity 0; a hidden node is not a contrast
     // question, but it is not evidence of passing either.
     await page.evaluate(() => document.querySelectorAll('.reveal').forEach((e) => e.classList.add('in')));
+    /* Settle every animation to its LAST frame before measuring. Now that the
+       probe folds `opacity` into what it reports, an element caught mid-entry
+       reads as a failure that does not exist — the hero float, 900ms into a
+       720ms fade, was reported at 1.31:1 against a backdrop that only exists
+       for a fraction of a second.
+       Zero duration with zero delay rather than `animation: none`: with
+       `fill-mode: both` still in force this snaps to the `to` keyframe, which
+       is the state a visitor actually reads. `animation: none` would instead
+       drop back to the BASE rule, and for anything that is only made visible
+       by its animation that is the wrong end of the timeline. */
+    await page.addStyleTag({ content: `*, *::before, *::after {
+      animation-delay: 0s !important; animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-delay: 0s !important; transition-duration: 0s !important; }` });
     await page.waitForTimeout(350);
     const nodes = await page.evaluate(PROBE);
     await ctx.close();
