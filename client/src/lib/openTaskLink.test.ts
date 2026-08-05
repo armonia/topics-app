@@ -207,6 +207,32 @@ describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
     expect(g.window.location.pathname).toBe('/');
   });
 
+  test('la riflessione NON cancella `?space=`: è l\'identità della finestra-gruppo', () => {
+    // Il guasto misurato il 05/08/2026: la board è quasi sempre aperta, quindi
+    // `reflectTaskClose` partiva al primo montaggio e portava la URL a `/`.
+    // Una finestra-gruppo perdeva così il suo `?space=` e tornava una finestra
+    // principale: disegnava le stesse tab dell'altra e non si annunciava più
+    // come la casa di quel gruppo.
+    stubWindow(`${origin}/task/t1?space=space%3Aabc`);
+    reflectTaskClose();
+    expect(g.window.location.pathname).toBe('/');
+    expect(g.window.location.search).toBe('?space=space%3Aabc');
+
+    stubWindow(`${origin}/?space=space%3Aabc`);
+    reflectTaskOpen({ taskId: 't2' });
+    expect(g.window.location.pathname).toBe('/task/t2');
+    expect(g.window.location.search).toBe('?space=space%3Aabc');
+  });
+
+  test('in una finestra-gruppo la riflessione non si ripete a vuoto', () => {
+    const { sync } = stubWindow(`${origin}/?space=space%3Aabc`);
+    let pushes = 0;
+    g.window.history = { pushState: (_s: unknown, _t: unknown, url: string) => { pushes++; sync(url); } };
+    reflectTaskClose();
+    reflectTaskClose();
+    expect(pushes).toBe(0);
+  });
+
   test('close is a no-op when already at / (clean)', () => {
     const { sync } = stubWindow(`${origin}/`);
     let pushes = 0;
