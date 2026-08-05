@@ -89,7 +89,17 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
          The product is in here, cropped by the bottom of the screen. On the
          live page the frame starts at y 516 with a poster over it, which is
          1,211px between the claim and the only thing that proves it. */}
-    <section class="hero" data-field="dense">
+    {/* ── BAND 1 · INK ───────────────────────────────────────────────────────
+         The product. `data-field="deep"` turns the paper field's canvas OFF
+         rather than leaving it drawing 1,300 ink-coloured dots behind an opaque
+         band that nobody can see through — the band brings its own material.
+         See the ink-ground block in v3.css for why there is a second material
+         at all. */}
+    <div class="band band--ink band--hero" data-ground="dark">
+      <div class="band__field" aria-hidden="true"></div>
+      <div class="glow-hero" aria-hidden="true"></div>
+
+    <section class="hero" data-field="deep">
       <div class="hero__in">
         <p class="hero__badge">
           <span class="dot-live"></span>
@@ -157,6 +167,8 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         <p class="hf__foot"><svg class="ic"><use href="#ic-check"/></svg>No shared working tree. No stashing between them.</p>
       </aside>
     </section>
+    </div>{/* /band 1 */}
+    <div class="seam seam--out" aria-hidden="true"></div>
 
     {/* ── THE MODEL ─────────────────────────────────────────────────────── */}
     <section class="model" id="model" data-field="quiet">
@@ -229,7 +241,16 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 1 ══ ISOLATION ═════════════════════════════════════════════ */}
-    <section class="act" id="atto-1" data-field="dense">
+    <div class="seam seam--in" aria-hidden="true"></div>
+
+    {/* ── BAND 2 · INK ───────────────────────────────────────────────────────
+         The five acts, one continuous ink run of ~3,000px. The scenes stop
+         being framed pictures here: on this ground the mock has no card, so the
+         only card left in an act is the one the product itself draws. */}
+    <div class="band band--ink band--acts" data-ground="dark">
+      <div class="band__field" aria-hidden="true"></div>
+
+    <section class="act" id="atto-1" data-field="deep">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-isolation"/></svg>
         <p class="act__kicker"><span class="act__n">01</span> Isolation</p>
@@ -278,7 +299,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 2 ══ DISPATCH ══════════════════════════════════════════════ */}
-    <section class="act act--flip" id="atto-2" data-field="quiet">
+    <section class="act act--flip" id="atto-2" data-field="deep">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-dispatch"/></svg>
         <p class="act__kicker"><span class="act__n">02</span> Dispatch</p>
@@ -351,7 +372,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 3 ══ THE WINDOW ════════════════════════════════════════════ */}
-    <section class="act" id="atto-3" data-field="dense">
+    <section class="act" id="atto-3" data-field="deep">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-window"/></svg>
         <p class="act__kicker"><span class="act__n">03</span> The window</p>
@@ -410,7 +431,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 4 ══ THE NUMBERS ═══════════════════════════════════════════ */}
-    <section class="act act--flip" id="atto-4" data-field="quiet">
+    <section class="act act--flip" id="atto-4" data-field="deep">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-numbers"/></svg>
         <p class="act__kicker"><span class="act__n">04</span> The numbers</p>
@@ -454,7 +475,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ══ ACT 5 ══ OWNERSHIP ═════════════════════════════════════════════ */}
-    <section class="act" id="atto-5" data-field="dense">
+    <section class="act" id="atto-5" data-field="deep">
       <div class="act__body">
         <svg class="act__glyph" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ac-ownership"/></svg>
         <p class="act__kicker"><span class="act__n">05</span> Ownership</p>
@@ -495,6 +516,8 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
         <figcaption>Pick the provider per topic. The three paths behind it are everywhere Topics writes on your machine.</figcaption>
       </figure>
     </section>
+    </div>{/* /band 2 */}
+    <div class="seam seam--out" aria-hidden="true"></div>
 
     {/* ── COMPARE ───────────────────────────────────────────────────────── */}
     <section class="compare" id="compare" data-field="quiet">
@@ -575,8 +598,18 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       </div>
     </section>
 
+    <div class="seam seam--in" aria-hidden="true"></div>
+
+    {/* ── BAND 3 · INK ───────────────────────────────────────────────────────
+         The close. This is the stretch that measured 1.5-7.4% dark pixels —
+         5,961px, 51% of the page, without one dark element in it — and it is
+         also where the page asks for the download. It ends on ink, the way
+         every one of the references does. */}
+    <div class="band band--ink band--close" data-ground="dark">
+      <div class="band__field" aria-hidden="true"></div>
+
     {/* ── PRICING ───────────────────────────────────────────────────────── */}
-    <section class="pricing" id="pricing" data-field="quiet">
+    <section class="pricing" id="pricing" data-field="deep">
       <header class="shead">
         <p class="eyebrow">pricing</p>
         <h2>The app is €0 and stays €0.</h2>
@@ -651,7 +684,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
     </section>
 
     {/* ── CHANGELOG ─────────────────────────────────────────────────────── */}
-    <section class="changelog" id="changelog" data-field="quiet">
+    <section class="changelog" id="changelog" data-field="deep">
       <header class="shead">
         <p class="eyebrow">changelog</p>
         <h2>What's new.</h2>
@@ -714,9 +747,17 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
 
       <p class="fine centered">Every asset and checksum lives on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.</p>
     </section>
+    </div>{/* /band 3 */}
   </main>
 
-  <SiteFooter vector />
+  {/* The footer is its own band only because it lives outside <main> and a
+       wrapper cannot legally span that boundary. It is the SAME ink run: the
+       seam beam is off and there is no top padding, so the join is invisible
+       and the page ends on one continuous ground. */}
+  <div class="band band--ink band--foot" data-ground="dark">
+    <div class="band__field" aria-hidden="true"></div>
+    <SiteFooter vector />
+  </div>
 
   <script>
     import '../scripts/site';
