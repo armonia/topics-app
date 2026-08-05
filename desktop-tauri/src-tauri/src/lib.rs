@@ -155,6 +155,47 @@ fn webview_content_pid_map() -> &'static std::sync::Mutex<std::collections::Hash
     WEBVIEW_CONTENT_PID.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// L'ULTIMA URL che abbiamo chiesto noi a ogni pane browser (label → url).
+///
+/// Esiste per non chiedere MAI a WKWebView dov'è. `webview.url()` scende in
+/// `wry::url_from_webview`, che fa `unwrap()` sull'URL della WKWebView: per una
+/// pane appena montata quell'URL è `nil`, e l'unwrap PANICA sul main thread —
+/// dentro un callback Objective-C, con un lock di wry in mano. Il `catch_unwind`
+/// che c'era prende l'unwind ma non disfa il danno: il mutex resta AVVELENATO, e
+/// da lì ogni `lock().unwrap()` di tauri-runtime-wry panica a sua volta
+/// (522.313 panic in un log, tutti figli di uno). Il finale è un `abort()` —
+/// l'app che si chiude da sola.
+///
+/// L'URL di una pane la decidiamo noi (`browser_open`/`browser_navigate`): è
+/// uno stato nostro, e leggerlo da qui non può fallire.
+static BROWSER_PANE_URL: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, String>>,
+> = std::sync::OnceLock::new();
+fn browser_pane_url_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    BROWSER_PANE_URL.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+/// Annota dove abbiamo mandato una pane. Il lock avvelenato non ci ferma: si
+/// recupera il contenuto e si prosegue (`PoisonError::into_inner`), perché una
+/// mappa di appunti non ha invarianti da proteggere.
+fn remember_pane_url(label: &str, url: &str) {
+    let mut m = browser_pane_url_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    m.insert(label.to_string(), url.to_string());
+}
+fn forget_pane_url(label: &str) {
+    let mut m = browser_pane_url_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    m.remove(label);
+}
+fn last_pane_url(label: &str) -> Option<String> {
+    let m = browser_pane_url_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    m.get(label).cloned()
+}
+
 /// Chiede a ogni webview il pid del suo WebContent e aggiorna la mappa.
 ///
 /// ASINCRONA PER FORZA: `with_webview` esegue la closure sul MAIN THREAD, e
@@ -3648,7 +3689,10 @@ fn browser_open_inner(
 ) -> Result<(), String> {
     use tauri::Manager;
     let label = browser_label(&id);
-    if let Some(wv) = app.get_webview(&label) {
+    // `is_some`, non il binding: la webview qui non serve più a nessuno da
+    // quando l'URL non gliela si chiede (vedi sotto). Ci interessa solo se la
+    // pane esiste già.
+    if app.get_webview(&label).is_some() {
         // Already open — reposition, and navigate ONLY if the URL actually
         // differs. browser_open is the idempotent-mount path: a transient
         // auto-split remount re-invokes it with the pane's persisted (≈live)
@@ -3656,18 +3700,22 @@ fn browser_open_inner(
         // discarding the user's in-progress page/scroll/form state. Skip the
         // navigate when we're already there; explicit browser_navigate (user
         // re-entering a URL) still reloads as before.
-        // wv.url() reaches into wry's `url_from_webview`, which `unwrap()`s the
-        // WKWebView's URL string — that's `nil` for a webview that hasn't
-        // committed a load yet (freshly (re)mounted pane), so the raw call
-        // PANICS → SIGABRT (observed crash: browser_open → url_from_webview →
-        // unwrap_failed). Isolate it behind catch_unwind: a nil/failed URL just
-        // means "not already here", so we fall through and navigate (safe — a
-        // not-yet-loaded pane has no in-progress state to clobber).
-        let cur_url = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| wv.url().ok()))
-            .ok()
-            .flatten();
-        let already_here = match (cur_url, url.parse::<tauri::Url>()) {
-            (Some(cur), Ok(want)) => cur == want,
+        // «Dove sei?» NON si chiede alla WKWebView.
+        //
+        // `wv.url()` scende in `wry::url_from_webview`, che fa `unwrap()`
+        // sull'URL nativa: per una pane appena montata quell'URL è `nil` e
+        // l'unwrap PANICA sul main thread, dentro un callback Objective-C, con
+        // un lock di wry in mano. Il `catch_unwind` che stava qui prendeva
+        // l'unwind ma non disfaceva il danno — il mutex restava avvelenato e da
+        // lì ogni lock di tauri-runtime-wry panicava a sua volta, fino
+        // all'`abort()`: l'app che si chiude da sola qualche secondo dopo
+        // (crash del 5 agosto, 522.313 panic in cascata da uno solo).
+        //
+        // La risposta ce l'abbiamo già in casa: l'URL di una pane la decidiamo
+        // noi. Assente = «non lo so» = si naviga, che per una pane non ancora
+        // caricata è la cosa giusta comunque.
+        let already_here = match (last_pane_url(&label), url.parse::<tauri::Url>()) {
+            (Some(cur), Ok(want)) => cur.parse::<tauri::Url>().map(|c| c == want).unwrap_or(false),
             _ => false,
         };
         if !already_here {
@@ -3700,6 +3748,10 @@ fn browser_open_inner(
     // null), so opener/postMessage popup flows won't link up — accepted.
     let nw_app = app.clone();
     let nw_label = label.clone();
+    // Nasce già con la sua URL: annotarla qui evita che il primo remount della
+    // pane la creda «sconosciuta» e ri-navighi su una pagina che sta già
+    // caricando.
+    remember_pane_url(&label, &url);
     let mut builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
         .initialization_script(CONSOLE_PROXY_JS)
         // Il pid del WebContent si registra QUI, a pagina caricata, non solo al
@@ -3860,6 +3912,10 @@ fn browser_navigate_inner(app: tauri::AppHandle, id: String, url: String) -> Res
         .get_webview(&browser_label(&id))
         .ok_or("no such browser pane")?;
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
+    // Annotato PRIMA: se la navigate fallisce il peggio è un appunto in più, se
+    // riesce l'appunto c'è di sicuro (nessuna finestra in cui la mappa mente
+    // dicendo che siamo ancora dov'eravamo).
+    remember_pane_url(&browser_label(&id), &url);
     wv.navigate(parsed).map_err(|e| e.to_string())
 }
 
@@ -4088,6 +4144,9 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
             let _ = wv.navigate(blank);
         }
+        // La pane non esiste più: l'appunto sulla sua URL nemmeno, o una pane
+        // nuova con lo stesso id erediterebbe la posizione della vecchia.
+        forget_pane_url(&browser_label(&id));
         wv.close().map_err(|e| e.to_string())?;
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
@@ -6854,6 +6913,16 @@ pub fn run() {
                     thread.name().unwrap_or("<unnamed>"),
                 );
                 use std::io::Write;
+                // Tetto alla dimensione: un panic che avvelena un mutex ne
+                // genera altri a raffica (522.313 righe identiche, 126 MB, in
+                // una sola giornata) e quel file poi non lo apre più nessuno —
+                // proprio quando serve. Superata la soglia si riparte da capo
+                // tenendo il giro precedente in `.1`: la PRIMA riga, quella che
+                // dice chi ha avvelenato, sta sempre all'inizio di un file.
+                const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
+                if std::fs::metadata(&path).map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false) {
+                    let _ = std::fs::rename(&path, path.with_extension("log.1"));
+                }
                 if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
                     let _ = f.write_all(line.as_bytes());
                 }
