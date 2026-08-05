@@ -275,12 +275,16 @@ const TOOLS = [
               multiSelect: { type: "boolean", description: "Allow selecting more than one option (default false = single choice)." },
               options: {
                 type: "array",
-                description: "2–4 mutually-exclusive choices. An 'Other' free-text is added automatically — do not add your own.",
+                description: "2–4 mutually-exclusive choices. An 'Other' free-text box is always shown and always open — do not add your own. Set `recommended: true` on the one you'd pick (at most one).",
                 items: {
                   type: "object",
                   properties: {
                     label: { type: "string", description: "Short button label." },
                     description: { type: "string", description: "Optional one-line explanation of this choice." },
+                    recommended: {
+                      type: "boolean",
+                      description: "Mark THE option you'd pick — at most one per question. It renders as a 'consigliato' chip next to the label; it does NOT preselect anything, the human still chooses. Use it whenever you have a view: hiding your recommendation doesn't make the choice freer, it makes it slower.",
+                    },
                   },
                   required: ["label"],
                 },
