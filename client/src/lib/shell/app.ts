@@ -109,6 +109,27 @@ export async function notificationStatus(): Promise<NativeNotificationStatus | n
   }
 }
 
+/**
+ * Ricarica il client. Sul desktop ricarica TUTTE le finestre, non solo questa.
+ *
+ * Il bundle è uno solo: con più finestre aperte (i gruppi staccati), ricaricarne
+ * una sola lascia due versioni dello stesso client a parlarsi sullo stesso
+ * pane-store. Chi preme ⌘R non sta chiedendo "ricarica questa scheda", sta
+ * chiedendo "riparti". Sul web resta il reload della sola pagina: non c'è
+ * nessun'altra finestra che questo codice possa raggiungere.
+ */
+export async function reloadAllWindows(): Promise<void> {
+  if (shellKind === 'tauri') {
+    try {
+      await tauriInvoke<number>('app_reload_all');
+      return;
+    } catch {
+      // Guscio vecchio senza il comando: almeno questa finestra riparte.
+    }
+  }
+  window.location.reload();
+}
+
 /** Hard-restart the desktop app (bypasses the service worker). No-op on web. */
 export async function relaunch(): Promise<void> {
   switch (shellKind) {
