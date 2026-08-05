@@ -5,7 +5,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
-import type { AgentSession } from '../hooks/useAgents';
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, deriveWatchingTopics } from './signals';
 
@@ -15,7 +14,6 @@ const EMPTY_TOPIC_SET: Set<string> = new Set();
 interface Args {
   topics: Record<string, Topic>;
   claudeSessions: ReadonlyMap<string, ClaudeSessionState>;
-  activeAgentSessions: AgentSession[];
   /** Authoritative session roster (WS terminal:sessions + REST). Drives busy
    *  reconciliation so loading state self-heals from a single source of truth. */
   terminalSessions: TerminalSessionInfo[];
@@ -27,7 +25,7 @@ interface Args {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
-export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, terminalSessions, isSessionStreaming, reconcileServerStreams, onWSMessage }: Args) {
+export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSessionStreaming, reconcileServerStreams, onWSMessage }: Args) {
   // Chat FERME ad aspettare una risposta (ask_user_question a schermo), come le
   // riporta il server nello snapshot degli stream. Fuori dalla chat il turno
   // sospeso si leggeva come uno che macina: stesso pallino, stesso spinner.
@@ -41,13 +39,6 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
     askWaitingRef.current = next;
     setAskWaitingTopics(next);
   }, []);
-
-  // Agent sessions active → by topic.
-  useEffect(() => {
-    const ids = new Set<string>();
-    for (const s of activeAgentSessions) if (s.topicId) ids.add(s.topicId);
-    signalsActions.setAgentActiveTopics(ids);
-  }, [activeAgentSessions]);
 
   // Claude "needs you" phases → attention by topic.
   useEffect(() => {

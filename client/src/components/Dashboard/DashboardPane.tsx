@@ -2,7 +2,6 @@ import { useDashboard } from '../../hooks/useDashboard';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { RangeSelector } from './RangeSelector';
-import { AgentLeaderboard } from './AgentLeaderboard';
 import { Loader2, RefreshCw, BarChart3 } from 'lucide-react';
 import type { WSMessage } from '../../types';
 
@@ -21,7 +20,6 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
   const {
     kpis,
     timeSeries,
-    agentStats,
     loading,
     error,
     selectedMetric,
@@ -95,14 +93,6 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
             <RangeSelector value={range} onChange={setRange} />
           </div>
           <TimeSeriesChart points={timeSeries} metric={selectedMetric} height={200} />
-        </div>
-
-        {/* Agent Leaderboard */}
-        <div className="bg-surface border border-app-border rounded-lg overflow-hidden">
-          <div className="px-3 py-2 border-b border-app-border">
-            <span className="text-[12px] font-semibold text-app-text">Agent Leaderboard</span>
-          </div>
-          <AgentLeaderboard agents={agentStats} />
         </div>
       </div>
     </div>

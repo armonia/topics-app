@@ -13,11 +13,9 @@ import {
   isTaskWorkspacePath,
   isBrowserPaneId,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   getProjectPathFromPaneId,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
-  getSessionKeyFromViewerPaneId,
   sessionKeyForPaneId,
   pinKeyForPane,
   tabTargetForPane,
@@ -41,10 +39,6 @@ describe("createPaneId — per-type branching", () => {
 
   test("terminal with a key builds terminal:<key> verbatim", () => {
     expect(createPaneId("terminal", "sess-xyz")).toBe("terminal:sess-xyz");
-  });
-
-  test("session-viewer with a key builds session-viewer:<key> verbatim", () => {
-    expect(createPaneId("session-viewer", "sk-1")).toBe("session-viewer:sk-1");
   });
 
   test("chat WITHOUT a key falls through to the generic <type>:<uuid> branch", () => {
@@ -111,13 +105,6 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
     expect(getTerminalSessionFromPaneId("browser:foo")).toBeNull();
   });
 
-  test("session-viewer: is* predicate + key extractor round-trip", () => {
-    const id = createPaneId("session-viewer", "sk-99");
-    expect(isSessionViewerPaneId(id)).toBe(true);
-    expect(getSessionKeyFromViewerPaneId(id)).toBe("sk-99");
-    expect(getSessionKeyFromViewerPaneId("chat:foo")).toBeNull();
-  });
-
   test("sessionKeyForPaneId: la chat NON ha la sessionKey nell'id — va presa dal topic", () => {
     const topicId = "7b1e2a1f-2cf2-453c-a77b-5dc95d66e890";
     const topics = { [topicId]: { sessionKey: "topic:7b1e2a1f" } };
@@ -125,8 +112,6 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
     expect(sessionKeyForPaneId(topicId, topics)).toBe("topic:7b1e2a1f");
     // Dentro una finestra di progetto: `chat:<topicId>`.
     expect(sessionKeyForPaneId(createPaneId("chat", topicId), topics)).toBe("topic:7b1e2a1f");
-    // Il caso che funzionava già: la chiave sta NELL'id.
-    expect(sessionKeyForPaneId("session-viewer:topic:abcd1234", topics)).toBe("topic:abcd1234");
   });
 
   test("sessionKeyForPaneId: niente sessione per i pane che non sono chat", () => {
@@ -142,7 +127,7 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
   });
 
   test("isKnownPanePrefix recognises every documented prefix and rejects an unknown one", () => {
-    for (const id of ["project:x", "browser:x", "terminal:x", "draft:x", "chat:x", "session-viewer:x", "process-log:x", "__internal"]) {
+    for (const id of ["project:x", "browser:x", "terminal:x", "draft:x", "chat:x", "process-log:x", "__internal"]) {
       expect(isKnownPanePrefix(id)).toBe(true);
     }
     expect(isKnownPanePrefix("bogus:x")).toBe(false);
@@ -302,18 +287,18 @@ describe("tabTargetForPane — un permalink per tab, o NIENTE", () => {
     expect(tabTargetForPane(pane({ id: createPaneId("file"), type: "file" }), { projectPath: "/work/x" })).toBeNull();
   });
 
-  test("utility → il pannello, ma solo quelli indirizzabili (`journal` non lo è)", () => {
-    for (const type of ["board", "agents", "dashboard", "activity", "cron"] as const) {
+  test("utility → il pannello, ma solo quelli indirizzabili", () => {
+    for (const type of ["board", "dashboard", "cron"] as const) {
       expect(tabTargetForPane(pane({ id: utilityPanelId(type), type })))
         .toEqual({ kind: "panel", key: type });
     }
-    // `journal` esiste come utility ma `handleOpenAsPage` non lo prevede: un
-    // link che non apre niente è peggio di nessun link.
-    expect(tabTargetForPane(pane({ id: utilityPanelId("journal"), type: "journal" }))).toBeNull();
+    // Un panel fuori da TAB_PANELS non è indirizzabile: un link che non apre
+    // niente è peggio di nessun link.
+    expect(tabTargetForPane(pane({ id: "__nonesiste__", type: "chat" }))).toBeNull();
   });
 
   test("i tipi con id casuale non sono indirizzabili — il null È il gate della voce di menu", () => {
-    for (const type of ["kanban", "git", "files", "session-viewer", "process-log"] as Pane["type"][]) {
+    for (const type of ["kanban", "git", "files", "plan", "process-log"] as Pane["type"][]) {
       expect(tabTargetForPane(pane({ id: createPaneId(type), type }))).toBeNull();
     }
     expect(tabTargetForPane(pane({ id: createDraftPaneId(), type: "chat" }))).toBeNull();
@@ -322,9 +307,8 @@ describe("tabTargetForPane — un permalink per tab, o NIENTE", () => {
 
 describe("getPaneConfig — safe lookup with chat fallback", () => {
   test("a reserved type with no PANE_CONFIG entry falls back to the chat config", () => {
-    // 'agent' (singular) is a reserved future PaneType with no PANE_CONFIG
-    // entry — distinct from 'agents' (plural), which IS configured.
-    expect(getPaneConfig("agent")).toBe(getPaneConfig("chat"));
+    // 'context' is a reserved future PaneType with no PANE_CONFIG entry.
+    expect(getPaneConfig("context")).toBe(getPaneConfig("chat"));
   });
 
   test("a configured type returns its own entry, not the fallback", () => {

@@ -620,21 +620,6 @@ export async function deleteTask(
     );
 }
 
-// --- Agent profile fixtures ---
-
-export async function deleteAgentProfile(
-  request: APIRequestContext,
-  id: string
-): Promise<void> {
-  await request
-    .delete(`${BASE}/api/agents/profiles/${id}`, {
-      ignoreHTTPSErrors: true,
-    })
-    .catch((err) =>
-      console.warn(`[cleanup] deleteAgentProfile ${id}:`, err.message)
-    );
-}
-
 // --- Terminal session fixtures ---
 
 export async function createTerminalSession(
@@ -793,7 +778,6 @@ export async function seedProjectInnerChats(
 interface CleanupItems {
   topics?: string[];
   tasks?: Array<{ projectId: string; taskId: string }>;
-  agents?: string[];
   terminalSessions?: string[];
 }
 
@@ -818,12 +802,6 @@ export async function cleanupAll(
   for (const { projectId, taskId } of created.tasks ?? []) {
     await deleteTask(request, projectId, taskId).catch((err) =>
       errors.push(`task ${projectId}/${taskId}: ${err.message}`)
-    );
-  }
-
-  for (const id of created.agents ?? []) {
-    await deleteAgentProfile(request, id).catch((err) =>
-      errors.push(`agent ${id}: ${err.message}`)
     );
   }
 

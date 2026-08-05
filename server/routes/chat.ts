@@ -38,7 +38,6 @@ import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
-import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
@@ -299,23 +298,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           bumpTopicActivity(matchedTopic);
         }
 
-        // Parse and store mentions from user message
-        try {
-          const mentions = parseMentions(lastUserMsg.content);
-          if (mentions.length > 0) {
-            const resolved = resolveMentions(db, mentions);
-            const insertMention = db.prepare(
-              "INSERT INTO mentions (message_id, session_key, mentioned_entity, entity_type, created_at) VALUES (?, ?, ?, ?, ?)"
-            );
-            const now = new Date().toISOString();
-            for (const m of resolved) {
-              insertMention.run(storedUserMsg.id, sessionKey, m.entity, m.entityType, now);
-            }
-          }
-        } catch (err) {
-          console.warn("[Mentions] Failed to parse/store mentions:", err);
-        }
-
         // Handle board chat control commands (/ prefixed)
         if (lastUserMsg.content.trim().startsWith("/")) {
           const cmdText = lastUserMsg.content.trim();
@@ -325,74 +307,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             let response: string | null = null;
 
             try {
-              if (cmd === "pause") {
-                const agentName = rest.replace(/^@/, "").trim();
-                if (agentName) {
-                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
-                  if (agent) {
-                    const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
-                    if (session) {
-                      try {
-                        const p = resolveProvider(matchedTopic);
-                        if (p.pauseSession) {
-                          await p.pauseSession(session.session_key);
-                        } else {
-                          throw new Error("Provider does not support pause");
-                        }
-                        response = `Paused agent @${agentName}`;
-                      } catch { response = `Failed to pause @${agentName} — no reachable session`; }
-                    } else { response = `No active session found for @${agentName}`; }
-                  } else { response = `Agent "${agentName}" not found`; }
-                }
-              } else if (cmd === "resume") {
-                const agentName = rest.replace(/^@/, "").trim();
-                if (agentName) {
-                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
-                  if (agent) {
-                    const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'paused' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
-                    if (session) {
-                      try {
-                        const p = resolveProvider(matchedTopic);
-                        if (p.resumeSession) {
-                          await p.resumeSession(session.session_key);
-                        } else {
-                          throw new Error("Provider does not support resume");
-                        }
-                        response = `Resumed agent @${agentName}`;
-                      } catch { response = `Failed to resume @${agentName} — no reachable session`; }
-                    } else { response = `No paused session found for @${agentName}`; }
-                  } else { response = `Agent "${agentName}" not found`; }
-                }
-              } else if (cmd === "agents") {
-                const rows = db.prepare("SELECT name, role, avatar_emoji, status FROM agent_profiles ORDER BY name ASC").all() as any[];
-                if (rows.length === 0) {
-                  response = "No agent profiles configured.";
-                } else {
-                  const lines = rows.map((r: any) => `${r.avatar_emoji} **${r.name}** — ${r.role} (${r.status})`);
-                  response = `**Agent Profiles**\n\n${lines.join("\n")}`;
-                }
-              } else if (cmd === "assign") {
-                const assignMatch = rest.match(/^@(\S+)\s+(.+)/);
-                if (assignMatch) {
-                  const [, agentName, taskText] = assignMatch;
-                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
-                  if (agent) {
-                    // Find project ID for this topic to create a task
-                    const projectId = matchedTopic ? getProjectIdForTopic(matchedTopic.id) : null;
-                    if (projectId) {
-                      const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(projectId) as any;
-                      const now = new Date().toISOString();
-                      const taskId = crypto.randomUUID();
-                      db.prepare(`INSERT INTO tasks (id, project_id, text, status, priority, kanban_order, assigned_to, created_at, updated_at) VALUES (?, ?, ?, 'todo', 2, ?, ?, ?, ?)`).run(
-                        taskId, projectId, taskText, (maxRow?.m ?? 0) + 1, agentName, now, now
-                      );
-                      response = `Created task and assigned to @${agentName}: "${taskText}"`;
-                    } else {
-                      response = `Cannot assign task — topic has no project. Set a project path first.`;
-                    }
-                  } else { response = `Agent "${agentName}" not found`; }
-                }
-              } else if (cmd === "project") {
+              if (cmd === "project") {
                 const subMatch = rest.match(/^(\w+)\s*(.*)/);
                 const sub = subMatch ? subMatch[1] : "";
                 const arg = subMatch ? subMatch[2].trim() : "";

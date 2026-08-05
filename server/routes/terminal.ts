@@ -9,7 +9,7 @@ import net from "net";
 import fs from "fs";
 import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
-import { authenticateAgent } from "../middleware/agent-auth";
+import { readState } from "../services/daemon-state";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
@@ -1683,11 +1683,14 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
  *  peer / local process.
  *
  *  Two credentials are accepted, either one suffices:
- *   1. The native Topics agent token (`X-Agent-Token`, pbkdf2-sha256 hash in
- *      agent_profiles) — the PRIMARY path. Restricted to lead-role profiles:
- *      driving a terminal is a board-lead capability, not a worker's. This is
- *      self-contained (no external dependency) so terminal control keeps
- *      working even with no OpenClaw around.
+ *   1. The DAEMON token (`Authorization: Bearer <64-hex>` or `X-Daemon-Token`),
+ *      the same 32-byte secret `~/.topics/daemon-state.json` hands to
+ *      `/__daemon/*` — the PRIMARY path. It is Topics' own credential: written
+ *      by the running server, readable only by the user who owns the file, and
+ *      re-read on every call so a rotation takes effect at once.
+ *      It replaced the old per-agent `X-Agent-Token` (a pbkdf2 hash column on
+ *      `agent_profiles`) when the named-agent roster was removed: nothing could
+ *      mint one any more, so keeping it would have been a gate with no key.
  *   2. The shared GATEWAY_TOKEN (`x-gateway-token`) — kept for backward
  *      compatibility with the MCP bridge, but no longer REQUIRED. OpenClaw is
  *      dismissed; we must not depend on its secret for a core function.
@@ -1695,10 +1698,15 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
  *  The ownership guard on send/read/stop is defence-in-depth ON TOP of this,
  *  never instead of it. */
 function agentAuthOk(req: Request): boolean {
-  // Native agent auth (Topics-owned): a valid X-Agent-Token for a lead profile.
+  // Native daemon auth (Topics-owned). Read fresh so a rotated state file
+  // applies immediately, exactly like the /__daemon/* gate in server.ts.
   try {
-    const auth = authenticateAgent(req, getDatabase());
-    if (auth && (auth.isLead || auth.agent.role === "lead")) return true;
+    const state = readState();
+    if (state?.token) {
+      const bearer = req.headers.get("authorization")?.match(/^Bearer\s+([0-9a-f]{64})$/i)?.[1] ?? "";
+      const header = req.headers.get("x-daemon-token") || "";
+      if (timingSafeEqualStr(bearer, state.token) || timingSafeEqualStr(header, state.token)) return true;
+    }
   } catch {}
   // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
   const expected = process.env.GATEWAY_TOKEN;

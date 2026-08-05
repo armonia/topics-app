@@ -27,9 +27,6 @@ const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').t
 const FileExplorer = lazy(() => import('../Project/FileExplorer').then(m => ({ default: m.FileExplorer })));
 const FilePane = lazy(() => import('../Editor/FilePane').then(m => ({ default: m.FilePane })));
 const GitChanges = lazy(() => import('../Project/GitChanges').then(m => ({ default: m.GitChanges })));
-const ActivityPane = lazy(() => import('../Sidebar/ActivityPane').then(m => ({ default: m.ActivityPane })));
-const JournalPane = lazy(() => import('../Journal/JournalPane').then(m => ({ default: m.JournalPane })));
-const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
@@ -427,24 +424,6 @@ export function ProjectWindowPane({
         return (
           <LazyPane>
             <GitChanges projectPath={projectPath} />
-          </LazyPane>
-        );
-      case 'activity':
-        return (
-          <LazyPane>
-            <ActivityPane />
-          </LazyPane>
-        );
-      case 'journal':
-        return (
-          <LazyPane>
-            <JournalPane />
-          </LazyPane>
-        );
-      case 'agents':
-        return (
-          <LazyPane>
-            <AgentsPane onNavigateToTopic={(topicId) => onFocusPanel(topicId)} onMessage={onWSMessage} />
           </LazyPane>
         );
       case 'dashboard':

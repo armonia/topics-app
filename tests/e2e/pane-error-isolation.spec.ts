@@ -23,7 +23,7 @@ hermetic(test);
  * già stabiliva con `contain: layout`.
  *
  * Come si provoca il guasto senza codice di test in produzione: si blocca il
- * chunk della pane Journal, che è `lazy()`. È il guasto VERO, non una finta —
+ * chunk della pane Dashboard, che è `lazy()`. È il guasto VERO, non una finta —
  * `import()` rifiuta, React rilancia in render, e il boundary più vicino
  * raccoglie.
  *
@@ -38,7 +38,7 @@ hermetic(test);
  */
 test.use({ video: "on" });
 
-const JOURNAL_PANE = "__journal__";
+const LAZY_PANE = "__dashboard__";
 
 test.describe("Isolamento dei guasti fra pane", () => {
   let topicId: string;
@@ -55,20 +55,20 @@ test.describe("Isolamento dei guasti fra pane", () => {
   });
 
   test.beforeEach(async ({ request }) => {
-    // Due tab nello stesso gruppo: la chat del topic e il Journal (lazy).
+    // Due tab nello stesso gruppo: la chat del topic e la Dashboard (lazy).
     // Si parte dalla CHAT attiva — una pane resta montata solo se è stata
     // visitata (tetto di residenza, vedi pane-residency-cap.spec.ts), quindi
     // il test deve percorrere la strada dell'utente: guardo la chat, apro il
-    // Journal, quello si rompe, torno alla chat.
+    // Dashboard, quella si rompe, torno alla chat.
     await seedPaneStore(request, () => ({
       panes: {
         [topicId]: { id: topicId, type: "chat", title: topicName, topicId },
-        [JOURNAL_PANE]: { id: JOURNAL_PANE, type: "journal", title: "Journal" },
+        [LAZY_PANE]: { id: LAZY_PANE, type: "dashboard", title: "Dashboard" },
       },
       groups: {
         "group:default": {
           id: "group:default",
-          paneIds: [topicId, JOURNAL_PANE],
+          paneIds: [topicId, LAZY_PANE],
           activePaneId: topicId,
           splitRatio: 1,
           splitAxis: "horizontal",
@@ -80,13 +80,13 @@ test.describe("Isolamento dei guasti fra pane", () => {
     }));
     await request
       .put(`${E2E_BASE}/api/ui-state/panels`, {
-        data: { openPanels: [topicId, JOURNAL_PANE] },
+        data: { openPanels: [topicId, LAZY_PANE] },
         ignoreHTTPSErrors: true,
       })
       .catch(() => {});
   });
 
-  test("il chunk del Journal non carica: la pane mostra l'errore, la chat accanto resta viva", async ({
+  test("il chunk della Dashboard non carica: la pane mostra l'errore, la chat accanto resta viva", async ({
     page,
     context,
   }) => {
@@ -103,7 +103,7 @@ test.describe("Isolamento dei guasti fra pane", () => {
     // che lo registra — rispondeva 404 sul percorso web (vedi
     // server/static-assets.ts). Stessa ragione già scritta in
     // tool-call-rendering.spec.ts.
-    await context.route("**/assets/JournalPanel-*.js", (route) => route.abort());
+    await context.route("**/assets/DashboardPane-*.js", (route) => route.abort());
 
     await goToApp(page);
 
@@ -111,13 +111,13 @@ test.describe("Isolamento dei guasti fra pane", () => {
     const input = page.locator('[data-testid="chat-message-input"]');
     await expect(input).toBeVisible({ timeout: 30_000 });
 
-    // Si apre il Journal: il suo chunk non arriva, la pane muore in render.
-    await page.locator(`[data-testid="pane-tab-${JOURNAL_PANE}"]`).click();
+    // Si apre la Dashboard: il suo chunk non arriva, la pane muore in render.
+    await page.locator(`[data-testid="pane-tab-${LAZY_PANE}"]`).click();
 
     // La pane rotta lo dice DENTRO il suo riquadro.
-    const journalShell = page.locator(`[data-pane-shell="${JOURNAL_PANE}"]`);
+    const brokenShell = page.locator(`[data-pane-shell="${LAZY_PANE}"]`);
     await expect(
-      journalShell.getByRole("button", { name: /ricarica|try again/i }),
+      brokenShell.getByRole("button", { name: /ricarica|try again/i }),
     ).toBeVisible({ timeout: 30_000 });
 
     // L'errore si è fermato al bordo della pane: la barra delle tab — che sta
@@ -136,7 +136,7 @@ test.describe("Isolamento dei guasti fra pane", () => {
     await expect(input).toHaveValue("la pane accanto è morta, io no");
 
     // …e la pane rotta non ha lasciato la sua schermata di errore addosso a
-    // quella sana: l'errore vive nel riquadro del Journal, non nella griglia.
+    // quella sana: l'errore vive nel riquadro della Dashboard, non nella griglia.
     await expect(
       page.locator(`[data-pane-shell="${topicId}"]`).getByRole("button", { name: /ricarica|try again/i }),
     ).toHaveCount(0);
@@ -148,8 +148,8 @@ test.describe("Isolamento dei guasti fra pane", () => {
       timeout: 30_000,
     });
 
-    await page.locator(`[data-testid="pane-tab-${JOURNAL_PANE}"]`).click();
-    await expect(page.locator(`[data-pane-shell="${JOURNAL_PANE}"]`)).toBeVisible({
+    await page.locator(`[data-testid="pane-tab-${LAZY_PANE}"]`).click();
+    await expect(page.locator(`[data-pane-shell="${LAZY_PANE}"]`)).toBeVisible({
       timeout: 30_000,
     });
 

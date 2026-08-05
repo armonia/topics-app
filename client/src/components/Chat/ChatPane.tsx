@@ -34,10 +34,6 @@ const SLASH_COMMANDS_HELP = [
   '/model — Change model (e.g. /model claude-opus-5[1m])',
   '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
   '/reasoning — Toggle reasoning (openclaw) / → /effort on claude-code',
-  '/agents — List all agent profiles',
-  '/pause @name — Pause an agent',
-  '/resume @name — Resume a paused agent',
-  '/assign @name task — Create and assign a task to an agent',
   "/goal <testo> — Dichiara l'obiettivo della chat (sopravvive alla compattazione)",
   '/goal fatto | basta — Chiudi l\'obiettivo (raggiunto / abbandonato)',
   '/help — Show available commands',
@@ -84,7 +80,6 @@ export interface ChatPaneProps {
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   // Session viewer
-  onOpenSessionViewer?: (sessionKey: string) => void;
   /** Optional content rendered inside the floating input bar, just above
    *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
    *  the board strip so it stays visible while typing. */
@@ -100,7 +95,7 @@ function ChatPaneComponent({
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
-  editMessage, regenerateMessage, deleteMessage, switchBranch, onOpenSessionViewer,
+  editMessage, regenerateMessage, deleteMessage, switchBranch,
   aboveInputSlot,
 }: ChatPaneProps) {
   const toast = useToast();
@@ -1000,7 +995,7 @@ function ChatPaneComponent({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}

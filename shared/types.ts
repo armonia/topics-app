@@ -475,7 +475,6 @@ export interface Topic {
    * first prompt, then PATCHes it back to null.
    */
   initialMessage?: string | null;
-  assignedAgents?: { id: string; name: string; role: string }[];
   /**
    * Phase 30 BROWSER-CHAT-01 — last-known browser state for this topic.
    * Populated by BrowserService on every navigation. Restored on server

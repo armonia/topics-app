@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -14,7 +14,6 @@ import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
-import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
@@ -88,7 +87,6 @@ const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcu
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
-const AgentAssignPanel = lazy(() => import('./components/Agents/AgentAssignPanel').then(m => ({ default: m.AgentAssignPanel })));
 /**
  * Il target del deep-link che la URL porta al boot, o `null`.
  *
@@ -344,7 +342,6 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPath: string }>(false);
-  const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   // The sidebar header "New" button used to track its dropdown via a
   // local `showNewMenu` boolean and a `newMenuBtnRef`. Both moved into
   // <PaneAddMenu> when we unified the three add-menu implementations
@@ -474,15 +471,12 @@ function App() {
   // badge surfaces across the tab bar and the sidebar.
   const { sessions: claudeSessions } = useClaudeSessionState({ onWSMessage });
   const openclawAvailable = useOpenClawAvailable();
-  const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: openclawAvailable });
-  const agentLiveCount = activeSessions.length + idleSessions.length;
   // Feed the unified signals store from every raw input in one place
-  // (agent / Claude attention / live stream / hydrated mid-reply / server pty
+  // (Claude attention / live stream / hydrated mid-reply / server pty
   // activity). Consumers only read the facade (usePaneLoading / getBadgeCount).
   useSignalsSync({
     topics,
     claudeSessions,
-    activeAgentSessions: activeSessions,
     terminalSessions,
     isSessionStreaming,
     reconcileServerStreams,
@@ -1316,29 +1310,6 @@ function App() {
             <Radio size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Remote Access</span>
           </button>
-          {openclawAvailable && (
-            <button
-              onClick={() => { handleOpenAsPage('activity'); setShowTopicsMenu(false); setExpandedTool(null); }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Activity size={isMobile ? 18 : 14} />
-              <span className="flex-1 text-left">Activity</span>
-            </button>
-          )}
-          {openclawAvailable && (
-            <button
-              onClick={() => { handleOpenAsPage('agents'); setShowTopicsMenu(false); setExpandedTool(null); }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Cpu size={isMobile ? 18 : 14} />
-              <span className="flex-1 text-left">Agents</span>
-              {agentLiveCount > 0 && (
-                <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-primary text-white text-[9px] font-bold rounded-full leading-none px-1">
-                  {agentLiveCount}
-                </span>
-              )}
-            </button>
-          )}
           {TOPICS_MENU_PAGES
             .filter(({ id }) => id !== 'cron' || openclawAvailable)
             .map(({ id, icon: Icon, label }) => (
@@ -1406,7 +1377,6 @@ function App() {
           onClose={() => setContextMenu(null)}
           onUpdate={updateTopic}
           onDelete={archiveTopic}
-          onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
           isPinned={sidebar.pinnedIds.has(contextMenu.topic.id)}
           onTogglePin={() => handleTogglePin(contextMenu.topic.id)}
           onPopOut={() => {
@@ -1443,17 +1413,6 @@ function App() {
             onSettingsChange={setAppSettings}
             themeMode={themeMode}
             onThemeChange={setTheme}
-          />
-        </Suspense>
-      )}
-
-      {/* Agent Assign Panel */}
-      {assignAgentsTarget && (
-        <Suspense fallback={null}>
-          <AgentAssignPanel
-            topicId={assignAgentsTarget.topicId}
-            topicName={assignAgentsTarget.topicName}
-            onClose={() => setAssignAgentsTarget(null)}
           />
         </Suspense>
       )}

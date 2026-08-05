@@ -186,12 +186,6 @@ export function useCompletionNotifier({
     if (sound) playCompletionTone();
   }, []);
 
-  // Per-session previous status, keyed by `session.key`. We diff frames
-  // here — the server publishes the full session list on every frame, so
-  // detecting an `active → idle` transition is "what changed since last
-  // frame" rather than a count delta.
-  const prevStatusRef = useRef<Map<string, string>>(new Map());
-
   // Refs let us read the latest values inside the WS handler without
   // re-subscribing on every settings change (which would drop in-flight
   // status diffs). useRefMirror is the canonical state→ref bridge.
@@ -219,83 +213,6 @@ export function useCompletionNotifier({
     return isTopicMutedPure(topicsRef.current[topicId], settingsRef.current.mutedProjects);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads only refs (stable)
   }, []);
-
-  useWSSubscription(onWSMessage, 'agents:sessions', (msg) => {
-      const sessions = msg.sessions;
-
-      // Bound cooldownRef (shared with the phase notifier below): it's keyed by
-      // topic/session and was only ever written, so it grew for the lifetime of
-      // this always-mounted hook. The cooldown window is 10s, so evicting
-      // entries older than 5 min never drops a live one. This tick (one per
-      // agents:sessions broadcast) is a natural place to prune.
-      {
-        const cutoff = Date.now() - 300_000;
-        for (const [k, t] of cooldownRef.current) {
-          if (t < cutoff) cooldownRef.current.delete(k);
-        }
-      }
-
-      const cfg = settingsRef.current;
-      if (!cfg.notificationsEnabled) {
-        // Still update prev statuses so we don't emit a burst when the
-        // user re-enables the toggle mid-session.
-        const next = new Map<string, string>();
-        for (const session of sessions) next.set(session.key, session.status);
-        prevStatusRef.current = next;
-        return;
-      }
-
-      const prev = prevStatusRef.current;
-      const next = new Map<string, string>();
-      const focusedTopicId = topicIdFromPanel(focusedRef.current);
-      // First frame after load/reconnect = baseline only (no prior status to
-      // diff). The roster watcher re-broadcasts the full list, so a stale
-      // `error` row would otherwise toast on load. Mirrors the badge path in
-      // useTabNotifications. A later transition into error still requires a
-      // KNOWN non-error predecessor.
-      const isFirstFrame = prev.size === 0;
-
-      for (const session of sessions) {
-        const previousStatus = prev.get(session.key);
-        const justCompleted = previousStatus === 'active' && session.status === 'idle';
-        const justErrored = previousStatus !== undefined && previousStatus !== 'error' && session.status === 'error';
-
-        if (!isFirstFrame && (justCompleted || justErrored)) {
-          const topicId = session.topicId ?? null;
-          // Actively-visible = this topic's tab selected AND window focused; a
-          // backgrounded window must still banner (see isTabActivelyVisible).
-          const isFocused = isTabActivelyVisible(
-            topicId !== null && topicId === focusedTopicId,
-            typeof document !== 'undefined' ? document.hasFocus() : true,
-          );
-          // Mute wins over notifyEvenWhenFocused: a silenced topic never banners.
-          const shouldShow = (!isFocused || cfg.notifyEvenWhenFocused) && !isTopicMuted(topicId);
-
-          if (shouldShow && topicId) {
-            const now = Date.now();
-            const last = cooldownRef.current.get(topicId) ?? 0;
-            if (now - last >= 10_000) {
-              cooldownRef.current.set(topicId, now);
-
-              const topic = topicsRef.current[topicId];
-              const label = topic?.name ?? 'Topic';
-              // Dispatched-task topic → carry the taskId so a click opens the task.
-              const taskId = taskForTopicRef.current?.(topicId)?.taskId ?? null;
-              // Il nome della topic resta INTERO nel titolo, comunque sia fatto.
-              fire(justErrored ? 'warn' : 'ok', label, justErrored ? 'Errore agente' : 'Agente: lavoro finito', cfg.notificationsSound, taskId);
-            }
-          } else if (shouldShow && !topicId) {
-            // Session without a topic id — still surface it, but without
-            // cooldown keying since we have nothing to key on.
-            fire(justErrored ? 'warn' : 'ok', 'Topics', justErrored ? 'Errore agente' : 'Agente: lavoro finito', cfg.notificationsSound);
-          }
-        }
-
-        next.set(session.key, session.status);
-      }
-
-      prevStatusRef.current = next;
-  });
 
   // ── End-of-task notifier ───────────────────────────────────────────────
   // A board task entering review is the "the task you asked for is done" cue.

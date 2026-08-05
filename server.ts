@@ -32,7 +32,6 @@ import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
-import { createAgentsRouter } from "./server/routes/agents";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
@@ -66,11 +65,7 @@ import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/br
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
-import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
-import { JournalCollector } from "./server/journal-collector";
-import { createJournalRouter } from "./server/routes/journal";
-import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
@@ -98,7 +93,6 @@ import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
-import { startHeartbeatChecker } from "./server/agent-heartbeat";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, hasPendingAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
@@ -132,13 +126,13 @@ if (!process.env.GATEWAY_TOKEN) {
     }
   } catch {}
   if (!process.env.GATEWAY_TOKEN) {
-    // The OpenClaw gateway is an OPTIONAL integration (journal sync + the
-    // "openclaw" relay provider). A standalone download has no OpenClaw config,
+    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
+    // provider). A standalone download has no OpenClaw config,
     // so a missing token must NOT be fatal: the app defaults to the Claude
     // provider and runs fine without the gateway. This previously process.exit(1)'d,
     // which crashed the bundled server before it could listen — the packaged app
     // then hung forever on "Launching the local engine" on every clean machine.
-    console.warn("[Startup] GATEWAY_TOKEN not set — OpenClaw gateway features (journal sync, gateway relay) disabled; continuing without them.");
+    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
   }
 }
 
@@ -446,7 +440,6 @@ setTerminalBrowserCloser((contextId) => {
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
 const usageRouter = createUsageRouter(ctx);
-const agentsRouter = createAgentsRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
@@ -454,7 +447,6 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
-const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
@@ -1217,8 +1209,6 @@ const stopUiStateBackup = startUiStateBackupTicker(ctx.db);
 
 // Initialize VAPID keys on startup
 initVapid();
-// Start agent heartbeat checker
-const stopHeartbeatChecker = startHeartbeatChecker(db, broadcastToAll);
 // Dev bundle hot-delivery: rebuilt /public → open windows self-reload.
 // Inert unless STATE_DIR/topics-dev.json exists (never in standalone installs).
 // getRev() also feeds the WS open handler: every (re)connecting window gets
@@ -1234,19 +1224,14 @@ const devBundleReload = startDevBundleReload({
 // the user enables it from Topics (POST /api/master/monitor) — nothing runs
 // "a caso". Default OFF on every server start. See session-monitor.ts.
 
-// Init activity monitor (watches gateway log files)
-const activityMonitor = new ActivityMonitor();
-const activityRouter = createActivityRouter(ctx, activityMonitor);
+// Activity LOG (audit trail) — the live OpenClaw-log feed is gone.
+const activityRouter = createActivityRouter(ctx);
 
 // External-session census: poll + broadcast so a `claude` started in iTerm
 // surfaces on the board within ~20s without any client polling.
 const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
 externalSessions.start();
 
-// Init journal collector (polls gateway for daily summaries)
-const journalCollector = new JournalCollector(ctx.STATE_DIR, ctx.GATEWAY_URL, ctx.GATEWAY_TOKEN);
-journalCollector.start();
-const journalRouter = createJournalRouter(ctx, journalCollector);
 
 const WS_HEARTBEAT_INTERVAL_MS = 30000;
 const WS_TIMEOUT_MS = 90000;
@@ -1764,13 +1749,10 @@ const server = Bun.serve<WSData>({
         || await usageRouter(req, url, pathname, method)
         || await activityRouter(req, url, pathname, method)
         || await externalSessionsRouter(req, url, pathname, method)
-        || await agentsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
         || await goalsRouter(req, url, pathname, method)
-        || await journalRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
-        || await agentProfilesRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -3290,9 +3272,6 @@ async function gracefulShutdown(signal: string) {
   clearInterval(landingAuditTimer);
   taskDispatcher.shutdown();
   void previewManager?.teardownAll(); // kill any live preview servers
-  stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)
-  activityMonitor.destroy();   // closes the log fs.watch + batch/persist timers
-  journalCollector.stop();     // clears the journal collection interval
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await webrtcBridge.shutdown();

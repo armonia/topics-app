@@ -83,8 +83,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // (`{ tasks }`, `{ providers }`, `{ webhooks }`, `{ points }`, …). This file is
 // deliberately mixed about how that envelope is surfaced to callers:
 //
-//   • List methods that return the bare array (`agentProfilesApi.list`,
-//     `dashboardApi.getTimeSeries/getAgentStats`) `await request<{ key: T[] }>`
+//   • List methods that return the bare array (`dashboardApi.getTimeSeries`)
+//     `await request<{ key: T[] }>`
 //     and return `.key` — the caller never sees the envelope.
 //   • The remaining methods (`searchApi.search`, `providersApi.snapshot`, …)
 //     return the envelope verbatim so the caller destructures
@@ -1008,136 +1008,6 @@ export const contextSnapshotsApi = {
   },
 };
 
-// ── Agent Profiles ──────────────────────────────────────────────────────────
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  role: 'lead' | 'worker' | 'specialist';
-  modelPreference: string | null;
-  maxConcurrentTasks: number;
-  capabilities: string[];
-  avatarEmoji: string;
-  status: 'available' | 'busy' | 'paused' | 'offline';
-  hasToken?: boolean;
-  isBoardLead?: boolean;
-  identityTemplate?: string | null;
-  soulTemplate?: string | null;
-  lastSeenAt?: string | null;
-  gatewaySessionId?: string | null;
-  assignments?: AgentAssignment[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AgentAssignment {
-  agentId: string;
-  topicId: string;
-  role: 'lead' | 'worker';
-  assignedAt: string;
-}
-
-/**
- * Una riga di `agent_sessions` — NON la sessione viva di `shared/monitoring.ts`,
- * che porta lo stesso nome ed è un'altra cosa. La collisione era già costata un
- * alias difensivo (`AgentSession as LiveSession` in SessionHistory.tsx): meglio
- * un nome onesto.
- */
-export interface AgentProfileSession {
-  id: string;
-  agentId: string;
-  sessionKey: string;
-  topicId: string | null;
-  status: string;
-  taskId: string | null;
-  startedAt: string;
-  lastHeartbeat: string | null;
-  completedAt: string | null;
-  totalTokens: number;
-  errorMessage: string | null;
-}
-
-export interface SessionHistoryItem extends AgentProfileSession {
-  agentName: string | null;
-  agentAvatar: string | null;
-  agentRole: string | null;
-  topicName: string | null;
-}
-
-export interface TimelineEvent {
-  type: 'session_start' | 'session_end' | 'heartbeat' | 'action';
-  timestamp: string;
-  data: Record<string, unknown>;
-}
-
-export interface SessionTimelineResponse {
-  session: AgentProfileSession | null;
-  events: TimelineEvent[];
-  heartbeatCount: number;
-  actionCount: number;
-}
-
-export interface SessionHistoryResponse {
-  sessions: SessionHistoryItem[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export const agentProfilesApi = {
-  async list(): Promise<AgentProfile[]> {
-    const data = await request<{ profiles: AgentProfile[] }>('/agents/profiles');
-    return data.profiles;
-  },
-  async get(id: string): Promise<AgentProfile> {
-    return request<AgentProfile>(`/agents/profiles/${id}`);
-  },
-  async create(body: Partial<AgentProfile>): Promise<AgentProfile> {
-    return request<AgentProfile>('/agents/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  },
-  async update(id: string, body: Partial<AgentProfile>): Promise<AgentProfile> {
-    return request<AgentProfile>(`/agents/profiles/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  },
-  async remove(id: string): Promise<void> {
-    await request(`/agents/profiles/${id}`, { method: 'DELETE' });
-  },
-  async assign(id: string, topicId: string, role?: string): Promise<AgentAssignment> {
-    return request<AgentAssignment>(`/agents/profiles/${id}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topicId, role }) });
-  },
-  async unassign(id: string, topicId: string): Promise<void> {
-    await request(`/agents/profiles/${id}/unassign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topicId }) });
-  },
-  async sessions(id: string): Promise<AgentProfileSession[]> {
-    const data = await request<{ sessions: AgentProfileSession[] }>(`/agents/profiles/${id}/sessions`);
-    return data.sessions;
-  },
-  async heartbeat(sessionKey: string, body: { status?: string; tokensUsed?: number; currentTask?: string }): Promise<void> {
-    await request(`/agents/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  },
-  async pause(sessionKey: string): Promise<void> {
-    await request(`/agents/sessions/${encodeURIComponent(sessionKey)}/pause`, { method: 'POST' });
-  },
-  async resume(sessionKey: string): Promise<void> {
-    await request(`/agents/sessions/${encodeURIComponent(sessionKey)}/resume`, { method: 'POST' });
-  },
-  async timeline(sessionKey: string): Promise<SessionTimelineResponse> {
-    return request<SessionTimelineResponse>(`/agents/sessions/${encodeURIComponent(sessionKey)}/timeline`);
-  },
-  async sessionHistory(sessionKey: string, limit = 100): Promise<{ messages: HistoryMessage[] }> {
-    return request<{ messages: HistoryMessage[] }>(`/agents/sessions/${encodeURIComponent(sessionKey)}/history?limit=${limit}`);
-  },
-  async history(params: { status?: string; agentId?: string; search?: string; limit?: number; offset?: number } = {}): Promise<SessionHistoryResponse> {
-    const qs = new URLSearchParams();
-    if (params.status) qs.set('status', params.status);
-    if (params.agentId) qs.set('agentId', params.agentId);
-    if (params.search) qs.set('search', params.search);
-    if (params.limit) qs.set('limit', String(params.limit));
-    if (params.offset) qs.set('offset', String(params.offset));
-    const q = qs.toString();
-    return request<SessionHistoryResponse>(`/agents/sessions/history${q ? `?${q}` : ''}`);
-  },
-};
-
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
 export interface DashboardKPIs {
@@ -1152,9 +1022,6 @@ export interface DashboardKPIs {
    *  e' attendibile (registrato prima dello scorporo della cache). */
   tokenSpendDayUncertain?: number;
   tokenSpendWeekUncertain?: number;
-  /** `null` = nessuna fonte per la metrica (vedi server/routes/dashboard.ts).
-   *  Non e' zero: zero vorrebbe dire "gli agenti sono fermi". */
-  agentUtilization: number | null;
   approvalTurnaroundHours: number;
   pendingApprovals: number;
 }
@@ -1164,17 +1031,6 @@ export interface TimeSeriesPoint {
   value: number;
 }
 
-export interface AgentStat {
-  agentId: string;
-  agentName: string;
-  avatarEmoji: string;
-  tasksCompleted: number;
-  totalTokens: number;
-  avgCycleTimeHours: number;
-  errorRate: number;
-  sessionsCount: number;
-}
-
 export const dashboardApi = {
   async getKPIs(): Promise<DashboardKPIs> {
     return request<DashboardKPIs>('/dashboard/kpis');
@@ -1182,10 +1038,6 @@ export const dashboardApi = {
   async getTimeSeries(metric: string, range: string): Promise<TimeSeriesPoint[]> {
     const data = await request<{ points: TimeSeriesPoint[] }>(`/dashboard/timeseries?metric=${metric}&range=${range}`);
     return data.points;
-  },
-  async getAgentStats(): Promise<AgentStat[]> {
-    const data = await request<{ agents: AgentStat[] }>('/dashboard/agent-stats');
-    return data.agents;
   },
 };
 

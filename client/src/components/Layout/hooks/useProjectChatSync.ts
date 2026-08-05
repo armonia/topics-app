@@ -324,14 +324,14 @@ export function useProjectChatSync(
       if (fresh.nonChatPanes && fresh.nonChatPanes.length > 0) {
         const curIds = new Set(panesRef.current.map(p => p.id));
         // Per-project singleton VIEW panes (git, files, dashboard, activity,
-        // journal, agents, browser, …) are created with createPaneId(type) and
+        // browser, …) are created with createPaneId(type) and
         // NO key, i.e. a RANDOM uuid, so the same logical pane has a different id
         // on each device — union-by-id would add the peer's copy as a visual
-        // DUPLICATE. Only chat / terminal / session-viewer carry a STABLE
+        // DUPLICATE. Only chat / terminal carry a STABLE
         // cross-device id (keyed by topic/session) and may legitimately appear
         // more than once per project, so those union by id. Every other type is
         // a singleton: skip a remote one when we already hold that type locally.
-        const STABLE_MULTI_TYPES = new Set<PaneType>(['chat', 'terminal', 'session-viewer']);
+        const STABLE_MULTI_TYPES = new Set<PaneType>(['chat', 'terminal']);
         const localSingletonTypes = new Set(
           panesRef.current.filter(p => !STABLE_MULTI_TYPES.has(p.type)).map(p => p.type),
         );

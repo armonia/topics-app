@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PenLine, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Trash2, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -13,7 +13,6 @@ interface ContextMenuProps {
   onClose: () => void;
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onDelete: (id: string) => Promise<boolean>;
-  onAssignAgents?: (topicId: string, topicName: string) => void;
   /** Pinning (Fissati) — current pin state + toggle ("Fissa" / "Rimuovi dai
    *  Fissati"). Optional so legacy hosts render without the entry. */
   isPinned?: boolean;
@@ -31,7 +30,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, isPinned, onTogglePin, onPopOut }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, onPopOut }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -127,12 +126,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
               label="Apri in nuova finestra"
               onClick={() => { onPopOut(); onClose(); }}
             />
-          )}
-          {onAssignAgents && (
-            <>
-              <div className="border-t border-app-border my-1" />
-              <MenuItem icon={Bot} label="Assegna agenti" onClick={() => { onAssignAgents(topic.id, topic.name); onClose(); }} />
-            </>
           )}
           <div className="border-t border-app-border my-1" />
           <MenuItem icon={Trash2} label="Archivia" onClick={() => setSubMenu('confirm-delete')} danger />

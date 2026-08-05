@@ -255,7 +255,7 @@ function emit(type: string, detail: unknown): void {
  *   PROGETTO, e quale sia dipende dal record del topic (che qui non abbiamo):
  *   l'intento resta semplicemente senza riscontro nell'ordine dello store e non
  *   fa nulla — nessuna pane inventata;
- * • `journal` non è un panel indirizzabile, e un file senza progetto non è
+ * • un panel fuori da TAB_PANELS non è indirizzabile, e un file senza progetto non è
  *   risolvibile: entrambi non armano niente (e non emettono niente).
  *
  * File/diff: la pane del file ha un id sorteggiato a ogni apertura, ma ciò che
@@ -604,8 +604,8 @@ export function openTabInApp(target: TabTarget, opts?: OpenTabOptions): void {
       return;
 
     case 'panel': {
-      // `journal` non è in TAB_PANELS: il tipo di `handleOpenAsPage` non lo
-      // prevede, quindi sarebbe un evento che non apre niente.
+      // Fuori da TAB_PANELS non c'è niente da aprire: `handleOpenAsPage`
+      // conosce solo quei panel, e il resto sarebbe un evento a vuoto.
       if (!(TAB_PANELS as readonly string[]).includes(target.key)) {
         deadEnd();
         return;

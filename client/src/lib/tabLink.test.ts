@@ -174,7 +174,7 @@ describe('buildTabLinkForTarget', () => {
 
   test('un target incoerente non produce un link: è il gate della voce di menu', () => {
     expect(buildTabLinkForTarget({ kind: 'file', key: '/a/b.ts' })).toBeNull(); // manca projectPath
-    expect(buildTabLinkForTarget({ kind: 'panel', key: 'journal' })).toBeNull();
+    expect(buildTabLinkForTarget({ kind: 'panel', key: 'agents' })).toBeNull();
     expect(buildTabLinkForTarget({ kind: 'chat', key: '' })).toBeNull();
   });
 });
@@ -257,7 +257,7 @@ describe('openTabInApp — un ramo per tipo, tutti su eventi che l’app già ge
     ]);
   });
 
-  test('panel: solo i tipi indirizzabili; `journal` avvisa e NON emette niente', () => {
+  test('panel: solo i tipi indirizzabili; un panel morto avvisa e NON emette niente', () => {
     const { events } = stubWindow(`${origin}/`);
     openTabInApp({ kind: 'panel', key: 'cron' });
     expect(events).toEqual([
@@ -267,7 +267,7 @@ describe('openTabInApp — un ramo per tipo, tutti su eventi che l’app già ge
 
     const { events: e2 } = stubWindow(`${origin}/`);
     const { notes, notify } = collectNotes();
-    openTabInApp({ kind: 'panel', key: 'journal' }, { notify });
+    openTabInApp({ kind: 'panel', key: 'agents' }, { notify });
     // Nessun evento CREATIVO — e l'ack del vicolo cieco, che è l'unica cosa che
     // spegne la ri-asserzione di boot (prima qui non partiva, perché il wrapper
     // che lo emette era montato solo quando c'era un intento da rilasciare).
@@ -506,7 +506,7 @@ describe('openTabInApp — l’intento di focus (`topics:open-tab`)', () => {
   test('un target senza pane id deterministico non arma NIENTE', () => {
     const { events } = stubWindow(`${origin}/`);
     const { notify } = collectNotes();
-    openTabInApp({ kind: 'panel', key: 'journal' }, { notify });          // non indirizzabile
+    openTabInApp({ kind: 'panel', key: 'agents' }, { notify });          // non indirizzabile
     openTabInApp({ kind: 'file', key: 'a.ts' }, { notify });              // senza progetto
     openTabInApp({ kind: 'chat', key: '' }, { notify });                  // senza chiave
     expect(events.filter((e) => e.type === 'topics:open-tab')).toEqual([]);
@@ -522,7 +522,7 @@ describe('openTabInApp — l’intento di focus (`topics:open-tab`)', () => {
 
 describe('consumeTabLinkFromUrl', () => {
   test('apre il target e poi RIPULISCE la rotta /tab/ (replaceState, non push)', async () => {
-    const { events } = stubWindow(`${origin}/tab/panel/agents`);
+    const { events } = stubWindow(`${origin}/tab/panel/dashboard`);
     consumeTabLinkFromUrl();
     // La URL si pulisce SUBITO: è indipendente dall'apertura, e lasciarla lì
     // anche solo per un secondo significa che un reload la riaprirebbe.
@@ -532,15 +532,15 @@ describe('consumeTabLinkFromUrl', () => {
     markServerHydrated();
     await settle();
     expect(events).toEqual([
-      { type: 'topics:open-tab', detail: { paneId: '__agents__' } },
-      { type: 'topics:open-utility', detail: { type: 'agents' } },
+      { type: 'topics:open-tab', detail: { paneId: '__dashboard__' } },
+      { type: 'topics:open-utility', detail: { type: 'dashboard' } },
     ]);
   });
 
   test('una rotta /tab/ illeggibile viene comunque consumata: non deve ripresentarsi', () => {
-    const { events } = stubWindow(`${origin}/tab/panel/journal`);
+    const { events } = stubWindow(`${origin}/tab/panel/agents`);
     const { notes, notify } = collectNotes();
-    // `parseTabPath` non riconosce `journal`: qui non passiamo nemmeno da
+    // `parseTabPath` non riconosce `agents` (la pane non esiste più): qui non passiamo nemmeno da
     // `openTabInApp`, quindi l'unico effetto è l'avviso + la pulizia della URL.
     consumeTabLinkFromUrl({ notify });
     expect(events).toEqual([]);
@@ -569,13 +569,13 @@ describe('consumeTabLinkFromUrl', () => {
     // cleanup annulla l'apertura; al secondo mount la URL è già `/`, e se qui
     // tornasse un annullatore inerte App.tsx lo scambierebbe per un colpo già
     // armato — il permalink non si aprirebbe mai.
-    stubWindow(`${origin}/tab/panel/agents`);
+    stubWindow(`${origin}/tab/panel/dashboard`);
     expect(typeof consumeTabLinkFromUrl()).toBe('function');   // 1° mount: armato
     expect(g.window.location.pathname).toBe('/');
     expect(consumeTabLinkFromUrl()).toBeNull();                // 2° mount: niente da fare
 
     // Stessa risposta per gli altri «non ho armato niente».
-    stubWindow(`${origin}/tab/panel/journal`);
+    stubWindow(`${origin}/tab/panel/agents`);
     expect(consumeTabLinkFromUrl()).toBeNull();                // target illeggibile
     stubWindow(`${origin}/tab/panel/board?topics=t1`);
     expect(consumeTabLinkFromUrl()).toBeNull();                // finestra staccata
@@ -631,7 +631,7 @@ describe('openTabInAppWhenHydrated — prima lo stato, poi il link', () => {
     // Offline, primo avvio, server irraggiungibile: un link appeso per sempre
     // sarebbe l'esito peggiore. Si apre, e si accetta la corsa che c'era prima.
     const { events } = stubWindow(`${origin}/`);
-    openTabInAppWhenHydrated({ kind: 'panel', key: 'agents' }, { hydrateTimeoutMs: 0 });
+    openTabInAppWhenHydrated({ kind: 'panel', key: 'dashboard' }, { hydrateTimeoutMs: 0 });
     await settle();
     expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-utility']);
   });

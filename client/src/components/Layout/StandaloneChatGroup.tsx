@@ -14,10 +14,8 @@ import {
   isProjectPaneId,
   isBrowserPaneId,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   getTerminalSessionFromPaneId,
   getProjectPathFromPaneId,
-  getSessionKeyFromViewerPaneId,
   getBrowserContextFromPaneId,
   isDraftPaneId,
   useProjectTabStatus,
@@ -47,13 +45,9 @@ const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').th
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
 
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
-const JournalPanel = lazy(() => import('../Journal/JournalPanel').then(m => ({ default: m.JournalPanel })));
-const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
-const SessionViewerPane = lazy(() => import('../Agents/SessionViewerPane').then(m => ({ default: m.SessionViewerPane })));
 
 
 interface StandaloneChatGroupProps {
@@ -273,19 +267,9 @@ export function StandaloneChatGroup({
           color: hashToColor(projectPath),
         };
       }
-      if (isSessionViewerPaneId(id)) {
-        const sk = getSessionKeyFromViewerPaneId(id);
-        return {
-          id,
-          type: 'session-viewer' as PaneType,
-          title: sk ? `Session: ${sk.split(':').pop()?.slice(0, 8) || 'viewer'}` : 'Session',
-          sessionKey: sk || undefined,
-          preview: false,
-        };
-      }
       if (isUtilityPanelId(id)) {
         const utilType = parseUtilityPanelType(id);
-        const paneType = (utilType || 'activity') as PaneType;
+        const paneType = (utilType || 'board') as PaneType;
         const config = PANE_CONFIG[paneType];
         return {
           id,
@@ -383,7 +367,7 @@ export function StandaloneChatGroup({
   const { settingsTopicId, setSettingsTopicId } = lifecycle;
   const {
     handleReorderPanes, handlePinPane, handleAddPane, handleClosePane,
-    handleStopStreaming, handleOpenSessionViewer, handleSettings, handlePopOut, handlePopOutGroup,
+    handleStopStreaming, handleSettings, handlePopOut, handlePopOutGroup,
     handleSplitRight, handleSplitDown, handleDetach, handleUnsolo,
     handleCloseOthers,
   } = lifecycle.handlers;
@@ -629,15 +613,6 @@ export function StandaloneChatGroup({
         </LazyPane>
       );
     }
-    if (isSessionViewerPaneId(paneId)) {
-      const sk = getSessionKeyFromViewerPaneId(paneId);
-      if (!sk) return null;
-      return (
-        <LazyPane>
-          <SessionViewerPane sessionKey={sk} onNavigateToTopic={(topicId) => onFocusPanel(topicId)} />
-        </LazyPane>
-      );
-    }
     if (isBrowserPaneId(paneId)) {
       const ctx = getBrowserContextFromPaneId(paneId) || browserContextId;
       return (
@@ -721,15 +696,6 @@ export function StandaloneChatGroup({
       const utilityType = parseUtilityPanelType(paneId);
       return (
         <LazyPane>
-          {utilityType === 'activity' && <ActivityFeedPanel enabled />}
-          {utilityType === 'journal' && <JournalPanel enabled />}
-          {utilityType === 'agents' && (
-            <AgentsPane
-              onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
-              onOpenSessionViewer={handleOpenSessionViewer}
-              onMessage={onWSMessage}
-            />
-          )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
           {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={(topicId) => window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }))} />}
@@ -788,7 +754,6 @@ export function StandaloneChatGroup({
         onUpdateTopic={isDraft ? async () => null : onUpdateTopic}
         initialTab={panelInitialTab?.[paneId]}
         onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(paneId) : undefined}
-        onOpenSessionViewer={handleOpenSessionViewer}
         onFocusPanel={onFocusPanel}
       />
     );

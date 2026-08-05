@@ -150,7 +150,6 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicContextFiles: db.prepare(`SELECT file_path FROM topic_context_files WHERE topic_id = ?`),
     getTopicPinnedMessages: db.prepare(`SELECT message_id FROM topic_pinned_messages WHERE topic_id = ?`),
     getTopicDisabledSources: db.prepare(`SELECT source_id FROM topic_disabled_sources WHERE topic_id = ?`),
-    getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
     // Batch variants used ONLY by loadTopics() to collapse the per-topic N+1
     // (1 table scan + 5 sub-queries × N topics) into 1 + 5 full scans grouped
     // in-memory. The per-id stmts above stay the path for single-topic reads
@@ -159,7 +158,6 @@ export function createAppContext(baseDir: string): AppContext {
     getAllTopicContextFiles: db.prepare(`SELECT topic_id, file_path FROM topic_context_files`),
     getAllTopicPinnedMessages: db.prepare(`SELECT topic_id, message_id FROM topic_pinned_messages`),
     getAllTopicDisabledSources: db.prepare(`SELECT topic_id, source_id FROM topic_disabled_sources`),
-    getAllTopicAssignedAgents: db.prepare(`SELECT a.topic_id, a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id`),
 
     // True UPSERT, NOT `INSERT OR REPLACE`: in SQLite, REPLACE resolves the
     // conflict by DELETING the old row and inserting a new one, and with
@@ -167,7 +165,7 @@ export function createAppContext(baseDir: string): AppContext {
     // pointing at topics. Every topic update (rename, PATCH model/effort,
     // archive toggle…) was silently CASCADE-wiping `claude_code_sessions`
     // (the `--resume` mapping — chat lost its CLI session and respawned
-    // fresh), `unread`, and `agent_assignments`, and SET NULL-ing children's
+    // fresh) and `unread`, and SET NULL-ing children's
     // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
     // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
@@ -271,7 +269,6 @@ export function createAppContext(baseDir: string): AppContext {
     contextFiles: Map<string, string[]>;
     pinnedMessages: Map<string, string[]>;
     disabledSources: Map<string, string[]>;
-    assignedAgents: Map<string, { id: string; name: string; role: string }[]>;
   };
   function buildTopicRelations(): TopicRelations {
     const push = <T>(m: Map<string, T[]>, k: string, v: T) => {
@@ -285,9 +282,7 @@ export function createAppContext(baseDir: string): AppContext {
     for (const r of stmts.getAllTopicPinnedMessages.all() as any[]) push(pinnedMessages, r.topic_id, r.message_id);
     const disabledSources = new Map<string, string[]>();
     for (const r of stmts.getAllTopicDisabledSources.all() as any[]) push(disabledSources, r.topic_id, r.source_id);
-    const assignedAgents = new Map<string, { id: string; name: string; role: string }[]>();
-    for (const r of stmts.getAllTopicAssignedAgents.all() as any[]) push(assignedAgents, r.topic_id, { id: r.agent_id, name: r.name || r.agent_id, role: r.role });
-    return { links, contextFiles, pinnedMessages, disabledSources, assignedAgents };
+    return { links, contextFiles, pinnedMessages, disabledSources };
   }
 
   // --- Helper: Convert SQLite topic row to Topic object ---
@@ -356,13 +351,6 @@ export function createAppContext(baseDir: string): AppContext {
 
     const disabledSources = rels ? (rels.disabledSources.get(row.id) ?? []) : (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
     if (disabledSources.length > 0) topic.disabledContextSources = disabledSources;
-
-    const assignedAgents = rels ? (rels.assignedAgents.get(row.id) ?? []) : (stmts.getTopicAssignedAgents.all(row.id) as any[]).map(r => ({
-      id: r.agent_id,
-      name: r.name || r.agent_id,
-      role: r.role,
-    }));
-    if (assignedAgents.length > 0) topic.assignedAgents = assignedAgents;
 
     return topic;
   }
