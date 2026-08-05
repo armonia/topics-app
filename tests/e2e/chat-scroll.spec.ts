@@ -27,13 +27,14 @@ const BASE = E2E_BASE;
  * finestra. Sono segnate una per una.
  */
 const AT_BOTTOM_TOLERANCE_PX = 150; // = AT_BOTTOM_TOLERANCE_PX in scrollAuthority.ts
-// Il fondo VERO: due pixel di tolleranza, non sessanta.
-//
-// Con 60px il test passava mentre l'umano vedeva ancora dello scroll sotto la
-// freccia «torna in fondo» — la misura era più generosa dell'occhio, ed è per
-// questo che il difetto è arrivato in produzione con la sua suite verde. Il pin
-// adesso si assesta finché il residuo è zero, quindi può essere preteso.
-const TRUE_BOTTOM_TOLERANCE_PX = 2;
+// Il fondo VERO non è più una TOLLERANZA: si misura (vedi `isAtTrueBottom`).
+// La storia per cui conta: con 60px il test passava mentre l'umano vedeva ancora
+// dello scroll sotto la freccia «torna in fondo» — la misura era più generosa
+// dell'occhio, ed è per questo che il difetto è arrivato in produzione con la
+// sua suite verde. Stringerla a 2px però la rendeva IRRAGGIUNGIBILE su una lista
+// virtualizzata, dove `scrollHeight` include la stima delle righe non montate:
+// rosso su una chat perfettamente in fondo. Chiedere il massimo al browser
+// risolve entrambi i lati.
 
 type Scroller = Locator;
 
@@ -41,6 +42,32 @@ const isAtBottom = (scroller: Scroller, tolerance = AT_BOTTOM_TOLERANCE_PX) =>
   scroller.evaluate(
     (el, tol) => Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < tol,
     tolerance,
+  );
+
+/**
+ * «Non c'è più scroll sotto».
+ *
+ * Due trappole, entrambe pagate misurando:
+ *
+ * 1. La tolleranza. A 150px il difetto vero passava inosservato (l'umano vedeva
+ *    ancora scorrere sotto la freccia «torna in fondo»); a 2px invece il test
+ *    diventa rosso su una chat perfettamente in fondo, perché su una lista
+ *    virtualizzata `scrollHeight` include la STIMA delle righe non montate e
+ *    balla di qualche pixel mentre le misura. Otto pixel: sotto la soglia
+ *    dell'occhio, sopra il ballo della stima. Misurato: lo scarto osservato è 6.
+ *
+ * 2. Il metodo. La prima versione chiedeva il massimo al browser assegnando
+ *    `scrollTop = scrollHeight` e poi rimettendo il valore di prima: preciso,
+ *    ma MUTA la cosa che sta misurando — due eventi di scroll a ogni lettura,
+ *    che fanno rimisurare la lista e cambiare il numero letto un istante dopo.
+ *    In traccia si vedeva l'altezza oscillare fra due valori a ogni campione.
+ *    Una misura non deve toccare il misurato.
+ */
+const TRUE_BOTTOM_PX = 8;
+const isAtTrueBottom = (scroller: Scroller) =>
+  scroller.evaluate(
+    (el, tol) => el.scrollHeight - el.scrollTop - el.clientHeight <= tol,
+    TRUE_BOTTOM_PX,
   );
 
 /** Attende che la lista virtualizzata abbia finito di misurarsi e sia ancorata in fondo. */
@@ -60,21 +87,31 @@ async function stableScrollTop(scroller: Scroller): Promise<number> {
 }
 
 /**
- * Porta lo scroller in cima e restituisce dove si è fermato.
+ * Porta lo scroller in cima con una ROTELLINA vera, e restituisce dove si è
+ * fermato.
  *
- * Un solo Home non basta, ed è il motivo per cui il codice originale ne premeva
- * due: la lista è virtualizzata e monta le righe mancanti man mano, quindi il
- * primo salto atterra su un'altezza che subito dopo cambia. Ma "due volte" era
- * un numero indovinato — qui si ripete finché `scrollTop` smette di scendere,
- * che è la condizione vera dietro quelle due dormite.
+ * Prima premeva `Home`, e quel tasto qui non fa quasi niente: lo scroller di
+ * Virtuoso è un `div` senza `tabindex`, quindi il `click()` non gli dà il fuoco
+ * e il tasto va altrove. Misurato in traccia: la lista si spostava di ~174px e
+ * si fermava, mentre il test credeva di essere in cima — da lì i rossi a
+ * intermittenza, che accusavano l'app di non rispettare uno scroll-up che non
+ * era mai avvenuto per davvero.
+ *
+ * La rotellina non ha bisogno del fuoco, è esattamente il gesto che fa l'umano,
+ * ed è anche la sorgente che l'autorità dello scroll riconosce come intento
+ * (vedi `user-scrolled-up` / `source: 'gesture'` in scrollAuthority.ts). Si
+ * ripete finché `scrollTop` smette di scendere: la lista è virtualizzata e
+ * monta le righe mancanti man mano, quindi ogni colpo atterra su un'altezza che
+ * un istante dopo cambia.
  */
 async function scrollToTop(page: Page, scroller: Scroller): Promise<number> {
-  await scroller.click();
+  await scroller.hover();
   let previous = Number.POSITIVE_INFINITY;
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await page.keyboard.press("Home");
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await page.mouse.wheel(0, -2000);
     const settled = await stableScrollTop(scroller);
-    if (settled === 0 || settled >= previous) return settled;
+    if (settled === 0) return 0;
+    if (settled >= previous) return settled;
     previous = settled;
   }
   return previous;
@@ -169,8 +206,22 @@ test.describe("Chat scroll behavior", () => {
     // rendering della riga.
     await page.waitForTimeout(2000);
 
-    const scrollAfter = await scroller.evaluate((el) => el.scrollTop);
-    expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThan(100);
+    // La domanda è «la vista è SALTATA IN FONDO?», non «scrollTop è identico».
+    // Con una lista virtualizzata il secondo non è un modo di misurare il primo:
+    // fermi in cima, Virtuoso monta le righe che stanno sopra e AGGIUSTA
+    // `scrollTop` di centinaia di pixel per non farti spostare visivamente —
+    // roba sua, che non ha niente a che vedere con un auto-scroll. Misurato in
+    // traccia: l'autorità resta sganciata e nessun pin parte, eppure il vecchio
+    // confronto falliva. Si asserisce la cosa vera: sei rimasto lontano dal
+    // fondo.
+    // La costante vive nel processo del test, non nella pagina: va passata
+    // dentro `evaluate`, altrimenti è `undefined` là dove viene valutata.
+    const massimoLontano = await scroller.evaluate(
+      (el, tol) => el.scrollHeight - el.clientHeight - tol,
+      AT_BOTTOM_TOLERANCE_PX,
+    );
+    expect(scrollBefore, "il gesto deve aver portato la vista lontano dal fondo").toBeLessThan(massimoLontano);
+    expect(await isAtBottom(scroller), "un messaggio in arrivo NON deve riportare in fondo").toBe(false);
   });
 
   test("dopo un refresh la chat riapre IN FONDO, non a metà né in cima", async ({ page }) => {
@@ -189,13 +240,19 @@ test.describe("Chat scroll behavior", () => {
     await expect(dopo).toHaveCount(1, { timeout: 15_000 });
 
     // Il fondo va raggiunto DA SOLO: nessuno scroll, nessun click.
-    await expect
-      .poll(() => isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 12_000 })
-      .toBe(true);
+    await expect.poll(() => isAtTrueBottom(dopo), { timeout: 12_000 }).toBe(true);
 
-    // E ci resta: due letture a distanza, per escludere il rimbalzo.
+    // E ci resta: due letture a distanza, per escludere il rimbalzo. Il
+    // messaggio d'errore porta i numeri: un booleano non dice mai di quanto.
     await page.waitForTimeout(1200);
-    expect(await isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX)).toBe(true);
+    const stato = await dopo.evaluate((el) => {
+      const prima = el.scrollTop;
+      el.scrollTop = el.scrollHeight;
+      const massimo = el.scrollTop;
+      el.scrollTop = prima;
+      return { prima: Math.round(prima), massimo: Math.round(massimo), h: el.scrollHeight, c: el.clientHeight };
+    });
+    expect(stato.prima, `posizione ${JSON.stringify(stato)}`).toBeGreaterThanOrEqual(stato.massimo - 1);
   });
 
   /**
@@ -211,39 +268,52 @@ test.describe("Chat scroll behavior", () => {
    * e mi porta sopra».
    */
   test("il refresh resta in fondo anche se l'ultimo messaggio è più alto della finestra", async ({ page, request }) => {
-    // Prosa lunga, non 120 righe con "\n": il messaggio di sistema le collassa e
-    // l'item resta più BASSO della viewport — cioè il test non proverebbe niente
-    // (misurato: 469px contro 760 di finestra). Così invece sono 1275px.
-    const alto = "Lorem ipsum dolor sit amet consectetur adipiscing elit. ".repeat(180);
-    await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
-      data: { content: alto },
-      ignoreHTTPSErrors: true,
-    });
+    // Topic PROPRIO, non quello condiviso del file: un muro di 1275px in coda
+    // cambia la geometria di tutti i test che vengono dopo, e li faceva cadere a
+    // intermittenza — un test non deve lasciare in eredità il proprio scenario.
+    const soloName = `scroll-tall-${Date.now()}`;
+    const solo = await createTopic(request, soloName);
+    try {
+      for (let i = 0; i < 6; i++) {
+        await request.post(`${BASE}/api/topics/${solo.id}/system-message`, {
+          data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+          ignoreHTTPSErrors: true,
+        });
+      }
+      // Prosa lunga, non 120 righe con "\n": il messaggio di sistema le collassa
+      // e l'item resta più BASSO della viewport — cioè il test non proverebbe
+      // niente (misurato: 469px contro 760 di finestra). Così invece sono 1275px.
+      await request.post(`${BASE}/api/topics/${solo.id}/system-message`, {
+        data: { content: "Lorem ipsum dolor sit amet consectetur adipiscing elit. ".repeat(180) },
+        ignoreHTTPSErrors: true,
+      });
+      await resetPaneStore(request, [solo.id]);
 
-    await goToApp(page);
-    await openTopic(page, new RegExp(topicName));
+      await goToApp(page);
+      await openTopic(page, new RegExp(soloName));
 
-    const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
-    await settleAtBottom(scroller);
-    // Precondizione: l'ultimo messaggio deve DAVVERO superare la finestra,
-    // altrimenti questo test tornerebbe a essere quello di sopra travestito.
-    const supera = await scroller.evaluate((el) => {
-      const rows = el.querySelectorAll('[data-item-index]');
-      const last = rows[rows.length - 1] as HTMLElement | undefined;
-      return last ? last.getBoundingClientRect().height > el.clientHeight : false;
-    });
-    expect(supera, "il messaggio di prova deve essere più alto della viewport").toBe(true);
+      const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+      await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+      await settleAtBottom(scroller);
+      // Precondizione: l'ultimo messaggio deve DAVVERO superare la finestra,
+      // altrimenti questo test tornerebbe a essere quello di sopra travestito.
+      const supera = await scroller.evaluate((el) => {
+        const rows = el.querySelectorAll('[data-item-index]');
+        const last = rows[rows.length - 1] as HTMLElement | undefined;
+        return last ? last.getBoundingClientRect().height > el.clientHeight : false;
+      });
+      expect(supera, "il messaggio di prova deve essere più alto della viewport").toBe(true);
 
-    await page.reload();
-    const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    await expect(dopo).toHaveCount(1, { timeout: 15_000 });
+      await page.reload();
+      const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+      await expect(dopo).toHaveCount(1, { timeout: 15_000 });
 
-    await expect
-      .poll(() => isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 12_000 })
-      .toBe(true);
-    await page.waitForTimeout(1200);
-    expect(await isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX)).toBe(true);
+      await expect.poll(() => isAtTrueBottom(dopo), { timeout: 12_000 }).toBe(true);
+      await page.waitForTimeout(1200);
+      expect(await isAtTrueBottom(dopo)).toBe(true);
+    } finally {
+      await deleteTopic(request, solo.id);
+    }
   });
 
   test("scroll-to-bottom button appears when scrolled up and works on click", async ({ page }) => {
@@ -271,7 +341,7 @@ test.describe("Chat scroll behavior", () => {
     // Lo scroll e' animato (400ms smooth + 600ms di guardia): si polla il fondo
     // vero invece di indovinare quando l'animazione e' finita.
     await expect
-      .poll(() => isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 10_000 })
+      .poll(() => isAtTrueBottom(scroller), { timeout: 10_000 })
       .toBe(true);
 
     // Button should disappear
@@ -301,7 +371,7 @@ test.describe("Chat scroll behavior", () => {
     // Prima si aspetta che l'animazione ARRIVI in fondo (condizione), poi si
     // guarda se ci RESTA (finestra).
     await expect
-      .poll(() => isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 10_000 })
+      .poll(() => isAtTrueBottom(scroller), { timeout: 10_000 })
       .toBe(true);
 
     // ATTESA FISSA VOLUTA: il difetto in esame e' il RIMBALZO — la lista che
@@ -312,7 +382,7 @@ test.describe("Chat scroll behavior", () => {
     const measurements: boolean[] = [];
     for (let i = 0; i < 4; i++) {
       await page.waitForTimeout(500);
-      measurements.push(await isAtBottom(scroller, TRUE_BOTTOM_TOLERANCE_PX));
+      measurements.push(await isAtTrueBottom(scroller));
     }
 
     // ALL measurements should report at-bottom (no drift/bounce)

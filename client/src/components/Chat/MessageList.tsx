@@ -248,6 +248,15 @@ export function MessageList({
    *  dell'ultimo messaggio — dopo il nostro pin, quindi vincendo lui. Un
    *  secondo e mezzo copre anche una lista lunga su macchina carica. */
   const OPEN_WINDOW_MS = 1500;
+  /** Ogni rimisura dentro la finestra la SPOSTA in avanti di tanto: una lista
+   *  lunga misura a più riprese, e una scadenza fissa la lascerebbe a metà
+   *  proprio quando l'ultima misura arriva tardi (macchina carica). */
+  const OPEN_EXTEND_MS = 400;
+  /** …ma non all'infinito: oltre questo, qualunque cosa stia succedendo non è
+   *  più «l'apertura». */
+  const OPEN_HARD_STOP_MS = 5000;
+  /** Quando ricontrollare che l'apertura sia finita DAVVERO in fondo. */
+  const OPEN_VERIFY_MS = useMemo(() => [250, 700, 1400], []);
   /** Quando abbiamo pinnato l'ultima volta: serve a distinguere «la vista è in
    *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
   const lastPinAtRef = useRef(0);
@@ -358,8 +367,13 @@ export function MessageList({
    */
   const openPinnedForRef = useRef<string | null>(null);
   /** Finestra di APERTURA: fin qui il fondo è ancora lo stato di riposo, e
-   *  ogni rimisura della lista va riportata giù. Vedi `totalListHeightChanged`. */
+   *  ogni rimisura della lista va riportata giù. Vedi `totalListHeightChanged`.
+   *  Si sposta in avanti a ogni rimisura e si chiude di colpo al primo input
+   *  dell'utente. */
   const openingUntilRef = useRef(0);
+  /** Oltre questo istante l'apertura è finita comunque, qualunque cosa stia
+   *  ancora misurando la lista. */
+  const openingHardStopRef = useRef(0);
   /** L'utente ha davvero toccato lo scroll da quando questa chat è aperta?
    *  Lo scrive SOLO il gesto vero (rotellina su, trascinamento), non la
    *  geometria di Virtuoso — che durante l'apertura dice «non sei in fondo»
@@ -379,6 +393,7 @@ export function MessageList({
     openPinnedForRef.current = topic.id;
     userTouchedRef.current = false;
     openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
+    openingHardStopRef.current = Date.now() + OPEN_HARD_STOP_MS;
     // `scroll-to-bottom` e non un pin nudo, perché qui c'è anche uno STATO da
     // rimettere a posto: montando in cima all'ultimo item la lista non è in
     // fondo, Virtuoso lo annuncia (`left-bottom`) e l'autorità si sgancia da
@@ -392,7 +407,30 @@ export function MessageList({
       { type: 'scroll-to-bottom' },
       { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
     );
-  }, [topic.id, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, OPEN_SETTLE_FRAMES]);
+    // Tre CONTROLLI a scoppio ritardato, e servono perché l'ultimo scarto non
+    // lo annuncia nessuno.
+    //
+    // Dopo l'apertura la lista continua a sistemarsi per un pezzo, e capita che
+    // resti qualche pixel sotto: misurato, ferma a 6px dal massimo per oltre un
+    // secondo. Quello scarto è invisibile a tutti — sotto la soglia di Virtuoso
+    // (150px), sotto quella dello scroll dell'utente (24px), e la contabilità
+    // delle altezze non cambia, quindi nessun evento. Restava una chat «quasi»
+    // in fondo, con un filo di scroll sotto.
+    //
+    // Non è un poll: sono tre istanti fissi entro la finestra di apertura, e
+    // ognuno si tira indietro se l'utente ha toccato lo scroll o se la vista è
+    // ormai lontana dal fondo (allora è una scelta sua, non un residuo).
+    for (const ritardo of OPEN_VERIFY_MS) {
+      window.setTimeout(() => {
+        if (userTouchedRef.current) return;
+        const el = scrollerElRef.current;
+        if (!el || el.clientHeight === 0) return;
+        const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (residuo <= 1 || residuo > AT_BOTTOM_TOLERANCE_PX) return;
+        pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
+      }, ritardo);
+    }
+  }, [topic.id, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, OPEN_VERIFY_MS]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -607,7 +645,16 @@ export function MessageList({
      */
     const GESTURE_WINDOW_MS = 400;
     let gestureUntil = 0;
-    const markGesture = () => { gestureUntil = Date.now() + GESTURE_WINDOW_MS; };
+    const markGesture = () => {
+      gestureUntil = Date.now() + GESTURE_WINDOW_MS;
+      // Il primo input CHIUDE la finestra di apertura, e non è un dettaglio: il
+      // ri-pin di apertura è forzato, quindi finché quella finestra è aperta
+      // combatterebbe con chi scrolla. `userTouchedRef` da solo non basta —
+      // lo scrive lo `scroll`, che arriva DOPO il tasto o la rotellina, e in
+      // mezzo ci sta una rimisura (scorrendo, Virtuoso monta righe nuove e
+      // l'altezza totale cambia) che rimetterebbe la vista in fondo.
+      openingUntilRef.current = 0;
+    };
     // Tasti che muovono la lista. Freccia giù / Fine / PagGiù non servono: qui
     // interessa solo chi va INDIETRO, e chi va in fondo ci pensa `reached-bottom`.
     const SCROLL_KEYS = new Set(['Home', 'PageUp', 'ArrowUp', 'ArrowLeft']);
@@ -650,10 +697,40 @@ export function MessageList({
     let wasHidden = el.clientHeight === 0;
     const ro = new ResizeObserver(() => {
       const hidden = el.clientHeight === 0;
-      if (wasHidden && !hidden) pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES });
+      if (wasHidden && !hidden) {
+        wasHidden = hidden;
+        pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES });
+        return;
+      }
       wasHidden = hidden;
+      if (hidden) return;
+      // L'ULTIMA crescita, quella che nessuno annuncia.
+      //
+      // `totalListHeightChanged` è la contabilità di Virtuoso e copre le righe;
+      // qui si guarda il DOM, quindi si vede anche ciò che quella contabilità
+      // non conta — il footer che segue l'altezza del composer, un'immagine che
+      // finisce di caricare, un font che si assesta. Sono decine di pixel che
+      // arrivano dopo che il nostro assestamento è già finito, sotto la soglia
+      // di Virtuoso (150px) e quindi senza nessun evento: la chat «arriva in
+      // fondo e poi scivola via di poco», che è il difetto che restava.
+      //
+      // Stessa doppia condizione dell'altra regola: `shouldPin` (dentro
+      // `pinToBottom`) più la geometria misurata adesso, così questo pin può
+      // solo finire un movimento già quasi compiuto e non trascina mai giù chi
+      // sta leggendo indietro.
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_TOLERANCE_PX) return;
+      pinToBottom();
     });
     ro.observe(el);
+    // Anche il CONTENUTO, non solo il contenitore: lo scroller cambia dimensione
+    // quando cambia la finestra, il contenuto quando cambia la conversazione.
+    //
+    // E il contenuto è la LISTA, non il primo figlio: la struttura di Virtuoso è
+    // scroller > viewport > lista, e il viewport ha altezza FISSA quanto la
+    // finestra (misurato: 760px sempre). Osservare quello voleva dire osservare
+    // un elemento che non cambia mai — l'osservatore c'era e non è mai scattato.
+    const lista = el.querySelector('[data-testid="virtuoso-item-list"]') ?? el.firstElementChild?.firstElementChild;
+    if (lista) ro.observe(lista);
 
     return () => {
       ro.disconnect();
@@ -959,9 +1036,39 @@ export function MessageList({
            * toccato lo scroll: dopo, la lista è sua.
            */
           totalListHeightChanged={() => {
-            if (Date.now() > openingUntilRef.current) return;
-            if (userTouchedRef.current) return;
-            pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
+            const now = Date.now();
+            const inApertura =
+              !userTouchedRef.current &&
+              now <= openingUntilRef.current &&
+              now <= openingHardStopRef.current;
+            if (inApertura) {
+              // Finché la lista continua a misurarsi, l'apertura non è finita:
+              // una scadenza fissa la mollava a metà proprio quando l'ultima
+              // misura arriva tardi (lista lunga, macchina carica).
+              openingUntilRef.current = Math.min(now + OPEN_EXTEND_MS, openingHardStopRef.current);
+              pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
+              return;
+            }
+            // FUORI dall'apertura vale la regola generale, ed è la definizione
+            // stessa di «ancorato»: se il contenuto cresce mentre sei in fondo,
+            // in fondo ci resti. Senza questo restava scoperta l'ultima crescita
+            // — quella piccola e tardiva (un'altezza rimisurata, il footer che
+            // si assesta): sotto i 150px di soglia Virtuoso non annuncia niente,
+            // il nostro assestamento è già finito, e nessuno riporta giù. In
+            // traccia si vede benissimo: pin eseguiti, `reached-bottom`, poi più
+            // NESSUN evento e la vista comunque a qualche decina di pixel dal
+            // fondo. Era il «arriva in fondo e poi scivola via».
+            // Doppia condizione, e la seconda è la geometria VERA misurata
+            // adesso: `anchored` è una convinzione dell'autorità e può essere in
+            // ritardo di un evento, la distanza dal fondo no. Così questo pin
+            // può spostare la vista al massimo di una tolleranza — cioè può solo
+            // finire un movimento già quasi compiuto — e non può mai trascinare
+            // giù chi sta leggendo indietro.
+            const el = scrollerElRef.current;
+            if (!el) return;
+            const distanza = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (distanza > AT_BOTTOM_TOLERANCE_PX) return;
+            pinToBottom();
           }}
           atBottomStateChange={(atBottom) => {
             if (atBottom) {
