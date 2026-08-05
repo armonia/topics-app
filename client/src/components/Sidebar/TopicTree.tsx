@@ -38,7 +38,7 @@ import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
-import { SpaceGroupCard, NewGroupRow, useSpaceCards } from './SpaceGroups';
+import { SpaceGroupCard, useSpaceCards } from './SpaceGroups';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
@@ -1023,7 +1023,6 @@ export function TopicTree({
                 </SpaceGroupCard>
               );
             })}
-              <NewGroupRow />
             </div>
           </>
         ) : viewMode === 'timeline' ? (
