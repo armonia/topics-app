@@ -385,4 +385,26 @@ test.describe.serial("Gruppi (Spazi)", () => {
     expect({ x: after!.x, y: after!.y, w: after!.width, h: after!.height })
       .toEqual({ x: before!.x, y: before!.y, w: before!.width, h: before!.height });
   });
+
+  test("SPACE-11: la Board generale sta ferma in cima, sopra i fissati e fuori dai gruppi", async ({ page }) => {
+    // La board è di tutti i progetti, non di un gruppo: anche quando la sua tab
+    // vive dentro un gruppo, la riga resta il primo posto dove si guarda.
+    await resetPaneStore(page.request, [idA, "__board__"]);
+    await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [idA, "__board__"] } }).catch(() => {});
+    await page.request.put(`${BASE}/api/ui-state/panel-order`, { data: { order: [idA, "__board__"], pinned: [] } }).catch(() => {});
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    const board = page.getByTestId("sidebar-board-generale");
+    await expect(board, "la riga della board c'è").toBeVisible({ timeout: 10000 });
+
+    await moveTabToNewGroup(page, idA);
+
+    const groups = page.getByTestId("sidebar-groups");
+    await expect(groups).toHaveCount(1);
+    await expect(groups.getByTestId("sidebar-board-generale"), "non finisce dentro una card").toHaveCount(0);
+    const yBoard = (await board.boundingBox())!.y;
+    const yGroups = (await groups.boundingBox())!.y;
+    expect(yBoard).toBeLessThan(yGroups);
+  });
 });
