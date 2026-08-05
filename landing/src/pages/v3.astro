@@ -305,16 +305,20 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Rate limit on the public API</span></div>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Move the cron jobs to UTC</span></div>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Sign the Windows release</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Drop the legacy /v1 endpoints</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-docs</span><span class="kcard__t"><i class="kcard__pri"></i>Screenshot pass for the guide</span></div>
               </div>
               <div>
                 <p class="kcol__h"><span class="pip pip--work"></span>In progress <span class="kcol__c">3</span></p>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri kcard__pri--hi"></i>Offline sync without races</span></div>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Context inspector: sources off</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri kcard__pri--hi"></i>Retry the flaky upload test</span></div>
               </div>
               <div>
                 <p class="kcol__h"><span class="pip pip--rev"></span>Review <span class="kcol__c">2</span></p>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Webhook signature header</span></div>
                 <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Reattach without losing scrollback</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Cache the provider token lookup</span></div>
               </div>
             </div>
           </div>
@@ -475,6 +479,8 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
             <p class="path">~/.topics/media/<span class="path__s">241 MB</span></p>
             <p class="path">~/.topics/worktrees/<span class="path__s">4 checkouts</span></p>
             <p class="path">~/Projects/acme-web/.git<span class="path__s">your repo</span></p>
+            <p class="path">~/.topics/logs/<span class="path__s">plain text</span></p>
+            <p class="path">~/.topics/ui-state-backups/<span class="path__s">your layout</span></p>
             <p class="path path--none">no request leaves this machine except the one you asked for</p>
           </div>
           <div class="scene__fg card--pick">

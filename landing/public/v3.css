@@ -166,9 +166,19 @@ body.v3 .grain { display: none; }   /* the old, dead layer */
    background cannot introduce a second one. 5% at the strongest. It is what
    carries continuity from the first screen to the last, which is the job the
    reference does with a dark ground it never leaves. */
+/* The stated design was "aimed at the gutters rather than the centre column".
+   It was not: `check:field` measured the wash visibly touching 2.52% of the
+   reading column in a dense section, against 0.02% at the hero — the bottom
+   gradient sits at 50% and rises straight into the text. Masked back to 40%
+   across the middle, which is where the grain already goes to zero. Not to
+   zero here, because unlike the grain this layer's whole job is continuity
+   from the first screen to the last, and a band of nothing down the centre of
+   the page would be a seam. */
 .field__wash {
   opacity: calc(var(--wash) * 1 * var(--field-gain));
   transition: opacity var(--field-fade) var(--state);
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 16%, rgba(0,0,0,.4) 36%, rgba(0,0,0,.4) 64%, #000 84%, #000 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 16%, rgba(0,0,0,.4) 36%, rgba(0,0,0,.4) 64%, #000 84%, #000 100%);
   background:
     radial-gradient(60% 44% at 12% 8%, color-mix(in oklab, var(--accent) 5%, transparent), transparent 70%),
     radial-gradient(52% 38% at 92% 42%, color-mix(in oklab, var(--accent) 4%, transparent), transparent 72%),
