@@ -87,7 +87,7 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
     await expect(notice).toHaveAttribute("data-context-level", "critical");
-    await expect(notice.getByRole("button", { name: "Compact now" })).toBeVisible();
+    await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
     await expect(notice.getByRole("button", { name: "New chat" })).toBeVisible();
 
     // Chiudibile: chi ha deciso non deve riavere l'avviso addosso a ogni token.
@@ -137,11 +137,11 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
     // La frase dice il motivo VERO, e non "quasi pieno" a meno di metà finestra.
-    await expect(notice).toContainText("Every call re-reads 450k");
-    await expect(notice).not.toContainText("almost full");
-    await expect(notice).toContainText("room to spare");
+    await expect(notice).toContainText("Ogni risposta rilegge 450k token");
+    await expect(notice).not.toContainText("quasi pieno");
+    await expect(notice).toContainText("ogni chiamata al modello se li rilegge tutti");
     // Le due vie d'uscita ci sono comunque.
-    await expect(notice.getByRole("button", { name: "Compact now" })).toBeVisible();
+    await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
   });
 
   test("zittire l'avviso di costo NON zittisce quello di finestra piena", async ({ page }) => {
@@ -163,7 +163,7 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
 
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
-    await expect(notice).toContainText("Every call re-reads");
+    await expect(notice).toContainText("Ogni risposta rilegge");
     await notice.getByTitle("Dismiss").click();
     await expect(notice).toHaveCount(0);
 
@@ -179,6 +179,6 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
 
     const secondo = page.getByTestId("context-notice");
     await expect(secondo).toBeVisible({ timeout: 10_000 });
-    await expect(secondo).toContainText("almost full");
+    await expect(secondo).toContainText("quasi pieno");
   });
 });
