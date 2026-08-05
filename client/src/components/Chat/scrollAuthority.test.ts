@@ -200,6 +200,73 @@ describe('offset ripristinato (undo di una pane)', () => {
   });
 });
 
+describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
+  it('un calo di scrollTop dentro la guardia è il nostro assestamento, non l\'utente', () => {
+    // Il bottone «torna in fondo» porta giù via `scrollToIndex('LAST')`, poi
+    // Virtuoso rimisura e abbassa `scrollTop` di qualche decina di pixel.
+    // Contarlo come utente sganciava il pin appena messo: la vista tornava in
+    // fondo e se ne staccava da sola un istante dopo.
+    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    expect(dopoIlBottone.state.guardUntil).toBe(T0 + SCROLL_GUARD_MS);
+    const assestamento = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
+      T0 + 100,
+    );
+    expect(assestamento.state.anchored).toBe(true);
+    expect(assestamento.state).toBe(dopoIlBottone.state);
+  });
+
+  it('durante lo stream la guardia NON copre: lì il pin alza e basta, un calo è l\'utente', () => {
+    // Il pin dello stream scrive `scrollTop = scrollHeight`: non abbassa mai.
+    // Se la guardia coprisse anche quello, chi prova a leggere mentre l'agente
+    // scrive resterebbe inchiodato al fondo per mezzo secondo a ogni turno.
+    const dopoInvio = reduceScroll(at({ anchored: true }), { type: 'user-sent' }, T0);
+    const d = reduceScroll(dopoInvio.state, { type: 'user-scrolled-up', streaming: true }, T0 + 200);
+    expect(d.state.anchored).toBe(false);
+  });
+
+  it('scaduta la guardia, l\'utente torna a comandare anche fuori dallo stream', () => {
+    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const d = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
+      T0 + SCROLL_GUARD_MS + 1,
+    );
+    expect(d.state.anchored).toBe(false);
+  });
+});
+
+describe('identità dello stato — un evento che non cambia niente non ridisegna', () => {
+  // Questo stato vive in un `useReducer`: un oggetto NUOVO a ogni evento è un
+  // render nuovo a ogni evento, e gli eventi di scroll arrivano uno per frame.
+  // Una lista virtualizzata che rimisura decine di volte al secondo ti sposta la
+  // vista sotto gli occhi — il sintomo era esattamente «lo scroll fa cose sue».
+  it('sganciare due volte restituisce lo STESSO oggetto', () => {
+    const primo = reduceScroll(at({ anchored: true }), { type: 'user-scrolled-up', streaming: true }, T0);
+    const secondo = reduceScroll(primo.state, { type: 'user-scrolled-up', streaming: true }, T0 + 16);
+    expect(secondo.state).toBe(primo.state);
+  });
+
+  it('«sono in fondo» ripetuto non crea stati nuovi', () => {
+    const ancorato = at({ anchored: true });
+    expect(reduceScroll(ancorato, { type: 'reached-bottom' }, T0).state).toBe(ancorato);
+  });
+
+  it('un left-bottom che non sgancia lascia lo stato dov\'era', () => {
+    const staccato = at({ anchored: false });
+    const d = reduceScroll(staccato, { type: 'left-bottom', streaming: false, distanceFromBottom: 900 }, T0 + 10_000);
+    expect(d.state).toBe(staccato);
+  });
+
+  it('ma un cambio VERO produce uno stato nuovo', () => {
+    const ancorato = at({ anchored: true });
+    const d = reduceScroll(ancorato, { type: 'user-scrolled-up', streaming: true }, T0);
+    expect(d.state).not.toBe(ancorato);
+    expect(d.state.anchored).toBe(false);
+  });
+});
+
 describe('shouldPin — l\'unica domanda', () => {
   it('un salto da palette pendente veta OGNI ancoraggio al fondo', () => {
     // Il bug: il salto posizionava la lista e, 100ms dopo, uno dei quattro
