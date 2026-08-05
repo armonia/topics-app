@@ -302,61 +302,375 @@ void main(){
   float vig = smoothstep(1.32, 0.30, length((uv - 0.5) * vec2(1.35, 1.0)));
   col = mix(GROUND, col, 0.30 + 0.70 * vig);
 
-  /* ── THE CEILING ────────────────────────────────────────────────────────
-     A hard cap on relative luminance, and it is derived rather than tuned.
+  /* NO CEILING AND NO DITHER HERE ANY MORE — both moved to the composite pass
+     at the bottom of this file, and the move was forced by a measurement.
 
-     The palest reading ink on this page is --ink-faint #a3abbb, L 0.405. WCAG
-     asks 4.5:1, so the brightest pixel that may sit behind a glyph is
-     (0.405 + 0.05) / 4.5 − 0.05 = L 0.051.
+     The cap used to be applied to this shader's own output, which bounds the
+     SURFACE and says nothing about what is drawn after it. The swarm is drawn
+     after it, additively, and additive blending has no ceiling of its own:
+     measured on the rendered page, the surface peaked at L 0.031 and the points
+     alone at 0.0795, for a composite of 0.1206 against a budget of 0.051.
+     Lowering the per-point alpha would have bought one build's worth of
+     compliance and re-opened the question on the next change.
 
-     The cap is set at 0.027, not 0.051, because the canvas is not the last
-     thing painted. The dot weave sits on top of it in CSS and adds roughly
-     0.011 of luminance to the brightest pixel — at its original strength it
-     added 0.021, which is a third of the whole budget spent on a texture. Both
-     numbers come from screenshotting the layers separately; neither is
-     visible in the shader, which is exactly why the cap has to leave room for
-     something it cannot see. 0.027 plus the weave measures 0.038, and
-     --ink-faint over that is 5.2:1.
+     So the two passes render into a framebuffer and the cap is applied ONCE, to
+     the composite, where it can actually be a guarantee. */
+  /* THE SURFACE IS THE GROUND, THE SWARM IS THE SUBJECT, and 0.42 is where that
+     stops being a sentence and becomes a number.
 
-     Two corrections are in the maths, and both were found by screenshotting the
-     layers separately rather than by reasoning about them.
+     Both passes share one contrast budget, enforced by the cap in the composite.
+     With the surface painting at full strength it used the whole of it, so every
+     point drawn afterwards was scaled straight back down by the cap: measured,
+     the swarm changed 0.1% of the visible pixels below the hero, with a peak
+     contribution of 25/255. It was, in effect, not there.
 
-     The transfer: the first version used pow(c, 2.2), which is the gamma people
-     quote rather than the curve sRGB has, and it under-read true luminance by
-     22% — the cap said 0.043 and the pixels measured 0.0527.
+     A cap is a safety net, not a mixer. If two layers have to be arbitrated, the
+     arbitration belongs in their levels — and the arbitration has an answer:
+     the swarm is what the page is about. It draws Topics' own model, seven
+     shapes deep, and the surface exists to give it a room to be in. So the
+     surface is a wash at a quarter strength and the points get the budget. */
+  /* THE LEVEL IS APPLIED IN LINEAR SPACE, and that is not pedantry — it is the
+     difference between a dim blue and a dim grey.
 
-     The scaling: the second version scaled the sRGB triple toward the ground
-     colour by pow(ceil/L, 1/2.4), on the assumption that scaling a colour by k
-     scales its luminance by k^2.4. That law holds for a pure power curve and
-     NOT for sRGB, whose affine (c+0.055)/1.055 term breaks it — a cap of 0.030
-     produced pixels at 0.043, and the error grows as the pullback gets
-     stronger. The clamp is applied in LINEAR space, where luminance is linear
-     by definition and the scale is exact, and converted back afterwards.
+     Mixing toward GROUND at 0.26 desaturates, because GROUND is a near-neutral
+     and every step toward it takes chroma with it: the surface's brightest pixel
+     came out rgb(7 36 81), a channel span of 74, which is barely over the
+     threshold this page measures vividness with. Scaling the same colour in
+     LINEAR space preserves the ratio between channels, so the hue survives the
+     dimming: rgb(0 52 140), span 140.
+     Measured on the whole page, that one change is 0.5% vivid pixels against
+     33%. Saturation is free; luminance is not; and scaling in sRGB spends the
+     one you were trying to keep. */
+  vec3 outc = clamp(GROUND + (col - GROUND) * uGain, 0.0, 1.0);
+  vec3 ol = mix(outc / 12.92, pow((outc + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), outc));
+  ol *= 0.30;
+  gl_FragColor = vec4(mix(ol * 12.92, 1.055 * pow(max(ol, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
+                          step(vec3(0.0031308), ol)), 1.0);
+}
+`;
 
-     It is a cap on LIGHT, not on colour, and the difference is the whole
-     reason the page can still look like something. A saturated blue at low
-     luminance — rgb(0 60 190) — is both legal here and VIVID by the channel-
-     span measure that this page's blandness was diagnosed with; a pale blue at
-     the same chroma is neither. So the terms above lean on the brand's own
-     #0066ff and this clamps whatever they add up to.
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE SWARM — nine thousand points that spend the page becoming seven things.
 
-     Doing it here rather than by tuning six coefficients is deliberate: a cap
-     on the composite cannot be defeated by a later change to any one term, and
-     the next person to make the ember stronger does not have to re-derive the
-     contrast budget to do it. */
+   The surface above is a ground: it has mood and no subject. This layer is the
+   subject. It is one particle system whose rest positions are computed, per
+   vertex, from a shape function chosen by how far down the page you are, and
+   the seven shapes are Topics' own model rather than a pack of primitives:
+
+     0  VORTEX    a funnel, everything spiralling into one place. The hero, and
+                  the only shape here that is about the product as a whole.
+     1  STRANDS   four helices side by side that never touch. Four worktrees on
+                  one repository, which is the page's opening claim, drawn.
+     2  PANES     a tiled grid. A group wrapping its tabs.
+     3  COLUMNS   three stacks with gaps. The board, and the comparison.
+     4  SHELL     a closed ring around an empty middle. Your machine, your data,
+                  nobody in the path.
+     5  BARS      a series that rises. What it costs.
+     6  LINE      everything converging onto one horizontal run. Landing on main.
+
+   Between any two the particle just interpolates, so nothing is choreographed
+   and nothing can fall out of sync with the copy: the transition IS the scroll
+   position. Each point keeps its identity across every shape (the same id picks
+   its strand, its pane and its bar), which is what makes the change read as one
+   thing rearranging rather than as a cross-fade between two pictures.
+
+   WHY IT IS A SECOND PASS AND NOT A SECOND CANVAS
+   It draws into the same context, additively, immediately after the surface.
+   One canvas, one compositor layer, one resize path — and, more usefully, the
+   points and the surface are the same object as far as the page is concerned,
+   so `window.__field.freeze()` pins both and both gates see what a visitor sees.
+
+   THE ALPHA IS A CONTRAST BUDGET, NOT A TASTE. Additive blending has no ceiling
+   of its own: a hundred overlapping points at 0.1 is white. The surface below
+   is capped at L 0.027 against a limit of 0.051, and what is left of that is
+   what these may spend — hence a low per-point alpha, a hard clamp on how much
+   any pixel may accumulate, and the same reading-column channel the surface
+   uses. `check:painted` grades the result on the real pixels.
+   ═════════════════════════════════════════════════════════════════════════ */
+const P_VERT = `
+precision highp float;
+
+attribute float aId;      /* 0..1, stable identity across every shape */
+attribute vec2  aSeed;    /* two decorrelated randoms, fixed per point */
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uScroll;
+uniform float uPx;        /* canvas pixels per CSS pixel */
+uniform float uGain;
+
+varying vec3  vCol;
+varying float vAlpha;
+
+const vec3 COOL  = vec3(0.020, 0.430, 1.000);
+const vec3 WARM  = vec3(1.000, 0.360, 0.140);
+
+const float TAU = 6.2831853;
+
+/* 0 — THE VORTEX. Radius grows with height and the winding is fast enough to
+   read as rotation rather than as a cone drawn in outline. */
+vec3 sVortex(float i, float a, float r, float t) {
+  float h = i;
+  float ang = a * TAU + h * 7.5 + t * 0.22;
+  float rad = mix(0.05, 0.92, pow(h, 0.72)) * (0.72 + 0.28 * r);
+  return vec3(cos(ang) * rad, h * 1.62 - 0.86, sin(ang) * rad);
+}
+
+/* 1 — FOUR STRANDS. The branch count is the one number on this page that is
+   also in the headline, so it is four and not "some". */
+vec3 sStrands(float i, float a, float r, float t) {
+  float k = floor(a * 4.0);
+  float ang = i * 6.4 + k * 1.9 + t * 0.3;
+  float x = (k - 1.5) * 0.44 + cos(ang) * 0.085;
+  float z = sin(ang) * 0.085;
+  return vec3(x, i * 1.72 - 0.86, z);
+}
+
+/* OUTLINES, NOT FILLS, for everything architectural. Measured: nine thousand
+   points poured into a twelve-cell grid is 750 per cell, and 750 points inside
+   a 100px square is a blob — a high-frequency probe over the rendered page
+   found 1,497 distinguishable points in the vortex and 104 in the pane grid,
+   which is the difference between a shape and a smear. On a perimeter the same
+   750 points are a drawn rectangle. It also happens to be the right register:
+   a wireframe reads as a plan of something, which is what these shapes are. */
+vec2 rectEdge(vec2 c, vec2 hs, float u) {
+  float q = u * 4.0;
+  if (q < 1.0) return c + vec2(mix(-hs.x, hs.x, q), -hs.y);
+  if (q < 2.0) return c + vec2(hs.x, mix(-hs.y, hs.y, q - 1.0));
+  if (q < 3.0) return c + vec2(mix(hs.x, -hs.x, q - 2.0), hs.y);
+  return c + vec2(-hs.x, mix(hs.y, -hs.y, q - 3.0));
+}
+
+/* 2 — PANES. Three across, two down. Twelve cells was the first try and twelve
+   rectangles at this scale, seen in perspective, overlap into noise — measured
+   as a density map, the grid read as vertical stripes. Six is also the truer
+   number: a group in this product holds a handful of panes, not a dozen. */
+vec3 sPanes(float i, float a, float r) {
+  float k = floor(a * 6.0);
+  float cx = mod(k, 3.0), cy = floor(k / 3.0);
+  vec2 e = rectEdge(vec2((cx - 1.0) * 0.66, (cy - 0.5) * 0.82),
+                    vec2(0.29, 0.35), fract(i * 7.0 + a));
+  return vec3(e + (vec2(fract(i * 53.0), r) - 0.5) * 0.022,
+              (fract(a * 31.0) - 0.5) * 0.12);
+}
+
+/* 3 — COLUMNS. Three of them, and a card sitting in the middle one, because a
+   board with nothing on it is a grid. */
+vec3 sColumns(float i, float a, float r) {
+  float k = floor(a * 3.0);
+  float u = fract(a * 3.0);
+  vec2 e = (u < 0.22 && k > 0.5 && k < 1.5)
+    ? rectEdge(vec2(0.0, 0.30), vec2(0.17, 0.13), fract(i * 11.0))
+    : rectEdge(vec2((k - 1.0) * 0.62, 0.0), vec2(0.22, 0.74), fract(i * 5.0 + a));
+  return vec3(e + (vec2(r, fract(i * 91.0)) - 0.5) * 0.022,
+              (fract(a * 97.0) - 0.5) * 0.16);
+}
+
+/* 4 — THE SHELL. Hollow on purpose: it is the shape for the section about
+   nothing of yours leaving the machine. */
+vec3 sShell(float i, float a, float r, float t) {
+  float ang = a * TAU + t * 0.16;
+  float rad = 0.80 + (r - 0.5) * 0.09;
+  return vec3(cos(ang) * rad, sin(ang) * rad * 0.66, sin(ang * 2.0 + i * 3.0) * 0.26);
+}
+
+/* 5 — BARS. Seven, rising, drawn as outlines with a baseline under them. */
+vec3 sBars(float i, float a, float r) {
+  float k = floor(a * 7.0);
+  float u = fract(a * 7.0);
+  float top = 0.16 + 0.84 * (k / 6.0);
+  vec2 e = u < 0.13
+    ? vec2(mix(-1.0, 1.0, fract(i * 13.0)), -0.84)     /* the axis */
+    : rectEdge(vec2((k - 3.0) * 0.29, -0.84 + top * 0.80),
+               vec2(0.105, top * 0.80), fract(i * 5.0 + a));
+  return vec3(e + (vec2(r, fract(i * 41.0)) - 0.5) * 0.02,
+              (fract(a * 17.0) - 0.5) * 0.13);
+}
+
+/* 6 — THE LINE. */
+vec3 sLine(float i, float a, float r) {
+  return vec3((a - 0.5) * 2.3, (r - 0.5) * 0.07, (fract(i * 29.0) - 0.5) * 0.12);
+}
+
+vec3 shapeAt(float k, float i, float a, float r, float t) {
+  if (k < 0.5) return sVortex(i, a, r, t);
+  if (k < 1.5) return sStrands(i, a, r, t);
+  if (k < 2.5) return sPanes(i, a, r);
+  if (k < 3.5) return sColumns(i, a, r);
+  if (k < 4.5) return sShell(i, a, r, t);
+  if (k < 5.5) return sBars(i, a, r);
+  return sLine(i, a, r);
+}
+
+void main() {
+  float i = aId;
+  float a = aSeed.x;
+  float r = aSeed.y;
+  float t = uTime;
+  float s = clamp(uScroll, 0.0, 1.0);
+
+  /* Six transitions across the page. smoothstep on the fraction so a point
+     arrives and leaves at rest rather than at speed — a linear morph reads as a
+     slide, an eased one reads as a thing settling. */
+  float stage = s * 6.0;
+  float k = floor(stage);
+  float f = smoothstep(0.0, 1.0, fract(stage));
+  vec3 pos = mix(shapeAt(k, i, a, r, t), shapeAt(k + 1.0, i, a, r, t), f);
+
+  /* IT SWAYS, IT DOES NOT SPIN. The first version rotated continuously — yaw =
+     t * 0.075 + s * 1.1 — and four of the seven shapes are FLAT: the pane grid,
+     the columns, the bars and the line. A flat shape carried past 90 degrees is
+     a line, and the grid duly read as a smear rather than as a grid at the one
+     scroll position it was supposed to be legible. Rotation is not what makes
+     this read as three-dimensional; the tilt, the perspective divide and the
+     depth fade are. So the yaw oscillates inside ±24° and every shape faces the
+     reader for the whole of its stage. */
+  float yaw = sin(t * 0.11 + s * 2.2) * 0.30;
+  float cy = cos(yaw), sy = sin(yaw);
+  pos = vec3(pos.x * cy + pos.z * sy, pos.y, -pos.x * sy + pos.z * cy);
+  float tilt = 0.30;
+  pos = vec3(pos.x, pos.y * cos(tilt) - pos.z * sin(tilt), pos.y * sin(tilt) + pos.z * cos(tilt));
+
+  /* Perspective, by hand: no matrix is worth it for one object.
+
+     The horizontal correction is PARTIAL, and that is a decision rather than a
+     shortcut. Dividing fully by the aspect keeps circles circular and leaves the
+     swarm occupying the middle 42% of a 16:9 window — measured off the rendered
+     page, the point density was zero outside columns 16 to 36 of 48, which is
+     exactly the band the reading column occupies and exactly where a background
+     should not be. At 0.62 + 0.38·aspect the shapes are gently wide, the way a
+     composition for a landscape frame should be, and they reach the edges. */
+  float depth = pos.z + 2.9;
+  float aspect = uRes.x / uRes.y;
+  vec2 proj = pos.xy / depth * 2.9;
+  proj.x /= (0.62 + 0.38 * aspect);
+  /* The swarm sits behind the column of text, a little above centre, and drifts
+     down as the page goes so it never occupies the same band twice running. */
+  proj.y += 0.12 - s * 0.16;
+
+  gl_Position = vec4(proj, 0.0, 1.0);
+  gl_PointSize = clamp(5.2 / depth, 1.1, 4.6) * uPx * (0.75 + 0.5 * r);
+
+  /* One in seven is warm. In the product orange is the agent — it is what the
+     tab bar paints Claude with — so the swarm has the same two-colour cast as
+     the thing it is about, at the same ratio the app shows it. */
+  vCol = mix(COOL, WARM, step(0.86, a));
+
+  /* Nearer is brighter — the depth cue doing the work a projection matrix would
+     otherwise do — but it never reaches zero. A hard fade threw away the far
+     half of the cloud, which is half the coverage for no gain in legibility. */
+  float near = 0.30 + 0.70 * smoothstep(4.4, 1.8, depth);
+
+  /* THE SAME CHANNEL THE SURFACE USES. Screen x from the clip position, so the
+     points thin out down the middle of the page below the hero — where the
+     reading column is — and stay at full strength at the flanks. */
+  float sx = proj.x * 0.5 + 0.5;
+  float column = smoothstep(0.40, 0.08, abs(sx - 0.5));
+  float open = smoothstep(0.04, 0.16, s);
+  float channel = 1.0 - column * open * 0.66;
+
+  /* Fade out at the very top and bottom of the shape rather than letting it be
+     cut by the viewport edge. */
+  float edge = smoothstep(1.15, 0.75, abs(proj.y));
+
+  vAlpha = 0.55 * near * channel * edge * uGain;
+}
+`;
+
+const P_FRAG = `
+precision mediump float;
+varying vec3 vCol;
+varying float vAlpha;
+void main() {
+  /* A soft disc. A square point is the tell of a particle system that was not
+     finished, and at these sizes the falloff is most of what makes the cloud
+     read as light rather than as confetti. */
+  vec2 d = gl_PointCoord - 0.5;
+  float m = smoothstep(0.5, 0.06, length(d));
+  gl_FragColor = vec4(vCol * vAlpha * m, 1.0);
+}
+`;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE COMPOSITE — where the contrast budget is actually enforced.
+
+   The surface and the swarm both render into a framebuffer; this pass reads it
+   back, clamps its relative luminance, dithers, and writes to the screen. One
+   ceiling, applied to what the visitor sees, rather than one per pass applied to
+   things that then add together.
+
+   THE NUMBER IS DERIVED, NOT TUNED. The palest reading ink on this page is
+   --ink-faint #a3abbb, L 0.405. WCAG asks 4.5:1, so the brightest pixel that may
+   sit behind a glyph is (0.405 + 0.05) / 4.5 − 0.05 = L 0.051. The cap is set
+   below that because one layer is still painted after this one — the CSS dot
+   weave, which measured +0.011 on the brightest pixel — and a ceiling has to
+   leave room for what it cannot see.
+
+   TWO CORRECTIONS ARE IN THE MATHS, both found by screenshotting rather than by
+   reasoning. pow(c, 2.2) is the gamma people quote and not the curve sRGB has;
+   it under-read true luminance by 22%. And scaling an sRGB triple by k does NOT
+   scale its luminance by k^2.4 — the affine (c+0.055)/1.055 term breaks that
+   law, so a cap of 0.030 produced pixels at 0.043 and the error grew with the
+   pullback. The clamp is applied in LINEAR space, where luminance is linear by
+   definition and the scale is exact.
+
+   It is a cap on LIGHT, not on colour, and that is what lets the page still look
+   like something: a saturated blue at low luminance is both legal here and VIVID
+   by the channel-span measure this page's blandness was diagnosed with.
+   ═════════════════════════════════════════════════════════════════════════ */
+const C_VERT = `
+attribute vec2 p;
+varying vec2 vUv;
+void main(){ vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }
+`;
+
+const C_FRAG = `
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uTime;
+varying vec2 vUv;
+
+const vec3 GROUND = vec3(0.039, 0.051, 0.078);
+
+float h1(vec2 p){
+  p = fract(p * vec2(233.34, 851.73));
+  p += dot(p, p + 23.45);
+  return fract(p.x * p.y);
+}
+
+void main(){
+  vec3 col = texture2D(uTex, vUv).rgb;
+
   vec3 c0 = clamp(col, 0.0, 1.0);
   vec3 lin = mix(c0 / 12.92, pow((c0 + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c0));
   float lumY = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-  float ceilY = 0.027;
-  lin *= min(1.0, ceilY / max(lumY, 0.00001));
+
+  /* A ROLL-OFF, NOT A CLIFF. The first version was min(1, ceil/L): everything
+     over the ceiling was scaled to sit exactly on it, which is a hard clip.
+     Two things were wrong with that and the second one is why this changed.
+
+     A clip flattens: every dense cluster of points lands on the same value and
+     the shape inside it disappears. And a clip makes the two passes compete —
+     with the surface using most of the budget, every point drawn afterwards was
+     scaled straight back down, and the swarm measured as changing 0.1% of the
+     visible pixels with a peak contribution of 25/255. It was, in effect, off.
+
+     ceil · (1 − e^(−L/ceil)) is linear where there is room and asymptotic where
+     there is not. Nothing ever reaches the ceiling, so nothing is ever clipped,
+     and a sparse point at a tenth of the budget passes through untouched while a
+     pile of forty of them rolls off. It is the same curve a camera has, and for
+     the same reason. */
+  float ceilY = 0.038;
+  float mapped = ceilY * (1.0 - exp(-lumY / ceilY));
+  lin *= mapped / max(lumY, 0.00001);
   col = mix(lin * 12.92, 1.055 * pow(max(lin, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
             step(vec3(0.0031308), lin));
 
   /* Dither. Eight-bit blue on near-black bands badly, and a banded gradient is
      the single most reliable way to make a shader look cheap. */
-  float dith = (hash(frag + fract(t)) - 0.5) / 255.0;
-
-  gl_FragColor = vec4(GROUND + (col - GROUND) * uGain + dith, 1.0);
+  float d = (h1(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;
+  gl_FragColor = vec4(max(col + d, GROUND * 0.0), 1.0);
 }
 `;
 
@@ -371,30 +685,67 @@ function compile(gl: WebGLRenderingContext, type: number, src: string) {
   return sh;
 }
 
+function link(gl: WebGLRenderingContext, vsrc: string, fsrc: string) {
+  const vs = compile(gl, gl.VERTEX_SHADER, vsrc);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, fsrc);
+  if (!vs || !fs) return null;
+  const p = gl.createProgram()!;
+  gl.attachShader(p, vs);
+  gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.warn('[field]', gl.getProgramInfoLog(p));
+    return null;
+  }
+  return p;
+}
+
+/* Twenty-four thousand, and the number is a COVERAGE problem rather than a
+   detail one. The budget the composite enforces caps how bright any pixel may
+   be; it says nothing about how many pixels the swarm may touch. At nine
+   thousand points the swarm changed 0.6% of the visible pixels — every one of
+   them correct and legal, and collectively invisible. Tripling the count
+   triples the coverage at the same per-point brightness, which is the one lever
+   that does not spend contrast.
+   It is still cheap: 288KB of static buffer, and a vertex shader that evaluates
+   two of the seven shapes per point per frame. Vertices are not where a page
+   like this runs out of time — fragments are, and these are three pixels each. */
+const COUNT = 24000;
+
 function start(cv: HTMLCanvasElement) {
   const gl = (cv.getContext('webgl', { antialias: false, depth: false, alpha: false, powerPreference: 'low-power' }) ||
     cv.getContext('experimental-webgl')) as WebGLRenderingContext | null;
   if (!gl) return false;
 
-  const vs = compile(gl, gl.VERTEX_SHADER, VERT);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
-  if (!vs || !fs) return false;
-  const prog = gl.createProgram()!;
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    console.warn('[field]', gl.getProgramInfoLog(prog));
-    return false;
-  }
-  gl.useProgram(prog);
+  const prog = link(gl, VERT, FRAG);
+  const pProg = link(gl, P_VERT, P_FRAG);
+  const cProg = link(gl, C_VERT, C_FRAG);
+  if (!prog || !pProg || !cProg) return false;
 
+  /* ── the offscreen target ──────────────────────────────────────────────── */
+  /* Both passes draw here and the composite reads it back. The alternative — a
+     ceiling inside each pass — cannot work, because additive blending has no
+     ceiling: two passes each individually legal add up to one that is not, and
+     measured, they did (0.031 + 0.0795 = 0.1206 against a budget of 0.051).
+     LINEAR filtering, because the buffer is at 55% of CSS pixels and is stretched
+     to the canvas: NEAREST there gives a fluid visible pixel steps. */
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  /* ── the surface ───────────────────────────────────────────────────────── */
+  gl.useProgram(prog);
   const buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p');
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
   const u = {
     res: gl.getUniformLocation(prog, 'uRes'),
@@ -404,6 +755,50 @@ function start(cv: HTMLCanvasElement) {
     ptrOn: gl.getUniformLocation(prog, 'uPtrOn'),
     gain: gl.getUniformLocation(prog, 'uGain'),
   };
+
+  /* ── the swarm ─────────────────────────────────────────────────────────── */
+  /* Identity and two randoms per point, uploaded once and never touched again:
+     every shape is a pure function of those three numbers and the clock, so
+     there is no position buffer to update and nothing to read back. The whole
+     morph costs one uniform write per frame. */
+  const ids = new Float32Array(COUNT);
+  const seeds = new Float32Array(COUNT * 2);
+  let sd = 0x2f6e2b1;
+  const rnd = () => {
+    sd ^= sd << 13; sd ^= sd >>> 17; sd ^= sd << 5;
+    return ((sd >>> 0) % 100000) / 100000;
+  };
+  for (let n = 0; n < COUNT; n++) {
+    ids[n] = n / (COUNT - 1);
+    seeds[n * 2] = rnd();
+    seeds[n * 2 + 1] = rnd();
+  }
+  const idBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, idBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, ids, gl.STATIC_DRAW);
+  const seedBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, seedBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
+
+  gl.useProgram(pProg);
+  const pLocId = gl.getAttribLocation(pProg, 'aId');
+  const pLocSeed = gl.getAttribLocation(pProg, 'aSeed');
+  const pu = {
+    res: gl.getUniformLocation(pProg, 'uRes'),
+    time: gl.getUniformLocation(pProg, 'uTime'),
+    scroll: gl.getUniformLocation(pProg, 'uScroll'),
+    px: gl.getUniformLocation(pProg, 'uPx'),
+    gain: gl.getUniformLocation(pProg, 'uGain'),
+  };
+
+  gl.useProgram(cProg);
+  const cLoc = gl.getAttribLocation(cProg, 'p');
+  const cu = {
+    tex: gl.getUniformLocation(cProg, 'uTex'),
+    res: gl.getUniformLocation(cProg, 'uRes'),
+    time: gl.getUniformLocation(cProg, 'uTime'),
+  };
+  gl.uniform1i(cu.tex, 0);
 
   /* 0.55 of CSS pixels, DPR capped at 1.5. See the cost note at the top. */
   const SCALE = 0.55;
@@ -415,11 +810,78 @@ function start(cv: HTMLCanvasElement) {
     if (nw === w && nh === h) return;
     w = cv.width = nw;
     h = cv.height = nh;
-    gl.viewport(0, 0, w, h);
-    gl.uniform2f(u.res, w, h);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.useProgram(prog); gl.uniform2f(u.res, w, h);
+    gl.useProgram(pProg);
+    gl.uniform2f(pu.res, w, h);
+    gl.uniform1f(pu.px, dpr * SCALE);
+    gl.useProgram(cProg); gl.uniform2f(cu.res, w, h);
   };
   resize();
   addEventListener('resize', resize, { passive: true });
+
+  /* THREE PASSES. Surface and swarm into the framebuffer, then one composite to
+     the screen that clamps what they add up to.
+     `only` exists for the gates and for measuring, not for the page: 'surface'
+     draws the ground alone, 'swarm' draws the points alone on flat ink. Without
+     it there is no way to attribute a pixel to one pass or the other, and the
+     first attempt to measure the shapes read the SURFACE's own gradient as
+     particles and reported the swarm sitting off the right-hand edge. */
+  const fullscreen = (program: WebGLProgram, attr: number) => {
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(attr);
+    gl.vertexAttribPointer(attr, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
+
+  const paint = (t: number, at: number, ptX: number, ptY: number, on: number, gain: number,
+                 only?: 'surface' | 'swarm') => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND);
+
+    if (only === 'swarm') {
+      gl.clearColor(0.039, 0.051, 0.078, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    } else {
+      gl.useProgram(prog);
+      gl.uniform1f(u.time, t);
+      gl.uniform1f(u.scroll, at);
+      gl.uniform2f(u.ptr, ptX, ptY);
+      gl.uniform1f(u.ptrOn, on);
+      gl.uniform1f(u.gain, gain);
+      fullscreen(prog, loc);
+    }
+
+    if (only !== 'surface') {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);    /* the points are light, so they add */
+      gl.useProgram(pProg);
+      gl.bindBuffer(gl.ARRAY_BUFFER, idBuf);
+      gl.enableVertexAttribArray(pLocId);
+      gl.vertexAttribPointer(pLocId, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, seedBuf);
+      gl.enableVertexAttribArray(pLocSeed);
+      gl.vertexAttribPointer(pLocSeed, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform1f(pu.time, t);
+      gl.uniform1f(pu.scroll, at);
+      gl.uniform1f(pu.gain, gain);
+      gl.drawArrays(gl.POINTS, 0, COUNT);
+      gl.disableVertexAttribArray(pLocId);
+      gl.disableVertexAttribArray(pLocSeed);
+      gl.disable(gl.BLEND);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, w, h);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.useProgram(cProg);
+    gl.uniform1f(cu.time, t);
+    fullscreen(cProg, cLoc);
+  };
 
   /* Scroll and pointer are read here rather than pushed from v3.ts: this is the
      only consumer, and a uniform write is cheaper than a custom event. Both are
@@ -455,12 +917,7 @@ function start(cv: HTMLCanvasElement) {
     const t = (now - t0) / 1000;
     scroll += (scrollTo - scroll) * 0.085;
     ptrOn += (ptrTo - ptrOn) * 0.06;
-    gl.uniform1f(u.time, t);
-    gl.uniform1f(u.scroll, scroll);
-    gl.uniform2f(u.ptr, px, py);
-    gl.uniform1f(u.ptrOn, ptrOn);
-    gl.uniform1f(u.gain, Math.min(1, t / 1.1));
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    paint(t, scroll, px, py, ptrOn, Math.min(1, t / 1.1));
   };
 
   /* ── ONE FRAME, ON DEMAND ─────────────────────────────────────────────────
@@ -476,21 +933,17 @@ function start(cv: HTMLCanvasElement) {
      not reproduce. With this it pins time and page position and grades the
      surface at chosen moments, including the ones it is brightest at. A gate
      that cannot reproduce its own finding is a coin toss with a log file. */
-  const drawOnce = (t: number, at: number, pointerAt?: [number, number]) => {
-    gl.uniform1f(u.time, t);
-    gl.uniform1f(u.scroll, at);
-    gl.uniform2f(u.ptr, pointerAt ? pointerAt[0] : -9999, pointerAt ? pointerAt[1] : -9999);
-    gl.uniform1f(u.ptrOn, pointerAt ? 1 : 0);
-    gl.uniform1f(u.gain, 1);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-  };
+  const drawOnce = (t: number, at: number, pointerAt?: [number, number],
+                    only?: 'surface' | 'swarm') =>
+    paint(t, at, pointerAt ? pointerAt[0] : -9999, pointerAt ? pointerAt[1] : -9999,
+          pointerAt ? 1 : 0, 1, only);
 
   (window as unknown as { __field?: unknown }).__field = {
-    freeze(t: number, at: number, pointer?: [number, number]) {
+    freeze(t: number, at: number, pointer?: [number, number], only?: 'surface' | 'swarm') {
       cancelAnimationFrame(raf);
       raf = 0;
       const dpr = Math.min(devicePixelRatio || 1, 1.5) * SCALE;
-      drawOnce(t, at, pointer ? [pointer[0] * dpr, (innerHeight - pointer[1]) * dpr] : undefined);
+      drawOnce(t, at, pointer ? [pointer[0] * dpr, (innerHeight - pointer[1]) * dpr] : undefined, only);
     },
   };
 

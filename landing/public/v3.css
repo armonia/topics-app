@@ -271,8 +271,13 @@ body.v3 > .footer { position: relative; z-index: 1; }
 .capsule__in {
   max-width: var(--maxw); margin: 0 auto;
   display: flex; align-items: center; gap: 24px;
-  padding: 9px 10px 9px 16px;
-  border-radius: 999px;
+  padding: 9px 10px 9px 14px;
+  /* SQUARED. A pill is the default shape for a floating nav and it is the one
+     shape on this page that agrees with nothing else on it: every surface here
+     — the app's own window, the screenshots, the code blocks, the plan cards —
+     is a rounded rectangle at the same radius. A capsule among them reads as a
+     component borrowed from somewhere else. */
+  border-radius: var(--r-card);
   background: hsl(220 33% 98% / .82);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   backdrop-filter: blur(16px) saturate(140%);
@@ -717,13 +722,23 @@ body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both;
    `cover` with a top anchor: the act's shots are 1.33:1 and 1.6:1, the stage is
    2.6:1, and the top of a window is where its identity lives — the tab strip,
    the sidebar, the toolbar. Cropping from the bottom keeps all of it. */
+/* FULL OPACITY, NO BLUR, NOTHING ON TOP. It used to be dimmed to 62% and
+   blurred by 0.7px so a card could float in front of it, and the objection to
+   that is exact: Topics never renders at 62% of itself. A screenshot at an
+   opacity the product does not have is a picture of a product that does not
+   exist, and the eye reads it as one — a watermark rather than a window.
+   The card that needed the dimming is gone with it. What is left is the app,
+   and a caption underneath saying what to look at, which is how a photograph
+   has always been captioned. */
 .scene__shot {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover; object-position: center top;
-  opacity: .62; filter: blur(.7px);
   pointer-events: none; user-select: none;
-  transform: translate3d(0, calc(var(--par, 0) * 10px), 0) scale(1.04);
+  /* The parallax stays: it is the one thing that keeps a still picture from
+     sitting on the page like a sticker, and it moves the frame rather than
+     faking depth inside it. */
+  transform: translate3d(0, calc(var(--par, 0) * 10px), 0) scale(1.03);
   will-change: transform;
 }
 .scene__fg {
@@ -893,6 +908,129 @@ body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both;
 .pick__ok { margin-left: auto; color: var(--app-ok); width: 13px; height: 13px; }
 .pick__foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--app-border); font-size: 11px; color: var(--app-text-secondary); }
 
+/* ── THE VERDICTS ──────────────────────────────────────────────────────────
+   The disqualification list, and the one section on this page whose job is to
+   send some readers away. It works only if a reader can SCAN it and find
+   themselves, which six equal-weight paragraph cards could not do.
+
+   Three parts per row and they are three different registers: the condition in
+   the reader's own voice at reading size, the verdict as one word in mono, and
+   the reason quiet underneath. The verdict is the load-bearing part — it is a
+   judgement the page is making about itself, and the four possible values are
+   deliberately not synonyms:
+
+     Wrong tool   use something else, and here is which
+     By design    it will never do this
+     A real cost  you can live with it, and it costs you something
+     Not yet      young rather than wrong
+
+   No cards. A hairline and air, the same way every other list on this page is
+   held apart. */
+.verdicts { list-style: none; margin: 44px 0 0; padding: 0; }
+.verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 24px;
+  padding: 22px 0;
+  border-top: 1px solid var(--rule);
+  align-items: baseline;
+}
+.verdict:first-child { border-top: 0; }
+.verdict__if {
+  margin: 0; grid-column: 1;
+  font-family: var(--display); font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-size: var(--t-md); line-height: 1.3;
+  color: var(--ink); text-wrap: balance;
+}
+.verdict__tag {
+  margin: 0; grid-column: 2; grid-row: 1;
+  font-family: var(--mono); font-size: var(--t-xs);
+  letter-spacing: .08em; text-transform: uppercase;
+  white-space: nowrap;
+  padding: 3px 9px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rule-2); color: var(--ink-faint);
+}
+/* Only one of the four takes a colour, and it is the one that is a warning
+   rather than a preference: a palette where every tag is coloured has no tags
+   in it, only decoration. */
+.verdict__tag[data-v="cost"] { border-color: hsl(38 80% 55% / .38); color: var(--warn); }
+.verdict__why {
+  margin: 0; grid-column: 1 / -1;
+  color: var(--ink-mute); max-width: 74ch; line-height: 1.65; text-wrap: pretty;
+}
+@media (max-width: 700px) {
+  .verdict { grid-template-columns: 1fr; }
+  .verdict__tag { grid-column: 1; grid-row: 2; justify-self: start; }
+  .verdict__why { grid-row: 3; }
+}
+
+/* ── THE BEATS ────────────────────────────────────────────────────────────
+   What an act used to say under its headline was three bullets in the shape of
+   "One checkout per task. Named for the task, cleaned up when it lands." — a
+   restatement of the headline with a comma in it. Three of those is a paragraph
+   that has been cut up rather than an explanation.
+
+   A beat is a step in the mechanism, in order, with the real artefact in it: the
+   actual command, the actual column name, the actual file. That is what a
+   developer wants from a page like this, and it is also the only version of
+   this section that can be interesting, because the interesting part of Topics
+   IS the mechanism. */
+/* min-width: 0 all the way down, or the shell command in beat 2 of act 1 sets
+   the width of the whole column: a grid item defaults to min-width:auto and
+   cannot shrink below its content, so a <code> with white-space:pre pushes its
+   ancestors past the viewport. Measured at 390px, .act__body ran to x600 in a
+   390px window and the page scrolled sideways. */
+.act__body { min-width: 0; }
+.beats { list-style: none; margin: 24px 0 0; padding: 0; counter-reset: beat; min-width: 0; }
+.beats li {
+  position: relative;
+  min-width: 0;
+  padding: 0 0 0 34px;
+  margin-bottom: 15px;
+  color: var(--ink-mute);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.beats li::before {
+  counter-increment: beat;
+  content: counter(beat);
+  position: absolute; left: 0; top: 1px;
+  width: 21px; height: 21px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--rule-2);
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+.beats b { color: var(--ink); font-weight: 500; }
+.beats code {
+  display: block; margin-top: 7px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+  color: var(--ink-mute);
+  background: var(--p-1); border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  padding: 9px 11px;
+  overflow-x: auto; white-space: pre;
+  /* -webkit-overflow-scrolling and a max-width the flex/grid parent can honour:
+     the block scrolls, the column does not grow. */
+  max-width: 100%;
+}
+.beats .chip {
+  font-family: var(--mono); font-size: .84em;
+  padding: 1px 6px; border-radius: var(--r-ctl);
+  background: var(--p-3); color: var(--ink);
+}
+/* The tail of an act: the things that are true and do not need a step of their
+   own. Quieter than the beats, and separated by a rule rather than by a heading,
+   because it is a footnote and should read as one. */
+.act__also {
+  margin: 20px 0 0; padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-faint); font-size: var(--t-sm); line-height: 1.65;
+  text-wrap: pretty;
+}
+
 /* ── THE LONG TAIL ─────────────────────────────────────────────────────────
    What was here: sixteen cells, each an icon, a bold name and one sentence, in
    a four-column grid. Measured, the average cell held 84 characters — which is
@@ -1005,8 +1143,61 @@ body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both;
 .faq h4 { font-size: var(--t-base); letter-spacing: -.015em; margin-bottom: 7px; }
 .faq p { color: var(--ink-mute); font-size: 15px; line-height: 1.6; text-wrap: pretty; }
 .faq code { font-family: var(--mono); font-size: .86em; padding: 0 5px; border-radius: var(--r-ctl); background: var(--p-3); white-space: nowrap; }
-.plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: stretch; }
-.plan h3 { font-family: var(--display); font-weight: 600; font-size: var(--t-md); letter-spacing: -.02em; margin-bottom: 10px; }
+/* ── PRICING ───────────────────────────────────────────────────────────────
+   The four tiers were four equal columns, and that is the whole problem: a row
+   of equal columns says the four things are peers, while the headline directly
+   above it says "the app is €0 and stays €0". The free one is not a quarter of
+   the offer, it IS the offer, and the other three are ways to pay for something
+   that is already yours.
+
+   So the free tier spans the row and reads across — name and price on the left,
+   what you get on the right, in two columns because six items stacked in a
+   quarter-width card is what made the list look loose in the first place. The
+   three paid ones sit under it at a smaller size. Nothing is centred, nothing
+   is a badge-covered "most popular", and the hierarchy is the layout rather
+   than a colour. */
+.plans { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: stretch; }
+.plans__paid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+
+.plan h3 {
+  font-family: var(--display); font-weight: var(--display-weight);
+  font-size: var(--t-md); letter-spacing: -.025em; margin-bottom: 10px;
+}
+
+/* The free tier reads across rather than down. */
+.plan--free {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: 12px 46px;
+  align-items: start;
+  padding: 30px 30px 26px;
+}
+.plan--free h3 { grid-column: 1; font-size: var(--t-lg); }
+.plan--free .plan__price { grid-column: 1; margin-bottom: 10px; }
+.plan--free .plan__amount { font-size: 46px; }
+.plan--free .plan__for { grid-column: 1; }
+.plan--free .plan__list {
+  grid-column: 2; grid-row: 1 / span 4;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 28px; margin-bottom: 0; align-content: start;
+}
+.plan--free .btn { grid-column: 1; margin-top: 4px; }
+.plan--free .plan__fine { grid-column: 1; text-align: left; margin-top: 9px; }
+
+/* TIGHTER. The item rows were 10px apart at 14px type inside a quarter-width
+   card, which is a gap of two thirds of a line — enough for six items to read
+   as six separate statements rather than as one list. */
+.plan__list { gap: 7px; }
+.plan__list li { font-size: 14px; line-height: 1.45; align-items: baseline; }
+.plan__list .ic { width: 11px; height: 11px; margin-top: 0; }
+.plan__list b { font-weight: 500; }
+.plan__fine { font-size: 12.5px; }
+
+@media (max-width: 900px) {
+  .plan--free { grid-template-columns: 1fr; }
+  .plan--free .plan__list { grid-column: 1; grid-row: auto; grid-template-columns: 1fr; }
+  .plans__paid { grid-template-columns: 1fr; }
+}
 
 /* ── Entry ───────────────────────────────────────────────────────────────── */
 /* The reference does opacity 0 → 1, translateY(60px) → 0 and blur(16px) → 0 in
@@ -1399,11 +1590,19 @@ body.v3.has-field .field__aurora { display: none; }
   left: 0; top: -25px;
   color: var(--ink-faint);
 }
-/* The tag now overhangs, so the scene cannot clip its own children. Nothing
-   else inside needs clipping: the shot is `object-fit: cover` inside a box with
-   a radius, and the actor is inset by design. */
-[data-ground="dark"] .scene { overflow: visible; margin-top: 25px; }
-[data-ground="dark"] .scene__shot { border-radius: var(--r-slab); }
+/* The scene clips again, and the tag is a SIBLING above it in the markup rather
+   than a child pulled out with a negative offset. Both matter: with the scene
+   set to overflow:visible so the label could escape, the picture escaped too —
+   the parallax scales it by 1.03 and it measured 594px wide inside a 577px
+   frame, nine pixels proud on each side, which is exactly the "misaligned" a
+   reader sees without being able to name it. */
+[data-ground="dark"] .scene { overflow: hidden; }
+.act__stage > .scene__tag {
+  position: static; display: block;
+  margin: 0 0 9px 2px;
+  background: none; border: 0; padding: 0;
+  color: var(--ink-faint);
+}
 
 /* Code and inline chips: `--p-3` is now a RAISED dark, which is right, but a
    chip also wants an edge or it dissolves into the paragraph. */
