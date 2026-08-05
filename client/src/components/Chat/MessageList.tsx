@@ -436,7 +436,8 @@ export function MessageList({
     // 0-high and renders NO rows — a jump there scrolls into the void and the
     // target is lost before the pane ever becomes visible (the palette event
     // fires exactly in that state when the hit's topic isn't the active tab).
-    // The scroller ResizeObserver below re-fires this when the pane shows.
+    // Il poll qui sotto (armato dall'evento di richiesta) ritenta finché la
+    // pane non ha una viewport vera.
     const scroller = scrollerElRef.current;
     if (!scroller || scroller.clientHeight === 0) return;
     const targetId = peekScrollToMessage(topic.id);
@@ -579,26 +580,91 @@ export function MessageList({
     // Virtuoso superi la sua soglia (nel frattempo la vista si diceva ancorata
     // mentre l'utente stava già leggendo indietro, e il messaggio dopo gliela
     // ributtava in fondo).
-    const releaseToUser = () => (userTouchedRef.current = true, dispatchScroll({
+    // La SORGENTE viaggia con l'evento: le due qui sotto non hanno la stessa
+    // affidabilità. La rotellina è un gesto, e di gesti l'app non ne produce;
+    // il calo di `scrollTop` lo produce anche Virtuoso quando rimisura dopo un
+    // nostro scroll forzato. Solo la prima ha il diritto di scavalcare la
+    // finestra di guardia — vedi `user-scrolled-up` in scrollAuthority.
+    const releaseToUser = (source: 'gesture' | 'delta') => (userTouchedRef.current = true, dispatchScroll({
       type: 'user-scrolled-up',
       streaming: _currentStreaming,
+      source,
       distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
     }));
+
+    /**
+     * Fin quando uno scroll è ancora attribuibile a un INPUT dell'utente.
+     *
+     * L'evento `scroll` da solo non dice chi l'ha causato — lo emette anche
+     * Virtuoso quando rimisura — e su quella ambiguità è costruita la finestra
+     * di guardia. Ma gli input dell'utente sono osservabili: rotellina, dito,
+     * tasti, trascinamento della barra. Segnandoli, lo `scroll` che segue smette
+     * di essere ambiguo e può scavalcare la guardia.
+     *
+     * Serve una finestra e non un flag istantaneo perché l'input PRECEDE il
+     * movimento: al `keydown` di Home la vista è ancora in fondo, la distanza
+     * che conta si misura sullo `scroll` che arriva dopo.
+     */
+    const GESTURE_WINDOW_MS = 400;
+    let gestureUntil = 0;
+    const markGesture = () => { gestureUntil = Date.now() + GESTURE_WINDOW_MS; };
+    // Tasti che muovono la lista. Freccia giù / Fine / PagGiù non servono: qui
+    // interessa solo chi va INDIETRO, e chi va in fondo ci pensa `reached-bottom`.
+    const SCROLL_KEYS = new Set(['Home', 'PageUp', 'ArrowUp', 'ArrowLeft']);
+    // Sul DOCUMENTO, non sullo scroller: quel div non è focalizzabile, quindi il
+    // `keydown` non nasce mai lì dentro e un listener sull'elemento non lo
+    // vedrebbe mai (gli eventi salgono, non scendono). Con Home o PagSu la
+    // lista si muoveva e l'app non se ne accorgeva: restava «ancorata» e il
+    // messaggio dopo la ributtava in fondo a chi stava leggendo indietro.
+    const onKeyDown = (e: KeyboardEvent) => { if (SCROLL_KEYS.has(e.key)) markGesture(); };
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) releaseToUser();
+      markGesture();
+      if (e.deltaY < 0) releaseToUser('gesture');
     };
     const onScroll = () => {
       const st = el.scrollTop;
-      if (isUserScrollUp(lastScrollTopRef.current, st)) releaseToUser();
+      if (isUserScrollUp(lastScrollTopRef.current, st)) {
+        releaseToUser(Date.now() < gestureUntil ? 'gesture' : 'delta');
+      }
       lastScrollTopRef.current = st;
     };
     el.addEventListener('wheel', onWheel, { passive: true });
     el.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('keydown', onKeyDown, true);
+    el.addEventListener('touchstart', markGesture, { passive: true });
+    el.addEventListener('touchmove', markGesture, { passive: true });
+    // Trascinamento della barra di scorrimento: nessun wheel, nessun tasto.
+    el.addEventListener('pointerdown', markGesture, { passive: true });
+
+    // La pane torna VISIBILE dopo essere stata nascosta.
+    //
+    // Le tab non si smontano: la scala keep-alive le lascia montate con
+    // `display:none`, e lì la viewport di Virtuoso è alta 0 — non renderizza
+    // righe e non misura niente. Quando torni su quella chat la lista si
+    // ricostruisce da capo, e dove atterra non lo decide nessuno: se nel
+    // frattempo erano arrivati messaggi, ti ritrovi a metà. Il passaggio
+    // 0 → altezza vera è il segnale che nessun evento di scroll può dare.
+    //
+    // Pinna solo se l'autorità dice che eri ancorato: chi aveva lasciato la
+    // chat scrollata indietro la ritrova dove l'aveva lasciata.
+    let wasHidden = el.clientHeight === 0;
+    const ro = new ResizeObserver(() => {
+      const hidden = el.clientHeight === 0;
+      if (wasHidden && !hidden) pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES });
+      wasHidden = hidden;
+    });
+    ro.observe(el);
+
     return () => {
+      ro.disconnect();
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
+      document.removeEventListener('keydown', onKeyDown, true);
+      el.removeEventListener('touchstart', markGesture);
+      el.removeEventListener('touchmove', markGesture);
+      el.removeEventListener('pointerdown', markGesture);
     };
-  }, [scrollerEl, topic.id, _currentStreaming, dispatchScroll]);
+  }, [scrollerEl, topic.id, _currentStreaming, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared

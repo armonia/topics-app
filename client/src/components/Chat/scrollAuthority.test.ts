@@ -160,9 +160,24 @@ describe('left-bottom fuori dallo stream — la guardia', () => {
     expect(d.state.anchored).toBe(true);
   });
 
-  it('dentro la finestra, uno scarto GRANDE è comunque l\'utente', () => {
+  it('dentro la finestra NON sgancia nemmeno uno scarto grande: è roba nostra', () => {
+    // Prima questo scarto veniva preso per l'utente, ed era il difetto: premi
+    // «Riprova» (o invii, o apri la chat), noi riancoriamo e pinniamo, poi
+    // arriva la riga nuova, il banner sparisce, il composer cambia altezza e la
+    // lista si rimisura — per un attimo Virtuoso annuncia centinaia di pixel di
+    // distanza. Sganciare lì significava vietare ogni pin per il resto del
+    // turno: la risposta scorreva via sotto una vista ferma.
     const d = reduceScroll(guarded, {
-      type: 'left-bottom', streaming: false, distanceFromBottom: AT_BOTTOM_TOLERANCE_PX,
+      type: 'left-bottom', streaming: false, distanceFromBottom: 900,
+    }, T0 + 100);
+    expect(d.state.anchored).toBe(true);
+  });
+
+  it('…e il controllo resta all\'utente, che ha il suo evento e scavalca la guardia', () => {
+    // La contropartita di sopra: se in quella stessa finestra l'utente tira su
+    // la rotellina, quello è un GESTO — l'app non ne produce — e sgancia subito.
+    const d = reduceScroll(guarded, {
+      type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 900,
     }, T0 + 100);
     expect(d.state.anchored).toBe(false);
   });
@@ -245,6 +260,53 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
       T0 + SCROLL_GUARD_MS + 1,
     );
     expect(d.state.anchored).toBe(false);
+  });
+
+  /**
+   * Le due sorgenti di «l'utente ha scrollato su» non hanno la stessa
+   * affidabilità, e prima erano indistinguibili: la guardia le sopprimeva
+   * entrambe. Effetto: per 600ms dopo ogni nostro scroll forzato l'utente non
+   * poteva sganciare — cioè proprio nell'istante in cui uno reagisce a un salto
+   * che non voleva.
+   */
+  it('dentro la guardia: il GESTO sgancia, il calo di scrollTop no', () => {
+    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const gesto = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 400 },
+      T0 + 100,
+    );
+    expect(gesto.state.anchored, 'la rotellina è un gesto: l\'app non ne produce').toBe(false);
+
+    const misura = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, source: 'delta', distanceFromBottom: 400 },
+      T0 + 100,
+    );
+    expect(misura.state.anchored, 'il calo può essere la rimisura di Virtuoso').toBe(true);
+  });
+
+  it('senza sorgente dichiarata si assume la lettura prudente (delta)', () => {
+    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const d = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
+      T0 + 100,
+    );
+    expect(d.state.anchored).toBe(true);
+  });
+
+  it('anche il gesto rispetta la geometria: vicino al fondo non sgancia', () => {
+    // Un colpetto di rotellina mentre sei già in fondo non è «voglio leggere
+    // indietro»: se sganciasse, comparirebbe la freccia «torna in fondo» su una
+    // vista che è in fondo.
+    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const d = reduceScroll(
+      dopoIlBottone.state,
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 10 },
+      T0 + 100,
+    );
+    expect(d.state.anchored).toBe(true);
   });
 });
 
