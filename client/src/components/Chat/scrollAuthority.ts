@@ -85,8 +85,14 @@ export type ScrollEvent =
    * Virtuoso fuori dallo stream.
    */
   | { type: 'user-scrolled-up'; streaming: boolean; distanceFromBottom?: number }
-  /** Virtuoso: la vista è tornata in fondo. */
-  | { type: 'reached-bottom' }
+  /**
+   * Virtuoso: la vista è tornata in fondo.
+   *
+   * `teleported` = ci è arrivata di colpo da lontano, senza che l'avessimo
+   * portata noi. Non è un gesto umano: è la lista che si è ri-ancorata da sé
+   * dopo una rimisura. Vedi la transizione.
+   */
+  | { type: 'reached-bottom'; teleported?: boolean }
   /** Virtuoso: la vista non è più in fondo. Può essere l'utente o la crescita del contenuto. */
   | { type: 'left-bottom'; streaming: boolean; distanceFromBottom: number }
   /** Offset ripristinato da un undo di pane. */
@@ -183,6 +189,11 @@ export function reduceScroll(
       return { state, pin: false };
 
     case 'reached-bottom':
+      // Un salto in fondo che non abbiamo fatto noi e che l'utente non ha
+      // compiuto — la lista che si ri-ancora da sé dopo una rimisura — non è un
+      // ritorno in fondo: è il difetto. Perdonarlo significava incollare la
+      // vista per il resto della sessione a chi stava leggendo indietro.
+      if (event.teleported) return { state, pin: false };
       // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
       if (state.anchored) return { state, pin: false };
       return { state: { ...state, anchored: true }, pin: false };
