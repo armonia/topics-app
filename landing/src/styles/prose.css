@@ -81,7 +81,13 @@
   font-size: 15px; color: var(--ink-faint);
   padding-bottom: 30px; border-bottom: 1px solid var(--rule);
 }
-.article-meta .sep { opacity: .5; }
+/* .75, not .5. At .5 this dot painted 2.05:1 against the page — under even the
+   3:1 a separator needs as a graphic. It went unnoticed because the contrast
+   gate did not fold ancestor `opacity` into what it measured; it does now, and
+   this was the first thing it caught on a page that has been live for weeks.
+   The dots are also aria-hidden at the markup, because "August 4 middle dot
+   6 min read" is not a sentence anyone wants read to them. */
+.article-meta .sep { opacity: .75; }
 /* `updated` is the one date that matters to a search engine and to a reader,
    so it is in the page and not in the footer. */
 .article-meta time { font-variant-numeric: tabular-nums; }
