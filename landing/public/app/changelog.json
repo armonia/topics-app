@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.11",
-    "date": "2026-08-04",
+    "date": "2026-08-05",
     "sections": {
       "new": [
         {
@@ -556,6 +556,192 @@
         },
         {
           "it": "Ripara tre modi in cui local-shell-swap.sh falliva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sito racconta il prodotto vero, e torna deployabile dal repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deploy non porta con sé una cartella che non è il sito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traccia anche le chat e le webview, non solo i terminali",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sito si legge meglio, e l'anteprima arriva prima di tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scelto il carattere: serif nei titoli, e la pagina smette di caricare i provini",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "terzo lotto e un contatore che non mente",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Profondità vera, caratteri ricercati, e il download Linux che non scaricava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane Browser dipinge di nuovo, e il sito nomina le sedici cose che taceva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara il pannello domande per quello che è: sola lettura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card mostrano il prodotto, non un disegno del prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I numeri del turno vivono sul messaggio, non nella striscia che li ascolta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli il cronometro da accanto alla domanda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La demo smette di essere una finestrella, e le floating splits si vedono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro cose che la chat diceva sbagliate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il consumo del turno non si azzera, e sopravvive a una ricarica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello risponde come si risponde a voce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ridimensionare uno split dentro un progetto non riscrive più il grid intorno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una finestra raggruppa le sue TAB, non solo le sue chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La demo smette di rubarti lo scroll, e i capitoli si fanno spazio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un solo glifo per «sta lavorando», e il consiglio si vede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gruppo è l'unità: la sidebar li mostra, e \"Finestre\" sparisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sola dichiarazione per PresenceTab, e il contratto WS dice la verità",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sito smette di sbattere fuori i lettori che contano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le immagini del prodotto smettono di essere illeggibili",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sito prende un motore, e con esso blog e wiki",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli script del sito seguono il sito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card di condivisione smette di essere un logo schiacciato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le regole di cache seguono gli asset generati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La firma e' l'organizzazione, non una persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il confronto, con i fatti presi dalle loro pagine e non dalla memoria",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il lint torna verde, e non con dei disable",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il wiki arriva a ventinove voci, e i collegamenti non possono marcire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Passo di humanizer sul contenuto, misurato non a sentimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro articoli, e il grafico che ha smentito il titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carta e strumento: il sito si ribalta, il prodotto resta l'unica cosa scura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello per il sito, che prova anche quello che non e' markup",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un commit sulla landing che cancella due componenti React",
           "en": "",
           "scope": null
         }

@@ -1,17 +1,18 @@
 /**
  * spaces-switcher.spec.ts — i GRUPPI (Spazi), dopo che sono scesi nella sidebar.
  *
- * Il modello che questo file protegge: **un gruppo è l'unità, e la sidebar è il
- * gruppo che stai guardando**. Da cui, in ordine:
- *   - il nome del gruppo attivo sta in cima alla sidebar;
- *   - la lista sotto mostra le tab di QUEL gruppo, non tutte;
- *   - gli altri gruppi stanno in fondo (SpaceBar), col "+" per aggiungerne;
+ * Il modello che questo file protegge: **un gruppo CONTIENE le sue tab**. Da
+ * cui, in ordine:
+ *   - il gruppo aperto ha la sua intestazione, e sotto — dentro di sé — la
+ *     lista delle sue tab, non di tutte;
+ *   - gli altri gruppi sono righe chiuse SOPRA quella intestazione: un elenco
+ *     solo, nessuna barra separata da nessun'altra parte;
  *   - un gruppo si può spostare in una finestra sua (`?space=<id>`), e quella
  *     finestra mostra quel gruppo e basta.
  *
- * Superfici: `SpaceTitle` (data-testid="sidebar-space-title"), `SpaceBar`
- * (data-testid="sidebar-space-bar", chip role="tab" / data-space-id) e il menu
- * contestuale delle tab ("Sposta nel gruppo" / "Nuovo gruppo").
+ * Superfici: `SpaceGroups` (data-testid="sidebar-groups", riga aperta
+ * "space-row-active", righe chiuse "space-row", contenuto "space-content") e il
+ * menu contestuale delle tab ("Sposta nel gruppo" / "Nuovo gruppo").
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
@@ -74,24 +75,24 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await newGroup.click();
   }
 
-  test("SPACE-01: senza gruppi c'è solo l'invito a crearne uno, e nessun titolo", async ({ page }) => {
+  test("SPACE-01: con un gruppo solo non si disegna niente (zero chrome)", async ({ page }) => {
     await openTwoStandaloneTabs(page);
-    // La barra c'è sempre (è da lì che si scoprono i gruppi), ma con un gruppo
-    // solo non ha chip da mostrare: nessun elenco, nessun titolo in cima.
-    await expect(page.getByTestId("sidebar-space-bar")).toBeVisible();
-    await expect(page.getByTestId("space-chip")).toHaveCount(0);
-    await expect(page.getByTestId("sidebar-space-title")).toHaveCount(0);
-    await expect(page.getByTestId("space-add")).toHaveCount(1);
+    // Nessuna intestazione sopra l'unica lista possibile, e nessuna riga di
+    // gruppi da nessuna parte: il primo gruppo nasce dal menu di una tab.
+    await expect(page.getByTestId("sidebar-groups")).toHaveCount(0);
+    await expect(page.getByTestId("space-row")).toHaveCount(0);
+    await expect(page.getByTestId("space-row-active")).toHaveCount(0);
   });
 
   test("SPACE-01b: su desktop il 'nuovo gruppo' si accende solo passandoci sopra", async ({ page }) => {
     await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
     const opacity = () => page.evaluate(() => {
       const el = document.querySelector('[data-testid="space-add"]');
       return el ? getComputedStyle(el).opacity : "missing";
     });
-    // Lontano dalla sidebar: il comando c'è nel DOM ma è spento — in fondo alla
-    // sidebar, per sempre acceso, sarebbe arredamento.
+    // Lontano dalla sidebar il comando c'è nel DOM ma è spento: un "+" acceso
+    // per sempre sul rail dell'intestazione è arredamento.
     await page.mouse.move(1000, 400);
     await expect.poll(opacity, { timeout: 3000 }).toBe("0");
     await page.locator('[aria-label="Topics sidebar"]').hover();
@@ -102,17 +103,13 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    // La barra in fondo ora elenca "Principale" + il nuovo gruppo.
-    const bar = page.getByTestId("sidebar-space-bar");
-    await expect(bar.getByRole("tab"), "Principale + il nuovo gruppo").toHaveCount(2);
-    await expect(bar.getByRole("tab", { name: "Principale" })).toBeVisible();
+    // Ora i gruppi sono due: quello aperto (Principale, che contiene la lista)
+    // e l'altro come riga chiusa sopra.
+    await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+    await expect(page.getByTestId("space-row"), "l'altro gruppo è una riga chiusa").toHaveCount(1);
 
     // Semantica Arc: la finestra NON si sposta da sola — resta su Principale, e
     // la tab spostata esce dall'insieme visibile.
-    await expect(
-      bar.getByRole("tab", { name: "Principale" }),
-      "il gruppo di partenza resta quello attivo dopo uno spostamento silenzioso",
-    ).toHaveAttribute("aria-selected", "true");
     await expect(
       page.locator(`[data-pane-id="${idA}"]`),
       "la tab spostata lascia l'insieme visibile",
@@ -127,16 +124,14 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    const bar = page.getByTestId("sidebar-space-bar");
-    const gruppo2 = bar.getByRole("tab", { name: /Gruppo 2/ });
+    const gruppo2 = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
     await expect(gruppo2, "il nuovo gruppo si chiama 'Gruppo 2'").toBeVisible();
 
-    // Il titolo in cima dice quale gruppo stai guardando.
-    await expect(page.getByTestId("sidebar-space-title")).toContainText("Principale");
+    // L'intestazione aperta dice quale gruppo stai guardando.
+    await expect(page.getByTestId("space-row-active")).toContainText("Principale");
 
     await gruppo2.click();
-    await expect(gruppo2).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("sidebar-space-title")).toContainText("Gruppo 2");
+    await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
     await expect(
       page.locator(`[data-pane-id="${idA}"]`).first(),
       "la tab del gruppo attivo è visibile",
@@ -146,10 +141,10 @@ test.describe.serial("Gruppi (Spazi)", () => {
       "quella dell'altro gruppo no",
     ).toHaveCount(0);
 
-    // E la SIDEBAR è d'accordo: elenca la riga della tab di questo gruppo, non
-    // quella dell'altro. È la regressione che questo riordino doveva chiudere —
-    // prima la lista era la stessa per tutti i gruppi.
-    const sidebar = page.getByTestId("sidebar-topic-list");
+    // E il CONTENUTO del gruppo è d'accordo: dentro di lui c'è la riga della
+    // sua tab, non quella dell'altro. È la regressione che questo riordino
+    // doveva chiudere — prima la lista era la stessa per tutti i gruppi.
+    const sidebar = page.getByTestId("space-content");
     await expect(sidebar.getByText("SPACE-A-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
     await expect(sidebar.getByText("SPACE-B-", { exact: false })).toHaveCount(0);
   });
@@ -158,8 +153,7 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    const bar = page.getByTestId("sidebar-space-bar");
-    await bar.getByRole("tab", { name: /Gruppo 2/ }).click();
+    await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).click();
     const tabAinSpace = page.locator(`[data-pane-id="${idA}"]`).first();
     await expect(tabAinSpace, "la tab A è visibile nel suo gruppo").toBeVisible({ timeout: 5000 });
 
@@ -188,8 +182,7 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    const bar = page.getByTestId("sidebar-space-bar");
-    await bar.getByRole("tab", { name: /Gruppo 2/ }).click({ button: "right" });
+    await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).click({ button: "right" });
     const detach = page.getByTestId("space-detach");
     await expect(detach, "il menu del gruppo offre di spostarlo in una finestra").toBeVisible({ timeout: 3000 });
     await detach.click();
@@ -205,8 +198,7 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
 
-    const bar = page.getByTestId("sidebar-space-bar");
-    const spaceId = await bar.getByRole("tab", { name: /Gruppo 2/ }).getAttribute("data-space-id");
+    const spaceId = await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).getAttribute("data-space-id");
     expect(spaceId).toBeTruthy();
 
     // La presenza è WS-driven: si inietta la finestra-gruppo invece di aprirla
@@ -236,17 +228,17 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
-    const chip = page.getByTestId("sidebar-space-bar").getByRole("tab", { name: /Gruppo 2/ });
+    const row = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
     await expect(
-      chip.getByTestId("space-detached"),
-      "il chip dice che quel gruppo vive in una finestra sua",
+      row.getByTestId("space-detached"),
+      "la riga dice che quel gruppo vive in una finestra sua",
     ).toBeVisible({ timeout: 10000 });
 
     // Il click NON commuta qui: prova ad alzare quella finestra. Fuori da Tauri
-    // non c'è, quindi il ripiego dichiarato (commutare) è ciò che si osserva —
+    // non c'è, quindi il ripiego dichiarato (aprirlo qui) è ciò che si osserva —
     // ed è la prova che il ramo "porta davanti" è stato preso per primo.
-    await chip.click();
-    await expect(chip).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
+    await row.click();
+    await expect(page.getByTestId("space-row-active"), "il ripiego apre il gruppo qui").toContainText("Gruppo 2", { timeout: 5000 });
   });
 
   test("SPACE-06: una finestra `?space=` mostra QUEL gruppo, e non offre di cambiarlo", async ({ page }) => {
@@ -254,9 +246,8 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await moveTabToNewGroup(page, idA);
 
     // L'id del gruppo appena creato, letto dal suo chip.
-    const bar = page.getByTestId("sidebar-space-bar");
-    const spaceId = await bar.getByRole("tab", { name: /Gruppo 2/ }).getAttribute("data-space-id");
-    expect(spaceId, "il chip porta l'id del suo gruppo").toBeTruthy();
+    const spaceId = await page.getByTestId("space-row").filter({ hasText: "Gruppo 2" }).getAttribute("data-space-id");
+    expect(spaceId, "la riga porta l'id del suo gruppo").toBeTruthy();
 
     await page.goto(`/?space=${encodeURIComponent(spaceId!)}`);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
@@ -271,8 +262,8 @@ test.describe.serial("Gruppi (Spazi)", () => {
       "e non quelle degli altri",
     ).toHaveCount(0);
     // …dice quale gruppo è…
-    await expect(page.getByTestId("sidebar-space-title")).toContainText("Gruppo 2");
+    await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
     // …e non offre di andarsene: non c'è dove.
-    await expect(page.getByTestId("sidebar-space-bar")).toHaveCount(0);
+    await expect(page.getByTestId("space-row")).toHaveCount(0);
   });
 });
