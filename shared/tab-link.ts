@@ -53,10 +53,11 @@ export type TabKind =
   | 'panel'
   | 'task';
 
-/** I panel singleton indirizzabili. `journal` NON c'è di proposito: il tipo
- *  `UtilityPageType` di `handleOpenAsPage` (usePanelLifecycle) non lo prevede,
- *  quindi un `/tab/panel/journal` sarebbe un link che non apre niente. */
-export const TAB_PANELS = ['board', 'agents', 'dashboard', 'activity', 'cron'] as const;
+/** I panel singleton indirizzabili: esattamente quelli che
+ *  `handleOpenAsPage` (usePanelLifecycle) sa aprire, o il link sarebbe un
+ *  evento che non apre niente. `agents`, `activity` e `journal` sono usciti
+ *  insieme alle loro pane. */
+export const TAB_PANELS = ['board', 'dashboard', 'cron'] as const;
 export type TabPanel = (typeof TAB_PANELS)[number];
 
 export interface TabTarget {

@@ -52,17 +52,6 @@ function topicUrl(topicId: unknown): string {
 export function maybeSendPush(message: Record<string, any>): void {
   const type = message.type;
 
-  // Agent completed or errored
-  if (type === "agents:stopped") {
-    firePush({
-      title: "Agent stopped",
-      body: `Session ${message.sessionKey || "unknown"} was stopped`,
-      tag: "agent-stopped",
-      url: "/",
-    });
-    return;
-  }
-
   // Approval created — someone needs to review
   if (type === "approval:created") {
     const approval = message.approval;
@@ -132,22 +121,4 @@ export function maybeSendPush(message: Record<string, any>): void {
     return;
   }
 
-  // Agent session status changes (error) from the session watcher
-  if (type === "agents:sessions" && Array.isArray(message.sessions)) {
-    for (const session of message.sessions) {
-      if (session.status === "error") {
-        const updatedAt = session.updatedAt || 0;
-        const age = Date.now() - updatedAt;
-        if (age < 60_000) {
-          firePush({
-            title: `❌ Agent error`,
-            body: `${session.displayName || session.key} failed`,
-            tag: `agent-${session.key}-error`,
-            url: "/",
-          });
-        }
-      }
-    }
-    return;
-  }
 }

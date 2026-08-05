@@ -316,79 +316,13 @@ const errorMessageSchema = z.looseObject({
 // Reuse the canonical handshake schema (same project — no TS6307) so the
 // outbound guard can't drift from the source-of-truth welcome shape.
 
-// ---- Agent lifecycle cluster ----------------------------------------------
-
-const agentProfileShape = z.looseObject({ id: z.string() });
-
-const agentProfileCreatedSchema = z.looseObject({
-  type: z.literal('agent:profile:created'),
-  profile: agentProfileShape,
-});
-
-const agentProfileUpdatedSchema = z.looseObject({
-  type: z.literal('agent:profile:updated'),
-  profile: agentProfileShape,
-});
-
-const agentProfileDeletedSchema = z.looseObject({
-  type: z.literal('agent:profile:deleted'),
-  // `profileId`, non `agentId`: e' il campo che l'UNICO emittente manda davvero
-  // (`server/routes/agent-profiles.ts`), e sta accanto al `profile` dei fratelli
-  // created/updated. Lo schema chiedeva `agentId`, quindi il frame FALLIVA la
-  // validazione: il server lo segnalava con un warning e il client lo scartava
-  // come malformato (`useWebSocket.ts`). Nessuno lo consumava, quindi il
-  // disallineamento non ha mai fatto rumore — ma un eventuale consumatore non
-  // avrebbe mai visto una cancellazione.
-  profileId: z.string(),
-});
-
-const agentAssignedSchema = z.looseObject({
-  type: z.literal('agent:assigned'),
-  assignment: z.looseObject({ agentId: z.string(), topicId: z.string() }),
-});
-
-const agentUnassignedSchema = z.looseObject({
-  type: z.literal('agent:unassigned'),
-  agentId: z.string(),
-  topicId: z.string(),
-});
-
-const agentHeartbeatSchema = z.looseObject({
-  type: z.literal('agent:heartbeat'),
-  agentId: z.string(),
-  timestamp: z.string(),
-});
-
-const agentSessionPausedSchema = z.looseObject({
-  type: z.literal('agent:session:paused'),
-  sessionKey: z.string(),
-});
-
-const agentSessionResumedSchema = z.looseObject({
-  type: z.literal('agent:session:resumed'),
-  sessionKey: z.string(),
-});
-
-const agentEscalationSchema = z.looseObject({
-  type: z.literal('agent:escalation'),
-});
-
-const agentsSessionsSchema = z.looseObject({
-  type: z.literal('agents:sessions'),
-  sessions: z.array(z.unknown()),
-});
-
-const agentsSpawnedSchema = z.looseObject({
-  type: z.literal('agents:spawned'),
-  topicId: z.string(),
-  sessionKey: z.string(),
-  label: z.optional(z.string()),
-});
-
-const agentsStoppedSchema = z.looseObject({
-  type: z.literal('agents:stopped'),
-  sessionKey: z.string(),
-});
+// ---- (the "agent" frame family is gone) -----------------------------------
+//
+// Profiles, assignments, heartbeats, escalations and the OpenClaw session
+// roster all broadcast under `agent:*` / `agents:*`. None of it exists any
+// more: an agent is a provider you picked, and the sub-agents a turn spawns
+// are terminal sessions with a `parentSessionKey` (SubAgentsStrip), which ride
+// the `terminal:*` frames like everything else.
 
 // ---- Stream cluster (server → client message streaming) -------------------
 
@@ -995,19 +929,6 @@ const OUTBOUND_SCHEMAS = {
   'error': errorMessageSchema,
   // Handshake echo (welcome is sent right after connected)
   'welcome': welcomeMessageSchema,
-  // Agent lifecycle
-  'agent:profile:created': agentProfileCreatedSchema,
-  'agent:profile:updated': agentProfileUpdatedSchema,
-  'agent:profile:deleted': agentProfileDeletedSchema,
-  'agent:assigned': agentAssignedSchema,
-  'agent:unassigned': agentUnassignedSchema,
-  'agent:heartbeat': agentHeartbeatSchema,
-  'agent:session:paused': agentSessionPausedSchema,
-  'agent:session:resumed': agentSessionResumedSchema,
-  'agent:escalation': agentEscalationSchema,
-  'agents:sessions': agentsSessionsSchema,
-  'agents:spawned': agentsSpawnedSchema,
-  'agents:stopped': agentsStoppedSchema,
   // Approvals
   // Stream cluster (provider streaming)
   'stream:start': streamStartSchema,

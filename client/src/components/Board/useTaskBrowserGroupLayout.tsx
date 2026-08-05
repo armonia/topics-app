@@ -126,7 +126,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     id: threadPaneId(taskId), type: 'chat', title: 'Sessione', stableKey: threadPaneId(taskId),
   }), [taskId]);
   const planPane = useMemo<Pane | null>(() => (planActive
-    ? { id: planPaneId(taskId), type: 'journal', title: 'Piano', stableKey: planPaneId(taskId) }
+    ? { id: planPaneId(taskId), type: 'plan', title: 'Piano', stableKey: planPaneId(taskId) }
     : null), [taskId, planActive]);
   const mediaPanes = useMemo<Pane[]>(() => mediaPaths.map((p) => ({
     id: mediaPaneId(p), type: 'file', title: p.split('/').pop() || 'Allegato', stableKey: mediaPaneId(p),

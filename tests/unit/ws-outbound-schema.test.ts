@@ -148,6 +148,12 @@ describe('outbound registry contract', () => {
     // That's intentional — it forces the PR author to acknowledge that
     // the outbound surface grew (and to document it in WS-PROTOCOL.md).
     //
+    // 2026-08-05, −12 → tutta la famiglia `agent:*` / `agents:*`: profili,
+    // assegnazioni, heartbeat, escalation e il roster di sessioni di OpenClaw.
+    // Un agente è il provider che hai scelto, non un personaggio con un nome, e
+    // i sotto-agenti di un turno sono sessioni di terminale con un
+    // `parentSessionKey` — viaggiano sui frame `terminal:*`.
+    //
     // 2026-07-30, +1 → `stream:usage`: il CONSUMO del turno mentre cresce.
     // Fratello di `stream:context` e distinto da lui apposta — quello è il
     // serbatoio (sale e SCENDE con le compattazioni), questo è la bolletta (solo
@@ -156,18 +162,6 @@ describe('outbound registry contract', () => {
     // niente. Non si poteva allargare `stream:context` senza far dire a un
     // evento due cose che si muovono in verso opposto.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
-      'agent:assigned',
-      'agent:escalation',
-      'agent:heartbeat',
-      'agent:profile:created',
-      'agent:profile:deleted',
-      'agent:profile:updated',
-      'agent:session:paused',
-      'agent:session:resumed',
-      'agent:unassigned',
-      'agents:sessions',
-      'agents:spawned',
-      'agents:stopped',
       'board:dispatch',
       'board:global-cap',
       'board:settings',
@@ -309,8 +303,8 @@ describe('outbound registry contract', () => {
   // del turno intero: nessuno dei due sa dire quale tool call è costata. Ha
   // mittente (`server/routes/chat.ts`) e ascoltatore (`useChat`), quindi non è
   // un tipo dichiarativo — è il contratto di una via che esiste.
-  test('all 97 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(97);
+  test('all 85 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(85);
   });
 });
 
@@ -380,64 +374,11 @@ describe('validateOutbound — final 100% coverage cluster', () => {
   });
 });
 
-// ----- Day-3 additions: agent + approval + stream + message + misc --------
-
-describe('validateOutbound — agent cluster', () => {
-  test('agent:profile:created accepts profile.id', () => {
-    expect(validateOutbound({
-      type: 'agent:profile:created',
-      profile: { id: 'a-1', name: 'agent-1', role: 'worker' },
-    }).ok).toBe(true);
-  });
-
-  test('agent:assigned requires assignment.agentId+topicId', () => {
-    expect(validateOutbound({
-      type: 'agent:assigned',
-      assignment: { agentId: 'a-1', topicId: 't-1', role: 'worker' },
-    }).ok).toBe(true);
-    expect(validateOutbound({
-      type: 'agent:assigned',
-      assignment: { agentId: 'a-1' }, // missing topicId
-    }).ok).toBe(false);
-  });
-
-  test('agent:status with optional previousStatus', () => {
-    expect(validateOutbound({
-      type: 'agent:status', agentId: 'a-1', status: 'available',
-    }).ok).toBe(true);
-    expect(validateOutbound({
-      type: 'agent:status', agentId: 'a-1', status: 'available', previousStatus: 'offline',
-    }).ok).toBe(true);
-  });
-
-  test('agent:heartbeat requires timestamp string', () => {
-    expect(validateOutbound({
-      type: 'agent:heartbeat', agentId: 'a-1', timestamp: '2026-05-13T00:00:00Z',
-    }).ok).toBe(true);
-    expect(validateOutbound({
-      type: 'agent:heartbeat', agentId: 'a-1', timestamp: 12345,
-    }).ok).toBe(false);
-  });
-
-  test('agent:session:paused requires sessionKey', () => {
-    expect(validateOutbound({ type: 'agent:session:paused', sessionKey: 'sk-1' }).ok).toBe(true);
-    expect(validateOutbound({ type: 'agent:session:paused' }).ok).toBe(false);
-  });
-
-  test('agents:spawned requires topicId + sessionKey', () => {
-    expect(validateOutbound({
-      type: 'agents:spawned', topicId: 't-1', sessionKey: 'sk-1', label: 'task',
-    }).ok).toBe(true);
-    expect(validateOutbound({
-      type: 'agents:spawned', topicId: 't-1', sessionKey: 'sk-1',
-    }).ok).toBe(true); // label optional
-  });
-
-  test('agents:sessions requires sessions array', () => {
-    expect(validateOutbound({ type: 'agents:sessions', sessions: [] }).ok).toBe(true);
-    expect(validateOutbound({ type: 'agents:sessions' }).ok).toBe(false);
-  });
-});
+// ----- Day-3 additions: approval + stream + message + misc ---------------
+//
+// Il cluster `agent:*` / `agents:*` non c'è più: profili, assegnazioni,
+// heartbeat e il roster di sessioni di OpenClaw sono usciti dal registro
+// insieme alle loro pane (vedi la lista bloccata qui sopra).
 
 describe('validateOutbound — stream cluster', () => {
   test('stream:start requires sessionKey + messageId', () => {

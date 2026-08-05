@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud, Pin, PinOff, AppWindow } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MoreHorizontal, Cloud, Pin, PinOff, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
@@ -36,7 +36,6 @@ interface TopicItemProps {
    *  the same NotificationBadge the tab bar uses; the per-Claude phase dot is
    *  gone, folded into this single count. */
   notificationCount?: number;
-  assignedAgentCount?: number;
   onToggle: () => void;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
@@ -67,7 +66,6 @@ export const TopicItem = memo(function TopicItem({
   isArchived,
   isProject: _isProject,
   notificationCount = 0,
-  assignedAgentCount = 0,
   onToggle,
   onClick,
   onDoubleClick,
@@ -289,19 +287,8 @@ export const TopicItem = memo(function TopicItem({
         />
       )}
 
-      {/* Assigned agents badge */}
-      {assignedAgentCount > 0 && (
-        <span
-          className={cn("flex-shrink-0 flex items-center gap-0.5 text-[11px]", onFill ? ON_FILL_TEXT_SOFT : "text-purple-500 dark:text-purple-400")}
-          title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
-        >
-          <Bot size={12} />
-          {assignedAgentCount > 1 && <span className="font-medium">{assignedAgentCount}</span>}
-        </span>
-      )}
-
       {/* Streaming spinner (when working) XOR timestamp/archive (at rest).
-          Pinned AFTER the split-map + agents badge so the "working" cue sits at
+          Pinned AFTER the split-map so the "working" cue sits at
           the END of the row — matching the tab bar and the terminal/browser
           sidebar rows. The notification badge below is the only trailing
           element after it. */}

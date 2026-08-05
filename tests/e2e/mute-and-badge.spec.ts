@@ -3,8 +3,9 @@
  * REAL useCompletionNotifier + useTabNotifications hooks.
  *
  * Contract proven here:
- *   1. Two topics finish (agents:sessions active→idle). One is muted
- *      (Topic.muted, migration 073). → EXACTLY ONE native banner fires.
+ *   1. Two topics finish (session:state running→completed, the Claude-Code
+ *      phase machine). One is muted (Topic.muted, migration 073). → EXACTLY
+ *      ONE native banner fires.
  *   2. The app badge counts BOTH completions even though one is muted — the
  *      badge rides the mute-blind attention rollup, not the mute gate.
  *   3. Foregrounding the muted topic drops its share of the badge.
@@ -25,6 +26,15 @@ test.use({ video: "on" });
 
 const TS = Date.now();
 const BASE = E2E_BASE;
+
+/** The server-assigned `sessionKey` of a topic (the notifier keys on it). */
+async function sessionKeyOf(page: import("@playwright/test").Page, topicId: string): Promise<string> {
+  const res = await page.request.get(`${BASE}/api/topics/${topicId}`, { ignoreHTTPSErrors: true });
+  const topic = (await res.json()) as { sessionKey?: string };
+  const key = topic.sessionKey;
+  if (!key) throw new Error(`topic ${topicId} has no sessionKey`);
+  return key;
+}
 
 let mutedTopic: { id: string; name: string };
 let loudTopic: { id: string; name: string };
@@ -91,9 +101,9 @@ test.describe("Mute gate + app badge", () => {
     const ws = await interceptWebSocket(page);
 
     // Open both topics; focus NEITHER completion target — park focus on the
-    // agents utility pane so both Muted and Loud are inactive and thus banner-
+    // board utility pane so both Muted and Loud are inactive and thus banner-
     // eligible (a focused topic is suppressed regardless of mute).
-    const AGENTS = "__agents__";
+    const AGENTS = "__board__";
     await page.request.put(`${BASE}/api/ui-state/panels`, {
       data: { openPanels: [mutedTopic.id, loudTopic.id, AGENTS] },
     });
@@ -112,27 +122,25 @@ test.describe("Mute gate + app badge", () => {
     await page.locator(`[data-pane-id="${AGENTS}"]`).waitFor({ state: "visible", timeout: 10000 });
     await page.locator(`[data-pane-id="${AGENTS}"]`).click();
 
-    const keyMuted = `topic:${mutedTopic.id}`;
-    const keyLoud = `topic:${loudTopic.id}`;
+    // The notifier resolves a chat by its `sessionKey`, so read the real one
+    // back rather than rebuilding the server's `topic:<id8>` convention here.
+    const keyMuted = await sessionKeyOf(page, mutedTopic.id);
+    const keyLoud = await sessionKeyOf(page, loudTopic.id);
 
-    // Frame 1 = baseline (both active). First agents:sessions frame never
-    // banners; it only records prior status to diff against.
-    ws.send({
-      type: "agents:sessions",
-      sessions: [
-        { key: keyMuted, status: "active", topicId: mutedTopic.id },
-        { key: keyLoud, status: "active", topicId: loudTopic.id },
-      ],
+    const phaseFrame = (sessionKey: string, phase: string) => ({
+      type: "session:state",
+      sessionKey,
+      state: { phase, claudeSessionId: `cs-${sessionKey}` },
     });
 
-    // Frame 2 = both flip active→idle: two completions in the same tick.
-    ws.send({
-      type: "agents:sessions",
-      sessions: [
-        { key: keyMuted, status: "idle", topicId: mutedTopic.id },
-        { key: keyLoud, status: "idle", topicId: loudTopic.id },
-      ],
-    });
+    // Frame 1 = baseline (both running). The first frame for a session never
+    // banners (isRealPhaseTransition): it only records the phase to diff.
+    ws.send(phaseFrame(keyMuted, "running"));
+    ws.send(phaseFrame(keyLoud, "running"));
+
+    // Frame 2 = both flip running→completed: two completions in the same tick.
+    ws.send(phaseFrame(keyMuted, "completed"));
+    ws.send(phaseFrame(keyLoud, "completed"));
 
     // (1) Exactly ONE banner — the Loud one. Muted swallowed its banner.
     await expect

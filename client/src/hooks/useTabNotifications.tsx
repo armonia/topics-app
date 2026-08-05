@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
 import { useAttentionSignals, rollupProjectAttention, rollupGlobalAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
@@ -24,22 +24,15 @@ interface TabNotificationContextValue {
   clearPane: (paneId: string) => void;
   /** Timestamps of last notification per topicId (for sidebar sort) */
   lastNotifiedAt: Map<string, number>;
-  /** Raw badge counts for panes that are neither chat nor terminal (agents
-   *  panes, session-viewer). `getBadgeCount` reads it for the tab; the SIDEBAR
-   *  needs it too, or a row hard-codes 0 while its own tab shows a number. */
+  /** Raw badge counts for panes that are neither chat nor terminal.
+   *  `getBadgeCount` reads it for the tab; the SIDEBAR needs it too, or a row
+   *  hard-codes 0 while its own tab shows a number. */
   extraCounts: ReadonlyMap<string, number>;
   /** Record that a topic just received a notification (for sidebar sort ordering) */
   touchTopic: (topicId: string) => void;
 }
 
 const TabNotificationContext = createContext<TabNotificationContextValue | null>(null);
-
-/** Prefix lists for pane-id matching. Standalone-group utility panes use
- *  the `__type__` envelope (see UtilityPanel.UTILITY_PREFIX); project-group
- *  panes use the bare `type:` form (see createPaneId in paneConfig.ts).
- *  Both are valid in `openPanels` depending on which surface created the
- *  pane, so every badge rule needs to cover both spellings. */
-const AGENTS_PREFIXES = ['__agents__', 'agents:', 'agents', 'session-viewer:'] as const;
 
 export function TabNotificationProvider({
   children,
@@ -54,7 +47,7 @@ export function TabNotificationProvider({
   openPanels: string[];
   focusedPanelId: string | null;
 }) {
-  // Non-chat badge counts (agents pane, terminal pane, etc.)
+  // Non-chat badge counts (terminal pane, etc.)
   const [extraCounts, setExtraCounts] = useState<Map<string, number>>(() => new Map());
   // Timestamps for sidebar sort ordering
   const [lastNotifiedAt, setLastNotifiedAt] = useState<Map<string, number>>(() => new Map());
@@ -96,88 +89,13 @@ export function TabNotificationProvider({
   // without re-subscribing on every render.
   const openPanelsRef = useRefMirror(openPanels);
   const focusedRef = useRefMirror(focusedPanelId);
-  // Track previous session statuses to detect active→idle transitions (= session completed)
-  const prevSessionStatusRef = useRef<Map<string, string>>(new Map());
-
-  // Helper: badge every open pane whose id matches one of the given prefixes,
-  // skipping the currently focused pane. Centralised so each WS handler is a
-  // one-liner and we don't drift on the focused-pane suppression rule.
-  const badgePrefixes = useCallback((prefixes: readonly string[]) => {
-    for (const panelId of openPanelsRef.current) {
-      if (panelId === focusedRef.current) continue;
-      for (const prefix of prefixes) {
-        if (panelId.startsWith(prefix)) {
-          notifyPane(panelId);
-          break;
-        }
-      }
-    }
-    // openPanelsRef + focusedRef are stable ref objects (from useRefMirror);
-    // listing them keeps badgePrefixes' identity stable while satisfying
-    // exhaustive-deps. notifyPane is the only behavioural dependency.
-  }, [notifyPane, openPanelsRef, focusedRef]);
 
   useEffect(() => {
     return onWSMessage((msg) => {
-      // Agent session status changes → detect completion (active→idle) or error
-      if (msg.type === 'agents:sessions') {
-        const sessions = msg.sessions;
-        const prevStatuses = prevSessionStatusRef.current;
-        // The FIRST frame after load/reconnect is a baseline, not a set of
-        // transitions: the roster watcher re-broadcasts the full list (which can
-        // carry an hours-old `error` row), and we have no prior status to diff
-        // against. Seeding-only on the first frame stops that stale row reading
-        // as a fresh active→error and badging "a caso" on load. A genuinely-new
-        // error in a LATER frame still requires a KNOWN non-error predecessor,
-        // so a roster rebroadcast that first reveals an already-errored session
-        // never notifies either.
-        const isFirstFrame = prevStatuses.size === 0;
-        let shouldNotifyAgents = false;
-
-        for (const session of sessions) {
-          const prevStatus = prevStatuses.get(session.key);
-          // Notify on: active→idle (just completed) or a transition INTO error
-          // from a known non-error status (symmetric with justCompleted).
-          const justCompleted = prevStatus === 'active' && session.status === 'idle';
-          const isError = prevStatus !== undefined && prevStatus !== 'error' && session.status === 'error';
-          if (!isFirstFrame && (justCompleted || isError)) {
-            shouldNotifyAgents = true;
-            if (session.topicId) {
-              touchTopic(session.topicId);
-            }
-          }
-        }
-
-        // Update tracked statuses
-        const newStatuses = new Map<string, string>();
-        for (const session of sessions) {
-          newStatuses.set(session.key, session.status);
-        }
-        prevSessionStatusRef.current = newStatuses;
-
-        if (shouldNotifyAgents) {
-          badgePrefixes(AGENTS_PREFIXES);
-        }
-      }
-      // Stream ended (a chat turn finished) → badge ONLY the session-viewer
-      // pinned to THIS session, if it's open and not focused. The old code
-      // badged EVERY agents + session-viewer pane on every chat turn end
-      // (badgePrefixes is sessionKey-blind) — "notifiche a caso" that piled up
-      // on unrelated panes while you worked in chats. The agents-list pane gets
-      // its real attention from the agents:sessions completion/error path above,
-      // not from a chat stream ending, so it's no longer badged here.
-      if (msg.type === 'stream:end' && msg.sessionKey) {
-        const viewerId = `session-viewer:${msg.sessionKey}`;
-        if (viewerId !== focusedRef.current && openPanelsRef.current.includes(viewerId)) {
-          notifyPane(viewerId);
-        }
-        if (msg.topicId) {
-          touchTopic(msg.topicId);
-        }
-      }
-      // Agent explicitly asking for human help → badge agents panes
-      if (msg.type === 'agent:escalation' || msg.type === 'agent:nudge') {
-        badgePrefixes(AGENTS_PREFIXES);
+      // Stream ended (a chat turn finished) → keep the topic's sidebar sort
+      // position fresh. No pane badge: the chat's own unread rule owns that.
+      if (msg.type === 'stream:end' && msg.topicId) {
+        touchTopic(msg.topicId);
       }
       // NB: `terminal:sessions` is intentionally NOT badged. It fires on every
       // session create/exit/roster refresh (e.g. opening any terminal tab), and
@@ -199,7 +117,7 @@ export function TabNotificationProvider({
     // .current inside), so listing them is behaviorally a no-op — it just
     // satisfies exhaustive-deps, matching the notifyPane effect above which
     // already lists them.
-  }, [onWSMessage, notifyPane, touchTopic, badgePrefixes, focusedRef, openPanelsRef]);
+  }, [onWSMessage, notifyPane, touchTopic, focusedRef, openPanelsRef]);
 
   const getBadgeCount = useCallback((paneId: string, topicId?: string, isActive?: boolean): number => {
     // Claude "needs you" attention (approval / finished reply / error) persists
@@ -236,8 +154,8 @@ export function TabNotificationProvider({
   // Desktop (Tauri) dock-icon badge + macOS menu-bar tray glyph: reflect the
   // app-wide attention total on the OS chrome, driven by the SAME signals as the
   // in-app tab badges so it can never drift from what's on screen. The rollup
-  // covers every topic + terminal; `extraCounts` adds the agent/session-viewer
-  // pane badges (which live only in this layer). No-op off Tauri.
+  // covers every topic + terminal; `extraCounts` adds the remaining pane badges
+  // (which live only in this layer). No-op off Tauri.
   const totalAttention = useMemo(() => {
     let extra = 0;
     for (const n of extraCounts.values()) extra += n;
@@ -245,7 +163,7 @@ export function TabNotificationProvider({
   }, [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, extraCounts]);
   // The top attention chats, as clickable tray-menu rows (id + title). Sorted by
   // attention weight, capped so the tray menu stays short. Only chat topics: they
-  // navigate cleanly via handleTopicClick; terminal/agent attention still counts
+  // navigate cleanly via handleTopicClick; terminal attention still counts
   // toward the badge but isn't a menu row.
   const attentionItems = useMemo(() => {
     return Object.values(topics)

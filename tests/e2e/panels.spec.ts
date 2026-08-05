@@ -150,50 +150,6 @@ test.describe("Panels & Views", () => {
     await expect(addMenu).toBeHidden({ timeout: 5000 });
   });
 
-  test("dashboard digest tab", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Il tab "Digest" NON e' condizionale: ActivityFeedPanel.tsx:83-95 mappa
-    // `['live','digest']` senza guardie — se il pannello e' montato, i due
-    // bottoni ci sono entrambi. Quindi il vecchio
-    // `waitFor(...).catch(() => {})` + `if (count > 0)` non proteggeva da
-    // nulla: assorbiva il caso "il pannello non e' montato affatto" e faceva
-    // passare il test senza mai cliccare il Digest.
-    //
-    // Reset del pane-store: e' la causa sospetta del rosso in run completa
-    // (verde 10/10 in isolamento). handleOpenAsPage registra il pane utility
-    // in `group:default` e lo mette a fuoco (usePanelLifecycle.ts:895-915), ma
-    // su un layout ereditato dagli altri spec — split, celle, tab di fondo —
-    // il pane Activity puo' finire in una cella non visibile, e piu' avanti la
-    // chat riaperta non diventa il tab attivo della cella a schermo: la
-    // "Message input" non compare mai. Da zero la sequenza e' deterministica.
-    await resetPaneStore(request, []);
-    // Activity is openclaw-gated inside the "Settings & Tools" (Topics ▾) menu.
-    await mockOpenClawAvailable(page);
-    await goToApp(page);
-    await openTopicsMenuItem(page, "Activity");
-
-    // Si aspetta il pannello VERO (data-testid su ActivityFeedPanel.tsx:80),
-    // non un testo qualsiasi dentro main — "Activity" e' anche l'etichetta del
-    // tab, quindi cercarla nel testo non distingue "pannello montato" da
-    // "solo la linguetta aperta".
-    const activityFeed = page.getByTestId("activity-feed");
-    await expect(activityFeed).toBeVisible({ timeout: 10000 });
-
-    const digestTab = activityFeed.getByRole("button", { name: "Digest", exact: true });
-    await expect(digestTab).toBeVisible({ timeout: 10000 });
-    await digestTab.click();
-
-    // Il click deve MONTARE il JournalPanel (import lazy dietro <Suspense>,
-    // ActivityFeedPanel.tsx:98-103). Il testid sta sul div radice
-    // (JournalPanel.tsx:77) e non dipende dall'esito della fetch del journal:
-    // errore o giornata vuota rendono comunque il pannello.
-    await expect(page.getByTestId("journal-panel")).toBeVisible({ timeout: 10000 });
-
-    // Navigate back to chat and wait for input to be ready
-    await openTopic(page, /Web Search Test/);
-    await expect(page.getByRole("textbox", { name: /Message input/ })).toBeVisible({ timeout: 10000 });
-  });
-
   test("terminal section exists", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     // Sidebar sections (Terminali/Browser/…) only render in GROUPED view; the

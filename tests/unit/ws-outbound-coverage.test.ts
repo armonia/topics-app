@@ -29,14 +29,19 @@ const DORMANT: Record<string, string> = {
   // Il client li ASCOLTA ancora (usePanelLifecycle, useTabNotifications): lo
   // schema resta come contratto di ciò che quel gestore si aspetta, finché
   // qualcuno decide se togliere il gestore o ripristinare l'emissione.
-  "agent:escalation": "gestito da useTabNotifications, emissione server assente",
-  "agent:heartbeat": "dichiarato in client/types, emissione server assente",
   "browser:force-open": "gestito da usePanelLifecycle, emissione server assente",
+  // L'unico emittente era il roster agenti (`routes/agent-profiles.ts`), uscito
+  // col concetto di agente. `useDashboard` lo ascolta ancora e nel frattempo si
+  // aggiorna da solo ogni 60s: il gestore resta, il frame lo riprenderà chi
+  // avrà un motivo vero per dire "i numeri sono cambiati".
+  "dashboard:updated": "ascoltato da useDashboard, emissione server assente",
   "topic:switch:complete": "gestito da usePanelLifecycle, emissione server assente",
   // I sette `chat:*` / `provider:*` / `agent:status` che stavano qui sono stati
   // RIMOSSI dal registro il 30/07: nessuno li mandava e nessuno li ascoltava.
   // Un tipo dormiente è un contratto che qualcuno potrebbe ancora onorare; quelli
-  // erano finzione, e la finzione si cancella invece di motivarla.
+  // erano finzione, e la finzione si cancella invece di motivarla. Il 05/08 è
+  // toccato al resto della famiglia `agent:*` / `agents:*`, uscita dal registro
+  // insieme alle pane che la mostravano.
 };
 
 /**
@@ -52,14 +57,6 @@ const DORMANT: Record<string, string> = {
 const UNCONSUMED: Record<string, string> = {
   // Protocollo: il client non deve gestirli, gli basta ricevere un frame.
   pong: "risposta al ping di keepalive (useWebSocket manda 'ping')",
-  // La card del roster non mostra le assegnazioni, quindi non c'è niente da
-  // aggiornare; AgentAssignPanel, che le mostra, ricarica dopo la propria azione.
-  "agent:assigned": "nessuna superficie mostra le assegnazioni nel roster",
-  "agent:unassigned": "nessuna superficie mostra le assegnazioni nel roster",
-  // Servono righe in `agent_sessions`, che NESSUNO scrive: ascoltarli non
-  // cambierebbe niente di visibile. Vedi il KPI della Dashboard.
-  "agent:session:paused": "richiede righe in agent_sessions, tabella senza scrittori",
-  "agent:session:resumed": "richiede righe in agent_sessions, tabella senza scrittori",
 };
 
 /** Sorgenti del CLIENT: quelli che possono ascoltare. Test esclusi. */

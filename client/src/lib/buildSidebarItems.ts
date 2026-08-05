@@ -161,12 +161,11 @@ interface BuildSidebarItemsOpts {
    *  tabs — and, for chats, even archived with showArchived off. */
   pinnedIds?: Set<string>;
   /** Non-chat, non-terminal pane badge counts — the SAME `extraCounts` map the
-   *  tab bar reads through `getBadgeCount`'s last branch (agents panes on
-   *  `agent:nudge`/`agent:escalation`/`agents:sessions`, `session-viewer:` on
-   *  `stream:end`). Without it the sidebar hard-coded 0 for exactly those rows,
-   *  so an agents pane could carry a badge on its TAB and show nothing on its
-   *  sidebar row — the two surfaces disagreeing about the same pane. Threading
-   *  the map through makes both read one source. */
+   *  tab bar reads through `getBadgeCount`'s last branch. Without it the sidebar
+   *  hard-coded 0 for exactly those rows, so a pane could carry a badge on its
+   *  TAB and show nothing on its sidebar row — the two surfaces disagreeing
+   *  about the same pane. Threading the map through makes both read one
+   *  source. */
   extraCounts?: ReadonlyMap<string, number>;
   /** Topics open in ANOTHER window (pop-out presence) → {windowId, windowLabel}.
    *  Same `||` escape pattern as pinnedIds at the chat visibility gates: a topic
@@ -660,10 +659,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: config.label,
       icon: config.icon,
       lastActivity: 0,
-      // Same source as the tab: `__agents__` badges on agent:nudge /
-      // agent:escalation / a session finishing, and `tab-notifications.spec.ts`
-      // already pins that the TAB lights up. The row used to be a hard 0, so the
-      // two surfaces disagreed about the very same pane.
+      // Same source as the tab. The row used to be a hard 0, so the two
+      // surfaces disagreed about the very same pane.
       notificationCount: extraCounts.get(paneId) ?? 0,
       archived: false,
     });

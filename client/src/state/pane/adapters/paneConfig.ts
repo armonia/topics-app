@@ -48,16 +48,13 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   browser:       { icon: 'Globe',         label: 'Browser',      color: '#10b981', addableScopes: ['standalone', 'project'] },
   terminal:      { icon: 'Terminal',      label: 'Terminal',     color: '#8b5cf6', addableScopes: ['standalone', 'project'] },
   git:           { icon: 'GitBranch',     label: 'Git',          color: '#ef4444', singleton: true, addableScopes: ['project'] },
-  activity:      { icon: 'Activity',      label: 'Activity',     color: '#06b6d4', singleton: true },
-  journal:       { icon: 'BookOpen',      label: 'Journal',      color: '#f97316', singleton: true },
-  agents:        { icon: 'Cpu',           label: 'Agents',       color: '#8b5cf6', singleton: true },
+  plan:          { icon: 'BookOpen',      label: 'Piano',        color: '#f97316' },
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
   board:         { icon: 'Kanban',        label: 'Board generale', color: '#10b981', singleton: true, addableScopes: ['standalone'] },
   cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
-  'session-viewer': { icon: 'Eye',          label: 'Session',       color: '#8b5cf6' },
 };
 
 /**
@@ -99,7 +96,6 @@ export function createPaneId(type: PaneType, key?: string): string {
   if (type === 'project' && key) return `project:${encodeURIComponent(key)}`;
   if (type === 'browser' && key) return `browser:${key}`;
   if (type === 'terminal' && key) return `terminal:${key}`;
-  if (type === 'session-viewer' && key) return `session-viewer:${key}`;
   // Use the polyfilled helper so non-secure contexts (HTTP dev servers,
   // older webviews) still get a valid UUID — raw crypto.randomUUID is
   // unavailable there and would throw.
@@ -148,8 +144,8 @@ export function isTaskWorkspacePath(path: string | null | undefined): boolean {
 
 /**
  * Canonical sidebar-item PIN KEY for a pane, or undefined when the pane type
- * isn't pinnable (ephemeral views — file/git/activity/journal/agents/dashboard/
- * session-viewer — have no persistent sidebar row to "Fissa"). This is the
+ * isn't pinnable (ephemeral views — file/git/plan/dashboard — have no
+ * persistent sidebar row to "Fissa"). This is the
  * SINGLE source of truth for pinning across every tab type, so no surface can
  * silently omit one (the browser omission was exactly that bug). The returned
  * string is verbatim the id stored in `pinnedItems`, so callers feed it straight
@@ -202,7 +198,7 @@ export function isPaneClosable(pane: Pane, isPinned: (pinKey: string) => boolean
  * dimenticanza del browser nel pinning è stata esattamente quel bug).
  *
  * ── Perché metà dei tipi torna `null`, e perché è la cosa giusta ─────────────
- * `file`/`kanban`/`git`/`files`/`session-viewer`/`process-log`/`draft` nascono
+ * `file`/`kanban`/`git`/`files`/`process-log`/`draft` nascono
  * con un id `<tipo>:<uuid>` sorteggiato a ogni apertura (`createPaneId`): quel
  * numero non identifica NIENTE dopo un reload. Per il file l'identità vera è il
  * CONTENUTO (`filePath` + il progetto che lo ospita) — ed è quella che
@@ -275,8 +271,8 @@ export function tabTargetForPane(
       return { kind: pane.diff ? 'diff' : 'file', key: pane.filePath, projectPath };
     }
     default: {
-      // Utility singleton (`__board__`, `__activity__`, …). `journal` NON è in
-      // TAB_PANELS: `handleOpenAsPage` non lo prevede, quindi il suo link non
+      // Utility singleton (`__board__`, `__dashboard__`, …). Fuori da
+      // TAB_PANELS `handleOpenAsPage` non sa aprire niente, quindi il link non
       // aprirebbe niente — meglio nessuna voce.
       const utility = parseUtilityPanelType(pane.id);
       if (utility && (TAB_PANELS as readonly string[]).includes(utility)) {
@@ -285,15 +281,6 @@ export function tabTargetForPane(
       return null;
     }
   }
-}
-
-export function isSessionViewerPaneId(id: string): boolean {
-  return id.startsWith('session-viewer:');
-}
-
-export function getSessionKeyFromViewerPaneId(id: string): string | null {
-  if (!isSessionViewerPaneId(id)) return null;
-  return id.slice('session-viewer:'.length);
 }
 
 /**
@@ -306,8 +293,7 @@ export function getSessionKeyFromViewerPaneId(id: string): string | null {
  * è `topic:<uuid8>`. Ogni lookup per sessionKey partito da un paneId cadeva
  * quindi a vuoto in SILENZIO: nessun errore, solo una funzione che non fa
  * niente. È così che Escape "interrompi il turno" non ha mai interrotto un bel
- * niente fuori dai pane `session-viewer:` (gli unici il cui id CONTIENE la
- * sessionKey), pur essendo scritto nel pannello delle scorciatoie.
+ * niente, pur essendo scritto nel pannello delle scorciatoie.
  *
  * `topics` è la mappa per id del client: la sessionKey è un dato del topic, non
  * si ricava dall'id (`topic:` + i primi 8 caratteri è una convenzione del
@@ -318,8 +304,6 @@ export function sessionKeyForPaneId(
   topics: Record<string, { sessionKey?: string }>,
 ): string | null {
   if (!paneId) return null;
-  const viewerKey = getSessionKeyFromViewerPaneId(paneId);
-  if (viewerKey) return viewerKey;
   const topicId = paneId.startsWith('chat:') ? paneId.slice('chat:'.length) : paneId;
   // Terminale, browser, progetto, bozza, log: non sono chat, non hanno sessione.
   if (isKnownPanePrefix(topicId)) return null;
@@ -340,7 +324,6 @@ const KNOWN_PANE_PREFIXES = [
   'terminal:',
   'draft:',
   'chat:',
-  'session-viewer:',
   'process-log:',
   '__',
 ];

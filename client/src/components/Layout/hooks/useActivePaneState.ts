@@ -15,10 +15,8 @@ import {
   isBrowserPaneId,
   isProjectPaneId,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   isDraftPaneId,
   getProjectPathFromPaneId,
-  getSessionKeyFromViewerPaneId,
   getBrowserContextFromPaneId,
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId, parseUtilityPanelType } from '../UtilityPanel';
@@ -36,11 +34,9 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
   // Active type checks.
   const activeIsBrowser = activePaneId ? isBrowserPaneId(activePaneId) : false;
   const activeIsTerminal = activePaneId ? isTerminalPaneId(activePaneId) : false;
-  const activeIsSessionViewer = activePaneId ? isSessionViewerPaneId(activePaneId) : false;
-  const activeSessionKey = activePaneId && activeIsSessionViewer ? getSessionKeyFromViewerPaneId(activePaneId) : null;
-  const activeIsProject = activePaneId && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? isProjectPaneId(activePaneId) : false;
+  const activeIsProject = activePaneId && !activeIsBrowser && !activeIsTerminal ? isProjectPaneId(activePaneId) : false;
   const activeProjectPath = activePaneId && activeIsProject ? getProjectPathFromPaneId(activePaneId) : null;
-  const activeIsUtility = activePaneId && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? isUtilityPanelId(activePaneId) : false;
+  const activeIsUtility = activePaneId && !activeIsProject && !activeIsBrowser && !activeIsTerminal ? isUtilityPanelId(activePaneId) : false;
   const activeUtilityType = activePaneId && activeIsUtility ? parseUtilityPanelType(activePaneId) : null;
 
   // Synthetic topics for draft panes (not yet persisted on server).
@@ -62,7 +58,7 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
     return map;
   }, [validatedOrderedIds]);
 
-  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer
+  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal
     ? (topics[activePaneId] || draftTopics[activePaneId] || null)
     : null;
 
@@ -89,10 +85,8 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
     activePaneId,
     activeIsBrowser,
     activeIsTerminal,
-    activeIsSessionViewer,
     activeIsProject,
     activeIsUtility,
-    activeSessionKey,
     activeProjectPath,
     activeUtilityType,
     draftTopics,

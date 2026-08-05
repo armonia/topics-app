@@ -494,7 +494,6 @@ export function TopicTree({
         /* isStreaming is now read from StreamingContext inside TopicItem —
            no need to drill it through. */
         notificationCount={item.notificationCount}
-        assignedAgentCount={topic.assignedAgents?.length || 0}
         onToggle={() => {}}
         onClick={(e) => handleChatRowClick(topic.id, item.detachedWindowLabel, e)}
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}

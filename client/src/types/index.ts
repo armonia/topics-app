@@ -675,24 +675,7 @@ export interface WSClearMessage {
   sessionKey: string;
 }
 
-// --- Sessions / agents -------------------------------------------------------
-export interface WSAgentsSessionsMessage {
-  type: 'agents:sessions';
-  sessions: Array<{ key: string; status: string; topicId?: string; updatedAt?: number }>;
-}
-
-export interface WSAgentsSpawnedMessage {
-  type: 'agents:spawned';
-  topicId: string;
-  sessionKey: string;
-  label: string;
-}
-
-export interface WSAgentsStoppedMessage {
-  type: 'agents:stopped';
-  sessionKey: string;
-}
-
+// --- Sessions ----------------------------------------------------------------
 export interface WSTerminalSessionsMessage {
   type: 'terminal:sessions';
   sessions: TerminalSessionInfo[];
@@ -748,33 +731,6 @@ export interface WSPaneFocusSuggestMessage {
 }
 
 /**
- * Periodic ping from a worker telling the board "I'm alive". Used to grey
- * out tasks whose owner has gone silent.
- */
-export interface WSAgentHeartbeatMessage {
-  type: 'agent:heartbeat';
-  agentId: string;
-  /** Optional project scoping — heartbeats from agents NOT bound to a
-   *  project still need to clear stale entries everywhere. */
-  projectId?: string;
-}
-
-/**
- * Worker is asking the human for help — surfaces as a banner. Payload
- * mirrors `WSAgentNudgeMessage` because the UI renders them the same
- * way, but the literal is distinct so handlers can choose to ignore one.
- */
-export interface WSAgentEscalationMessage {
-  type: 'agent:escalation';
-  agentId: string;
-  agentName: string;
-  message: string;
-  taskId: string | null;
-  projectId: string;
-  timestamp?: number;
-}
-
-/**
  * Lightweight "is doing something" presence ping per agent. Distinct from
  * heartbeat because consumers may want to update activity UI more often
  * than they refresh the heartbeat map.
@@ -783,16 +739,6 @@ export interface WSAgentActiveMessage {
   type: 'agent_active';
   agentId: string;
   projectId?: string;
-}
-
-export interface WSAgentNudgeMessage {
-  type: 'agent:nudge';
-  agentId: string;
-  agentName: string;
-  message: string;
-  taskId: string | null;
-  projectId: string;
-  timestamp: number;
 }
 
 export interface WSDashboardUpdatedMessage {
@@ -1060,18 +1006,12 @@ export type WSMessage =
   | WSMessageNewMessage
   | WSMessageMediaMessage
   | WSClearMessage
-  | WSAgentsSessionsMessage
-  | WSAgentsSpawnedMessage
-  | WSAgentsStoppedMessage
   | WSTerminalSessionsMessage
   | WSTerminalActivityMessage
   | WSUnreadInitMessage
   | WSUnreadUpdatedMessage
   | WSPaneFocusSuggestMessage
-  | WSAgentHeartbeatMessage
-  | WSAgentEscalationMessage
   | WSAgentActiveMessage
-  | WSAgentNudgeMessage
   | WSDashboardUpdatedMessage
   | WSMemoryUpdatedMessage
   | WSGitStatusMessage
