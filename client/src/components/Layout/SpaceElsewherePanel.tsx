@@ -31,8 +31,12 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
   );
 
   return (
+    // `bg-app-bg`: senza, si vedeva attraverso. La finestra è TRASPARENTE (la
+    // vibrancy nativa passa nei buchi fra le card), e questo pannello prende il
+    // posto della griglia, che lo sfondo lo dipinge da sé — quindi qui si vedeva
+    // la scrivania sotto al testo.
     <div
-      className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
+      className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg px-6 text-center"
       data-testid="space-elsewhere"
     >
       <AppWindow size={22} className="text-app-text-tertiary" aria-hidden="true" />

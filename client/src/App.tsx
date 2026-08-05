@@ -53,7 +53,8 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { groupChromeActive, isDetachedWindow } from './components/Layout/spaceHelpers';
+import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
+import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
 import { useGoToSpace } from './components/Sidebar/SpaceGroups';
 import { spaceWindowId } from './lib/windowRole';
 import { useSpaceWindows } from './state/windowPresence';
@@ -576,6 +577,27 @@ function App() {
   // finestre sulla stessa griglia sono due copie degli stessi terminali vivi.
   const spaceWindows = useSpaceWindows();
   const activeSpaceWindow = spaceWindows.get(activeSpaceId);
+  // ── Il gruppo vive di là: NON si fa vedere un cartello, ci si sposta ──────
+  // La cosa giusta da fare quando questa finestra si ritrova addosso un gruppo
+  // che ha già una casa è farlo vedere DOVE VIVE: si porta davanti la sua
+  // finestra e ci si mette su un altro gruppo (uno LIBERO — mandarsi su un
+  // altro gruppo staccato sarebbe un rimbalzo). Il pannello resta solo per il
+  // caso in cui non ci sia nessun altro posto dove andare.
+  //
+  // Non in una finestra-GRUPPO: lì il gruppo è il suo, e la presenza esclude sé
+  // stessa — se scattasse, la finestra scapperebbe da casa propria.
+  const pinnedSpaceForHandoff = spaceWindowId();
+  useEffect(() => {
+    if (!activeSpaceWindow || pinnedSpaceForHandoff) return;
+    // Se l'utente ha detto "lo voglio qui" (il ripiego di un clic sulla card,
+    // quando quella finestra non rispondeva), la presenza vecchia non lo
+    // rimanda indietro.
+    if (isSpaceClaimedLocally(activeSpaceId)) return;
+    void focusSpaceWindow(activeSpaceWindow);
+    const store = usePaneStore.getState();
+    const next = firstOtherLiveSpace(store.spaces, activeSpaceId, spaceWindows);
+    if (next) store.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: next } });
+  }, [activeSpaceWindow, activeSpaceId, pinnedSpaceForHandoff, spaceWindows]);
   const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
