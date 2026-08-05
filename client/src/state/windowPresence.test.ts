@@ -11,7 +11,7 @@ import { describe, test, it, expect } from 'bun:test';
 import {
   computeDetachedTopicMap,
   computeDetachedWindows,
-  computeOtherWindows,
+  computeSpaceWindows,
   useWindowPresenceStore,
   windowTabs,
   type PresenceWindow,
@@ -80,40 +80,34 @@ describe('computeDetachedWindows', () => {
   });
 });
 
-describe('computeOtherWindows', () => {
-  // The sidebar's "Finestre" section must list where things are open. Reusing
-  // computeDetachedWindows there hid the MAIN window from a detached window's
-  // own sidebar — it lists siblings but not the window it was torn off from.
-  test('includes the NON-detached (main) window, unlike computeDetachedWindows', () => {
+describe('computeSpaceWindows — quale gruppo vive in quale finestra', () => {
+  test('mappa spaceId → windowLabel, e ignora chi non dichiara uno spazio', () => {
     const windows = byId(
-      win({ windowId: 'self', detached: true, topicIds: ['a'] }),
-      win({ windowId: 'main', detached: false, topicIds: ['b'] }),
-      win({ windowId: 'w3', detached: true, topicIds: ['c'] }),
+      win({ windowId: 'main', detached: false, topicIds: ['a'] }),
+      win({ windowId: 'w2', windowLabel: 'space-aa', detached: true, spaceId: 'space:1', topicIds: ['b'] }),
     );
-    expect(computeDetachedWindows(windows, 'self').map((w) => w.windowId)).toEqual(['w3']);
-    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['main', 'w3']);
+    const map = computeSpaceWindows(windows, 'main');
+    expect([...map]).toEqual([['space:1', 'space-aa']]);
   });
 
-  test('always excludes self', () => {
+  test('esclude sé stessa per ID e per LABEL (lo stesso windowId può rinascere)', () => {
     const windows = byId(
-      win({ windowId: 'self', detached: false, topicIds: ['a'] }),
-      win({ windowId: 'w2', detached: true, topicIds: ['b'] }),
+      win({ windowId: 'self', windowLabel: 'space-aa', spaceId: 'space:1', topicIds: ['a'] }),
+      win({ windowId: 'altro-id', windowLabel: 'space-aa', spaceId: 'space:1', topicIds: ['a'] }),
+      win({ windowId: 'w3', windowLabel: 'space-bb', spaceId: 'space:2', topicIds: ['c'] }),
     );
-    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['w2']);
+    const map = computeSpaceWindows(windows, 'self', 'space-aa');
+    expect([...map]).toEqual([['space:2', 'space-bb']]);
   });
 
-  test('orders the main window(s) before the detached ones', () => {
-    const windows = byId(
-      win({ windowId: 'd1', detached: true, topicIds: ['a'] }),
-      win({ windowId: 'main', detached: false, topicIds: ['b'] }),
-      win({ windowId: 'd2', detached: true, topicIds: ['c'] }),
-    );
-    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['main', 'd1', 'd2']);
+  test('una finestra senza label non è raggiungibile: non entra in mappa', () => {
+    const windows = byId(win({ windowId: 'w2', spaceId: 'space:1', topicIds: ['b'] }));
+    expect(computeSpaceWindows(windows, 'self').size).toBe(0);
   });
 
-  test('empty when this is the only window', () => {
-    const windows = byId(win({ windowId: 'self', detached: false, topicIds: ['a'] }));
-    expect(computeOtherWindows(windows, 'self')).toEqual([]);
+  test('vuota quando nessuno ha staccato un gruppo', () => {
+    const windows = byId(win({ windowId: 'main', detached: false, topicIds: ['a'] }));
+    expect(computeSpaceWindows(windows, 'self').size).toBe(0);
   });
 });
 
@@ -127,38 +121,32 @@ describe('store.setWindows', () => {
     expect(Object.keys(useWindowPresenceStore.getState().windows)).toEqual(['b']);
   });
 });
-
-// ── Contesti della PROPRIA finestra, non altre finestre ────────────────────
-//
-// `windowId` vive in sessionStorage e ne nasce uno nuovo ogni volta che quello
-// storage è vuoto: la stessa finestra Tauri può annunciarsi con id diversi. È
-// così che la sezione "Finestre" mostrava 4 "principali" con una finestra sola.
-describe('computeOtherWindows — self per label, non solo per id', () => {
-  const w = (windowId: string, windowLabel?: string, detached?: boolean): PresenceWindow => ({
-    windowId, clientId: `c-${windowId}`, windowLabel, detached, topicIds: [],
+// L'esclusione di sé stessa vale anche per `computeSpaceWindows`, e per la
+// stessa ragione: `windowId` vive in sessionStorage e ne nasce uno nuovo ogni
+// volta che quello storage è vuoto — la stessa finestra Tauri può annunciarsi
+// con id diversi. È così che la vecchia sezione "Finestre" mostrava 4
+// "principali" con una finestra sola.
+describe('computeSpaceWindows — self per label, non solo per id', () => {
+  const w = (windowId: string, windowLabel?: string, spaceId?: string): PresenceWindow => ({
+    windowId, clientId: `c-${windowId}`, windowLabel, spaceId, topicIds: [],
   });
   const byId = (list: PresenceWindow[]) =>
     Object.fromEntries(list.map((x) => [x.windowId, x]));
 
   it('una voce col MIO label non è un\'altra finestra, anche con id diverso', () => {
-    const windows = byId([w('io', 'main'), w('altro-contesto-mio', 'main')]);
-    expect(computeOtherWindows(windows, 'io', 'main')).toEqual([]);
+    const windows = byId([w('io', 'space-aa', 'space:1'), w('altro-contesto-mio', 'space-aa', 'space:1')]);
+    expect(computeSpaceWindows(windows, 'io', 'space-aa').size).toBe(0);
   });
 
-  it('senza label si esclude solo per id (caso web: le altre tab CI SONO)', () => {
-    const windows = byId([w('io'), w('altra-tab')]);
-    expect(computeOtherWindows(windows, 'io').map((x) => x.windowId)).toEqual(['altra-tab']);
-  });
-
-  it('una finestra STACCATA resta visibile: ha un label suo', () => {
-    const windows = byId([w('io', 'main'), w('d1', 'detach-1', true)]);
-    expect(computeOtherWindows(windows, 'io', 'main').map((x) => x.windowId)).toEqual(['d1']);
+  it('senza label self si esclude solo per id (caso web)', () => {
+    const windows = byId([w('io', 'space-aa', 'space:1'), w('altra', 'space-bb', 'space:2')]);
+    expect([...computeSpaceWindows(windows, 'io')]).toEqual([['space:2', 'space-bb']]);
   });
 
   it('label self assente o vuoto non filtra niente (nessun collasso accidentale)', () => {
-    const windows = byId([w('io', 'main'), w('altra', 'main')]);
-    expect(computeOtherWindows(windows, 'io', null).map((x) => x.windowId)).toEqual(['altra']);
-    expect(computeOtherWindows(windows, 'io', '').map((x) => x.windowId)).toEqual(['altra']);
+    const windows = byId([w('io', 'space-aa', 'space:1'), w('altra', 'space-aa', 'space:1')]);
+    expect([...computeSpaceWindows(windows, 'io', null)]).toEqual([['space:1', 'space-aa']]);
+    expect([...computeSpaceWindows(windows, 'io', '')]).toEqual([['space:1', 'space-aa']]);
   });
 });
 
