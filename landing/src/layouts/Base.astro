@@ -15,6 +15,13 @@ export interface Props {
   /** Extra <html> attributes, for the rare page that needs one. */
   htmlAttrs?: Record<string, string>;
   bodyClass?: string;
+  /** Extra <body> attributes. `data-ground` lives here rather than on <html>
+      because the ground's token block references the BRAND's tokens, and those
+      are declared on `body.v3` — a custom property that resolves `var()` against
+      an ancestor which does not define it is invalid at computed-value time and
+      silently becomes nothing. Measured: --accent came out empty and every act
+      glyph inherited --ink instead of the accent. Same element, or no cascade. */
+  bodyAttrs?: Record<string, string>;
   /** Structured data, serialised rather than inlined so braces stay JSON. */
   jsonLd?: unknown;
   /** Google Fonts href, only for the changelog, which uses a different pairing. */
@@ -33,6 +40,7 @@ const {
   ogDescription = description,
   htmlAttrs = {},
   bodyClass,
+  bodyAttrs = {},
   jsonLd,
   googleFonts,
   themeColor = '#f9fafc',
@@ -82,7 +90,7 @@ const canonical = new URL(path, Astro.site).href;
       shipped a `noindex` that was never in the document at all. */}
   <slot name="head" />
 </head>
-<body class={bodyClass}>
+<body class={bodyClass} {...bodyAttrs}>
   <slot />
 </body>
 </html>
