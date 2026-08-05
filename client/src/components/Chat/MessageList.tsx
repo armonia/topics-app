@@ -105,6 +105,19 @@ export function MessageList({
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
+  /**
+   * Lo stesso elemento, ma come STATO — e non è un doppione.
+   *
+   * Virtuoso consegna lo scroller via `scrollerRef`, cioè scrivendo in un ref:
+   * niente render. L'effetto che aggancia `wheel`/`scroll` girava quindi al
+   * mount, trovava `null`, usciva subito, e non si rimontava più (le sue
+   * dipendenze non cambiano da sole). Risultato: fuori da uno stream i
+   * listener spesso non erano attaccati a NIENTE, l'autorità non veniva mai a
+   * sapere che l'utente aveva scrollato, e la vista si riagganciava al fondo a
+   * caso — «l'aggancio sembra buggato», ed era questo. Con lo stato, l'effetto
+   * si rilega nell'istante in cui l'elemento esiste.
+   */
+  const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null);
   // UNA sola autorità sull'ancoraggio (1b.3). Prima erano tre ref che si
   // riparavano a vicenda — `isScrolledUpRef`, `userIntentUpRef`,
   // `scrollGuardRef` — e otto punti che pinnavano il fondo, ognuno con un
@@ -176,6 +189,13 @@ export function MessageList({
     () => partitionMarkers(filteredMessages, compactionMarkers),
     [filteredMessages, compactionMarkers],
   );
+
+  /** L'indice da cui parte la lista, deciso UNA volta per montaggio: vedi la
+   *  prop `initialTopMostItemIndex` più sotto. */
+  const initialTopMostIndexRef = useRef(0);
+  if (initialTopMostIndexRef.current === 0 && filteredMessages.length > 0) {
+    initialTopMostIndexRef.current = filteredMessages.length - 1;
+  }
 
   // ── I due soli verbi dello scroll ─────────────────────────────────────────
   // `pinToBottom` incolla, `dispatchScroll` chiede all'autorità cosa fare. Ogni
@@ -422,7 +442,7 @@ export function MessageList({
   // farlo (fuori dallo stream invece non sgancia: decide la geometria, così un
   // colpo di rotellina da pochi pixel non fa comparire il bottone).
   useEffect(() => {
-    const el = scrollerElRef.current;
+    const el = scrollerEl;
     if (!el) return;
     lastScrollTopRef.current = el.scrollTop;
     // La distanza dal fondo si misura QUI, dove il DOM ce l'ha sotto mano: fuori
@@ -449,7 +469,7 @@ export function MessageList({
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
     };
-  }, [topic.id, _currentStreaming, dispatchScroll]);
+  }, [scrollerEl, topic.id, _currentStreaming, dispatchScroll]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -466,7 +486,13 @@ export function MessageList({
     // sostituisce 0 → N messaggi, che qui conta come "grew" — e questo effetto
     // è dichiarato DOPO quello del salto, quindi il suo rAF girava per ultimo e
     // riportava il salto in fondo: il 4° e ultimo meccanismo della catena).
-    if (grew && !_currentStreaming) pinToBottom();
+    // `viaVirtuoso`: la lista è VIRTUALIZZATA, e l'item appena aggiunto può non
+    // essere montato. Scrivere `scrollTop = scrollHeight` da soli incolla a
+    // un'altezza che non contiene ancora la coda — la vista fa un salto parziale
+    // di qualche centinaio di pixel e si ferma a mezz'aria, che è il "si aggancia
+    // male" che si vede. `scrollToIndex('LAST')` materializza la coda, poi il rAF
+    // incolla sull'altezza vera. Stessa sequenza del bottone «torna in fondo».
+    if (grew && !_currentStreaming) pinToBottom({ viaVirtuoso: true, frames: 2 });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
 
   // A message the USER just sent must ALWAYS snap the view to the bottom —
@@ -684,10 +710,23 @@ export function MessageList({
           key={topic.id}
           ref={virtuosoRef}
           scrollerRef={(ref) => {
-            scrollerElRef.current = ref as HTMLElement | null;
+            const el = (ref as HTMLElement | null) ?? null;
+            scrollerElRef.current = el;
+            // Anche come stato: è l'unica via perché l'effetto dei listener si
+            // accorga che lo scroller è arrivato (vedi `scrollerEl`).
+            setScrollerEl((prev) => (prev === el ? prev : el));
           }}
           data={filteredMessages}
-          initialTopMostItemIndex={filteredMessages.length - 1}
+          // CONGELATO al montaggio, e non è un dettaglio: questa prop dice a
+          // Virtuoso da quale item partire, e ricalcolarla a ogni messaggio la
+          // fa RI-APPLICARE — la lista strappava la vista dalla cima al fondo da
+          // sola, senza che nessuno avesse pinnato (visto in traccia: `top: 0`
+          // e un istante dopo `top: 434`, cioè il fondo, seguito da un
+          // `reached-bottom` che riancorava). Era il «l'aggancio fa cose sue».
+          // La lista si rimonta a ogni cambio di topic (`key={topic.id}`),
+          // quindi il valore congelato è sempre quello giusto per la chat che
+          // stai guardando.
+          initialTopMostItemIndex={initialTopMostIndexRef.current}
           // Callback form so a pending palette jump can veto the auto-follow:
           // the load that the jump rides in replaces 0 → N messages, and with
           // zero items Virtuoso considers itself trivially "at bottom" — the
