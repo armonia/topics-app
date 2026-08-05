@@ -147,13 +147,51 @@ function boot(): boolean {
   booted = true;
   frame.src = frame.dataset.src;
   stage?.classList.add('is-booted');
+  /* The poster is a picture of the app; once the app is there, it is a picture
+     of what is behind it. It fades on the frame's load rather than on a timer,
+     so a slow machine never shows a blank frame under a removed poster. */
+  frame.addEventListener('load', () => stage?.classList.add('is-live-shot'), { once: true });
   return true;
 }
 
-$('#demoPoster')?.addEventListener('click', () => {
-  boot();
-  try { frame?.focus(); } catch { /* focus is a nicety */ }
-});
+/* ── BOOTED ON ARRIVAL, NOT ON A CLICK ────────────────────────────────────
+ * There used to be a play button on the poster. A play triangle asks a visitor
+ * who has read one sentence to commit to watching something, and it is the one
+ * gesture that turns the site's only genuinely unique asset — the real client,
+ * running — into a thumbnail.
+ *
+ * So nobody presses anything. The page paints first and the client boots on the
+ * next idle slot, which is the whole reason this is not simply `src` in the
+ * HTML: the frame is same-origin, so it shares this document's main thread, and
+ * 449KB of React parsed during the hero's first paint is paid for by the hero.
+ * `requestIdleCallback` with a 2.5s ceiling means a busy machine still gets
+ * there, just after everything that matters more.
+ */
+const idle: (cb: () => void, t: number) => void =
+  'requestIdleCallback' in window
+    ? (cb, t) => (window as unknown as { requestIdleCallback: (c: () => void, o: { timeout: number }) => void })
+        .requestIdleCallback(cb, { timeout: t })
+    : (cb, t) => { setTimeout(cb, Math.min(t, 400)); };
+
+/* THE POSTER'S TAG NAME DECIDES, and this file is shared by two pages so that
+ * matters. On /v3 the poster is a <div>: nothing to press, so the demo boots
+ * itself. On the live home page it is still a <button>, and a page that ships a
+ * button has to honour it — auto-booting there would leave a control that
+ * announces itself to a screen reader, takes focus, and does nothing.
+ * Keying on the element rather than on a page class means the behaviour follows
+ * the markup that expresses it, and neither page can drift from its own. */
+const poster = $('#demoPoster');
+const gated = poster?.tagName === 'BUTTON';
+
+if (gated) {
+  poster?.addEventListener('click', () => {
+    boot();
+    try { frame?.focus(); } catch { /* focus is a nicety */ }
+  });
+} else if (frame) {
+  if (document.readyState === 'complete') idle(boot, 2500);
+  else addEventListener('load', () => idle(boot, 2500), { once: true });
+}
 
 if (frame && chapterBtns.length) {
   const post = (msg: Record<string, unknown>) => {

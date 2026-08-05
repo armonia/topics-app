@@ -55,21 +55,10 @@ const SETTLE = `*, *::before, *::after {
   transition-duration: 0s !important; transition-delay: 0s !important; }
   html { scroll-behavior: auto !important; }`;
 
-/* The aurora drifts on a 26s alternate loop. Both ends of that loop are a real
-   frame somebody can screenshot, so both are measured and the worse one is the
-   one that has to pass — an animation is not an excuse, it is two states.
-   `.band__field::before` (0,1,1) outranks the `*::before` in SETTLE (0,0,1), so
-   the phase rule decides the aurora and SETTLE decides everything else. */
 const PHASES = [
-  { name: 'aurora start', css: '.band__field::before { animation: none !important; }' },
-  { name: 'aurora end', css: '/* SETTLE already holds the to-state */' },
-  /* The orb follows the pointer, and a screenshot has no pointer — so without
-     this phase the brightest thing this page can put behind a paragraph would
-     be the one thing the gate never sees. Forced on and parked in the middle of
-     the reading column, which is its worst case by construction. */
-  { name: 'orb centred', css: `.band__field > .orb {
-      opacity: 1 !important;
-      transform: translate3d(50vw, 50vh, 0) !important; }` },
+  { name: 'field t=0.6', freeze: [0.6] },
+  { name: 'field t=9.3', freeze: [9.3] },
+  { name: 'pointer centred', freeze: [9.3, 'centre'] },
 ];
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -236,7 +225,25 @@ for (const width of WIDTHS) {
     await page.goto(server.url + PAGE, { waitUntil: 'networkidle' });
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => document.querySelectorAll('.reveal').forEach((e) => e.classList.add('in')));
-    await page.addStyleTag({ content: `${SETTLE}\n${phase.css}` });
+    await page.addStyleTag({ content: SETTLE });
+    /* The surface is pinned before anything is sampled, and re-pinned after
+       every scroll below — scrolling does not restart the loop, but a resize or
+       a late first frame can, and a gate that silently un-pins itself is worse
+       than no gate. */
+    const pin = async () => page.evaluate(([t, mode, w, h]) => {
+      const f = window.__field;
+      if (!f) return false;
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const at = max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0;
+      f.freeze(t, at, mode === 'centre' ? [w / 2, h / 2] : undefined);
+      return true;
+    }, [phase.freeze[0], phase.freeze[1] ?? null, width, VH]);
+    if (!(await pin())) {
+      console.error('\n✗ the field never came up — nothing to grade the text against.');
+      console.error('  `window.__field` is missing, so either WebGL failed in this browser or');
+      console.error('  fluid.ts stopped exposing the handle. Either way this run proves nothing.');
+      process.exit(1);
+    }
 
     const H = await page.evaluate(() => document.documentElement.scrollHeight);
     let phaseWorst = { ratio: Infinity };
@@ -244,6 +251,7 @@ for (const width of WIDTHS) {
     for (let y = 0; y < H - VH; y += VH) {
       await page.evaluate((t) => scrollTo({ top: t, behavior: 'instant' }), y);
       await page.waitForTimeout(220);
+      await pin();
       const rects = await page.evaluate(COLLECT);
       if (!rects.length) continue;
 
@@ -287,14 +295,14 @@ server.close();
 
 const rgb = (c) => (c ? `rgb(${c.join(' ')})` : '?');
 console.log(`${checked} text runs sampled against the PAINTED backdrop on ${PAGE} (${onInk} of them on the ink ground)`);
-console.log(`across ${WIDTHS.length} widths × ${PHASES.length} aurora phases\n`);
+console.log(`across ${WIDTHS.length} widths × ${PHASES.length} pinned field frames\n`);
 console.log('  width  phase          tightest ratio  needs   element');
 for (const w of worstByPhase) {
   console.log(`  ${String(w.width).padStart(5)}  ${w.phase.padEnd(13)} ${String(w.ratio).padStart(9)}:1 ${String(w.need).padStart(9)}   ${w.tag}`);
 }
 
 if (!fails.length) {
-  console.log(`\n✓ every text run clears AA against the pixels actually painted behind it — the aurora adds light without spending contrast`);
+  console.log(`\n✓ every text run clears AA against the pixels actually painted behind it — the field adds light without spending contrast`);
   process.exit(0);
 }
 
