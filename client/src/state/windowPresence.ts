@@ -153,39 +153,35 @@ export function computeDetachedWindows(
 }
 
 /**
- * EVERY other window — detached or not — for the sidebar's "Finestre" section.
+ * I GRUPPI che vivono in una finestra loro: `spaceId → windowLabel`.
  *
- * Distinct from computeDetachedWindows on purpose: that one answers "which
- * popped-out windows hold this topic", so it filters `detached`. This one
- * answers "where is my stuff open", which must include the MAIN window too —
- * otherwise a detached window's own sidebar lists its siblings but silently
- * omits the window it was torn off from (the section would claim to show all
- * windows while hiding the most important one).
+ * È il fatto su cui la barra dei gruppi decide se un chip commuta qui o porta
+ * davanti un'altra finestra. Solo le finestre che dichiarano UNO spazio
+ * (`?space=<id>`) contano — la principale non ne dichiara nessuno.
  *
- * Ordered: the non-detached (main) window first, then detached ones, so the
- * list reads root-first instead of in Object.values insertion order.
+ * Escludersi per ID non basta, ed è la stessa lezione della vecchia sezione
+ * "Finestre": `windowId` sta in `sessionStorage` e ne nasce uno NUOVO ogni
+ * volta che quello storage è vuoto, quindi la stessa finestra può annunciarsi
+ * con id diversi. Il `windowLabel`, quando c'è, È l'identità della finestra del
+ * sistema operativo. Sul web il label manca e lì le altre tab sono davvero
+ * altre finestre, quindi il secondo filtro si applica solo quando c'è.
  */
-export function computeOtherWindows(
+export function computeSpaceWindows(
   windows: Record<string, PresenceWindow>,
   selfWindowId: string,
   selfWindowLabel?: string | null,
-): PresenceWindow[] {
-  // Escludersi per ID non basta. `windowId` sta in `sessionStorage`, e ne nasce
-  // uno NUOVO ogni volta che quello storage è vuoto: la stessa finestra Tauri
-  // può quindi annunciarsi con id diversi (è così che la sezione "Finestre"
-  // mostrava 4 "principali" con una sola finestra aperta). Il `windowLabel`,
-  // quando c'è, È l'identità della finestra del sistema operativo: una voce col
-  // MIO label non è un'altra finestra, è un altro contesto della mia.
-  //
-  // Solo quando il label c'è: sul web è assente, e lì le altre tab sono davvero
-  // altre finestre — escluderle sarebbe il bug opposto.
-  const others = Object.values(windows).filter(
-    (w) => w.windowId !== selfWindowId && !(selfWindowLabel && w.windowLabel === selfWindowLabel),
-  );
-  return [
-    ...others.filter((w) => !w.detached),
-    ...others.filter((w) => w.detached),
-  ];
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const w of Object.values(windows)) {
+    if (!w.spaceId || !w.windowLabel) continue;
+    if (w.windowId === selfWindowId) continue;
+    if (selfWindowLabel && w.windowLabel === selfWindowLabel) continue;
+    // Primo che parla, vince: due finestre sullo stesso gruppo non dovrebbero
+    // esistere (`window_detach_space` alza quella aperta invece di clonarla), e
+    // se succedesse comunque l'ordine di iterazione è l'unica risposta onesta.
+    if (!map.has(w.spaceId)) map.set(w.spaceId, w.windowLabel);
+  }
+  return map;
 }
 
 // ── React hooks (thin wrappers over the pure selectors) ──────────────────────
@@ -202,10 +198,10 @@ export function useDetachedWindows(): PresenceWindow[] {
   return useMemo(() => computeDetachedWindows(windows, ownWindowId()), [windows]);
 }
 
-/** See computeOtherWindows — every other window, main included. */
-export function useOtherWindows(): PresenceWindow[] {
+/** See computeSpaceWindows — i gruppi che vivono in una finestra loro. */
+export function useSpaceWindows(): Map<string, string> {
   const windows = useWindowPresenceStore((s) => s.windows);
-  // Anche il PROPRIO label, non solo il proprio id: vedi computeOtherWindows.
+  // Anche il PROPRIO label, non solo il proprio id: vedi computeSpaceWindows.
   const selfLabel = currentWindowLabel();
-  return useMemo(() => computeOtherWindows(windows, ownWindowId(), selfLabel), [windows, selfLabel]);
+  return useMemo(() => computeSpaceWindows(windows, ownWindowId(), selfLabel), [windows, selfLabel]);
 }
