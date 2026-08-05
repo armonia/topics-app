@@ -39,6 +39,23 @@ export function groupChromeActive(
   return !!pinnedSpaceId || liveSpacesOrdered(spaces).length > 0;
 }
 
+/**
+ * Il primo gruppo DIVERSO da `exclude` a cui una finestra può passare, o null
+ * se non ce n'è.
+ *
+ * Serve quando un gruppo se ne va in una finestra sua: chi resta deve mollarlo,
+ * altrimenti due finestre disegnano la stessa griglia — ed è esattamente
+ * quello che si vedeva ("ho fatto il detach ma la finestra è duplicata").
+ * L'ordine è quello della sidebar: prima il principale, poi i gruppi in ordine.
+ */
+export function firstOtherLiveSpace(
+  spaces: Record<string, SpaceMeta>,
+  exclude: string,
+): string | null {
+  const ordered = [DEFAULT_SPACE_ID, ...liveSpacesOrdered(spaces).map((s) => s.id)];
+  return ordered.find((id) => id !== exclude) ?? null;
+}
+
 /** Mint a fresh space id (`space:` prefix per the coherence ruling). */
 export function createSpaceId(): string {
   return `space:${generateUUID()}`;
