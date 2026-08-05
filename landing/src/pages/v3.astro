@@ -40,8 +40,13 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
   path="/v3"
   htmlAttrs={{ 'data-v3': 'true' }}
   bodyClass="v3"
+  fontshare="https://api.fontshare.com/v2/css?f%5B%5D=switzer@400,500,600,700&display=swap"
 >
-  <meta name="robots" content="noindex,nofollow" slot="head" />
+  <meta slot="head" name="robots" content="noindex,nofollow" />
+  {/* In the head, and discovered with the other stylesheets rather than after
+     the whole body has been parsed: a render-blocking sheet linked in the body
+     cost 156ms of LCP against the same page without it. */}
+  <link slot="head" rel="stylesheet" href="/v3.css" />
   <IconSprite />
 
   {/* ── THE FIELD ──────────────────────────────────────────────────────────
@@ -663,7 +668,6 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
 
   <SiteFooter />
 
-  <link rel="stylesheet" href="/v3.css" />
   <script>
     import '../scripts/site';
     import '../scripts/home';
