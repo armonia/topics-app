@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
+import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
@@ -173,6 +174,11 @@ function App() {
       });
     }
   }, []);
+
+  // Le bozze del pannello di risposta scadono da sole, ma a una domanda mai
+  // risposta non capita nessun altro momento in cui essere ripulita: si spazza
+  // all'avvio. Vedi Chat/askDraft.ts.
+  useEffect(() => { sweepAskDrafts(); }, []);
 
   // Dev bundle freshness: when the server (behind its dev flag) says /public
   // was rebuilt, OR a lazy chunk 404s against a rebuilt bundle, surface a
