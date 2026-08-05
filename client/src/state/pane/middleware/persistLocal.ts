@@ -17,19 +17,18 @@
  *                              synchronously on change, boot-read only — no
  *                              live cross-tab application, so each window
  *                              keeps its own active space.
- *   - `pane-store-scroll-offsets`: per-pane chat scroll positions (paneId →
- *                              scrollTop). DEVICE-LOCAL like the two keys
- *                              above — `pane.scrollOffset` is stripped from
- *                              BOTH snapshots (selectors) and from inbound
- *                              hydrates (sanitizeSnapshot), so without its own
- *                              key a reload always lost it and every chat
- *                              reopened at the bottom. Written debounced on
- *                              panes change (setPaneScrollOffset deliberately
- *                              does NOT bump lastSeq, so the main snapshot
- *                              subscription never sees scroll ticks), flushed
- *                              on pagehide, boot-read only. Multi-window note:
- *                              whole-map LWW between windows, same caveat as
- *                              the active-space key.
+ *
+ * RIMOSSA (2026-08-06) la chiave `pane-store-scroll-offsets`, che riportava la
+ * posizione di scroll delle chat attraverso un ricaricamento. Un documento si
+ * riapre dove l'avevi lasciato; una chat no: il suo stato di riposo è il fondo,
+ * e una posizione salvata invecchia nell'istante in cui arriva un messaggio —
+ * riapplicarla ti deposita in mezzo al nulla, che è il «ricarico e si perde»
+ * segnalato più volte. Nessuna app di messaggi ripristina lo scroll a un
+ * riavvio: ripristinano semmai il segno del non letto.
+ *
+ * `pane.scrollOffset` resta VIVO in memoria: serve all'undo di una pane chiusa,
+ * che se lo porta dietro dentro `ClosedPaneRecord` e riapre la scheda
+ * esattamente com'era. È solo la traversata del ricaricamento che sparisce.
  *
  * Bootstrap calls `hydrateFromLocalSnapshot()` to warm-hydrate both before
  * React renders — eliminates the ~500 ms gap between mount and the server
@@ -46,14 +45,9 @@ import { spaceWindowId } from '../../../lib/windowRole';
 const LOCAL_KEY = 'pane-store-v2';
 const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
 const LOCAL_ACTIVE_SPACE_KEY = 'pane-store-active-space';
-const LOCAL_SCROLL_KEY = 'pane-store-scroll-offsets';
 const DEBOUNCE_MS = 100;
-// Scroll ticks arrive already throttled (~250 ms) from the ChatPane tracker;
-// a slightly longer debounce collapses a whole scroll gesture into one write.
-const SCROLL_DEBOUNCE_MS = 500;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
-let scrollTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
 function writeSnapshotNow(): void {
@@ -82,23 +76,6 @@ function writeFocusNow(focused: string | null): void {
     if (focused) localStorage.setItem(LOCAL_FOCUS_KEY, focused);
     else localStorage.removeItem(LOCAL_FOCUS_KEY);
   } catch { /* silent */ }
-}
-
-function writeScrollOffsetsNow(): void {
-  try {
-    const { panes } = usePaneStore.getState();
-    const offsets: Record<string, number> = {};
-    for (const [id, p] of Object.entries(panes)) {
-      // Only positive offsets are worth keeping: MessageList's restore contract
-      // ignores 0 (bottom-anchor default), and iterating live panes auto-prunes
-      // entries for panes that were closed since the last write.
-      if (typeof p.scrollOffset === 'number' && Number.isFinite(p.scrollOffset) && p.scrollOffset > 0) {
-        offsets[id] = p.scrollOffset;
-      }
-    }
-    if (Object.keys(offsets).length === 0) localStorage.removeItem(LOCAL_SCROLL_KEY);
-    else localStorage.setItem(LOCAL_SCROLL_KEY, JSON.stringify(offsets));
-  } catch { /* quota / private mode — scroll restore is best-effort */ }
 }
 
 function writeActiveSpaceNow(activeSpaceId: string): void {
@@ -151,24 +128,6 @@ export function hydrateFromLocalSnapshot(): void {
         },
       });
     }
-    // Chat scroll offsets: device-local key, applied AFTER the snapshot
-    // hydrate so the pane entities exist. setPaneScrollOffset bypasses the
-    // reducer (no seq bump, no sync writes); ids without a live pane are
-    // skipped so the DEV missing-pane warning stays quiet. The later SERVER
-    // hydrate no longer wipes these — HYDRATE_FROM_SNAPSHOT preserves local
-    // scrollOffset across the wholesale pane apply (openedAt pattern).
-    try {
-      const rawScroll = localStorage.getItem(LOCAL_SCROLL_KEY);
-      if (rawScroll) {
-        const offsets = JSON.parse(rawScroll) as Record<string, unknown>;
-        const { panes, setPaneScrollOffset } = usePaneStore.getState();
-        for (const [paneId, off] of Object.entries(offsets)) {
-          if (typeof off === 'number' && Number.isFinite(off) && off > 0 && panes[paneId]) {
-            setPaneScrollOffset(paneId, off);
-          }
-        }
-      }
-    } catch { /* corrupt scroll map — best-effort, chats fall back to bottom */ }
     // Active Spazio lives in its own device-local key (twin of the focus key
     // below). Applied AFTER the snapshot hydrate so the spaces registry is
     // already in the store — SET_ACTIVE_SPACE resolves a dead/unknown id to
@@ -199,8 +158,6 @@ export function hydrateFromLocalSnapshot(): void {
 function flushNow(): void {
   if (timer) { clearTimeout(timer); timer = null; }
   writeSnapshotNow();
-  if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null; }
-  writeScrollOffsetsNow();
 }
 
 /**
@@ -227,18 +184,6 @@ export function initLocalPersistence(): void {
     () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(writeSnapshotNow, DEBOUNCE_MS);
-    },
-  );
-
-  // Scroll offsets: setPaneScrollOffset deliberately does NOT bump lastSeq
-  // (no sync amplification per scroll tick), so the lastSeq subscription
-  // above never fires for scroll — watch the panes map itself (immer: new
-  // reference on every set) and debounce a whole gesture into one write.
-  usePaneStore.subscribe(
-    (s: PaneStore) => s.panes,
-    () => {
-      if (scrollTimer) clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(writeScrollOffsetsNow, SCROLL_DEBOUNCE_MS);
     },
   );
 
