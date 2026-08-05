@@ -340,8 +340,13 @@ if (!reduceMotion) {
       const p = ((r.top + r.height / 2) - vh / 2) / (vh / 2 + r.height / 2);
       s.style.setProperty('--par', (Math.max(-1, Math.min(1, p))).toFixed(3));
     }
+    /* Only where the stage actually crops. Below 700px the frame's height comes
+       from the image, so sliding the image inside it just lifts it away from
+       its own bottom edge — 42px of daylight under a window that is supposed to
+       be flush. The breakpoint is the one the stylesheet uses for the same
+       decision, so the two cannot disagree. */
     if (shot) {
-      const y = Math.min(scrollY, 700) * -0.06;
+      const y = innerWidth > 700 ? Math.min(scrollY, 700) * -0.06 : 0;
       shot.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`;
     }
     /* The float drifts against the shot, not with it. Same scroll, opposite
