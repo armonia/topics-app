@@ -165,6 +165,18 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // drain poll below — NOT reset by the eval polls, which can't tell a failed
   // load from "still showing the previous page".
   const [navError, setNavError] = useState<{ message: string; url: string; hint?: string } | null>(null);
+  /**
+   * Scheda PARCHEGGIATA: punta a una porta locale su cui non c'è nessuno in
+   * ascolto, quindi la webview nativa non è stata nemmeno creata.
+   *
+   * Non è un errore di navigazione — non c'è stata nessuna navigazione — ed è
+   * per questo che non passa da `navError`: la pane non ha una pagina sotto da
+   * lasciare a video, ha una schermata sua.
+   */
+  const [parked, setParked] = useState<{ url: string; checkedAt: number } | null>(null);
+  /** Apre (finalmente) la view per questa pane. Vive solo mentre l'effetto di
+   *  montaggio è attivo: serve a `retryParked`, che apre a scoppio ritardato. */
+  const openViewRef = useRef<((url: string) => void) | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
@@ -592,14 +604,22 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // `browser_open` è idempotente e il suo ramo di riuso naviga. Costa un
       // giro su loopback, che su una porta rifiutata è immediato: il timeout da
       // 300ms riguarda una porta filtrata, cosa che in locale non capita.
+      openViewRef.current = (u: string) => { if (!cancelled) attemptOpen(0, u); };
       void loopbackAlive(wantedUrl).then((alive) => {
         if (cancelled) return;
-        if (!alive) setNavError({ ...deadLoopbackNotice(wantedUrl, new Date()), url: wantedUrl });
-        attemptOpen(0, alive ? wantedUrl : 'about:blank');
+        if (!alive) {
+          // Nessuna webview: una pane bianca non serve a niente e costa una
+          // WKWebView con il suo data store. La scheda resta PARCHEGGIATA e al
+          // suo posto il pannello disegna una schermata che dice cosa manca.
+          setParked({ url: wantedUrl, checkedAt: Date.now() });
+          return;
+        }
+        attemptOpen(0, wantedUrl);
       });
     }
     return () => {
       cancelled = true;
+      openViewRef.current = null;
       openedRef.current = false;
       // Defer the native close: a real close fires it after the grace; a transient
       // remount (auto-split) cancels it above. This decouples React unmount churn
@@ -628,11 +648,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       setUrl(norm === 'about:blank' ? '' : norm);
       setLoading(true);
       setNavError(null); // a fresh attempt owns the strip
+      // Una scheda parcheggiata non ha una webview da navigare: chi digita un
+      // altro indirizzo (o un agente che manda la pane altrove) la sparcheggia e
+      // se la fa aprire adesso.
+      if (parked) {
+        setParked(null);
+        openViewRef.current?.(norm);
+        window.setTimeout(() => setLoading(false), 700);
+        return;
+      }
       await tauriInvoke('browser_navigate', { id, url: norm }).catch(() => {});
       // WKWebView load events aren't bridged yet — clear the spinner heuristically.
       window.setTimeout(() => setLoading(false), 700);
     },
-    [id],
+    [id, parked],
   );
 
   /**
@@ -655,6 +684,29 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     },
     [navigate],
   );
+
+  /**
+   * Il «Riprova» della scheda parcheggiata: si torna a chiedere se su quella
+   * porta è comparso qualcuno. Se sì la view si apre adesso; se no cambia l'ora
+   * del controllo, che è il modo di dire «ho guardato di nuovo, ancora niente»
+   * invece di lasciare un bottone che non fa niente di visibile.
+   */
+  const [parkedChecking, setParkedChecking] = useState(false);
+  const retryParked = useCallback(async () => {
+    const target = parked?.url;
+    if (!target || parkedChecking) return;
+    setParkedChecking(true);
+    try {
+      const alive = await loopbackAlive(target);
+      if (!alive) { setParked({ url: target, checkedAt: Date.now() }); return; }
+      setParked(null);
+      setLoading(true);
+      openViewRef.current?.(target);
+      window.setTimeout(() => setLoading(false), 700);
+    } finally {
+      setParkedChecking(false);
+    }
+  }, [parked, parkedChecking]);
 
   const clearNavError = useCallback(() => setNavError(null), []);
 
@@ -1173,6 +1225,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     navError,
     clearNavError,
     retryNav,
+    parked,
+    parkedChecking,
+    retryParked,
     navigate,
     goBack,
     goForward,
@@ -1201,7 +1256,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     goToNavIndex,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
-    navError, clearNavError, retryNav,
+    navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
