@@ -492,6 +492,21 @@ describe("handleMessage", () => {
     expect(tools.find((t) => t.name === "create_task")!.inputSchema.required).toEqual(["text"]);
     expect(tools.find((t) => t.name === "comment_task")!.inputSchema.required).toEqual(["task_id", "content"]);
     expect(tools.find((t) => t.name === "resolve_tab")!.inputSchema.required).toEqual(["ref"]);
+
+    // Il pannello domande: due dichiarazioni che sembrano dettagli e non lo sono.
+    //
+    // `readOnlyHint` è la riga che la CLI guarda in `--permission-mode plan`
+    // per decidere se un tool MCP può girare: senza, la chat impostata su
+    // «chiedi prima» era l'unica che non poteva chiedere («Cannot call
+    // mcp__topics__ask_user_question while in plan mode», topic:ed2070df).
+    // `recommended` è il modo in cui il modello dice quale strada consiglia:
+    // se sparisce dallo schema il chip non comparirà mai, e nessun test se ne
+    // accorgerebbe guardando solo i nomi dei tool.
+    const ask = tools.find((t) => t.name === "ask_user_question")!;
+    expect((ask as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint).toBe(true);
+    const option = ask.inputSchema.properties.questions.items.properties.options.items;
+    expect(option.properties.recommended?.type).toBe("boolean");
+    expect(option.required).toEqual(["label"]);
   });
 
   test("tools/list under --profile=dispatch drops the orchestration/nav tools", async () => {
