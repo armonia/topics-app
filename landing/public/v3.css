@@ -284,11 +284,93 @@ body.v3.is-ready .hero__title .dim {
   -webkit-mask-image: linear-gradient(#000 62%, transparent 100%);
   mask-image: linear-gradient(#000 62%, transparent 100%);
 }
+.hero { position: relative; }
 .hero__shot {
   display: block; width: 100%; height: auto;
   border-radius: var(--r-slab) var(--r-slab) 0 0;
   background: var(--dark); box-shadow: var(--shadow-slab);
   will-change: transform;
+}
+
+/* ── THE FLOAT ───────────────────────────────────────────────────────────────
+   A real Topics card, in the product's dark theme and the product's system
+   face, hovering over the screenshot — the "floating window" the reference
+   sites use in their intro, except that theirs is an ornament and this one is
+   the argument. Four agents, four branches, one repository: the h1 in the
+   form the app would show it in.
+
+   Left-aligned inside a centred hero on purpose: it is a window, and a window
+   whose text is centred is not a window.  */
+.hero__float {
+  position: absolute; z-index: 3;
+  /* It overhangs the window's top-right corner, and the overhang is a system
+     value rather than a nudge. `right` is measured from the hero's padding
+     box; the screenshot's own right edge is 24px further in, because the stage
+     it sits in carries 24px of padding (the stage's max-width never binds
+     inside a 1180px hero, so this holds at every width above the breakpoint).
+     Setting `right: 24px` therefore lands the card exactly on the STAGE's edge
+     while the window ends on the SHOT's — one grid line apart, by construction.
+     Flush at 48px it read as a panel inside the app; a floating window has to
+     break the frame to be floating. */
+  right: 24px;
+  /* Below the proof row, and ~30px above the top of the window. At 40vh it sat
+     ON the fourth stat — measured: 100px of horizontal overlap, 53px vertical.
+     The proof row ends 516px into the hero and does NOT move with the viewport,
+     so it is the floor of the clamp that keeps them apart, never the vh. */
+  top: clamp(545px, 60vh, 600px);
+  width: 336px; text-align: left;
+  font-family: var(--app-font); font-size: 12px; line-height: 1.4;
+  color: var(--app-text);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-r);
+  box-shadow: 0 32px 70px -24px hsl(222 45% 3% / .78), 0 4px 14px -6px hsl(222 45% 3% / .5);
+  overflow: hidden;
+  transform: translate3d(0, var(--float-y, 0px), 0);
+  will-change: transform;
+}
+.hf__bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 11px; border-bottom: 1px solid var(--app-border);
+  background: var(--app-inset);
+}
+.hf__dot { width: 10px; height: 10px; border-radius: 3px; background: var(--app-primary); flex: none; }
+.hf__repo { font-weight: 600; font-size: 12px; }
+.hf__meta { margin-left: auto; font-size: 11px; color: var(--app-text-muted); }
+.hf__rows { list-style: none; margin: 0; padding: 6px; display: grid; gap: 1px; }
+.hf__rows li {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 7px; border-radius: var(--app-r-xs);
+}
+.hf__rows li:nth-child(odd) { background: hsl(220 13% 14% / .55); }
+.hf__rows b { font-weight: 500; font-size: 12px; flex: none; width: 46px; }
+.hf__rows code {
+  font-family: var(--mono); font-size: 11px; color: var(--app-primary);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hf__st { font-size: 10.5px; color: var(--app-text-muted); flex: none; }
+.hf__foot {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0; padding: 8px 11px 9px; border-top: 1px solid var(--app-border);
+  font-size: 11px; color: var(--app-text-secondary);
+}
+.hf__foot .ic { width: 12px; height: 12px; color: var(--app-ok); flex: none; }
+
+/* It arrives last, after the headline has been read and the shot has landed. */
+body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both; }
+@keyframes float-in {
+  from { opacity: 0; transform: translate3d(26px, 18px, 0) scale(.975); }
+  to   { opacity: 1; transform: translate3d(0, var(--float-y, 0px), 0) scale(1); }
+}
+
+/* Under 1080px there is no gutter left to float into, so it stops floating and
+   becomes what it always was — a card — directly under the cropped window. */
+@media (max-width: 1080px) {
+  .hero__float {
+    position: static; width: min(420px, calc(100% - 48px));
+    margin: -18px auto 0; transform: none; animation: none;
+  }
+  body.v3.is-ready .hero__float { animation: none; }
 }
 
 /* ── Section heads ───────────────────────────────────────────────────────── */
@@ -343,6 +425,59 @@ body.v3.is-ready .hero__title .dim {
 .act__stage { margin: 0; min-width: 0; }
 .act__stage figcaption { margin-top: 15px; color: var(--ink-faint); font-size: var(--t-sm); line-height: 1.55; text-wrap: pretty; }
 
+/* ── THE REAL APP'S PALETTE ──────────────────────────────────────────────────
+   These are not landing-page colours. They are transcribed from the product:
+   `client/src/index.css`, the `.dark` block, which is what the app paints when
+   it is running on this machine right now. The scenes were previously drawn in
+   an invented navy (#0d1220 surface, #1c2740 active tab, #38456b borders) that
+   appears nowhere in the product — a picture of Topics that was not the colour
+   of Topics. Anything a visitor recognises here has to survive the download.
+
+   The hsl() the app uses, resolved, so a designer can compare them by eye:
+     --bg          hsl(222 16% 8.5%)  #121419
+     --bg-surface  hsl(222 14% 11%)   #181a20
+     --bg-elevated hsl(220 13% 14%)   #1f2228
+     --bg-hover    hsl(220 12% 17%)   #262a31
+     --border      hsl(220 11% 18%)   #292c33
+     --border-light hsl(220 10% 24%)  #373b43
+   Kept as hsl() here too, so a diff against the product is a string compare.
+
+   Contrast, measured against the surface each one is actually used on:
+     text        #e6e8ec on #121419  15.83:1
+     secondary   #aab0ba on #121419   8.45:1
+     muted       #8a9099 on #121419   5.72:1
+     faint       #7d838d on #181a20   4.51:1  ← the floor, and it clears AA
+   The app's own dark theme is WCAG-clean, so telling the truth about the
+   product costs nothing at the gate. */
+.scene, .hero__float {
+  --app-bg: hsl(222 16% 8.5%);
+  --app-surface: hsl(222 14% 11%);
+  --app-elevated: hsl(220 13% 14%);
+  --app-hover: hsl(220 12% 17%);
+  --app-inset: hsl(222 15% 10%);
+  --app-border: hsl(220 11% 18%);
+  --app-border-light: hsl(220 10% 24%);
+  --app-text: #e6e8ec;
+  --app-text-heading: #ccced4;
+  --app-text-secondary: #aab0ba;
+  --app-text-muted: #8a9099;
+  --app-text-tertiary: #969ca6;
+  --app-text-faint: #7d838d;
+  --app-primary: #4d94ff;      /* --primary-dark */
+  --app-claude: #d97757;       /* the Claude mark's own orange, as the tab bar paints it */
+  --app-ok: #34d399;           /* --color-accent-success */
+  --app-warn: #fbbf24;         /* --color-accent-warning */
+  /* The radius ladder is a single token and two calcs in the product. Scenes
+     had 3/5/7px, which is nothing the app has ever drawn. */
+  --app-r: 8px;                /* --radius     · rounded-lg: columns, KPI cards */
+  --app-r-sm: 6px;             /* --radius-sm  · rounded-md: task cards, tabs */
+  --app-r-xs: 4px;             /* --radius-xs  · rounded:    badges, chips */
+  /* And the font. The app is a desktop client: it renders in the system UI
+     face, never in the site's display face. A scene set in Switzer is a
+     drawing OF the app; a scene set here is the app. */
+  --app-font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
 /* ── THE SCENE ───────────────────────────────────────────────────────────── */
 /* The unit that replaces the six photographs. Two layers: an ACTOR in front at
    1:1 with real 13px text, and the CONTEXT behind it, dimmed and a hair out of
@@ -352,7 +487,8 @@ body.v3.is-ready .hero__title .dim {
    It also means the scene stays legible on a phone, which no photograph does. */
 .scene {
   position: relative; border-radius: var(--r-slab); overflow: hidden;
-  background: var(--dark); color: var(--dark-ink);
+  background: var(--app-bg); color: var(--app-text);
+  font-family: var(--app-font);
   box-shadow: var(--shadow-slab);
   font-size: 13px; line-height: 1.45;
   /* 2.6:1 at the width the stage gives it. At 330px the scene was 3.3:1 — a
@@ -363,11 +499,17 @@ body.v3.is-ready .hero__title .dim {
 .scene__tag {
   position: absolute; left: 14px; top: 13px; z-index: 3;
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
-  color: var(--dark-ink-mute); background: hsl(222 40% 10% / .8);
-  padding: 3px 9px; border-radius: 3px; border: 1px solid var(--dark-rule);
+  color: var(--app-text-muted); background: hsl(222 15% 10% / .82);
+  padding: 3px 9px; border-radius: var(--app-r-xs); border: 1px solid var(--app-border);
 }
+/* .62, and it is a measurement rather than a taste. At .40 the branch names in
+   the context painted 1.98:1 against the scene — below the 3:1 that any
+   meaningful graphic needs, so the layer read as noise instead of as "three
+   other worktrees, also working". .62 puts the weakest thing in it at 3.09:1
+   and the file paths at 3.97:1, while the card in front stays at full opacity
+   and still plainly wins. The dimming is depth, not concealment. */
 .scene__ctx {
-  flex: 1; padding: 46px 16px 18px; opacity: .40; filter: blur(.7px);
+  flex: 1; padding: 46px 16px 18px; opacity: .62; filter: blur(.7px);
   display: flex; flex-direction: column; justify-content: center;
   pointer-events: none; user-select: none;
   transform: translate3d(0, calc(var(--par, 0) * 10px), 0);
@@ -376,7 +518,8 @@ body.v3.is-ready .hero__title .dim {
   position: absolute; left: 50%; top: 50%; z-index: 2;
   transform: translate3d(-50%, calc(-50% - var(--par, 0) * 16px), 0);
   width: min(430px, 86%);
-  background: #0f1420; border: 1px solid #38456b; border-radius: 7px;
+  background: var(--app-surface); border: 1px solid var(--app-border-light);
+  border-radius: var(--app-r);
   box-shadow: 0 26px 64px -20px #000, 0 0 0 1px hsl(222 40% 4% / .6);
   overflow: hidden; will-change: transform;
 }
@@ -385,92 +528,159 @@ body.v3.is-ready .hero__title .dim {
    from. Both are transforms on composited layers inside an `overflow:hidden`
    box, so nothing reflows and nothing can shift the page. */
 
-.fg__bar { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--dark-rule); background: #131a29; }
-.fg__av { width: 18px; height: 18px; border-radius: 4px; background: linear-gradient(135deg, #d97757, #b8543a); flex: none; }
+.fg__bar { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-bottom: 1px solid var(--app-border); background: var(--app-inset); }
+.fg__av { width: 18px; height: 18px; border-radius: var(--app-r-xs); background: linear-gradient(135deg, var(--app-claude), #b8543a); flex: none; }
 .fg__who { font-size: 12px; }
-.fg__mute { color: var(--dark-ink-mute); }
-.fg__st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+.fg__mute { color: var(--app-text-secondary); }
+.fg__st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--app-text-secondary); }
 .fg__body { padding: 11px 12px 12px; }
 .fg__title { font-size: 13.5px; font-weight: 550; letter-spacing: -.01em; }
-.fg__path { margin-top: 6px; font-family: var(--mono); font-size: 11px; color: #8fb7ff; }
-.fg__term { margin-top: 9px; font-family: var(--mono); font-size: 11.5px; color: var(--dark-ink-mute); }
-.fg__term b { color: var(--dark-ink); font-weight: 500; }
+.fg__path { margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--app-primary); }
+.fg__term { margin-top: 9px; font-family: var(--mono); font-size: 11.5px; color: var(--app-text-secondary); }
+.fg__term b { color: var(--app-text); font-weight: 500; }
 .fg__term + .fg__term { margin-top: 5px; }
 /* The tick is the sprite icon, not the check character: the copy gate reads
    the rendered page and counts a bare glyph as an emoji, which on a page
    selling a terminal tool it is right to do. */
-.ok, .add { color: #7fd7a2; }
+.ok, .add { color: var(--app-ok); }
 .ok .ic { width: 11px; height: 11px; vertical-align: -1px; }
-.del { color: #e79a8c; }
-.fg__legend { display: flex; gap: 14px; margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--dark-rule); font-size: 10.5px; color: var(--dark-ink-mute); }
+.del { color: #fda4af; }
+.fg__legend { display: flex; gap: 14px; margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--app-border); font-size: 10.5px; color: var(--app-text-secondary); }
 .fg__legend span { display: inline-flex; align-items: center; gap: 5px; }
 .fg__acts { display: flex; gap: 6px; margin-top: 11px; }
-.mini { font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid var(--dark-rule); color: var(--dark-ink-mute); }
-.mini--go { background: #16302a; border-color: #275c48; color: #8fe0b2; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.chip { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 3px; background: #1a2234; border: 1px solid var(--dark-rule); color: var(--dark-ink-mute); }
-.chip--tree { color: #8fb7ff; border-color: #2c3d63; }
+/* The three review actions, in the product's own hierarchy and its own order:
+   Approva (emerald, solid) · Landa su main (sky, solid) · Rifiuta (bg-white/10).
+   Straight out of `Board/TaskDetail.tsx` — and they are three because the merge
+   was deliberately scorporato from the approve, so a picture that showed two
+   would be describing an older app.
 
-.pip { width: 7px; height: 7px; border-radius: 50%; background: #6b7690; flex: none; display: inline-block; }
-.pip--go { background: #7fd7a2; }
-.pip--work { background: #e6b45c; }
-.pip--rev { background: #6ea8ff; }
+   ONE divergence, stated rather than hidden: the product fills those two solid
+   buttons with `bg-emerald-500/80` and `bg-sky-500/80` and sets white on them,
+   which composites to 3.58:1 and 3.44:1 at 12px. That is under AA, in the app,
+   today — a real finding, worth a fix THERE. The scene uses the 700 step of the
+   same two hues (5.55:1 and 5.93:1) because a caption nobody can read is not a
+   truer picture, it is just a smaller one. */
+.mini {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; padding: 4px 9px;
+  border-radius: var(--app-r-xs); border: 1px solid transparent;
+  background: var(--app-elevated); color: var(--app-text);
+}
+.mini .ic { width: 11px; height: 11px; }
+.mini--go { background: #047857; color: #fff; }
+.mini--land { background: #0369a1; color: #fff; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.chip { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: var(--app-r-xs); background: var(--app-elevated); border: 1px solid var(--app-border); color: var(--app-text-secondary); }
+.chip--tree { color: var(--app-primary); border-color: var(--app-border-light); }
+
+.pip { width: 7px; height: 7px; border-radius: 50%; background: var(--app-text-faint); flex: none; display: inline-block; }
+.pip--go { background: var(--app-ok); }
+.pip--work { background: var(--app-warn); }
+.pip--rev { background: var(--app-primary); }
+
+/* The header and footer of a list panel — the product's own idiom, from the
+   Kanban column head: `text-xs font-semibold uppercase tracking-wide` in the
+   heading token, with the count pushed to the far end.
+   They are not decoration. Measured, three of the five contexts filled under
+   45% of their frame, so the slab read as an empty box with a small card in
+   it; the one that read right (the window, 85%) was the one that was a whole
+   piece of UI rather than a few rows floating in the middle. */
+.panel__h, .panel__f {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 0 9px; padding: 0 2px;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--app-text-heading);
+}
+.panel__f {
+  margin: 9px 0 0; padding-top: 9px; border-top: 1px solid var(--app-border);
+  font-weight: 500; letter-spacing: .04em; text-transform: none;
+  color: var(--app-text-muted);
+}
+.panel__c { font-weight: 500; letter-spacing: .02em; text-transform: none; color: var(--app-text-muted); }
+.path__s { float: right; color: var(--app-text-faint); }
 
 /* scene 1 — worktrees */
-.wt { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 11px; margin-bottom: 7px; border: 1px solid var(--dark-rule); border-radius: 5px; background: var(--dark-2); }
-.wt__branch { font-family: var(--mono); font-size: 11px; color: #8fb7ff; }
+.wt { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 11px; margin-bottom: 7px; border: 1px solid var(--app-border); border-radius: var(--app-r-sm); background: var(--app-surface); }
+.wt__branch { font-family: var(--mono); font-size: 11px; color: var(--app-primary); }
 .wt__stat { font-family: var(--mono); font-size: 11px; grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap; }
-.wt__file { font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+.wt__file { font-family: var(--mono); font-size: 10.5px; color: var(--app-text-secondary); }
 
 /* scene 2 — board */
 .kcols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.kcol__h { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dark-ink-mute); margin-bottom: 8px; }
+.kcol__h { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--app-text-secondary); margin-bottom: 8px; }
 .kcol__c { margin-left: auto; }
-.kcard { background: var(--dark-2); border: 1px solid var(--dark-rule); border-radius: 5px; padding: 8px 9px; margin-bottom: 6px; display: grid; gap: 2px; }
-.kcard__id { font-family: var(--mono); font-size: 10.5px; color: var(--dark-ink-mute); }
+/* The real card, from `Board/Card.tsx`: rounded-md, 1px app border, the surface
+   token, p-2.5, shadow-sm — and its anatomy is a PROJECT row above the title,
+   not a ticket id. Topics has no ticket ids; inventing "TSK-118" was inventing
+   a product. The priority dot is `h-1.5 w-1.5 rounded-full`, inline, ahead of
+   the title, exactly as the component places it. */
+.kcard {
+  background: var(--app-surface); border: 1px solid var(--app-border);
+  border-radius: var(--app-r-sm); padding: 10px; margin-bottom: 8px;
+  display: grid; gap: 3px; box-shadow: 0 1px 2px hsl(0 0% 0% / .3);
+}
+.kcard__meta { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--app-text-secondary); }
+.kcard__fav { width: 12px; height: 12px; border-radius: 3px; flex: none; background: var(--app-border-light); }
+.kcard__pri { width: 6px; height: 6px; border-radius: 50%; background: var(--app-text-faint); display: inline-block; vertical-align: middle; margin-right: 5px; }
+.kcard__pri--hi { background: var(--app-warn); }
 /* One line with an ellipsis. A dimmed context is allowed to be partial, but
    a word cut mid-glyph reads as a rendering bug rather than as depth. */
 .kcard__t { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* scene 3 — the window */
 .win { display: grid; grid-template-columns: 128px 1fr; gap: 10px; height: 100%; }
-.win__side { border-right: 1px solid var(--dark-rule); padding-right: 10px; }
-.win__grp { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dark-ink-mute); margin: 8px 0 5px; }
-.win__it { font-size: 12px; padding: 3px 7px; border-radius: 4px; color: var(--dark-ink-mute); }
-.win__it.is-on { background: #1a2234; color: var(--dark-ink); }
+.win__side { border-right: 1px solid var(--app-border); padding-right: 10px; }
+.win__grp { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--app-text-secondary); margin: 8px 0 5px; }
+.win__it { font-size: 12px; padding: 3px 7px; border-radius: var(--app-r-xs); color: var(--app-text-secondary); }
+.win__it.is-on { background: var(--app-hover); color: var(--app-text); }
 .win__main { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; }
-.win__pane { border: 1px solid var(--dark-rule); border-radius: 5px; background: var(--dark-2); min-height: 72px; }
+.win__pane { border: 1px solid var(--app-border); border-radius: var(--app-r-sm); background: var(--app-surface); min-height: 72px; }
 .win__pane--wide { grid-column: span 2; }
-.tabs { display: flex; gap: 4px; padding: 7px 8px; border-bottom: 1px solid var(--dark-rule); background: #131a29; }
-.tab { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 8px; border-radius: 4px; color: var(--dark-ink-mute); }
-.tab.is-active { background: #1c2740; color: var(--dark-ink); }
-.tab__x { opacity: .45; }
-.tab--add { color: var(--dark-ink-mute); }
+.tabs { display: flex; gap: 4px; padding: 7px 8px; border-bottom: 1px solid var(--app-border); background: var(--app-inset); }
+.tab { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 8px; border-radius: var(--app-r-xs); color: var(--app-text-secondary); }
+.tab.is-active { background: var(--app-hover); color: var(--app-text); }
+/* The close affordance on a tab. The product paints it `text-app-text-faint/70`,
+   which composites to 2.92:1 on the tab bar — under the 3:1 an icon needs, and
+   another real finding for the app rather than for this page. Here it is the
+   same token at full strength: 4.62:1, and aria-hidden because three "×" read
+   aloud in a row is noise, not information. */
+.tab__x { color: var(--app-text-faint); }
+.tab--add { color: var(--app-text-secondary); }
 
 /* scene 4 — the numbers */
-.spark { display: flex; align-items: flex-end; gap: 5px; height: 150px; padding: 0 4px; }
-.spark i { flex: 1; height: var(--h); border-radius: 3px 3px 0 0; background: #263149; }
-.spark i.is-now { background: var(--dark-accent); }
-.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--dark-rule); }
-.kpis > div { background: #0f1420; padding: 11px 13px; }
-.kpi__l { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--dark-ink-mute); }
+.spark { display: flex; align-items: flex-end; gap: 5px; height: 232px; padding: 0 4px; }
+/* The bars were `--app-elevated` on `--app-bg`, which after the context layer's
+   own dimming painted 1.09:1 — a chart whose data was, measured, invisible.
+   The past is now the tertiary text token (3.31:1 through the dim) and today is
+   the primary (3.09:1). Both clear the 3:1 a graphic needs, and the bar that
+   matters is separated by HUE rather than by being the only one you can see. */
+.spark i { flex: 1; height: var(--h); border-radius: var(--app-r-xs) var(--app-r-xs) 0 0; background: var(--app-text-tertiary); }
+.spark i.is-now { background: var(--app-primary); }
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--app-border); }
+.kpis > div { background: var(--app-surface); padding: 11px 13px; }
+.kpi__l { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--app-text-secondary); }
 .kpi__v { display: inline-block; margin-top: 4px; font-size: 22px; font-weight: 560; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .kpi__d { margin-left: 7px; font-family: var(--mono); font-size: 11px; }
-.kpi__d.up { color: #7fd7a2; }
-.kpi__d.down { color: #7fd7a2; }
+.kpi__d.up { color: var(--app-ok); }
+.kpi__d.down { color: var(--app-ok); }
 
 /* scene 5 — ownership */
-.scene--own .scene__ctx { display: flex; flex-direction: column; justify-content: center; gap: 9px; padding-left: 22px; }
-.path { font-family: var(--mono); font-size: 12px; color: var(--dark-ink-mute); }
-.path--none { color: #7fd7a2; font-size: 11px; max-width: 34ch; line-height: 1.4; }
+.scene--own .scene__ctx { display: flex; flex-direction: column; justify-content: center; gap: 0; padding-left: 22px; }
+/* Real list rows rather than four floating strings: the same 1px rule between
+   them that every list in the product uses, and enough height to be clickable
+   if this were the app instead of a picture of it. */
+.path { font-family: var(--mono); font-size: 12px; color: var(--app-text-secondary);
+  margin: 0; padding: 11px 2px; border-bottom: 1px solid var(--app-border); }
+.path:last-of-type { border-bottom: 0; }
+.path--none { color: var(--app-ok); font-size: 11px; max-width: 34ch; line-height: 1.4; }
 .card--pick { padding: 12px 13px 13px; }
-.pick__h { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dark-ink-mute); margin-bottom: 9px; }
-.pick__row { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 5px; font-size: 12.5px; }
-.pick__row.is-on { background: #1a2234; }
-.pick__dot { width: 8px; height: 8px; border-radius: 2px; background: #38456b; flex: none; }
-.pick__row.is-on .pick__dot { background: var(--dark-accent); }
-.pick__ok { margin-left: auto; color: #7fd7a2; width: 13px; height: 13px; }
-.pick__foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--dark-rule); font-size: 11px; color: var(--dark-ink-mute); }
+.pick__h { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--app-text-secondary); margin-bottom: 9px; }
+.pick__row { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--app-r-sm); font-size: 12.5px; }
+.pick__row.is-on { background: var(--app-hover); }
+.pick__dot { width: 8px; height: 8px; border-radius: 2px; background: var(--app-border-light); flex: none; }
+.pick__row.is-on .pick__dot { background: var(--app-primary); }
+.pick__ok { margin-left: auto; color: var(--app-ok); width: 13px; height: 13px; }
+.pick__foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--app-border); font-size: 11px; color: var(--app-text-secondary); }
 
 /* ── Sections that keep the old styling but change alignment ─────────────── */
 .compare, .limits, .more, .pricing, .changelog, .download { max-width: var(--maxw); margin: 128px auto 0; padding: 0 24px; }

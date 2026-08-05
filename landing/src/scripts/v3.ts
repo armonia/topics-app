@@ -326,6 +326,7 @@ if (canvas && !reduceMotion) {
 if (!reduceMotion) {
   const scenes = $$<HTMLElement>('.scene');
   const shot = $<HTMLElement>('.hero__shot');
+  const float = $<HTMLElement>('.hero__float');
   let ticking = false;
 
   const onFrame = () => {
@@ -342,6 +343,14 @@ if (!reduceMotion) {
     if (shot) {
       const y = Math.min(scrollY, 700) * -0.06;
       shot.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`;
+    }
+    /* The float drifts against the shot, not with it. Same scroll, opposite
+       sign and two and a half times the rate: that difference IS the depth —
+       matched rates would just be two things scrolling. Only the layer that
+       needs to look detached is allowed to move much. */
+    if (float) {
+      const y = Math.min(scrollY, 700) * 0.15;
+      float.style.setProperty('--float-y', `${y.toFixed(1)}px`);
     }
   };
 
