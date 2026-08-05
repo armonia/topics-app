@@ -190,16 +190,36 @@ export function MessageList({
     [filteredMessages, compactionMarkers],
   );
 
-  /** L'indice da cui parte la lista, deciso UNA volta per montaggio: vedi la
-   *  prop `initialTopMostItemIndex` più sotto. */
-  const initialTopMostIndexRef = useRef(0);
-  if (initialTopMostIndexRef.current === 0 && filteredMessages.length > 0) {
+  /**
+   * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
+   * al primo render: al primo render i messaggi non ci sono ancora (la storia
+   * arriva dopo), e congelare lì avrebbe significato montare Virtuoso sull'item
+   * 0 — cioè riaprire la chat IN CIMA a ogni ricarica. Finché non c'è niente si
+   * passa il valore vivo, che è quello che il codice faceva da sempre; appena la
+   * lista esiste il valore si fissa, così un messaggio nuovo non lo fa
+   * RI-applicare (era la lista che si strappava al fondo da sola).
+   */
+  const initialTopMostIndexRef = useRef<number | null>(null);
+  if (initialTopMostIndexRef.current === null && filteredMessages.length > 0) {
     initialTopMostIndexRef.current = filteredMessages.length - 1;
   }
+  const initialTopMostItemIndex = initialTopMostIndexRef.current ?? Math.max(0, filteredMessages.length - 1);
+
 
   // ── I due soli verbi dello scroll ─────────────────────────────────────────
   // `pinToBottom` incolla, `dispatchScroll` chiede all'autorità cosa fare. Ogni
   // punto che prima decideva da sé ora usa questi.
+
+  /** Quante volte al massimo si ritenta il pin mentre le altezze si assestano.
+   *  Sei frame ≈ 100ms: abbastanza per l'ultimo item e il footer, troppo poco
+   *  per combattere con un utente che nel frattempo scrolla (il ri-controllo di
+   *  `shouldPin` dentro ogni frame lo lascia comunque vincere). */
+  const PIN_SETTLE_FRAMES = 6;
+  /** Quando abbiamo pinnato l'ultima volta: serve a distinguere «la vista è in
+   *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
+  const lastPinAtRef = useRef(0);
+  /** Finestra entro cui un arrivo al fondo è ancora attribuibile al nostro pin. */
+  const PIN_ATTRIBUTION_MS = 500;
 
   /** C'è un salto da palette che possiede la viewport per questa topic? */
   const jumpPending = useCallback(() => !!peekScrollToMessage(topic.id), [topic.id]);
@@ -220,13 +240,28 @@ export function MessageList({
   const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean }) => {
     if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+    // Il fondo si raggiunge PER DAVVERO, non "quasi".
+    //
+    // Un colpo solo di `scrollTop = scrollHeight` incolla all'altezza misurata
+    // in QUEL frame: se l'ultimo item, il footer o un'immagine finiscono di
+    // misurarsi un frame dopo, resti a qualche decina di pixel dal fondo — e
+    // quello che si vede è la freccia «torna in fondo» che ti porta giù e ti
+    // lascia con ancora dello scroll sotto. Si riprova per qualche frame finché
+    // l'altezza smette di cambiare: appena la distanza è zero si esce.
+    let attempts = 0;
     const run = () => {
+      lastPinAtRef.current = Date.now();
       const el = scrollerElRef.current;
       // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
       // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
       if (!el) return;
       if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
       el.scrollTop = el.scrollHeight;
+      const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (residuo > 1 && attempts < PIN_SETTLE_FRAMES) {
+        attempts++;
+        requestAnimationFrame(run);
+      }
     };
     if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
     else requestAnimationFrame(run);
@@ -726,7 +761,7 @@ export function MessageList({
           // La lista si rimonta a ogni cambio di topic (`key={topic.id}`),
           // quindi il valore congelato è sempre quello giusto per la chat che
           // stai guardando.
-          initialTopMostItemIndex={initialTopMostIndexRef.current}
+          initialTopMostItemIndex={initialTopMostItemIndex}
           // Callback form so a pending palette jump can veto the auto-follow:
           // the load that the jump rides in replaces 0 → N messages, and with
           // zero items Virtuoso considers itself trivially "at bottom" — the
@@ -749,8 +784,17 @@ export function MessageList({
           atBottomThreshold={AT_BOTTOM_TOLERANCE_PX}
           atBottomStateChange={(atBottom) => {
             if (atBottom) {
+              // Ci siamo arrivati NOI o ci è saltata da sola? Se un attimo fa
+              // era lontana dal fondo e nessun pin è passato di qui, è la lista
+              // che si è ri-ancorata dopo una rimisura — e quel salto non deve
+              // valere come «l'utente è tornato in fondo».
+              const el = scrollerElRef.current;
+              const distanzaPrima = el ? el.scrollHeight - lastScrollTopRef.current - el.clientHeight : 0;
+              const teleported =
+                distanzaPrima > AT_BOTTOM_TOLERANCE_PX &&
+                Date.now() - lastPinAtRef.current > PIN_ATTRIBUTION_MS;
               // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
-              dispatchScroll({ type: 'reached-bottom' });
+              dispatchScroll({ type: 'reached-bottom', teleported });
               setNewMsgCount(0);
               setShowNewBanner(false);
               return;
