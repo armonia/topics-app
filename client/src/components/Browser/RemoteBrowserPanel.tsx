@@ -8,6 +8,7 @@ import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
+import { ParkedPane } from './ParkedPane';
 import { DownloadStrip } from './DownloadStrip';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
@@ -479,7 +480,19 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           </button>
         </div>
       )}
-      <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
+      {/* Parcheggiata = nessuna webview nativa da posizionare, quindi al posto
+          del placeholder ci va la schermata che spiega perché. Montare
+          entrambi vorrebbe dire una view bianca sopra il testo. */}
+      {browser.parked ? (
+        <ParkedPane
+          url={browser.parked.url}
+          checkedAt={browser.parked.checkedAt}
+          checking={browser.parkedChecking}
+          onRetry={() => { void browser.retryParked?.(); }}
+        />
+      ) : (
+        <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
+      )}
       <DownloadStrip contextId={contextId} />
     </div>
   );

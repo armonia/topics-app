@@ -87,6 +87,14 @@ export interface NativeBrowserHandle {
    *  ricaricare, così una porta ancora spenta produce una risposta invece del
    *  nulla. Assente sul path web, che ricade su navigate(). */
   retryNav?(url: string): Promise<void>;
+  /** Optional — Tauri only. Scheda PARCHEGGIATA: punta a una porta locale su
+   *  cui non c'è nessuno in ascolto, quindi la webview nativa non è stata
+   *  nemmeno creata e il pannello disegna la sua schermata al posto della view. */
+  parked?: { url: string; checkedAt: number } | null;
+  /** Optional — una sonda del parcheggio è in corso. */
+  parkedChecking?: boolean;
+  /** Optional — risonda la porta: se è tornata su, apre la view. */
+  retryParked?(): Promise<void>;
   navigate(url: string): Promise<void>;
   goBack(): Promise<void>;
   goForward(): Promise<void>;

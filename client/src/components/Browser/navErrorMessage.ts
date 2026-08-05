@@ -138,8 +138,13 @@ function hhmm(d: Date): string {
  * morta non cambia niente sullo schermo e sembra che il bottone sia rotto.
  * Cambiando, dice «ho guardato di nuovo adesso, ancora niente».
  */
+/** Cosa c'è da dire di una porta locale spenta, senza l'ora. */
+export function loopbackDownText(url: string): NavErrorText {
+  return navErrorMessage({ url, description: '', code: CANNOT_CONNECT });
+}
+
 export function deadLoopbackNotice(url: string, checkedAt: Date): NavErrorText {
-  const base = navErrorMessage({ url, description: '', code: CANNOT_CONNECT });
+  const base = loopbackDownText(url);
   return {
     message: base.message,
     hint: `Controllato alle ${hhmm(checkedAt)}. ${base.hint ?? ''}`.trim(),
