@@ -13,10 +13,10 @@
  * type on a flat field compresses well and PNG is the format no scraper has
  * ever had an opinion about.
  *
- * It is paper now, like the site. A card that opens onto a page it does not
- * resemble is a small broken promise, and the whole visual argument of the
- * site is that the page is paper and the product is the dark thing on it — so
- * the card makes that argument too, with the screenshot as its dark object.
+ * It carries the site's own ramp: a cool near-white ground at hue 265 and the
+ * product screenshot as the dark end of that same ramp, three degrees of hue
+ * away. A card that opens onto a page it does not resemble is a small broken
+ * promise, so the card makes the page's argument rather than a second one.
  *
  * Rendered in Chromium rather than composed in Satori: Satori cannot read
  * WOFF2, and the faces this brand is built from are served as WOFF2 by
@@ -51,7 +51,7 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{width:1200px;height:630px;background:#faf9f5;color:#141413;
+  body{width:1200px;height:630px;background:#f9fafc;color:#13161d;
        font-family:Switzer,-apple-system,sans-serif;overflow:hidden;position:relative}
   .frame{position:relative;height:100%;padding:64px 0 64px 70px;display:flex;flex-direction:column;
          width:660px}
@@ -60,21 +60,21 @@ const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
   .brand span{font-size:25px;font-weight:600;letter-spacing:-.015em}
   h1{margin-top:auto;font-family:Gambarino,Georgia,serif;font-weight:400;
      font-size:70px;line-height:.99;letter-spacing:-.022em}
-  h1 em{font-style:normal;color:#a83c14}
-  p{margin-top:24px;font-size:24px;line-height:1.4;color:#55554f;max-width:31ch}
+  h1 em{font-style:normal;color:#016770}
+  p{margin-top:24px;font-size:24px;line-height:1.4;color:#51555e;max-width:31ch}
   .foot{margin-top:auto;padding-top:28px;display:flex;gap:26px;align-items:center;
-        border-top:1px solid #e0ddd1;
-        font-family:"Commit Mono",monospace;font-size:17px;color:#6b6a63;
+        border-top:1px solid #e1e3e7;
+        font-family:"Commit Mono",monospace;font-size:17px;color:#656971;
         font-variant-numeric:tabular-nums}
-  .foot b{color:#141413;font-weight:400}
-  .dot{width:7px;height:7px;border-radius:50%;background:#0d6b3f;display:inline-block;margin-right:9px}
+  .foot b{color:#13161d;font-weight:400}
+  .dot{width:7px;height:7px;border-radius:50%;background:#1f6f38;display:inline-block;margin-right:9px}
   /* The one dark object, bled off the right edge and tilted just enough to read
      as an object on a sheet rather than as a second panel. */
   .slab{position:absolute;right:-190px;top:64px;width:660px;height:502px;
-        border-radius:16px;overflow:hidden;background:#07090f;
+        border-radius:8px;overflow:hidden;background:#07090f;
         transform:rotate(-3.5deg);
-        box-shadow:0 0 0 1px rgba(20,20,19,.12),0 3px 6px -2px rgba(20,20,19,.08),
-                   0 40px 80px -28px rgba(20,20,19,.32)}
+        box-shadow:inset 0 1px 0 0 rgba(255,255,255,.06),0 2px 6px -2px rgba(15,19,29,.07),
+                   0 14px 34px -14px rgba(15,19,29,.10),0 44px 90px -32px rgba(15,19,29,.16)}
   .slab img{width:100%;height:100%;object-fit:cover;object-position:left top}
 </style></head><body>
   <div class="slab"><img src="${shotData}" alt=""></div>
