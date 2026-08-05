@@ -140,6 +140,47 @@ body.v3 .grain { display: none; }   /* the old, dead layer */
 }
 @media (max-width: 900px) { .field__grain { display: none; } }
 
+/* Grain on the DARK side too, and it is not symmetry for its own sake.
+   The page has seven dark openings — five scenes, the hero window, the block
+   for agents — and with a perfectly smooth fill they read as seven images
+   pasted onto the sheet. The same noise on all of them, static and at the same
+   strength, is what makes them read as seven holes cut in ONE material. It is
+   the only place the grain is allowed over text, and it can be: on a surface at
+   L 4 a soft-light noise moves the ink by a fraction of a step, where on the
+   near-white sheet the same layer was the thing that read as a dirty display.
+
+   Static, never animated: a moving grain over a terminal is a broken terminal.
+
+   THE FIELD MAY NEVER OUT-SHOUT A REAL LINE. Measured against the page:
+     lattice quarter rule  1.063:1
+     tick                  1.112:1
+     lattice outer rule    1.121:1
+     --rule, the weakest divider the page actually draws   1.230:1
+   Every mark the field makes sits below every line the layout makes. Anything
+   added here has to keep that order or the decoration starts competing with
+   the structure, which is exactly how the last one died. */
+.scene::after,
+.hero__stage::after,
+.agents-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: calc(.055 * var(--field-gain));
+  mix-blend-mode: soft-light;
+  background-image: var(--grain-src);
+  background-size: 128px 128px;
+}
+.hero__stage, .agents-block { position: relative; }
+/* The hero window is masked at the fold, so its grain has to be masked with it
+   or a rectangle of noise survives past the edge of the picture. */
+.hero__stage::after {
+  -webkit-mask-image: linear-gradient(#000 62%, transparent 100%);
+  mask-image: linear-gradient(#000 62%, transparent 100%);
+}
+
 /* Content rides above the field. z-index 1 on the wrappers only — every section
    inherits it, so no section needs to know the field exists. */
 body.v3 > .capsule,
