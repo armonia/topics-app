@@ -59,6 +59,52 @@
    reduced motion. The wash and the grain are CSS only and never repaint.
    =========================================================================== */
 
+/* ═══ THE BRAND ═══════════════════════════════════════════════════════════
+   There was no brand system. There was a raster app icon of two chat bubbles,
+   the word "Topics" set in the body face, and — the actual problem — TWO
+   identities that had never been introduced to each other: the product is
+   blue (`--primary: #0066ff`, in `client/src/index.css`) and the site was
+   teal (`--accent: #09848f`). Same company, two hues, no stated relationship.
+
+   The resolution is not a third colour. It is that the site adopts the
+   product's, which turns out to be the better token anyway — measured against
+   this page's own surfaces:
+
+                    paper    card    on the dark slab
+     #0066ff        4.63     4.83    3.81      ← the brand. Clears AA for WORDS.
+     #0052cc        6.53     6.82    2.70      ← emphasis, hover
+     #4d94ff        2.87     3.00    6.14      ← everything inside a dark island
+     #09848f (old)  4.27     4.46    4.13      ← under 4.5: could never carry text
+
+   That last row is why the old system needed a SECOND teal (`--accent-ink`)
+   just to be allowed to set a link. The brand blue does not: one hue, three
+   steps, each one legal where it is used. All three are the product's own
+   `--primary` / `--primary-hover` / `--primary-dark`, unchanged.
+
+   Scoped to body.v3, so the live home page is untouched until someone decides
+   this page replaces it. */
+body.v3 {
+  --brand: #0066ff;
+  --brand-strong: #0052cc;
+  --brand-on-dark: #4d94ff;
+  --brand-wash: #e8f0ff;
+  --brand-line: #b8d3ff;
+
+  /* Every existing accent use on the page inherits the brand without a single
+     call site changing. --accent was graphic-only at 4.27:1; its replacement
+     clears 4.63:1, so the split between "graphic" and "ink" survives as a
+     matter of emphasis rather than of legality. */
+  --accent: var(--brand);
+  --accent-ink: var(--brand-strong);
+  --accent-wash: var(--brand-wash);
+  --accent-line: var(--brand-line);
+
+  /* The mark's bracket, as a mask source. Same path as `#ic-bracket` in the
+     sprite — if one changes the other has to, and that is the price of using
+     it in CSS where a <use> cannot go. */
+  --bracket: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M15 4.5h-6A4.5 4.5 0 0 0 4.5 9v6A4.5 4.5 0 0 0 9 19.5h6'/%3E%3C/svg%3E");
+}
+
 :root {
   /* Display is Switzer now, not Gambarino. The serif carried forty headings on
      a page that was recalibrated to read as an instrument, and the stylesheet
@@ -204,8 +250,36 @@ body.v3 > .footer { position: relative; z-index: 1; }
   transition: box-shadow var(--dur-2) var(--state), background var(--dur-2) var(--state);
 }
 .capsule.is-stuck .capsule__in { box-shadow: var(--shadow-2); background: hsl(220 33% 98% / .93); }
-.capsule__brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; letter-spacing: -.02em; }
-.capsule__brand img { border-radius: var(--r-ctl); }
+/* THE LOCKUP. Mark at 24, wordmark at 16.5 — the mark's optical body is 18 of
+   its 24 units, so the two cap heights land within a hair of each other, which
+   is the whole job of a lockup. The gap is 9px: half the mark's optical body,
+   close enough to belong to it and far enough not to touch. */
+.capsule__brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16.5px; letter-spacing: -.022em; color: var(--ink); }
+.capsule__brand .mark { width: 24px; height: 24px; color: var(--brand); flex: none; }
+
+/* THE BRAND DEVICE, second attempt. The first put the mark's bracket alone in
+   front of every eyebrow, and at 13px a bracket is not a bracket — it is the
+   letter C, sitting where a reader expects a word. It read as a typo.
+
+   A bracket only says "container" when there is something inside it, so the
+   device goes where there already is: the act number. The chip keeps its
+   surface and gains the bracket's own geometry — open on the right, arms
+   turning in — so `01` is literally wrapped by the same gesture that wraps the
+   tabs in the logo. Nothing to misread, and the repetition is what turns a
+   logo into an identity rather than a sticker. */
+/* The act's glyph. 40px, above the kicker: the reference sites all open a
+   feature block with one, and it is the thing that makes an act read as a
+   chapter rather than as another paragraph with a number on it. */
+.act__glyph { display: block; width: 48px; height: 48px; color: var(--brand); margin-bottom: 13px; }
+
+.act__n {
+  border: 2px solid var(--brand);
+  border-right: 0;
+  border-radius: var(--r-card) 0 0 var(--r-card);
+  padding-right: 2px;
+  color: var(--ink); background: var(--p-0);
+  box-shadow: none;
+}
 .capsule__links { display: flex; gap: 22px; }
 .capsule__links a { font-size: 14.5px; font-weight: 500; color: var(--ink-mute); transition: color var(--dur-1) var(--state); }
 .capsule__links a:hover { color: var(--ink); }
@@ -681,6 +755,22 @@ body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both;
 .pick__row.is-on .pick__dot { background: var(--app-primary); }
 .pick__ok { margin-left: auto; color: var(--app-ok); width: 13px; height: 13px; }
 .pick__foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--app-border); font-size: 11px; color: var(--app-text-secondary); }
+
+/* ── THE LONG TAIL ───────────────────────────────────────────────────────── */
+/* Sixteen cells of flat text, no rank and nothing to catch the eye — the one
+   list on the page you had to READ to skim. The icon is the hook: it turns
+   each cell into a shape you can find again, and it is drawn on the same grid
+   as every other glyph so the set reads as one hand.
+   The title moves onto the icon's line so the two read as one object, and the
+   sentence sits under both rather than beside a floating mark. */
+.more__item {
+  display: grid; grid-template-columns: 22px 1fr;
+  column-gap: 11px; row-gap: 4px; align-items: center;
+  padding: 17px 18px 18px;
+}
+.more__ic { width: 22px; height: 22px; color: var(--brand); }
+.more__item b { margin-bottom: 0; }
+.more__item span { grid-column: 2; }   /* under the title, not under the icon */
 
 /* ── Sections that keep the old styling but change alignment ─────────────── */
 .compare, .limits, .more, .pricing, .changelog, .download { max-width: var(--maxw); margin: 128px auto 0; padding: 0 24px; }
