@@ -51,9 +51,14 @@ export function groupChromeActive(
 export function firstOtherLiveSpace(
   spaces: Record<string, SpaceMeta>,
   exclude: string,
+  /** Gruppi che vivono in ALTRE finestre: non sono posti dove andare, ci si
+   *  finirebbe solo per farsi rispedire indietro. */
+  elsewhere?: ReadonlySet<string> | ReadonlyMap<string, unknown>,
 ): string | null {
+  const taken = (id: string) =>
+    elsewhere ? ('has' in elsewhere ? elsewhere.has(id) : false) : false;
   const ordered = [DEFAULT_SPACE_ID, ...liveSpacesOrdered(spaces).map((s) => s.id)];
-  return ordered.find((id) => id !== exclude) ?? null;
+  return ordered.find((id) => id !== exclude && !taken(id)) ?? null;
 }
 
 /** Mint a fresh space id (`space:` prefix per the coherence ruling). */

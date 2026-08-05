@@ -17,6 +17,29 @@ import { usePaneStore } from '../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { createSpaceId, nextSpaceName, movePaneToSpace } from '../components/Layout/spaceHelpers';
 
+/**
+ * I gruppi che QUESTA finestra ha rivendicato a mano.
+ *
+ * Serve a far vincere l'utente su un dato vecchio. La regola normale è: se un
+ * gruppo vive in un'altra finestra, questa non lo disegna e ci manda là. Ma
+ * quando il clic sulla card ha PROVATO a portare davanti quella finestra e ha
+ * fallito (chiusa, di un altro dispositivo), il ripiego è aprirlo qui — e la
+ * presenza, che ci mette un istante a scoprire il funerale, direbbe ancora
+ * "vive di là" e rimbalzerebbe indietro l'utente. La rivendicazione è la
+ * memoria di quel "no, lo voglio qui".
+ */
+const claimedSpaces = new Set<string>();
+
+/** Questa finestra si prende il gruppo, anche se la presenza dice altro. */
+export function claimSpaceLocally(spaceId: string): void {
+  claimedSpaces.add(spaceId);
+}
+
+/** L'ha rivendicato questa finestra? */
+export function isSpaceClaimedLocally(spaceId: string): boolean {
+  return claimedSpaces.has(spaceId);
+}
+
 /** URL di boot di una finestra-gruppo. Unica forma, un posto solo. */
 export function spaceWindowUrl(spaceId: string, origin = window.location.origin): string {
   return `${origin}/?space=${encodeURIComponent(spaceId)}`;
@@ -29,6 +52,8 @@ export function spaceWindowUrl(spaceId: string, origin = window.location.origin)
  */
 export async function popOutSpace(spaceId: string): Promise<boolean> {
   if (!spaceId) return false;
+  // Se lo si stacca, non è più "voglio tenerlo qui".
+  claimedSpaces.delete(spaceId);
   if (isTauri) {
     try {
       const label = await tauriInvoke<string>('window_detach_space', { space: spaceId });

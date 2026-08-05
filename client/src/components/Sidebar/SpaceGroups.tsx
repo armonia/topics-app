@@ -41,7 +41,7 @@ import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { useSpaceWindows } from '../../state/windowPresence';
-import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
+import { focusSpaceWindow, popOutSpace, closeSpaceWindow, claimSpaceLocally } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
@@ -215,6 +215,9 @@ export function useGoToSpace(): (spaceId: string) => void {
     // ri-inchiodarla (la query È la sua identità, un SET_ACTIVE_SPACE da solo
     // verrebbe disfatto al primo hydrate).
     const take = () => {
+      // Rivendicazione esplicita: da qui in poi l'automatismo che rimanda i
+      // gruppi alla loro finestra lascia stare QUESTO gruppo in QUESTA finestra.
+      claimSpaceLocally(spaceId);
       if (spaceWindowId()) repinSpaceWindow(spaceId);
       if (spaceId !== usePaneStore.getState().activeSpaceId) {
         dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: spaceId } });
@@ -307,12 +310,18 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
         if (paneId) movePaneToSpace(paneId, card.id);
       }}
+      // Il TRATTEGGIO dice "questo gruppo non è disegnato qui": è in una
+      // finestra sua. Il simbolo da solo era troppo poco — a colpo d'occhio la
+      // card sembrava una card come le altre, e cliccarla sembrava un cambio di
+      // gruppo invece che un salto a un'altra finestra.
       className={`mx-1.5 mb-1 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
         dropping
           ? 'border-primary bg-primary/10'
-          : card.active
-            ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
-            : 'border-app-border/50'
+          : card.detachedLabel
+            ? 'border-dashed border-app-border/70'
+            : card.active
+              ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
+              : 'border-app-border/50'
       }`}
     >
       <div
@@ -344,7 +353,15 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           {card.name}
         </button>
         {card.detachedLabel && (
-          <AppWindow size={11} className="flex-shrink-0 text-app-text-tertiary" data-testid="space-detached" aria-label="in una finestra sua" />
+          <span
+            className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-[10px] text-app-text-tertiary"
+            data-testid="space-detached"
+            aria-label="in una finestra sua"
+            title={`${card.name} vive in una finestra sua`}
+          >
+            <AppWindow size={11} />
+            finestra
+          </span>
         )}
         {card.tier && (
           <span
