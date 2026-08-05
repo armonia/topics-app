@@ -68,8 +68,9 @@ test.describe.serial("Gruppi (Spazi)", () => {
     const moveEntry = page.getByText("Sposta nel gruppo", { exact: true });
     await expect(moveEntry, "il menu della tab offre 'Sposta nel gruppo'").toBeVisible({ timeout: 3000 });
     await moveEntry.click();
-    // Scoped al MENU: "Nuovo gruppo" è anche l'invito in fondo alla sidebar
-    // (stessa azione, stessa parola) e senza lo scope il locator è ambiguo.
+    // Scoped al MENU per abitudine, non per necessità: dal 2026-08-05 questo è
+    // l'UNICO "Nuovo gruppo" dell'app (l'invito in fondo alla sidebar creava un
+    // gruppo vuoto ed è stato tolto).
     const newGroup = page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" });
     await expect(newGroup, "il sottomenu offre 'Nuovo gruppo'").toBeVisible({ timeout: 3000 });
     await newGroup.click();
@@ -84,19 +85,17 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await expect(page.getByTestId("space-row-active")).toHaveCount(0);
   });
 
-  test("SPACE-01b: su desktop il 'nuovo gruppo' si accende solo passandoci sopra", async ({ page }) => {
+  test("SPACE-01b: un gruppo nasce SOLO portandoci una tab, non da un comando a vuoto", async ({ page }) => {
+    // Il comando "Nuovo gruppo" in fondo alla sidebar creava un gruppo VUOTO e
+    // ci portava dentro: uno stato che non serve a niente, con lo stesso nome
+    // dell'azione che invece fa la cosa utile (crea il gruppo E ci mette la
+    // tab). Tolto: qui si pretende che non torni.
     await openTwoStandaloneTabs(page);
     await moveTabToNewGroup(page, idA);
-    const opacity = () => page.evaluate(() => {
-      const el = document.querySelector('[data-testid="space-add"]');
-      return el ? getComputedStyle(el).opacity : "missing";
-    });
-    // Lontano dalla sidebar il comando c'è nel DOM ma è spento: un "+" acceso
-    // per sempre sul rail dell'intestazione è arredamento.
-    await page.mouse.move(1000, 400);
-    await expect.poll(opacity, { timeout: 3000 }).toBe("0");
-    await page.locator('[aria-label="Topics sidebar"]').hover();
-    await expect.poll(opacity, { timeout: 3000 }).toBe("1");
+    await expect(page.getByTestId("space-add")).toHaveCount(0);
+    // E l'unico "Nuovo gruppo" rimasto vive nel menu della tab, cioè non è
+    // raggiungibile finché non apri quel menu.
+    await expect(page.getByRole("button", { name: "Nuovo gruppo" })).toHaveCount(0);
   });
 
   test("SPACE-02: 'Sposta nel gruppo → Nuovo gruppo' crea il gruppo e ci porta la tab (senza cambiare vista)", async ({ page }) => {
