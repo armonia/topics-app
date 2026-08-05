@@ -111,9 +111,32 @@ if ('fonts' in document) {
 } else ready();
 
 /* ── The capsule ─────────────────────────────────────────────────────────── */
+/* Two states, and the second one exists because the page now has two grounds.
+ * The bar floats over both, so it cannot pick a colour once: over paper it is
+ * dark ink on light glass, over an ink band it has to invert.
+ *
+ * It is decided by GEOMETRY, not by the section observer. The observer answers
+ * "what am I reading", which is the middle of the viewport; the bar needs
+ * "what is directly underneath me", which is 46px from the top. Those two
+ * disagree for about 60px on either side of every seam, and a nav that flips
+ * colour half a section early is worse than one that never flips at all.
+ *
+ * Cost: three getBoundingClientRect() calls on a scroll that is already
+ * running one. Both classes are set in the same handler so there is no second
+ * listener and no second layout read. */
 const capsule = $('#capsule');
 if (capsule) {
-  const onScroll = () => capsule.classList.toggle('is-stuck', scrollY > 14);
+  const bands = $$<HTMLElement>('.band--ink');
+  const CAPSULE_MID = 46;
+  const onScroll = () => {
+    capsule.classList.toggle('is-stuck', scrollY > 14);
+    let overInk = false;
+    for (const b of bands) {
+      const r = b.getBoundingClientRect();
+      if (r.top <= CAPSULE_MID && r.bottom >= CAPSULE_MID) { overInk = true; break; }
+    }
+    document.body.classList.toggle('is-ink', overInk);
+  };
   onScroll();
   addEventListener('scroll', onScroll, { passive: true });
 }
