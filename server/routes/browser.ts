@@ -16,6 +16,7 @@ import {
 } from "../browser-tools-handler";
 import { resetMoondreamCounter } from "../integrations/moondream-client";
 import { probeFraming } from "../browser-framing";
+import { isPortListening, loopbackPortOf } from "../lib/loopback-probe";
 import type { BrowserActAction } from "../browser-tools";
 import { browserEngineRegistry, chromiumEngineInfo } from "../browser-engine-registry";
 
@@ -65,6 +66,22 @@ export function createBrowserRouter(
       if (!target) return errorResponse(400, "url required");
       const framable = await probeFraming(target);
       return json({ framable });
+    }
+
+    // --- «Su questa porta locale c'è ancora qualcuno?» ---
+    // Le schede sono persistite con la loro URL e moltissime puntano
+    // all'ANTEPRIMA di un task: un server effimero che muore con la sessione
+    // dell'agente mentre la URL resta salvata. Con questa risposta la pane può
+    // NON caricare affatto e dire cosa manca, invece di sparare una richiesta
+    // destinata a fallire e mostrare la pagina d'errore di WebKit.
+    // Solo loopback (vedi loopback-probe.ts): un host qualunque farebbe di
+    // questa rotta un port scanner comandabile da fuori.
+    if (method === "GET" && pathname === "/api/browsers/port-listening") {
+      const target = url.searchParams.get("url");
+      if (!target) return errorResponse(400, "url required");
+      const port = loopbackPortOf(target);
+      if (port === null) return errorResponse(400, "not a loopback url");
+      return json({ port, listening: await isPortListening(port) });
     }
 
     // --- Viewer count (cross-device auto-share) ---

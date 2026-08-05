@@ -83,6 +83,10 @@ export interface NativeBrowserHandle {
   navError?: { message: string; url: string; hint?: string } | null;
   /** Optional — dismiss the navigation-error strip without navigating. */
   clearNavError?(): void;
+  /** Optional — il «Riprova» della strip. Su una porta locale sonda prima di
+   *  ricaricare, così una porta ancora spenta produce una risposta invece del
+   *  nulla. Assente sul path web, che ricade su navigate(). */
+  retryNav?(url: string): Promise<void>;
   navigate(url: string): Promise<void>;
   goBack(): Promise<void>;
   goForward(): Promise<void>;

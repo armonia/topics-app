@@ -124,3 +124,24 @@ export function navErrorMessage(e: RawNavError): NavErrorText {
 
   return { message: fallback };
 }
+
+/** `16:03` — l'ora del controllo, che è l'unica cosa che cambia fra un tentativo e l'altro. */
+function hhmm(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * La scheda NON è stata caricata perché su quella porta non c'è nessuno: lo
+ * abbiamo chiesto al server (`/api/browsers/port-listening`) prima di provare.
+ *
+ * L'ora del controllo non è un dettaglio: senza, premere «Riprova» su una porta
+ * morta non cambia niente sullo schermo e sembra che il bottone sia rotto.
+ * Cambiando, dice «ho guardato di nuovo adesso, ancora niente».
+ */
+export function deadLoopbackNotice(url: string, checkedAt: Date): NavErrorText {
+  const base = navErrorMessage({ url, description: '', code: CANNOT_CONNECT });
+  return {
+    message: base.message,
+    hint: `Controllato alle ${hhmm(checkedAt)}. ${base.hint ?? ''}`.trim(),
+  };
+}

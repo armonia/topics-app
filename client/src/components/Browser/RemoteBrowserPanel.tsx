@@ -460,7 +460,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           </span>
           {(browser.navError.url || browser.url) && (
             <button
-              onClick={() => browser.navigate(browser.navError!.url || browser.url)}
+              onClick={() => {
+                const target = browser.navError!.url || browser.url;
+                void (browser.retryNav ? browser.retryNav(target) : browser.navigate(target));
+              }}
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
             >
               <RotateCw size={11} />
