@@ -741,7 +741,16 @@ body.v3.is-ready .hero__title .ch-block {
   .hero__actions { flex-direction: column; }
   .hero__actions .btn { width: 100%; }
   .hero__proof > div { flex-basis: 50%; border-left: 0; padding: 10px 0; }
-  .hero__stage { height: clamp(200px, 34vh, 300px); }
+  /* No crop on a phone, and no mask. The crop is a device for the DESKTOP fold:
+     it works because a 1,240px-wide window rendered into the column is taller
+     than the frame, so cutting it invites a scroll. At 390px the same image is
+     185px tall inside a 287px frame — nothing to cut, and 144px of empty slab
+     under it instead. Measured: the stage ran to y 1111 while the picture ended
+     at 967. Let the height come from the image, show the whole window. */
+  .hero__stage {
+    height: auto; -webkit-mask-image: none; mask-image: none;
+  }
+  .hero__shot { border-radius: var(--r-slab); }
   .scene { min-height: 340px; }
   .scene__fg { width: 92%; }
   .kcols { grid-template-columns: 1fr; }
