@@ -1,5 +1,5 @@
 import type { Topic, UnreadData, TerminalSessionInfo, PaneType } from '@/types';
-import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, type BrowserOrigin } from '../state/pane/adapters';
+import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, createPaneId, type BrowserOrigin } from '../state/pane/adapters';
 import { isUtilityPanelId, parseUtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '../state/pane/adapters/paneConfig';
 import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
@@ -687,6 +687,69 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 }
 
 // ── Grouped view helper ────────────────────────────────────────────────────────
+
+// ── Appartenenza al GRUPPO ─────────────────────────────────────────────────────
+
+/**
+ * La pane a cui una riga corrisponde.
+ *
+ * `item.id` è la chiave di RENDER e per quasi tutti i tipi coincide con l'id
+ * della pane (`terminal:<id>`, `browser:<ctx>`, `__board__`, l'uuid della
+ * topic). L'eccezione è il progetto: la riga è chiavata sul path GREZZO
+ * (`project:/Users/…`) mentre la pane usa il path CODIFICATO
+ * (`project:%2FUsers%2F…`). Confonderli significa non riconoscere mai un
+ * progetto come tab di un gruppo — cioè il bug che questa funzione esiste per
+ * non fare.
+ */
+export function sidebarItemPaneId(item: SidebarItem): string {
+  if (item.type === 'project' && item.projectPath) return createPaneId('project', item.projectPath);
+  return item.id;
+}
+
+export interface SpacePartition {
+  /** Le tab del gruppo che stai guardando: il contenuto del gruppo. */
+  inSpace: SidebarItem[];
+  /** Righe che non stanno in nessun gruppo — di solito compaiono per un
+   *  segnale (non letto, "attende te") senza avere una tab aperta da nessuna
+   *  parte. Vanno mostrate FUORI dal gruppo: aprirne una la fa entrare nel
+   *  gruppo attivo. */
+  loose: SidebarItem[];
+}
+
+/**
+ * Divide le righe della sidebar in "sta in questo gruppo" e "non sta in nessun
+ * gruppo", buttando via quelle che stanno in un ALTRO gruppo.
+ *
+ * Perché serve. La sidebar è guidata dalle tab, ma con parecchie vie di fuga:
+ * una chat con non letti, un progetto con un figlio che ti aspetta, un
+ * terminale orchestratore compaiono ANCHE senza tab aperta. Con i gruppi
+ * addosso quelle vie di fuga producevano righe che non appartenevano al gruppo
+ * che stavi guardando — l'intestazione diceva "Principale" e sotto, dentro il
+ * suo filo, c'era il progetto di un altro gruppo con le sue sessioni. Il
+ * gruppo sembrava un'etichetta appoggiata su una lista che non governava.
+ *
+ * Una riga che vive in un altro gruppo NON si disegna qui: la sua riga di
+ * gruppo, sopra, ne porta il conto e il pallino di attenzione, ed è a un clic.
+ * Vale anche per i fissati: un fissato è una scorciatoia DENTRO il suo gruppo,
+ * non un lasciapassare per comparire in tutti.
+ *
+ * Pura di proposito, come tutto questo file: due insiemi di id in ingresso,
+ * nessuno store.
+ */
+export function partitionSidebarItemsBySpace(
+  items: SidebarItem[],
+  openPaneIds: ReadonlySet<string>,
+  otherSpacePaneIds: ReadonlySet<string>,
+): SpacePartition {
+  const inSpace: SidebarItem[] = [];
+  const loose: SidebarItem[] = [];
+  for (const item of items) {
+    const paneId = sidebarItemPaneId(item);
+    if (otherSpacePaneIds.has(paneId)) continue;
+    (openPaneIds.has(paneId) ? inSpace : loose).push(item);
+  }
+  return { inSpace, loose };
+}
 
 export function groupSidebarItems(items: SidebarItem[]): Record<SidebarItemType, SidebarItem[]> {
   const groups: Record<SidebarItemType, SidebarItem[]> = {

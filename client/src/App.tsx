@@ -53,6 +53,8 @@ import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SpaceGroups } from './components/Sidebar/SpaceGroups';
+import { groupChromeActive, isDetachedWindow } from './components/Layout/spaceHelpers';
+import { spaceWindowId } from './lib/windowRole';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -541,6 +543,21 @@ function App() {
     setNextPanelMode, setExpandedProjects, setContextMenu,
     setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
   } = panelLifecycle.handlers;
+
+  // ── Il gruppo, per la sidebar ────────────────────────────────────────────
+  // `openPanels` è l'insieme PIENO, `visiblePanels` il sottoinsieme del gruppo
+  // attivo: la differenza è già, esattamente, "vive in un altro gruppo". Niente
+  // seconda iscrizione allo store, e nessun rischio che le due superfici
+  // rispondano in modo diverso alla stessa domanda.
+  const otherSpacePaneIds = useMemo(() => {
+    const visible = new Set(visiblePanels);
+    return new Set(openPanels.filter((id) => !visible.has(id)));
+  }, [openPanels, visiblePanels]);
+  // Vero quando l'intestazione del gruppo c'è: allora l'albero si divide in
+  // "le tab di questo gruppo" e "fuori dai gruppi". Stessa risposta che dà
+  // SpaceGroups per decidere se disegnarsi.
+  const spaceChrome = usePaneStore((s) => groupChromeActive(s.spaces, spaceWindowId()));
+  const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
   // folder OR create a new one in the OS dialog). Shared by CommandPalette
@@ -1099,6 +1116,8 @@ function App() {
             boardTaskCount={boardTaskCount}
             boardOpen={visiblePanels.includes('__board__')}
             onOpenBoard={() => handleOpenAsPage('board')}
+            spaceScoped={spaceScoped}
+            otherSpacePaneIds={otherSpacePaneIds}
           />
           )}
           </ErrorBoundary>

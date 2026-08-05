@@ -9,7 +9,13 @@
  * the tab removes the row.
  */
 import { describe, test, expect } from "bun:test";
-import { buildSidebarItems, groupSidebarItems } from "./buildSidebarItems";
+import {
+  buildSidebarItems,
+  groupSidebarItems,
+  partitionSidebarItemsBySpace,
+  sidebarItemPaneId,
+  type SidebarItem,
+} from "./buildSidebarItems";
 import type { TerminalSessionInfo, Topic } from "../types";
 
 const PP = "/work/app";
@@ -694,5 +700,79 @@ describe("buildSidebarItems — terminal lastActivity reflects real Claude activ
       .sort((a, b) => b.lastActivity - a.lastActivity)
       .map((i) => i.id);
     expect(sorted).toEqual(["terminal:recent", "terminal:old"]);
+  });
+});
+
+/**
+ * Appartenenza al GRUPPO.
+ *
+ * Il difetto che questi test inchiodano: la sidebar è guidata dalle tab ma con
+ * parecchie vie di fuga (non letti, "attende te", fissati, orchestratori), e
+ * quelle vie di fuga producevano righe che NON appartenevano al gruppo aperto.
+ * Nel caso reale che l'ha fatto vedere, il progetto `topics-app` viveva in
+ * "Gruppo 2" e compariva lo stesso — con dentro la sua sessione — sotto
+ * l'intestazione di "Principale".
+ */
+describe("partitionSidebarItemsBySpace", () => {
+  const item = (over: Partial<SidebarItem> & Pick<SidebarItem, "id" | "type">): SidebarItem => ({
+    name: over.id,
+    icon: "",
+    lastActivity: 0,
+    notificationCount: 0,
+    archived: false,
+    ...over,
+  });
+
+  test("un progetto si riconosce dal path CODIFICATO della sua pane", () => {
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP });
+    expect(sidebarItemPaneId(project)).toBe(projectPaneId);
+    // Aperto in questo gruppo → dentro.
+    expect(
+      partitionSidebarItemsBySpace([project], new Set([projectPaneId]), new Set()).inSpace,
+    ).toHaveLength(1);
+  });
+
+  test("ciò che vive in un altro gruppo non si disegna affatto", () => {
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP });
+    const { inSpace, loose } = partitionSidebarItemsBySpace(
+      [project],
+      new Set(),
+      new Set([projectPaneId]),
+    );
+    expect(inSpace).toEqual([]);
+    expect(loose).toEqual([]);
+  });
+
+  test("una riga senza tab aperta da nessuna parte finisce FUORI dai gruppi", () => {
+    const chat = item({ id: "t1", type: "chat", notificationCount: 3 });
+    const { inSpace, loose } = partitionSidebarItemsBySpace([chat], new Set(), new Set());
+    expect(inSpace).toEqual([]);
+    expect(loose.map((i) => i.id)).toEqual(["t1"]);
+  });
+
+  test("un fissato di un altro gruppo non è un lasciapassare", () => {
+    const pinned = item({ id: "terminal:x", type: "terminal", pinned: true });
+    const { inSpace, loose } = partitionSidebarItemsBySpace(
+      [pinned],
+      new Set(),
+      new Set(["terminal:x"]),
+    );
+    expect([...inSpace, ...loose]).toEqual([]);
+  });
+
+  test("l'ordine dentro ciascun blocco è quello che aveva il builder", () => {
+    const items = [
+      item({ id: "a", type: "chat" }),
+      item({ id: "b", type: "chat" }),
+      item({ id: "c", type: "chat" }),
+      item({ id: "d", type: "chat" }),
+    ];
+    const { inSpace, loose } = partitionSidebarItemsBySpace(
+      items,
+      new Set(["a", "c"]),
+      new Set(["b"]),
+    );
+    expect(inSpace.map((i) => i.id)).toEqual(["a", "c"]);
+    expect(loose.map((i) => i.id)).toEqual(["d"]);
   });
 });
