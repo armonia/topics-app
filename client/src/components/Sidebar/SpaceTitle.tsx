@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { AppWindow, Layers } from 'lucide-react';
 import { usePaneStore } from '../../state/pane/store';
-import { useWindowPresenceStore } from '../../state/windowPresence';
+import { useSpaceWindows } from '../../state/windowPresence';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { ROW_INSET } from '../../lib/selectionStyles';
 import { DEFAULT_SPACE_LABEL, liveSpacesOrdered, isDetachedWindow } from '../Layout/spaceHelpers';
@@ -22,7 +22,7 @@ import { spaceWindowId } from '../../lib/windowRole';
 export function SpaceTitle() {
   const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
   const spaces = usePaneStore((s) => s.spaces);
-  const windows = useWindowPresenceStore((s) => s.windows);
+  const spaceWindows = useSpaceWindows();
   const ordered = useMemo(() => liveSpacesOrdered(spaces), [spaces]);
 
   const pinned = spaceWindowId();
@@ -39,9 +39,7 @@ export function SpaceTitle() {
 
   // Questo gruppo è aperto in una finestra sua? (Lo dice la presenza, non un
   // flag locale: la finestra staccata può essere stata chiusa da un pezzo.)
-  const detachedElsewhere =
-    !pinned &&
-    Object.values(windows).some((w) => w.spaceId === activeSpaceId && !!w.windowLabel);
+  const detachedElsewhere = !pinned && spaceWindows.has(activeSpaceId);
 
   return (
     <div

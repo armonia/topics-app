@@ -30,7 +30,7 @@ import { DEFAULT_SPACE_ID, SPACES_MAX, type SpaceMeta, type Pane } from '../../s
 import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { useWindowPresenceStore } from '../../state/windowPresence';
+import { useSpaceWindows } from '../../state/windowPresence';
 import { focusSpaceWindow, popOutSpace } from '../../lib/popOutSpace';
 import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
@@ -114,21 +114,6 @@ interface ChipMenuState {
   y: number;
 }
 
-/** La finestra che ospita un gruppo staccato, se c'è (e non è questa). */
-function useDetachedSpaceWindows(): Map<string, string> {
-  const windows = useWindowPresenceStore((s) => s.windows);
-  return useMemo(() => {
-    const self = spaceWindowId();
-    const map = new Map<string, string>();
-    for (const w of Object.values(windows)) {
-      if (!w.spaceId || !w.windowLabel) continue;
-      if (w.windowId === self) continue;
-      map.set(w.spaceId, w.windowLabel);
-    }
-    return map;
-  }, [windows]);
-}
-
 export function SpaceBar() {
   const dispatch = usePaneStore((s) => s.dispatch);
   const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
@@ -136,7 +121,7 @@ export function SpaceBar() {
   const panes = usePaneStore((s) => s.panes);
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
-  const detachedSpaces = useDetachedSpaceWindows();
+  const detachedSpaces = useSpaceWindows();
   const sig = useSignalsStore(
     useShallow((s) => ({
       awaitingInputTopics: s.awaitingInputTopics,
