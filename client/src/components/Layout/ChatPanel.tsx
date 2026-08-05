@@ -51,7 +51,6 @@ interface ChatPanelProps {
   /** Hide the close button in header (useful when tabs already have close) */
   showCloseButton?: boolean;
   /** Callback to open a session-viewer pane for a spawned agent */
-  onOpenSessionViewer?: (sessionKey: string) => void;
   /** Local handler that opens / focuses a tab. Threaded down so the
    *  Master strip can jump to any session reliably (works for
    *  project-scoped topics too, unlike a bare sendFocusTopic which is
@@ -72,7 +71,6 @@ export function ChatPanel({
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
-  onOpenSessionViewer,
   onFocusPanel,
   bodyOnly = false,
 }: ChatPanelProps) {
@@ -277,7 +275,6 @@ export function ChatPanel({
                 sendWS={sendWS}
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
-                onOpenSessionViewer={onOpenSessionViewer}
               />
             </div>
           </div>

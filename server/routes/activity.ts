@@ -1,80 +1,21 @@
 import type { AppContext, RouteHandler } from "../types";
-import type { ActivityMonitor } from "../activity-monitor";
 import { listActivity, type ActivityLevel } from "../db/activity-log";
 
-export function createActivityRouter(ctx: AppContext, monitor: ActivityMonitor): RouteHandler {
+/**
+ * Activity LOG (audit trail), not a feed.
+ *
+ * The live Activity feed — an SSE stream fed by `ActivityMonitor`, which tailed
+ * OpenClaw's gateway log files under /tmp/openclaw — is gone: OpenClaw is
+ * dismissed, and everything that stream tried to say is already visible on the
+ * tabs themselves (a session working, a turn finished, an attention badge).
+ * What stays is the DURABLE part: the `activity_log` table the chat routes
+ * write to, readable here for forensics.
+ */
+export function createActivityRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
 
-  return async function activityRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
-
-    // SSE stream: GET /api/activity/stream
-    if (method === "GET" && pathname === "/api/activity/stream") {
-      const encoder = new TextEncoder();
-
-      const stream = new ReadableStream({
-        start(controller) {
-          let lastEventTime = Date.now();
-
-          // Send recent events as initial batch
-          const recent = monitor.getRecent(100);
-          const initPayload = JSON.stringify({ type: "init", events: recent });
-          controller.enqueue(encoder.encode(`data: ${initPayload}\n\n`));
-
-          // Subscribe to new events
-          const unsub = monitor.subscribe((events) => {
-            try {
-              lastEventTime = Date.now();
-              const payload = JSON.stringify({ type: "events", events });
-              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-            } catch {
-              // Controller may be closed
-            }
-          });
-
-          // Conditional keep-alive: only ping if no event sent in last 25s
-          const keepAlive = setInterval(() => {
-            try {
-              if (Date.now() - lastEventTime >= 25000) {
-                controller.enqueue(encoder.encode(`: keepalive\n\n`));
-              }
-            } catch {
-              clearInterval(keepAlive);
-            }
-          }, 30000);
-
-          // Clean up on abort
-          req.signal.addEventListener("abort", () => {
-            unsub();
-            clearInterval(keepAlive);
-            try { controller.close(); } catch {}
-          });
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "X-Accel-Buffering": "no",
-        },
-      });
-    }
-
-    // REST: GET /api/activity/recent
-    if (method === "GET" && pathname === "/api/activity/recent") {
-      const limit = parseInt(url.searchParams.get("limit") || "200");
-      return json({ events: monitor.getRecent(Math.min(limit, 500)) });
-    }
-
-    // REST: GET /api/activity (alias)
-    if (method === "GET" && pathname === "/api/activity") {
-      const limit = parseInt(url.searchParams.get("limit") || "100");
-      const events = monitor.getRecent(Math.min(limit, 500));
-      return json({ events });
-    }
-
-    // Query persisted activity_log table (audit trail, not live monitor stream).
+  return async function activityRouter(_req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    // Query the persisted activity_log table (audit trail).
     // Supports filtering by level, category, sessionKey, and since (ISO timestamp).
     if (method === "GET" && pathname === "/api/activity/log") {
       const levelParam = url.searchParams.get("level");

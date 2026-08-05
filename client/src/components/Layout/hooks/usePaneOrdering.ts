@@ -18,7 +18,6 @@ import {
   isBrowserPaneId,
   isProjectPaneId,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   isDraftPaneId,
   createPaneId,
   loadPanelOrder,
@@ -167,7 +166,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     const saved = loadPanelOrder();
     if (saved.order.length > 0) {
       const savedSet = new Set(saved.order);
-      const existing = saved.order.filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id));
+      const existing = saved.order.filter(id => topicIds.includes(id) || isBrowserPaneId(id));
       const added = topicIds.filter(id => !savedSet.has(id));
       return [...existing, ...added];
     }
@@ -221,7 +220,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   const effectivePinnedIds = useMemo(() => {
     const s = new Set(pinnedIds);
     for (const id of validatedOrderedIds) {
-      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
+      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isDraftPaneId(id)) s.add(id);
     }
     const prev = prevEffectivePinnedRef.current;
     // eslint-disable-next-line react-hooks/refs -- intentional contents-equality cache: read the previous Set to return a stable reference when contents are unchanged (avoids downstream memo churn); the read happens only inside this memo's compute
@@ -276,7 +275,6 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     setOrderedIds(prev => {
       const existing = prev.filter(id => {
         if (isBrowserPaneId(id)) return true;
-        if (isSessionViewerPaneId(id)) return true;
         return topicIds.includes(id);
       });
       const added = topicIds.filter(id => !prev.includes(id));
@@ -309,7 +307,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           && !pinnedIdsRef.current.has(remembered)
           ? remembered
           : null;
-        if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId) && !isDraftPaneId(previewId)) {
+        if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isDraftPaneId(previewId)) {
           pendingCloseRef.current = previewId;
           previewPaneIdRef.current = added[0];
           return replaceInList(existing, previewId, added[0]);
@@ -337,7 +335,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       return [...existing, ...added];
     });
     setPinnedIds(prev => {
-      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)));
+      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id)));
       return next.size === prev.size ? prev : next;
     });
   }, [topicIds]);
@@ -573,7 +571,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   // 11. Report utility-pane status to parent.
   const hasUtilityPanes = useMemo(
-    () => validatedOrderedIds.some(id => isBrowserPaneId(id) || isSessionViewerPaneId(id)),
+    () => validatedOrderedIds.some(id => isBrowserPaneId(id)),
     [validatedOrderedIds],
   );
   useEffect(() => {
@@ -601,30 +599,6 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     setPinnedIds(prev => new Set([...prev, paneId]));
   }, []);
 
-  const openSessionViewerPane = useCallback((sessionKey: string): string => {
-    const newId = createPaneId('session-viewer', sessionKey);
-    // Register the pane ENTITY with its real type BEFORE the id flows into
-    // openPanels (register-before-open contract, same as persistBrowserPane).
-    // Without this, handleFocusPanel's generic fallback registered it as
-    // { type: 'chat', title: undefined } — the tab rendered with the chat
-    // icon and the "New Chat" label instead of the Session viewer's own.
-    try {
-      const state = usePaneStore.getState();
-      if (!state.groups['group:default']?.paneIds.includes(newId)) {
-        state.dispatch(openPane({
-          id: newId,
-          type: 'session-viewer',
-          groupId: 'group:default',
-        }));
-      }
-    } catch (err) {
-      console.warn('[usePaneOrdering] openSessionViewerPane persist failed:', err);
-    }
-    setOrderedIds(prev => (prev.includes(newId) ? prev : [...prev, newId]));
-    queueMicrotask(() => onFocusPanel(newId));
-    return newId;
-  }, [onFocusPanel]);
-
   const removeLocalPane = useCallback((paneId: string) => {
     setOrderedIds(prev => prev.filter(id => id !== paneId));
   }, []);
@@ -641,7 +615,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     // eslint-disable-next-line react-hooks/refs -- effectivePinnedIds is the contents-equality-cached value (transitively ref-derived); returning it as derived state is the point — its stable reference keeps the parent's downstream memos from churning
     derived: { validatedOrderedIds, effectivePinnedIds, activePaneId },
     refs: { pinnedIdsRef },
-    ops: { reorder, pin, ensureBrowserPane, openSessionViewerPane, removeLocalPane, removeLocalPanes },
+    ops: { reorder, pin, ensureBrowserPane, removeLocalPane, removeLocalPanes },
   };
 }
 

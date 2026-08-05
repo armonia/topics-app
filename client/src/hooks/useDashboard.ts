@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint, type AgentStat } from '../lib/api';
+import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint } from '../lib/api';
 import type { WSMessage } from '../types';
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -7,7 +7,6 @@ const REFRESH_INTERVAL_MS = 60_000;
 export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
-  const [agentStats, setAgentStats] = useState<AgentStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState('throughput');
@@ -17,15 +16,13 @@ export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => 
 
   const fetchAll = useCallback(async () => {
     try {
-      const [kpiData, tsData, agentData] = await Promise.all([
+      const [kpiData, tsData] = await Promise.all([
         dashboardApi.getKPIs(),
         dashboardApi.getTimeSeries(selectedMetric, range),
-        dashboardApi.getAgentStats(),
       ]);
       if (!mountedRef.current) return;
       setKpis(kpiData);
       setTimeSeries(tsData);
-      setAgentStats(agentData);
       setError(null);
     } catch (err: unknown) {
       if (!mountedRef.current) return;
@@ -66,7 +63,6 @@ export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => 
   return {
     kpis,
     timeSeries,
-    agentStats,
     loading,
     error,
     selectedMetric,

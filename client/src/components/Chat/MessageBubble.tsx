@@ -82,7 +82,6 @@ interface MessageBubbleProps {
    *  handled locally (the button arms, then fires). */
   onDeleteMessage?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
-  onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   /** True only for the last row in the list. The live turn-activity indicator
@@ -111,7 +110,6 @@ export const MessageBubble = memo(function MessageBubble({
   onRegenerate,
   onDeleteMessage,
   onSwitchBranch,
-  onOpenSessionViewer,
   onMessage,
   onRetry,
   isLast,
@@ -302,7 +300,6 @@ export const MessageBubble = memo(function MessageBubble({
                 costCents={msg.costCents}
                 onPlanApprove={onPlanApprove}
                 onPlanReject={onPlanReject}
-                onOpenSessionViewer={onOpenSessionViewer}
                 sessionKey={topic.sessionKey}
                 onMessage={onMessage}
               />

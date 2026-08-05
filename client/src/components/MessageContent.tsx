@@ -22,7 +22,6 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
 import { isPlanResponse } from './Chat/planDetection';
-import { AgentSpawnCard } from './Chat/AgentSpawnCard';
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -990,7 +989,6 @@ interface MessageContentProps {
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
   // Session viewer
-  onOpenSessionViewer?: (sessionKey: string) => void;
   /**
    * The session key this message belongs to. Threaded down to
    * `<ToolCallRow>` so the inline `ToolInputForm` (rendered when a tool
@@ -999,7 +997,7 @@ interface MessageContentProps {
    * downgrades to a read-only "reload to answer" hint.
    */
   sessionKey?: string;
-  // WebSocket message subscription (for AgentSpawnCard real-time updates)
+  // WebSocket message subscription
   onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
@@ -1010,7 +1008,7 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model, onPlanApprove, onPlanReject, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1117,12 +1115,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         {cleanText && renderUserText(cleanText)}
       </div>
     );
-  }
-
-  // Agent spawn card — detect marker format {{AGENT_SPAWN:sessionKey|label}}
-  const spawnMatch = content.match(/^\{\{AGENT_SPAWN:(.+?)\|(.+)\}\}$/);
-  if (spawnMatch) {
-    return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} onMessage={onMessage} />;
   }
 
   // Assistant message — render either the chronological blocks timeline

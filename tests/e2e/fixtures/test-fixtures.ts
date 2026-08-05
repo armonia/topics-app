@@ -3,7 +3,6 @@ import { test as chatTest } from "./chat.fixture";
 import { test as sidebarTest } from "./sidebar.fixture";
 import { test as terminalTest } from "./terminal.fixture";
 import { test as dashboardTest } from "./dashboard.fixture";
-import { test as agentTest } from "./agent.fixture";
 import { test as fileExplorerTest } from "./file-explorer.fixture";
 import { test as contextTest } from "./context.fixture";
 import { test as settingsTest } from "./settings.fixture";
@@ -15,7 +14,6 @@ export const test = mergeTests(
   sidebarTest,
   terminalTest,
   dashboardTest,
-  agentTest,
   fileExplorerTest,
   contextTest,
   settingsTest,

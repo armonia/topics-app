@@ -19,9 +19,12 @@ import type { AppContext, RouteHandler } from "../types";
  *   • `tasks.dispatch_state` / `dispatch_error` — il segnale di errore che
  *     `agent_sessions` avrebbe dovuto portare.
  *
- * Quello che NON ha una fonte resta dichiarato tale: `agentUtilization` torna
- * `null`, non 0, e la UI disegna "—". Inventare un valore plausibile al posto di
- * un dato mancante e' esattamente il guasto che questo commento chiude.
+ * Quello che NON ha una fonte non si disegna affatto: `agentUtilization` (che
+ * tornava sempre `null`) e la classifica per agente sono uscite insieme al
+ * concetto di agente con un nome — un agente e' il provider che hai scelto, e
+ * il lavoro si conta per TASK. Inventare un valore plausibile al posto di un
+ * dato mancante e' il guasto che questo commento chiude; disegnare una scheda
+ * che non puo' che dire "—" e' lo stesso guasto in forma piu' educata.
  */
 export function createDashboardRouter(ctx: AppContext): RouteHandler {
   const { db, json, errorResponse } = ctx;
@@ -95,15 +98,6 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
       WHERE timestamp >= date('now', '-7 days')
         AND cost_cents > 0 AND cache_read_tokens IS NULL
     `),
-    activeHeartbeatsLastHour: db.prepare(`
-      SELECT COUNT(*) as count FROM heartbeats
-      WHERE status = 'active'
-        AND timestamp >= strftime('%s', datetime('now', '-1 hour')) * 1000
-    `),
-    totalHeartbeatsLastHour: db.prepare(`
-      SELECT COUNT(*) as count FROM heartbeats
-      WHERE timestamp >= strftime('%s', datetime('now', '-1 hour')) * 1000
-    `),
     approvalTurnaround: db.prepare(`
       SELECT AVG((julianday(reviewed_at) - julianday(created_at)) * 24) as avg_hours
       FROM approvals
@@ -170,47 +164,6 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
       GROUP BY date(updated_at)
       ORDER BY date(updated_at)
     `),
-
-    // ── Agent stats ────────────────────────────────────────────────────
-
-    // La classifica degli agenti veniva da `agent_sessions`, che nessuno
-    // scrive: ogni agente compariva con tutti zeri. La fonte vera e' `tasks` —
-    // `assigned_agent_id` (scritto alla presa in carico, `services/tasks.ts`),
-    // `agent_tokens`/`agent_cache_read_tokens` e i tempi.
-    //
-    // LIMITE DICHIARATO: `assigned_agent_id` viene AZZERATO quando il task
-    // esce dalla presa in carico (rollback e consegna), quindi sui task chiusi
-    // l'attribuzione all'agente non resta. Finche' e' cosi', la classifica
-    // mostra solo il lavoro IN CORSO. Non lo si aggira sommando altrove: la
-    // colonna che manca e' "chi ha consegnato", ed e' un'altra modifica.
-    agentStats: db.prepare(`
-      SELECT
-        ap.id as agent_id,
-        ap.name as agent_name,
-        ap.avatar_emoji,
-        COALESCE(t.done_cnt, 0) as tasks_completed,
-        COALESCE(t.tokens, 0) as total_tokens,
-        COALESCE(t.avg_cycle, 0) as avg_cycle_time_hours,
-        CASE WHEN COALESCE(t.dispatched, 0) = 0 THEN 0
-             ELSE CAST(COALESCE(t.failed, 0) AS REAL) / t.dispatched
-        END as error_rate,
-        COALESCE(t.cnt, 0) as sessions_count
-      FROM agent_profiles ap
-      LEFT JOIN (
-        SELECT assigned_agent_id as agent_id,
-               COUNT(*) as cnt,
-               SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_cnt,
-               SUM(agent_tokens + agent_cache_read_tokens) as tokens,
-               AVG(CASE WHEN status = 'done' AND completed_at IS NOT NULL
-                        THEN (julianday(completed_at) - julianday(created_at)) * 24 END) as avg_cycle,
-               SUM(CASE WHEN dispatch_state IS NOT NULL THEN 1 ELSE 0 END) as dispatched,
-               SUM(CASE WHEN dispatch_state = 'failed' OR dispatch_error IS NOT NULL THEN 1 ELSE 0 END) as failed
-        FROM tasks
-        WHERE assigned_agent_id IS NOT NULL
-        GROUP BY assigned_agent_id
-      ) t ON t.agent_id = ap.id
-      ORDER BY tasks_completed DESC, sessions_count DESC
-    `),
   };
 
   // ── Helpers ──────────────────────────────────────────────────────────
@@ -227,7 +180,7 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
   // ── Route handler ────────────────────────────────────────────────────
 
   return async function dashboardRouter(
-    req: Request,
+    _req: Request,
     url: URL,
     pathname: string,
     method: string,
@@ -252,15 +205,6 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
         const tokenSpendDayUncertain = (stmts.tokenSpendDayUncertain.get() as any)?.count ?? 0;
         const tokenSpendWeekUncertain = (stmts.tokenSpendWeekUncertain.get() as any)?.count ?? 0;
 
-        // `heartbeats` non ha una fonte: la route POST che la popola
-        // (`/api/agents/sessions/:key/heartbeat`) pretende una riga di
-        // `agent_sessions`, e quella tabella non ha un solo insert in tutto il
-        // server. Senza denominatore il KPI e' NON DISPONIBILE, e va detto:
-        // restituire 0 significa "gli agenti sono fermi", che e' un'altra cosa.
-        const activeHB = (stmts.activeHeartbeatsLastHour.get() as any)?.count ?? 0;
-        const totalHB = (stmts.totalHeartbeatsLastHour.get() as any)?.count ?? 0;
-        const agentUtilization = totalHB > 0 ? activeHB / totalHB : null;
-
         const approvalTurnaroundHours = (stmts.approvalTurnaround.get() as any)?.avg_hours ?? 0;
         const pendingApprovals = (stmts.pendingApprovals.get() as any)?.count ?? 0;
 
@@ -274,8 +218,6 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
           tokenSpendWeek: Math.round(tokenSpendWeek * 100) / 100,
           tokenSpendDayUncertain,
           tokenSpendWeekUncertain,
-          agentUtilization:
-            agentUtilization === null ? null : Math.round(agentUtilization * 10000) / 10000,
           approvalTurnaroundHours: Math.round(approvalTurnaroundHours * 100) / 100,
           pendingApprovals,
         });
@@ -319,28 +261,6 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) {
         console.error('[Dashboard] TimeSeries error:', err);
         return errorResponse(500, err.message || 'Failed to compute time series');
-      }
-    }
-
-    // GET /api/dashboard/agent-stats
-    if (method === 'GET' && pathname === '/api/dashboard/agent-stats') {
-      try {
-        const rows = stmts.agentStats.all() as any[];
-        const agents = rows.map((r: any) => ({
-          agentId: r.agent_id,
-          agentName: r.agent_name,
-          avatarEmoji: r.avatar_emoji || '',
-          tasksCompleted: r.tasks_completed,
-          totalTokens: r.total_tokens,
-          avgCycleTimeHours: Math.round((r.avg_cycle_time_hours ?? 0) * 100) / 100,
-          errorRate: Math.round((r.error_rate ?? 0) * 10000) / 10000,
-          sessionsCount: r.sessions_count,
-        }));
-
-        return json({ agents });
-      } catch (err: any) {
-        console.error('[Dashboard] AgentStats error:', err);
-        return errorResponse(500, err.message || 'Failed to compute agent stats');
       }
     }
 

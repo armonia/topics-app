@@ -35,7 +35,7 @@ test.afterAll(async ({ request }) => {
 // chiave legacy `openPanels`, che però il client NON legge più: i tab di A e B
 // arrivano dal pane-store (li apre createTopic), e quello è UNO solo per tutta
 // la suite seriale — le pane lasciate dai file precedenti restano lì. Reset ad
-// A e B soltanto: né più (una `__agents__` superstite renderebbe ambiguo il
+// A e B soltanto: né più (una pane di utilità superstite renderebbe ambiguo il
 // locator di TAB-BADGE-10/11) né meno (i tab servono).
 test.beforeEach(async ({ request }) => {
   await resetPaneStore(request, [topicA.id, topicB.id]);
@@ -288,59 +288,4 @@ test.describe("Tab Notification Badges", () => {
     await page.locator(`[data-pane-id="${topicB.id}"]`).click();
   }
 
-  test("TAB-BADGE-10: agents pane badges on agent:nudge", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-10" });
-    const ws = await interceptWebSocket(page);
-    await goWithTwoTabsPlusExtra(page, "__agents__", "agents");
-
-    // B is focused; agents pane is inactive → should badge.
-    // useTabNotifications handles agent:nudge; approval:created only drives a browser push.
-    ws.send({ type: "agent:nudge", projectId: "p1", agentId: "a1" });
-
-    const agentsTab = page.locator(`[data-pane-id="__agents__"]`);
-    const badge = agentsTab.locator("span.rounded-full.bg-primary");
-    await expect(badge).toBeVisible({ timeout: 5000 });
-  });
-
-  test("TAB-BADGE-11: agents pane badges on agent:escalation (worker needs help)", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-11" });
-    const ws = await interceptWebSocket(page);
-    await goWithTwoTabsPlusExtra(page, "__agents__", "agents");
-
-    ws.send({
-      type: "agent:escalation",
-      agentId: "ag1",
-      agentName: "Builder",
-      message: "Stuck on migration",
-      taskId: null,
-      projectId: "p1",
-      timestamp: Date.now(),
-    });
-
-    const agentsTab = page.locator(`[data-pane-id="__agents__"]`);
-    const badge = agentsTab.locator("span.rounded-full.bg-primary");
-    await expect(badge).toBeVisible({ timeout: 5000 });
-  });
-
-  test("TAB-BADGE-12: agent:escalation does NOT badge unrelated chat tabs", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-12" });
-    const ws = await interceptWebSocket(page);
-    await goWithTwoTabs(page); // chats only, no agents pane
-
-    ws.send({
-      type: "agent:escalation",
-      agentId: "ag1",
-      agentName: "Builder",
-      message: "Stuck",
-      taskId: null,
-      projectId: "p1",
-      timestamp: Date.now(),
-    });
-
-    // Inactive chat A should NOT badge from an escalation event
-    await page.waitForTimeout(500);
-    const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
-    const badge = tabA.locator("span.rounded-full.bg-primary");
-    await expect(badge).toHaveCount(0);
-  });
 });

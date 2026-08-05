@@ -14,7 +14,6 @@ import type { PaneType } from '../../../types';
 import {
   isBrowserPaneId,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
   addBrowserTombstone,
@@ -37,7 +36,7 @@ import { popOutTopic, popOutTopics } from '../../../lib/popOutTopic';
  *   matches      — pane-id prefix check (isBrowserPaneId, etc.)
  *   sideEffect   — fire-and-forget server DELETE etc.; called with the
  *                  pane id once per close. Returning null means no side
- *                  effect (e.g. session-viewer is purely client-side).
+ *                  effect (e.g. a browser pane is purely client-side).
  *   localManaged — `true` for panes whose lifecycle is owned by the
  *                  local ordering store; close means removeLocalPane +
  *                  onClosePanel + focus restore. `false` for panes that
@@ -107,11 +106,6 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         }
       }
     },
-    localManaged: true,
-  },
-  {
-    matches: isSessionViewerPaneId,
-    sideEffect: null,
     localManaged: true,
   },
   {
@@ -195,7 +189,6 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     //              so the closed tab doesn't reappear on reload), then
     //              fire the DELETE. Refocus the next pane if the closed
     //              one was active.
-    //   session-viewer → same shape as browser minus the server DELETE
     //              (purely client-side, no resource to release).
     //   terminal → store-managed; fire the server DELETE and let
     //              onClosePanel handle the rest. No refocus — the
@@ -233,10 +226,6 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       if (isFirst) onClosePanel(paneId);
     }
   }, [topics, stopSession, onClosePanel]);
-
-  const handleOpenSessionViewer = useCallback((sessionKey: string) => {
-    ordering.ops.openSessionViewerPane(sessionKey);
-  }, [ordering.ops]);
 
   const handleSettings = useCallback((paneId: string) => {
     setSettingsTopicId(paneId);
@@ -308,7 +297,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
   }, [onUnsolo]);
 
   // "Close Others" — same close path as handleClosePane, applied per pane.
-  // Local panes (browser/session-viewer) are batch-removed from the ordering
+  // Local panes (browser) are batch-removed from the ordering
   // store first so the tab bar collapses instantly, but EVERY pane still goes
   // through onClosePanel: that purges App.openPanels + the persisted store
   // (otherwise local panes resurrect on reload) and defers each server-side
@@ -338,7 +327,6 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       handleAddPane,
       handleClosePane,
       handleStopStreaming,
-      handleOpenSessionViewer,
       handleSettings,
       handlePopOut,
       handlePopOutGroup,

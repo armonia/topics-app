@@ -25,34 +25,6 @@ import { validateOutbound } from "../../shared/ws-outbound";
 
 /** Forme copiate dai punti di emissione reali. */
 const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
-  // ── famiglia agent (server/routes/agent-profiles.ts) ──────────────────────
-  {
-    where: "agent-profiles.ts:156 — creazione profilo",
-    payload: {
-      type: "agent:profile:created",
-      profile: { id: "a1", name: "master", role: "orchestrator", status: "idle", capabilities: [] },
-    },
-  },
-  {
-    where: "agent-profiles.ts:208 — aggiornamento profilo",
-    payload: {
-      type: "agent:profile:updated",
-      profile: { id: "a1", name: "master", role: "orchestrator", status: "busy", capabilities: ["ts"] },
-    },
-  },
-  {
-    where: "agent-profiles.ts:217 — cancellazione profilo (mandava profileId, lo schema chiedeva agentId)",
-    payload: { type: "agent:profile:deleted", profileId: "a1" },
-  },
-  {
-    where: "agent-profiles.ts:260 — assegnazione",
-    payload: { type: "agent:assigned", assignment: { agentId: "a1", topicId: "t1" } },
-  },
-  {
-    where: "agent-profiles.ts:276 — rimozione assegnazione",
-    payload: { type: "agent:unassigned", agentId: "a1", topicId: "t1" },
-  },
-
   // ── stream lento / ripreso (server/routes/chat.ts) ────────────────────────
   {
     where: "chat.ts — timeout morbido",
@@ -93,7 +65,7 @@ describe("i payload reali passano il loro schema", () => {
   test("la guardia morde: un campo obbligatorio mancante fallisce", () => {
     // Senza questo, un registro che facesse passthrough su tutto renderebbe i
     // test sopra verdi senza verificare niente.
-    const r = validateOutbound({ type: "agent:profile:deleted" });
+    const r = validateOutbound({ type: "board:global-cap" });
     expect(r.ok).toBe(false);
   });
 });

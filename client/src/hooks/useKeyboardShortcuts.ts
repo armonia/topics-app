@@ -44,7 +44,7 @@ export interface UseKeyboardShortcutsArgs {
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
   toggleSidebar: () => void;
-  handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
+  handleOpenAsPage: (type: 'dashboard' | 'cron' | 'board') => void;
   setFocusedPanelId: (id: string) => void;
   /** Reopen a previously-closed tab (stable identity). */
   handleReopenClosedTab: (record: ClosedTabRecord) => void;

@@ -250,7 +250,7 @@ test.describe("Layout & Navigation", () => {
     let clicked = false;
     for (let i = 0; i < menuCount; i++) {
       const text = ((await menuButtons.nth(i).textContent()) || "").trim();
-      if (/Terminal|Shell|Files|Git|Browser|Board|Agents|Dashboard|Activity|Journal/i.test(text) &&
+      if (/Terminal|Shell|Files|Git|Browser|Board|Dashboard/i.test(text) &&
           !/Chat/i.test(text)) {
         await menuButtons.nth(i).click();
         clicked = true;

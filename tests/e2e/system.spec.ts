@@ -82,7 +82,6 @@ test.describe("System & Infrastructure", () => {
         { url: "/api/unread", method: "GET" },
         { url: "/api/scripts", method: "GET" },
         { url: "/api/browser/status", method: "GET" },
-        { url: "/api/agents/sessions", method: "GET" },
         { url: "/api/system/status", method: "GET" },
       ];
       const results: Record<string, { ok: boolean; status: number }> = {};
@@ -113,7 +112,6 @@ test.describe("System & Infrastructure", () => {
     expect(results["/api/unread"].ok).toBeTruthy();
     expect(results["/api/scripts"].ok).toBeTruthy();
     expect(results["/api/browser/status"].ok).toBeTruthy();
-    expect(results["/api/agents/sessions"].ok).toBeTruthy();
     expect(results["/api/system/status"].ok).toBeTruthy();
     expect(results["/api/search"].ok).toBeTruthy();
     expect(results["/api/chat-invalid"].status).toBe(400);

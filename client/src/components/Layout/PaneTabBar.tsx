@@ -17,7 +17,7 @@ import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } fro
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile, haptic } from '../../hooks/useMobile';
-import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
+import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -1117,7 +1117,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
-            {pane.type === 'agents' && <AgentStreamingSpinner />}
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,
                 independent signal — not attention (NotificationBadge) and not
                 loading (spinner) — so it stays muted. Keyed by topicId (chat)

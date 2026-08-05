@@ -50,7 +50,6 @@ import {
   isProjectPaneId,
   isTaskWorkspacePath,
   isTerminalPaneId,
-  isSessionViewerPaneId,
   isUUIDLike,
   reopenClosedTab,
   selectProjectBrowserReopen,
@@ -306,7 +305,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
-    handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron' | 'board') => void;
+    handleOpenAsPage: (type: 'dashboard' | 'cron' | 'board') => void;
     handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;
@@ -964,7 +963,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
   // ---- handleOpenAsPage ----
-  type UtilityPageType = 'activity' | 'agents' | 'dashboard' | 'cron' | 'board';
+  type UtilityPageType = 'dashboard' | 'cron' | 'board';
   const handleOpenAsPage = useCallback((type: UtilityPageType) => {
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
@@ -972,9 +971,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // ids and silently drops the new utility id (same trap that
     // broke cmd+K project open).
     ensurePaneRegistered(
-      // Store the proper display label (e.g. "Activity"/"Cron"), NOT the raw
+      // Store the proper display label (e.g. "Dashboard"/"Cron"), NOT the raw
       // lowercase type string — the tab bar reads pane.title directly in some
-      // surfaces (drag ghost, sidebar), so a stored "activity" would leak the
+      // surfaces (drag ghost, sidebar), so a stored "dashboard" would leak the
       // untitled-case label there even though the standalone bar recomputes it.
       { id, type: type as PaneType, title: getPaneConfig(type as PaneType).label },
       { groupId: 'group:default' },
@@ -1001,7 +1000,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // prop (e.g. the standalone tab bar's "+" → Board generale). Event-based
   // like `topics:open-project-picker`, so every host triggers it identically.
   useEffect(() => {
-    const VALID = new Set<UtilityPageType>(['activity', 'agents', 'dashboard', 'cron', 'board']);
+    const VALID = new Set<UtilityPageType>(['dashboard', 'cron', 'board']);
     const onOpenUtility = (e: Event) => {
       const type = (e as CustomEvent<{ type?: string }>).detail?.type as UtilityPageType | undefined;
       if (type && VALID.has(type)) handleOpenAsPage(type);
@@ -1180,17 +1179,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // clear
       if (msg.type === 'clear') {
         chatHandlersRef.current.clearSession(msg.sessionKey);
-      }
-      // agents:spawned
-      if (msg.type === 'agents:spawned') {
-        const parentTopic = topicsRef.current[msg.topicId];
-        if (parentTopic) {
-          chatHandlersRef.current.addMessageFromWS(parentTopic.sessionKey, {
-            role: 'assistant',
-            content: `{{AGENT_SPAWN:${msg.sessionKey}|${msg.label || 'Claude Code'}}}`,
-            timestamp: new Date().toISOString(),
-          });
-        }
       }
     });
   }, [onWSMessage, topicsRef, chatHandlersRef, taskForTopicRef]);
@@ -2320,7 +2308,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // render "open in another window" markers/glyphs and route a sidebar click to
   // the right OS window. WS-ephemeral (server never persists it). The chat set
   // is openPanels minus the non-topic pane kinds (project/terminal/browser/
-  // draft/session-viewer ids are not topics). Re-announced on every set/focus
+  // draft ids are not topics). Re-announced on every set/focus
   // change and on WS reconnect (the connection carries no presence until we do).
   const presenceTopicIds = useMemo(
     () =>
@@ -2329,8 +2317,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           !isProjectPaneId(id) &&
           !isTerminalPaneId(id) &&
           !isBrowserPaneId(id) &&
-          !isDraftPaneId(id) &&
-          !isSessionViewerPaneId(id),
+          !isDraftPaneId(id),
       ),
     [openPanels],
   );

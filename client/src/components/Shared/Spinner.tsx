@@ -43,7 +43,7 @@ export type SpinnerTone = keyof typeof TONES;
 
 export function Spinner({ size = 'sm', tone = 'default', className = '' }: { size?: SpinnerSize; tone?: SpinnerTone; className?: string }) {
   // Etichetta in inglese come il resto delle superfici di attesa («Loading...»
-  // in App.tsx, JournalPanel, AgentAssignPanel, GitChanges): questo anello sta
+  // in App.tsx, GitChanges): questo anello sta
   // accanto a quelle scritte in dieci file, e uno screen reader che legge
   // "Caricamento" sopra un "Loading..." visibile racconta due lingue nella
   // stessa schermata.

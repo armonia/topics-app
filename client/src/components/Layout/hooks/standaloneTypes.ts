@@ -64,9 +64,7 @@ export interface UsePaneOrderingReturn {
      *  exists but a browser pane DOES exist, the existing pane is
      *  re-identified to the new contextId. */
     ensureBrowserPane: (contextId?: string) => string;
-    /** Append a session-viewer pane and focus it. */
-    openSessionViewerPane: (sessionKey: string) => string;
-    /** Remove a locally-managed pane (browser or session-viewer) from
+    /** Remove a locally-managed pane (a browser) from
      *  orderedIds. Does NOT call onClosePanel — caller decides. */
     removeLocalPane: (paneId: string) => void;
     /** Batch-remove locally-managed panes. */
@@ -88,10 +86,8 @@ export interface UseActivePaneStateReturn {
   activePaneId: string | null;
   activeIsBrowser: boolean;
   activeIsTerminal: boolean;
-  activeIsSessionViewer: boolean;
   activeIsProject: boolean;
   activeIsUtility: boolean;
-  activeSessionKey: string | null;
   activeProjectPath: string | null;
   activeUtilityType: string | null;
   draftTopics: Record<string, Topic>;
@@ -136,7 +132,6 @@ export interface UsePaneLifecycleHandlers {
   handleAddPane: (type: PaneType, subType?: string) => Promise<void>;
   handleClosePane: (paneId: string) => void;
   handleStopStreaming: (paneId: string) => void;
-  handleOpenSessionViewer: (sessionKey: string) => void;
   handleSettings: (paneId: string) => void;
   handlePopOut: (paneId: string) => void;
   handlePopOutGroup: (topicIds: string[]) => void;
