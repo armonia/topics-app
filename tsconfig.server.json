@@ -27,10 +27,25 @@
     // types, and the previous config kept it on alone for exactly that reason.
     "strict": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // `allowJs` senza `checkJs`: tsc LEGGE i .mjs per risolverne i tipi, ma non
+    // li controlla. Serve a `scripts/changelog-lib.test.ts`, che importa
+    // `./changelog-lib.mjs` — senza questo l'import è un TS7016 («nessun file
+    // di dichiarazione») e sarebbe l'unico ostacolo a includere `scripts`.
+    // Attivare anche `checkJs` è un'altra decisione: metterebbe sotto esame
+    // ai-bridge.mjs e pty-bridge.mjs, che sono demoni, non moduli.
+    "allowJs": true,
+    "checkJs": false
   },
   // The tests are typechecked too. Excluding them left 108 files / ~21k lines of
   // server+shared tests outside every gate — and they cost exactly one error to
   // bring in (a `binPath` the provider config never had).
-  "include": ["server", "server.ts", "shared"]
+  //
+  // `scripts` e `cli` sono entrati il 05/08/2026, e sono lo stesso aneddoto una
+  // seconda volta: erano 18 file TypeScript — inclusi i check che fanno da
+  // cancello in CI — più il sorgente del binario `topics`, e nessuno di loro era
+  // typecheckato da niente. Un refuso lì dentro si scopriva a runtime, in CI, nel
+  // punto in cui il check avrebbe dovuto proteggere qualcos'altro. Misurato prima
+  // di allargare, come dice il commento sopra: costo zero errori.
+  "include": ["server", "server.ts", "shared", "scripts", "cli"]
 }
