@@ -149,11 +149,16 @@ test.describe("Grid Split System", () => {
       // Open the self-provisioned project to ensure we have tabs
       await openProject(page, /e2e-grid/);
 
+      // Asserzione, non `test.skip()` muto: dopo il reload questo stesso test
+      // pretende `reloadedLabels.length > 0`, quindi trattava "nessuna tab"
+      // come un fallimento dopo e come un motivo per sparire prima. Se la
+      // finestra progetto si apre senza tab, la persistenza non è verificabile
+      // ed è una cosa da guardare.
       const initialLabels = await getVisibleTabLabels(page);
-      if (initialLabels.length === 0) {
-        test.skip();
-        return;
-      }
+      expect(
+        initialLabels.length,
+        "il progetto deve aprirsi con almeno una tab, altrimenti non c'è nessuna persistenza da verificare",
+      ).toBeGreaterThan(0);
 
       await page.reload({ waitUntil: 'load' });
       // Era waitForTimeout(3000): il segnale reale che il reload è servito è la
