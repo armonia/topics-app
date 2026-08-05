@@ -98,6 +98,22 @@ export interface ScrollDecision {
   pin: boolean;
 }
 
+/**
+ * Sgancia — e se era già sganciato NON crea un oggetto nuovo.
+ *
+ * Non è un vezzo: questo stato vive in un `useReducer`, e un oggetto nuovo a
+ * ogni evento è un render nuovo a ogni evento. Gli eventi di scroll arrivano a
+ * raffica (uno per frame mentre il dito trascina), quindi «stessa risposta,
+ * oggetto diverso» significa far rimisurare la lista virtualizzata decine di
+ * volte al secondo — e una lista che rimisura mentre stai leggendo ti sposta la
+ * vista sotto gli occhi. Il riduttore restituisce lo STESSO stato quando non
+ * cambia niente.
+ */
+function detach(state: ScrollAuthorityState): ScrollDecision {
+  if (!state.anchored) return { state, pin: false };
+  return { state: { ...state, anchored: false }, pin: false };
+}
+
 /** Riancora e arma la guardia: la forma condivisa di ogni scroll forzato. */
 function reanchor(now: number, pin: boolean): ScrollDecision {
   return { state: { anchored: true, guardUntil: now + SCROLL_GUARD_MS }, pin };
@@ -134,11 +150,27 @@ export function reduceScroll(
       return reanchor(now, true);
 
     case 'user-scrolled-up':
+      // Dentro la finestra di guardia il calo di `scrollTop` è NOSTRO, non suo.
+      //
+      // «Il pin alza soltanto, quindi un calo è sempre l'utente» era vero per un
+      // `scrollTop = scrollHeight` secco, ma non per come si incolla davvero a
+      // una lista virtualizzata: `scrollToIndex('LAST')` porta la vista in fondo
+      // e poi Virtuoso rimisura le altezze, e quel riassestamento ABBASSA
+      // `scrollTop` di qualche decina di pixel. Preso per l'utente, sganciava il
+      // pin appena arrivato: il bottone «torna in fondo» ti portava giù e la
+      // vista se ne ristaccava da sola un istante dopo. La guardia la arma ogni
+      // scroll forzato — è esattamente la finestra in cui il movimento è il
+      // nostro che si assesta.
+      // …ma SOLO fuori dallo stream. Durante lo stream il pin scrive
+      // `scrollTop = scrollHeight` e basta — alza e non abbassa mai — quindi lì
+      // un calo è davvero l'utente, e farlo aspettare la fine della guardia
+      // vorrebbe dire tenerlo inchiodato al fondo mentre cerca di leggere.
+      if (!event.streaming && now < state.guardUntil) return { state, pin: false };
       // Durante lo stream sganciare deve essere IMMEDIATO: il pin gira a ogni
       // chunk e, se aspettassimo l'atBottomStateChange di Virtuoso, ributterebbe
       // la vista in fondo prima che quello arrivi — l'utente resterebbe
       // inchiodato al fondo.
-      if (event.streaming) return { state: { ...state, anchored: false }, pin: false };
+      if (event.streaming) return detach(state);
       // Fuori dallo stream nessuno sta combattendo con lui, quindi un colpo di
       // rotellina da pochi pixel non deve far comparire il bottone: sgancia
       // solo se la vista è DAVVERO lontana dal fondo. Con la distanza si
@@ -146,12 +178,13 @@ export function reduceScroll(
       // prima la geometria di Virtuoso, che però tace finché non supera la sua
       // soglia — ed è lì che l'aggancio sembrava incollato.
       if (event.distanceFromBottom != null && event.distanceFromBottom > AT_BOTTOM_TOLERANCE_PX) {
-        return { state: { ...state, anchored: false }, pin: false };
+        return detach(state);
       }
       return { state, pin: false };
 
     case 'reached-bottom':
       // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
+      if (state.anchored) return { state, pin: false };
       return { state: { ...state, anchored: true }, pin: false };
 
     case 'left-bottom':
@@ -167,11 +200,11 @@ export function reduceScroll(
       if (now < state.guardUntil && event.distanceFromBottom < AT_BOTTOM_TOLERANCE_PX) {
         return { state, pin: false };
       }
-      return { state: { ...state, anchored: false }, pin: false };
+      return detach(state);
 
     case 'offset-restored':
       if (event.distanceFromBottom <= RESTORE_DETACH_PX) return { state, pin: false };
-      return { state: { ...state, anchored: false }, pin: false };
+      return detach(state);
 
     default: {
       // Esaustività a compile-time: un evento nuovo senza transizione non compila.

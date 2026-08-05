@@ -293,6 +293,10 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
     expect([...sig.optionalKeys].sort()).toEqual([
       'detached',
       'focusedTopicId',
+      // `spaceId`: la finestra dichiara anche a quale spazio appartiene.
+      // Opzionale come gli altri campi di presenza — un client più vecchio che
+      // non lo manda resta valido.
+      'spaceId',
       'tabs',
       'topicIds',
       'windowId',
