@@ -131,6 +131,30 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
              fetchpriority="high" decoding="async"
              alt="The Topics window: three projects open at once, each with its own Claude Code session." />
       </div>
+
+      {/* THE FLOAT. The headline makes a claim — four agents, one repo, nobody
+           collides — and the screenshot behind it cannot prove it: at hero size
+           you cannot read a branch name off a photograph. So the claim is spelled
+           out in front, in the product's own card, at 1:1, in live DOM.
+
+           It is a sibling of the stage rather than a child because the stage is
+           masked to fade into the fold, and a card that dissolves at the bottom
+           reads as a rendering fault. Absolutely positioned, so it is outside
+           the flow and cannot shift the page. */}
+      <aside class="hero__float">
+        <div class="hf__bar">
+          <span class="hf__dot"></span>
+          <span class="hf__repo">acme-web</span>
+          <span class="hf__meta">4 worktrees · 1 checkout</span>
+        </div>
+        <ul class="hf__rows">
+          <li><span class="pip pip--work"></span><b>Opus 5</b><code>topics/offline-sync</code><span class="hf__st">editing</span></li>
+          <li><span class="pip pip--work"></span><b>Codex</b><code>topics/webhook-signature</code><span class="hf__st">editing</span></li>
+          <li><span class="pip pip--rev"></span><b>Gemini</b><code>topics/context-sources</code><span class="hf__st">review</span></li>
+          <li><span class="pip pip--go"></span><b>Opus 5</b><code>topics/release-signing</code><span class="hf__st">landed</span></li>
+        </ul>
+        <p class="hf__foot"><svg class="ic"><use href="#ic-check"/></svg>No shared working tree. No stashing between them.</p>
+      </aside>
     </section>
 
     {/* ── THE MODEL ─────────────────────────────────────────────────────── */}
@@ -222,10 +246,17 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--worktrees">
           <span class="scene__tag">acme-web · main</span>
-          <div class="scene__ctx">
-            <div class="wt"><span class="wt__branch">wt/tsk-207-offline-sync</span><span class="wt__file">server/sync/queue.ts</span><span class="wt__stat"><i class="add">+31</i> <i class="del">−4</i></span></div>
-            <div class="wt"><span class="wt__branch">wt/tsk-212-context-sources</span><span class="wt__file">client/src/state/context.ts</span><span class="wt__stat"><i class="add">+12</i> <i class="del">−9</i></span></div>
-            <div class="wt"><span class="wt__branch">wt/tsk-198-webhook-signature</span><span class="wt__file">server/routes/webhooks.ts</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
+          {/* Four rows, because the act above it says four agents and the hero
+               float says four worktrees. A picture that shows three while the
+               sentence beside it says four is the kind of small untruth a
+               reader notices without being able to say why. */}
+          <div class="scene__ctx" aria-hidden="true">
+            <p class="panel__h">worktrees<span class="panel__c">4 · 1 checkout</span></p>
+            <div class="wt"><span class="wt__branch">topics/offline-sync</span><span class="wt__file">server/sync/queue.ts</span><span class="wt__stat"><i class="add">+31</i> <i class="del">−4</i></span></div>
+            <div class="wt"><span class="wt__branch">topics/context-sources</span><span class="wt__file">client/src/state/context.ts</span><span class="wt__stat"><i class="add">+12</i> <i class="del">−9</i></span></div>
+            <div class="wt"><span class="wt__branch">topics/webhook-signature</span><span class="wt__file">server/routes/webhooks.ts</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
+            <div class="wt"><span class="wt__branch">topics/release-signing</span><span class="wt__file">scripts/release.sh</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
+            <p class="panel__f">main is clean · nothing staged</p>
           </div>
           <div class="scene__fg card--wt">
             <div class="fg__bar">
@@ -235,7 +266,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
             </div>
             <div class="fg__body">
               <p class="fg__title">Add the signing step to the release script</p>
-              <p class="fg__path">wt/tsk-204-release-signing <span class="fg__mute">· isolated checkout</span></p>
+              <p class="fg__path">topics/release-signing <span class="fg__mute">· isolated checkout</span></p>
               <p class="fg__term"><b>Bash</b>(bun run build &amp;&amp; npm run release:sign) <span class="ok"><svg class="ic ic--xs"><use href="#ic-check"/></svg> 2.3s</span></p>
             </div>
           </div>
@@ -264,43 +295,46 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--board">
           <span class="scene__tag">board · acme-web</span>
-          <div class="scene__ctx">
+          <div class="scene__ctx" aria-hidden="true">
             <div class="kcols">
               <div>
                 <p class="kcol__h"><span class="pip"></span>To do <span class="kcol__c">7</span></p>
-                <div class="kcard"><span class="kcard__id">TSK-118</span><span class="kcard__t">Rate limit on the public API</span></div>
-                <div class="kcard"><span class="kcard__id">TSK-121</span><span class="kcard__t">Move the cron jobs to UTC</span></div>
-                <div class="kcard"><span class="kcard__id">TSK-124</span><span class="kcard__t">Sign the Windows release</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Rate limit on the public API</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Move the cron jobs to UTC</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Sign the Windows release</span></div>
               </div>
               <div>
                 <p class="kcol__h"><span class="pip pip--work"></span>In progress <span class="kcol__c">3</span></p>
-                <div class="kcard"><span class="kcard__id">TSK-207</span><span class="kcard__t">Offline sync without races</span></div>
-                <div class="kcard"><span class="kcard__id">TSK-212</span><span class="kcard__t">Context inspector: sources off</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri kcard__pri--hi"></i>Offline sync without races</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-api</span><span class="kcard__t"><i class="kcard__pri"></i>Context inspector: sources off</span></div>
               </div>
               <div>
                 <p class="kcol__h"><span class="pip pip--rev"></span>Review <span class="kcol__c">2</span></p>
-                <div class="kcard"><span class="kcard__id">TSK-198</span><span class="kcard__t">Webhook signature header</span></div>
-                <div class="kcard"><span class="kcard__id">TSK-190</span><span class="kcard__t">Reattach without losing scrollback</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Webhook signature header</span></div>
+                <div class="kcard"><span class="kcard__meta"><span class="kcard__fav"></span>acme-web</span><span class="kcard__t"><i class="kcard__pri"></i>Reattach without losing scrollback</span></div>
               </div>
             </div>
           </div>
           <div class="scene__fg card--review">
             <div class="fg__bar">
               <span class="fg__av" aria-hidden="true"></span>
-              <span class="fg__who">TSK-204 <span class="fg__mute">· moved itself to review</span></span>
+              <span class="fg__who">Opus 5 <span class="fg__mute">· moved it to review</span></span>
               <span class="fg__st"><span class="pip pip--rev"></span>waiting on you</span>
             </div>
             <div class="fg__body">
               <p class="fg__title">Add the signing step to the release script</p>
               <div class="chips">
-                <span class="chip chip--tree">wt/tsk-204-release-signing</span>
+                <span class="chip chip--tree">topics/release-signing</span>
                 <span class="chip"><i class="add">+48</i> <i class="del">−0</i></span>
                 <span class="chip">12 tests green</span>
               </div>
+              {/* The product's three review actions, in the product's order.
+                   They are three on purpose: approving accepts the task and
+                   nothing else, and the merge is its own deliberate click. */}
               <div class="fg__acts">
-                <span class="mini mini--go">Approve</span>
-                <span class="mini">Land on main</span>
-                <span class="mini">Reject with notes</span>
+                <span class="mini mini--go"><svg class="ic"><use href="#ic-check"/></svg>Approve</span>
+                <span class="mini mini--land"><svg class="ic"><use href="#ic-git"/></svg>Land on main</span>
+                <span class="mini">Reject</span>
               </div>
             </div>
           </div>
@@ -328,7 +362,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--window">
           <span class="scene__tag">group · Progetti</span>
-          <div class="scene__ctx">
+          <div class="scene__ctx" aria-hidden="true">
             <div class="win">
               <div class="win__side">
                 <p class="win__grp">Principale</p>
@@ -347,9 +381,9 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
           </div>
           <div class="scene__fg card--tabs">
             <div class="tabs">
-              <span class="tab is-active"><span class="pip pip--work"></span>Claude Code<span class="tab__x">×</span></span>
-              <span class="tab"><span class="pip pip--rev"></span>Claude Code<span class="tab__x">×</span></span>
-              <span class="tab"><span class="pip pip--go"></span>Preview<span class="tab__x">×</span></span>
+              <span class="tab is-active"><span class="pip pip--work"></span>Claude Code<span class="tab__x" aria-hidden="true">×</span></span>
+              <span class="tab"><span class="pip pip--rev"></span>Claude Code<span class="tab__x" aria-hidden="true">×</span></span>
+              <span class="tab"><span class="pip pip--go"></span>Preview<span class="tab__x" aria-hidden="true">×</span></span>
               <span class="tab tab--add">+</span>
             </div>
             <div class="fg__body">
@@ -387,13 +421,15 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--kpi">
           <span class="scene__tag">dashboard · last 7 days</span>
-          <div class="scene__ctx">
+          <div class="scene__ctx" aria-hidden="true">
+            <p class="panel__h">tasks shipped<span class="panel__c">14 days</span></p>
             <div class="spark" role="img" aria-label="Tasks shipped per day over the last fourteen days, rising from four to eleven.">
               <i style="--h:38%"></i><i style="--h:52%"></i><i style="--h:44%"></i><i style="--h:61%"></i>
               <i style="--h:57%"></i><i style="--h:73%"></i><i style="--h:66%"></i><i style="--h:80%"></i>
               <i style="--h:71%"></i><i style="--h:88%"></i><i style="--h:79%"></i><i style="--h:94%"></i>
               <i style="--h:86%"></i><i class="is-now" style="--h:100%"></i>
             </div>
+            <p class="panel__f">22 Jul<span class="panel__c">today</span></p>
           </div>
           <div class="scene__fg card--kpi">
             <div class="kpis">
@@ -427,10 +463,12 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
       <figure class="act__stage">
         <div class="scene scene--own">
           <span class="scene__tag">provider · per topic</span>
-          <div class="scene__ctx">
-            <p class="path">~/.topics/topics.db</p>
-            <p class="path">~/.topics/media/</p>
-            <p class="path">~/Projects/acme-web/.git</p>
+          <div class="scene__ctx" aria-hidden="true">
+            <p class="panel__h">on this machine<span class="panel__c">everything</span></p>
+            <p class="path">~/.topics/topics.db<span class="path__s">18.4 MB</span></p>
+            <p class="path">~/.topics/media/<span class="path__s">241 MB</span></p>
+            <p class="path">~/.topics/worktrees/<span class="path__s">4 checkouts</span></p>
+            <p class="path">~/Projects/acme-web/.git<span class="path__s">your repo</span></p>
             <p class="path path--none">no request leaves this machine except the one you asked for</p>
           </div>
           <div class="scene__fg card--pick">
