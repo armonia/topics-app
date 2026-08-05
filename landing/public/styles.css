@@ -510,6 +510,15 @@ body.demo-expanded .expand{opacity:1}
 .plan__per{color:var(--ink-faint);font-size:var(--t-sm)}
 .plan__for{color:var(--ink-mute);font-size:15px;line-height:1.5;text-wrap:pretty}
 .plan__list{list-style:none;display:grid;gap:10px;margin-bottom:22px;flex:1}
+/* Two grid items per row, and that is a requirement rather than a convention.
+   The row is `auto 1fr`, so a THIRD item — which is what the bare text after a
+   `</b>` becomes, since CSS wraps a loose text node in an anonymous grid item —
+   lands at row 2 column 1 and stretches that `auto` track to its own width.
+   Measured on the live home page: the icon column was 107px wide instead of 14,
+   the `<b>` was squeezed to the right of it, and every such row was two lines
+   tall. It went unseen there because the plan cards are 404px; at four columns
+   the same rows collapse into nonsense. The markup wraps the whole sentence in
+   one span, so `<b>` and the text it introduces cannot be separated again. */
 .plan__list li{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;color:var(--ink-mute);font-size:var(--t-sm);line-height:1.5}
 .plan__list .ic{color:var(--good);margin-top:.3em}
 .plan__list b{color:var(--ink);font-weight:600}

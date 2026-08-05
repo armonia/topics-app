@@ -256,6 +256,7 @@ body.v3 > .footer { position: relative; z-index: 1; }
    close enough to belong to it and far enough not to touch. */
 .capsule__brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16.5px; letter-spacing: -.022em; color: var(--ink); }
 .capsule__brand .mark { width: 24px; height: 24px; color: var(--brand); flex: none; }
+.brand__mark--vector { width: 26px; height: 26px; color: var(--brand); border-radius: 0; }
 
 /* THE BRAND DEVICE, second attempt. The first put the mark's bracket alone in
    front of every eyebrow, and at 13px a bracket is not a bracket — it is the
