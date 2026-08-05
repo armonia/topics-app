@@ -8,6 +8,16 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist']),
   {
+    // Un `eslint-disable` che non disabilita niente è un ERRORE, non un avviso
+    // (il default di ESLint 9 è `warn`, e un avviso in mezzo ad altri passa).
+    // Il caso concreto: `-next-line` silenzia LA RIGA SEGUENTE, quindi bastava
+    // scrivere la motivazione sotto la direttiva invece che sopra perché il suo
+    // bersaglio diventasse il commento e il codice tornasse scoperto. Il file
+    // continua a sembrare protetto — è la forma peggiore di regressione. Con
+    // `error` la direttiva orfana ferma la build nel momento in cui nasce.
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,

@@ -35,11 +35,12 @@ function devValidateOutbound(message: object): void {
   if (process.env.NODE_ENV === 'production') return;
   const result = validateOutbound(message);
   if (!result.ok) {
-    // eslint-disable-next-line no-console -- la console È la funzione: questo
-    // ramo esiste solo fuori produzione (guardia sopra) e il suo unico scopo è
-    // far vedere allo sviluppatore il broadcast malformato mentre lo scrive.
-    // Passarlo al logger strutturato lo seppellirebbe dove nessuno lo guarda
-    // durante lo sviluppo, che è l'unico momento in cui serve.
+    // La console È la funzione: questo ramo esiste solo fuori produzione
+    // (guardia sopra) e il suo unico scopo è far vedere allo sviluppatore il
+    // broadcast malformato mentre lo scrive. Passarlo al logger strutturato lo
+    // seppellirebbe dove nessuno lo guarda durante lo sviluppo, che è l'unico
+    // momento in cui serve.
+    // eslint-disable-next-line no-console
     console.warn(`[WS:outbound] Malformed broadcast — ${result.error}`, message);
   }
 }
@@ -61,9 +62,9 @@ function sanitizeToolCallDetail(tc: any): any {
     return tc.detail === result.data ? tc : { ...tc, detail: result.data };
   }
   console.warn(`[NORM-DB] Dropping malformed detail for tool call ${tc.id ?? '?'} (${tc.name ?? '?'}): ${result.error}`);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `_drop` non
-  // si usa PER COSTRUZIONE: destrutturare-e-scartare è il modo di togliere una
-  // chiave da un oggetto senza mutarlo. Il valore che conta è `rest`.
+  // `_drop` non si usa PER COSTRUZIONE: destrutturare-e-scartare è il modo di
+  // togliere una chiave da un oggetto senza mutarlo. Il valore che conta è `rest`.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { detail: _drop, ...rest } = tc;
   return rest;
 }

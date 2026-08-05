@@ -286,6 +286,10 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       view.destroy();
       viewRef.current = null;
     };
+    // `content` NON va fra le dipendenze: ricreare l'EditorView a ogni battuta
+    // distruggerebbe cursore, scroll e storia dell'undo. Il contenuto entra
+    // dall'effetto di sincronizzazione qui sotto, che fa un dispatch sulla view
+    // viva. Solo un file diverso giustifica una view nuova.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filename]); // Only recreate on filename change
 

@@ -38,10 +38,11 @@ await page.goto('file://' + PAGE, { waitUntil: 'load' });
 await page.addScriptTag({ path: RECORD });
 const events = await page.evaluate(async () => {
   const out = [];
-  // eslint-disable-next-line no-undef -- `rrwebRecord` è un globale DELLA
-  // PAGINA, piantato lì da `addScriptTag` due righe sopra. Questo corpo non gira
-  // in Node: `page.evaluate` lo serializza e lo esegue dentro il browser, dove
-  // il globale esiste. Il lint vede solo lo scope di Node e non può saperlo.
+  // `rrwebRecord` è un globale DELLA PAGINA, piantato lì da `addScriptTag` due
+  // righe sopra. Questo corpo non gira in Node: `page.evaluate` lo serializza e
+  // lo esegue dentro il browser, dove il globale esiste. Il lint vede solo lo
+  // scope di Node e non può saperlo.
+  // eslint-disable-next-line no-undef
   const stop = rrwebRecord({ emit: (e) => out.push(e) });
   await new Promise((r) => setTimeout(r, 600));
   if (typeof stop === 'function') stop();

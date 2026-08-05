@@ -203,6 +203,11 @@ function ChatPaneComponent({
       try { setFastMode(localStorage.getItem(`fastMode:${topic.id}`) === 'true'); }
       catch { setFastMode(false); }
     }
+    // `fastMode` (lo stato locale) non è una dipendenza: questo effetto
+    // riconcilia dal SERVER verso il locale, e metterlo fra le dipendenze lo
+    // farebbe ripartire subito dopo ogni toggle dell'utente — cioè rispondere a
+    // un click ri-applicando il valore vecchio. Gli ingressi sono il valore
+    // spinto dal server e l'identità del topic.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.fastMode, topic.id]);
   const [othersTyping, setOthersTyping] = useState(false);
