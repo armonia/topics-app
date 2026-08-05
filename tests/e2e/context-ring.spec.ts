@@ -88,10 +88,10 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     await expect(notice).toBeVisible({ timeout: 10_000 });
     await expect(notice).toHaveAttribute("data-context-level", "critical");
     await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
-    await expect(notice.getByRole("button", { name: "New chat" })).toBeVisible();
+    await expect(notice.getByRole("button", { name: "Nuova chat" })).toBeVisible();
 
     // Chiudibile: chi ha deciso non deve riavere l'avviso addosso a ogni token.
-    await notice.getByTitle("Dismiss").click();
+    await notice.getByTitle("Chiudi l'avviso").click();
     await expect(notice).toHaveCount(0);
     // …ma il ring continua a dire il vero.
     await expect(ring).toHaveAttribute("data-context-percent", "93");
@@ -139,9 +139,52 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     // La frase dice il motivo VERO, e non "quasi pieno" a meno di metà finestra.
     await expect(notice).toContainText("Ogni risposta rilegge 450k token");
     await expect(notice).not.toContainText("quasi pieno");
-    await expect(notice).toContainText("ogni chiamata al modello se li rilegge tutti");
+    await expect(notice).toContainText("li ripaghi a ogni chiamata");
     // Le due vie d'uscita ci sono comunque.
     await expect(notice.getByRole("button", { name: "Compatta adesso" })).toBeVisible();
+    // Ambra, non rosso: un prompt caro costa, non fa perdere niente. Il rosso
+    // resta alla finestra che sta finendo.
+    await expect(notice).not.toHaveClass(/border-red-200/);
+
+    // La spiegazione dev'essere LEGGIBILE per intero: stava su una riga sola con
+    // `truncate` e il CSS la tagliava a metà frase, che è il motivo per cui non
+    // si capiva. Nessun ritaglio orizzontale.
+    const detail = notice.locator("div.line-clamp-2").first();
+    const clipped = await detail.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+    expect(clipped).toBe(false);
+  });
+
+  /**
+   * La soglia di costo scatta a 200k, cioè al 20% di una finestra da un milione:
+   * lo stato normale di qualunque sessione dopo mezz'ora. Un riquadro con due
+   * bottoni lì dentro è un'interruzione permanente, e un avviso sempre acceso
+   * non lo legge più nessuno. A `warn` il segnale resta sull'anello.
+   */
+  test("il costo a livello warn non apre il riquadro: resta sull'anello", async ({ page }) => {
+    await page.route("**/api/context/live*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          context: {
+            usage: { sessionUpdate: "usage_update", used: 332_000, size: 1_000_000 },
+            percent: 33, level: "warn", reason: "cost", estimated: false,
+            model: "claude-opus-5", measuredAt: new Date().toISOString(),
+          },
+        }),
+      }),
+    );
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const ring = page.getByTestId("chat-input-context-ring").first();
+    await ring.waitFor({ state: "visible", timeout: 10_000 });
+    await expect(ring).toHaveAttribute("data-context-percent", "33");
+    // Il segnale non sparisce: il tooltip dice perché l'anello è ambra.
+    await expect(ring).toHaveAttribute("title", /rilegge questi token/);
+    await expect(page.getByTestId("context-notice")).toHaveCount(0);
   });
 
   test("zittire l'avviso di costo NON zittisce quello di finestra piena", async ({ page }) => {
@@ -164,7 +207,7 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
     const notice = page.getByTestId("context-notice");
     await expect(notice).toBeVisible({ timeout: 10_000 });
     await expect(notice).toContainText("Ogni risposta rilegge");
-    await notice.getByTitle("Dismiss").click();
+    await notice.getByTitle("Chiudi l'avviso").click();
     await expect(notice).toHaveCount(0);
 
     // Ora la finestra si riempie per davvero: l'allarme DEVE ricomparire.

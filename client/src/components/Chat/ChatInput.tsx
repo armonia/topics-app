@@ -500,9 +500,16 @@ export function ChatInput({
   // Context Inspector, dove è etichettato per quello che è.
   const realContext = useRealContext(isDraftTopic ? null : topic.sessionKey, onMessage);
   const ringPercent = realContext ? realContext.percent : budgetPercent;
+  // Il tooltip dell'anello è dove vive il segnale di COSTO quando non merita un
+  // riquadro (vedi `contextNotice`): ambra sull'anello senza una riga che dica
+  // perché è un colore che l'umano non può interpretare.
+  const ringCostHint =
+    realContext && realContext.level !== 'ok' && (realContext.reason ?? 'window') === 'cost'
+      ? '\nOgni chiamata al modello rilegge questi token: è il costo per risposta, non un problema di capienza.'
+      : '';
   const ringTitle = realContext
-    ? `Model context: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` — ${realContext.model}` : ''}`
-    : `Injected context (estimate): ${budgetPercent}%`;
+    ? `Contesto del modello: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` — ${realContext.model}` : ''}${ringCostHint}`
+    : `Contesto iniettato (stima): ${budgetPercent}%`;
 
   // Preavviso di compaction. Oggi la compaction si scopre a cose fatte, dal
   // divider; con la misura reale diventa prevedibile — ed è l'unico momento in
@@ -527,8 +534,21 @@ export function ChatInput({
     // `reason` assente = payload di un server più vecchio: si degrada a "window",
     // che è il comportamento storico.
     const reason = realContext.reason ?? 'window';
-    if (rank[realContext.level] <= rank[dismissed[reason] ?? 'ok']) return null;
-    return { ...realContext, reason, level: realContext.level as 'warn' | 'critical' };
+    const level = realContext.level as 'warn' | 'critical';
+    // Un riquadro con due bottoni è un'INTERRUZIONE: si spende solo dove c'è
+    // davvero una scelta da fare. Il costo per chiamata a livello `warn` — 200k
+    // su una finestra da un milione, cioè il 20% — non lo è: è lo stato normale
+    // di qualunque sessione di lavoro dopo mezz'ora, quindi l'avviso stava
+    // addosso praticamente sempre e ha smesso di voler dire qualcosa (chiesto
+    // tre volte «ma che significa?», che è la misura del fallimento). Quel
+    // segnale resta dove non costa attenzione: l'anello ambra e il suo tooltip.
+    // Il riquadro torna a 400k, dove compattare si ripaga sul serio.
+    if (reason === 'cost' && level === 'warn') return null;
+    if (rank[level] <= rank[dismissed[reason] ?? 'ok']) return null;
+    // Rosso vuol dire «stai per perdere pezzi di conversazione», e a farlo è
+    // solo la finestra che finisce. Un prompt caro resta ambra anche a livello
+    // critico: costa di più, non rompe niente.
+    return { ...realContext, reason, level, severe: level === 'critical' && reason === 'window' };
   })();
   const dismissNotice = (n: { reason: 'window' | 'cost'; level: 'warn' | 'critical' }) =>
     setDismissed((prev) => ({ ...prev, [n.reason]: n.level }));
@@ -943,13 +963,13 @@ export function ChatInput({
           data-testid="context-notice"
           data-context-level={contextNotice.level}
           className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl border px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
-            contextNotice.level === 'critical'
+            contextNotice.severe
               ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40'
               : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40'
           }`}
         >
           <div className="flex-1 min-w-0">
-            <div className={`text-[11px] font-medium ${contextNotice.level === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
+            <div className={`text-[11px] font-medium ${contextNotice.severe ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
               {/* Due motivi, due frasi. Dire "quasi pieno — 47%" perché è scattata
                   la soglia assoluta è un avviso che non si può capire: su una
                   finestra da 1M il problema non è la capienza, è che ogni chiamata
@@ -960,20 +980,26 @@ export function ChatInput({
                   ? `Contesto quasi pieno — ${contextNotice.percent}%`
                   : `Contesto che si riempie — ${contextNotice.percent}%`}
             </div>
-            <div className={`text-[11px] truncate ${contextNotice.level === 'critical' ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
+            <div className={`text-[11px] line-clamp-2 ${contextNotice.severe ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
               {/* La seconda riga non ripete il numero della prima: dice COSA
                   comporta. Nel caso 'cost' la capienza non è il problema — nella
                   finestra ci sta — quindi si spiega la conseguenza vera, che è
-                  il conto e la lentezza a ogni chiamata. */}
+                  il conto e la lentezza a ogni chiamata.
+                  MAI `truncate` qui: era una spiegazione scritta per intero e poi
+                  tagliata dal CSS a una riga, quindi di fatto una frase monca che
+                  finiva su una virgola («…ci stanno (332k di 1.0M),») — il motivo
+                  per cui non si capiva. Va a capo, con un tetto di due righe per
+                  non spostare il composer. Il consiglio su cosa fare non ci sta:
+                  lo dicono già i due bottoni qui accanto. */}
               {contextNotice.reason === 'cost'
-                ? `Nella finestra ci stanno (${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}), ma ogni chiamata al modello se li rilegge tutti: è quello che paghi e che rallenta le risposte. Compattare li riduce; una chat nuova riparte da zero.`
-                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — quando si compatta si perde dettaglio, meglio farlo adesso che a ridosso. Oppure apri una chat nuova.`}
+                ? `Nella finestra ci stanno (${contextNotice.percent}% di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}): il problema non è lo spazio, è che li ripaghi a ogni chiamata.`
+                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — compattare adesso costa meno dettaglio che a ridosso.`}
             </div>
           </div>
           <button
             type="button"
             onClick={() => { dismissNotice(contextNotice); void sendMessageDirect('/compact'); }}
-            className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.level === 'critical' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
+            className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.severe ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
           >
             Compatta adesso
           </button>
