@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, openSync, readSync, closeSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
@@ -16,13 +16,14 @@ import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
-import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInfo } from "./subagent-exit";
 import { createTaskService } from "../services/tasks";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { clearActionFor } from "./clearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
+import { bumpUnreadCount } from "../lib/unread-count";
+import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
@@ -442,324 +443,32 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     };
   }
 
-  // ── Sub-agent completion polling via JSONL transcript ──────────────────
-  // Gateway executes tool calls (including sessions_spawn) internally and
-  // writes completion events as user messages with "[Internal task completion event]"
-  // to the parent session's JSONL transcript. We poll that file for new events.
-  interface WatchedSession {
-    topicId: string;
-    sessionKey: string;      // e.g. "topic:d1428015"
-    jsonlPath: string;       // path to the JSONL transcript file
-    byteOffset: number;      // bytes already consumed (incremental cursor)
-    lastIno: number;         // inode of the file at last read (rotation guard)
-    lastMtimeMs: number;     // mtime at last read (same-size rewrite guard)
-    createdAt: number;
-    deliveredEvents: Set<string>; // session_key of already-delivered results
-  }
-  const watchedSessions = new Map<string, WatchedSession>();  // keyed by sessionKey
-  let subagentPollTimer: ReturnType<typeof setInterval> | null = null;
+  // ── Recapito dei risultati dei sub-agent ────────────────────────────────
+  // Estratto in `server/lib/subagent-watch.ts`: erano trecento righe con uno
+  // stato proprio (mappa delle sessioni osservate, timer, cursore in byte per
+  // file) dentro un file di ROTTE, e chiuse lì non erano testabili — né un giro
+  // di polling, né un transcript finto, né le guardie di rotazione. La closure
+  // gli serviva per nove valori, che ora sono dipendenze scritte.
+  const subagents = createSubagentWatcher({
+    gatewayUrl: GATEWAY_URL,
+    gatewayToken: GATEWAY_TOKEN,
+    getTopicById,
+    getTopicBySessionKey,
+    saveSingleTopic,
+    appendLocalMessage,
+    broadcastToAll,
+    bumpUnread: updateUnreadCount,
+    resolveProvider,
+  });
+  const watchSessionForSubagents = subagents.watch;
+  // La registrazione della strada B resta QUI: così il modulo non importa
+  // `routes/terminal` e la dipendenza fra i due resta a senso unico.
+  setSubAgentExitHandler(subagents.deliverExit);
 
-  function startSubagentPolling() {
-    if (subagentPollTimer) return;
-    console.log(`[SubagentPoll] Starting JSONL polling (${watchedSessions.size} watched sessions)`);
-    subagentPollTimer = setInterval(pollJSONLTranscripts, 5000);
-  }
-
-  function stopSubagentPolling() {
-    if (!subagentPollTimer) return;
-    clearInterval(subagentPollTimer);
-    subagentPollTimer = null;
-    console.log(`[SubagentPoll] Stopped polling`);
-  }
-
-  function findSessionJSONL(sessionKey: string): string | null {
-    const agentId = 'main';
-    const transcriptDir = join(homedir(), '.openclaw', 'agents', agentId, 'sessions');
-    if (!existsSync(transcriptDir)) return null;
-    // JSONL files are named: <sessionId>-<sessionKey-slug>.jsonl
-    // e.g. 466c80b4-...-topic-d1428015.jsonl
-    const keySlug = sessionKey.replace(/:/g, '-');
-    const files = readdirSync(transcriptDir).filter(f => f.endsWith('.jsonl') && f.includes(keySlug));
-    if (files.length > 0) return join(transcriptDir, files[0]);
-    // Fallback: search recent files for matching session key
-    const recent = readdirSync(transcriptDir)
-      .filter(f => f.endsWith('.jsonl'))
-      .map(f => ({ name: f, mtime: statSync(join(transcriptDir, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime)
-      .slice(0, 10);
-    for (const f of recent) {
-      try {
-        const first = readFileSync(join(transcriptDir, f.name), 'utf-8').split('\n')[0];
-        if (first.includes(sessionKey)) return join(transcriptDir, f.name);
-      } catch {}
-    }
-    return null;
-  }
-
-  function pollJSONLTranscripts() {
-    for (const [sk, watched] of watchedSessions.entries()) {
-      // Timeout: stop watching after 30 minutes
-      if (Date.now() - watched.createdAt > 30 * 60_000) {
-        console.log(`[SubagentPoll] Timeout watching ${sk}`);
-        watchedSessions.delete(sk);
-        continue;
-      }
-      // Find JSONL if not yet resolved
-      if (!watched.jsonlPath) {
-        const found = findSessionJSONL(sk);
-        if (found) { watched.jsonlPath = found; }
-        else continue;
-      }
-      if (!existsSync(watched.jsonlPath)) continue;
-
-      try {
-        // Incremental read: only the bytes appended since last tick, so cost is
-        // O(new data) instead of O(whole transcript) on every 5s poll.
-        let st: ReturnType<typeof statSync>;
-        try { st = statSync(watched.jsonlPath); } catch { continue; }
-        // Rotation/truncation: different inode, shrunk below the cursor, or a
-        // same-size-or-smaller rewrite with a newer mtime → restart from 0.
-        const inoChanged = watched.lastIno !== 0 && st.ino !== watched.lastIno;
-        const truncated = st.size < watched.byteOffset;
-        const rewriteSameSize = watched.lastMtimeMs !== 0 && st.mtimeMs > watched.lastMtimeMs && st.size <= watched.byteOffset;
-        if (inoChanged || truncated || rewriteSameSize) watched.byteOffset = 0;
-        watched.lastIno = st.ino;
-        watched.lastMtimeMs = st.mtimeMs;
-        if (st.size === watched.byteOffset) continue; // no new bytes
-
-        const length = st.size - watched.byteOffset;
-        const buf = Buffer.alloc(length);
-        let fd: number | null = null;
-        try {
-          fd = openSync(watched.jsonlPath, 'r');
-          readSync(fd, buf, 0, length, watched.byteOffset);
-        } finally {
-          if (fd != null) { try { closeSync(fd); } catch {} }
-        }
-        watched.byteOffset = st.size;
-        const text = buf.toString('utf-8');
-        const newLines = text.split('\n');
-        // A trailing partial line (no newline yet) is rewound so it's re-read
-        // whole on the next tick rather than JSON-parsed half-formed.
-        if (newLines.length > 0 && !text.endsWith('\n')) {
-          const partial = newLines.pop()!;
-          watched.byteOffset -= Buffer.byteLength(partial, 'utf-8');
-        }
-
-        for (const line of newLines) {
-          if (!line.trim()) continue;
-          try {
-            const entry = JSON.parse(line);
-            const msg = entry.message || entry;
-            const textContent = extractTextContent(msg.content);
-            if (!textContent.includes('[Internal task completion event]')) continue;
-
-            // Extract the child session key to deduplicate
-            const skMatch = textContent.match(/session_key:\s*(agent:\S+)/);
-            const childSk = skMatch?.[1] || textContent.slice(0, 50);
-            if (watched.deliveredEvents.has(childSk)) continue;
-            watched.deliveredEvents.add(childSk);
-
-            // Extract the result between markers
-            const resultMatch = textContent.match(/<<<BEGIN_UNTRUSTED_CHILD_RESULT>>>([\s\S]*?)<<<END_UNTRUSTED_CHILD_RESULT>>>/);
-            const result = resultMatch?.[1]?.trim() || '(sub-agent completed, no output recovered)';
-
-            // Extract task description
-            const taskMatch = textContent.match(/task:\s*(.+)/);
-            const task = taskMatch?.[1]?.trim() || '';
-
-            console.log(`[SubagentPoll] Found completion event for ${childSk.slice(0, 40)} in ${sk}`);
-
-            // Now we need the gateway to process this completion event (generate assistant response)
-            // The event is already in the transcript — trigger a gateway inference call
-            // so the AI can read the result and produce a user-facing response
-            triggerGatewayInference(watched, result, task);
-          } catch {}
-        }
-      } catch (err) {
-        console.warn(`[SubagentPoll] Error reading ${watched.jsonlPath}:`, err);
-      }
-    }
-    if (watchedSessions.size === 0) stopSubagentPolling();
-  }
-
-  function extractTextContent(content: any): string {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) return content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
-    return '';
-  }
-
-  async function triggerGatewayInference(watched: WatchedSession, result: string, task: string) {
-    // Send a follow-up message to the gateway session so the AI generates a response
-    // that includes the sub-agent result. The gateway has the completion event in its
-    // context already — we just need to trigger a new inference turn.
-    const topic = getTopicById(watched.topicId);
-    const provider = resolveProvider(topic);
-    if (provider.name !== 'openclaw') {
-      // /api/inference/chat is OpenClaw-specific — deliver raw result for other providers
-      deliverRawResult(watched, result, task);
-      return;
-    }
-    try {
-      const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" },
-        body: JSON.stringify({
-          sessionKey: watched.sessionKey,
-          messages: [{ role: "user", content: `[System: sub-agent completed. Present the result to the user naturally.]` }],
-        }),
-      });
-      if (!resp.ok) {
-        // Fallback: deliver raw result directly
-        console.warn(`[SubagentPoll] Gateway inference failed (${resp.status}), delivering raw result`);
-        deliverRawResult(watched, result, task);
-        return;
-      }
-      // Stream the response — it should appear as a regular assistant message
-      // The gateway streams SSE, and the existing chat flow handles it
-      // But since we're not in an HTTP request context, we need to stream manually
-      const reader = resp.body?.getReader();
-      if (!reader) { deliverRawResult(watched, result, task); return; }
-
-      let fullContent = '';
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.content) fullContent += delta.content;
-          } catch {}
-        }
-      }
-
-      if (fullContent) {
-        const storedSubagent = appendLocalMessage(watched.sessionKey, 'assistant', fullContent);
-        broadcastToAll({
-          type: "message:new",
-          sessionKey: watched.sessionKey,
-          topicId: watched.topicId,
-          role: "assistant",
-          messageId: storedSubagent.id,
-          content: fullContent,
-          preview: fullContent.slice(0, 100),
-        });
-        updateUnreadCount(watched.topicId);
-        console.log(`[SubagentPoll] ✓ Delivered AI-formatted result → topic ${watched.topicId.slice(0, 8)}`);
-      } else {
-        deliverRawResult(watched, result, task);
-      }
-    } catch (err) {
-      console.warn(`[SubagentPoll] Inference error:`, err);
-      deliverRawResult(watched, result, task);
-    }
-  }
-
-  function deliverRawResult(watched: WatchedSession, result: string, task: string) {
-    const msgContent = `📋 **Sub-agent result${task ? ` (${task.slice(0, 80)})` : ''}:**\n\n${result}`;
-    const storedRaw = appendLocalMessage(watched.sessionKey, 'assistant', msgContent);
-    broadcastToAll({
-      type: "message:new",
-      sessionKey: watched.sessionKey,
-      topicId: watched.topicId,
-      role: "assistant",
-      messageId: storedRaw.id,
-      content: msgContent,
-      preview: result.slice(0, 100),
-    });
-    updateUnreadCount(watched.topicId);
-    console.log(`[SubagentPoll] ✓ Delivered raw result → topic ${watched.topicId.slice(0, 8)}`);
-  }
-
+  /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
-    // UNA sola politica di lettura: un messaggio in arrivo incrementa SEMPRE il
-    // non-letto; solo un `read` esplicito (POST /api/topics/:id/read, che il
-    // client manda dopo SEEN_DWELL_MS di sguardo continuo) lo azzera.
-    //
-    // Prima qui c'era un gate `if (!isTopicFocused(topicId))` — "presente =
-    // letto", senza nozione di tempo. Era rotto in due modi: (1) un messaggio ad
-    // app in background non produceva MAI il badge perche' il server considerava
-    // ancora focussata l'ultima chat vista (nessun blur affidabile lato client,
-    // focus ri-annunciato a ogni riconnessione); (2) la soppressione era GLOBALE —
-    // bastava una qualsiasi socket (altro device, altra finestra, PWA dimenticata)
-    // con quella topic focussata perche' NESSUNO ricevesse il badge. Ora che il
-    // client marca letto sulla soglia, questo gate era ridondante E dannoso.
-    try {
-      const unread = loadUnread();
-      if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-      unread[topicId].unreadCount += 1;
-      saveUnread(unread);
-      broadcastToAll({ type: "unread:updated", topicId, unreadCount: unread[topicId].unreadCount });
-    } catch (err) {
-      console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
-    }
+    bumpUnreadCount({ loadUnread, saveUnread, broadcastToAll }, topicId);
   }
-
-  function watchSessionForSubagents(topicId: string, sessionKey: string) {
-    if (watchedSessions.has(sessionKey)) {
-      // Reset timeout
-      watchedSessions.get(sessionKey)!.createdAt = Date.now();
-      return;
-    }
-    const jsonlPath = findSessionJSONL(sessionKey) || '';
-    // Skip existing history: start the cursor at the current end-of-file so only
-    // events appended after we begin watching are processed.
-    let byteOffset = 0, lastIno = 0, lastMtimeMs = 0;
-    if (jsonlPath && existsSync(jsonlPath)) {
-      try {
-        const st = statSync(jsonlPath);
-        byteOffset = st.size; lastIno = st.ino; lastMtimeMs = st.mtimeMs;
-      } catch {}
-    }
-    watchedSessions.set(sessionKey, {
-      topicId, sessionKey, jsonlPath, byteOffset, lastIno, lastMtimeMs,
-      createdAt: Date.now(), deliveredEvents: new Set(),
-    });
-    console.log(`[SubagentPoll] Watching ${sessionKey} for sub-agent completions (JSONL: ${jsonlPath ? 'found' : 'pending'}, offset: ${byteOffset})`);
-    startSubagentPolling();
-  }
-
-  // ── Path-B sub-agent wake ────────────────────────────────────────────────
-  // A sub-agent launched from a chat via the MCP `spawn_agent` tool is a separate
-  // claude PTY with its OWN transcript — it never writes an "[Internal task
-  // completion event]" into the parent's JSONL, so pollJSONLTranscripts above
-  // (which watches the gateway's native Task() sub-agents) never sees it. When
-  // such a PTY exits, terminal.ts calls the handler registered here so the parent
-  // chat still gets the result and stops hanging on a promise it can't keep.
-  const deliveredSubAgentExits = new Set<string>(); // childId, dedup double exits
-  function deliverSubAgentExit(info: SubAgentExitInfo) {
-    if (!info.parentSessionKey.startsWith('topic:')) return;
-    if (deliveredSubAgentExits.has(info.childId)) return;
-    deliveredSubAgentExits.add(info.childId);
-    const topic = getTopicBySessionKey(info.parentSessionKey);
-    if (!topic) return;
-    const body = formatSubAgentExitBody(info);
-    const msgContent = formatSubAgentExitMessage(info);
-    const stored = appendLocalMessage(info.parentSessionKey, 'assistant', msgContent);
-    broadcastToAll({
-      type: "message:new",
-      sessionKey: info.parentSessionKey,
-      topicId: topic.id,
-      role: "assistant",
-      messageId: stored.id,
-      content: msgContent,
-      preview: body.slice(0, 100),
-    });
-    // Refresh the sidebar's lastActivity so the row doesn't look frozen, and bump
-    // unread if the topic isn't focused — same finalization the chat turns use.
-    topic.updatedAt = new Date().toISOString();
-    saveSingleTopic(topic);
-    broadcastToAll({ type: "topic:updated", topic });
-    updateUnreadCount(topic.id);
-    console.log(`[SubagentExit] Delivered result of "${info.name}" → topic ${topic.id.slice(0, 8)}`);
-  }
-  setSubAgentExitHandler(deliverSubAgentExit);
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();
