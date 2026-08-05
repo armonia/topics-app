@@ -141,6 +141,41 @@ if (capsule) {
   addEventListener('scroll', onScroll, { passive: true });
 }
 
+/* ── The orb ─────────────────────────────────────────────────────────────── */
+/* A light that follows the pointer, one per ink band, clipped to ink by the
+ * band's own clip-path. Written as two custom properties on the root so all
+ * four orbs read the same pair and there is one style write per frame rather
+ * than four.
+ *
+ * The position is NOT transitioned in CSS — the glow snaps and only its
+ * presence fades — so this handler has to be the thing that is smooth. It
+ * coalesces to one rAF: a pointermove can fire far more often than the display
+ * refreshes, and writing a custom property on every one of them is how an
+ * effect this cheap ends up costing frames on a page that also runs a canvas
+ * and a live React iframe.
+ */
+if (!matchMedia('(hover: none), (pointer: coarse)').matches
+    && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const root = document.documentElement;
+  let px = 0, py = 0, queued = false;
+  const paint = () => {
+    queued = false;
+    root.style.setProperty('--orb-x', px + 'px');
+    root.style.setProperty('--orb-y', py + 'px');
+  };
+  addEventListener('pointermove', (e) => {
+    px = e.clientX; py = e.clientY;
+    if (!document.body.classList.contains('is-hovering')) document.body.classList.add('is-hovering');
+    if (!queued) { queued = true; requestAnimationFrame(paint); }
+  }, { passive: true });
+  /* Leaving the window takes the light with you, rather than leaving it stuck
+     wherever the pointer crossed the edge. */
+  addEventListener('pointerleave', () => document.body.classList.remove('is-hovering'), { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) document.body.classList.remove('is-hovering');
+  });
+}
+
 /* ── Counters ────────────────────────────────────────────────────────────── */
 /* The proof numbers now sit inside the hero, so they arrive with it. */
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);

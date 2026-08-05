@@ -63,6 +63,13 @@ const SETTLE = `*, *::before, *::after {
 const PHASES = [
   { name: 'aurora start', css: '.band__field::before { animation: none !important; }' },
   { name: 'aurora end', css: '/* SETTLE already holds the to-state */' },
+  /* The orb follows the pointer, and a screenshot has no pointer — so without
+     this phase the brightest thing this page can put behind a paragraph would
+     be the one thing the gate never sees. Forced on and parked in the middle of
+     the reading column, which is its worst case by construction. */
+  { name: 'orb centred', css: `.band__field > .orb {
+      opacity: 1 !important;
+      transform: translate3d(50vw, 50vh, 0) !important; }` },
 ];
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',

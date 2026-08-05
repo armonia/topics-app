@@ -969,7 +969,16 @@ body.v3.is-ready .hero__title .ch-block {
      --ink-faint     8.42         5.53        4.61    AA, the reading floor
      --ink-quiet     5.84         3.83        3.20    24px and up only
      --accent        6.47         4.25        3.54    GRAPHIC only on ink
-     --accent-ink    8.77         5.76        4.80    links and accented words
+     --accent-ink    9.68         6.36        5.30    links and accented words
+
+   `--accent-ink` was #7ab0ff and moved one step up to #8ab9ff when the orb
+   landed: over the pointer light on top of the aurora it measured 4.49 against
+   a floor of 4.50, and shaving a decorative glow down to nothing to save a
+   hundredth is the tail wagging the dog. What was NOT done is the same move on
+   the muted tier — clearing 4.5 under the orb's core would have taken
+   `--ink-mute` to #b8bfcc, close enough to `--ink` to flatten the hierarchy.
+   When the palette has to go pale to survive the decoration, the decoration is
+   too strong; the orb went from .2 to .085 instead.
 
    Note the last two rows, and the correction they carry. #4d94ff measures 6.47
    on the flat band, which is what made it look like a colour that could set a
@@ -1007,7 +1016,7 @@ body.v3.is-ready .hero__title .ch-block {
   /* The brand's dark step, which the brand block already declared and nothing
      had yet been able to use: there was no dark ground to use it on. */
   --accent:var(--brand-on-dark);
-  --accent-ink:#7ab0ff;
+  --accent-ink:#8ab9ff;
   --accent-wash:hsl(217 60% 16%);
   --accent-line:hsl(217 45% 30%);
 
@@ -1219,6 +1228,58 @@ body.v3.is-ready .hero__title .ch-block {
   -webkit-mask-image: radial-gradient(120% 82% at 50% 40%, #000 30%, transparent 78%);
   mask-image: radial-gradient(120% 82% at 50% 40%, #000 30%, transparent 78%);
   opacity: var(--field-gain);
+}
+
+/* ── THE ORB ─────────────────────────────────────────────────────────────
+   The one effect on the reference that is tied to the person rather than to
+   the scroll, and the cheapest thing on this page for what it returns: a
+   400×350 blurred circle that follows the cursor. Their exact recipe, and the
+   two parts of it that are easy to get wrong are both deliberate here.
+
+   `mix-blend-mode: plus-lighter`. Multiply can only darken and screen goes grey
+   on near-black; plus-lighter adds, which is what a light does. It is the part
+   their own authors flag as the one people get wrong.
+
+   NO TRANSITION ON POSITION. The glow snaps to the pointer and only its
+   presence fades (.25s). A transition on the transform turns a light in the
+   room into a balloon on a string, which is the tell of every cheap version of
+   this effect.
+
+   It lives inside the band's field, so it is clipped to ink by construction and
+   can never blow out a paper section — plus-lighter over a near-white ground
+   would be a white hole. There is one per band rather than one per page for
+   exactly that reason.
+   Its strength is not a matter of taste either: `check:painted` runs a third
+   phase with the orb forced to the centre of the reading column, which is its
+   worst case, and grades the text over it. */
+.band__field > .orb {
+  position: fixed; left: 0; top: 0;
+  /* Scaled to the viewport, not fixed at their 400×350. At 390px wide a
+     400px orb IS the screen — measured, `check:painted` failed four runs at
+     3.85:1 there while 1440 had 4.57 — and a light that fills the window is
+     not a light, it is a tint. */
+  width: min(400px, 58vw); height: min(350px, 51vw);
+  margin: min(-175px, -25.5vw) 0 0 min(-200px, -29vw);
+  border-radius: 50%;
+  transform: translate3d(var(--orb-x, -9999px), var(--orb-y, -9999px), 0);
+  background:
+    radial-gradient(circle at 30% 30%, hsl(217 100% 62% / .085), transparent 60%),
+    radial-gradient(circle at 70% 70%, hsl(217 100% 62% / .085), transparent 70%);
+  filter: blur(28px);
+  mix-blend-mode: plus-lighter;
+  opacity: 0;
+  transition: opacity .25s ease-out;
+  will-change: transform;
+}
+body.v3.is-hovering .band__field > .orb { opacity: 1; }
+/* Coarse pointers have no hover to track, and a glow parked where a thumb last
+   touched is worse than no glow. Narrow windows lose it too, and that one is a
+   design call with a number behind it: scaled to 58vw the orb is 226px on a
+   390px viewport, which is a smudge following the cursor rather than a light in
+   a room — and it left `--ink-mute` at 4.51 against a floor of 4.50, which is
+   not headroom, it is luck. Above 900px it clears 4.83. */
+@media (hover: none), (pointer: coarse), (max-width: 900px) {
+  .band__field > .orb { display: none; }
 }
 
 /* The same grain as everything else dark on this page, for the same reason it
