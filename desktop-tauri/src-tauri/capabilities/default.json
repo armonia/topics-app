@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Topics desktop shell — core + native plugin permissions. UI is served locally (tauri://localhost); no remote-origin IPC is granted.",
-  "windows": ["main", "detach-*"],
+  "windows": ["main", "detach-*", "space-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

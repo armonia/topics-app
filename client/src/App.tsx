@@ -55,6 +55,8 @@ import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow } from './components/Layout/spaceHelpers';
 import { useGoToSpace } from './components/Sidebar/SpaceGroups';
 import { spaceWindowId } from './lib/windowRole';
+import { useSpaceWindows } from './state/windowPresence';
+import { SpaceElsewherePanel } from './components/Layout/SpaceElsewherePanel';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -564,6 +566,10 @@ function App() {
   // SpaceGroups per decidere se disegnarsi.
   const spaceChrome = usePaneStore((s) => groupChromeActive(s.spaces, spaceWindowId()));
   const goToSpace = useGoToSpace();
+  // Il gruppo attivo vive in un'ALTRA finestra? Allora qui non si disegna: due
+  // finestre sulla stessa griglia sono due copie degli stessi terminali vivi.
+  const spaceWindows = useSpaceWindows();
+  const activeSpaceWindow = spaceWindows.get(activeSpaceId);
   const spaceScoped = spaceChrome && !isDetachedWindow();
 
   // Open / create a project via the native folder picker (select an existing
@@ -1203,6 +1209,9 @@ function App() {
             solo quando i gruppi esistono; keyed su activeSpaceId come la
             griglia, così cambiare gruppo rigioca l'ingresso. */}
         <div key={activeSpaceId} className={`flex-1 flex flex-col min-h-0 min-w-0 ${spaceScoped ? 'space-frame' : ''}`}>
+        {activeSpaceWindow ? (
+          <SpaceElsewherePanel spaceId={activeSpaceId} windowLabel={activeSpaceWindow} />
+        ) : (
         <PanelGrid
           openPanels={visiblePanels}
           focusedPanelId={focusedPanelId}
@@ -1256,6 +1265,7 @@ function App() {
           promoteDraft={promoteDraft}
           draftMeta={draftMeta}
         />
+        )}
         </div>{/* /space-frame */}
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}

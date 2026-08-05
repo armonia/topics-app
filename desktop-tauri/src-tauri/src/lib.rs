@@ -6270,8 +6270,14 @@ async fn window_detach_space(
     if space.trim().is_empty() {
         return Err("no space to detach".into());
     }
+    // Tracciato: senza questa riga, un detach che non apre niente è
+    // indistinguibile da un clic che non è mai arrivato fin qui.
+    eprintln!("[space] detach richiesto: {space}");
     // Already open? Raise it instead of minting a second window on the same
-    // group — two windows drawing one group would fight over its grid.
+    // group — due finestre che disegnano lo stesso gruppo si contendono la sua
+    // griglia. `ensure_window_visible` è una catena di chiamate al dispatcher
+    // della finestra: va sul MAIN THREAD e dentro `no_abort`, come
+    // `window_focus_label` (stessa classe di SIGABRT).
     {
         use tauri::Manager;
         let existing = app
@@ -6279,7 +6285,9 @@ async fn window_detach_space(
             .into_iter()
             .find(|(label, _)| label.starts_with("space-") && window_space_of(label) == Some(space.clone()));
         if let Some((label, win)) = existing {
-            ensure_window_visible(&win);
+            let _ = app.run_on_main_thread(move || {
+                let _ = no_abort("window_detach_space/raise", || { ensure_window_visible(&win); Ok(()) });
+            });
             return Ok(label);
         }
     }
@@ -6294,45 +6302,91 @@ async fn window_detach_space(
     let w = width.unwrap_or(1100.0);
     let h = height.unwrap_or(760.0);
 
-    let build = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
-        .title("Topics")
-        .inner_size(w, h)
-        .min_inner_size(480.0, 400.0)
-        .resizable(true)
-        .transparent(true)
-        .decorations(true)
-        .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
+    // ── Perché tutto questo gira sul MAIN THREAD, dentro `no_abort` ──────────
+    //
+    // La prima versione costruiva la finestra e le metteva addosso la chrome
+    // macOS (semafori, cover del live-resize, registrazione del webview UI)
+    // direttamente dal worker tokio su cui Tauri esegue i comandi async — come
+    // fa `window_detach`. Il 05/08/2026 quel percorso ha ucciso l'app:
+    // SIGABRT su un `tokio-rt-worker` al primo "Sposta in una finestra"
+    // (crash report: abort() da tre frame dentro il binario, sopra lo stack di
+    // tokio). Sono chiamate AppKit: fuori dal main thread non hanno garanzie, e
+    // un panic che risale attraverso il confine ObjC non può srotolare — il
+    // processo aborta invece di restituire un errore.
+    //
+    // Quindi: `run_on_main_thread` per costruire e vestire la finestra, e
+    // `no_abort` attorno a tutto (stessa medicina di `window_focus_label` e dei
+    // comandi `browser_*`). Il risultato torna qui su un canale: se qualcosa
+    // esplode, il comando risponde Err e l'app resta viva.
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    let label_for_main = label.clone();
+    let app_for_main = app.clone();
+    app.run_on_main_thread(move || {
+        let out = no_abort("window_detach_space", || {
+            let label = label_for_main;
+            let build = tauri::WebviewWindowBuilder::new(&app_for_main, &label, tauri::WebviewUrl::App(url.into()))
+                .title("Topics")
+                .inner_size(w, h)
+                .min_inner_size(480.0, 400.0)
+                .resizable(true)
+                .transparent(true)
+                .decorations(true)
+                .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
 
-    #[cfg(target_os = "macos")]
-    let build = build
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+            #[cfg(target_os = "macos")]
+            let build = build
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
 
-    let win = build.build().map_err(|e| format!("build space window: {e}"))?;
+            let win = build.build().map_err(|e| format!("build space window: {e}"))?;
 
-    #[cfg(target_os = "macos")]
-    {
-        apply_traffic_lights(&win, false);
-        wire_live_resize_cover(&win);
-        register_ui_webview(&win, &label);
-        // Same bookkeeping purge as window_detach: the vibrancy maps are keyed
-        // by NSWindow pointer, and a freed address gets reused.
-        if let Ok(p) = win.ns_window() {
-            let wkey = p as usize;
-            let label_for_event = label.clone();
-            win.on_window_event(move |event| {
-                if matches!(event, tauri::WindowEvent::Destroyed) {
-                    vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
-                    vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
-                    unwire_live_resize_cover(wkey);
-                    if let Ok(mut m) = SPACE_WINDOWS.lock() {
-                        m.remove(&label_for_event);
-                    }
+            #[cfg(target_os = "macos")]
+            {
+                apply_traffic_lights(&win, false);
+                wire_live_resize_cover(&win);
+                register_ui_webview(&win, &label);
+                // Same bookkeeping purge as window_detach: the vibrancy maps are keyed
+                // by NSWindow pointer, and a freed address gets reused.
+                if let Ok(p) = win.ns_window() {
+                    let wkey = p as usize;
+                    let label_for_event = label.clone();
+                    win.on_window_event(move |event| {
+                        if matches!(event, tauri::WindowEvent::Destroyed) {
+                            vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                            vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                            unwire_live_resize_cover(wkey);
+                            if let Ok(mut m) = SPACE_WINDOWS.lock() {
+                                m.remove(&label_for_event);
+                            }
+                        }
+                    });
                 }
-            });
+            }
+            Ok(label)
+        });
+        let _ = tx.send(out);
+    })
+    .map_err(|e| format!("main thread: {e}"))?;
+
+    // Attesa con tetto: se il main thread è bloccato, meglio un errore che un
+    // comando appeso per sempre (e la mappa ripulita, o il gruppo resterebbe
+    // "già aperto" su una finestra che non esiste).
+    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+        Ok(res) => {
+            match &res {
+                Ok(l) => eprintln!("[space] finestra creata: {l}"),
+                Err(e) => {
+                    eprintln!("[space] detach fallito: {e}");
+                    if let Ok(mut m) = SPACE_WINDOWS.lock() { m.remove(&label); }
+                }
+            }
+            res
+        }
+        Err(e) => {
+            if let Ok(mut m) = SPACE_WINDOWS.lock() { m.remove(&label); }
+            Err(format!("space window timed out: {e}"))
         }
     }
-    Ok(label)
 }
 
 /// `space-<hex>`: un label stabile PER GRUPPO, così riaprire lo stesso gruppo
@@ -6374,6 +6428,23 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
             Ok(true)
         } else {
             Ok(false)
+        }
+    })
+    .unwrap_or(false)
+}
+
+/// Chiude la finestra `label` (una finestra-gruppo, di solito): è il "riporta
+/// qui" del menu di un gruppo staccato. `false` = quella finestra non esiste su
+/// questa macchina, e chi chiama si limita a riaprire il gruppo dov'è.
+#[tauri::command]
+fn window_close_label(app: tauri::AppHandle, label: String) -> bool {
+    use tauri::Manager;
+    // no_abort: `close()` passa dal dispatcher della finestra — stessa classe di
+    // SIGABRT dei comandi `browser_*` (vedi la doc di no_abort).
+    no_abort("window_close_label", || {
+        match app.get_webview_window(&label) {
+            Some(w) => { w.close().map_err(|e| e.to_string())?; Ok(true) }
+            None => Ok(false),
         }
     })
     .unwrap_or(false)
@@ -7924,6 +7995,7 @@ pub fn run() {
             window_detach,
             window_detach_space,
             window_focus_label,
+            window_close_label,
             window_close_self
         ])
         .build(tauri::generate_context!())

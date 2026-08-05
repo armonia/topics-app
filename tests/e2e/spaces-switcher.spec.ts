@@ -406,4 +406,84 @@ test.describe.serial("Gruppi (Spazi)", () => {
     const yGroups = (await groups.boundingBox())!.y;
     expect(yBoard).toBeLessThan(yGroups);
   });
+
+  test("SPACE-12: trascinare una tab dentro la card di un altro gruppo la sposta lì", async ({ page, request }) => {
+    // A e C aperte in Principale, poi A se ne va in Gruppo 2. C resta apposta:
+    // svuotare il gruppo attivo lo farebbe cambiare da solo, e il test starebbe
+    // misurando quello invece dello spostamento.
+    const c = await createTopic(request, "SPACE-C-" + Date.now());
+    try {
+      await resetPaneStore(page.request, [idA, c.id]);
+      await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [idA, c.id] } }).catch(() => {});
+      await page.goto("/");
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+      await expect(page.locator(`[data-pane-id="${idA}"]`).first()).toBeVisible({ timeout: 10000 });
+      await moveTabToNewGroup(page, idA);
+
+      const card = (name: string) =>
+        page.locator('[data-testid^="space-card"]').filter({ hasText: name });
+      const principale = card("Principale");
+      const gruppo2 = card("Gruppo 2");
+      const rowC = principale.getByText("SPACE-C-", { exact: false }).first();
+      await expect(rowC).toBeVisible({ timeout: 5000 });
+
+      // Passi intermedi a mano: un `dragTo` in un colpo solo non fa partire il
+      // drag HTML5 in Chromium (serve un movimento dopo il mousedown perché il
+      // browser generi `dragstart`).
+      const src = (await rowC.boundingBox())!;
+      const dst = (await gruppo2.boundingBox())!;
+      await page.mouse.move(src.x + 20, src.y + src.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(src.x + 30, src.y + src.height / 2 + 6, { steps: 5 });
+      await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height / 2, { steps: 15 });
+      await page.mouse.move(dst.x + dst.width / 2 + 2, dst.y + dst.height / 2 + 2, { steps: 5 });
+      await page.mouse.up();
+
+      // Ora C vive di là: la card di Gruppo 2 la contiene, Principale no.
+      await expect(gruppo2.getByText("SPACE-C-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
+      await expect(principale.getByText("SPACE-C-", { exact: false })).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, c.id).catch(() => {});
+    }
+  });
+
+  test("SPACE-13: se il gruppo attivo vive in un'altra finestra, qui NON si disegna", async ({ page }) => {
+    // Il difetto: staccato un gruppo, la finestra di partenza continuava a
+    // disegnare le stesse tab — due finestre, la stessa griglia, gli stessi
+    // terminali vivi in doppio.
+    await openTwoStandaloneTabs(page);
+
+    await page.routeWebSocket(/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => ws.send(msg));
+      ws.onMessage((msg) => server.send(msg));
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: "presence:windows",
+          windows: [
+            {
+              windowId: "e2e-space-window",
+              clientId: "e2e-c1",
+              windowLabel: "space-e2e",
+              detached: true,
+              spaceId: "space:default",
+              topicIds: [idA, idB],
+              tabs: [{ id: idA, type: "chat" }],
+            },
+          ],
+        }));
+      }, 600);
+    });
+    await page.reload();
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // La griglia lascia il posto al pannello, con le due sole azioni sensate.
+    await expect(page.getByTestId("space-elsewhere")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("space-elsewhere-focus")).toBeVisible();
+    await expect(page.getByTestId("space-elsewhere-reattach")).toBeVisible();
+    await expect(
+      page.locator(`[data-pane-id="${idA}"]`),
+      "e le tab NON si disegnano due volte",
+    ).toHaveCount(0);
+  });
 });
