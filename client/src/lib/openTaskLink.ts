@@ -176,10 +176,23 @@ export function selfTopicLinkTarget(url: string): TopicTarget | null {
 function reflectPath(target: TaskTarget | null): void {
   try {
     const desired = target ? `/task/${target.taskId}` : '/';
-    if (window.location.pathname === desired && !window.location.search) return;
+    // `?space=` SOPRAVVIVE alla riflessione. In una finestra-GRUPPO quella
+    // query non è un parametro di navigazione: è l'IDENTITÀ della finestra —
+    // dice quale gruppo disegna (`lib/windowRole.spaceWindowId`). Cancellarla
+    // la degrada a finestra principale, e siccome la board è quasi sempre
+    // aperta la riflessione partiva al primo montaggio: la finestra staccata
+    // perdeva il suo gruppo PRIMA ancora di annunciarsi, quindi disegnava le
+    // stesse tab della principale (il "detach duplicato") e nessuno la
+    // riconosceva come la casa di quel gruppo (il simbolo che non compariva).
+    // Misurato il 05/08/2026: `pushState('/')` da KanbanBoardPane, e la query
+    // spariva 4 s dopo il boot.
+    const pinnedSpace = new URLSearchParams(window.location.search).get('space');
+    const keep = pinnedSpace ? `?space=${encodeURIComponent(pinnedSpace)}` : '';
+    if (window.location.pathname === desired && window.location.search === keep) return;
     const u = new URL(window.location.href);
     u.pathname = desired;
     u.search = '';
+    if (pinnedSpace) u.searchParams.set('space', pinnedSpace);
     window.history.pushState(null, '', u.toString());
   } catch {
     /* history unavailable — local state still drives the UI, URL just stays put */
