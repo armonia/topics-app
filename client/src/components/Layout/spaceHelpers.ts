@@ -22,6 +22,23 @@ export function liveSpacesOrdered(spaces: Record<string, SpaceMeta>): SpaceMeta[
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
+/**
+ * C'è il gruppo, a schermo? Vero quando esiste almeno un gruppo creato
+ * dall'utente, o quando la finestra È un gruppo staccato (`?space=`).
+ *
+ * Una risposta sola per due domande che devono coincidere: se SpaceGroups
+ * disegna l'intestazione, l'albero deve dividersi in "tab di questo gruppo" e
+ * "fuori dai gruppi"; se non la disegna, la sidebar resta la lista unica di
+ * sempre. Rispondere due volte, in due file, è il modo per farle divergere —
+ * un filo senza intestazione, o un'intestazione attorno a tutto.
+ */
+export function groupChromeActive(
+  spaces: Record<string, SpaceMeta>,
+  pinnedSpaceId: string | null,
+): boolean {
+  return !!pinnedSpaceId || liveSpacesOrdered(spaces).length > 0;
+}
+
 /** Mint a fresh space id (`space:` prefix per the coherence ruling). */
 export function createSpaceId(): string {
   return `space:${generateUUID()}`;

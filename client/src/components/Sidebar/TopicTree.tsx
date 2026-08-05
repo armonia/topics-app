@@ -37,7 +37,7 @@ import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, partitionSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
@@ -158,6 +158,14 @@ export interface TopicTreeProps {
   boardOpen?: boolean;
   /** Opens the global board pane (the '__board__' utility tab). */
   onOpenBoard?: () => void;
+  /** True quando esiste almeno un gruppo (o siamo in una finestra-gruppo): la
+   *  sidebar allora è IL GRUPPO, e l'albero si divide in "le tab di questo
+   *  gruppo" (dentro il filo) e "fuori dai gruppi". Con il solo gruppo
+   *  implicito resta una lista sola, come è sempre stata. */
+  spaceScoped?: boolean;
+  /** Le pane che vivono in un ALTRO gruppo: le loro righe non si disegnano qui
+   *  (vedi partitionSidebarItemsBySpace). */
+  otherSpacePaneIds?: ReadonlySet<string>;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -202,6 +210,8 @@ export function TopicTree({
   boardTaskCount = 0,
   boardOpen = false,
   onOpenBoard,
+  spaceScoped = false,
+  otherSpacePaneIds,
 }: TopicTreeProps) {
   const tr = useT();
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
@@ -332,6 +342,20 @@ export function TopicTree({
     [allItems, searchQuery]
   );
 
+  // ── Appartenenza al gruppo (prima di ogni altra partizione) ──────────────
+  // Con i gruppi accesi la sidebar È il gruppo: dentro il filo ci vanno le SUE
+  // tab, fuori le righe che non stanno in nessun gruppo (compaiono per un non
+  // letto o un "attende te" senza tab aperta). Ciò che vive in un altro gruppo
+  // non si disegna: lo porta la sua riga, sopra, col conto e il pallino.
+  const { inSpace, loose } = useMemo(() => {
+    if (!spaceScoped) return { inSpace: filteredItems, loose: [] as SidebarItem[] };
+    return partitionSidebarItemsBySpace(
+      filteredItems,
+      new Set(openPanels),
+      otherSpacePaneIds ?? new Set<string>(),
+    );
+  }, [filteredItems, spaceScoped, openPanels, otherSpacePaneIds]);
+
   // ── Fissati partition (render-side; the builder's sort stays untouched) ──
   // The pinned block lists EVERY pinned item — top-level rows AND project
   // children — ordered by pin order (pinnedItems index), NOT the
@@ -344,7 +368,7 @@ export function TopicTree({
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
     const byId = new Map<string, SidebarItem>();
-    for (const item of filteredItems) {
+    for (const item of inSpace) {
       if (item.pinned) byId.set(item.id, item);
       for (const child of item.children ?? []) {
         if (child.pinned) byId.set(child.id, child);
@@ -354,10 +378,10 @@ export function TopicTree({
       const item = byId.get(id);
       return item ? [item] : [];
     });
-  }, [filteredItems, pinnedItems]);
+  }, [inSpace, pinnedItems]);
   const unpinnedItems = useMemo(
-    () => filteredItems.filter(i => !i.pinned),
-    [filteredItems]
+    () => inSpace.filter(i => !i.pinned),
+    [inSpace]
   );
 
   const groupedItems = useMemo(
@@ -883,6 +907,14 @@ export function TopicTree({
         className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
         style={{ paddingBlock: ROW_INSET - 1 }}
       >
+        {/* Le tab DI QUESTO GRUPPO. Il filo a sinistra è ciò che rende visibile
+            il "dentro": parte sotto l'intestazione del gruppo (SpaceGroups) e
+            finisce dove finiscono le sue tab — non dove finisce la sidebar.
+            Senza gruppi non c'è filo: è una lista sola, come è sempre stata. */}
+        <div
+          className={spaceScoped ? 'border-l-2 border-app-border/60' : undefined}
+          data-testid="space-tabs"
+        >
         {/* Board generale — THE single sidebar row for the board, above the
             Fissati block. Shown when there is active (non-done) work across all
             projects OR while its tab is open, so an open board is never without
@@ -891,8 +923,10 @@ export function TopicTree({
             buildSidebarItems §5b). Being the only row, it is tab-aware:
             aria-selected + a selected surface while open, exactly like the tab
             rows below. Position is fixed at the top either way, so opening the
-            board never makes its row jump. */}
-        {(boardTaskCount > 0 || boardOpen) && onOpenBoard && (
+            board never makes its row jump. Quando la board è aperta in un ALTRO
+            gruppo la riga sparisce: è una tab di là, e cliccarla da qui non
+            porterebbe da nessuna parte. */}
+        {!otherSpacePaneIds?.has('__board__') && (boardTaskCount > 0 || boardOpen) && onOpenBoard && (
           <button
             type="button"
             onClick={onOpenBoard}
@@ -969,6 +1003,32 @@ export function TopicTree({
               );
             })}
           </>
+        )}
+
+        {spaceScoped && inSpace.length === 0 && !boardOpen && (
+          <div className="px-3 py-2 text-[11px] text-app-text-muted">
+            Nessuna tab in questo gruppo
+          </div>
+        )}
+        </div>
+
+        {/* FUORI DAI GRUPPI. Righe che non sono la tab di nessun gruppo:
+            compaiono per un non letto o un "attende te" e non hanno una tab
+            aperta da nessuna parte. Stanno sotto il filo, non dentro, perché
+            dire che appartengono al gruppo che stai guardando sarebbe falso —
+            ed è esattamente ciò che faceva sembrare i gruppi un'etichetta
+            appoggiata su una lista qualsiasi. Aprirne una la fa entrare nel
+            gruppo attivo, e la riga sale dentro il filo da sola. */}
+        {spaceScoped && loose.length > 0 && (
+          <div data-testid="sidebar-loose">
+            <div className="h-px bg-app-border mx-3 my-1" />
+            <div className="flex items-center gap-1.5 px-3 h-6 select-none">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">
+                Fuori dai gruppi
+              </span>
+            </div>
+            {loose.map(item => renderItem(item))}
+          </div>
         )}
 
         {filteredItems.length === 0 && (

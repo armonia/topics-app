@@ -43,6 +43,7 @@ import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POP
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
+  groupChromeActive,
   liveSpacesOrdered,
   createSpaceId,
   nextSpaceName,
@@ -186,7 +187,7 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
   // l'unica cosa che dice quale gruppo stai guardando — ma senza le altre
   // righe: da lì non si va da nessuna parte.
   if (isDetachedWindow()) return <>{children}</>;
-  if (!pinnedSpace && ordered.length === 0) return <>{children}</>;
+  if (!groupChromeActive(spaces, pinnedSpace)) return <>{children}</>;
 
   const addSpace = () => {
     const id = createSpaceId();
@@ -304,10 +305,11 @@ export function SpaceGroups({ children }: SpaceGroupsProps) {
           {countBySpace.get(activeRow.id) ?? 0}
         </span>
       </div>
-      {/* Il contenuto del gruppo. Il filo a sinistra è ciò che rende visibile
-          il "dentro": senza, l'intestazione sarebbe solo una riga che capita
-          di stare sopra. */}
-      <div className="flex min-h-0 flex-1 flex-col border-l-2 border-app-border/60" data-testid="space-content">
+      {/* Il contenuto del gruppo. Il filo a sinistra — ciò che rende visibile il
+          "dentro" — lo disegna l'ALBERO (TopicTree, `space-tabs`), non questo
+          wrapper: qui correrebbe per tutta l'altezza della sidebar e finirebbe
+          per abbracciare anche le righe che in questo gruppo non stanno. */}
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="space-content">
         {children}
       </div>
 
