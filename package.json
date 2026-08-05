@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
   "version": "2.2.11",
-  "description": "Companion app for OpenClaw \u2014 organize AI conversations into focused topics with project context",
+  "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
   "repository": {
@@ -26,6 +26,7 @@
     "og": "bun scripts/og-image.mjs",
     "check:contrast": "node scripts/landing-contrast.mjs",
     "check:field": "node scripts/landing-field.mjs",
+    "check:painted": "node scripts/landing-painted.mjs",
     "check:landing": "node scripts/landing-verify.mjs",
     "check:copy": "node scripts/landing-copy.mjs",
     "build:landing": "cd client && bun run build:landing",

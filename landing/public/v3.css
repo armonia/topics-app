@@ -111,8 +111,23 @@ body.v3 {
      itself said the face is drawn for 32px and up while --t-xl starts at 25.
      One family for reading, the mono for machine facts. */
   --display: "Switzer", var(--sans-fallback);
-  --display-tracking: -.034em;
-  --display-weight: 560;
+  /* Measured off both reference families, and they agree with each other
+     against this page:
+
+                       h1                     h2                    weight
+       ai-solutions    Sora 64/76 -3.2px      48/58 -2.4px          400
+       ai-voice        Inter Tight 68/75      52/62                 500 / 400
+       tranquil        DM Sans 64 lh 1.0em    36-64 -0.06em         500 on 2 lines
+       this page       Switzer up to 66       up to 46              560
+
+     Their token `--font-weight-bold: 700` is defined and never applied to a
+     heading: size and tracking carry the whole hierarchy and weight carries
+     none of it. Ours was doing the opposite — the heaviest headings of the four
+     at the smallest h2. 470 and -.044em is that lesson applied without going to
+     a flat 400, which in Switzer is a lighter cut than Sora's. */
+  --display-tracking: -.044em;
+  --display-weight: 470;
+  --t-2xl: clamp(31px, 2.9vw + 19px, 50px);
 
   /* The dimmed half of a two-tone headline. Taken from the reference, which
      gets its second tone from the ALPHA of the same white rather than a second
@@ -241,6 +256,7 @@ body.v3 .grain { display: none; }   /* the old, dead layer */
    inherits it, so no section needs to know the field exists. */
 body.v3 > .capsule,
 body.v3 > main,
+body.v3 > .band,
 body.v3 > .footer { position: relative; z-index: 1; }
 
 /* ── The capsule nav ─────────────────────────────────────────────────────── */
@@ -803,8 +819,13 @@ body.v3.is-ready .hero__float { animation: float-in 720ms var(--out) 900ms both;
    developer is scanning: this keeps the SHAPE of that recipe — the blur is what
    makes it feel expensive, and the live page has no blur at all — at
    24px and 10px, which reads as arrival rather than as performance. */
+/* The reference applies ONE reveal to all 73 of its blocks and hand-staggers
+   only the delay: `opacity: 0, filter: blur(16px), y: 60, duration: .6,
+   power2.out`. The 16px is the load-bearing number — its own authors say it is
+   what makes the move read as a focus pull rather than as a slide-up — and this
+   page was at 10px and 24px, which is the same idea at half strength. */
 @keyframes v3-enter {
-  from { opacity: 0; transform: translate3d(0, 24px, 0); filter: blur(10px); }
+  from { opacity: 0; transform: translate3d(0, 52px, 0); filter: blur(16px); }
   to   { opacity: 1; transform: none; filter: blur(0); }
 }
 body.v3 .reveal { opacity: 0; }
@@ -860,6 +881,603 @@ body.v3.is-ready .hero__title .ch-block {
   .kpis { grid-template-columns: 1fr; }
   .faq, .plans { grid-template-columns: 1fr; }
   .limits__cta { flex-direction: column; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE INK GROUND — the second half of the field, and the answer to "so white
+   it is bland".
+
+   ── THE MEASUREMENT THAT STARTED THIS ────────────────────────────────────
+   The page was 16.1% dark pixels overall, and the split was not even: from the
+   hero to act 5 it ran 23-33% dark, and then from y 5,711 to the end — 5,961px,
+   51% of the page — it measured 1.5 to 7.4%. Not one dark element in the whole
+   bottom half. The page opened like a product and finished like a PDF.
+
+   ── WHAT THE REFERENCES ACTUALLY DO ──────────────────────────────────────
+   The first guess was "they are dark, we are light". Measured, that is wrong:
+
+     nextsaas/ai-solutions   body #f4f5f8   L 0.913
+     tranquil/peachworlds    body #ffffff   L 1.000
+     this page (mean)                       L 0.780
+
+   Their BODY is lighter than ours. What they do is paint over it in full-bleed
+   SECTIONS, and the rhythm is big blocks rather than stripes:
+
+     ai-solutions   #0d1017 (1136) · #f8f9fa (889) · #0d1017 (1501) ·
+                    #f8f9fa (1042) · then #0d1017 unbroken for 10,755px — 70%
+     ai-voice       a sand #bca999 hero, then white and a warm cream #f4efe7
+     investment     white and #f9fafb, closing on #1a1a1c
+
+   Two lessons, and only the second one is about darkness. First: their light is
+   COLOURED — warm cream, sand — where ours is a neutral grey-white. Second: the
+   dark is not an island inside a light section, it is the ground of the section,
+   full bleed, in blocks of a thousand pixels and up.
+
+   ── WHY DARK BUYS THE LICENCE TO BE LAVISH ───────────────────────────────
+   This is the physics the whole file was missing. On near-black, a coloured
+   glow at 20% RAISES luminance — from 0.004 to about 0.02 — and text at 17:1
+   is still at 14:1. On near-white the identical glow LOWERS it and eats the
+   contrast budget. That is why the reference can afford an aurora and the paper
+   half of this page could only afford 5% of one masked out of the reading
+   column, which `check:field` then measured, correctly, at 0% coverage.
+
+   A background engineered to be invisible succeeded. That is the blandness.
+
+   So the field now has TWO MATERIALS, and the ground picks which one:
+
+     PAPER   lattice + wash + grain, tuned to be nearly invisible, because on a
+             near-white ground anything visible reads as dirt.
+     INK     an aurora + a dot grid + the same grain, and it is allowed to be
+             seen, because on a near-black ground a glow adds light instead of
+             taking contrast away.
+
+   The ink material is painted band-locally rather than by the one fixed layer.
+   A fixed layer cannot be clipped to a scrolling band without either trapping
+   it in a transformed ancestor or using `background-attachment: fixed`, and
+   both cost frames on a page that already runs a canvas and a live iframe.
+
+   ── THE RHYTHM ───────────────────────────────────────────────────────────
+     INK    hero                          the product
+     PAPER  model · demo                  the explanation
+     INK    acts 1-5                      the product, five scenes
+     PAPER  compare · limits · more       the honest reading
+     INK    pricing · changelog · download · footer   the close
+
+   Three ink blocks, two paper ones, and the block that was 97% white is now
+   the close. Every measured value below is in the table under `[data-ground]`.
+   =========================================================================== */
+
+/* ── The token swap ──────────────────────────────────────────────────────── */
+/* One block. Every rule in this file and in styles.css already goes through
+   these tokens — grep found fourteen hardcoded light values across both sheets
+   and twelve of them were `white-space` — so a section that declares
+   `data-ground="dark"` re-grounds its whole subtree without a single call site
+   changing. Same mechanism as `body.v3` for the brand.
+
+   THE WORST SURFACE IS NOT THE DARKEST ONE. The first version of this block was
+   graded against the flat band and every row cleared AA with room to spare —
+   and then `check:painted` failed the build, because there is an aurora on this
+   ground and the brightest thing behind a paragraph is not #0a0d14 but the
+   middle of a glow. Measured off the real pixels, the peak backdrop under text
+   is rgb(24 50 91). The `headroom` column is a deliberately brighter glow than
+   the page ships, so the palette does not have to be re-derived the next time
+   the aurora is tuned.
+
+                  flat band   aurora peak   headroom
+     --ink          17.18        11.28        9.40    AAA everywhere
+     --ink-mute      8.92         5.85        4.88    AA everywhere
+     --ink-faint     8.42         5.53        4.61    AA, the reading floor
+     --ink-quiet     5.84         3.83        3.20    24px and up only
+     --accent        6.47         4.25        3.54    GRAPHIC only on ink
+     --accent-ink    8.77         5.76        4.80    links and accented words
+
+   Note the last two rows, and the correction they carry. #4d94ff measures 6.47
+   on the flat band, which is what made it look like a colour that could set a
+   link; over the glow it is 4.25, and the gate caught `/agents.md` at 4.42.
+   So the split between a graphic accent and an ink accent survives the change
+   of ground exactly as it does on paper — the values move, the rule does not. */
+[data-ground="dark"] {
+  color-scheme: dark;
+
+  /* Elevation still means rising, and on ink rising means LIGHTER — the same
+     rule as the paper ramp, read the other way up. The band is deeper than the
+     app's own `--app-bg` (#121419) on purpose, so a scene laid on it reads as
+     raised without needing a shadow that ink cannot show. */
+  --p-0:#0a0d14;   /* the band            */
+  --p-1:#070910;   /* sunken wells        */
+  --p-2:#12161f;   /* cards at rest       */
+  --p-3:#171b25;   /* raised              */
+  --p-4:#1c212c;   /* a control ON a card */
+
+  --ink:#eef1f7;
+  --ink-mute:#a8b0c0;
+  --ink-faint:#a3abbb;
+  --ink-quiet:#868d9d;
+  --ink-dim:#979eae;
+
+  /* Hairlines, opaque for the same reason they are opaque on paper: as an alpha
+     the same "line" measures differently on every surface it crosses. Presence
+     matched to the paper set rather than copied from it — --rule is 1.23:1 on
+     paper and 1.42:1 here, which is the same line to the eye on a ground this
+     deep. */
+  --rule:#242a37;
+  --rule-2:#333b4d;
+  --rule-3:#3f4859;
+
+  /* The brand's dark step, which the brand block already declared and nothing
+     had yet been able to use: there was no dark ground to use it on. */
+  --accent:var(--brand-on-dark);
+  --accent-ink:#7ab0ff;
+  --accent-wash:hsl(217 60% 16%);
+  --accent-line:hsl(217 45% 30%);
+
+  --good:#4ade80;
+  --warn:#fbbf24;
+
+
+  /* Elevation on ink is a RING plus a deeper black, never the paper shadows —
+     a shadow on a near-black ground is a shadow nobody can see, which is how a
+     dark section ends up looking flat. */
+  --shadow-1:0 0 0 1px hsl(214 30% 70% / .10);
+  --shadow-2:0 0 0 1px hsl(214 30% 70% / .13), 0 2px 8px -3px #000;
+  --shadow-3:0 0 0 1px hsl(214 30% 70% / .16), 0 4px 10px -4px #000, 0 20px 44px -18px #000;
+  --shadow-slab:0 0 0 1px hsl(214 30% 70% / .14), 0 26px 60px -22px hsl(222 60% 2% / .9);
+}
+
+/* ── The band ────────────────────────────────────────────────────────────── */
+/* Full bleed, and it is the only element on this page that is. The sections
+   inside keep their own max-width, so nothing about the column changes when a
+   section is re-grounded — only what is behind it. */
+.band { position: relative; }
+.band--ink {
+  background-color: var(--p-0);
+  color: var(--ink);
+  /* isolate, so the aurora's blend mode cannot reach the page behind the band,
+     and so the band's own stacking is self-contained. */
+  isolation: isolate;
+  padding: 104px 0 112px;
+}
+/* The first section's own top margin would otherwise collapse straight out of
+   the band and put the gap OUTSIDE the colour. The band's padding is the gap. */
+.band--ink > section:first-of-type,
+.band--ink > .footer:first-of-type { margin-top: 0; }
+/* Everything except the field itself rides above it. Named explicitly rather
+   than left to source order: `> *` and `.band__field` have the same specificity,
+   so which one wins would be decided by whichever rule someone moved last. */
+.band--ink > *:not(.band__field):not(.glow-hero) { position: relative; z-index: 1; }
+
+/* ── THE SEAM ────────────────────────────────────────────────────────────
+   The first version of this was a hairline with a beam in it, on the reasoning
+   that a butt join is what the reference does. Measured, that is not what the
+   reference does, and its own authors rank this first among everything on the
+   page: NEVER cut dark to light with a line. The transition is dissolved over
+   400 to 900px, and it is not a straight fade either — sampled across one of
+   theirs at the transition row, the hue peaks at the FLANKS and the centre
+   stays light longest:
+
+     x=0  #C095EA      x=600  #F6EAFA      x=1435  #BC8DEB
+
+   which reads as a horizon dome rather than as a band. Their full vertical ramp
+   is #0D1017 → #7955B3 → #A678DE → #F1DCFA → #F8F9FA; ours is the same shape in
+   the brand's hue instead of their violet.
+
+   It is painted INSIDE the band rather than as a block between sections. Four
+   boundaries at 400px of their own flow would add 1,600px to a page whose whole
+   argument is that the live one is too long, and the band already reserves
+   104px of padding at the top and 112px at the bottom for exactly this air. */
+/* It is its own block in the flow, and that is not a detail — it is the only
+   way the design can exist. The first attempt painted the ramp as the band's
+   background over its top and bottom 380px, and `check:painted` failed 40
+   elements: the band's padding is 104px, so the other 276px of the dissolve
+   landed under headings and body copy, and light ink on the pale part of the
+   dome measured 1.06:1. A dissolve needs empty space to dissolve THROUGH.
+   Their page is 15,318px partly because it buys that space. Here it costs
+   ~240px four times against a page that is still shorter than the live one,
+   which is a trade worth making for the four weakest joins on it. */
+.seam {
+  height: 240px;
+  position: relative;
+  z-index: 0;
+  pointer-events: none;
+  --ink-deep: #0a0d14;
+  --paper: #f9fafc;
+  background-image:
+    /* the dome: the centre reaches paper before the flanks do */
+    radial-gradient(140% 118% at 50% var(--dome, 100%),
+      var(--paper) 0%,
+      color-mix(in oklab, var(--paper) 58%, var(--brand)) 32%,
+      transparent 64%),
+    linear-gradient(var(--dir, 0deg),
+      var(--paper) 0%,
+      color-mix(in oklab, var(--brand) 34%, var(--paper)) 24%,
+      color-mix(in oklab, var(--brand-strong) 46%, var(--ink-deep)) 58%,
+      var(--ink-deep) 100%);
+}
+/* Leaving ink for paper on the way down. */
+.seam--out { --dir: 0deg; --dome: 100%; }
+/* Arriving at ink from paper. */
+.seam--in { --dir: 180deg; --dome: 0%; }
+
+/* With a seam adjacent, the band no longer needs to reserve its own air on
+   that side — the dissolve is the air. Reclaims half of what the seams cost,
+   four times over. */
+.band--ink:has(+ .seam--out) { padding-bottom: 48px; }
+.seam--in + .band--ink { padding-top: 48px; }
+
+/* THE AURORA HAS TO LAND ON THE SEAM'S FIRST COLOUR, and the first version did
+   not. The layer is fixed to the viewport and clipped to the band, so where the
+   band ends the glow is cut with a knife: `check:field` found 668 of its 1,129
+   abrupt pixels on ONE row, y 891, which is the band's own bottom edge. The
+   seam then began at flat #0a0d14 against a lit edge, and the dissolve built to
+   remove a hard line had a hard line of its own at the top of it.
+   So each band fades its glow back to the flat ink over the 180px before a
+   seam. The two now meet at exactly the same value, and what crosses the
+   boundary is the colour rather than the layer.
+   Painted above the aurora and below the content — hence the negative index on
+   the field, which puts it between the band's background and everything in
+   flow, and lets this pseudo-element sit between the two. */
+.band--ink > .band__field { z-index: -1; }
+.band--ink::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+  background-image: var(--edge-fade, none);
+}
+.band--ink:has(+ .seam) { --edge-fade: linear-gradient(0deg, var(--p-0) 0, transparent 180px); }
+.seam + .band--ink { --edge-fade: linear-gradient(180deg, var(--p-0) 0, transparent 180px); }
+.seam + .band--ink:has(+ .seam) {
+  --edge-fade: linear-gradient(180deg, var(--p-0) 0, transparent 180px),
+               linear-gradient(0deg, var(--p-0) 0, transparent 180px);
+}
+/* The close and the footer are one continuous ground with no seam between
+   them, so neither fades into the other. */
+
+/* ── The ink material ────────────────────────────────────────────────────── */
+/* Three layers, in the same order and with the same discipline as the paper
+   field: a wash that carries the hue, a lattice that carries the structure, a
+   grain that carries the material. The strengths are an order of magnitude
+   above the paper ones and that is the whole point — see the physics note at
+   the top of this block. */
+/* FIXED TO THE VIEWPORT, CLIPPED TO THE BAND — and the first version was
+   absolute, which is the defect this replaced.
+   Sizing a glow as a percentage of its band means a pool that is 46% tall is
+   1,380px inside a 3,069px band: one light smeared over three screens. Measured
+   per 450px step, that produced 3.85% vivid pixels at act 1 and then 0.49% at
+   act 3 — the middle of the page went grey exactly where the argument is. The
+   references do not do this; their ground is per-SCREEN and it never runs out.
+   `clip-path` is the mechanism, and it is chosen rather than `overflow: hidden`
+   for a reason: overflow does not clip a fixed descendant, and the properties
+   that would make it (transform, filter, backdrop-filter, will-change of those)
+   also make the ancestor a containing block, which would nail the layer back to
+   the band and undo the whole point. `clip-path` clips the subtree without
+   becoming a containing block for fixed children.
+   It stays free: the layer paints once and the compositor only moves the clip,
+   and because it is fixed it is out of flow and cannot shift anything. */
+.band--ink { clip-path: inset(0); }
+.band__field {
+  position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
+  contain: layout paint style;
+}
+
+/* THE AURORA. Two hues, and the second one is not decoration: blue is Topics,
+   the ember is the agent — the same #d97757 the product paints the Claude tab
+   with. Kept far weaker than the blue so the page still has one hue and one
+   guest, rather than a mesh gradient with an opinion about nothing. */
+/* The strengths are set from the vivid-pixel table above, not from taste. The
+   first draft used the brand's DARK step (#4d94ff, span 178) at 30% and put
+   0.37% of the page above the vivid threshold — a glow you had to be told
+   about. The core is now the brand itself (#0066ff, span 255) at full strength
+   in the middle of each pool, falling to the dark step and then to nothing.
+   A radial gradient with three stops instead of two is the whole difference
+   between a glow with a body and a smear.
+   The ceiling on this is not a matter of judgement: `check:painted` reads the
+   pixels behind every one of 2,424 text runs and fails the build if the aurora
+   spends contrast to buy colour. It was pushed until that gate objected, then
+   backed off, and the objection is reproducible — see its header. */
+.band__field::before {
+  content: "";
+  position: absolute; inset: -20% -10%;
+  background:
+    radial-gradient(72% 64% at var(--aur-x, 22%) var(--aur-y, 18%),
+      color-mix(in oklab, var(--brand) 46%, transparent) 0%,
+      color-mix(in oklab, var(--brand-on-dark) 24%, transparent) 42%,
+      transparent 74%),
+    radial-gradient(62% 56% at var(--aur-x2, 84%) var(--aur-y2, 72%),
+      color-mix(in oklab, var(--brand) 32%, transparent) 0%,
+      color-mix(in oklab, var(--brand-on-dark) 16%, transparent) 46%,
+      transparent 76%),
+    /* The guest hue. In the product orange is the agent — it is the colour the
+       tab bar paints Claude with — so it belongs in the band about agents and
+       nowhere near the pricing. `--ember` is 0 by default and only the acts
+       turn it up, which is why this page has a second hue rather than a mesh. */
+    radial-gradient(54% 46% at var(--aur-x3, 62%) var(--aur-y3, 8%),
+      color-mix(in oklab, #d97757 calc(var(--ember, 0) * 1%), transparent) 0%,
+      transparent 74%);
+  filter: blur(52px);
+  opacity: calc(var(--aur, 1) * var(--field-gain));
+  animation: aurora 26s var(--state, ease-in-out) infinite alternate;
+}
+@keyframes aurora {
+  from { transform: translate3d(-2.5%, -1.5%, 0) scale(1); }
+  to   { transform: translate3d(2.5%, 2%, 0) scale(1.08); }
+}
+
+/* The dot grid, in CSS rather than on the canvas. The canvas lattice is ink
+   coloured and would be invisible here; a static two-tone dot grid costs no
+   frames at all, which matters because these bands are where the scenes and
+   their parallax already are. Same 30px pitch as the canvas so the two
+   materials agree about the size of the weave. */
+.band__field::after {
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(circle at 1px 1px, hsl(216 40% 78% / .085) 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, hsl(216 40% 78% / .035) 1px, transparent 0);
+  background-size: 120px 120px, 30px 30px;
+  background-position: 0 0, 0 0;
+  -webkit-mask-image: radial-gradient(120% 82% at 50% 40%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(120% 82% at 50% 40%, #000 30%, transparent 78%);
+  opacity: var(--field-gain);
+}
+
+/* The same grain as everything else dark on this page, for the same reason it
+   is on the scenes: without it the bands read as three flat fills pasted on,
+   with it they read as three openings cut in one material. */
+.band--ink::after {
+  content: "";
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+  opacity: calc(.05 * var(--field-gain));
+  mix-blend-mode: soft-light;
+  background-image: var(--grain-src);
+  background-size: 168px 168px;
+}
+
+/* Each band gets its own arrangement, or three identical auroras read as a
+   repeating tile — which is the exact tell of a template.
+   Named, not counted: these were `main > .band--ink:nth-of-type(n)` until the
+   seams landed, and the seams are divs in the same parent, so the count had
+   silently shifted by two. A positional selector is a comment about the markup
+   that nobody updates when the markup changes. */
+.band--hero { --aur-x:16%; --aur-y:14%; --aur-x2:88%; --aur-y2:64%; --aur-x3:58%; --aur-y3:4%; }
+
+/* THE HERO'S OWN LIGHT, and it is where the strength can go without a fight.
+   The contrast budget is only spent where the glow is behind WORDS; behind the
+   screenshot it is behind an opaque photograph, and behind the fold it is
+   behind nothing at all. So the one place this page can be as bright as the
+   references is exactly the place they are brightest: under the product, at
+   the bottom of the first screen.
+   Anchored to the stage rather than to the band, so it stays with the window
+   when the window moves — and clipped to the band, so it cannot leak onto the
+   paper section below. */
+/* The hero's glow stays anchored to the BAND, not to the viewport, because it
+   is a light under one specific object — the window — rather than part of the
+   ambient ground. That is also why it is a sibling of the field rather than a
+   child of it now that the field is fixed. */
+.band--ink > .glow-hero {
+  position: absolute; left: 50%; bottom: -18%; z-index: 0;
+  --hero-glow: 1;
+  width: min(1400px, 116%); height: 78%;
+  transform: translateX(-50%);
+  opacity: var(--hero-glow, 0);
+  background:
+    radial-gradient(50% 50% at 50% 60%,
+      color-mix(in oklab, var(--brand) 72%, transparent) 0%,
+      color-mix(in oklab, var(--brand) 34%, transparent) 34%,
+      color-mix(in oklab, var(--brand-on-dark) 14%, transparent) 60%,
+      transparent 78%);
+  filter: blur(74px);
+  animation: hero-breathe 19s var(--state, ease-in-out) infinite alternate;
+}
+@keyframes hero-breathe {
+  from { transform: translateX(-50%) scale(1); opacity: calc(var(--hero-glow, 0) * .82); }
+  to   { transform: translateX(-50%) scale(1.12); opacity: var(--hero-glow, 0); }
+}
+.band--acts { --aur-x:78%; --aur-y:10%; --aur-x2:14%; --aur-y2:78%; --aur-x3:44%; --aur-y3:46%; --aur:.9; --ember:34; }
+.band--close { --aur-x:50%; --aur-y:96%; --aur-x2:12%; --aur-y2:20%; --aur-x3:86%; --aur-y3:70%; }
+
+/* The footer's band. Same ink run as the one above it — the join has no seam
+   and no top padding, so the two read as one ground rather than as two blocks
+   that happen to share a colour. Its aurora is a single low ember, because a
+   footer that glows as hard as a hero is a footer competing with the download
+   button eighty pixels above it. */
+.band--foot { padding-top: 0; }
+.band--foot::before { display: none; }
+.band--foot { --aur-x:8%; --aur-y:6%; --aur-x2:70%; --aur-y2:88%; --aur-x3:96%; --aur-y3:30%; --aur:.5; }
+.band--foot .footer { border-top: 0; }
+
+/* ── What the ink ground changes about the parts ─────────────────────────── */
+/* THE MOCK LOSES ITS CARD, and this is the point of the ink ground rather than
+   a side effect of it.
+
+   On paper a scene had to be a box: a slab of the app's near-black laid on a
+   near-white sheet needs a radius and four shadow layers to stop reading as a
+   hole cut in the page. That box is a picture FRAME, and a frame says "here is
+   a photograph of the product" — which is the thing the whole page is trying
+   not to say. Worse, it is a card the product itself never draws.
+
+   On ink the frame has no work left to do. The band is already the app's own
+   family, one step deeper, so the mock can sit directly on it with no fill, no
+   radius and no shadow, and read as the section rather than as an object in it.
+   What remains is the ONE card the product actually draws — `.scene__fg`, the
+   actor — and it now floats against the band with nothing competing for the
+   same reading. Depth comes from the parallax and the aurora, both of which
+   were already there and were being flattened by the box around them.
+
+   The rule this states, and the reason it is written here rather than applied
+   by hand: A CARD IS DRAWN ONLY WHERE THE PRODUCT DRAWS ONE. */
+[data-ground="dark"] .scene {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  /* Kept: the context layer is absolutely placed and parallaxed, and without a
+     clip it paints over the section's own padding. Clipping a transparent box
+     costs nothing and there is no longer a radius for it to round. */
+  overflow: hidden;
+}
+/* The grain was the thing that made seven dark boxes read as one material. With
+   no boxes left there is nothing for it to unify, and a soft-light noise over a
+   transparent element just re-grains the band that already has its own. */
+[data-ground="dark"] .scene::after { display: none; }
+/* Slightly more air where the frame used to be: the padding was measured
+   against an edge that is gone. */
+[data-ground="dark"] .scene { min-height: 400px; }
+[data-ground="dark"] .scene__ctx { padding: 34px 4px 10px; }
+/* The tag was a label stuck on the frame. Off the frame it is a label on the
+   band, so it drops its chip and becomes what it always was — an eyebrow. */
+[data-ground="dark"] .scene__tag {
+  background: none; border: 0; padding: 0; left: 2px; top: 0;
+  color: var(--ink-faint);
+}
+
+/* Code and inline chips: `--p-3` is now a RAISED dark, which is right, but a
+   chip also wants an edge or it dissolves into the paragraph. */
+[data-ground="dark"] .act__lead code,
+[data-ground="dark"] .faq code,
+[data-ground="dark"] .model__step code { box-shadow: inset 0 0 0 1px var(--rule); }
+
+/* The act number keeps its bracket, and the bracket keeps the brand — but the
+   brand's PAPER step is 3.3:1 on ink, so on this ground it takes the dark step
+   like everything else. `--accent` already resolves to it; this is only here to
+   say out loud that the glyphs follow the ground rather than the brand. */
+[data-ground="dark"] .act__glyph,
+[data-ground="dark"] .more__ic { color: var(--accent); }
+[data-ground="dark"] .act__n { border-color: var(--accent); }
+
+/* ── Where the colour goes ───────────────────────────────────────────────── */
+/* Measured against the references, the page's problem was never saturation on
+   average — it was that almost none of it was STRONG. Sampling every fourth
+   pixel down the whole of each page, counting a pixel as vivid when its
+   channel span exceeds 70 of 255:
+
+                     mean sat   colourful   VIVID    hue spread
+     this page         0.353      6.2%      0.37%    87% in one bucket
+     ai-solutions      0.321      7.4%      3.70%    red + blue-violet + violet
+     ai-voice          0.058     16.6%      1.36%    warm + green
+     tranquil          0.523     38.4%     22.09%    cyan
+
+   Higher mean saturation than ai-solutions and a TENTH of its vivid coverage:
+   a page made entirely of low-chroma blue-grey. That is the measurement behind
+   "insipido", and it is not fixed by tinting everything a little more. It is
+   fixed by putting real colour in the few places that have earned it.
+
+   The first of those is the button you are supposed to press. On paper the
+   primary CTA is near-black, which is right on a white sheet; on ink that same
+   token resolves to near-white, which is legible, restrained, and the exact
+   grey-on-grey that produced the table above. So on ink it becomes the brand
+   at full strength — #0066ff, channel span 255, the most saturated thing the
+   palette owns — with white on it at 4.83:1, comfortably AA.
+
+   Colour goes where the click goes. */
+[data-ground="dark"] .btn--primary {
+  background: var(--brand); color: #fff;
+  box-shadow: 0 0 0 1px hsl(217 100% 62% / .5), 0 10px 30px -12px hsl(217 100% 50% / .55);
+}
+[data-ground="dark"] .btn--primary:hover {
+  background: #1a75ff;
+  box-shadow: 0 0 0 1px hsl(217 100% 70% / .6), 0 14px 38px -12px hsl(217 100% 50% / .7);
+}
+[data-ground="dark"] .btn--ghost { border-color: var(--rule-2); }
+[data-ground="dark"] .btn--ghost:hover { border-color: var(--rule-3); background: var(--p-2); }
+[data-ground="dark"] .btn--glass {
+  color: var(--ink); background: hsl(220 20% 100% / .06);
+  border-color: hsl(220 16% 100% / .16); box-shadow: none;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+[data-ground="dark"] .btn--glass:hover { background: hsl(220 20% 100% / .11); border-color: hsl(220 16% 100% / .26); }
+[data-ground="dark"] .halo::after { border-color: var(--accent-line); }
+
+/* GLASS, and it is the one thing all four references do to a card: nextsaas
+   blurs its nav at 15px and its panels at 6.5 and 17, tranquil blurs every
+   framer card at 10. On paper it is pointless — there is nothing behind a card
+   but more white. On ink there is an aurora behind it, and a card that lets it
+   through stops being a rectangle stuck on a background and starts being a
+   pane in front of one.
+   The fill is a translucent lift rather than `--p-2`, so what you see through
+   it is the band's own light. `check:painted` grades the result on the pixels
+   this actually produces, which is the only reason it can be this loose. */
+/* NO SHADOW, AND THE CARD IS THE COLOUR OF THE PAGE. Both of these are
+   measured off the reference rather than chosen: a full-DOM census of its dark
+   page found exactly two box-shadows, both transparent placeholders, and its
+   card fill is #0D1017 on a page of #0D1017 — 1.034:1, which is to say the card
+   is not a fill at all. It exists as a hairline, and the hairline is
+   `1px solid rgba(148,174,207,.11)`: COOL blue-grey, not white at 10%. Swapping
+   one for the other is most of the difference on its own, because a neutral
+   white hairline on a blue-black ground reads as a wireframe and a cool one
+   reads as an edge catching the room.
+   This is the same rule the mocks already follow, applied to the last cards
+   that were still declaring themselves: a card is drawn only where there is
+   something to hold. What holds the pricing tiers apart is the hairline and
+   the glass, not a slab. */
+[data-ground="dark"] .plan,
+[data-ground="dark"] .gate {
+  background: hsl(222 30% 9% / .42);
+  border: 1px solid hsl(214 30% 70% / .12);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  box-shadow: none;
+}
+/* The one exception, and it is scarcity that makes it work — the reference's
+   glass ladder puts a border only on its lightest fill and its largest surface.
+   Here the border goes brand-coloured on the tier the page is recommending,
+   and on nothing else. */
+[data-ground="dark"] .plan--feature {
+  background: hsl(220 40% 11% / .5);
+  border-color: hsl(217 70% 62% / .3);
+  box-shadow: none;
+}
+
+/* The hero window, same rule. It is a real screenshot rather than live DOM, so
+   it is the one mock on the page that genuinely IS a photograph — but a
+   photograph with a frame around it is a picture of the app, and a photograph
+   bleeding into the ground is the app. The mask at the fold already dissolves
+   its bottom edge into whatever is behind it, which is now the band, so the
+   crop needs no colour of its own. */
+[data-ground="dark"] .hero__shot { border-radius: 0; box-shadow: none; background: none; }
+[data-ground="dark"] .hero__stage::after { display: none; }
+
+/* Same rule, third instance. `.agents-block` is a slab of `--dark` (#07090f)
+   laid on the band's #0a0d14 — a box you cannot see holding content that does
+   not need holding. What is left is the one thing in it that IS a control: the
+   copy line. The prose goes back to being prose. */
+[data-ground="dark"] .agents-block {
+  background: none; box-shadow: none; padding: 0; border-radius: 0;
+  border-top: 1px solid var(--rule); padding-top: 22px; color: var(--ink);
+}
+[data-ground="dark"] .agents-block::after { display: none; }
+[data-ground="dark"] .agents-block h3 { color: var(--ink); }
+[data-ground="dark"] .agents-block p { color: var(--ink-mute); }
+[data-ground="dark"] .agents-block a { color: var(--accent-ink); }
+[data-ground="dark"] .copyline { background: var(--p-1); border-color: var(--rule-2); }
+[data-ground="dark"] .copyline code { color: var(--ink); }
+
+/* ── The capsule over ink ────────────────────────────────────────────────── */
+/* The nav floats over both grounds, so it cannot pick a colour once. It is
+   glass — `backdrop-filter`, which is what all four references use on their
+   nav, measured at blur(15px) on nextsaas and blur(10px) on tranquil — and the
+   INK tokens are switched on by a class the scroll handler sets when a band is
+   actually under the bar. Deterministic: it tests the band's own rect against
+   the capsule's centre line rather than guessing from the active section, which
+   is wrong for exactly the 60px around every seam. */
+.capsule__in { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+body.v3.is-ink .capsule__in {
+  background: hsl(222 30% 6% / .72);
+  box-shadow: 0 0 0 1px hsl(220 16% 100% / .09), 0 8px 26px -12px #000;
+}
+body.v3.is-ink .capsule__brand { color: #eef1f7; }
+body.v3.is-ink .capsule__brand .mark { color: var(--brand-on-dark); }
+body.v3.is-ink .capsule__links a { color: #a8b0c0; }
+body.v3.is-ink .capsule__links a:hover { color: #eef1f7; }
+body.v3.is-ink .btn--ghost { color: #eef1f7; border-color: hsl(220 16% 100% / .18); }
+body.v3.is-ink .btn--ghost:hover { background: hsl(220 16% 100% / .08); }
+.capsule__in, .capsule__brand, .capsule__links a, .capsule .btn--ghost {
+  transition: color var(--field-fade) var(--state), background-color var(--field-fade) var(--state),
+              border-color var(--field-fade) var(--state), box-shadow var(--field-fade) var(--state);
+}
+
+@media (max-width: 700px) {
+  .band--ink { padding: 72px 0 80px; }
+  .band__field::before { filter: blur(40px); }
 }
 
 /* ── Reduced motion ──────────────────────────────────────────────────────── */

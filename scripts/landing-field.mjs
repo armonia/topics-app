@@ -58,14 +58,69 @@ const MAX_COVER_READING = 0.4; // % of the reading column the field may touch vi
 const MAX_GUTTER = 44;         // the gutters are where the field is allowed to be seen
 const MIN_PRESENT = 1.5;       // the field has to do SOMETHING
 
-/* The scroll offsets to sample. One in each declared field state, so a change
-   that only misbehaves in `dense` cannot hide behind a quiet section. */
+/* ── AND THEN THE PAGE GREW A SECOND GROUND ──────────────────────────────
+   The budgets above are the PAPER ones and every word of their reasoning still
+   holds — on a near-white sheet anything you can see is dirt. They are also the
+   reason this gate quietly stopped working the day the ink bands landed: three
+   of its four sample positions became opaque dark bands, `.field` is behind
+   them and paints nothing there, and the gate went on reporting a cheerful
+   `reading max 0` for a layer that was no longer the layer on screen.
+
+   A ceiling-only gate cannot tell "clean" from "absent". This one has a floor
+   for exactly that reason, and the floor passed anyway because the hero still
+   showed 11/255 of paper field above the band. So: the floor was right to exist
+   and too coarse to catch it.
+
+   The fix is to measure BOTH materials, each where it actually operates, and to
+   give the ink one its own budgets — because the ink material is not trying to
+   be invisible. On a near-black ground a glow adds light instead of taking
+   contrast, so it is ALLOWED in the reading column, and what would be wrong
+   there is not presence but violence: a hard edge, a band, a seam. That is a
+   ceiling on the peak, not on the coverage.
+
+   Whether the ink field costs any contrast is not guessed here either — it is
+   measured directly, on the painted pixels, by `check:painted`. */
+/* THE INK BUDGET IS A SMOOTHNESS, NOT A MAGNITUDE, and the first version of it
+   got this wrong in the same way this file already warns about for paper: a
+   per-pixel maximum cannot tell a hairline from a wash. Ported to ink, "the
+   aurora peaks at 73/255" is not a finding — a strong glow and a hard edge have
+   the same peak and are opposite designs. What separates them is how much the
+   layer changes between ADJACENT pixels: a 52px-blurred radial gradient moves a
+   fraction of a step per pixel, a seam or a banded ramp moves many.
+   So the ink material is gated on three things and each one gates a failure no
+   other gate can see:
+     LOCAL STEP  is it a glow or an edge
+     FLOOR       is it painting at all
+     (contrast)  does it cost legibility — measured exactly, on the painted
+                 pixels, by `check:painted`. Not duplicated here with a
+                 magnitude ceiling that would only ever be a worse proxy. */
+/* MEASURED ON THE AURORA ALONE. The ink material is two layers — a glow and a
+   dot grid — and the grid's dots are deliberate 1px marks with hard edges, so a
+   smoothness test run over both reported 8/255 and pointed at coordinates that
+   were all multiples of 120: the grid pitch, not a defect. The same mistake the
+   paper budget above already documents, met from the other side.
+   So the ink pass takes three shots instead of two and separates them:
+     aurora = full-layer minus dots-hidden   → smoothness AND floor
+     dots   = full-layer minus aurora-hidden → floor only, since a 1px mark has
+              no smoothness to test and never had. */
+const MAX_INK_STEP = 4;        // adjacent-pixel change in the AURORA's contribution
+const MIN_INK_PRESENT = 8;     // an aurora you cannot measure is an aurora that is off
+const MIN_INK_DOTS = 1;        // the grid has to be painting too
+
+/* The scroll offsets to sample, one set per material. Positions taken from the
+   built page's own section map rather than remembered: `bun run build` then
+   scripts/landing-field.mjs prints what it found if these ever drift. */
 const SAMPLES = [
-  { name: 'hero (dense)', y: 0 },
-  { name: 'model (quiet)', y: 1200 },
-  { name: 'act 1 (dense)', y: 2700 },
-  { name: 'limits (deep)', y: 6400 },
+  { name: 'model (quiet)', y: 1500, material: 'paper' },
+  { name: 'limits (deep)', y: 6650, material: 'paper' },
+  { name: 'more (quiet)', y: 7500, material: 'paper' },
+  { name: 'hero (ink)', y: 300, material: 'ink' },
+  { name: 'act 1 (ink)', y: 3200, material: 'ink' },
+  { name: 'close (ink)', y: 9000, material: 'ink' },
 ];
+
+/** Which element is the material, per sample. */
+const LAYER = { paper: '.field', ink: '.band__field' };
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
                 '.png': 'image/png', '.json': 'application/json', '.txt': 'text/plain',
@@ -108,8 +163,13 @@ const DIFF = async ([aB64, bB64, w, h]) => {
   const readL = Math.round(w * 0.34), readR = Math.round(w * 0.66);
   const VISIBLE = 6;   // below this a single pixel is not something anyone sees
   let maxRead = 0, sumRead = 0, nRead = 0, litRead = 0, maxGut = 0;
+  /* The layer's own contribution, per pixel, kept so the local gradient can be
+     read off it. A magnitude says how bright; only the gradient says whether it
+     is a glow or an edge. */
+  const contrib = new Uint8Array(w * h);
   for (let i = 0, p = 0; i < A.length; i += 4, p++) {
     const d = Math.max(Math.abs(A[i] - B[i]), Math.abs(A[i + 1] - B[i + 1]), Math.abs(A[i + 2] - B[i + 2]));
+    contrib[p] = d;
     const x = p % w;
     if (x >= readL && x < readR) {
       if (d > maxRead) maxRead = d;
@@ -117,6 +177,18 @@ const DIFF = async ([aB64, bB64, w, h]) => {
       if (d > VISIBLE) litRead++;
     } else if (d > maxGut) maxGut = d;
   }
+  /* The 99.9th percentile rather than the maximum: one row of subpixel
+     antialiasing at the very edge of the viewport is not a design defect, and a
+     single-pixel outlier is exactly what a max reports. */
+  const steps = [];
+  for (let y = 1; y < h - 1; y += 2) {
+    for (let x = 1; x < w - 1; x += 2) {
+      const k = y * w + x;
+      steps.push(Math.max(Math.abs(contrib[k] - contrib[k + 1]), Math.abs(contrib[k] - contrib[k + w])));
+    }
+  }
+  steps.sort((a, b) => a - b);
+  const localStep = steps[Math.floor(steps.length * 0.999)] ?? 0;
   return {
     maxReading: maxRead,
     meanReading: +(sumRead / Math.max(1, nRead)).toFixed(3),
@@ -125,6 +197,7 @@ const DIFF = async ([aB64, bB64, w, h]) => {
        is how much of the column is covered. */
     coverReading: +(100 * litRead / Math.max(1, nRead)).toFixed(2),
     maxGutter: maxGut,
+    localStep,
   };
 };
 
@@ -165,43 +238,90 @@ const fails = [];
 for (const s of SAMPLES) {
   await settle(s.y);
   await page.waitForTimeout(400);          // let the field's state observer crossfade
+  const sel = LAYER[s.material];
+  /* For ink the CONTENT is hidden for both shots. The aurora sits behind opaque
+     screenshots and cards, and every one of their edges is a place where the
+     layer's contribution drops to zero in one pixel — which a smoothness test
+     would report as an edge in the aurora. `visibility: hidden` leaves the
+     layout exactly where it was and removes only the paint. */
+  let mask = null, dotsOnly = null;
+  if (s.material === 'ink') {
+    mask = await page.addStyleTag({ content:
+      `.band--ink > *:not(.band__field) { visibility: hidden !important; }` });
+    await page.waitForTimeout(90);
+  }
   const withField = (await page.screenshot({ type: 'png' })).toString('base64');
-  await page.evaluate(() => {
-    document.querySelectorAll('.field').forEach((e) => (e.style.display = 'none'));
+
+  /* The middle shot: the aurora gone, the dot grid still there. */
+  let noAurora = null;
+  if (s.material === 'ink') {
+    dotsOnly = await page.addStyleTag({ content: `.band__field::before { display: none !important; }` });
+    await page.waitForTimeout(90);
+    noAurora = (await page.screenshot({ type: 'png' })).toString('base64');
+    await dotsOnly.evaluate((el) => el.remove());
+    await page.waitForTimeout(60);
+  }
+  await page.evaluate((q) => {
+    document.querySelectorAll(q).forEach((e) => (e.style.display = 'none'));
     document.documentElement.classList.add('no-field');
-  });
+  }, sel);
   await page.waitForTimeout(120);
   const without = (await page.screenshot({ type: 'png' })).toString('base64');
-  await page.evaluate(() => {
-    document.querySelectorAll('.field').forEach((e) => (e.style.display = ''));
+  await page.evaluate((q) => {
+    document.querySelectorAll(q).forEach((e) => (e.style.display = ''));
     document.documentElement.classList.remove('no-field');
-  });
+  }, sel);
+
+  if (mask) { await mask.evaluate((el) => el.remove()); await page.waitForTimeout(60); }
 
   const d = await page.evaluate(DIFF, [withField, without, WIDTH, HEIGHT]);
-  rows.push({ ...s, ...d });
-  if (d.maxReading > MAX_READING) fails.push(`${s.name}: reading column peaks at ${d.maxReading}/255 (max ${MAX_READING})`);
-  if (d.meanReading > MAX_MEAN_READING) fails.push(`${s.name}: reading column averages ${d.meanReading}/255 (max ${MAX_MEAN_READING})`);
-  if (d.coverReading > MAX_COVER_READING) fails.push(`${s.name}: field visibly touches ${d.coverReading}% of the reading column (max ${MAX_COVER_READING}%)`);
-  if (d.maxGutter > MAX_GUTTER) fails.push(`${s.name}: gutters peak at ${d.maxGutter}/255 (max ${MAX_GUTTER})`);
+  /* For ink the numbers that gate are the AURORA's, taken from the middle shot;
+     `d` is kept for the report so the whole layer's magnitude is still visible.
+     `aur` compares full against dots-only, which leaves the glow. */
+  const aur = noAurora ? await page.evaluate(DIFF, [withField, noAurora, WIDTH, HEIGHT]) : null;
+  const dots = noAurora ? await page.evaluate(DIFF, [noAurora, without, WIDTH, HEIGHT]) : null;
+  rows.push({ ...s, ...d, aurStep: aur?.localStep, aurMax: aur ? Math.max(aur.maxGutter, aur.maxReading) : undefined,
+              dotMax: dots ? Math.max(dots.maxGutter, dots.maxReading) : undefined });
+
+  if (s.material === 'paper') {
+    if (d.maxReading > MAX_READING) fails.push(`${s.name}: reading column peaks at ${d.maxReading}/255 (max ${MAX_READING})`);
+    if (d.meanReading > MAX_MEAN_READING) fails.push(`${s.name}: reading column averages ${d.meanReading}/255 (max ${MAX_MEAN_READING})`);
+    if (d.coverReading > MAX_COVER_READING) fails.push(`${s.name}: field visibly touches ${d.coverReading}% of the reading column (max ${MAX_COVER_READING}%)`);
+    if (d.maxGutter > MAX_GUTTER) fails.push(`${s.name}: gutters peak at ${d.maxGutter}/255 (max ${MAX_GUTTER})`);
+  } else {
+    /* No coverage or magnitude ceiling on ink, and that is the design rather
+       than an oversight: the aurora is MEANT to be seen, including behind the
+       words, and whether it costs legibility is measured exactly elsewhere.
+       What it may not be is abrupt. */
+    if (aur && aur.localStep > MAX_INK_STEP) fails.push(`${s.name}: the aurora changes ${aur.localStep}/255 between adjacent pixels (max ${MAX_INK_STEP}) — that is an edge or a band, not a glow`);
+    if (dots && Math.max(dots.maxGutter, dots.maxReading) < MIN_INK_DOTS) fails.push(`${s.name}: the dot grid paints nothing (floor ${MIN_INK_DOTS}) — it is off, not subtle`);
+  }
 }
 
-/* The floor is checked once, on the state that declares the field at full
-   strength — `deep` sections turn the lattice off on purpose. */
-const dense = rows.filter((r) => /dense/.test(r.name));
-if (dense.length && !dense.some((r) => r.maxGutter >= MIN_PRESENT)) {
-  fails.push(`the field paints nothing in any dense section (max ${Math.max(...dense.map((r) => r.maxGutter))}/255, floor ${MIN_PRESENT}) — it is off, not subtle`);
+/* Two floors, one per material, and each on the samples where that material is
+   the one on screen. The single floor this gate used to have passed for weeks
+   after three of its four samples had stopped measuring anything, because the
+   one remaining sliver of paper field above the hero band still cleared it. */
+for (const [material, floor] of [['paper', MIN_PRESENT], ['ink', MIN_INK_PRESENT]]) {
+  const set = rows.filter((r) => r.material === material);
+  if (!set.length) { fails.push(`no sample measures the ${material} material at all`); continue; }
+  const best = Math.max(...set.map((r) => (material === 'ink' ? (r.aurMax ?? 0) : Math.max(r.maxGutter, r.maxReading))));
+  if (best < floor) {
+    fails.push(`the ${material} material paints nothing anywhere it was sampled (best ${best}/255, floor ${floor}) — it is off, not subtle`);
+  }
 }
 
 await browser.close();
 server.close();
 
-console.log(`field measured at ${SAMPLES.length} scroll positions, ${WIDTH}×${HEIGHT}\n`);
-console.log('  position           reading max   reading mean   reading cover   gutter max');
+console.log(`both field materials measured at ${SAMPLES.length} scroll positions, ${WIDTH}×${HEIGHT}\n`);
+console.log('  material  position           reading max   reading mean   reading cover   gutter max   aurora step   dots');
 for (const r of rows) {
-  console.log(`  ${r.name.padEnd(18)} ${String(r.maxReading).padStart(7)}       ${String(r.meanReading).padStart(8)}       ${(r.coverReading + '%').padStart(8)}     ${String(r.maxGutter).padStart(7)}`);
+  console.log(`  ${r.material.padEnd(8)}  ${r.name.padEnd(18)} ${String(r.maxReading).padStart(7)}       ${String(r.meanReading).padStart(8)}       ${(r.coverReading + '%').padStart(8)}     ${String(r.maxGutter).padStart(7)}     ${String(r.aurStep ?? r.localStep).padStart(9)}   ${String(r.dotMax ?? '·').padStart(4)}`);
 }
 if (!fails.length) {
-  console.log(`\n✓ the field touches at most ${MAX_COVER_READING}% of the reading column, averages under ${MAX_MEAN_READING}/255 there, stays under ${MAX_GUTTER}/255 in the gutters, and is actually painting`);
+  console.log(`\n✓ paper: invisible in the reading column (≤${MAX_COVER_READING}% cover, ≤${MAX_MEAN_READING}/255 mean) and present in the gutters`);
+  console.log(`✓ ink:   a glow rather than an edge (≤${MAX_INK_STEP}/255 between adjacent pixels) and present`);
   process.exit(0);
 }
 console.log(`\n✗ ${fails.length} failing:\n`);
