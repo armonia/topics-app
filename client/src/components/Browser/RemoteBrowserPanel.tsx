@@ -449,9 +449,13 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
               corto apposta — `truncate` qui tagliava proprio la parte che
               spiegava il problema. */}
           <span className="flex-1 min-w-0 leading-tight" title={[browser.navError.message, browser.navError.hint].filter(Boolean).join('\n')}>
-            <span className="block line-clamp-2">{browser.navError.message}</span>
+            {/* `line-clamp-*` imposta già `display:-webkit-box`: aggiungerci
+                `block` metterebbe due utility sulla stessa proprietà, e a
+                decidere sarebbe l'ordine nel foglio di stile, non quello delle
+                classi. */}
+            <span className="line-clamp-2">{browser.navError.message}</span>
             {browser.navError.hint && (
-              <span className="block line-clamp-2 opacity-70">{browser.navError.hint}</span>
+              <span className="line-clamp-2 opacity-70">{browser.navError.hint}</span>
             )}
           </span>
           {(browser.navError.url || browser.url) && (
