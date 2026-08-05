@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 
@@ -44,6 +45,23 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Un solo imbuto per l'invio, così la bozza si cancella in UN posto: quando la
+   * risposta è partita davvero. Se l'invio fallisce la bozza resta — è
+   * esattamente il momento in cui serve di più.
+   */
+  const submitAndForget = async (payload: Parameters<typeof onSubmit>[0]) => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onSubmit(payload);
+      clearAskDraft(toolCallId);
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Submission failed');
+      setSubmitting(false);
+    }
+  };
+
   // --- Branch 1: questions (Claude SDK AskUserQuestion) ---
   if (schema.kind === 'questions') {
     return (
@@ -52,16 +70,7 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
         toolCallId={toolCallId}
         submitting={submitting}
         error={error}
-        onSubmit={async (response) => {
-          setError(null);
-          setSubmitting(true);
-          try {
-            await onSubmit(response);
-          } catch (err: unknown) {
-            setError(errorMessage(err) || 'Submission failed');
-            setSubmitting(false);
-          }
-        }}
+        onSubmit={(response) => submitAndForget(response)}
       />
     );
   }
@@ -78,16 +87,7 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
         toolCallId={toolCallId}
         submitting={submitting}
         error={error}
-        onSubmit={async (value) => {
-          setError(null);
-          setSubmitting(true);
-          try {
-            await onSubmit({ kind: 'elicitation', value, submittedAt: '' });
-          } catch (err: unknown) {
-            setError(errorMessage(err) || 'Submission failed');
-            setSubmitting(false);
-          }
-        }}
+        onSubmit={(value) => submitAndForget({ kind: 'elicitation', value, submittedAt: '' })}
       />
     );
   }
@@ -95,18 +95,10 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
   // --- Branch 3: raw fallback ---
   return (
     <RawForm
+      toolCallId={toolCallId}
       submitting={submitting}
       error={error}
-      onSubmit={async (text) => {
-        setError(null);
-        setSubmitting(true);
-        try {
-          await onSubmit({ kind: 'raw', text, submittedAt: '' });
-        } catch (err: unknown) {
-          setError(errorMessage(err) || 'Submission failed');
-          setSubmitting(false);
-        }
-      }}
+      onSubmit={(text) => submitAndForget({ kind: 'raw', text, submittedAt: '' })}
     />
   );
 }
@@ -156,8 +148,12 @@ function QuestionsForm({
   // sentinel entry resolved to `otherText`. A single-select question holds at
   // most one label; a `multiSelect` one holds any number — the wire format
   // stays `Record<string,string>`, so multiple picks are joined with ", ".
-  const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const [otherText, setOtherText] = useState<Record<string, string>>({});
+  // Stato iniziale dalla BOZZA salvata: un ⌘R (o l'app che riparte) non deve
+  // buttare via una risposta a metà mentre l'agente è ancora fermo su quella
+  // stessa domanda. Vedi askDraft.ts.
+  const saved = useMemo(() => readAskDraft(toolCallId), [toolCallId]);
+  const [selections, setSelections] = useState<Record<string, string[]>>(() => saved?.selections ?? {});
+  const [otherText, setOtherText] = useState<Record<string, string>>(() => saved?.otherText ?? {});
   // UNA domanda alla volta, come la fa la CLI.
   //
   // Prima uscivano tutte insieme in un blocco solo: tre domande con tre righe
@@ -167,7 +163,12 @@ function QuestionsForm({
   // — la risposta al tool è un oggetto solo, quindi il passo non cambia niente
   // sul filo. Con una domanda sola non compare nessuna impalcatura: resta
   // esattamente il pannello di prima.
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => saved?.step ?? 0);
+  // Si riscrive a ogni tocco: sono pochi byte in localStorage, e l'alternativa
+  // (salvare "ogni tanto") perde esattamente l'ultima cosa che hai scritto.
+  useEffect(() => {
+    writeAskDraft(toolCallId, { selections, otherText, step });
+  }, [toolCallId, selections, otherText, step]);
   const stepped = questions.length > 1;
   const current = questions[Math.min(step, questions.length - 1)]!;
   const isLast = step >= questions.length - 1;
@@ -407,8 +408,10 @@ interface ElicitationProp {
 
 function ElicitationForm({ requestedSchema, message, toolCallId, submitting, error, onSubmit }: ElicitationProp) {
   const fields = useMemo(() => parseElicitationFields(requestedSchema), [requestedSchema]);
-  const [values, setValues] = useState<Record<string, unknown>>({});
-  const [jsonText, setJsonText] = useState('');
+  const savedElicit = useMemo(() => readAskDraft(toolCallId), [toolCallId]);
+  const [values, setValues] = useState<Record<string, unknown>>(() => savedElicit?.values ?? {});
+  const [jsonText, setJsonText] = useState(() => savedElicit?.jsonText ?? '');
+  useEffect(() => { writeAskDraft(toolCallId, { values, jsonText }); }, [toolCallId, values, jsonText]);
 
   // If we couldn't extract any fields, fall back to a raw JSON textarea —
   // the user can still answer, even if the form is less helpful.
@@ -558,13 +561,15 @@ function parseElicitationFields(schema: unknown): SchemaField[] | null {
 }
 
 function RawForm({
-  submitting, error, onSubmit,
+  submitting, error, onSubmit, toolCallId,
 }: {
   submitting: boolean;
   error: string | null;
   onSubmit: (text: string) => Promise<void>;
+  toolCallId: string;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => readAskDraft(toolCallId)?.text ?? '');
+  useEffect(() => { writeAskDraft(toolCallId, { text }); }, [toolCallId, text]);
   return (
     <form
       onSubmit={(e) => {
