@@ -27,7 +27,13 @@ const BASE = E2E_BASE;
  * finestra. Sono segnate una per una.
  */
 const AT_BOTTOM_TOLERANCE_PX = 150; // = AT_BOTTOM_TOLERANCE_PX in scrollAuthority.ts
-const TRUE_BOTTOM_TOLERANCE_PX = 60; // padding di Virtuoso
+// Il fondo VERO: due pixel di tolleranza, non sessanta.
+//
+// Con 60px il test passava mentre l'umano vedeva ancora dello scroll sotto la
+// freccia «torna in fondo» — la misura era più generosa dell'occhio, ed è per
+// questo che il difetto è arrivato in produzione con la sua suite verde. Il pin
+// adesso si assesta finché il residuo è zero, quindi può essere preteso.
+const TRUE_BOTTOM_TOLERANCE_PX = 2;
 
 type Scroller = Locator;
 
@@ -165,6 +171,31 @@ test.describe("Chat scroll behavior", () => {
 
     const scrollAfter = await scroller.evaluate((el) => el.scrollTop);
     expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThan(100);
+  });
+
+  test("dopo un refresh la chat riapre IN FONDO, non a metà né in cima", async ({ page }) => {
+    // «Quando refresho si perde»: ricaricare è il gesto più comune che ci sia, e
+    // una chat che riapre in cima ti fa scorrere a mano fino all'ultimo
+    // messaggio ogni volta. Il fondo è lo stato di riposo della chat.
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+    await settleAtBottom(scroller);
+
+    await page.reload();
+    const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+    await expect(dopo).toHaveCount(1, { timeout: 15_000 });
+
+    // Il fondo va raggiunto DA SOLO: nessuno scroll, nessun click.
+    await expect
+      .poll(() => isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 12_000 })
+      .toBe(true);
+
+    // E ci resta: due letture a distanza, per escludere il rimbalzo.
+    await page.waitForTimeout(1200);
+    expect(await isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX)).toBe(true);
   });
 
   test("scroll-to-bottom button appears when scrolled up and works on click", async ({ page }) => {

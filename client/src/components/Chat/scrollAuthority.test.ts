@@ -176,6 +176,17 @@ describe('left-bottom fuori dallo stream — la guardia', () => {
 });
 
 describe('ritorno in fondo', () => {
+  it('un salto in fondo che non abbiamo fatto noi NON riancora', () => {
+    // La lista si ri-ancora da sé dopo una rimisura: in traccia `top: 0` e un
+    // istante dopo il fondo, senza nessun pin di mezzo. Perdonarlo incollava la
+    // vista per il resto della sessione a chi stava leggendo indietro.
+    const staccato = at({ anchored: false });
+    const d = reduceScroll(staccato, { type: 'reached-bottom', teleported: true }, T0);
+    expect(d.state.anchored).toBe(false);
+    expect(d.state).toBe(staccato);
+  });
+
+
   it('perdona lo sgancio: la crescita successiva riaggancia', () => {
     const d = reduceScroll(at({ anchored: false }), { type: 'reached-bottom' }, T0);
     expect(d.state.anchored).toBe(true);
