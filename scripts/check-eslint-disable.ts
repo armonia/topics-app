@@ -34,7 +34,7 @@
  * Run: `bun run scripts/check-eslint-disable.ts`
  *      `bun run scripts/check-eslint-disable.ts client/src/hooks`  (scope custom)
  */
-import { readFileSync, readdirSync, statSync, existsSync } from "fs";
+import { readFileSync, readdirSync, lstatSync, statSync, existsSync } from "fs";
 import { join, resolve, relative } from "path";
 
 /** Le radici sorgente. `tests/` resta fuori: lì un disable non spedisce nulla. */
@@ -107,7 +107,12 @@ function walk(dir: string, out: string[]): void {
   for (const name of readdirSync(dir)) {
     if (SKIP_DIRS.has(name)) continue;
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) walk(full, out);
+    // `lstat`, non `stat`: un symlink penzolante (ne vive uno sotto
+    // tests/e2e/data, al bundle congelato di una run passata) farebbe lanciare
+    // ENOENT a `stat`, che lo segue. I sorgenti sono file veri.
+    const st = lstatSync(full);
+    if (st.isSymbolicLink()) continue;
+    if (st.isDirectory()) walk(full, out);
     else if (SOURCE_EXT.test(name)) out.push(full);
   }
 }
