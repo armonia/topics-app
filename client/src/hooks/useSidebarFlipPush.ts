@@ -71,6 +71,8 @@ export function useSidebarFlipPush(
     // props themselves, so react-hooks/immutability mis-targets them here.
     // eslint-disable-next-line react-hooks/immutability
     content.style.paddingLeft = `${targetPad}px`;
+    // Stesso motivo della riga sopra: `layer` è un nodo DOM letto dalla ref,
+    // non la ref stessa.
     // eslint-disable-next-line react-hooks/immutability
     layer.style.transition = 'none';
     layer.style.transform = 'none';

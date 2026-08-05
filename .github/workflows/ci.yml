@@ -69,6 +69,19 @@ jobs:
         run: bun run lint
         working-directory: client
 
+      # Quattro cancelli che esistevano in package.json e non comparivano in
+      # NESSUN workflow — la terza volta che questo repo trova la stessa cosa
+      # (vedi `typecheck:e2e` sopra e `verify:phase30-strip` sotto). Uno script
+      # di check che nessuno esegue non è una protezione: è la sua imitazione,
+      # e costa di più di non averlo perché fa credere che la classe di difetti
+      # sia coperta. Sono tutti puri e veloci, quindi stanno in un passo solo.
+      - name: Static guard rails (any / NUL / dead code / eslint-disable)
+        run: |
+          bun run check:any
+          bun run check:nul
+          bun run check:deadcode
+          bun run check:eslint-disable
+
       - name: Unit + integration tests
         run: bun test:unit
 

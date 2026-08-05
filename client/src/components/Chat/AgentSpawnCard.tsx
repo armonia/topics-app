@@ -60,6 +60,10 @@ export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, 
   useEffect(() => {
     setInfo(prev => ({ ...prev, startedAt: prev.startedAt || new Date().toISOString() }));
     fetchSession();
+  // `fetchSession` è una funzione semplice, ricreata a ogni render: elencarla
+  // rifarebbe la fetch a ogni render invece che a ogni sessione. Quando
+  // l'effetto gira dopo un cambio di `sessionKey` la closure è già quella
+  // nuova, e `lastUpdateRef` scarta comunque una risposta sorpassata da un WS.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
 
@@ -103,6 +107,10 @@ export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, 
     }
     intervalRef.current = setInterval(fetchSession, POLL_INTERVAL_FALLBACK);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  // Stesso motivo della fetch iniziale: `fetchSession` è ricreata a ogni
+  // render, e metterla qui rimonterebbe l'intervallo di polling a ogni render.
+  // Le due condizioni che devono davvero riarmare il timer sono elencate:
+  // quale sessione, e se è ancora attiva.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, info.status]);
 

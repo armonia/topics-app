@@ -35,6 +35,7 @@
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
+    "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:deadcode": "bunx --bun knip",
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
