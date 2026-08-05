@@ -103,9 +103,18 @@ test.describe("Kanban board toolbar — mobile overflow affordance", () => {
     const metrics = await toolbarMetrics(page);
     const affordance = page.getByTestId("toolbar-overflow-affordance");
 
-    if (metrics.scrollWidth - metrics.clientWidth <= 1) {
-      test.skip(true, "toolbar fits at 390px in this fixture — nothing to assert");
-    }
+    // L'eccedenza è la PREMESSA di questo test, e la fixture è nostra
+    // (`seedProjectPane` qui sopra): quindi si asserisce, non si salta. Prima
+    // qui c'era `test.skip(true, "…nothing to assert")` — se un giorno la
+    // toolbar smettesse di eccedere a 390px (pulsanti tolti, larghezze
+    // cambiate, seeding diverso) il test sarebbe diventato verde-vuoto invece
+    // che rosso, e l'affordance di scroll non sarebbe più stata verificata da
+    // nessuno. Se questa riga fallisce, la risposta giusta è guardare: o è
+    // cambiato il prodotto, o è derivata la fixture.
+    expect(
+      metrics.scrollWidth - metrics.clientWidth,
+      "a 390px la toolbar deve eccedere il viewport, altrimenti non c'è nessuna affordance da verificare",
+    ).toBeGreaterThan(1);
 
     await expect(affordance, "l'affordance deve comparire quando la toolbar eccede il viewport").toBeVisible();
 

@@ -645,43 +645,20 @@ test.describe("Grid Split System", () => {
     test("GRID-05: Splitting works in project windows", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
-      await collapseSidebarSections(page);
+      // `openProject` invece della navigazione a mano della sidebar: la versione
+      // scritta a mano qui non trovava più la riga del progetto e il test usciva
+      // da un `test.skip()` muto — verde in mezzo agli altri, e questo AC non
+      // veniva verificato da mesi senza che nulla diventasse rosso. L'helper
+      // ri-semina la pane e ricarica quando la riga manca, che è esattamente la
+      // ragione per cui i test che lo usano passano.
+      await openProject(page, /e2e-grid/);
 
-      // Expand sezione Progetti to find the e2e project
-      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
-      if (await projectsBtn.count() > 0) {
-        const expanded = await projectsBtn.getAttribute("aria-expanded");
-        if (expanded === "false") {
-          await projectsBtn.click();
-          await expect(projectsBtn).toHaveAttribute('aria-expanded', 'true', { timeout: 5000 });
-        }
-      }
-
-      // Look for any project to open
-      const projectItem = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: /e2e-grid|topics-app/ }).first();
-      if (await projectItem.count() === 0) {
-        // No projects available in test DB — skip gracefully
-        test.skip();
-        return;
-      }
-
-      await projectItem.click();
-      // Era waitForTimeout(2000): si aspetta la comparsa della prima tab del
-      // progetto. Il bail-out `test.skip()` qui sotto resta la rete di sicurezza
-      // se non arriva mai — ma nel caso normale si riparte appena la UI è
-      // pronta, invece di pagare 2s pieni ogni volta.
-      await page
-        .locator('[role="main"] [draggable="true"]')
-        .first()
-        .waitFor({ state: 'visible', timeout: 10_000 })
-        .catch(() => { /* il controllo esplicito sotto decide se skippare */ });
-
-      // Project windows should have tabs that can be right-clicked
+      // La tab DEVE esserci: se una finestra progetto si apre senza tab è un
+      // difetto del prodotto, non una condizione dell'ambiente da saltare.
       const tab = page.locator('[role="main"] [draggable="true"]').first();
-      if (await tab.count() === 0) {
-        test.skip();
-        return;
-      }
+      await expect(tab, "una finestra progetto aperta deve avere almeno una tab").toBeVisible({
+        timeout: 10_000,
+      });
 
       // Right-click on a project tab
       await tab.click({ button: 'right' });
@@ -721,13 +698,24 @@ test.describe("Grid Split System", () => {
       await page.keyboard.press('Escape');
     });
 
-    test("GRID-01/02: DnD edge-drop creates split", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      // DnD tests are notoriously flaky with pointer events + dnd-kit.
-      // This test attempts to drag a tab to the edge of the main area.
-      // Marking as fixme if it proves unreliable.
-      test.fixme();
-    });
+    // BUCO NOTO — «GRID-01/02: DnD edge-drop creates split» non esiste.
+    //
+    // Qui c'era un test il cui corpo era la sola riga `test.fixme()`: nessun
+    // drag, nessuna asserzione, il parametro `page` mai usato. Compariva nel
+    // report come "skipped" e si annotava da sé la copertura di LAYOUT-01, che
+    // e' il danno vero — un buco che si presenta come una casella spuntata.
+    // Rimosso il 05/08/2026: un'assenza dichiarata si vede, uno stub perenne no.
+    //
+    // Il motivo per cui non e' scritto e' reale e documentato altrove: il
+    // drop su bordo passa dagli eventi di drag HTML5, che in Playwright headless
+    // non arrivano a dnd-kit — vedi il `test.fixme` con la sua spiegazione in
+    // `layout-edge-cases.spec.ts` (DnD fra gruppi). Servirebbe una sequenza di
+    // pointer event costruita a mano per dnd-kit: finche' non c'e', questo
+    // percorso resta scoperto e va detto.
+    //
+    // Quello che invece E' coperto, e passa: lo split via menu contestuale
+    // (GRID-01 e GRID-02 qui sopra), il raggruppamento per drop dalla sidebar
+    // (GRID-GROUP) e i MIME type impostati sul drag di ogni tab.
 
     test("GRID-09: 'Reimposta pannelli' collapses the standalone grid to one tabbed cell", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
@@ -833,62 +821,32 @@ test.describe("Grid Split System", () => {
     test("GRID-10: 'Reimposta pannelli' flattens a project window's internal splits", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten, project)" });
       await goToApp(page);
-      await collapseSidebarSections(page);
-
-      // Open the self-provisioned project (same flow as GRID-05).
-      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
-      if (await projectsBtn.count() > 0) {
-        const expanded = await projectsBtn.getAttribute("aria-expanded");
-        if (expanded === "false") {
-          await projectsBtn.click();
-          await expect(projectsBtn).toHaveAttribute('aria-expanded', 'true', { timeout: 5000 });
-        }
-      }
-      const projectItem = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: /e2e-grid/ }).first();
-      if (await projectItem.count() === 0) {
-        test.skip();
-        return;
-      }
-      await projectItem.click();
-      // Era waitForTimeout(2000): si aspetta la comparsa della prima tab del
-      // progetto. Il bail-out `test.skip()` qui sotto resta la rete di sicurezza
-      // se non arriva mai — ma nel caso normale si riparte appena la UI è
-      // pronta, invece di pagare 2s pieni ogni volta.
-      await page
-        .locator('[role="main"] [draggable="true"]')
-        .first()
-        .waitFor({ state: 'visible', timeout: 10_000 })
-        .catch(() => { /* il controllo esplicito sotto decide se skippare */ });
+      // Stessa storia di GRID-05: la navigazione a mano della sidebar non
+      // trovava più la riga del progetto e il test spariva in un `test.skip()`
+      // muto. L'helper ri-semina e ricarica quando serve.
+      await openProject(page, /e2e-grid/);
 
       // Split a project-internal tab down → a cellStack inside GroupLayout.
       const tab = page.locator('[role="main"] [draggable="true"]').first();
-      if (await tab.count() === 0) {
-        test.skip();
-        return;
-      }
+      await expect(tab, "una finestra progetto aperta deve avere almeno una tab").toBeVisible({
+        timeout: 10_000,
+      });
       await tab.click({ button: 'right' });
       const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
       const splitDown = ctxMenu.getByText('Dividi in basso', { exact: true });
-      if (!(await splitDown.isVisible().catch(() => false))) {
-        await page.keyboard.press('Escape');
-        test.skip();
-        return;
-      }
+      await expect(
+        splitDown,
+        "il menu contestuale di una tab di progetto deve offrire «Dividi in basso»: senza, non c'è niente da appiattire e questo AC non è verificabile",
+      ).toBeVisible({ timeout: 3000 });
       await splitDown.click();
-      // O il divisore compare, o lo split era un no-op (gruppo a pane singola):
-      // in entrambi i casi lo si sa prima del secondo, non dopo.
-      const splitLanded = await page
-        .locator('[role="main"] .cursor-row-resize')
-        .first()
-        .waitFor({ state: 'visible', timeout: 5000 })
-        .then(() => true)
-        .catch(() => false);
-      if (!splitLanded) {
-        // Split was a no-op (single-pane group / not splittable) — nothing to flatten.
-        test.skip();
-        return;
-      }
+      // Cliccato «Dividi in basso», il divisore DEVE comparire. Prima qui c'era
+      // un `test.skip()` che chiamava "no-op" la mancata comparsa: cioè il modo
+      // esatto in cui una divisione rotta si sarebbe travestita da test verde.
+      await expect(
+        page.locator('[role="main"] .cursor-row-resize').first(),
+        "dopo «Dividi in basso» deve comparire il divisore di riga",
+      ).toBeVisible({ timeout: 5000 });
 
       // Scope the invariant to the PROJECT window's own tabs. The reset event
       // is global: it may legitimately purge a project-bound topic that was
