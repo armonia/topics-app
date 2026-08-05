@@ -75,12 +75,13 @@ jobs:
       # di check che nessuno esegue non è una protezione: è la sua imitazione,
       # e costa di più di non averlo perché fa credere che la classe di difetti
       # sia coperta. Sono tutti puri e veloci, quindi stanno in un passo solo.
-      - name: Static guard rails (any / NUL / dead code / eslint-disable)
+      - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip)
         run: |
           bun run check:any
           bun run check:nul
           bun run check:deadcode
           bun run check:eslint-disable
+          bun run check:test-skips
 
       - name: Unit + integration tests
         run: bun test:unit
