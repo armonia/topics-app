@@ -20,6 +20,9 @@ export interface Props {
   /** Google Fonts href, only for the changelog, which uses a different pairing. */
   googleFonts?: string;
   themeColor?: string;
+  /** Fontshare href. Overridden by a page that does not use every family —
+      /v3 has no serif, so asking for Gambarino would cost 16.4KB for nothing. */
+  fontshare?: string;
 }
 
 const {
@@ -33,6 +36,7 @@ const {
   jsonLd,
   googleFonts,
   themeColor = '#f9fafc',
+  fontshare = 'https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap',
 } = Astro.props;
 
 const canonical = new URL(path, Astro.site).href;
@@ -69,10 +73,14 @@ const canonical = new URL(path, Astro.site).href;
   {googleFonts && <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />}
   {googleFonts && <link rel="stylesheet" href={googleFonts} />}
   {/* Three families, and only the weights the site actually sets. */}
-  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=gambarino@400&f%5B%5D=switzer@400,500,600,700&display=swap" />
+  <link rel="stylesheet" href={fontshare} />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/commit-mono/index.css" />
   <link rel="stylesheet" href="/styles.css" />
   {jsonLd && <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />}
+  {/* Anything a page needs INSIDE the head. Without this slot a `slot="head"`
+      on a child matches nothing and Astro silently drops it — which is how /v3
+      shipped a `noindex` that was never in the document at all. */}
+  <slot name="head" />
 </head>
 <body class={bodyClass}>
   <slot />
