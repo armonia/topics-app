@@ -203,7 +203,27 @@ export function MessageList({
   if (initialTopMostIndexRef.current === null && filteredMessages.length > 0) {
     initialTopMostIndexRef.current = filteredMessages.length - 1;
   }
-  const initialTopMostItemIndex = initialTopMostIndexRef.current ?? Math.max(0, filteredMessages.length - 1);
+  /**
+   * `align: 'end'`, e senza è un bug che si vede solo sulle chat vere.
+   *
+   * Con il solo indice, Virtuoso allinea l'INIZIO di quell'item in cima alla
+   * viewport. Se l'ultimo messaggio è più alto della finestra — una risposta
+   * lunga, un turno pieno di blocchi tool: la norma qui — ricaricare ti lascia
+   * in cima a quel messaggio, con tutto il resto sotto da riscrollare a mano.
+   * È il «aggiorno mentre sono agganciato sotto allo stream e mi porta sopra»:
+   * l'aggancio non c'entrava, era il montaggio.
+   *
+   * Non si vedeva coi messaggi corti (l'item ci sta tutto, quindi il suo inizio
+   * in cima È già il fondo), che è esattamente il caso che i test coprivano.
+   * Con `align: 'end'` si allinea la FINE dell'ultimo item al fondo della
+   * viewport, che è il fondo vero a qualunque altezza.
+   */
+  const initialIndex = initialTopMostIndexRef.current ?? Math.max(0, filteredMessages.length - 1);
+  // Memoizzato per VALORE: la prop è un oggetto, e un'identità nuova a ogni
+  // render la farebbe ri-applicare di continuo — è lo stesso difetto che il
+  // congelamento dell'indice esiste per chiudere (la lista che si strappava al
+  // fondo da sola).
+  const initialTopMostItemIndex = initialIndex;
 
 
   // ── I due soli verbi dello scroll ─────────────────────────────────────────
@@ -215,6 +235,19 @@ export function MessageList({
    *  per combattere con un utente che nel frattempo scrolla (il ri-controllo di
    *  `shouldPin` dentro ogni frame lo lascia comunque vincere). */
   const PIN_SETTLE_FRAMES = 6;
+  /** Quanti frame concedere al pin di APERTURA. Più larghi dei sei di regime
+   *  perché lì la lista sta misurando tutto per la prima volta: un ultimo
+   *  messaggio lungo (120 righe, un turno pieno di blocchi tool) continua a
+   *  crescere per parecchi frame, e fermarsi a sei lo lascia a metà. Nessun
+   *  rischio di combattere con l'utente: `shouldPin` viene ri-controllato dentro
+   *  ogni frame, quindi il primo tocco di rotellina lo ferma. */
+  const OPEN_SETTLE_FRAMES = 24;
+  /** Per quanto, dopo l'apertura, una rimisura della lista va riportata al
+   *  fondo. Virtuoso misura gli item alti a più riprese e, applicando il suo
+   *  `initialTopMostItemIndex`, rimette in cima alla viewport l'INIZIO
+   *  dell'ultimo messaggio — dopo il nostro pin, quindi vincendo lui. Un
+   *  secondo e mezzo copre anche una lista lunga su macchina carica. */
+  const OPEN_WINDOW_MS = 1500;
   /** Quando abbiamo pinnato l'ultima volta: serve a distinguere «la vista è in
    *  fondo perché ce l'abbiamo portata noi» da «ci è saltata da sola». */
   const lastPinAtRef = useRef(0);
@@ -237,7 +270,7 @@ export function MessageList({
    * ancora la coda; `scrollToIndex('LAST')` lo materializza, il rAF successivo
    * incolla sull'altezza vera. Chi decide resta sempre e solo `reduceScroll`.
    */
-  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean }) => {
+  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number }) => {
     if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
     // Il fondo si raggiunge PER DAVVERO, non "quasi".
@@ -258,7 +291,7 @@ export function MessageList({
       if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
       el.scrollTop = el.scrollHeight;
       const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (residuo > 1 && attempts < PIN_SETTLE_FRAMES) {
+      if (residuo > 1 && attempts < (opts?.settleFrames ?? PIN_SETTLE_FRAMES)) {
         attempts++;
         requestAnimationFrame(run);
       }
@@ -268,7 +301,7 @@ export function MessageList({
   }, [jumpPending]);
 
   /** Manda un evento all'autorità, applica il nuovo stato, e pinna se lo dice lei. */
-  const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2 }) => {
+  const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2; settleFrames?: number; force?: boolean }) => {
     const decision = reduceScroll(authorityRef.current, event, Date.now());
     authorityRef.current = decision.state;
     setIsScrolledUp(!decision.state.anchored);
@@ -299,6 +332,67 @@ export function MessageList({
       dispatchScroll({ type: 'topic-switch' });
     }
   }, [topic.id, dispatchScroll]);
+
+  /**
+   * Il pin di APERTURA: la prima volta che questa chat ha dei messaggi a
+   * schermo, si va al fondo vero.
+   *
+   * `initialTopMostItemIndex` da solo non basta e non può bastare: dice a
+   * Virtuoso da quale item partire, e Virtuoso ci allinea l'INIZIO di quell'item
+   * in cima alla viewport. Coi messaggi corti l'item ci sta tutto e il risultato
+   * È il fondo — motivo per cui la suite era verde — ma se l'ultimo messaggio è
+   * più alto della finestra (una risposta lunga, un turno pieno di blocchi tool:
+   * la norma) ricaricare ti lascia in cima a QUEL messaggio, col resto da
+   * riscrollare a mano. È il «aggiorno mentre sono agganciato sotto allo stream
+   * e mi porta sopra»: l'aggancio non c'entrava, era il montaggio.
+   *
+   * Passare `{index, align:'end'}` sarebbe stata la strada breve e non
+   * funziona: Virtuoso calcola quell'allineamento sulle altezze che conosce al
+   * montaggio, cioè nessuna, e atterra peggio di prima (provato, due test rossi).
+   * Qui invece si pinna a misure fatte, e si ritenta finché il residuo è zero.
+   *
+   * Gli altri due effetti di sotto non coprono questo caso: uno vuole
+   * `needsScrollRef` (lo arma il CAMBIO di topic, non un'apertura a freddo),
+   * l'altro una transizione di `currentLoading` da true a false, che a
+   * ricaricare con la storia già in cache non avviene.
+   */
+  const openPinnedForRef = useRef<string | null>(null);
+  /** Finestra di APERTURA: fin qui il fondo è ancora lo stato di riposo, e
+   *  ogni rimisura della lista va riportata giù. Vedi `totalListHeightChanged`. */
+  const openingUntilRef = useRef(0);
+  /** L'utente ha davvero toccato lo scroll da quando questa chat è aperta?
+   *  Lo scrive SOLO il gesto vero (rotellina su, trascinamento), non la
+   *  geometria di Virtuoso — che durante l'apertura dice «non sei in fondo»
+   *  senza che nessuno abbia mosso niente. */
+  const userTouchedRef = useRef(false);
+  useEffect(() => {
+    if (openPinnedForRef.current === topic.id) return;
+    if (!scrollerEl || filteredMessages.length === 0) return;
+    // Chi ha una posizione da ripristinare (undo di una pane chiusa) o un salto
+    // da palette in canna possiede la viewport: il fondo non è più lo stato di
+    // riposo di questa apertura.
+    if (initialScrollOffset != null && Number.isFinite(initialScrollOffset)) {
+      openPinnedForRef.current = topic.id;
+      return;
+    }
+    if (peekScrollToMessage(topic.id)) return;
+    openPinnedForRef.current = topic.id;
+    userTouchedRef.current = false;
+    openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
+    // `scroll-to-bottom` e non un pin nudo, perché qui c'è anche uno STATO da
+    // rimettere a posto: montando in cima all'ultimo item la lista non è in
+    // fondo, Virtuoso lo annuncia (`left-bottom`) e l'autorità si sgancia da
+    // sola — senza che nessuno abbia scrollato. Da lì in poi ogni pin è vietato
+    // e compare pure la freccia «torna in fondo» su una chat appena aperta.
+    // Questo evento riancora e pinna in un colpo solo.
+    // `force`: l'apertura non è una contesa con l'utente, e mentre l'item alto
+    // finisce di misurarsi possono arrivare altri `left-bottom` che
+    // sgancerebbero di nuovo a metà assestamento.
+    dispatchScroll(
+      { type: 'scroll-to-bottom' },
+      { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
+    );
+  }, [topic.id, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, OPEN_SETTLE_FRAMES]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -485,11 +579,11 @@ export function MessageList({
     // Virtuoso superi la sua soglia (nel frattempo la vista si diceva ancorata
     // mentre l'utente stava già leggendo indietro, e il messaggio dopo gliela
     // ributtava in fondo).
-    const releaseToUser = () => dispatchScroll({
+    const releaseToUser = () => (userTouchedRef.current = true, dispatchScroll({
       type: 'user-scrolled-up',
       streaming: _currentStreaming,
       distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
-    });
+    }));
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) releaseToUser();
     };
@@ -782,6 +876,27 @@ export function MessageList({
           // message no longer stuck to the bottom — chat-scroll.spec:29). Stessa
           // costante dell'autorità: AT_BOTTOM_TOLERANCE_PX.
           atBottomThreshold={AT_BOTTOM_TOLERANCE_PX}
+          /**
+           * L'ultima parola sull'apertura, e serve perché la prima non è nostra.
+           *
+           * Virtuoso misura gli item a più riprese: il nostro pin di apertura
+           * parte a misure ancora provvisorie, e subito dopo Virtuoso applica il
+           * suo `initialTopMostItemIndex` sulle altezze vere — rimettendo in
+           * cima alla viewport l'INIZIO dell'ultimo messaggio. Con una risposta
+           * più alta della finestra il risultato è esattamente il difetto
+           * riportato: la chat riapre in cima all'ultimo messaggio e il resto lo
+           * riscrolli a mano. Verificato in traccia: pin eseguito, e la vista
+           * comunque ferma a `top = 75` (l'altezza del penultimo item).
+           *
+           * Questa callback arriva a misura FATTA, che è il momento giusto. Vale
+           * solo dentro la finestra di apertura e solo se l'utente non ha
+           * toccato lo scroll: dopo, la lista è sua.
+           */
+          totalListHeightChanged={() => {
+            if (Date.now() > openingUntilRef.current) return;
+            if (userTouchedRef.current) return;
+            pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
+          }}
           atBottomStateChange={(atBottom) => {
             if (atBottom) {
               // Ci siamo arrivati NOI o ci è saltata da sola? Se un attimo fa
