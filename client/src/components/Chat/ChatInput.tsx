@@ -12,7 +12,6 @@ import { ContextPills } from './ContextPills';
 import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
-import { MentionAutocomplete } from './MentionAutocomplete';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
@@ -613,12 +612,6 @@ export function ChatInput({
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState<number>(-1);
 
-  // Agent @mention state
-  const [showAgentMention, setShowAgentMention] = useState(false);
-  const [agentMentionQuery, setAgentMentionQuery] = useState('');
-  const [agentMentionPos, setAgentMentionPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const [agentMentionStartPos, setAgentMentionStartPos] = useState<number>(-1);
-
   // C'è una domanda a schermo a cui il testo scritto qui può rispondere?
   // `sendMessage` in quel caso instrada il testo alla domanda invece di
   // accodarlo (`state/pendingAsk.ts`): il composer lo deve DIRE, altrimenti
@@ -809,7 +802,7 @@ export function ChatInput({
       setSlashFilter('');
     }
 
-    // Detect @ trigger for mentions (agent or file)
+    // Detect @ trigger for a FILE mention
     {
       let atPos = -1;
       for (let i = cursorPos - 1; i >= 0; i--) {
@@ -832,64 +825,17 @@ export function ChatInput({
           setMentionMenuIndex(0);
           setMentionStartPos(atPos);
         }
-
-        // Show agent @mention autocomplete
-        const ta = textareaRef.current;
-        if (ta) {
-          const rect = ta.getBoundingClientRect();
-          setAgentMentionPos({ top: rect.top - 4, left: rect.left + 12 });
-        }
-        setShowAgentMention(true);
-        setAgentMentionQuery(query);
-        setAgentMentionStartPos(atPos);
       } else {
         if (topic.projectPath) {
           setShowMentionMenu(false);
           setMentionFilter('');
           setMentionStartPos(-1);
         }
-        setShowAgentMention(false);
-        setAgentMentionQuery('');
-        setAgentMentionStartPos(-1);
       }
     }
   };
 
-  const handleAgentMentionSelect = useCallback((name: string) => {
-    if (agentMentionStartPos >= 0) {
-      const before = message.substring(0, agentMentionStartPos);
-      const afterAt = message.substring(agentMentionStartPos);
-      const spaceIdx = afterAt.indexOf(' ', 1);
-      const after = spaceIdx >= 0 ? afterAt.substring(spaceIdx) : '';
-      setMessage(before + '@' + name + ' ' + after.trimStart());
-    }
-    setShowAgentMention(false);
-    setAgentMentionQuery('');
-    setAgentMentionStartPos(-1);
-    // Also dismiss file mention if open
-    setShowMentionMenu(false);
-    setMentionStartPos(-1);
-    textareaRef.current?.focus();
-  }, [agentMentionStartPos, message, setMessage, textareaRef]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Handle agent @-mention autocomplete navigation
-    // MentionAutocomplete uses a document-level keydown capture listener,
-    // so we just need to prevent defaults here to avoid conflicts.
-    if (showAgentMention) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowAgentMention(false);
-        setAgentMentionStartPos(-1);
-        return;
-      }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        // MentionAutocomplete handles these via its document-level capture listener
-        return;
-      }
-    }
-
     // Handle file @-mention menu navigation
     if (showMentionMenu) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionMenuIndex(i => i + 1); return; }
@@ -1036,13 +982,13 @@ export function ChatInput({
             onClick={() => { dismissNotice(contextNotice); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
             className="px-2.5 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
           >
-            New chat
+            Nuova chat
           </button>
           <button
             type="button"
             onClick={() => dismissNotice(contextNotice)}
             className="text-app-text-tertiary hover:text-app-text p-0.5 flex-shrink-0"
-            title="Dismiss"
+            title="Chiudi l'avviso"
           >
             <X size={14} />
           </button>
@@ -1470,16 +1416,6 @@ export function ChatInput({
                 selectedIndex={mentionMenuIndex}
                 onIndexChange={setMentionMenuIndex}
                 onClose={() => { setShowMentionMenu(false); setMentionStartPos(-1); }}
-                inputRef={textareaRef}
-              />
-            )}
-
-            {showAgentMention && (
-              <MentionAutocomplete
-                query={agentMentionQuery}
-                onSelect={handleAgentMentionSelect}
-                onClose={() => { setShowAgentMention(false); setAgentMentionStartPos(-1); }}
-                position={agentMentionPos}
                 inputRef={textareaRef}
               />
             )}
