@@ -78,7 +78,9 @@ export interface NativeBrowserHandle {
   /** Optional — Tauri only. Last navigation failure (WKNavigationDelegate
    *  did-fail, drained from the Rust queue). Cleared by the next navigate()
    *  or by clearNavError(). Null on the web path (it has its own WS channel). */
-  navError?: { message: string; url: string } | null;
+  /** `hint` = seconda riga facoltativa (vedi `navErrorMessage.ts`): il perché,
+   *  quando il perché non sta nella prima riga. */
+  navError?: { message: string; url: string; hint?: string } | null;
   /** Optional — dismiss the navigation-error strip without navigating. */
   clearNavError?(): void;
   navigate(url: string): Promise<void>;

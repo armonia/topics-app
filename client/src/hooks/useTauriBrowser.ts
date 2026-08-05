@@ -37,6 +37,7 @@ import {
   type ElementDescription,
 } from '../../../shared/element-describe';
 import { cropToElement } from '../lib/imageCrop';
+import { navErrorMessage } from '../components/Browser/navErrorMessage';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
@@ -162,7 +163,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // Last navigation failure (Rust did-fail queue). Owned by navigate()/the
   // drain poll below — NOT reset by the eval polls, which can't tell a failed
   // load from "still showing the previous page".
-  const [navError, setNavError] = useState<{ message: string; url: string } | null>(null);
+  const [navError, setNavError] = useState<{ message: string; url: string; hint?: string } | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
@@ -738,10 +739,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         .then((events) => {
           if (stop || !events || events.length === 0) return;
           const last = events[events.length - 1];
-          setNavError({
-            message: last.description || `Navigation failed (${last.code})`,
-            url: last.url,
-          });
+          // La traduzione sta in `navErrorMessage`: qui arriva la stringa di
+          // Cocoa, che per il caso più comune di questo pannello (una scheda che
+          // riapre su una porta locale ormai spenta) è «Could not connect to the
+          // server.» — muta su quale server, su cosa manca e sul fatto che
+          // «Riprova» non può bastare.
+          setNavError({ ...navErrorMessage(last), url: last.url });
           setLoading(false); // the blind 700ms spinner must not outlive a known failure
         })
         .catch(() => {});
