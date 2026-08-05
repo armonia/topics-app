@@ -287,7 +287,7 @@
       return glideAndClick(chip, 0.5, 0.5).then(function () { return sleep(420); });
     });
   }
-  var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_AGENTS = "space:agents";
+  var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_NUMBERS = "space:numbers";
 
   /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
   function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
@@ -458,16 +458,16 @@
     board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
     git:       function (tok) { return showStage(tok, "git:c1", 1400); },
     files:     function (tok) { return showStage(tok, "files:c1", 1400); },
-    /* These two DO render standalone, so they are a group of their own: two
-     * tabs, one window, whole frame. */
-    agents:    function (tok) { return showStage(tok, "__agents__", 1600, GROUP_AGENTS); },
-    dashboard: function (tok) { return showStage(tok, "__dashboard__", 1800, GROUP_AGENTS); },
+    /* Queste due rendono STANDALONE, quindi sono un gruppo a sé: due tab, una
+     * finestra, tutto il riquadro. */
+    fleet:     function (tok) { return showStage(tok, "__board__", 1600, GROUP_NUMBERS); },
+    dashboard: function (tok) { return showStage(tok, "__dashboard__", 1800, GROUP_NUMBERS); },
   };
 
   /* Autoplay order — the product's argument, told in sequence: you keep whole
    * projects open, agents run in them, a board drives the agents, and the
    * numbers tell you what it cost. */
-  var TOUR = ["terminals", "browser", "board", "agents", "dashboard", "workspace"];
+  var TOUR = ["terminals", "browser", "board", "fleet", "dashboard", "workspace"];
 
   /* ---- player -------------------------------------------------------------- */
   var autoplay = true;

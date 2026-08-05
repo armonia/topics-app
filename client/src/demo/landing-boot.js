@@ -47,18 +47,18 @@
    * set of tabs you live in, and a window is just a gruppo that has been
    * detached. Spazi are that concept in the store (`Pane.spaceId` + the
    * `spaces` registry), so seeding them here is seeding real product state —
-   * the chip strip, the sidebar's "Gruppi" section and the grid all read it.
+   * the sidebar (dove il gruppo AVVOLGE le sue tab) e la griglia leggono quello.
    *
    *   Principale (implicit, no record) → acme-web ALONE, one window filling the
    *                                      frame: terminals | the stage tabs.
    *   Progetti                         → acme-api + acme-mobile + acme-docs,
    *                                      three windows in one grid.
-   *   Agenti                           → the standalone Agents + Dashboard
-   *                                      panes, one window, two tabs.
+   *   Numeri                           → the standalone Board generale +
+   *                                      Dashboard panes, one window, two tabs.
    *
    * A chapter navigates by SWITCHING GROUP, not by dragging dividers: the pane
    * it is about lands full-frame instead of in a quarter of a four-way split. */
-  var SPACE_PROJECTS = "space:projects", SPACE_AGENTS = "space:agents";
+  var SPACE_PROJECTS = "space:projects", SPACE_NUMBERS = "space:numbers";
   function projPaneId(p) { return "project:" + encodeURIComponent(p); }
   var PROJ_A = projPaneId(PROJECT);   // Principale, alone
   var PROJ_B = projPaneId(P2);        // Progetti, top
@@ -68,12 +68,12 @@
   // Claude Code agent session (the paid core value); no standalone git pane.
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
       CC6 = "terminal:cc6", BROW = "browser:c1";
-  /* App-level utility panes (`__agents__` / `__dashboard__`): these two render
+  /* App-level utility panes (`__board__` / `__dashboard__`): these two render
    * STANDALONE — StandaloneChatGroup has a branch for them — so they can be a
    * group of their own. git / files / the per-project board cannot: they only
    * exist inside a ProjectWindow, which is why those chapters stay in the
    * acme-web group instead of getting one each. */
-  var AGENTS_APP = "__agents__", DASH_APP = "__dashboard__";
+  var BOARD_APP = "__board__", DASH_APP = "__dashboard__";
 
   /* Chapter panes — the right-hand column of acme-web is the demo's STAGE.
    * Each landing "chapter" button switches this group to one of these tabs, so
@@ -103,20 +103,20 @@
   appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2, title: "acme-api",    stableKey: PROJ_B, spaceId: SPACE_PROJECTS };
   appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3, title: "acme-mobile", stableKey: PROJ_C, spaceId: SPACE_PROJECTS };
   appPanes[PROJ_D] = { id: PROJ_D, type: "project", projectPath: P4, title: "acme-docs",   stableKey: PROJ_D, spaceId: SPACE_PROJECTS };
-  appPanes[AGENTS_APP] = { id: AGENTS_APP, type: "agents",    title: "Agenti",    stableKey: AGENTS_APP, spaceId: SPACE_AGENTS };
-  appPanes[DASH_APP]   = { id: DASH_APP,   type: "dashboard", title: "Dashboard", stableKey: DASH_APP,   spaceId: SPACE_AGENTS };
+  appPanes[BOARD_APP] = { id: BOARD_APP, type: "board",     title: "Board generale", stableKey: BOARD_APP, spaceId: SPACE_NUMBERS };
+  appPanes[DASH_APP]  = { id: DASH_APP,  type: "dashboard", title: "Dashboard",      stableKey: DASH_APP,  spaceId: SPACE_NUMBERS };
   set("pane-store-v2", JSON.stringify({
     panes: appPanes,
     // ONE app-level group holds the tab ORDER — that is all `groups` is (there
     // is only ever `group:default`, and no renderer iterates it). The grouping
     // the user sees is `spaces` below.
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C, PROJ_D, AGENTS_APP, DASH_APP], splitRatio: 0.5, splitAxis: "vertical" } },
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C, PROJ_D, BOARD_APP, DASH_APP], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
     // The registry: a record per NON-default group, id === its key, never a
     // record for the implicit default (sanitizeSnapshot drops that).
     spaces: {
       "space:projects": { id: SPACE_PROJECTS, name: "Progetti", order: 0, updatedAt: 1748856600000 },
-      "space:agents":   { id: SPACE_AGENTS,   name: "Agenti",   order: 1, updatedAt: 1748856600000 },
+      "space:numbers":  { id: SPACE_NUMBERS,  name: "Numeri",   order: 1, updatedAt: 1748856600000 },
     },
     closedStack: [],
     lastSeq: 1000,

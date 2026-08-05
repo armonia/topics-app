@@ -50,18 +50,18 @@
    * set of tabs you live in, and a window is just a gruppo that has been
    * detached. Spazi are that concept in the store (`Pane.spaceId` + the
    * `spaces` registry), so seeding them here is seeding real product state —
-   * the chip strip, the sidebar's "Gruppi" section and the grid all read it.
+   * the sidebar (dove il gruppo AVVOLGE le sue tab) e la griglia leggono quello.
    *
    *   Principale (implicit, no record) → acme-web ALONE, one window filling the
    *                                      frame: terminals | the stage tabs.
    *   Progetti                         → acme-api + acme-mobile + acme-docs,
    *                                      three windows in one grid.
-   *   Agenti                           → the standalone Agents + Dashboard
-   *                                      panes, one window, two tabs.
+   *   Numeri                           → the standalone Board generale +
+   *                                      Dashboard panes, one window, two tabs.
    *
    * A chapter navigates by SWITCHING GROUP, not by dragging dividers: the pane
    * it is about lands full-frame instead of in a quarter of a four-way split. */
-  var SPACE_PROJECTS = "space:projects", SPACE_AGENTS = "space:agents";
+  var SPACE_PROJECTS = "space:projects", SPACE_NUMBERS = "space:numbers";
   function projPaneId(p) { return "project:" + encodeURIComponent(p); }
   var PROJ_A = projPaneId(PROJECT);   // Principale, alone
   var PROJ_B = projPaneId(P2);        // Progetti, top
@@ -71,12 +71,12 @@
   // Claude Code agent session (the paid core value); no standalone git pane.
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
       CC6 = "terminal:cc6", BROW = "browser:c1";
-  /* App-level utility panes (`__agents__` / `__dashboard__`): these two render
+  /* App-level utility panes (`__board__` / `__dashboard__`): these two render
    * STANDALONE — StandaloneChatGroup has a branch for them — so they can be a
    * group of their own. git / files / the per-project board cannot: they only
    * exist inside a ProjectWindow, which is why those chapters stay in the
    * acme-web group instead of getting one each. */
-  var AGENTS_APP = "__agents__", DASH_APP = "__dashboard__";
+  var BOARD_APP = "__board__", DASH_APP = "__dashboard__";
 
   /* Chapter panes — the right-hand column of acme-web is the demo's STAGE.
    * Each landing "chapter" button switches this group to one of these tabs, so
@@ -106,20 +106,20 @@
   appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2, title: "acme-api",    stableKey: PROJ_B, spaceId: SPACE_PROJECTS };
   appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3, title: "acme-mobile", stableKey: PROJ_C, spaceId: SPACE_PROJECTS };
   appPanes[PROJ_D] = { id: PROJ_D, type: "project", projectPath: P4, title: "acme-docs",   stableKey: PROJ_D, spaceId: SPACE_PROJECTS };
-  appPanes[AGENTS_APP] = { id: AGENTS_APP, type: "agents",    title: "Agenti",    stableKey: AGENTS_APP, spaceId: SPACE_AGENTS };
-  appPanes[DASH_APP]   = { id: DASH_APP,   type: "dashboard", title: "Dashboard", stableKey: DASH_APP,   spaceId: SPACE_AGENTS };
+  appPanes[BOARD_APP] = { id: BOARD_APP, type: "board",     title: "Board generale", stableKey: BOARD_APP, spaceId: SPACE_NUMBERS };
+  appPanes[DASH_APP]  = { id: DASH_APP,  type: "dashboard", title: "Dashboard",      stableKey: DASH_APP,  spaceId: SPACE_NUMBERS };
   set("pane-store-v2", JSON.stringify({
     panes: appPanes,
     // ONE app-level group holds the tab ORDER — that is all `groups` is (there
     // is only ever `group:default`, and no renderer iterates it). The grouping
     // the user sees is `spaces` below.
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C, PROJ_D, AGENTS_APP, DASH_APP], splitRatio: 0.5, splitAxis: "vertical" } },
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C, PROJ_D, BOARD_APP, DASH_APP], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
     // The registry: a record per NON-default group, id === its key, never a
     // record for the implicit default (sanitizeSnapshot drops that).
     spaces: {
       "space:projects": { id: SPACE_PROJECTS, name: "Progetti", order: 0, updatedAt: 1748856600000 },
-      "space:agents":   { id: SPACE_AGENTS,   name: "Agenti",   order: 1, updatedAt: 1748856600000 },
+      "space:numbers":  { id: SPACE_NUMBERS,  name: "Numeri",   order: 1, updatedAt: 1748856600000 },
     },
     closedStack: [],
     lastSeq: 1000,
@@ -874,11 +874,11 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-DkVoWWdl.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/icons-DQh456oN.js">
-    <link rel="modulepreload" crossorigin href="./assets/markdown-BCKkCzRW.js">
-    <link rel="modulepreload" crossorigin href="./assets/react-vendor-P_t-G3Bx.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-7DURVEHw.css">
+    <script type="module" crossorigin src="./assets/index-DhVYswQK.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-B1P5I8qj.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-D1Yyxfv9.js">
+    <link rel="modulepreload" crossorigin href="./assets/react-vendor-DhTch8M6.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-BLrIBl5r.css">
   </head>
   <body>
     <div id="root"></div>
@@ -1171,7 +1171,7 @@
       return glideAndClick(chip, 0.5, 0.5).then(function () { return sleep(420); });
     });
   }
-  var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_AGENTS = "space:agents";
+  var GROUP_DEFAULT = "space:default", GROUP_PROJECTS = "space:projects", GROUP_NUMBERS = "space:numbers";
 
   /* ---- the stage: chapter tabs seeded by landing-boot.js ------------------- */
   function stageTab(id) { return q('[data-pane-id="' + id + '"]'); }
@@ -1342,16 +1342,16 @@
     board:     function (tok) { return showStage(tok, "kanban:c1", 1800); },
     git:       function (tok) { return showStage(tok, "git:c1", 1400); },
     files:     function (tok) { return showStage(tok, "files:c1", 1400); },
-    /* These two DO render standalone, so they are a group of their own: two
-     * tabs, one window, whole frame. */
-    agents:    function (tok) { return showStage(tok, "__agents__", 1600, GROUP_AGENTS); },
-    dashboard: function (tok) { return showStage(tok, "__dashboard__", 1800, GROUP_AGENTS); },
+    /* Queste due rendono STANDALONE, quindi sono un gruppo a sé: due tab, una
+     * finestra, tutto il riquadro. */
+    fleet:     function (tok) { return showStage(tok, "__board__", 1600, GROUP_NUMBERS); },
+    dashboard: function (tok) { return showStage(tok, "__dashboard__", 1800, GROUP_NUMBERS); },
   };
 
   /* Autoplay order — the product's argument, told in sequence: you keep whole
    * projects open, agents run in them, a board drives the agents, and the
    * numbers tell you what it cost. */
-  var TOUR = ["terminals", "browser", "board", "agents", "dashboard", "workspace"];
+  var TOUR = ["terminals", "browser", "board", "fleet", "dashboard", "workspace"];
 
   /* ---- player -------------------------------------------------------------- */
   var autoplay = true;

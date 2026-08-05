@@ -164,10 +164,10 @@ const jsonLd = {
           <span class="chapter__name">Agent board</span>
           <span class="chapter__hint">Queued, working, waiting on you</span>
         </button>
-        <button class="chapter" data-scene="agents" type="button">
+        <button class="chapter" data-scene="fleet" type="button">
           <svg class="ic"><use href="#ic-agents"/></svg>
-          <span class="chapter__name">Agent monitor</span>
-          <span class="chapter__hint">Its own group: who is live, and for how long</span>
+          <span class="chapter__name">Its own group</span>
+          <span class="chapter__hint">A group wraps its tabs, and can move to a window of its own</span>
         </button>
         <button class="chapter" data-scene="dashboard" type="button">
           <svg class="ic"><use href="#ic-chart"/></svg>
@@ -347,7 +347,7 @@ const jsonLd = {
           <figure class="fitem__shot">
             <img class="shot" src="/img/organize.webp" width="2480" height="1560" loading="lazy"
                  alt="The Topics window showing the Progetti group: acme-api across the top, acme-mobile and acme-docs sharing the row below, each with its own Claude Code session." />
-            <figcaption>The "Progetti" group: three projects open at once. The sidebar is the group you are in — its name on top, its tabs below, the other groups at the bottom.</figcaption>
+            <figcaption>The "Progetti" group: three projects open at once. In the sidebar a group wraps its own tabs, and the groups you are not in sit above it, one line each.</figcaption>
           </figure>
           <div class="fitem__body">
             <p class="fitem__kicker"><span class="fitem__n">01</span> Organize</p>
@@ -393,7 +393,7 @@ const jsonLd = {
             <p class="fitem__kicker"><span class="fitem__n">03</span> See</p>
             <h3>What the agents are doing, and what they are costing you.</h3>
             <ul class="flist">
-              <li><b>State on the tab itself.</b> Every tab says whether its session is working, finished, or waiting on an answer — plus a native notification when one finishes or gets stuck on a question.</li>
+              <li><b>State on the tab itself.</b> Every tab says whether its session is working, finished, or waiting on an answer, and a native notification arrives when one finishes or gets stuck on a question.</li>
               <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
               <li><b>Dashboard.</b> Throughput, cycle time and token spend, over the window you pick.</li>
               <li><b>Per-pane resource usage.</b> Which tab is eating your RAM, not just how much the app uses in total.</li>
