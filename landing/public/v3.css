@@ -1482,6 +1482,29 @@ body.v3.is-hovering .band__field > .orb { opacity: 1; }
    glass ladder puts a border only on its lightest fill and its largest surface.
    Here the border goes brand-coloured on the tier the page is recommending,
    and on nothing else. */
+/* And the hover IS the affordance, which is the other half of the reference's
+   rule: if the card is the colour of the page at rest, then what tells you it
+   is a thing you can act on has to be what happens when you reach for it. At
+   rest the tiers are held apart by a hairline at 1.22:1 — the same presence as
+   `--rule`, the weakest divider this page draws anywhere — and the glass
+   already desaturates the aurora behind them, measured 69 to 51 in the blue
+   channel. Under the pointer the hairline takes the brand and a low glow
+   arrives beneath. Nothing moves: a card that lifts on hover is a button, and
+   these are not buttons — the button is inside them. */
+[data-ground="dark"] .plan {
+  transition: border-color var(--dur-1) var(--state), box-shadow var(--dur-1) var(--state),
+              background-color var(--dur-1) var(--state);
+}
+[data-ground="dark"] .plan:hover {
+  border-color: hsl(217 70% 62% / .34);
+  background: hsl(220 36% 10% / .5);
+  box-shadow: 0 14px 40px -20px hsl(217 90% 40% / .5);
+}
+[data-ground="dark"] .plan--feature:hover {
+  border-color: hsl(217 80% 66% / .5);
+  box-shadow: 0 16px 46px -18px hsl(217 90% 42% / .62);
+}
+
 [data-ground="dark"] .plan--feature {
   background: hsl(220 40% 11% / .5);
   border-color: hsl(217 70% 62% / .3);
