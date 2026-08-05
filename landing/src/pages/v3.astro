@@ -1,0 +1,672 @@
+---
+/**
+ * The home page, second draft — the "five acts" structure.
+ *
+ * Not linked from anywhere and marked noindex: this is the page to look at
+ * beside the live one, not a replacement for it yet. Everything it needs that
+ * the live page also uses is imported, never copied, so the two cannot drift on
+ * the facts while they disagree on the shape.
+ *
+ * What changed, and the measurement behind each:
+ *
+ * • The live page is 16,141px against Linear's 10,898, and a single block
+ *   (#features, 5,300px) is 33% of it: six stories, six pictures and 33 bullets
+ *   with nothing to say which one matters. Here that block is five ACTS of
+ *   ~1,100px, one idea each, in the order you meet them using the product.
+ * • Every act headline starts with a verb. On the live page two of ten do.
+ * • Each act is anchored by a SCENE rather than a photograph of the window: an
+ *   actor in the foreground at 1:1 with real 13px text, the context behind it
+ *   dimmed. Linear does this and it is why their surfaces read at any width;
+ *   a 1,240px window photographed into a 640px column can only shrink.
+ * • The product now sits IN the hero, cropped by the fold, instead of starting
+ *   516px down behind a poster.
+ * • The live page goes 11,003px between the hero CTA and the next one in the
+ *   content. Here there is one roughly every 2,400px.
+ */
+import Base from '../layouts/Base.astro';
+import IconSprite from '../components/IconSprite.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import ChangelogList from '../components/ChangelogList.astro';
+import { homeTools, READ_ON } from '../data/compare';
+import { repoStats, longDate } from '../lib/repo-stats';
+
+const stats = repoStats();
+const fmt = (n: number) => n.toLocaleString('en-GB');
+---
+
+<Base
+  title="Topics · four agents, one repo, nobody collides"
+  description="A desktop workspace for Claude Code, Codex, Gemini CLI and any other terminal agent. Every task gets its own git worktree, so several agents work the same repository at once."
+  path="/v3"
+  htmlAttrs={{ 'data-v3': 'true' }}
+  bodyClass="v3"
+>
+  <meta name="robots" content="noindex,nofollow" slot="head" />
+  <IconSprite />
+
+  {/* ── THE FIELD ──────────────────────────────────────────────────────────
+       One element, fixed to the viewport, behind everything, for the whole
+       page. Sections declare what the field should be doing where; the field
+       itself never moves in the flow, so it can never cause a layout shift. */}
+  <div class="field" aria-hidden="true">
+    <canvas class="field__lattice" id="fieldLattice"></canvas>
+    <div class="field__wash"></div>
+    <div class="field__grain"></div>
+  </div>
+
+  <header class="capsule" id="capsule">
+    <div class="capsule__in">
+      <a class="capsule__brand" href="/" aria-label="Topics home">
+        <img src="/icon-64.png" alt="" width="24" height="24" />
+        <span>Topics</span>
+      </a>
+      <nav class="capsule__links" aria-label="Primary">
+        <a href="#atto-1">Product</a>
+        <a href="/wiki">Docs</a>
+        <a href="/compare/claude-code-guis">Compare</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/changelog">Changelog</a>
+      </nav>
+      <div class="capsule__cta">
+        <a class="btn btn--ghost btn--sm" href="https://github.com/armonia/topics-app" rel="noopener" target="_blank" aria-label="Topics on GitHub">
+          <svg class="ic ic--fill" aria-hidden="true"><use href="#ic-gh"/></svg>
+          <span class="capsule__ghlabel">GitHub</span>
+        </a>
+        <a class="btn btn--primary btn--sm halo" href="#download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+
+    {/* ── HERO ───────────────────────────────────────────────────────────────
+         The product is in here, cropped by the bottom of the screen. On the
+         live page the frame starts at y 516 with a poster over it, which is
+         1,211px between the claim and the only thing that proves it. */}
+    <section class="hero" data-field="dense">
+      <div class="hero__in">
+        <p class="hero__badge">
+          <span class="dot-live"></span>
+          v{stats.version} · macOS, Windows, Linux · MIT
+        </p>
+        <h1 class="hero__title" id="heroTitle">
+          Four agents, one repo,<br /><span class="dim">nobody collides.</span>
+        </h1>
+        <p class="hero__sub">
+          A desktop workspace for <span class="slot" id="agentSlot">Claude&nbsp;Code</span>.
+          Every task gets its own git worktree, so several agents can be mid-edit on the
+          same repository without touching each other's files.
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--primary btn--lg halo" id="primaryDownload" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
+            <svg class="ic"><use href="#ic-dl"/></svg>
+            <span id="primaryDownloadLabel">Download</span>
+          </a>
+          <a class="btn btn--glass btn--lg" href="#demo">
+            <svg class="ic ic--fill"><use href="#ic-play"/></svg>
+            <span>See it working</span>
+          </a>
+        </div>
+
+        {/* The proof used to be 1,211px below the claim. It is the same
+             sentence, so it goes in the same breath. */}
+        <dl class="hero__proof">
+          <div><dt>commits</dt><dd data-count={stats.commits}>{fmt(stats.commits)}</dd></div>
+          <div><dt>in 7 days</dt><dd data-count={stats.commitsLast7}>{fmt(stats.commitsLast7)}</dd></div>
+          <div><dt>releases</dt><dd data-count={stats.releases}>{stats.releases}</dd></div>
+          <div><dt>telemetry</dt><dd class="is-word">none</dd></div>
+        </dl>
+      </div>
+
+      {/* The window, cropped. Not a poster with a play button on it: the crop
+           is the invitation, and the demo is one section down where a click
+           can pay for a 449KB React boot. */}
+      <div class="hero__stage">
+        <img class="hero__shot" src="/img/organize.webp" width="2480" height="1560"
+             fetchpriority="high" decoding="async"
+             alt="The Topics window: three projects open at once, each with its own Claude Code session." />
+      </div>
+    </section>
+
+    {/* ── THE MODEL ─────────────────────────────────────────────────────── */}
+    <section class="model" id="model" data-field="quiet">
+      <header class="shead">
+        <p class="eyebrow">the whole idea</p>
+        <h2>Three things, and you know the app.</h2>
+        <p class="shead__lead">There is no new workflow to learn. The agents are the ones you already run, in a terminal, on your own account.</p>
+      </header>
+      <ol class="model__grid">
+        <li class="model__step">
+          <span class="model__n">01</span>
+          <h3>A topic is a session with a workspace attached</h3>
+          <p>One conversation, and the things it needs: a terminal, a branch, a browser, the files it touched. Close the app and it comes back the same, scrollback included.</p>
+        </li>
+        <li class="model__step">
+          <span class="model__n">02</span>
+          <h3>Panes and groups are the room it lives in</h3>
+          <p>Split any pane, drag tabs between groups, keep three whole projects open beside each other. The layout persists, and syncs to your other machine.</p>
+        </li>
+        <li class="model__step">
+          <span class="model__n">03</span>
+          <h3>The board is where you hand work over</h3>
+          <p>Write a task, an agent takes it in a <code>git worktree</code> of its own, and hands back a commit and evidence. You read the diff and decide.</p>
+        </li>
+      </ol>
+    </section>
+
+    {/* ── THE DEMO ───────────────────────────────────────────────────────────
+         Kept, and moved. On thirty competitor home pages not one embeds the
+         real application, so this is the site's only unique asset and removing
+         it would have been the most expensive edit on the page. It sits after
+         the model rather than at the top because a visitor who has just been
+         told what a topic is has a reason to poke at one — and because the
+         client is 449KB on the wire and ~1.55MB to parse, on this page's own
+         main thread, so it stays a poster until asked for.
+         The ids and classes are the ones `scripts/home.ts` already drives. */}
+    <section class="demo" id="demo" data-field="deep">
+      <div class="showcase">
+        <div class="showcase__frame">
+          <iframe class="window-real" id="demoFrame" data-src="/app/index.html"
+                  title="Interactive Topics demo: the real app with sample data. Use the chapter buttons below, or interact with it directly."></iframe>
+          <button class="showcase__poster" id="demoPoster" type="button" aria-label="Start the interactive demo">
+            <img src="/img/demo-poster.webp" alt="" width="2560" height="1440" fetchpriority="low" decoding="async" />
+            <span class="showcase__play"><svg class="ic ic--fill" aria-hidden="true"><use href="#ic-play"/></svg>Start the live demo</span>
+          </button>
+          <button class="shield" id="demoShield" type="button" aria-label="Take control of the demo">
+            <span class="shield__hint"><svg class="ic" aria-hidden="true"><use href="#ic-cursor"/></svg>Click to take control</span>
+          </button>
+          <button class="expand" id="demoExpand" type="button" aria-expanded="false" aria-label="Expand the demo to fill the window">
+            <svg class="ic" aria-hidden="true"><use href="#ic-expand"/></svg>
+            <span class="expand__label">Expand</span>
+          </button>
+        </div>
+        <p class="demo__lead">
+          The actual application, running here on sample data. Not a video and not a mock:
+          pick a chapter, or click in and drive it yourself.
+        </p>
+        <p class="demo__foot"><span class="dot-live"></span><span id="demoStatus">Every chapter switches GROUP: a set of tabs you live in.</span></p>
+      </div>
+      <div class="chapters" role="group" aria-label="Demo chapters" id="chapters">
+        <button class="chapter" data-scene="terminals" type="button"><svg class="ic"><use href="#ic-terminal"/></svg><span class="chapter__name">Live terminals</span><span class="chapter__hint">Two Claude Code sessions, mid-run</span></button>
+        <button class="chapter" data-scene="board" type="button"><svg class="ic"><use href="#ic-board"/></svg><span class="chapter__name">Agent board</span><span class="chapter__hint">Queued, working, waiting on you</span></button>
+        <button class="chapter" data-scene="fleet" type="button"><svg class="ic"><use href="#ic-agents"/></svg><span class="chapter__name">Its own group</span><span class="chapter__hint">A group wraps its tabs</span></button>
+        <button class="chapter" data-scene="dashboard" type="button"><svg class="ic"><use href="#ic-chart"/></svg><span class="chapter__name">Dashboard</span><span class="chapter__hint">Throughput and spend</span></button>
+        <button class="chapter" data-scene="browser" type="button"><svg class="ic"><use href="#ic-browser"/></svg><span class="chapter__name">Browser pane</span><span class="chapter__hint">Your localhost, inside the window</span></button>
+        <button class="chapter" data-scene="git" type="button"><svg class="ic"><use href="#ic-git"/></svg><span class="chapter__name">Git and diffs</span><span class="chapter__hint">Read the change before you take it</span></button>
+        <button class="chapter" data-scene="files" type="button"><svg class="ic"><use href="#ic-files"/></svg><span class="chapter__name">Files</span><span class="chapter__hint">Explorer, editor, search</span></button>
+        <button class="chapter" data-scene="workspace" type="button"><svg class="ic"><use href="#ic-split"/></svg><span class="chapter__name">Groups</span><span class="chapter__hint">Three projects, one group</span></button>
+      </div>
+    </section>
+
+    {/* ══ ACT 1 ══ ISOLATION ═════════════════════════════════════════════ */}
+    <section class="act" id="atto-1" data-field="dense">
+      <div class="act__body">
+        <p class="act__kicker"><span class="act__n">01</span> Isolation</p>
+        <h2>Run four agents on one repository and watch none of them collide.</h2>
+        <p class="act__lead">
+          Each task is checked out into a <code>git worktree</code> of its own, on its own
+          branch. Four agents can be mid-edit at the same time, in the same repository,
+          and never see each other's uncommitted files.
+        </p>
+        <ul class="act__points">
+          <li><b>One checkout per task.</b> Named for the task, cleaned up when it lands.</li>
+          <li><b>Concurrency sized to the machine</b>, so eight agents do not thrash one laptop.</li>
+          <li><b>Outside sessions count.</b> Claude Code in your own terminal still shows up here.</li>
+        </ul>
+      </div>
+      <figure class="act__stage">
+        <div class="scene scene--worktrees">
+          <span class="scene__tag">acme-web · main</span>
+          <div class="scene__ctx">
+            <div class="wt"><span class="wt__branch">wt/tsk-207-offline-sync</span><span class="wt__file">server/sync/queue.ts</span><span class="wt__stat"><i class="add">+31</i> <i class="del">−4</i></span></div>
+            <div class="wt"><span class="wt__branch">wt/tsk-212-context-sources</span><span class="wt__file">client/src/state/context.ts</span><span class="wt__stat"><i class="add">+12</i> <i class="del">−9</i></span></div>
+            <div class="wt"><span class="wt__branch">wt/tsk-198-webhook-signature</span><span class="wt__file">server/routes/webhooks.ts</span><span class="wt__stat"><i class="add">+48</i> <i class="del">−0</i></span></div>
+          </div>
+          <div class="scene__fg card--wt">
+            <div class="fg__bar">
+              <span class="fg__av" aria-hidden="true"></span>
+              <span class="fg__who">Claude Code <span class="fg__mute">· Opus 5</span></span>
+              <span class="fg__st"><span class="pip pip--go"></span>working · 4m</span>
+            </div>
+            <div class="fg__body">
+              <p class="fg__title">Add the signing step to the release script</p>
+              <p class="fg__path">wt/tsk-204-release-signing <span class="fg__mute">· isolated checkout</span></p>
+              <p class="fg__term"><b>Bash</b>(bun run build &amp;&amp; npm run release:sign) <span class="ok"><svg class="ic ic--xs"><use href="#ic-check"/></svg> 2.3s</span></p>
+            </div>
+          </div>
+        </div>
+        <figcaption>Three worktrees open on the same repository. The one in front is the agent you are watching; the others are working too, and cannot touch its files.</figcaption>
+      </figure>
+    </section>
+
+    {/* ══ ACT 2 ══ DISPATCH ══════════════════════════════════════════════ */}
+    <section class="act act--flip" id="atto-2" data-field="quiet">
+      <div class="act__body">
+        <p class="act__kicker"><span class="act__n">02</span> Dispatch</p>
+        <h2>Hand a card to an agent and get a diff back.</h2>
+        <p class="act__lead">
+          A worktree per agent is not ours alone any more. What is still unusual is the
+          board: the agent picks the card up itself, works it, and moves it to review with
+          the evidence attached.
+        </p>
+        <ul class="act__points">
+          <li><b>It brings proof.</b> A commit, a summary, and a clip of the thing running.</li>
+          <li><b>Rejecting sends it back</b> with your notes, into the same worktree.</li>
+          <li><b>Night mode</b> dispatches only while the machine is idle, and stops when you come back.</li>
+        </ul>
+        <a class="act__cta btn btn--glass" href="#download"><span>Download Topics</span><svg class="ic"><use href="#ic-arrow"/></svg></a>
+      </div>
+      <figure class="act__stage">
+        <div class="scene scene--board">
+          <span class="scene__tag">board · acme-web</span>
+          <div class="scene__ctx">
+            <div class="kcols">
+              <div>
+                <p class="kcol__h"><span class="pip"></span>To do <span class="kcol__c">7</span></p>
+                <div class="kcard"><span class="kcard__id">TSK-118</span><span class="kcard__t">Rate limit on the public API</span></div>
+                <div class="kcard"><span class="kcard__id">TSK-121</span><span class="kcard__t">Move the cron jobs to UTC</span></div>
+                <div class="kcard"><span class="kcard__id">TSK-124</span><span class="kcard__t">Sign the Windows release</span></div>
+              </div>
+              <div>
+                <p class="kcol__h"><span class="pip pip--work"></span>In progress <span class="kcol__c">3</span></p>
+                <div class="kcard"><span class="kcard__id">TSK-207</span><span class="kcard__t">Offline sync without races</span></div>
+                <div class="kcard"><span class="kcard__id">TSK-212</span><span class="kcard__t">Context inspector: sources off</span></div>
+              </div>
+              <div>
+                <p class="kcol__h"><span class="pip pip--rev"></span>Review <span class="kcol__c">2</span></p>
+                <div class="kcard"><span class="kcard__id">TSK-198</span><span class="kcard__t">Webhook signature header</span></div>
+                <div class="kcard"><span class="kcard__id">TSK-190</span><span class="kcard__t">Reattach without losing scrollback</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="scene__fg card--review">
+            <div class="fg__bar">
+              <span class="fg__av" aria-hidden="true"></span>
+              <span class="fg__who">TSK-204 <span class="fg__mute">· moved itself to review</span></span>
+              <span class="fg__st"><span class="pip pip--rev"></span>waiting on you</span>
+            </div>
+            <div class="fg__body">
+              <p class="fg__title">Add the signing step to the release script</p>
+              <div class="chips">
+                <span class="chip chip--tree">wt/tsk-204-release-signing</span>
+                <span class="chip"><i class="add">+48</i> <i class="del">−0</i></span>
+                <span class="chip">12 tests green</span>
+              </div>
+              <div class="fg__acts">
+                <span class="mini mini--go">Approve</span>
+                <span class="mini">Land on main</span>
+                <span class="mini">Reject with notes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>The card an agent picked up, worked, and moved to review by itself. Approving accepts it; landing it into main is a second, separate click.</figcaption>
+      </figure>
+    </section>
+
+    {/* ══ ACT 3 ══ THE WINDOW ════════════════════════════════════════════ */}
+    <section class="act" id="atto-3" data-field="dense">
+      <div class="act__body">
+        <p class="act__kicker"><span class="act__n">03</span> The window</p>
+        <h2>Keep the agent, the dev server and the page it renders in one window.</h2>
+        <p class="act__lead">
+          Every topic carries its own terminals, browser and files, and gets them back after
+          a restart. Split any pane, drag a tab into another group, or move a whole group
+          into a window of its own.
+        </p>
+        <ul class="act__points">
+          <li><b>Lossless reattach.</b> Reload the app or shut the lid; the session is still there, with its scrollback.</li>
+          <li><b>A real browser per topic</b>, for localhost and for letting an agent drive the page.</li>
+          <li><b>The layout syncs</b> to your other machine and comes back in the same shape.</li>
+        </ul>
+      </div>
+      <figure class="act__stage">
+        <div class="scene scene--window">
+          <span class="scene__tag">group · Progetti</span>
+          <div class="scene__ctx">
+            <div class="win">
+              <div class="win__side">
+                <p class="win__grp">Principale</p>
+                <p class="win__it">acme-web</p>
+                <p class="win__grp">Progetti</p>
+                <p class="win__it is-on">acme-api</p>
+                <p class="win__it">acme-mobile</p>
+                <p class="win__it">acme-docs</p>
+              </div>
+              <div class="win__main">
+                <div class="win__pane"></div>
+                <div class="win__pane"></div>
+                <div class="win__pane win__pane--wide"></div>
+              </div>
+            </div>
+          </div>
+          <div class="scene__fg card--tabs">
+            <div class="tabs">
+              <span class="tab is-active"><span class="pip pip--work"></span>Claude Code<span class="tab__x">×</span></span>
+              <span class="tab"><span class="pip pip--rev"></span>Claude Code<span class="tab__x">×</span></span>
+              <span class="tab"><span class="pip pip--go"></span>Preview<span class="tab__x">×</span></span>
+              <span class="tab tab--add">+</span>
+            </div>
+            <div class="fg__body">
+              <p class="fg__term"><b>Edit</b>(src/sync/queue.ts) <span class="add">+6</span> <span class="del">−3</span></p>
+              <p class="fg__term"><b>Bash</b>(bun test sync) <span class="ok"><svg class="ic ic--xs"><use href="#ic-check"/></svg> 28 passed (1.1s)</span></p>
+              <p class="fg__legend">
+                <span><span class="pip pip--work"></span>working</span>
+                <span><span class="pip pip--rev"></span>waiting on you</span>
+                <span><span class="pip pip--go"></span>done</span>
+              </p>
+            </div>
+          </div>
+        </div>
+        <figcaption>The tab itself says what its session is doing. A native notification arrives when one finishes, or gets stuck on a question.</figcaption>
+      </figure>
+    </section>
+
+    {/* ══ ACT 4 ══ THE NUMBERS ═══════════════════════════════════════════ */}
+    <section class="act act--flip" id="atto-4" data-field="quiet">
+      <div class="act__body">
+        <p class="act__kicker"><span class="act__n">04</span> The numbers</p>
+        <h2>See what the agents got through, and what the tokens cost.</h2>
+        <p class="act__lead">
+          Throughput, cycle time and spend over the window you pick, read from the same
+          database the app writes. Plus the one number nobody else shows you: which tab is
+          eating your RAM.
+        </p>
+        <ul class="act__points">
+          <li><b>Context inspector.</b> See what is filling the window, switch sources off, edit the memory a topic carries.</li>
+          <li><b>Prompt caching</b> marks the stable prefix, which is most of what you were paying twice for.</li>
+          <li><b>Per-pane resource usage</b>, not just a total for the app.</li>
+        </ul>
+        <a class="act__cta btn btn--glass" href="#pricing"><span>What it costs</span><svg class="ic"><use href="#ic-arrow"/></svg></a>
+      </div>
+      <figure class="act__stage">
+        <div class="scene scene--kpi">
+          <span class="scene__tag">dashboard · last 7 days</span>
+          <div class="scene__ctx">
+            <div class="spark" role="img" aria-label="Tasks shipped per day over the last fourteen days, rising from four to eleven.">
+              <i style="--h:38%"></i><i style="--h:52%"></i><i style="--h:44%"></i><i style="--h:61%"></i>
+              <i style="--h:57%"></i><i style="--h:73%"></i><i style="--h:66%"></i><i style="--h:80%"></i>
+              <i style="--h:71%"></i><i style="--h:88%"></i><i style="--h:79%"></i><i style="--h:94%"></i>
+              <i style="--h:86%"></i><i class="is-now" style="--h:100%"></i>
+            </div>
+          </div>
+          <div class="scene__fg card--kpi">
+            <div class="kpis">
+              <div><span class="kpi__l">tasks shipped</span><b class="kpi__v">37</b><span class="kpi__d up">+9</span></div>
+              <div><span class="kpi__l">cycle time</span><b class="kpi__v">18m</b><span class="kpi__d down">−4m</span></div>
+              <div><span class="kpi__l">token spend</span><b class="kpi__v">€37.55</b><span class="kpi__d up">+€4.10</span></div>
+              <div><span class="kpi__l">cache hit</span><b class="kpi__v">71%</b><span class="kpi__d up">+12</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>The headline row at the size it is in the app. Every figure comes from the SQLite file on your disk, and the bill stays between you and your provider.</figcaption>
+      </figure>
+    </section>
+
+    {/* ══ ACT 5 ══ OWNERSHIP ═════════════════════════════════════════════ */}
+    <section class="act" id="atto-5" data-field="dense">
+      <div class="act__body">
+        <p class="act__kicker"><span class="act__n">05</span> Ownership</p>
+        <h2>Point it at your own account, and keep the data on your disk.</h2>
+        <p class="act__lead">
+          Topics talks to Anthropic or OpenAI with your key, or through the CLI you are
+          already signed in to. We are never in the path, so there is no bill from us and
+          nothing of yours passing through anything of ours.
+        </p>
+        <ul class="act__points">
+          <li><b>MIT licensed.</b> Read it, fork it, ship it.</li>
+          <li><b>No telemetry and no account.</b> Not a weak one: none.</li>
+          <li><b>A native shell</b>, not a browser wearing a costume.</li>
+        </ul>
+      </div>
+      <figure class="act__stage">
+        <div class="scene scene--own">
+          <span class="scene__tag">provider · per topic</span>
+          <div class="scene__ctx">
+            <p class="path">~/.topics/topics.db</p>
+            <p class="path">~/.topics/media/</p>
+            <p class="path">~/Projects/acme-web/.git</p>
+            <p class="path path--none">no request leaves this machine except the one you asked for</p>
+          </div>
+          <div class="scene__fg card--pick">
+            <p class="pick__h">Provider</p>
+            <p class="pick__row is-on"><span class="pick__dot"></span>Claude Code <span class="fg__mute">· your subscription</span><svg class="ic ic--xs pick__ok"><use href="#ic-check"/></svg></p>
+            <p class="pick__row"><span class="pick__dot"></span>Codex <span class="fg__mute">· your subscription</span></p>
+            <p class="pick__row"><span class="pick__dot"></span>Anthropic API <span class="fg__mute">· your key</span></p>
+            <p class="pick__row"><span class="pick__dot"></span>OpenAI <span class="fg__mute">· your key</span></p>
+            <p class="pick__foot">Billed by them, to you. Never through us.</p>
+          </div>
+        </div>
+        <figcaption>Pick the provider per topic. The three paths behind it are everywhere Topics writes on your machine.</figcaption>
+      </figure>
+    </section>
+
+    {/* ── COMPARE ───────────────────────────────────────────────────────── */}
+    <section class="compare" id="compare" data-field="quiet">
+      <header class="shead">
+        <p class="eyebrow">against the alternatives</p>
+        <h2>The line that actually separates these.</h2>
+        <p class="shead__lead">Not features, which move in a release. Where the work runs, and who else can read it.</p>
+      </header>
+      <div class="compare__scroll" tabindex="0" role="region" aria-label="Comparison table, scrolls horizontally">
+        <table class="ctable">
+          <thead>
+            <tr>
+              <th scope="col"><span class="sr-only">Question</span></th>
+              {homeTools.map((t) => <th scope="col" class={t.us ? 'is-us' : undefined}>{t.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Where the work runs</th>{homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.shortWhere}</td>)}</tr>
+            <tr><th scope="row">Price</th>{homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.price}</td>)}</tr>
+            <tr><th scope="row">Licence</th>{homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.licence}</td>)}</tr>
+            <tr><th scope="row">Account required</th>{homeTools.map((t) => <td class={t.us ? 'is-us' : undefined}>{t.account}</td>)}</tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine">
+        Every cell about a product other than ours is quoted from their own public page, read
+        {' '}{READ_ON}. <a href="/compare/claude-code-guis">The full table, six tools, and when each is the better answer &rarr;</a>
+      </p>
+    </section>
+
+    {/* ── LIMITS ────────────────────────────────────────────────────────── */}
+    <section class="limits" id="limits" data-field="deep">
+      <header class="shead">
+        <p class="eyebrow">before you download it</p>
+        <h2>When Topics is the wrong tool.</h2>
+        <p class="shead__lead">Written by the people who make it, which is the only reason it is worth reading.</p>
+      </header>
+      <div class="limits__grid">
+        <article class="limits__item"><h3>You run one agent at a time</h3><p>Start a session, watch it, finish. A workspace is overhead. Everything here is in service of the case where three or four are running and you have lost track of which one is waiting on you.</p></article>
+        <article class="limits__item"><h3>You want work to continue after you close the lid</h3><p>It will not. The agents run on your machine, so they stop when it sleeps. If that is the requirement, a product with cloud workspaces is the right shape, and we say which ones on the <a href="/compare/claude-code-guis">comparison page</a>.</p></article>
+        <article class="limits__item"><h3>You wanted an editor</h3><p>Topics is not an IDE and is not becoming one. It hosts the terminal agents and the surfaces around them; you keep whatever editor you already use.</p></article>
+        <article class="limits__item"><h3>You need accounts, roles or a shared board</h3><p>There is no authentication layer at all. Boards sync between <em>your</em> machines. Exposing one over a tunnel means putting your own auth in front of it.</p></article>
+        <article class="limits__item"><h3>macOS will say the developer cannot be verified</h3><p>The build is signed ad-hoc, so Gatekeeper stops it on first launch and since Sequoia the control-click bypass is gone. <a href="#download">The three steps are below</a>, and if that is a dealbreaker it is a fair one.</p></article>
+        <article class="limits__item"><h3>It is young, and macOS gets the most use</h3><p>First commit {longDate(stats.since)}. Windows and Linux are built and released every time, and are used far less than macOS, which is exactly where you should expect the rough edges.</p></article>
+      </div>
+      {/* Anyone convinced by this section had 3,000px to scroll before finding a
+           button on the live page. */}
+      <p class="limits__cta">
+        Still the right shape for you?
+        <a class="btn btn--primary halo" href="#download"><svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span></a>
+      </p>
+    </section>
+
+    {/* ── THE LONG TAIL ─────────────────────────────────────────────────── */}
+    <section class="more" id="more" data-field="quiet">
+      <header class="shead">
+        <p class="eyebrow">also in the box</p>
+        <h2>And a long tail of things you only miss once.</h2>
+        <p class="shead__lead">All of it shipped, all of it free, none of it worth its own headline.</p>
+      </header>
+      <div class="more__grid">
+        <div class="more__item"><b>Checkpoints</b> Roll a conversation back to any point, and the working tree with it.</div>
+        <div class="more__item"><b>Auto-merge</b> Opt in per board and an approved task lands itself, unless the merge conflicts.</div>
+        <div class="more__item"><b>Voice</b> Speak to an agent and hear it answer. Transcription runs locally through Whisper.</div>
+        <div class="more__item"><b>Tab permalinks</b> Copy a link to any tab. Opening it focuses that exact pane, on any device.</div>
+        <div class="more__item"><b>Slash commands</b> Yours and the project's, plus <code>@</code> mentions for files and topics.</div>
+        <div class="more__item"><b>Model per task</b> Big tasks get the strong model, small ones do not, and you set the rule.</div>
+        <div class="more__item"><b>Pre-review checks</b> Commands that must pass in the worktree before a task may ask for review.</div>
+        <div class="more__item"><b>Topic goals</b> A standing objective re-sent every turn, which survives a compaction.</div>
+        <div class="more__item"><b>Sub-agents on screen</b> When an agent spawns a fleet, the children appear in the session tree.</div>
+        <div class="more__item"><b>Typed questions</b> When an agent asks something, you get a real form instead of guessing the syntax.</div>
+        <div class="more__item"><b>Conversation branches</b> Edit an earlier message and continue from there without losing the original.</div>
+        <div class="more__item"><b>Mobile and PWA</b> Check on a running agent from your phone, over a tunnel you run.</div>
+        <div class="more__item"><b>Cron and webhooks</b> Work that repeats, and work triggered from outside.</div>
+        <div class="more__item"><b>Full effort by default</b> Topics passes <code>--effort</code> on every spawn, so a session opens at the top tier.</div>
+        <div class="more__item"><b>Command palette</b> Everything from the keyboard, including reopening the tab you just closed.</div>
+        <div class="more__item"><b>Two languages</b> The interface speaks English and Italian.</div>
+      </div>
+    </section>
+
+    {/* ── PRICING ───────────────────────────────────────────────────────── */}
+    <section class="pricing" id="pricing" data-field="quiet">
+      <header class="shead">
+        <p class="eyebrow">pricing</p>
+        <h2>The app is €0 and stays €0.</h2>
+        <p class="shead__lead">
+          Everything that runs on your machine is free under MIT, permanently. What you can
+          pay for is support, an invoice, and a say in what gets built, never a feature held
+          back from the free app.
+        </p>
+      </header>
+      <div class="plans">
+        <article class="plan plan--free">
+          <h3>€0 forever</h3>
+          <p class="plan__price"><span class="plan__amount">€0</span><span class="plan__per">the whole product</span></p>
+          <p class="plan__for">Not a trial and not a tier. This is the app.</p>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Unlimited topics, projects, panes and terminals</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Board, agent dispatch, worktrees, diff review</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Dashboard, monitoring, context inspector</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Remote access and mobile over your own tunnel</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Your subscription or your key.</b> We are never in the path</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>No telemetry, no account</b>, data on your disk</li>
+          </ul>
+          <a class="btn btn--primary btn--block halo" href="#download"><svg class="ic"><use href="#ic-dl"/></svg><span>Download Topics</span></a>
+          <p class="plan__fine">MIT. No sign-up, no email, nothing to cancel.</p>
+        </article>
+        <article class="plan">
+          <h3>Supporter</h3>
+          <p class="plan__price"><span class="plan__amount">€5</span><span class="plan__per">/ month, or €49 a year</span></p>
+          <p class="plan__for">You use it daily and would rather it kept being made.</p>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>No features attached.</b> That is the point</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A private channel with the person building it</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Your issues looked at first</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A vote on what gets built next</li>
+          </ul>
+          <a class="btn btn--glass btn--block" data-checkout="supporter" href="#pricing"><span>Support the project</span></a>
+          <p class="plan__fine">Cancel whenever. Nothing in the app changes either way.</p>
+        </article>
+        <article class="plan plan--feature">
+          <span class="plan__badge">Best value</span>
+          <h3>Founding</h3>
+          <p class="plan__price"><span class="plan__amount">€99</span><span class="plan__per">once, not a subscription</span></p>
+          <p class="plan__for">Everything Supporter gives, plus the hosted side when it exists.</p>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Everything in Supporter</b>, for good</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Any future hosted plan, free for life</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Early builds before they are tagged</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>Refunded in full</b> if nothing hosted ships within a year</li>
+          </ul>
+          <a class="btn btn--accent btn--block" data-checkout="founding" href="#pricing"><span>Become a founding user</span></a>
+          <p class="plan__fine">Nothing hosted exists today. You are buying a promise with a refund attached, and you should read that as exactly what it is.</p>
+        </article>
+        <article class="plan">
+          <h3>Commercial</h3>
+          <p class="plan__price"><span class="plan__amount">€490</span><span class="plan__per">/ year, per company</span></p>
+          <p class="plan__for">Your finance department needs a counterparty, not a GitHub repo.</p>
+          <ul class="plan__list">
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> A proper invoice, PO and VAT number</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Named contact, two working days to a reply</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> Help getting it running on your setup</li>
+            <li><svg class="ic ic--xs"><use href="#ic-check"/></svg> <b>The licence stays MIT.</b> You are paying for the relationship, not permission</li>
+          </ul>
+          <a class="btn btn--glass btn--block" data-checkout="commercial" href="#pricing"><span>Request an invoice</span></a>
+          <p class="plan__fine">Unlimited seats. There is no per-seat count to police because there are no accounts.</p>
+        </article>
+      </div>
+      <div class="faq">
+        <div><h4>Is there lock-in?</h4><p>No, and the shape of the product is the answer rather than the promise. Your data is SQLite and files on your own disk, the licence is MIT, and there is no account to close.</p></div>
+        <div><h4>Do I pay you for tokens?</h4><p>Never. Topics talks to Anthropic or OpenAI with your key, or through the CLI you are already signed in to, and that bill stays between you and them.</p></div>
+        <div><h4>And if you would rather not pay us at all?</h4><p>Then do it yourself, and here is how. Remote access is a <code>cloudflared</code> or <code>tailscale</code> tunnel with your own auth in front. Push notifications are <code>ntfy</code>. Off-machine backup is <code>rclone</code> or <code>restic</code> pointed at <code>~/.topics</code>.</p></div>
+      </div>
+    </section>
+
+    {/* ── CHANGELOG ─────────────────────────────────────────────────────── */}
+    <section class="changelog" id="changelog" data-field="quiet">
+      <header class="shead">
+        <p class="eyebrow">changelog</p>
+        <h2>What's new.</h2>
+        <p class="shead__lead">Every release, and what changed in it. <a class="mono" href="/changelog">Full changelog&nbsp;&rarr;</a></p>
+      </header>
+      <ChangelogList limit={1} />
+    </section>
+
+    {/* ── DOWNLOAD ──────────────────────────────────────────────────────── */}
+    <section class="download" id="download" data-field="deep">
+      <header class="shead">
+        <p class="eyebrow">get topics</p>
+        <h2>Download for your machine.</h2>
+        <p class="shead__lead">Free, open source, ready to run. <span id="latestTag" class="mono"></span></p>
+      </header>
+      <div class="dl-grid" id="dlGrid">
+        <article class="dl-card" data-os="mac">
+          <div class="dl-card__icon"><svg class="ic ic--lg"><use href="#os-apple"/></svg></div>
+          <h3>macOS</h3>
+          <div class="dl-card__links">
+            <a class="dl-link" data-asset="mac" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Universal (.dmg), Apple Silicon and Intel</a>
+          </div>
+        </article>
+        <article class="dl-card" data-os="win">
+          <div class="dl-card__icon"><svg class="ic ic--lg"><use href="#os-windows"/></svg></div>
+          <h3>Windows</h3>
+          <div class="dl-card__links">
+            <a class="dl-link" data-asset="win" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Installer (.exe)</a>
+            <a class="dl-link" data-asset="msi" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">MSI package</a>
+          </div>
+        </article>
+        <article class="dl-card" data-os="linux">
+          <div class="dl-card__icon"><svg class="ic ic--lg"><use href="#os-linux"/></svg></div>
+          <h3>Linux</h3>
+          <div class="dl-card__links">
+            <a class="dl-link" data-asset="deb" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Debian, Ubuntu (.deb)</a>
+            <a class="dl-link" data-asset="rpm" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">Fedora, RHEL (.rpm)</a>
+          </div>
+        </article>
+      </div>
+
+      <div class="gate">
+        <h3><svg class="ic"><use href="#ic-warn"/></svg> macOS will say the developer cannot be verified</h3>
+        <p>Topics is signed ad-hoc rather than with a paid Apple Developer certificate, so the first launch is blocked. Since macOS Sequoia the old control-click trick no longer works: Settings is the only route, and it takes about fifteen seconds.</p>
+        <ol>
+          <li>Open the app once and dismiss the dialog that says <b>"Apple could not verify Topics is free of malware"</b>.</li>
+          <li>Go to <b>System Settings &rarr; Privacy &amp; Security</b> and scroll to the bottom.</li>
+          <li>Next to <b>"Topics was blocked to protect your Mac"</b>, press <b>Open Anyway</b> and confirm.</li>
+        </ol>
+      </div>
+
+      <div class="agents-block">
+        <h3>Or let your agent install it</h3>
+        <p>There is a machine-readable page at <a href="/agents.md">/agents.md</a> with the install steps, the ports and the MCP surface. Paste this into any coding agent:</p>
+        <div class="copyline">
+          <code id="agentPrompt" tabindex="0" role="region" aria-label="Install prompt, scrolls horizontally">Read https://topics.armonia.io/agents.md and install Topics on this machine</code>
+          <button type="button" data-copy="#agentPrompt">Copy</button>
+        </div>
+      </div>
+
+      <p class="fine centered">Every asset and checksum lives on the <a href="https://github.com/armonia/topics-app/releases" rel="noopener" target="_blank">releases page</a>.</p>
+    </section>
+  </main>
+
+  <SiteFooter />
+
+  <link rel="stylesheet" href="/v3.css" />
+  <script>
+    import '../scripts/site';
+    import '../scripts/home';
+    import '../scripts/v3';
+  </script>
+</Base>
