@@ -52,8 +52,7 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { SpaceTitle } from './components/Sidebar/SpaceTitle';
-import { SpaceBar } from './components/Sidebar/SpaceBar';
+import { SpaceGroups } from './components/Sidebar/SpaceGroups';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -1043,10 +1042,11 @@ function App() {
             bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
-          {/* Il nome del gruppo che stai guardando: l'elenco qui sotto è il
-              SUO (openPanels filtrato per Spazio), e senza un titolo non
-              c'era modo di saperlo. */}
-          <SpaceTitle />
+          {/* Il GRUPPO è il contenitore delle sue tab: l'albero qui sotto è il
+              suo contenuto (`openPanels` filtrato per gruppo), e l'intestazione
+              che lo avvolge è ciò che lo dice. Gli altri gruppi sono righe
+              chiuse sopra — nessuna barra separata da nessun'altra parte. */}
+          <SpaceGroups>
           <ErrorBoundary fallbackMessage="Sidebar error">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
@@ -1102,15 +1102,11 @@ function App() {
           />
           )}
           </ErrorBoundary>
+          </SpaceGroups>
         </div>
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        {/* I gruppi stanno qui, sotto le loro tab e sopra la riga di stato —
-            dove Arc e Dia mettono gli Spazi. Prima erano una striscia in cima
-            alla griglia, cioè dall'altra parte della finestra rispetto alla
-            lista che governavano. */}
-        <SpaceBar />
         <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       </div>
