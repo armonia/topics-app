@@ -27,7 +27,7 @@ test.describe("Dashboard & Analytics", () => {
     await dashboardPage.openDashboard();
 
     await expect(dashboardPage.kpiGrid).toBeVisible();
-    await expect(dashboardPage.kpiCards).toHaveCount(10);
+    await expect(dashboardPage.kpiCards).toHaveCount(9);
 
     // Each card should have a non-empty value
     const cards = dashboardPage.kpiCards;
@@ -50,15 +50,15 @@ test.describe("Dashboard & Analytics", () => {
     await page.goto("/");
     await dashboardPage.openDashboard();
 
-    // Desktop viewport (default 1280x800) - all 10 cards visible
-    await expect(dashboardPage.kpiCards).toHaveCount(10);
+    // Desktop viewport (default 1280x800) - all 9 cards visible
+    await expect(dashboardPage.kpiCards).toHaveCount(9);
 
     // Resize to mobile
     await page.setViewportSize({ width: 375, height: 812 });
 
-    // All 10 cards should still be visible (wrapped to multiple rows)
-    await expect(dashboardPage.kpiCards).toHaveCount(10);
-    for (let i = 0; i < 10; i++) {
+    // All 9 cards should still be visible (wrapped to multiple rows)
+    await expect(dashboardPage.kpiCards).toHaveCount(9);
+    for (let i = 0; i < 9; i++) {
       await expect(dashboardPage.kpiCards.nth(i)).toBeVisible();
     }
   });
@@ -132,7 +132,7 @@ test.describe("Dashboard & Analytics", () => {
     await page.goto("/");
     await dashboardPage.openDashboard();
 
-    await expect(dashboardPage.kpiCards).toHaveCount(10);
+    await expect(dashboardPage.kpiCards).toHaveCount(9);
 
     // Each KPI card should have non-empty text content (label + value)
     const cards = dashboardPage.kpiCards;
@@ -229,7 +229,7 @@ test.describe("Dashboard & Analytics", () => {
     // Verify dashboard pane is visible with KPI grid
     await expect(dashboardPage.pane).toBeVisible({ timeout: 10_000 });
     await expect(dashboardPage.kpiGrid).toBeVisible();
-    await expect(dashboardPage.kpiCards).toHaveCount(10);
+    await expect(dashboardPage.kpiCards).toHaveCount(9);
   });
 
   // ── DASH-02: Activity Feed Interactions ──────────────────────

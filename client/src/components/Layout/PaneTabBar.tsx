@@ -1483,18 +1483,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 const currentSpace = resolvePaneSpace(ctxPane, spacesRegistry);
                 const targets: { id: string; name: string }[] = [
                   { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
-                  ...liveSpacesOrdered(spacesRegistry).map(s => ({ id: s.id, name: s.name || 'Spazio' })),
+                  ...liveSpacesOrdered(spacesRegistry).map(s => ({ id: s.id, name: s.name || 'Gruppo' })),
                 ];
                 return (
                   <>
                     <button
                       onClick={() => setSpaceSubmenuOpen(open => !open)}
                       className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                      title="Sposta la scheda in un altro Spazio"
+                      title="Sposta la scheda in un altro gruppo"
                       aria-expanded={spaceSubmenuOpen}
                     >
                       <Layers size={14} />
-                      <span className="flex-1 text-left">Sposta nello Spazio</span>
+                      <span className="flex-1 text-left">Sposta nel gruppo</span>
                       <ChevronRight size={12} className={`text-app-text-muted transition-transform ${spaceSubmenuOpen ? 'rotate-90' : ''}`} />
                     </button>
                     {spaceSubmenuOpen && (
@@ -1534,7 +1534,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                             className="w-full flex items-center gap-2 pl-8 pr-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                           >
                             <Plus size={12} />
-                            <span className="flex-1 text-left">Nuovo Spazio</span>
+                            <span className="flex-1 text-left">Nuovo gruppo</span>
                           </button>
                         )}
                       </>

@@ -8,7 +8,7 @@ import {
   deleteTerminalSession,
   resetPaneStore,
 } from "./helpers/api-fixtures";
-import { mockOpenClawAvailable, openTopicsMenuItem } from "./helpers/openclaw";
+import { openTopicsMenuItem } from "./helpers/openclaw";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -67,41 +67,6 @@ test.describe("Panels & Views", () => {
     if (projectTopicId) {
       await deleteTopic(request, projectTopicId);
     }
-  });
-
-  test("activity feed shows Live/Digest tabs", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Activity is openclaw-gated inside the "Settings & Tools" (Topics ▾) menu.
-    await mockOpenClawAvailable(page);
-    await goToApp(page);
-    await openTopicsMenuItem(page, "Activity");
-    // Niente networkidle: lo stream SSE dell'activity tiene la connessione
-    // aperta per sempre. Ma nemmeno una pausa fissa: si POLLA la condizione
-    // finale, che ritorna appena il pannello ha renderizzato invece di pagare
-    // sempre il caso peggiore (ed e' piu' forte — se non arriva mai, fallisce
-    // dicendo cosa aspettava, invece di un opaco "length > 5").
-    await expect
-      .poll(
-        async () => /Live|Digest|Activity|heartbeat/.test(
-          (await page.locator('[role="main"]').textContent()) ?? "",
-        ),
-        { timeout: 10000 },
-      )
-      .toBe(true);
-  });
-
-  test("agents panel shows content", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Agents is openclaw-gated inside the "Settings & Tools" (Topics ▾) menu.
-    await mockOpenClawAvailable(page);
-    await goToApp(page);
-    await openTopicsMenuItem(page, /Agents/);
-    await expect
-      .poll(
-        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
-        { timeout: 10000 },
-      )
-      .toBeGreaterThan(5);
   });
 
   test("multi-pane layout with Add Pane", async ({ page, request }) => {

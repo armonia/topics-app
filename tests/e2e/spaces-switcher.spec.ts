@@ -1,32 +1,28 @@
 /**
- * spaces-switcher.spec.ts — checklist point 12 (Spazi).
+ * spaces-switcher.spec.ts — i GRUPPI (Spazi), dopo che sono scesi nella sidebar.
  *
- * Verifies the Spaces feature end-to-end through the REAL UI:
- *   - "Sposta nello Spazio → Nuovo Spazio" in the standalone tab context menu
- *     creates the first space and moves the tab into it.
- *   - Creating a space makes the SpaceSwitcher strip appear (it renders nothing
- *     until at least one live space exists) with the implicit "Principale" chip
- *     plus the new one.
- *   - Arc semantics: moving a tab does NOT auto-switch the window — the moved
- *     tab leaves the currently-visible ("Principale") set.
- *   - Clicking a space chip switches the active space (aria-selected).
+ * Il modello che questo file protegge: **un gruppo è l'unità, e la sidebar è il
+ * gruppo che stai guardando**. Da cui, in ordine:
+ *   - il nome del gruppo attivo sta in cima alla sidebar;
+ *   - la lista sotto mostra le tab di QUEL gruppo, non tutte;
+ *   - gli altri gruppi stanno in fondo (SpaceBar), col "+" per aggiungerne;
+ *   - un gruppo si può spostare in una finestra sua (`?space=<id>`), e quella
+ *     finestra mostra quel gruppo e basta.
  *
- * These map to SpaceSwitcher.tsx (data-testid="space-switcher", chips role="tab"
- * / data-space-id) and PaneTabBar.tsx ("Sposta nello Spazio" / "Nuovo Spazio").
+ * Superfici: `SpaceTitle` (data-testid="sidebar-space-title"), `SpaceBar`
+ * (data-testid="sidebar-space-bar", chip role="tab" / data-space-id) e il menu
+ * contestuale delle tab ("Sposta nel gruppo" / "Nuovo gruppo").
  */
 import { test, expect, type Page } from "@playwright/test";
-import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
 const BASE = E2E_BASE;
 
-test.describe.serial("Spaces (Spazi) switcher", () => {
+test.describe.serial("Gruppi (Spazi)", () => {
   let idA = "";
   let idB = "";
 
@@ -42,18 +38,11 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
     if (idB) await deleteTopic(request, idB);
   });
 
-  /** Seed two standalone chat tabs open and navigate. */
+  /** Due chat aperte a livello app, e la pagina caricata. */
   async function openTwoStandaloneTabs(page: Page) {
-    // PRISTINE pane-store reset first — including `spaces`, which the legacy
-    // key clears below never touched. This group is `.serial`: when a later
-    // test flakes (SPACE-03's chip-switch timing), Playwright retries the
-    // WHOLE group from SPACE-01 — which asserts "no switcher" and found the
-    // space its own previous pass had created. The retry could then never
-    // go green (observed as the shard-4 CI "flake": ✘ SPACE-03 → ✘ SPACE-01
-    // retry#1/#2). resetPaneStore writes a snapshot with no spaces key, so
-    // every (re)run starts from zero spaces. The two chat panes must be IN the
-    // snapshot (empty panes would out-rank the legacy `panels` key and the
-    // tabs would never render).
+    // Reset PRISTINO del pane-store, `spaces` compresi. Questo gruppo è
+    // `.serial`: al retry Playwright rigira dal primo test, che pretende zero
+    // gruppi, e senza reset troverebbe quello creato dal giro precedente.
     await resetPaneStore(page.request, [idA, idB]);
     await Promise.all([
       page.request.put(`${BASE}/api/ui-state/panels`, {
@@ -62,8 +51,6 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
       page.request.put(`${BASE}/api/ui-state/panel-order`, {
         data: { order: [idA, idB], pinned: [idA, idB] },
       }).catch(() => {}),
-      // Clear any residual space state from a prior run so the switcher starts
-      // hidden and the default space is active.
       page.request.put(`${BASE}/api/ui-state/grid-layout`, {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       }).catch(() => {}),
@@ -74,138 +61,170 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
     await expect(page.locator(`[data-pane-id="${idB}"]`).first()).toBeVisible({ timeout: 10000 });
   }
 
-  test("SPACE-01: switcher is hidden until a space exists", async ({ page }) => {
+  /** Crea un gruppo spostandoci dentro la tab `paneId` (via menu contestuale). */
+  async function moveTabToNewGroup(page: Page, paneId: string) {
+    await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
+    const moveEntry = page.getByText("Sposta nel gruppo", { exact: true });
+    await expect(moveEntry, "il menu della tab offre 'Sposta nel gruppo'").toBeVisible({ timeout: 3000 });
+    await moveEntry.click();
+    // Scoped al MENU: "Nuovo gruppo" è anche l'invito in fondo alla sidebar
+    // (stessa azione, stessa parola) e senza lo scope il locator è ambiguo.
+    const newGroup = page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" });
+    await expect(newGroup, "il sottomenu offre 'Nuovo gruppo'").toBeVisible({ timeout: 3000 });
+    await newGroup.click();
+  }
+
+  test("SPACE-01: senza gruppi c'è solo l'invito a crearne uno, e nessun titolo", async ({ page }) => {
     await openTwoStandaloneTabs(page);
-    // Zero chrome: no space-switcher strip when no live user space exists.
-    await expect(page.getByTestId("space-switcher")).toHaveCount(0);
+    // La barra c'è sempre (è da lì che si scoprono i gruppi), ma con un gruppo
+    // solo non ha chip da mostrare: nessun elenco, nessun titolo in cima.
+    await expect(page.getByTestId("sidebar-space-bar")).toBeVisible();
+    await expect(page.getByTestId("space-chip")).toHaveCount(0);
+    await expect(page.getByTestId("sidebar-space-title")).toHaveCount(0);
+    await expect(page.getByTestId("space-add")).toHaveCount(1);
   });
 
-  test("SPACE-02: 'Sposta nello Spazio → Nuovo Spazio' creates a space, moves the tab, shows the switcher (no auto-switch)", async ({ page }) => {
+  test("SPACE-01b: su desktop il 'nuovo gruppo' si accende solo passandoci sopra", async ({ page }) => {
     await openTwoStandaloneTabs(page);
+    const opacity = () => page.evaluate(() => {
+      const el = document.querySelector('[data-testid="space-add"]');
+      return el ? getComputedStyle(el).opacity : "missing";
+    });
+    // Lontano dalla sidebar: il comando c'è nel DOM ma è spento — in fondo alla
+    // sidebar, per sempre acceso, sarebbe arredamento.
+    await page.mouse.move(1000, 400);
+    await expect.poll(opacity, { timeout: 3000 }).toBe("0");
+    await page.locator('[aria-label="Topics sidebar"]').hover();
+    await expect.poll(opacity, { timeout: 3000 }).toBe("1");
+  });
 
-    // Right-click tab A → open the standalone tab context menu.
-    const tabA = page.locator(`[data-pane-id="${idA}"]`).first();
-    await tabA.click({ button: "right" });
+  test("SPACE-02: 'Sposta nel gruppo → Nuovo gruppo' crea il gruppo e ci porta la tab (senza cambiare vista)", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
 
-    // Expand the "Sposta nello Spazio →" submenu, then "Nuovo Spazio".
-    const moveEntry = page.getByText("Sposta nello Spazio", { exact: true });
-    await expect(moveEntry, "tab menu must offer 'Sposta nello Spazio'").toBeVisible({ timeout: 3000 });
-    await moveEntry.click();
+    // La barra in fondo ora elenca "Principale" + il nuovo gruppo.
+    const bar = page.getByTestId("sidebar-space-bar");
+    await expect(bar.getByRole("tab"), "Principale + il nuovo gruppo").toHaveCount(2);
+    await expect(bar.getByRole("tab", { name: "Principale" })).toBeVisible();
 
-    const newSpace = page.getByText("Nuovo Spazio", { exact: true });
-    await expect(newSpace, "submenu must offer 'Nuovo Spazio'").toBeVisible({ timeout: 3000 });
-    await newSpace.click();
-
-    // The switcher now renders with the implicit "Principale" chip + the new one.
-    const switcher = page.getByTestId("space-switcher");
-    await expect(switcher, "switcher appears once a space exists").toBeVisible({ timeout: 3000 });
-    const chips = switcher.getByRole("tab");
-    await expect(chips, "Principale + the new space = 2 chips").toHaveCount(2);
-    await expect(switcher.getByRole("tab", { name: "Principale" })).toBeVisible();
-
-    // Arc semantics: the window did NOT auto-switch — "Principale" stays active,
-    // and tab A (now in the new space) left the visible set.
+    // Semantica Arc: la finestra NON si sposta da sola — resta su Principale, e
+    // la tab spostata esce dall'insieme visibile.
     await expect(
-      switcher.getByRole("tab", { name: "Principale" }),
-      "the default space stays active after a quiet move",
+      bar.getByRole("tab", { name: "Principale" }),
+      "il gruppo di partenza resta quello attivo dopo uno spostamento silenzioso",
     ).toHaveAttribute("aria-selected", "true");
     await expect(
       page.locator(`[data-pane-id="${idA}"]`),
-      "moved tab A left the Principale (visible) set",
+      "la tab spostata lascia l'insieme visibile",
     ).toHaveCount(0);
     await expect(
       page.locator(`[data-pane-id="${idB}"]`).first(),
-      "tab B stays in Principale",
+      "l'altra tab resta in Principale",
     ).toBeVisible();
   });
 
-  test("SPACE-03: clicking a space chip switches the active space and its visible tabs", async ({ page }) => {
+  test("SPACE-03: il chip commuta il gruppo, e la SIDEBAR segue (mostra le sue tab, non tutte)", async ({ page }) => {
     await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
 
-    // Re-create the space + move tab A (each test gets a fresh page/state).
-    const tabA = page.locator(`[data-pane-id="${idA}"]`).first();
-    await tabA.click({ button: "right" });
-    await page.getByText("Sposta nello Spazio", { exact: true }).click();
-    await page.getByText("Nuovo Spazio", { exact: true }).click();
+    const bar = page.getByTestId("sidebar-space-bar");
+    const gruppo2 = bar.getByRole("tab", { name: /Gruppo 2/ });
+    await expect(gruppo2, "il nuovo gruppo si chiama 'Gruppo 2'").toBeVisible();
 
-    const switcher = page.getByTestId("space-switcher");
-    await expect(switcher).toBeVisible({ timeout: 3000 });
+    // Il titolo in cima dice quale gruppo stai guardando.
+    await expect(page.getByTestId("sidebar-space-title")).toContainText("Principale");
 
-    // The non-default chip is "Spazio 2" (nextSpaceName for the first user space).
-    const spazio2 = switcher.getByRole("tab", { name: /Spazio 2/ });
-    await expect(spazio2, "the new space chip is labelled 'Spazio 2'").toBeVisible();
-
-    // Switch to it → it becomes active, and tab A (its member) becomes visible;
-    // tab B (in Principale) leaves the visible set.
-    await spazio2.click();
-    await expect(spazio2).toHaveAttribute("aria-selected", "true");
+    await gruppo2.click();
+    await expect(gruppo2).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("sidebar-space-title")).toContainText("Gruppo 2");
     await expect(
       page.locator(`[data-pane-id="${idA}"]`).first(),
-      "tab A is visible in its own space",
+      "la tab del gruppo attivo è visibile",
     ).toBeVisible({ timeout: 5000 });
     await expect(
       page.locator(`[data-pane-id="${idB}"]`),
-      "tab B (Principale) is hidden while Spazio 2 is active",
+      "quella dell'altro gruppo no",
     ).toHaveCount(0);
+
+    // E la SIDEBAR è d'accordo: elenca la riga della tab di questo gruppo, non
+    // quella dell'altro. È la regressione che questo riordino doveva chiudere —
+    // prima la lista era la stessa per tutti i gruppi.
+    const sidebar = page.getByTestId("sidebar-topic-list");
+    await expect(sidebar.getByText("SPACE-A-", { exact: false }).first()).toBeVisible({ timeout: 5000 });
+    await expect(sidebar.getByText("SPACE-B-", { exact: false })).toHaveCount(0);
   });
 
-  test("SPACE-04: from a non-default space, the 'Principale' move-back target is ENABLED", async ({ page }) => {
+  test("SPACE-04: da un altro gruppo, il ritorno a 'Principale' è ABILITATO", async ({ page }) => {
     await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
 
-    // Move tab A into a new space and switch to it.
-    const tabA = page.locator(`[data-pane-id="${idA}"]`).first();
-    await tabA.click({ button: "right" });
-    await page.getByText("Sposta nello Spazio", { exact: true }).click();
-    await page.getByText("Nuovo Spazio", { exact: true }).click();
-    const switcher = page.getByTestId("space-switcher");
-    await expect(switcher).toBeVisible({ timeout: 3000 });
-    await switcher.getByRole("tab", { name: /Spazio 2/ }).click();
+    const bar = page.getByTestId("sidebar-space-bar");
+    await bar.getByRole("tab", { name: /Gruppo 2/ }).click();
     const tabAinSpace = page.locator(`[data-pane-id="${idA}"]`).first();
-    await expect(tabAinSpace, "tab A is now visible in Spazio 2").toBeVisible({ timeout: 5000 });
+    await expect(tabAinSpace, "la tab A è visibile nel suo gruppo").toBeVisible({ timeout: 5000 });
 
-    // Reopen its menu → "Sposta nello Spazio". The "Principale" row must be
-    // ENABLED so you can move the tab BACK. The bug: the submenu read the pane
-    // from a reconstructed array with no spaceId, so resolvePaneSpace always
-    // returned Principale → the "Principale" row was ALWAYS disabled.
+    // Riapri il suo menu → "Sposta nel gruppo". La riga "Principale" deve essere
+    // ABILITATA: senza, una tab spostata non tornerebbe più indietro (il bug era
+    // che il sottomenu leggeva una pane ricostruita, senza `spaceId`).
     await tabAinSpace.click({ button: "right" });
-    await page.getByText("Sposta nello Spazio", { exact: true }).click();
+    await page.getByText("Sposta nel gruppo", { exact: true }).click();
     const principaleEntry = page.getByRole("button", { name: "Principale", exact: true });
-    await expect(principaleEntry, "the Principale move-back row must render").toBeVisible({ timeout: 3000 });
-    await expect(principaleEntry, "and it must be ENABLED (fixable move-back)").toBeEnabled();
+    await expect(principaleEntry, "la riga di ritorno c'è").toBeVisible({ timeout: 3000 });
+    await expect(principaleEntry, "ed è cliccabile").toBeEnabled();
   });
 
-  // I gruppi si vedono dalla SIDEBAR, non solo nella striscia di chip: è lì che
-  // vive il modello ("un gruppo è l'unità, una finestra è un gruppo staccato").
-  test("SPACE-05: the sidebar lists the groups with their tabs, and a row switches group", async ({ page }) => {
+  test("SPACE-05: 'Sposta in una finestra' apre la finestra DI QUEL GRUPPO", async ({ page }) => {
+    // Fuori da Tauri il pop-out passa da `window.open`: lo si intercetta per
+    // leggere la URL, che è il contratto vero (`?space=<id>`). L'init script va
+    // installato PRIMA della navigazione.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __opened: string[] };
+      w.__opened = [];
+      window.open = ((url?: string | URL) => {
+        w.__opened.push(String(url ?? ""));
+        return null;
+      }) as typeof window.open;
+    });
     await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
 
-    // Crea uno Spazio spostandoci la tab A (stessa via di SPACE-02).
-    await page.locator(`[data-pane-id="${idA}"]`).first().click({ button: "right" });
-    await page.getByText("Sposta nello Spazio", { exact: true }).click();
-    await page.getByText("Nuovo Spazio", { exact: true }).click();
+    const bar = page.getByTestId("sidebar-space-bar");
+    await bar.getByRole("tab", { name: /Gruppo 2/ }).click({ button: "right" });
+    const detach = page.getByTestId("space-detach");
+    await expect(detach, "il menu del gruppo offre di spostarlo in una finestra").toBeVisible({ timeout: 3000 });
+    await detach.click();
 
-    const section = page.getByTestId("sidebar-groups");
-    await expect(section, "the sidebar shows the groups once one exists").toBeVisible({ timeout: 5000 });
-    const rows = section.getByTestId("group-row");
-    await expect(rows, "Principale + the new group").toHaveCount(2);
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length))
+      .toBe(1);
+    const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened);
+    expect(opened[0], "e porta l'id del GRUPPO, non delle sue chat").toMatch(/[?&]space=space%3A/);
+  });
 
-    // Le righe elencano le TAB, non solo le chat: la tab spostata sta nel nuovo
-    // gruppo, l'altra è rimasta in Principale.
-    await expect(
-      section.locator(`[data-testid="group-tab"]`),
-      "every app-level tab appears under exactly one group",
-    ).toHaveCount(2);
+  test("SPACE-06: una finestra `?space=` mostra QUEL gruppo, e non offre di cambiarlo", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+    await moveTabToNewGroup(page, idA);
 
-    // Un click sulla riga commuta il gruppo attivo — la stessa azione del chip.
-    const other = rows.nth(1);
-    await other.click();
-    await expect(
-      page.getByTestId("space-switcher").getByRole("tab").nth(1),
-      "clicking a sidebar group activates it",
-    ).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
+    // L'id del gruppo appena creato, letto dal suo chip.
+    const bar = page.getByTestId("sidebar-space-bar");
+    const spaceId = await bar.getByRole("tab", { name: /Gruppo 2/ }).getAttribute("data-space-id");
+    expect(spaceId, "il chip porta l'id del suo gruppo").toBeTruthy();
+
+    await page.goto(`/?space=${encodeURIComponent(spaceId!)}`);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // La finestra è INCHIODATA a quel gruppo: mostra le sue tab…
     await expect(
       page.locator(`[data-pane-id="${idA}"]`).first(),
-      "and its tab is now the visible one",
-    ).toBeVisible({ timeout: 5000 });
+      "la finestra-gruppo mostra le tab del suo gruppo",
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator(`[data-pane-id="${idB}"]`),
+      "e non quelle degli altri",
+    ).toHaveCount(0);
+    // …dice quale gruppo è…
+    await expect(page.getByTestId("sidebar-space-title")).toContainText("Gruppo 2");
+    // …e non offre di andarsene: non c'è dove.
+    await expect(page.getByTestId("sidebar-space-bar")).toHaveCount(0);
   });
 });

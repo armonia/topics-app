@@ -52,7 +52,8 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { GroupsSection } from './components/Sidebar/GroupsSection';
+import { SpaceTitle } from './components/Sidebar/SpaceTitle';
+import { SpaceBar } from './components/Sidebar/SpaceBar';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -914,7 +915,12 @@ function App() {
         onTouchEnd={isMobile ? handleSidebarTouchEnd : undefined}
         role="navigation"
         aria-label="Topics sidebar"
-        className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
+        // `group/sidebar`: alcune affordance della sidebar si accendono solo
+        // quando ci passi sopra (il "+" dei gruppi in fondo). Il gruppo di
+        // hover sta QUI e non sulla singola barra perché il bersaglio nascosto
+        // sarebbe altrimenti impossibile da trovare: entri nella sidebar e il
+        // controllo c'è.
+        className={`group/sidebar bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
             : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
         }`}
@@ -1037,15 +1043,19 @@ function App() {
             bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
-          <GroupsSection
-            topics={topics}
-            onFocusTab={(id) => handleFocusPanel(id)}
-            onReopenTopic={(id) => handleTopicClick(id)}
-          />
+          {/* Il nome del gruppo che stai guardando: l'elenco qui sotto è il
+              SUO (openPanels filtrato per Spazio), e senza un titolo non
+              c'era modo di saperlo. */}
+          <SpaceTitle />
           <ErrorBoundary fallbackMessage="Sidebar error">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
           ) : (
+          // `openPanels={visiblePanels}`: LE TAB DEL GRUPPO ATTIVO, non tutte.
+          // La sidebar è il gruppo che stai guardando; una riga che appartiene
+          // a un altro gruppo si raggiunge commutando in fondo, non
+          // trovandosela qui in mezzo senza sapere da dove viene. Stessa fonte
+          // della griglia, così le due superfici non divergono.
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
@@ -1055,7 +1065,7 @@ function App() {
             focusedTopicId={focusedPanelId}
             projectActiveTopics={projectActiveTopics}
             previewPanelId={previewPanelId}
-            openPanels={openPanels}
+            openPanels={visiblePanels}
             onTopicClick={handleTopicClick}
             onTopicDoubleClick={handleTopicDoubleClick}
             onTopicContextMenu={handleTopicContextMenu}
@@ -1087,7 +1097,7 @@ function App() {
             pinnedItems={sidebar.pinnedItems}
             onTogglePin={handleTogglePin}
             boardTaskCount={boardTaskCount}
-            boardOpen={openPanels.includes('__board__')}
+            boardOpen={visiblePanels.includes('__board__')}
             onOpenBoard={() => handleOpenAsPage('board')}
           />
           )}
@@ -1096,6 +1106,11 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
+        {/* I gruppi stanno qui, sotto le loro tab e sopra la riga di stato —
+            dove Arc e Dia mettono gli Spazi. Prima erano una striscia in cima
+            alla griglia, cioè dall'altra parte della finestra rispetto alla
+            lista che governavano. */}
+        <SpaceBar />
         <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       </div>
