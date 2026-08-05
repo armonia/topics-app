@@ -198,6 +198,54 @@ test.describe("Chat scroll behavior", () => {
     expect(await isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX)).toBe(true);
   });
 
+  /**
+   * Lo stesso refresh, ma con l'ULTIMO messaggio più alto della finestra: è il
+   * caso vero (una risposta lunga, un turno pieno di blocchi tool) ed è quello
+   * che il test qui sopra non poteva vedere.
+   *
+   * Con `initialTopMostItemIndex` passato come solo indice, Virtuoso allinea
+   * l'INIZIO di quell'item in cima alla viewport: coi messaggi corti l'item ci
+   * sta tutto e il risultato È il fondo, quindi tutto verde; con un messaggio
+   * alto ti lascia in cima a quel messaggio e il resto lo devi riscrollare a
+   * mano. Sintomo riportato: «aggiorno mentre sono agganciato sotto allo stream
+   * e mi porta sopra».
+   */
+  test("il refresh resta in fondo anche se l'ultimo messaggio è più alto della finestra", async ({ page, request }) => {
+    // Prosa lunga, non 120 righe con "\n": il messaggio di sistema le collassa e
+    // l'item resta più BASSO della viewport — cioè il test non proverebbe niente
+    // (misurato: 469px contro 760 di finestra). Così invece sono 1275px.
+    const alto = "Lorem ipsum dolor sit amet consectetur adipiscing elit. ".repeat(180);
+    await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
+      data: { content: alto },
+      ignoreHTTPSErrors: true,
+    });
+
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+    await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
+    await settleAtBottom(scroller);
+    // Precondizione: l'ultimo messaggio deve DAVVERO superare la finestra,
+    // altrimenti questo test tornerebbe a essere quello di sopra travestito.
+    const supera = await scroller.evaluate((el) => {
+      const rows = el.querySelectorAll('[data-item-index]');
+      const last = rows[rows.length - 1] as HTMLElement | undefined;
+      return last ? last.getBoundingClientRect().height > el.clientHeight : false;
+    });
+    expect(supera, "il messaggio di prova deve essere più alto della viewport").toBe(true);
+
+    await page.reload();
+    const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+    await expect(dopo).toHaveCount(1, { timeout: 15_000 });
+
+    await expect
+      .poll(() => isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX), { timeout: 12_000 })
+      .toBe(true);
+    await page.waitForTimeout(1200);
+    expect(await isAtBottom(dopo, TRUE_BOTTOM_TOLERANCE_PX)).toBe(true);
+  });
+
   test("scroll-to-bottom button appears when scrolled up and works on click", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
