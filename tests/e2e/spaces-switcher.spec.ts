@@ -321,4 +321,45 @@ test.describe.serial("Gruppi (Spazi)", () => {
       "e la sua tab è davvero visibile",
     ).toBeVisible({ timeout: 5000 });
   });
+
+  test("SPACE-09: un fissato sta SOPRA i gruppi, e una volta sola", async ({ page, request }) => {
+    // Fissare vuol dire "questo lo voglio sempre a portata": sopra anche al
+    // gruppo in cui vive. E una riga sola: la stessa riga in cima E dentro la
+    // card sarebbe un doppione, non una scorciatoia.
+    const c = await createTopic(request, "SPACE-C-" + Date.now());
+    try {
+      await resetPaneStore(page.request, [idA, c.id]);
+      await page.request.put(`${BASE}/api/ui-state/sidebar-state`, {
+        data: { pinnedItems: [c.id], viewMode: "timeline", showArchived: false },
+      }).catch(() => {});
+      await page.addInitScript((pinned: string) => {
+        localStorage.setItem(
+          "topics-sidebar-state",
+          JSON.stringify({ pinnedItems: [pinned], viewMode: "timeline", showArchived: false }),
+        );
+      }, c.id);
+      await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [idA, c.id] } }).catch(() => {});
+      await page.request.put(`${BASE}/api/ui-state/panel-order`, { data: { order: [idA, c.id], pinned: [] } }).catch(() => {});
+      await page.goto("/");
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+      await expect(page.locator(`[data-pane-id="${idA}"]`).first()).toBeVisible({ timeout: 10000 });
+
+      await moveTabToNewGroup(page, idA);
+
+      const pinned = page.getByTestId("sidebar-pinned-section");
+      const groups = page.getByTestId("sidebar-groups");
+      await expect(pinned.getByText("SPACE-C-", { exact: false }).first(), "il fissato c'è").toBeVisible({ timeout: 5000 });
+      await expect(groups.getByText("SPACE-C-", { exact: false }), "e non anche dentro la card").toHaveCount(0);
+
+      // Sopra, non in mezzo: il blocco dei fissati precede la prima card.
+      const yPinned = (await pinned.boundingBox())!.y;
+      const yFirstCard = (await page.getByTestId("space-card-active").first().boundingBox())!.y;
+      expect(yPinned).toBeLessThan(yFirstCard);
+    } finally {
+      await page.request.put(`${BASE}/api/ui-state/sidebar-state`, {
+        data: { pinnedItems: [], viewMode: "timeline", showArchived: false },
+      }).catch(() => {});
+      await deleteTopic(request, c.id).catch(() => {});
+    }
+  });
 });
