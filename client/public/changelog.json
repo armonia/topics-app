@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.33",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.32",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cronologia e remotes in fondo, attaccati, e le righe su una griglia sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello git smette di mostrare uno stato vecchio, per tre strade diverse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiudi il socket agli ospiti: il gate controlla le richieste, non ciò che il server spinge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il «+» della riga arriva sulla tessera: e' l'unica strada che restava",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.32",
     "date": "2026-08-06",
     "sections": {
