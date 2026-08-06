@@ -9,7 +9,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { getPaneConfig, getTerminalSessionFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/signals';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { cachedIconPalette, cachedIconTint, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
+import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 
 const TYPE_ICONS: Record<SidebarItem['type'], LucideIcon> = {
   chat: MessageSquare,
@@ -119,13 +119,42 @@ export function PinnedTile({
   }, [icon.src]);
   const sectorColors = icon.src !== null && palette !== null && palette.src === icon.src ? palette.colors : null;
 
-  // Un'icona senza palette (o una tessera senza icona) ricade sulla tinta unica:
-  // la cornice si accende lo stesso, di un colore solo. Niente palette e niente
-  // tinta ⇒ niente cornice, come per il fondo.
-  const ringStops = sectorColors ?? (tint ? [tint, tint] : null);
-  const ringGradient = ringStops
-    ? `conic-gradient(from 0deg, ${[...ringStops, ringStops[0]].join(', ')})`
-    : null;
+  // ── La luce PROIETTATA, non spalmata ────────────────────────────────────
+  //
+  // Un `conic-gradient` GIRA: i colori si susseguono lungo l'anello a raggio
+  // costante, e il risultato è una fascia arcobaleno — colorata, ma non
+  // «illuminata da quella cosa lì». In Dia ogni colore del logo è una luce
+  // ACCESA DIETRO, che si allarga verso il bordo dalla direzione in cui quel
+  // colore sta: il blu in basso sfonda in basso, il verde in alto a sinistra
+  // sfonda in alto a sinistra.
+  //
+  // Quindi: un radial-gradient per spicchio, centrato nella DIREZIONE dello
+  // spicchio e spinto fino al bordo. Il fondo di ogni luce è lo stesso colore ad
+  // alpha 0 (non `transparent`, che interpola passando per il nero e lascia un
+  // alone sporco fra una luce e l'altra).
+  const projection = useMemo(() => {
+    const stops = sectorColors ?? (tint ? [tint] : null);
+    if (!stops || stops.length === 0) return null;
+    const n = stops.length;
+    return stops
+      .map((hex, i) => {
+        const c = fromHex(hex);
+        if (!c) return null;
+        // Centro dello spicchio, da ore 12 in senso orario. Con una tinta sola
+        // la luce sta al centro e si allarga in tondo.
+        const rad = n === 1 ? 0 : ((i + 0.5) / n) * Math.PI * 2;
+        const x = n === 1 ? 50 : 50 + 50 * Math.sin(rad);
+        const y = n === 1 ? 50 : 50 - 50 * Math.cos(rad);
+        const rgb = `${Math.round(c.r)} ${Math.round(c.g)} ${Math.round(c.b)}`;
+        return `radial-gradient(65% 65% at ${x.toFixed(1)}% ${y.toFixed(1)}%, rgb(${rgb} / 1) 0%, rgb(${rgb} / 0) 72%)`;
+      })
+      .filter(Boolean)
+      .join(', ');
+  }, [sectorColors, tint]);
+
+  // Accesa SOLO da selezionata: a riposo una griglia di cornici colorate è
+  // rumore, e «acceso» smette di voler dire qualcosa se è sempre acceso.
+  const lit = focused || expanded;
 
   // Gli stessi segnali delle righe, dagli stessi hook: una tessera non può
   // dire «tutto calmo» mentre la riga della stessa cosa è accesa.
@@ -182,37 +211,42 @@ export function PinnedTile({
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
         // senza icona non deve sembrare spenta, deve sembrare sobria.
-        ringGradient ? '' : 'ring-1 ring-inset ring-black/5 dark:ring-white/5',
+        // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
+        // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
+        'ring-1 ring-inset ring-black/5 dark:ring-white/5',
         surface,
         dragging ? 'opacity-40' : '',
       ].join(' ')}
       style={tint ? ({ '--tile-tint': tint } as React.CSSProperties) : undefined}
     >
-      {/* LA CORNICE CHE RIFLETTE L'ICONA.
-          Due strati dello stesso gradiente conico: uno sfocato che DEBORDA (la
-          luce che cade attorno) e uno nitido ritagliato ad anello dalla maschera
-          (il filo di luce sul bordo). I colori girano nell'ordine in cui stanno
-          nell'icona, quindi il verde resta in alto e il blu in basso invece di
-          fondersi in una tinta media — che è la differenza fra «colorato» e
-          «illuminato da quella cosa lì».
-          Statica: l'animazione è il segnale di «sta lavorando», e due segnali
-          sullo stesso canale non ne fanno uno più forte, ne fanno uno muto. */}
-      {ringGradient && (
+      {/* LA LUCE DELL'ICONA, PROIETTATA SUL BORDO.
+          Due strati della stessa proiezione: uno sfocato che DEBORDA (la luce
+          che cade attorno alla tessera) e uno ritagliato ad anello dalla
+          maschera (il filo acceso sul bordo). Ogni colore del logo è una luce
+          accesa dietro, che si allarga verso il bordo dalla direzione in cui
+          quel colore sta — il blu in basso sfonda in basso, il verde in alto a
+          sinistra sfonda lì. Un gradiente conico invece GIRA, e quello che esce
+          è una fascia arcobaleno: colorata, non illuminata da quella cosa lì.
+
+          Accesa SOLO da selezionata. Statica: l'animazione è il segnale di «sta
+          lavorando», e due segnali sullo stesso canale non ne fanno uno più
+          forte, ne fanno uno muto. */}
+      {projection && (
         <>
           <span
             aria-hidden="true"
-            className={`pointer-events-none absolute -inset-1 rounded-[14px] transition-opacity duration-150 ${
-              focused || expanded ? 'opacity-55' : 'opacity-0 group-hover/tile:opacity-25'
+            className={`pointer-events-none absolute -inset-1.5 rounded-[16px] transition-opacity duration-200 ${
+              lit ? 'opacity-70' : 'opacity-0'
             }`}
-            style={{ background: ringGradient, filter: 'blur(7px)' }}
+            style={{ background: projection, filter: 'blur(9px)' }}
           />
           <span
             aria-hidden="true"
-            className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-150 ${
-              focused || expanded ? 'opacity-90' : 'opacity-35 group-hover/tile:opacity-60'
+            className={`pointer-events-none absolute -inset-px rounded-[9px] transition-opacity duration-200 ${
+              lit ? 'opacity-100' : 'opacity-0'
             }`}
             style={{
-              background: ringGradient,
+              background: projection,
               padding: 1.5,
               // La maschera tiene solo la cornice: `exclude` e' lo standard,
               // `xor` il nome che WebKit conosce da prima. Servono entrambi.
