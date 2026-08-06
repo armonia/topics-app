@@ -17,11 +17,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // the app badge. Round-trips through the server `settings` key like every
   // other AppSettings field (sanitizeSettingsPayload keeps keys present here).
   mutedProjects: [],
-  // Chat is included in the local Claude subscription (the `claude-code` CLI
-  // path draws from the Pro/Max plan, not metered API credits — verified
-  // 2026-07), so the "New Chat" affordances ship ON. The toggle stays in
-  // Settings → Features for anyone who wants to hide the entry points.
-  enableNewChat: true,
   // Lingua dell'interfaccia: `auto` segue il browser (e ricade sull'italiano).
   language: 'auto',
   // Experimental floating-splits layout — OFF by default, desktop-only.
@@ -58,7 +53,19 @@ export function loadSettings(): AppSettings {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      // Spread CIECO no: solo le chiavi che esistono ancora. Una spread cieca
+      // fa sopravvivere per sempre i campi ritirati — `syncableSettings` li
+      // ricopia nel PUT e tornano su al server a ogni salvataggio, come
+      // fossili. È già successo con `enableNewChat` (rimosso 2026-08-06).
+      // `sanitizeSettingsPayload` fa lo stesso filtro sul verso opposto.
+      const parsed: unknown = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const known: Record<string, unknown> = {};
+        for (const key of Object.keys(DEFAULT_SETTINGS)) {
+          if (key in (parsed as Record<string, unknown>)) known[key] = (parsed as Record<string, unknown>)[key];
+        }
+        return { ...DEFAULT_SETTINGS, ...(known as Partial<AppSettings>) };
+      }
     }
   } catch {}
   return DEFAULT_SETTINGS;

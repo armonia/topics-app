@@ -49,9 +49,8 @@ test.describe("Topic Management", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
-    // NewTopicModal (Meta+Shift+N) is gated behind enableNewChat (default off,
-    // useKeyboardShortcuts.ts:185) — seed the flag before navigating.
-    await page.addInitScript(() => localStorage.setItem('app-settings', JSON.stringify({ enableNewChat: true })));
+    // ⌘⇧N apre la NewTopicModal senza condizioni: il gate `enableNewChat` è
+    // stato rimosso (2026-08-06) e non c'è più niente da seminare.
     await topicPage.goto();
 
     // Open the NewTopicModal via Cmd+Shift+N keyboard shortcut
@@ -340,9 +339,8 @@ test.describe("Topic Management", () => {
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
-    // NewTopicModal (Meta+Shift+N) is gated behind enableNewChat (default off,
-    // useKeyboardShortcuts.ts:185) — seed the flag before navigating.
-    await page.addInitScript(() => localStorage.setItem('app-settings', JSON.stringify({ enableNewChat: true })));
+    // ⌘⇧N apre la NewTopicModal senza condizioni: il gate `enableNewChat` è
+    // stato rimosso (2026-08-06) e non c'è più niente da seminare.
     await topicPage.goto();
 
     // Open the NewTopicModal via Cmd+Shift+N

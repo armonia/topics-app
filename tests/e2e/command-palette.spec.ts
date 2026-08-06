@@ -152,13 +152,8 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    // "New Chat" is a paid affordance, OFF by default (settings.ts) — its pill
-    // is hidden unless enableNewChat is set. Settings initialise from
-    // localStorage['app-settings'] at mount (loadSettings), so seed it before
-    // the app boots to render the pill for Part B.
-    await page.addInitScript(() => {
-      localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true }));
-    });
+    // La pill "New Chat" è sempre resa: il gate `enableNewChat` è stato
+    // rimosso (2026-08-06), niente da seminare per la Parte B.
     await goToApp(page);
 
     // --- Part A: Theme toggle ---

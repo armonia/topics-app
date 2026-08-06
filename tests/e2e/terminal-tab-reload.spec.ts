@@ -239,7 +239,10 @@ async function navigateAndOpenTerminal(page: Page, terminalPage: TerminalPage) {
   await addBtn.waitFor({ state: "visible", timeout: 5_000 });
   await addBtn.click();
 
-  const shellBtn = page.getByRole("button", { name: "Shell", exact: true });
+  // Testid e non `getByRole("button")`: dal 2026-08-06 le righe del menu "+"
+  // dichiarano `role="menuitem"` (sono dentro un `role="menu"`), quindi il
+  // ruolo implicito di bottone non c'è più. Il testid è il contratto stabile.
+  const shellBtn = page.getByTestId("pane-add-menu-shell");
   await shellBtn.waitFor({ state: "visible", timeout: 5_000 });
   await shellBtn.click();
 

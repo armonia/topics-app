@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { X } from 'lucide-react';
-import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { isDesktop } from '../../lib/shell';
 import { useModalDialog } from '../../hooks/useModalDialog';
 // The ONE source of truth. The same registry generates the native shell's
@@ -22,7 +22,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onClose} role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+    <div className={`fixed inset-0 ${MODAL_LAYER} flex items-center justify-center`} onClick={onClose} role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
       <div className={MODAL_BACKDROP} />
       <div
         ref={panelRef}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Search, Plus, Settings, Moon, Sun, File, FolderPlus, FolderOpen,
+  Search, Settings, Moon, Sun, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
@@ -17,9 +17,11 @@ import { PANE_CONFIG, tabTargetForPane } from '../../state/pane/adapters';
 import { usePaneStore } from '../../state/pane/store';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { describeTabTarget } from '../../../../shared/tab-link';
-import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
+import { buildAddMenuItems, AddMenuIcon, COMMAND_PALETTE_PILL_IDS } from './addMenuItems';
+import type { PaneType } from '../../types';
 
 export interface CommandAction {
   id: string;
@@ -71,13 +73,13 @@ interface CommandPaletteProps {
   onOpenTopic: (id: string) => void;
   onOpenProject?: (projectPath: string) => void;
   onNewTopic: () => void;
-  /** Paid New Chat gate — hides the "New Chat" pill when false. */
-  enableNewChat?: boolean;
   onNewProject?: () => void;
   onCreateProject?: () => void;
-  onNewClaude?: () => void;
-  onNewCodex?: () => void;
-  onNewTerminal?: () => void;
+  /** «Crea una pane di questo tipo nel contesto standalone». Sostituisce le
+   *  vecchie onNewClaude/onNewCodex/onNewTerminal: le pill escono da
+   *  `buildAddMenuItems`, quindi una callback per AGENTE non serve più — e
+   *  serviva a produrre proprio la divergenza (opencode non c'era). */
+  onAddPane?: (type: PaneType, subType?: string) => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
   onOpenFileSearch?: () => void;
@@ -103,12 +105,9 @@ export function CommandPalette({
   onOpenTopic,
   onOpenProject,
   onNewTopic,
-  enableNewChat = false,
   onNewProject,
   onCreateProject,
-  onNewClaude,
-  onNewCodex,
-  onNewTerminal,
+  onAddPane,
   onToggleTheme,
   onOpenSettings,
   onResetPanels,
@@ -121,6 +120,22 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Le pill di creazione: stesso modello del menu "+" (scope standalone),
+  // ristretto a quello che ha senso in una barra orizzontale — l'elenco degli
+  // id vive accanto al modello, non qui, così non può divergere di nuovo.
+  const addPills = useMemo(() => {
+    const all = buildAddMenuItems({
+      scope: 'standalone',
+      onNewChat: onNewTopic,
+      onAddPane,
+      onProjectPicker: (onCreateProject || onNewProject) ?? undefined,
+    });
+    const order = new Map(COMMAND_PALETTE_PILL_IDS.map((id, i) => [id, i]));
+    return all
+      .filter((item) => order.has(item.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  }, [onNewTopic, onAddPane, onCreateProject, onNewProject]);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -494,7 +509,7 @@ export function CommandPalette({
   };
 
   return (
-    <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
+    <div data-testid="command-palette" className={`fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[12vh]`} onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
       <div className={MODAL_BACKDROP} />
       <div
         ref={panelRef}
@@ -621,34 +636,22 @@ export function CommandPalette({
             Always at the bottom. Action items are NOT duplicated into the
             result list (the bar is the canonical surface). */}
         <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap flex-shrink-0">
-          {/* ⌘N is bound unconditionally (useKeyboardShortcuts.ts:202) but only
-              REACHES us in the desktop shell — a browser tab keeps it for
-              itself. So the hint is gated on the shell, read straight from
-              lib/shell. It used to hang off an `isElectron` prop that NO caller
-              ever passed, which made the hint dead code: always undefined, so
-              ⌘N was never advertised, not even on desktop. */}
-          {enableNewChat && (
-            <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isDesktop ? '⌘N' : undefined} />
-          )}
-          {onNewClaude && (
-            <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />
-          )}
-          {onNewCodex && (
-            <ActionPill icon={<CodexIcon size={12} />} label="Codex" onClick={() => { onNewCodex(); onClose(); }} />
-          )}
-          {onNewTerminal && (
-            <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />
-          )}
-          {(onCreateProject || onNewProject) && (
-            // "Apri Progetto" = apri il picker (folder dialog). onOpenProject NON va
-            // qui: richiede un projectPath specifico ed è usato dalla LISTA progetti
-            // (righe sopra), non da questo pill generico — chiamarlo senza path era
-            // sia un errore tsc sia un no-op a runtime (handleProjectClick(undefined)).
-            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { (onCreateProject || onNewProject)?.(); onClose(); }} />
-          )}
-          {(onCreateProject || onNewProject) && (
-            <ActionPill icon={<FolderPlus size={12} />} label="Crea Progetto" onClick={() => { (onCreateProject || onNewProject)?.(); onClose(); }} />
-          )}
+          {/* Le pill di creazione NON sono più una lista scritta a mano: escono
+              dallo STESSO modello del menu "+" (`buildAddMenuItems`, scope
+              standalone). Prima erano due elenchi paralleli e divergevano —
+              qui mancavano opencode, Browser e Board generale.
+              ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
+              solo nel guscio desktop: in una scheda del browser il tasto se lo
+              tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
+          {addPills.map((item) => (
+            <ActionPill
+              key={item.id}
+              icon={<AddMenuIcon item={item} size={12} />}
+              label={item.label}
+              onClick={() => { item.run(); onClose(); }}
+              shortcut={item.id === 'new-chat' && isDesktop ? '⌘N' : undefined}
+            />
+          ))}
           <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
             icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}

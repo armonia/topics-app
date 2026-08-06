@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { closeAllPopovers } from '../lib/popoverRegistry';
 
 /**
  * useModalDialog — UN contratto per i modali a schermo intero, come
@@ -90,6 +91,12 @@ export function useModalDialog({
     if (!open) return;
     const id = idRef.current!;
     stack.push(id);
+
+    // Un modale sgombera i popover. Non è cosmesi: i due sistemi sono separati
+    // (`useDismissable` per i menu, questa pila per i dialoghi), quindi un
+    // dropdown aperto sopravviveva a ⌘K e restava a schermo SOPRA il velo —
+    // orfano, senza più il contesto che lo aveva prodotto.
+    closeAllPopovers();
 
     const restoreTo = document.activeElement as HTMLElement | null;
     // Il nodo della card COM'ERA all'apertura: alla pulizia il ref può essere

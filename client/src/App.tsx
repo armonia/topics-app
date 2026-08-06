@@ -7,7 +7,7 @@ import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
-import type { SidebarTab } from './types';
+import type { SidebarTab, PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -624,6 +624,22 @@ function App() {
     return () => window.removeEventListener('topics:open-project-picker', handler);
   }, [handleOpenProjectPicker]);
 
+  /**
+   * «Crea questa cosa nel contesto standalone». UNO, e lo prendono sia la
+   * palette ⌘N sia le pill di ⌘K: prima ⌘K aveva le sue callback separate
+   * (onNewClaude/onNewCodex/onNewTerminal) e infatti offriva un insieme
+   * DIVERSO — niente opencode, niente Browser, niente Board.
+   */
+  const handleStandaloneAddPane = useCallback((type: PaneType, subType?: string) => {
+    if (type === 'terminal') {
+      handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
+    } else if (type === 'browser') {
+      openBrowserPane(`new-${Date.now()}`);
+    } else if (type === 'board') {
+      handleOpenAsPage('board');
+    }
+  }, [handleQuickCreateTerminal, claudeSkipPermissions, openBrowserPane, handleOpenAsPage]);
+
   // In-chat sub-agent strip → open/focus the sub-agent's terminal pane. Routed
   // via the CustomEvent bus (same pattern as topics:open-project-picker) so the
   // chat pane doesn't need handleTerminalClick threaded down three layers. The
@@ -643,10 +659,10 @@ function App() {
   // alternativa sarebbe stata infilare onNewChat in ChatPane → ChatInput solo
   // per un bottone che compare sopra il 90% di contesto.
   useEffect(() => {
-    const handler = () => { if (appSettings.enableNewChat) handleQuickCreateTopic(); };
+    const handler = () => { handleQuickCreateTopic(); };
     window.addEventListener('topics:new-chat', handler);
     return () => window.removeEventListener('topics:new-chat', handler);
-  }, [handleQuickCreateTopic, appSettings.enableNewChat]);
+  }, [handleQuickCreateTopic]);
 
   // Native tray menu (Tauri) click on an attention row → open/focus that topic,
   // exactly like a sidebar click. The Rust `nav:` handler dispatches this DOM
@@ -883,7 +899,6 @@ function App() {
     showNewTopic,
     showShortcuts,
     showFileSearch,
-    enableNewChat: appSettings.enableNewChat,
     handleClosePanel,
     toggleSidebar,
     handleOpenAsPage,
@@ -1078,20 +1093,11 @@ function App() {
             <PaneAddMenu
               scope="standalone"
               presentation="palette"
-              onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
-              onAddPane={(type, subType) => {
-                if (type === 'terminal') {
-                  handleQuickCreateTerminal(
-                    normalizeTerminalAgent(subType),
-                    claudeSkipPermissions,
-                  );
-                } else if (type === 'browser') {
-                  openBrowserPane(`new-${Date.now()}`);
-                } else if (type === 'board') {
-                  handleOpenAsPage('board');
-                }
-              }}
-              showShortcuts
+              onNewChat={() => handleQuickCreateTopic()}
+              onAddPane={handleStandaloneAddPane}
+              // L'UNICO ospite dove ⌘N apre davvero questa superficie: solo
+              // qui l'hint sulla riga New Chat dice la verità.
+              showGlobalNewChatKbd
               triggerTitle="New (⌘N)"
               triggerVariant="header"
               triggerKbd="⌘N"
@@ -1133,11 +1139,11 @@ function App() {
             unreadData={unreadData}
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
-            onNewTopicInProject={appSettings.enableNewChat ? (projectPath) => handleQuickCreateTopic(projectPath) : undefined}
+            onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
-            onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
+            onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
             terminalSessions={terminalSessions}
             browserContexts={browserCtx.contexts}
@@ -1285,8 +1291,8 @@ function App() {
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
-          onNewChatInProject={appSettings.enableNewChat ? (projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId) : undefined}
-          onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
+          onNewChatInProject={(projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId)}
+          onNewChat={() => handleQuickCreateTopic()}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
           onProjectActiveTopicChange={handleProjectActiveTopicChange}
@@ -1519,10 +1525,7 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
-            enableNewChat={appSettings.enableNewChat}
-            onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
-            onNewCodex={() => handleQuickCreateTerminal('codex')}
-            onNewTerminal={() => handleQuickCreateTerminal('shell')}
+            onAddPane={handleStandaloneAddPane}
             onCreateProject={handleOpenProjectPicker}
             onNewProject={handleOpenProjectPicker}
             onToggleTheme={toggleTheme}
