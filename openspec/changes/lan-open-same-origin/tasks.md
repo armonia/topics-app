@@ -177,8 +177,11 @@ ma non vanno persi:
    `~`, `resolve()`, ritorna) ed è l'unico filtro su **43 call site** in
    `server/routes/files.ts`, inclusi `writeFileSync` (`:263`) e `rm -rf` (`:796`).
    Numero identico all'audit del 19 giugno: fermo da sette settimane.
-3. **Certificato via `tailscale cert`** + `scripts/refresh-tailscale-cert.sh` +
-   launchd settimanale (`design.md §6`). Sblocca la PWA installabile.
+3. **Certificato**: indirizzare al nome mDNS (`macbook-pro-di-attilio.local`, già
+   nella SAN e immune al DHCP) invece che all'IP; installare `certs/ca-cert.pem` sul
+   telefono quando servirà la PWA installabile (`design.md §6`). Debito separato:
+   **non esiste nel working tree alcuno script che generi `certs/`** — è morto con
+   l'archiviazione di Electron e va riscritto.
 4. **PWA**: `boot.js:67-69` registra il service worker solo su `localhost` o
    `*.trycloudflare.com`, e il ramo else **de-registra e svuota le cache**.
    Allargarlo ha senso solo insieme a (3).
