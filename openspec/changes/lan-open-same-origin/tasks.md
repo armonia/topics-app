@@ -228,10 +228,19 @@ Evidenza raccolta finora:
 - `scripts/typecheck-server.ts` → 0 errori (baseline 0). Client: 0 errori sui file
   toccati (i rossi in `Menu.tsx`/`addMenuItems.tsx` sono lavoro in volo di
   un'altra sessione, non di questa change).
+- `bun test server/` → **2370 pass, 9 skip, 0 fail**.
 - Dal vivo, dalla LAN a `192.168.1.12:3333` **senza alcun token**:
   `GET /api/topics` → 200 (ieri 401); `POST` con Origin forestiera → 403;
   `/__daemon/healthz` da loopback col token → 200, dalla LAN collo stesso token
   → 401.
+- **L'app di produzione aperta dall'indirizzo LAN con viewport iPhone 14 Pro,
+  senza token**: la SPA parte, la board si dipinge coi dati veri, il socket
+  primario si apre su `wss://192.168.1.12:3333/ws`, e in tutto il boot i rifiuti
+  401/403 osservati sono **zero**. Evidenza in
+  `~/.topics/media/lan-open-same-origin/telefono-lan-senza-token.{webm,png}`.
+  Copre il guasto originale — «Reconnecting…» eterno — ma **non** sostituisce un
+  telefono vero: manca Safari/iOS, il click-through sull'interstiziale del
+  certificato, e l'input touch.
 
 **Restano aperte, e non vanno spuntate a fiducia** — chiedono un DISPOSITIVO:
 - 2.6 — la verifica dal telefono che terminale, favicon, `sendBeacon` e media si
