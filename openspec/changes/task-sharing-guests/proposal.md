@@ -74,3 +74,56 @@ macchina.
 3. **Un ospite resta un dispositivo autorizzato.** Se il filtro ha una falla, ha
    accesso a un server che esegue comandi. Il perimetro vero resta la revoca, che
    c'è ed è immediata.
+
+
+## Stato al 2026-08-06 — consegnato
+
+**Il modello è uno**: `grants(subject_type, subject_id, resource_type,
+resource_id, level, via)`, migration `083`, righe di `task_shares` travasate.
+Soggetto `device` oggi; `person` e `org` si aggiungono con un valore nell'enum e
+una tabella di risoluzione, non un secondo sistema d'accessi.
+
+**Condivisibili**: `task` e `topic`. **Non** Spazi e tab, e un test lo fissa: non
+hanno una riga a cui appendere il permesso — vivono in un blob JSON da 56 KB in
+una riga sola di `ui_state`, riscritta tutta intera con un CAS. Promuoverli a
+righe è lavoro di fondamenta, non una voce in un enum.
+
+**Il gesto c'è**: `ShareControl` accanto allo stato del task, generico sul tipo di
+risorsa, con la provenienza mostrata e il caso «nessun ospite» che dice dove
+crearne uno.
+
+**Tre errori miei, trovati e chiusi costruendo** — valgono più del resto perché
+sono la stessa forma sbagliata ripetuta:
+1. il filtro ospite messo nel **router dei task**: un ospite leggeva `/api/topics`
+   per intero. Il posto era il gate.
+2. `/api/topics` (la LISTA) messa in allowlist: un endpoint che restituisce un
+   INSIEME non è filtrabile da un gate, che vede il percorso e non il corpo.
+   Sostituita da `/api/auth/shared`, che parte dalle concessioni e quindi non ha
+   niente da perdere.
+3. l'allowlist dei frame WS scritta a memoria: `task:comment` e `stream:delta`
+   non esistono. Un tipo inventato non è un errore rumoroso, è un aggiornamento
+   che non arriva mai. Ora un test confronta ogni voce col registro.
+
+**La vitalità è tornata**: `/ws` era stato chiuso per confinare l'ospite, e il
+prezzo era che ogni cosa condivisa diventava una fotografia. Ora il socket è
+aperto e il contenuto filtrato — prima per tipo (10 frame su 91: solo 39 portano
+un id di entità, quindi affidarsi all'id lascerebbe passare gli altri 52), poi
+per entità.
+
+### Resta aperto
+
+- **Organizzazioni e persone.** Richiedono l'identità del proprietario, che
+  richiede il login, che ha il vincolo già scritto in `device-auth`. Oggi il
+  soggetto è il dispositivo, ed è coerente: con un proprietario solo, «persona» e
+  «dispositivo» sono la stessa informazione.
+- **La raggiungibilità**: un ospite deve poter arrivare al server. Sulla LAN vuol
+  dire che è in casa. Fuori serve il relay — decisione di infrastruttura, non
+  implementazione.
+- **La vista dell'ospite.** Oggi un ospite che apre l'app vede la board vuota:
+  i dati ci sono (`/api/auth/shared`), manca la schermata che li dispone. È il
+  prossimo pezzo, ed è quello che rende la condivisione una cosa che si può
+  mostrare a qualcuno.
+- **Contenitori**: condividere un progetto e vederne i task arrivare in blocco.
+  Il campo `via` esiste apposta, ma «progetto» oggi vuol dire quattro cose
+  diverse (7 righe in `projects`, 19 slug nei task, 385 percorsi nei topic, 38
+  aperti davvero): va unificato prima.
