@@ -1350,6 +1350,31 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /**
+   * Quanto spesso si può ricalcolare l'allowlist per SMENTIRE un diniego.
+   *
+   * La cache da 5 secondi è un'ottimizzazione, non una regola: una cartella
+   * appena aperta è già un progetto legittimo prima che il timer scada, e nel
+   * frattempo ogni chiamata su di lei prendeva un 400. Il pannello git se ne
+   * riprende da solo (ripolla), ma un'azione one-shot — cancella questo file,
+   * metti in stage questo blocco — falliva e basta, con un messaggio che non
+   * spiegava niente.
+   *
+   * Quindi prima di negare si ricalcola. Il ricalcolo costa due query e un
+   * `realpath` per voce, e sta solo sul percorso del DINIEGO, che è raro: ma
+   * «raro» non vale se qualcuno bussa apposta su path negati, quindi al più
+   * uno ogni mezzo secondo. Oltre quello il diniego resta.
+   */
+  const DENY_REFRESH_MIN_MS = 500;
+  let lastDenyRefresh = 0;
+  function allowedProjectDirsFresh(): Set<string> | null {
+    const now = Date.now();
+    if (now - lastDenyRefresh < DENY_REFRESH_MIN_MS) return null;
+    lastDenyRefresh = now;
+    knownDirsCache = null;
+    return allowedProjectDirs();
+  }
+
+  /**
    * Risolve un path DI PROGETTO arrivato dal client, dentro il confine.
    *
    * Fino al 2026-08-06 questa funzione faceva `resolve()` e basta — nessun
@@ -1386,8 +1411,14 @@ export function createAppContext(baseDir: string): AppContext {
     let real = resolved;
     try { real = realpathSync(resolved); } catch { /* non esiste ancora: creazione file/dir */ }
     if (!isInsideKnownProject(real, allowedProjectDirs())) {
-      console.warn(`[Security] Project path denied: ${inputPath} -> ${real}`);
-      return null;
+      // Prima di negare, si guarda una volta se la lista è solo VECCHIA — vedi
+      // `allowedProjectDirsFresh`. Il confine non cambia: cambia solo che non
+      // si nega per un ritardo di cinque secondi.
+      const fresche = allowedProjectDirsFresh();
+      if (!fresche || !isInsideKnownProject(real, fresche)) {
+        console.warn(`[Security] Project path denied: ${inputPath} -> ${real}`);
+        return null;
+      }
     }
     return resolved;
   }
