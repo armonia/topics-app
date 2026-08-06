@@ -3,6 +3,7 @@ import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
+import { watchProjectFiles } from "../file-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "../lib/git-porcelain";
@@ -204,6 +205,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         return set;
       }
       const rootIgnore = readIgnore(resolvedPath, "");
+      // Idempotente, come `watchGitDir` da `/api/git/status`: chiedere l'albero
+      // è anche il momento in cui si comincia a osservarlo.
+      watchProjectFiles(resolvedPath, ctx);
 
       interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
       // Async walk (fs.promises): the old readdirSync + per-entry statSync ran

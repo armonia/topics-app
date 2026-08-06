@@ -372,7 +372,7 @@ export function ProjectSidebar({
               </div>
               {expandedSections.files && (
                 <div className="flex-1 min-h-0 overflow-y-auto">
-                  <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} />
+                  <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
                 </div>
               )}
             </div>
@@ -455,7 +455,7 @@ export function ProjectSidebar({
           </div>
           {expandedSections.files && (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} />
+              <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
             </div>
           )}
         </div>

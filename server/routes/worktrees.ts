@@ -29,6 +29,7 @@ import {
 import { isValidWorktreeName } from "../utils/worktree-naming";
 import { purgeWorktreeFromUiState } from "../services/ui-state-purge";
 import { unwatchGitDir } from "../git-watcher";
+import { unwatchProjectFiles } from "../file-watcher";
 
 const ALLOWED_MODES = new Set(["branch", "reuse", "detached"]);
 const ALLOWED_STATUSES = new Set(["pending", "ready", "error"]);
@@ -263,6 +264,7 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
           // git:status broadcasts (and 3 fs.watch handles would leak on a
           // directory that no longer exists).
           unwatchGitDir(wt.absPath);
+          unwatchProjectFiles(wt.absPath);
           const purge = purgeWorktreeFromUiState(ctx.db, broadcastToAll, idParams.id);
           if (!purge.ok) {
             return errorResponse(500, "Failed to purge ui_state references", {
