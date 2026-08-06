@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
@@ -44,6 +45,20 @@ async function setPins(page: Page, ids: string[], layout?: string[][]): Promise<
 async function gotoSidebar(page: Page): Promise<void> {
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+}
+
+/** Crea una cartella con dentro una `favicon.png` vera, cosi' il progetto ha
+ *  un'icona e la tessera prende il ramo «icona reale».
+ *
+ *  Scritta dal processo di TEST, non da un endpoint: il server di prova gira
+ *  sulla stessa macchina e legge lo stesso disco, quindi un endpoint apposta
+ *  sarebbe superficie in produzione che esiste solo per i test. Un PNG 1×1
+ *  basta — il server serve il file, non lo giudica. */
+function mkdirWithIcon(dir: string): void {
+  const PNG_1x1 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(`${dir}/favicon.png`, Buffer.from(PNG_1x1, "base64"));
 }
 
 const section = (page: Page): Locator => page.getByTestId("sidebar-pinned-section");
@@ -1152,6 +1167,21 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(posata.nome).toContain("E2E-Fit-Pin");
     expect(posata.fuori, "e nessuno dei due esce dalla tessera").toBe(0);
 
+    // Un progetto CON favicon si riconosce da quella: il titolo non si ripete.
+    const conIcona = "/tmp/e2e-tile-favicon";
+    mkdirWithIcon(conIcona);
+    const proj = await createTopic(request, `E2E-Fit-Proj-${Date.now()}`, { projectPath: conIcona });
+    created.push(proj.id);
+    await setPins(page, [pin.id, `project:${conIcona}`]);
+    await gotoSidebar(page);
+    const tessellaProj = tileNamed(page, "e2e-tile-favicon");
+    await expect(tessellaProj).toBeVisible({ timeout: 15000 });
+    await expect(tessellaProj.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
+    await expect(
+      tessellaProj.getByTestId("pinned-tile-name"),
+      "e accanto non si ripete il nome",
+    ).toHaveCount(0);
+
     // 2. L'ANTEPRIMA, trascinando una riga della lista sui fissati, mostra le
     //    stesse due cose — e nemmeno lei trabocca.
     const riga = page.getByRole("treeitem", { name: chat.name }).first();
@@ -1195,5 +1225,124 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(anteprima.parti, "con icona E titolo").toBe(2);
     expect(anteprima.nome, "il titolo e' quello giusto").toContain("E2E-Fit-Chat");
     expect(anteprima.fuori, "e si vedono per intero").toBe(0);
+  });
+});
+
+test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-24: sfissare trascinando NON archivia: la riga resta nella lista", async ({ page, request }) => {
+    // Il difetto piu' grave del gesto inverso. `onTogglePin` porta con se' una
+    // semantica giusta altrove — «una chat che sfissi a tab chiusa non ti serve
+    // piu', archiviala» — e disastrosa qui: la riga spariva un istante dopo
+    // averla trascinata NELLA lista, e senza `showArchived` non c'era piu'
+    // modo di riprenderla. Ecco perche' «poi non riesco piu' a farlo».
+    const t = await createTopic(request, `E2E-Round-${Date.now()}`);
+    created.push(t.id);
+
+    await setPins(page, [t.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    const sullaLista = async () => page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
+      const dt = new DataTransfer();
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      lista.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await attendi();
+      lista.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+    }, t.id);
+
+    await sullaLista();
+    await expect(tiles(page)).toHaveCount(0, { timeout: 15000 });
+
+    // LA COSA CHE CONTA: la riga e' nella lista, viva. Non archiviata, non
+    // sparita.
+    await expect(
+      page.getByRole("treeitem", { name: t.name }).first(),
+      "la riga deve stare nella lista dove l'hai lasciata",
+    ).toBeVisible({ timeout: 15000 });
+    // E lo dice anche il server, non solo lo schermo. (`GET /api/topics/:id`
+    // non esiste: la lista e' l'unico modo di chiederlo.)
+    const dopo = await request.get(`${E2E_BASE}/api/topics`);
+    // La risposta è `{ topics: { <id>: Topic }, … }`, non un array.
+    const body = (await dopo.json()) as { topics?: Record<string, { archived?: boolean }> };
+    const mia = body.topics?.[t.id];
+    expect(mia, "la topic esiste ancora").toBeTruthy();
+    expect(mia?.archived ?? false, "e non deve essere stata archiviata").toBe(false);
+  });
+
+  test("TILE-25: il giro completo si puo' rifare — fissa, sfissa, rifissa", async ({ page, request }) => {
+    // «Faccio avanti e indietro e poi non riesco piu'»: lo stato del drag
+    // restava acceso quando un gesto finiva FUORI dalla superficie che l'aveva
+    // visto nascere, e da li' in poi la griglia si credeva ancora in mezzo a un
+    // trascinamento.
+    const t = await createTopic(request, `E2E-Ping-${Date.now()}`);
+    const compagno = await createTopic(request, `E2E-Ping-Alt-${Date.now()}`);
+    created.push(t.id, compagno.id);
+
+    await setPins(page, [compagno.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    const fissaTrascinando = async (nome: string) => {
+      const riga = page.getByRole("treeitem", { name: nome }).first();
+      await expect(riga).toBeVisible({ timeout: 15000 });
+      await riga.evaluate(async (src) => {
+        const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const row = document.querySelector('[data-testid="pinned-row"]') as HTMLElement;
+        const box = (row.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+        const punto = { clientX: box.left + 2, clientY: box.top + 5 };
+        const dt = new DataTransfer();
+        src.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+        row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+        await attendi();
+        row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+        src.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+        await attendi();
+      });
+    };
+
+    const sfissaTrascinando = async (key: string) => {
+      await page.evaluate(async (k) => {
+        const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const tile = document.querySelector(`[data-pinned-tile="${k}"]`) as HTMLElement;
+        const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
+        const dt = new DataTransfer();
+        tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+        lista.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        await attendi();
+        lista.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+        await attendi();
+      }, key);
+    };
+
+    // Due giri interi: se lo stato si incastra, il secondo non passa.
+    for (let giro = 0; giro < 2; giro++) {
+      await fissaTrascinando(t.name);
+      await expect(tiles(page), `giro ${giro}: fissata`).toHaveCount(2, { timeout: 15000 });
+      await sfissaTrascinando(t.id);
+      await expect(tiles(page), `giro ${giro}: sfissata`).toHaveCount(1, { timeout: 15000 });
+    }
+
+    // E il compagno non si e' mosso: i giri non hanno toccato altro.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        return ((env?.value ?? env)?.pinnedItems ?? []) as string[];
+      }, { timeout: 15000 })
+      .toEqual([compagno.id]);
   });
 });
