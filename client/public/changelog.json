@@ -1,5 +1,284 @@
 [
   {
+    "version": "2.2.23",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote Access: i test cercavano bottoni che non esistono da un rename",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drop da fuori dice dove finisce, e la board diventa una tessera",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.22",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rimetti a posto i quattro tasti della ricerca, e il progetto che spariva sotto di essi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.21",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il pannello git di una cartella non tracciata: dire di chi sono le cose, e offrire quella che manca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un varco fisso sotto l'ultima risposta, il cronometro che scorre davvero, e la coda al suo posto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.20",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il path dal client entrava senza bussare, e il grep girava per dieci giga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima del riordino mancava proprio nel caso piu' comune",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via la vista per tipo, e il progetto diventa trascinabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "v2.2.20 — tessere: anteprima del riordino, vista per tipo rimossa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.19",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La freccia torna tonda: `rounded-full` su un rettangolo fa un ovale",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.18",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sostituisci gli orologi con la causalità: un dispositivo dormiente non resuscita più le tab chiuse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra si ridimensiona, e il pannello git smette di contraddirsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ritira l'affermazione sul hit-test del commutatore di Spazio: non era misurata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drop su un gruppo non spostava niente: una tessera chiusa non ha pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni il formato del filo retrocompatibile: un client vecchio non deve buttare via i marcatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna lo stadio 1 come fatto, con l'evidenza e i due difetti che i test hanno pescato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riscrivi le voci dello stadio 1 su cio' che e' stato fatto, non sul piano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fissare trascinando, e sciogliere un gruppo senza sembrare di distruggerlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il refresh non ti sposta più, la freccia guarda la geometria, e la bolla smette di essere blu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la mappa della ricerca in openspec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano non è una scrittura: mostralo come piano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.17",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tessere tornano larghe uguali, e un progetto fissato entra in un gruppo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cose che la sidebar diceva male: una riga senza nome, una sezione che si apriva sul vuoto, una linea assente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tabulazione saltava dentro la fascia di una tessera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pane-store deve smettere di indovinare chi ha ragione confrontando due orologi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cornice riflette l'icona, con i colori dove stanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La luce si proietta invece di girare, e si accende solo da selezionata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Piu' aria sotto il divisore, e l'alone a riposo scende",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga che non si apre deve dire perché, o si legge come rotta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.16",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una callback dell'albero che cambiava identità a ogni render, e una spec senza confine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rischio numero uno non era coperto: ora TILE-6 lo guarda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘K e il menu «+» sono la stessa lista, e ora è un test a dirlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le voci da creare escono dalla barra ed entrano nella lista, dove la tastiera arriva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spunta verde confermava la norma, e un chevron apriva il vuoto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.15",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiude le task: deadcode, bump, e il video dell'anteprima al suo posto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta la versione a 2.2.15 e rimetti in piedi il bundle servito",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.14",
     "date": "2026-08-06",
     "sections": {
@@ -54,6 +333,11 @@
         },
         {
           "it": "A cedere era sempre la colonna sbagliata, e il chevron del gruppo mentiva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "v2.2.14 — le tessere fissate",
           "en": "",
           "scope": null
         }
