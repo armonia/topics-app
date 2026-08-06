@@ -37,6 +37,21 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
   Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
 
+/** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
+ *  stessa rotazione, così «si apre» si legge uguale ovunque. */
+function ExpandChevron({ expanded }: { expanded: boolean }) {
+  return (
+    <ChevronRight
+      size={12}
+      aria-hidden="true"
+      data-testid="pinned-expand-hint"
+      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${
+        expanded ? 'rotate-90' : ''
+      }`}
+    />
+  );
+}
+
 /** Quanto della tinta si vede sul fondo A RIPOSO.
  *
  *  Molto basso di proposito. La tessera a riposo deve leggersi come una
@@ -303,8 +318,23 @@ export function PinnedTile({
         />
       )}
 
+      {/* IL SEGNO CHE SI APRE, ACCANTO A CIÒ CHE IDENTIFICA.
+          Un progetto fissato fa due cose col click — ci si va sopra, e le sue
+          tab compaiono nella fascia qui sotto — ma la seconda non la dichiarava
+          niente: la cartella diceva «sono un progetto», che si sapeva già dal
+          nome.
+
+          È LO STESSO chevron delle righe (`ChevronRight` da 12, ruota di 90° da
+          aperto: progetti, sotto-agenti, card dei gruppi) e sta nella STESSA
+          posizione: davanti alla cosa che apre. Nell'albero è davanti alla
+          cartella, qui è davanti all'icona — o al nome, per un progetto che
+          un'icona non ce l'ha. Sotto, staccato, non apparteneva a niente.
+
+          Non è mai in due posti: `showName` è `!hasRealIcon`, quindi la riga
+          dell'icona e quella del nome si escludono a vicenda. */}
       {(hasRealIcon || Glyph) && (
-        <span className="relative flex items-center justify-center">
+        <span className="relative flex items-center justify-center gap-0.5">
+          {expandable && <ExpandChevron expanded={expanded} />}
           {hasRealIcon
             ? <ProjectFavicon path={projectPath} size={22} />
             : Glyph && <Glyph size={16} className="text-app-text-secondary" aria-hidden="true" />}
@@ -317,40 +347,14 @@ export function PinnedTile({
         // può prendersi due righe: è tutto ciò che quella tessera ha per farsi
         // riconoscere, e troncarlo a metà parola su una riga sola la rende
         // indistinguibile dalla vicina dello stesso progetto padre.
-        <span className={`relative w-full text-center text-[11px] leading-[1.15] text-app-text-secondary ${
-          hasRealIcon ? 'truncate' : 'line-clamp-2 px-0.5'
-        }`}>
-          {item.name}
+        <span className="relative flex w-full items-center justify-center gap-0.5 min-w-0">
+          {expandable && !hasRealIcon && <ExpandChevron expanded={expanded} />}
+          <span data-testid="pinned-tile-name" className={`min-w-0 text-center text-[11px] leading-[1.15] text-app-text-secondary ${
+            hasRealIcon ? 'truncate' : 'line-clamp-2'
+          }`}>
+            {item.name}
+          </span>
         </span>
-      )}
-
-      {/* IL SEGNO CHE SI APRE.
-          Un progetto fissato fa due cose col click — ci si va sopra, e le sue
-          tab compaiono nella fascia qui sotto — ma la seconda non la dichiarava
-          niente: la cartella diceva «sono un progetto», che si sapeva già dal
-          nome. Un chevron rivolto in giù dice l'unica cosa che il nome non dice,
-          e nella direzione in cui succede davvero (la fascia si apre SOTTO la
-          riga). Ruota quando è aperta, come ogni altra disclosure dell'app.
-
-          È LO STESSO chevron delle righe: `ChevronRight` da 12, che ruota di
-          90° da aperto (progetti, sotto-agenti, card dei gruppi). Un glifo
-          diverso solo perché qui la superficie è un quadrato avrebbe fatto
-          sembrare due cose diverse un'apertura e un'apertura.
-
-          In basso al CENTRO, sull'asse del contenuto, non in un angolo — dove
-          era prima e stonava. E assoluto: 56px di tessera li prendono già
-          l'icona (22) e un nome che può andare a capo (~25), quindi il segno non
-          può chiedere spazio nel flusso. Riservargliene (`pb`) scentrava icona e
-          titolo rispetto alla tessera, che è il difetto di ieri. */}
-      {expandable && (
-        <ChevronRight
-          size={12}
-          aria-hidden="true"
-          data-testid="pinned-expand-hint"
-          className={`pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 text-app-text-tertiary transition-transform duration-150 ${
-            expanded ? 'rotate-90' : ''
-          }`}
-        />
       )}
 
       {item.notificationCount > 0 && (
