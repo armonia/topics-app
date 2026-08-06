@@ -705,8 +705,16 @@ export const scriptsApi = {
     return request<{ scripts: ScriptProcessInfo[] }>('/scripts');
   },
 
-  async output(processId: string, offset = 0): Promise<{ output: string; offset: number; done: boolean; status: string; exitCode?: number }> {
-    return request<{ output: string; offset: number; done: boolean; status: string; exitCode?: number }>(`/scripts/${processId}/output?offset=${offset}`);
+  /**
+   * `offset` è un cursore ASSOLUTO (righe dall'inizio del processo), non un
+   * indice dentro il buffer: il buffer si accorcia da sotto. `pending` è
+   * l'ultima riga non ancora terminata da `\n` — si mostra ma NON si accumula,
+   * altrimenti si vedrebbe due volte quando arriva completa. `truncatedLines`
+   * dice quante righe il ring buffer ha buttato senza che questo client le
+   * vedesse.
+   */
+  async output(processId: string, offset = 0): Promise<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }> {
+    return request<{ output: string; offset: number; pending?: string; truncatedLines?: number; done: boolean; status: string; exitCode?: number }>(`/scripts/${processId}/output?offset=${offset}`);
   },
 
   async stop(processId: string): Promise<{ ok: boolean }> {

@@ -3,6 +3,8 @@ import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
 import { useScripts } from '../../hooks/useScripts';
+import { lastFailureByScript } from '../../lib/processFailure';
+import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
 
 interface ScriptRunnerProps {
@@ -20,6 +22,7 @@ function getScriptColor(name: string): string {
 }
 
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
+  const tr = useT();
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
   const runningScriptsRef = useRef(runningScripts);
@@ -101,6 +104,12 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
   }
 
+  // L'ULTIMO FALLIMENTO per script. Senza, un processo che muore male torna con
+  // l'icona Play come se non fosse mai partito: l'exit code non si vede da
+  // nessuna parte e il log — che il server ha ancora — non è più raggiungibile
+  // da un click. Clicchi "build", fallisce mentre guardi la chat, e non lo sai.
+  const failedMap = lastFailureByScript(runningScripts);
+
   const detectedRows = runningScripts.filter(
     sp => sp.status === 'running' && sp.source === 'detected' && !(sp.scriptName in scripts));
   const shellRows = runningScripts.filter(sp => sp.status === 'running' && sp.source === 'shell');
@@ -122,6 +131,8 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     <div data-testid="script-runner" className="text-[12px] pb-1">
       {scriptEntries.map(([name, cmd]) => {
         const running = runningMap.get(name);
+        // Un fallimento conta solo se lo script non è ripartito nel frattempo.
+        const failed = running ? undefined : failedMap.get(name);
         const isStarting = startingScripts.has(name);
         const isStopping = running ? stoppingScripts.has(running.processId) : false;
         const ports = running?.ports ?? [];
@@ -148,12 +159,23 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 </div>
               ) : isStarting ? (
                 <Spinner size="xs" tone="current" className="text-primary flex-shrink-0" />
+              ) : failed ? (
+                <div className="w-[10px] h-[10px] flex-shrink-0 rounded-full bg-red-500" />
               ) : (
                 <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
               )}
-              <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>
+              <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : failed ? 'text-red-500' : 'text-app-text-body'}`}>
                 {name}
               </span>
+              {failed && !isStopping && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOpenProcessLog?.(failed.processId, name); }}
+                  className="text-[10px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full flex-shrink-0 hover:bg-red-500/20 transition-colors"
+                  title={tr('processes.openFailedLog')}
+                >
+                  exit {failed.exitCode}
+                </button>
+              )}
               {/* Inline ports for running scripts */}
               {!isStopping && ports.map(port => (
                 <a

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlink
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
@@ -19,6 +20,22 @@ interface ScriptProcess {
   exitCode?: number;
   output: string[];       // circular buffer lines
   outputBytes: number;
+  /**
+   * Quante righe il ring buffer ha già BUTTATO. È l'origine del cursore
+   * assoluto: senza, l'offset del client è un indice dentro un array che si
+   * accorcia da sotto, e dopo un'eviction quell'indice indica un'altra riga.
+   * Misurato: una riga sparisce in silenzio; nell'altro verso si duplicano
+   * blocchi interi. Su un build verboso i 500KB si raggiungono in minuti.
+   */
+  droppedLines?: number;
+  /**
+   * L'ultima riga ANCORA senza `\n`. `text.split("\n")` su `"hello\n"` dà
+   * `["hello", ""]`, e quell'elemento vuoto finiva nel buffer: due chunk
+   * consecutivi producevano `hello\n\nworld`, cioè il log a interlinea doppia
+   * che si vede aprendo qualsiasi processo. Simmetricamente un chunk tagliato a
+   * metà riga diventava due righe.
+   */
+  pendingLine?: string;
   proc: ReturnType<typeof Bun.spawn> | null;
   /** Byte size of the on-disk .log — tracked in memory so the per-chunk write
    *  path never stats the file. The log is per-processId (unique per spawn),
@@ -135,6 +152,7 @@ function loadState() {
           if (existsSync(logPath)) {
             const logContent = readFileSync(logPath, "utf-8");
             sp.output = logContent.split("\n");
+              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
             sp.outputBytes = logContent.length;
           }
         } catch {}
@@ -162,6 +180,7 @@ function loadState() {
             if (existsSync(logPath)) {
               const logContent = readFileSync(logPath, "utf-8");
               sp.output = logContent.split("\n");
+              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
               sp.outputBytes = logContent.length;
             } else {
               sp.output = ["[server restarted — previous output lost]"];
@@ -192,6 +211,7 @@ function loadState() {
             if (existsSync(deadLogPath)) {
               const logContent = readFileSync(deadLogPath, "utf-8");
               sp.output = logContent.split("\n");
+              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
               sp.outputBytes = logContent.length;
             }
           } catch {}
@@ -427,33 +447,56 @@ async function getPortsForProcesses(pids: number[]): Promise<Map<number, number[
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Chiude la riga rimasta in sospeso.
+ *
+ * Un processo può morire senza aver mai scritto l'ultimo `\n` — un errore
+ * stampato e via. Senza questa chiusura quella riga resterebbe nel residuo per
+ * sempre: visibile finché il processo è in memoria, persa nel log ricaricato.
+ */
+function flushPendingLine(sp: ScriptProcess) {
+  const buf = {
+    output: sp.output,
+    outputBytes: sp.outputBytes,
+    droppedLines: sp.droppedLines ?? 0,
+    pendingLine: sp.pendingLine ?? "",
+  };
+  flushLogBuffer(buf);
+  sp.output = buf.output;
+  sp.outputBytes = buf.outputBytes;
+  sp.pendingLine = buf.pendingLine;
+}
+
 function addToRecent(sp: ScriptProcess) {
+  flushPendingLine(sp);
   recentScripts.unshift(sp);
   if (recentScripts.length > MAX_RECENT) recentScripts.pop();
 }
 
-function appendOutput(sp: ScriptProcess, text: string) {
+/**
+ * @param whole `true` quando `text` è un blocco COMPLETO e non un frammento di
+ *   stream. I chunk di `proc.stdout` arrivano tagliati dove capita, e l'ultima
+ *   riga senza `\n` va tenuta in sospeso finché non arriva il resto. Un
+ *   `BashOutput` di un agente, invece, è una fotografia intera: trattenerne
+ *   l'ultima riga la renderebbe invisibile fino al blocco successivo, che può
+ *   non arrivare mai.
+ */
+function appendOutput(sp: ScriptProcess, text: string, whole = false) {
   if (!text) return;
-  // Ring buffer, bulk eviction: push everything, then splice ONE run off the
-  // front until back under the cap. The old per-line `Array.shift()` loop was
-  // O(n) per evicted line (each shift re-indexes the whole array) on the hot
-  // per-chunk path of every tracked script. Keeps the original semantics:
-  // newest lines win, and a single line larger than the cap is kept alone.
-  const lines = text.split("\n");
-  for (const line of lines) sp.outputBytes += line.length;
-  sp.output.push(...lines);
-  if (sp.outputBytes > MAX_OUTPUT_BYTES) {
-    let drop = 0;
-    let freed = 0;
-    while (drop < sp.output.length - 1 && sp.outputBytes - freed > MAX_OUTPUT_BYTES) {
-      freed += sp.output[drop].length;
-      drop++;
-    }
-    if (drop > 0) {
-      sp.output.splice(0, drop);
-      sp.outputBytes -= freed;
-    }
-  }
+  // La parte pura — taglio delle righe, riga in sospeso, potatura e conteggio
+  // di ciò che è stato buttato — vive in `lib/log-cursor.ts`, dov'è coperta da
+  // test. Qui resta solo la persistenza su disco.
+  const buf = {
+    output: sp.output,
+    outputBytes: sp.outputBytes,
+    droppedLines: sp.droppedLines ?? 0,
+    pendingLine: sp.pendingLine ?? "",
+  };
+  appendToLogBuffer(buf, text, MAX_OUTPUT_BYTES, whole);
+  sp.output = buf.output;
+  sp.outputBytes = buf.outputBytes;
+  sp.droppedLines = buf.droppedLines;
+  sp.pendingLine = buf.pendingLine;
   // Persist to log file — async, serialized per process. The old
   // appendFileSync + statSync (and readFileSync+writeFileSync on rotation)
   // blocked Bun's single event loop once per stdout/stderr chunk. The chain
@@ -654,7 +697,7 @@ export function noteBackgroundShellOutput(
 ): void {
   const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
   if (!sp || sp.source !== "shell") return;
-  if (patch.output) appendOutput(sp, patch.output);
+  if (patch.output) appendOutput(sp, patch.output, true);
   if (patch.status && patch.status !== "running") {
     finishBackgroundShell(sp, patch.status, patch.exitCode);
     return;
@@ -714,7 +757,7 @@ function finishBackgroundShell(
   sp.completedAt = new Date().toISOString();
   if (exitCode != null) sp.exitCode = exitCode;
   else if (status === "killed") sp.exitCode = sp.exitCode ?? -1;
-  appendOutput(sp, `\n[shell ${status === "killed" ? "terminata" : status === "failed" ? "fallita" : "conclusa"}]`);
+  appendOutput(sp, `\n[shell ${status === "killed" ? "terminata" : status === "failed" ? "fallita" : "conclusa"}]`, true);
   runningScripts.delete(sp.processId);
   addToRecent(sp);
   invalidateScriptsCache();
@@ -1302,13 +1345,27 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     return { scripts: [...runningList, ...recentList] };
   }
 
-  const outputPayload = (sp: ScriptProcess, offset: number) => ({
-    output: sp.output.slice(offset).join("\n"),
-    offset: sp.output.length,
-    done: sp.status !== "running",
-    status: sp.status,
-    exitCode: sp.exitCode,
-  });
+  /**
+   * Il pezzo di log che il client non ha ancora, con un cursore ASSOLUTO.
+   *
+   * `offset` conta le righe dall'inizio del processo, non le posizioni
+   * nell'array: `droppedLines` fa da origine. Prima era un indice dentro
+   * `sp.output`, che il ring buffer accorcia da sotto — quindi dopo
+   * un'eviction lo stesso numero indicava un'altra riga, e il client perdeva
+   * righe in silenzio (o si rivedeva blocchi già visti).
+   *
+   * `truncatedLines` dice quante ne ha perse davvero, invece di lasciargli
+   * credere di aver visto tutto.
+   */
+  const outputPayload = (sp: ScriptProcess, offset: number) => {
+    const slice = sliceFromCursor({
+      output: sp.output,
+      outputBytes: sp.outputBytes,
+      droppedLines: sp.droppedLines ?? 0,
+      pendingLine: sp.pendingLine ?? "",
+    }, offset);
+    return { ...slice, done: sp.status !== "running", status: sp.status, exitCode: sp.exitCode };
+  };
 
   /**
    * Terminate a running script (process-group kill + delayed SIGKILL) and clean up.
