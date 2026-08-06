@@ -111,6 +111,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     lastSeenAt: r.last_seen_at === null ? null : Number(r.last_seen_at),
     firstIp: r.first_ip === null ? null : String(r.first_ip),
     revokedAt: r.revoked_at === null ? null : Number(r.revoked_at),
+    role: r.role === 'guest' ? 'guest' : 'owner',
   });
 
   const listDevices = (): DeviceRecord[] =>
@@ -192,7 +193,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     }
 
     if (method === "POST" && (pathname === "/api/auth/pair/approve" || pathname === "/api/auth/pair/deny")) {
-      const body = await readJSON(req) as { requestId?: string } | null;
+      const body = await readJSON(req) as { requestId?: string; role?: unknown } | null;
       const entry = pending.get(body?.requestId ?? "");
       if (!entry) return json({ error: "richiesta scaduta o inesistente" }, 404);
 
@@ -204,13 +205,19 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
 
       const token = mintSessionToken();
       const deviceId = crypto.randomUUID();
+      // `owner` di default: il caso normale è il tuo secondo telefono, e un
+      // default `guest` renderebbe l'appaiamento normale una trappola in cui non
+      // si vede niente e non si capisce perché. Il prezzo è che il default è
+      // anche il più permissivo — per questo la scelta è esplicita nel cartello
+      // e il ruolo si legge nell'elenco, così un errore si vede e si corregge.
+      const role = body?.role === "guest" ? "guest" : "owner";
       db.query(
-        "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
-      ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip);
+        "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+      ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip, role);
       entry.state = "approved";
       entry.token = token;
       ctx.broadcast?.({ type: "auth:pair-resolved", requestId: entry.id, approved: true, deviceId });
-      return json({ ok: true, deviceId });
+      return json({ ok: true, deviceId, role });
     }
 
     if (method === "GET" && pathname === "/api/auth/devices") {
@@ -224,7 +231,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // computer da cui gira il server non vuol dire niente.
         thisComputer: { name: "Questo computer", current: loopback },
         devices: listDevices().map((d) => ({
-          id: d.id, name: d.name, createdAt: d.createdAt,
+          id: d.id, name: d.name, role: d.role, createdAt: d.createdAt,
           lastSeenAt: d.lastSeenAt, firstIp: d.firstIp, revokedAt: d.revokedAt,
           // CONNESSO adesso, che non e' «autorizzato»: un dispositivo puo' essere
           // autorizzato da settimane e spento da ieri.
@@ -255,6 +262,39 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       db.query("UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(now, id);
       ctx.broadcast?.({ type: "auth:device-revoked", deviceId: id });
       return json({ ok: true });
+    }
+
+    // ── Condivisione di un task con un ospite.
+    // Vive qui e non in `routes/tasks.ts` perché è una decisione sui DISPOSITIVI:
+    // chi può vedere cosa. Il filtro che la fa valere sta invece nel router dei
+    // task, in un punto solo prima dello smistamento.
+    if (pathname === "/api/auth/shares") {
+      if (method === "GET") {
+        const taskId = url.searchParams.get("taskId") ?? "";
+        const rows = db.query(
+          "SELECT s.device_id, s.shared_at, d.name FROM task_shares s JOIN devices d ON d.id = s.device_id WHERE s.task_id = ? AND d.revoked_at IS NULL",
+        ).all(taskId) as Array<{ device_id: string; shared_at: number; name: string }>;
+        return json({ shares: rows.map((r) => ({ deviceId: r.device_id, name: r.name, sharedAt: r.shared_at })) });
+      }
+      if (method === "POST") {
+        const body = await readJSON(req) as { taskId?: string; deviceId?: string } | null;
+        if (!body?.taskId || !body?.deviceId) return json({ error: "taskId e deviceId richiesti" }, 400);
+        // Solo un OSPITE si può invitare: condividere con un proprietario non
+        // vuol dire niente — vede già tutto — e lasciarlo fare darebbe l'idea
+        // che quella riga stia limitando qualcosa.
+        const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(body.deviceId) as { role?: string } | undefined;
+        if (!d) return json({ error: "dispositivo sconosciuto o revocato" }, 404);
+        if (d.role !== "guest") return json({ error: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite" }, 400);
+        db.query("INSERT OR IGNORE INTO task_shares (task_id, device_id, shared_at) VALUES (?, ?, ?)")
+          .run(body.taskId, body.deviceId, now);
+        return json({ ok: true });
+      }
+      if (method === "DELETE") {
+        const taskId = url.searchParams.get("taskId") ?? "";
+        const deviceId = url.searchParams.get("deviceId") ?? "";
+        db.query("DELETE FROM task_shares WHERE task_id = ? AND device_id = ?").run(taskId, deviceId);
+        return json({ ok: true });
+      }
     }
 
     // ── Uscire da questo dispositivo: revoca sé stesso e si toglie il cookie.

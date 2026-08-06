@@ -47,6 +47,11 @@ const CODE_ALPHABET = "ACDEFGHJKMNPQRTUVWXY234679";
 export interface DeviceRecord {
   id: string;
   name: string;
+  /** `owner` vede tutto (i tuoi dispositivi); `guest` vede SOLO cio' che gli e'
+   *  stato condiviso. Sta sul dispositivo e non su una tabella di persone:
+   *  l'ospite E' il dispositivo, e due modelli d'identita' da tenere in sincrono
+   *  sono due verita' che prima o poi divergono. */
+  role: 'owner' | 'guest';
   tokenHash: string;
   createdAt: number;
   lastSeenAt: number | null;
@@ -72,7 +77,7 @@ export interface IdentityInput {
 }
 
 export type IdentityResult =
-  | { ok: true; as: "loopback" | "device" | "daemon"; deviceName: string | null }
+  | { ok: true; as: "loopback" | "device" | "daemon"; deviceName: string | null; role: 'owner' | 'guest'; deviceId: string | null }
   | { ok: false; status: number; reason: string; code: string };
 
 /** SHA-256 esadecimale. L'unica forma in cui un token tocca il disco. */
@@ -166,7 +171,9 @@ export function buildClearedSessionCookie(opts: { secure: boolean }): string {
  *      non è mai servito a nessuno.
  */
 export function evaluateIdentity(i: IdentityInput): IdentityResult {
-  if (i.transport === "loopback") return { ok: true, as: "loopback", deviceName: null };
+  // Loopback e' il proprietario per definizione: e' la macchina su cui gira il
+  // server, e non c'e' un ruolo piu' alto da assegnarle.
+  if (i.transport === "loopback") return { ok: true, as: "loopback", deviceName: null, role: 'owner', deviceId: null };
 
   if (i.sessionToken && i.device) {
     if (i.device.revokedAt !== null) {
@@ -176,11 +183,11 @@ export function evaluateIdentity(i: IdentityInput): IdentityResult {
     if (age > SESSION_TTL_MS) {
       return { ok: false, status: 401, reason: "session expired", code: "session_expired" };
     }
-    return { ok: true, as: "device", deviceName: i.device.name };
+    return { ok: true, as: "device", deviceName: i.device.name, role: i.device.role, deviceId: i.device.id };
   }
 
   if (i.bearerToken && tokensMatch(i.bearerToken, i.expectedDaemonToken)) {
-    return { ok: true, as: "daemon", deviceName: null };
+    return { ok: true, as: "daemon", deviceName: null, role: 'owner', deviceId: null };
   }
 
   return { ok: false, status: 401, reason: "device not paired", code: "device_not_paired" };
@@ -195,6 +202,34 @@ export function evaluateIdentity(i: IdentityInput): IdentityResult {
  * Restano soggetti al check d'ORIGINE: esente dall'identità non vuol dire che un
  * sito web possa avviare un appaiamento dalla scheda accanto.
  */
+/**
+ * La superficie che un OSPITE può toccare. Tutto il resto è negato dal gate.
+ *
+ * È un'allowlist e non una lista di divieti, e la differenza non è di stile: un
+ * elenco di cose vietate sopra un default permissivo è la forma in cui i buchi si
+ * nascondono — se ne dimentica una e nessuno se ne accorge. Misurato mentre
+ * costruivo questo: col filtro messo solo nel router dei task, un ospite leggeva
+ * `/api/topics` per intero. Il router giusto non era uno: era il gate.
+ *
+ * Cosa NON c'è dentro, di proposito: i progetti, i terminali, i file, il browser,
+ * le impostazioni, il dispatch. Un ospite non è un utente con meno voci di menu,
+ * è qualcuno che può vedere alcune schede di lavoro e nient'altro.
+ */
+export function isGuestAllowedPath(pathname: string): boolean {
+  return (
+    pathname === "/api/all-boards/tasks" ||
+    pathname.startsWith("/api/tasks/") ||
+    pathname === "/api/auth/session" ||
+    pathname === "/api/auth/logout" ||
+    // Le anteprime dei task condivisi. Il gate le lascia passare solo dopo aver
+    // verificato che QUEL file sia l'anteprima di un task condiviso con QUESTO
+    // ospite: l'allowlist apre il percorso, non il contenuto.
+    pathname.startsWith("/media/") ||
+    // Gli aggiornamenti dal vivo: senza, la scheda condivisa è una fotografia.
+    pathname === "/ws"
+  );
+}
+
 export function isIdentityExemptPath(pathname: string): boolean {
   return (
     pathname === "/api/auth/pair/request" ||
