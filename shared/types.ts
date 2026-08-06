@@ -174,6 +174,17 @@ export interface ProviderSnapshotEntry {
    * has no such concept or the override is disabled.
    */
   effortTier?: string;
+  /**
+   * Il modello che il Fast Mode userebbe su questo provider, risolto sui
+   * `models` VIVI (`getFastModelFor`) e non solo dalla mappa statica. `null`
+   * quando il provider non ne ha uno (openclaw delega al gateway) o quando
+   * nessuna euristica ha trovato una fascia veloce nella lista.
+   *
+   * Serve al client per DIRE quanto costerebbe premere ⚡ prima di premerlo:
+   * senza, il badge del composer dovrebbe rifare la stessa scelta con una
+   * seconda copia della mappa — e due mappe divergono.
+   */
+  fastModel?: string | null;
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

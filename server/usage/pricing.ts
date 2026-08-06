@@ -1,48 +1,17 @@
 /**
- * Prezzi in USD per 1M token.
+ * Prezzi in USD per 1M token — il LATO SERVER della tabella.
  *
- * Questa tabella era ferma a modelli che NON si usano più, e il danno non era
- * "un prezzo mancante": era un prezzo SBAGLIATO, applicato in silenzio. Nessuna
- * delle chiavi vecchie compariva nei modelli reali (`claude-opus-4-8`,
- * `claude-opus-5`, …), quindi ogni turno Opus cadeva nel ripiego di famiglia —
- * che puntava al modello più VECCHIO della famiglia, a 15$/75$ — e finiva
- * tariffato al TRIPLO dei 5$/25$ veri. Misurato sul DB di prod: 643,66$
- * mostrati contro 214,55$ reali sul campione.
- *
- * Due lezioni, entrambe cablate qui sotto:
- *   · il ripiego di famiglia deve puntare al modello CORRENTE, non al primo che
- *     è stato scritto: sbagliare per difetto (un modello nuovo più economico
- *     tariffato come il vecchio) è meno peggio che sbagliare per eccesso, e
- *     comunque il ripiego non deve invecchiare da solo;
- *   · un modello SCONOSCIUTO deve vedersi. Prima tornava `0` con un
- *     `console.warn`, cioè "gratis" — indistinguibile da un turno che davvero
- *     non è costato niente.
- *
- * Fonte: tabella prezzi ufficiale (skill `claude-api`), aggiornata al 2026-08-03.
+ * La tabella vera vive in `shared/model-pricing.ts` da quando anche il client
+ * ha dovuto dire quanto costa un modello (il badge del Fast Mode): il client
+ * non può importare da `server/`, e due copie dello stesso listino sono due
+ * numeri che fra sei mesi divergono. Qui restano le cose che solo il server ha:
+ * il conto vero di un turno (cache inclusa) e il REGISTRO dei modelli visti
+ * senza prezzo, che è memoria di processo e non ha senso in venti tab.
  */
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude — generazione corrente
-  'claude-fable-5': { input: 10, output: 50 },
-  'claude-mythos-5': { input: 10, output: 50 },
-  'claude-opus-5': { input: 5, output: 25 },
-  'claude-opus-4-8': { input: 5, output: 25 },
-  'claude-opus-4-7': { input: 5, output: 25 },
-  'claude-opus-4-6': { input: 5, output: 25 },
-  'claude-sonnet-5': { input: 3, output: 15 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5': { input: 1, output: 5 },
-  // Claude — legacy, ancora nei messaggi vecchi
-  'claude-opus-4-5': { input: 15, output: 75 },
-  'claude-opus-4-1': { input: 15, output: 75 },
-  'claude-sonnet-4-5': { input: 3, output: 15 },
-  'claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'claude-haiku-3-5-20241022': { input: 0.80, output: 4 },
-  // OpenAI
-  'gpt-4o': { input: 2.50, output: 10 },
-  'gpt-4o-mini': { input: 0.15, output: 0.60 },
-  'gpt-o3': { input: 10, output: 40 },
-  'gpt-o3-mini': { input: 1.10, output: 4.40 },
-};
+import { modelPrice } from "../../shared/model-pricing";
+
+export { MODEL_PRICING, modelPrice, costMultiplier, normalizeModel } from "../../shared/model-pricing";
+export type { ModelPrice } from "../../shared/model-pricing";
 
 /** I modelli visti e non riconosciuti, per poterlo DIRE invece di tariffare zero. */
 const unknownModels = new Set<string>();
@@ -53,55 +22,13 @@ export function unknownPricedModels(): string[] {
 }
 
 /**
- * Normalizza un id di modello prima del match.
- *
- * Il suffisso di finestra — `claude-opus-5[1m]` — fa parte dell'id che la CLI
- * riporta, non del nome del modello: senza toglierlo la chiave esatta non matcha
- * mai e si finisce nel ripiego. Stessa normalizzazione di
- * `shared/context-window.ts`.
- *
- * Il modello è lo STESSO, quindi la tariffa è la stessa. Non è modellato il
- * sovrapprezzo che il beta 1M applica alle richieste sopra i 200k token: qui si
- * lavora ad abbonamento, dove quel numero non è denaro ma un promemoria, e una
- * soglia inventata a metà sarebbe meno vera di una tariffa piatta.
+ * Il prezzo, più l'effetto collaterale che il pannello di stato usa: un modello
+ * senza tariffa va REGISTRATO, non tariffato zero — «gratis» è
+ * indistinguibile da un turno che davvero non è costato niente.
  */
-function normalizeModel(model: string): string {
-  return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, '').trim();
-}
-
-// Fuzzy match model name to pricing entry
 function findPricing(model: string): { input: number; output: number } | null {
-  // Exact match first
-  if (MODEL_PRICING[model]) return MODEL_PRICING[model];
-
-  const lower = normalizeModel(model);
-  if (MODEL_PRICING[lower]) return MODEL_PRICING[lower];
-
-  // Partial match: check if model string contains a known key
-  // Sort by longest key first so "gpt-4o-mini" matches before "gpt-4o"
-  const sortedEntries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
-  for (const [key, pricing] of sortedEntries) {
-    // Only match when the MODEL NAME contains a known pricing key. The reverse
-    // direction (key contains model) misclassified short names — e.g. model
-    // "gpt-4o" matched the longer key "gpt-4o-mini" (checked first by length)
-    // and billed at the wrong rate. Short aliases ("opus", "o3") fall through
-    // to the explicit family fallbacks below.
-    if (lower.includes(key.toLowerCase())) {
-      return pricing;
-    }
-  }
-
-  // Ripiego di famiglia — sul modello CORRENTE della famiglia, non sul primo
-  // che è stato scritto in questo file.
-  if (lower.includes('fable') || lower.includes('mythos')) return MODEL_PRICING['claude-fable-5'];
-  if (lower.includes('opus')) return MODEL_PRICING['claude-opus-5'];
-  if (lower.includes('sonnet')) return MODEL_PRICING['claude-sonnet-5'];
-  if (lower.includes('haiku')) return MODEL_PRICING['claude-haiku-4-5'];
-  if (lower.includes('gpt-4o-mini')) return MODEL_PRICING['gpt-4o-mini'];
-  if (lower.includes('gpt-4o')) return MODEL_PRICING['gpt-4o'];
-  if (lower.includes('o3-mini')) return MODEL_PRICING['gpt-o3-mini'];
-  if (lower.includes('o3')) return MODEL_PRICING['gpt-o3'];
-
+  const price = modelPrice(model);
+  if (price) return price;
   if (!unknownModels.has(model)) {
     unknownModels.add(model);
     console.warn(`[usage] Modello senza prezzo: "${model}" — il costo di questi turni resta a 0. Aggiungilo a MODEL_PRICING.`);
