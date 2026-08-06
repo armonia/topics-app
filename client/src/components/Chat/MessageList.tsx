@@ -46,6 +46,15 @@ import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
  * `data-testid="virtuoso-item-list"`, che l'osservatore della crescita
  * (`ro.observe(lista)`, più sotto) usa per trovare questo elemento.
  */
+/**
+ * Il respiro fra l'ultima risposta e il composer, in pixel.
+ *
+ * Sta qui e non in una classe perché è ALTEZZA RISERVATA dentro il contenuto
+ * scrollato (il Footer di Virtuoso), non un margine: dev'essere un numero che
+ * il calcolo della posizione conosce.
+ */
+const CHAT_BOTTOM_GUTTER_PX = 24;
+
 const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
   function ChatList({ className, ...props }, ref) {
     return <div {...props} ref={ref} className={`${className ?? ''} chat-measure`} />;
@@ -186,7 +195,21 @@ export function MessageList({
   // render defeats Virtuoso's bailout, so the footer churned per streaming
   // token. The footer only depends on inputAreaHeight.
   const virtuosoComponents = useMemo(() => ({
-    Footer: () => inputAreaHeight > 0 ? <div style={{ height: inputAreaHeight }} /> : null,
+    // Il Footer riserva l'altezza del composer PIÙ un varco fisso.
+    //
+    // Misurato prima di metterlo: fra l'ultima riga di risposta e il bordo del
+    // composer c'erano SEI pixel — cioè il testo ci stava appiccicato — e
+    // bastava che l'area input si RESTRINGESSE (il banner di compattazione che
+    // si chiude, le righe del composer che si riassorbono) perché diventassero
+    // ZERO, con in più sei pixel di scroll residuo che nessuno chiudeva.
+    //
+    // Il varco non è decorazione: è il margine che assorbe l'ULTIMO
+    // assestamento. Ogni cosa che arriva tardi — un'altezza rimisurata, un
+    // font che si assesta, un banner che compare — si mangia lo spazio sotto
+    // l'ultima riga, e senza margine se lo mangia dal TESTO. Ventiquattro
+    // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
+    // abbastanza da non far mai toccare le due cose.
+    Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
     List: ChatList,
   }), [inputAreaHeight]);
 
@@ -1322,7 +1345,9 @@ export function MessageList({
             {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
             <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
           </div>
-          {inputAreaHeight > 0 && <div style={{ height: inputAreaHeight }} />}
+          {/* Stesso varco del Footer: l'empty state sta FUORI da Virtuoso e
+              senza questo la chat vuota respira diversamente da quella piena. */}
+          <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
         </div>
       ) : (
         <Virtuoso

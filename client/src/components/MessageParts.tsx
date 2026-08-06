@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { GridLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
-import { formatDurationMs } from './Chat/toolGrouping';
-import { turnClock } from '../state/turnClock';
+import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
 import { cacheBreakdown } from '../lib/cacheBreakdown';
 import { formatTokens } from '../lib/formatTokens';
@@ -100,10 +99,26 @@ export function TurnActivityIndicator({
   // battito. Resta un arrotondamento sotto il secondo sulla chiusura — su
   // un'attesa che si misura in minuti non si vede.
   useEffect(() => {
-    const update = () => setNow(Date.now());
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
+    // Il battito si aggancia al CONFINE del secondo del turno, non parte quando
+    // capita.
+    //
+    // Un `setInterval(1000)` avviato a metà secondo aggiorna sempre a metà
+    // secondo: il numero a schermo, che è a secondi interi, cambia con uno
+    // sfasamento fisso rispetto al tempo vero, e su una macchina carica il
+    // timer slitta ancora — due tick nello stesso secondo (il numero ripete) o
+    // uno saltato (il numero salta due). È l'altra metà del «non scorre live»:
+    // non era fermo, era fuori fase. Riallineandosi a ogni giro, la cifra
+    // cambia quando cambia il secondo.
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const adesso = Date.now();
+      setNow(adesso);
+      const origine = since != null && Number.isFinite(since) ? since : adesso;
+      const alProssimo = 1000 - ((adesso - origine) % 1000);
+      t = setTimeout(tick, alProssimo);
+    };
+    tick();
+    return () => clearTimeout(t);
   }, [since, awaitingInput]);
 
   // Stream lento: `stream:slow` lo accende, `stream:resumed` lo spegne.
@@ -255,7 +270,7 @@ export function TurnActivityIndicator({
           data-clock={clock.totalWaitedMs > 0 ? 'worked' : 'total'}
           title={clock.title}
         >
-          · {formatDurationMs(clock.primaryMs)}
+          · {formatTurnElapsed(clock.primaryMs)}
         </span>
       )}
       {/* Mentre la domanda aspetta, i numeri NON stanno qui: scendono nella

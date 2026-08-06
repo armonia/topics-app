@@ -115,7 +115,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // Scritto MENTRE l'agente risponde: va in coda, e la coda si vede.
     await chatPage.messageInput.fill("secondo");
     await chatPage.messageInput.press("Enter");
-    await expect(queueBadge(page)).toHaveText(/1 message queued/, { timeout: 10_000 });
+    await expect(queueBadge(page)).toHaveText(/1\s*messaggio in coda/, { timeout: 10_000 });
     await expect(chatPage.messageInput).toHaveValue("");
 
     const stop = page.getByRole("button", { name: /Stop generating/ }).first();
@@ -135,7 +135,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await page.waitForTimeout(4_000);
     expect(sent, "lo stop non deve far partire il messaggio in coda").toEqual(["primo"]);
     // …e il messaggio non è perso: è ancora lì, correggibile.
-    await expect(queueBadge(page)).toHaveText(/1 message queued/);
+    await expect(queueBadge(page)).toHaveText(/1\s*messaggio in coda/);
     await expect(page.locator('[data-testid="chat-message"][data-role="user"]').last())
       .toContainText("primo");
   });
@@ -147,7 +147,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // altrimenti questo scenario partirebbe da uno stato che non è il suo.
     if (await queueBadge(page).isVisible().catch(() => false)) {
       await queueBadge(page).click();
-      await page.getByRole("button", { name: "Clear all" }).click();
+      await page.getByRole("button", { name: "Svuota" }).click();
     }
     await expect(queueBadge(page)).toBeHidden();
 
@@ -159,7 +159,10 @@ test.describe.serial("Coda dei messaggi", () => {
       await chatPage.messageInput.fill(testo);
       await chatPage.messageInput.press("Enter");
     }
-    await expect(queueBadge(page)).toHaveText(/2 messages queued/, { timeout: 10_000 });
+    // La striscia dice il numero e COSA succede, in italiano come le altre
+    // strisce sopra il composer (era «(2 messages queued)», una scritta nuda in
+    // arancione attaccata al bordo inferiore del composer).
+    await expect(queueBadge(page)).toHaveText(/2\s*messaggi in coda/, { timeout: 10_000 });
 
     await page.getByRole("button", { name: /Stop generating/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
@@ -258,7 +261,7 @@ test.describe.serial("Coda dei messaggi", () => {
     expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
     if (await queueBadge(page).isVisible().catch(() => false)) {
       await queueBadge(page).click();
-      await page.getByRole("button", { name: "Clear all" }).click();
+      await page.getByRole("button", { name: "Svuota" }).click();
     }
     await expect(queueBadge(page)).toBeHidden();
 
@@ -267,7 +270,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.press("Enter");
 
     // Respinto ⇒ in coda, e la coda si vede.
-    await expect(queueBadge(page)).toHaveText(/1 message queued/, { timeout: 10_000 });
+    await expect(queueBadge(page)).toHaveText(/1\s*messaggio in coda/, { timeout: 10_000 });
     expect(sent).toEqual([TESTO]);
     // E NON resta in chat come se fosse partito: l'unico posto in cui vive è
     // la coda. Prima la domanda restava in pagina mentre il testo viveva in un
