@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, realpathSync } from "fs";
 import { readFileSync } from "fs";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { timingSafeEqual } from "crypto";
@@ -12,6 +12,7 @@ import type {
 } from "./types";
 import { initDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
+import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { maybeSendPush, configurePushTriggers } from "./push-triggers";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
@@ -1329,6 +1330,48 @@ export function createAppContext(baseDir: string): AppContext {
     return resolved;
   }
 
+  /**
+   * L'allowlist dei progetti, con una finestra di validità.
+   *
+   * Ricalcolarla a ogni chiamata costerebbe due query SQL e un `realpath` per
+   * voce, e `resolveProjectPath` ha 47 chiamanti — alcuni nel percorso caldo
+   * dell'albero dei file. Cinque secondi bastano: una cartella appena aperta
+   * col picker entra nell'allowlist entro un battito, e nel frattempo il
+   * client non ha ancora niente da chiederle.
+   */
+  let knownDirsCache: { at: number; dirs: Set<string> } | null = null;
+  const KNOWN_DIRS_TTL_MS = 5_000;
+  function allowedProjectDirs(): Set<string> {
+    const now = Date.now();
+    if (knownDirsCache && now - knownDirsCache.at < KNOWN_DIRS_TTL_MS) return knownDirsCache.dirs;
+    const dirs = knownProjectDirs({ db, loadTopics, worktreeStore, projectStore });
+    knownDirsCache = { at: now, dirs };
+    return dirs;
+  }
+
+  /**
+   * Risolve un path DI PROGETTO arrivato dal client, dentro il confine.
+   *
+   * Fino al 2026-08-06 questa funzione faceva `resolve()` e basta — nessun
+   * contenimento — mentre il suo gemello `resolveSafePath`, dodici righe sopra,
+   * la allowlist ce l'ha da sempre e logga persino il diniego. Ci passano 47
+   * chiamanti in `routes/files.ts`, e non sono solo letture: rename, move,
+   * delete e write prendono il path dal body. Sopra c'era l'unico cancello del
+   * server, che è per ORIGINE e non per trasporto (`server/lib/auth-gate.ts`:
+   * ogni GET su `/api/` passa senza condizioni, e una richiesta senza header
+   * `Origin` — cioè `curl` — passa comunque). Il CORS è una regola del browser,
+   * non un controllo d'accesso: un peer sulla rete non ha un'origine da negare.
+   * Misurato: `GET /api/files/search?q=localhost&path=/private/etc` rispondeva
+   * 200 con 58 righe da `ssh/`, `postfix/`, `cups/`.
+   *
+   * Il confine è l'UNIONE delle dir che il server già conosce
+   * (`services/known-project-dirs.ts`) — la stessa lista che `/api/projects/icon`
+   * usa da due mesi, estratta invece di riscritta. Nessuna delle sue cinque
+   * sorgenti è alimentabile chiamando queste rotte, quindi è un confine vero.
+   *
+   * Il fix sta QUI e non sui 47 chiamanti: metterlo lì significherebbe
+   * dimenticarne uno, e quello dimenticato sarebbe il buco.
+   */
   function resolveProjectPath(inputPath: string): string | null {
     if (!inputPath) return null;
     let expanded = inputPath;
@@ -1337,7 +1380,16 @@ export function createAppContext(baseDir: string): AppContext {
       if (!home) return null;
       expanded = inputPath.replace(/^~/, home);
     }
-    return resolve(expanded);
+    const resolved = resolve(expanded);
+    // Il confronto è sul path REALE: senza `realpath` un symlink dentro un
+    // progetto noto è una porta verso qualunque punto del disco.
+    let real = resolved;
+    try { real = realpathSync(resolved); } catch { /* non esiste ancora: creazione file/dir */ }
+    if (!isInsideKnownProject(real, allowedProjectDirs())) {
+      console.warn(`[Security] Project path denied: ${inputPath} -> ${real}`);
+      return null;
+    }
+    return resolved;
   }
 
   /**

@@ -175,6 +175,24 @@ async function runNetworkGit(
   }
 }
 
+/**
+ * Le cartelle che nessuna ricerca deve attraversare: artefatti di build e
+ * cache, tutte rigenerabili e tutte enormi.
+ *
+ * Stava dentro il ramo dell'ALBERO dei file, che la lezione l'aveva imparata;
+ * il `grep` di `/api/files/search` no, e su questo repo la differenza è
+ * misurata: 198,9 s contro 16,6 s, perche' `desktop-tauri/src-tauri/target/`
+ * da solo pesa 10 GB (gitignorati) e vale il 91,6% del tempo. Una lista sola,
+ * quindi, e non due che divergono.
+ */
+const HEAVY_DIRS = new Set([
+  "node_modules", ".next", "dist", "build", "__pycache__", ".cache", ".turbo",
+  ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target",
+]);
+
+/** Tetto di durata per una ricerca nei file. Oltre, si tronca e lo si DICE. */
+const SEARCH_TIMEOUT_MS = 15_000;
+
 export function createFilesRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, errorResponse, resolveProjectPath } = ctx;
 
@@ -193,7 +211,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // Le esclusioni «di sempre», indipendenti dal .gitignore: cartelle che
       // nessuno vuole vedere nell'albero e che costano care da attraversare.
       const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
-      const HEAVY_EXCLUDES = new Set(["node_modules", ".next", "dist", "build", "__pycache__", ".cache", ".turbo", ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target"]);
+      const HEAVY_EXCLUDES = HEAVY_DIRS;
       // Il .gitignore della radice. Le regole vere — ancoraggio, negazioni,
       // wildcard, match sul path relativo — stanno in `lib/gitignore.ts`.
       function readIgnore(dir: string, base: string, parent?: IgnoreSet): IgnoreSet {
@@ -259,14 +277,35 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const args = ["-rn", "--max-count=100"];
         if (!caseSensitive) args.push("-i");
         if (!useRegex) args.push("-F");
-        // Exclude common dirs/files
-        for (const ex of ["node_modules", ".git", "dist", "build"]) args.push(`--exclude-dir=${ex}`);
+        // Il perimetro e' la cosa che conta: escludeva quattro cartelle e non
+        // `target/`, che su questo repo vale il 92% del tempo. Stessa lista
+        // dell'albero dei file (`HEAVY_DIRS`), piu' `.git` e i dati locali.
+        for (const ex of [...HEAVY_DIRS, ".git", "data", "test-results", "videos", "uploads"]) {
+          args.push(`--exclude-dir=${ex}`);
+        }
         args.push("--exclude=*.lock");
         args.push("--", query, ".");
 
+        // Timeout + kill + ENTRAMBI i flussi drenati, come `runNetworkGit` qui
+        // sopra. Prima non c'era niente di tutto questo: il processo viveva per
+        // conto suo anche quando il client aveva gia' cambiato query (col
+        // debounce a 300 ms se ne accodavano a decine), e `stderr` in pipe e mai
+        // letto puo' riempire il buffer e appendere la richiesta per sempre —
+        // basta una cartella non leggibile che stampi a ogni riga.
         const proc = Bun.spawn(["grep", ...args], { cwd: resolvedPath, stdout: "pipe", stderr: "pipe" });
-        const output = await new Response(proc.stdout).text();
-        await proc.exited;
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, SEARCH_TIMEOUT_MS);
+        let output: string;
+        try {
+          const [out] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+          ]);
+          output = out;
+          await proc.exited;
+        } finally {
+          clearTimeout(timer);
+        }
 
         const results: { file: string; line: string; lineNumber: number; match: string }[] = [];
         for (const raw of output.split("\n").filter(Boolean)) {
@@ -283,7 +322,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           results.push({ file, line: line.slice(0, 500), lineNumber, match: query });
           if (results.length >= 100) break;
         }
-        return json({ results });
+        // `truncated` non e' decorazione: una ricerca interrotta a meta' che si
+        // presenta come completa e' peggio di una lenta — dice «non c'e'» di
+        // una cosa che magari c'e'.
+        return json({ results, truncated: timedOut || undefined });
       } catch (err: any) {
         return json({ error: "Search error: " + err.message }, 500);
       }
