@@ -154,6 +154,39 @@ test.describe("File Explorer — Git", () => {
     await expect(modifiedIndicator).toBeVisible();
   });
 
+  test("ogni riga dice quante righe cambia, e il non tracciato non finge uno zero", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    const gitChanges = page.locator('[data-testid="git-changes"]');
+    await expect(gitChanges).toBeVisible({ timeout: 10000 });
+    const modificati = gitChanges.locator("span", { hasText: /^M$/ });
+    if (!(await modificati.first().isVisible().catch(() => false))) {
+      await gitChanges.locator("div").filter({ hasText: /^Git$/ }).first().click();
+    }
+
+    // `src/index.ts` ha una riga sostituita nel seed: una riga in piu' e una in
+    // meno. I conteggi arrivano da `git diff --numstat`, che e' un comando a
+    // parte da `git status`: se si scollega, la lista resta ma i numeri no.
+    const riga = gitChanges.locator('[title="src/index.ts"]').first();
+    await expect(riga).toBeVisible({ timeout: 10000 });
+    await expect(riga).toContainText("+1");
+    await expect(riga).toContainText("-1");
+
+    // Il file cancellato porta solo il numero delle righe tolte.
+    const cancellato = gitChanges.locator('[title="README.md"]').first();
+    await expect(cancellato).toContainText("-1");
+    await expect(cancellato).not.toContainText("+");
+
+    // Un file non tracciato non compare in nessun diff, quindi non c'e' numero
+    // da dare. Uno zero direbbe «non e' cambiato niente» di un file nuovo.
+    const nuovo = gitChanges.locator('[title="newfile.txt"]').first();
+    await expect(nuovo).toBeVisible();
+    await expect(nuovo).not.toContainText(/[+-]\d/);
+  });
+
   test("FILE-18: branch indicator shows current branch", async ({
     fileExplorerPage,
     page,

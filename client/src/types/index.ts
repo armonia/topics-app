@@ -1078,20 +1078,48 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+/** Quante righe cambia un file, da un lato solo (indice o albero di lavoro). */
+export interface GitLineStat {
+  added: number;
+  removed: number;
+  /** git non conta le righe di un binario: il pannello scrive «bin». */
+  binary?: boolean;
+}
+
+/**
+ * Un file nella lista delle modifiche.
+ *
+ * `status` è il codice XY GREZZO a due caratteri: `[0]` = indice (staged),
+ * `[1]` = albero di lavoro. Non trimmarlo — `"  M"` trimmato diventa `"M"` e
+ * un file non staged si presenta come staged.
+ *
+ * `origPath` c'è solo per rename e copie ed è il path di PROVENIENZA
+ * (`path` è quello nuovo). Prima non esisteva e i due path arrivavano
+ * incollati in uno solo — `old.md -> new.md` — usato tale e quale come
+ * argomento dei comandi git, che quindi fallivano tutti.
+ *
+ * `staged`/`unstaged` sono i conteggi per LATO, e per lo stesso file possono
+ * essere diversi: un file staged a metà ha righe nell'indice e altre righe
+ * ancora nell'albero. Sono ASSENTI, non zero, quando non c'è un numero da dare
+ * (un file non tracciato non compare in nessun diff): zero direbbe «non è
+ * cambiato niente», che è un'altra cosa.
+ *
+ * È un tipo con un nome, non una forma scritta a mano in ogni firma: era
+ * ripetuto in otto punti fra hook e pannello, e aggiungere un campo voleva dire
+ * trovarli tutti e otto.
+ */
+export interface GitFile {
+  path: string;
+  status: string;
+  origPath?: string;
+  staged?: GitLineStat;
+  unstaged?: GitLineStat;
+}
+
 export interface GitStatus {
   branch: string;
   lastCommit: { hash: string; message: string; author: string; ago: string };
-  /**
-   * `status` è il codice XY GREZZO a due caratteri: `[0]` = indice (staged),
-   * `[1]` = albero di lavoro. Non trimmarlo — `"  M"` trimmato diventa `"M"` e
-   * un file non staged si presenta come staged.
-   *
-   * `origPath` c'è solo per rename e copie ed è il path di PROVENIENZA
-   * (`path` è quello nuovo). Prima non esisteva e i due path arrivavano
-   * incollati in uno solo — `old.md -> new.md` — usato tale e quale come
-   * argomento dei comandi git, che quindi fallivano tutti.
-   */
-  files: { path: string; status: string; origPath?: string }[];
+  files: GitFile[];
   ahead: number;
   behind: number;
   /**

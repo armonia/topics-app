@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
 import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText, AlertCircle } from 'lucide-react';
-import type { GitStatus as _GitStatus } from '../../types';
+import type { GitStatus as _GitStatus, GitFile } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
@@ -57,6 +57,40 @@ function fileTitle(file: { path: string; origPath?: string }): string {
 }
 
 /**
+ * Quante righe, accanto al nome.
+ *
+ * Senza, una virgola corretta e un file riscritto da capo arrivano alla lista
+ * identici, e per sapere quale sia quale bisogna aprire il diff di ognuno. È il
+ * numero che ogni client git mostra in lista.
+ *
+ * Si legge il lato del gruppo in cui la riga sta: lo stesso file staged a metà
+ * ha conteggi diversi nell'indice e nell'albero, e mostrare la somma da tutt'e
+ * due le parti direbbe che le righe sono il doppio.
+ *
+ * Silenzio quando non c'è niente da dire: un file non tracciato non compare in
+ * nessun diff (nessun numero, non zero), e un rename puro è `0/0` — «+0 -0» è
+ * rumore che occupa lo spazio di un'informazione.
+ */
+function LineStat({ file, group }: { file: GitFile; group: 'staged' | 'unstaged' | 'conflicted' }) {
+  const s = group === 'staged' ? file.staged : file.unstaged;
+  if (!s) return null;
+  if (s.binary) {
+    return <span className="text-[10px] text-app-text-muted flex-shrink-0 tabular-nums" title="File binario: git non conta le righe">bin</span>;
+  }
+  if (!s.added && !s.removed) return null;
+  return (
+    <span
+      className="text-[10px] flex-shrink-0 tabular-nums leading-none"
+      title={`${s.added} aggiunte, ${s.removed} rimosse`}
+    >
+      {s.added > 0 && <span className="text-green-500">+{s.added}</span>}
+      {s.added > 0 && s.removed > 0 && ' '}
+      {s.removed > 0 && <span className="text-red-500">-{s.removed}</span>}
+    </span>
+  );
+}
+
+/**
  * I path da passare a git per agire su questi file.
  *
  * Un rename in stage sono DUE voci nell'indice: la cancellazione del vecchio e
@@ -65,7 +99,7 @@ function fileTitle(file: { path: string; origPath?: string }): string {
  * chiesto.
  */
 function withOrigPaths(
-  files: { path: string; status: string; origPath?: string }[],
+  files: GitFile[],
   paths: string[],
 ): string[] {
   const out = new Set(paths);
@@ -736,7 +770,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               // lavoro, e i suoi file non compaiono più nelle altre due liste.
               const conflictedFiles = gitStatus!.files.filter(f => isConflicted(f.status));
 
-              const renderFileRow = (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged' | 'conflicted') => {
+              const renderFileRow = (file: GitFile, group: 'staged' | 'unstaged' | 'conflicted') => {
                 const st = statusLabel(file.status);
                 const basename = pathBasename(file.path) || file.path;
                 const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
@@ -765,7 +799,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       {basename}
                       {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
                     </span>
-                    <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/file:opacity-100 transition-all flex-shrink-0">
+                    <span className="ml-auto flex-shrink-0">
+                      <LineStat file={file} group={group} />
+                    </span>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover/file:opacity-100 transition-all flex-shrink-0">
                       {group === 'unstaged' && (
                         <button
                           onClick={(e) => handleDiscard(file.path, e)}
@@ -967,7 +1004,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // ora che i due predicati li escludono — sparirebbero del tutto.
   const fullConflictedFiles = gitStatus.files.filter(f => isConflicted(f.status));
 
-  const renderFullModeFileRow = (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged') => {
+  const renderFullModeFileRow = (file: GitFile, group: 'staged' | 'unstaged') => {
     const st = statusLabel(file.status);
     const isMultiSelected = selectedFiles.has(file.path);
     const isDiffOpen = selectedFile === file.path;
@@ -979,6 +1016,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group select-none ${
           isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : 'hover:bg-app-hover'
         }`}
+        title={fileTitle(file)}
         onClick={(e) => handleFileSelect(file.path, group, e)}
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
@@ -986,10 +1024,21 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           {st.text}
         </span>
         <span className="truncate text-app-text-body min-w-0">
+          {file.origPath && (
+            // Come nella lista compatta: senza il vecchio nome barrato, in
+            // modalita estesa un rename si presentava come un file comparso dal
+            // nulla accanto a una cancellazione senza motivo.
+            <span className="text-app-text-muted line-through mr-1">
+              {pathBasename(file.origPath) || file.origPath}
+            </span>
+          )}
           {basename}
           {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
         </span>
-        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+        <span className="ml-auto flex-shrink-0">
+          <LineStat file={file} group={group} />
+        </span>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
           {group === 'unstaged' && (
             <button
               onClick={(e) => handleDiscard(file.path, e)}
@@ -1344,13 +1393,13 @@ type CompactItem =
   | { type: 'staged-header' }
   | { type: 'unstaged-header' }
   | { type: 'conflicted-header' }
-  | { type: 'file'; file: { path: string; status: string; origPath?: string }; group: 'staged' | 'unstaged' | 'conflicted' }
+  | { type: 'file'; file: GitFile; group: 'staged' | 'unstaged' | 'conflicted' }
   | { type: 'remotes' };
 
 interface CompactFileListProps {
-  stagedFiles: { path: string; status: string; origPath?: string }[];
-  unstagedFiles: { path: string; status: string; origPath?: string }[];
-  conflictedFiles: { path: string; status: string; origPath?: string }[];
+  stagedFiles: GitFile[];
+  unstagedFiles: GitFile[];
+  conflictedFiles: GitFile[];
   stagedExpanded: boolean;
   unstagedExpanded: boolean;
   onToggleStaged: () => void;
@@ -1358,7 +1407,7 @@ interface CompactFileListProps {
   onUnstageAll: () => void;
   onStageAll: () => void;
   stagingAll: boolean;
-  renderFileRow: (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged' | 'conflicted') => React.ReactNode;
+  renderFileRow: (file: GitFile, group: 'staged' | 'unstaged' | 'conflicted') => React.ReactNode;
   remotes: { name: string; fetchUrl: string; pushUrl: string }[];
   remotesExpanded: boolean;
   onToggleRemotes: () => void;

@@ -31,6 +31,8 @@
  * punti che lo producono.
  */
 
+import { realpathSync } from "fs";
+
 export interface PorcelainEntry {
   /** Il path corrente (per un rename: quello NUOVO). */
   path: string;
@@ -126,6 +128,35 @@ export function scopeToPrefix(entries: PorcelainEntry[], prefix: string): Porcel
  * non è tracciata» — e senza, il pannello mostrerebbe «nessuna modifica», che è
  * una bugia diversa ma sempre una bugia.
  */
+/**
+ * Il pezzo di path della cartella aperta relativo alla radice del suo repo, e
+ * il nome di quella radice.
+ *
+ * `git rev-parse --show-toplevel` risponde col path REALE, mentre la cartella
+ * aperta può arrivare attraverso un link simbolico: su macOS `/tmp` è un link
+ * a `/private/tmp`, quindi un confronto fra stringhe fallisce e lo scoping non
+ * parte. Da lì in poi il pannello mostra i file di TUTTO il repo, e non si
+ * accorge che la cartella aperta è a sua volta non tracciata. Si confrontano i
+ * path risolti.
+ *
+ * Sta qui, e non nella rotta, perché il prefisso lo calcolano in DUE: la rotta
+ * `/api/git/status` e il push del watcher. Il watcher lo faceva con un
+ * `startsWith` fra stringhe grezze, quindi su un path con symlink i due
+ * descrivevano lo stesso stato con path diversi — la lista cambiava a seconda
+ * che l'aggiornamento fosse arrivato dal poll o dal watcher.
+ */
+export function repoPrefixOf(resolvedDir: string, gitRoot: string): { prefix: string; repoName: string } {
+  if (!gitRoot) return { prefix: "", repoName: "" };
+  let real = resolvedDir;
+  try { real = realpathSync(resolvedDir); } catch {}
+  let root = gitRoot;
+  try { root = realpathSync(gitRoot); } catch {}
+  if (real === root || !real.startsWith(root + "/")) return { prefix: "", repoName: "" };
+  let prefix = real.slice(root.length + 1);
+  if (prefix && !prefix.endsWith("/")) prefix += "/";
+  return { prefix, repoName: root.split("/").filter(Boolean).pop() ?? "" };
+}
+
 export function statusOfPrefix(entries: PorcelainEntry[], prefix: string): string | null {
   if (!prefix) return null;
   const dir = prefix.replace(/\/+$/, "");

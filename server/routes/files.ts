@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync, realpathSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -6,7 +6,8 @@ import { watchGitDir } from "../git-watcher";
 import { watchProjectFiles } from "../file-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
-import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix } from "../lib/git-porcelain";
+import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
+import { attachNumstats, readNumstats } from "../lib/git-numstat";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -130,29 +131,6 @@ async function acquireLock(filePath: string, timeoutMs = 5000): Promise<boolean>
 
 function releaseLock(filePath: string) {
   activeLocks.delete(filePath);
-}
-
-/**
- * Il pezzo di path della cartella aperta relativo alla radice del suo repo, e
- * il nome di quella radice.
- *
- * `git rev-parse --show-toplevel` risponde col path REALE, mentre la cartella
- * aperta puo arrivare attraverso un link simbolico: su macOS `/tmp` e un link
- * a `/private/tmp`, quindi un confronto fra stringhe fallisce e lo scoping non
- * parte. Da li in poi il pannello mostra i file di TUTTO il repo, e non si
- * accorge che la cartella aperta e a sua volta non tracciata. Si confrontano i
- * path risolti.
- */
-function repoPrefixOf(resolvedDir: string, gitRoot: string): { prefix: string; repoName: string } {
-  if (!gitRoot) return { prefix: "", repoName: "" };
-  let real = resolvedDir;
-  try { real = realpathSync(resolvedDir); } catch {}
-  let root = gitRoot;
-  try { root = realpathSync(gitRoot); } catch {}
-  if (real === root || !real.startsWith(root + "/")) return { prefix: "", repoName: "" };
-  let prefix = real.slice(root.length + 1);
-  if (prefix && !prefix.endsWith("/")) prefix += "/";
-  return { prefix, repoName: root.split("/").filter(Boolean).pop() ?? "" };
 }
 
 /**
@@ -522,7 +500,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Il parse sta in `lib/git-porcelain.ts`: `-z`, path grezzi, e il
         // secondo path dei rename in un campo suo (`origPath`).
         const parsed = parsePorcelainZ(statusText);
-        const files = scopeToPrefix(parsed, relativePrefix);
+        // I conteggi per file (`+N −M`) vengono da due `git diff --numstat`, che
+        // sono comandi a parte: `git status` dice quali file, mai quante righe.
+        const files = attachNumstats(scopeToPrefix(parsed, relativePrefix), await readNumstats(resolvedDir), relativePrefix);
         // La cartella aperta è a sua volta non tracciata dal repo che la
         // contiene: git la collassa in un record solo e non elenca ciò che c'è
         // dentro. Va DETTO, non elencato — vedi `statusOfPrefix`.
