@@ -1,7 +1,8 @@
 import { memo, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
-import { ToolCallRow, ElapsedTimer, SETTLED_GROUP_METRIC_CLASS } from './ToolCallRow';
+import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
+import { SETTLED_GROUP_METRIC_CLASS } from './settledMetrics';
 import {
   GROUP_MIN,
   formatCostCents,
