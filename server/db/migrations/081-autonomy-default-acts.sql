@@ -1,0 +1,25 @@
+-- L'autonomia di DEFAULT torna ad AGIRE.
+--
+-- `autonomy_level` nasce con `DEFAULT 'ask'` (001-initial.sql:20) e l'insert la
+-- scrive comunque (`topic.autonomyLevel || 'ask'`, server/utils.ts): risultato,
+-- 511 topic su 514 dicevano «ask» senza che nessuno l'avesse scelto.
+--
+-- Finché quel valore non faceva niente era innocuo. Da quando decide
+-- `--permission-mode` (server/lib/autonomy-mode.ts) significa `plan` — e sulla
+-- CLI 2.1.223 plan mode non espone più `ExitPlanMode`, quindi ogni sessione che
+-- rinasceva finiva in una modalità dove non può né agire né consegnare il piano.
+-- È il difetto per cui i turni si chiudevano col cartello «non ha prodotto
+-- niente» sopra una colonna di azioni riuscite.
+--
+-- Lo stesso file `autonomy-mode.ts` dichiarava l'invariante opposta — «un topic
+-- che non ha scelto continua ad avere bypassPermissions» — e quell'invariante
+-- era irraggiungibile, perché un topic senza scelta non esisteva: erano tutti
+-- 'ask' d'ufficio.
+--
+-- Qui si rimette la realtà d'accordo con l'intenzione: chi non ha scelto AGISCE.
+-- `auto-apply` e non `yolo` perché è la modalità provata che esegue senza
+-- bloccare il turno in `--print`, ed è la meno sorprendente delle due.
+--
+-- Chi VUOLE il piano prima lo sceglie dal composer, dove adesso il selettore è
+-- sempre in vista — e lì la barra di approvazione fa il suo lavoro.
+UPDATE topics SET autonomy_level = 'auto-apply' WHERE autonomy_level = 'ask';
