@@ -41,7 +41,7 @@ import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { PinnedDropTarget, SidebarViewMode } from '@/hooks/useSidebarState';
 import type { BoardTask, TaskStatus } from '@/lib/board';
-import { BoardStateBand } from './BoardStateBand';
+import { BoardStatusCounts } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { SpaceGroupCard, useSpaceCards } from './SpaceGroups';
@@ -113,7 +113,7 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
  *  apertura — questa stringa è la STESSA fra sessioni e fra device, che è
  *  esattamente ciò che rende la board fissabile. */
 const BOARD_ID = utilityPanelId('board');
-const BOARD_LABEL = 'Board generale';
+const BOARD_LABEL = 'Board';
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -199,8 +199,8 @@ export function TopicTree({
   topics,
   workspaceProjects = [],
   searchQuery,
-  expandedNodes,
-  onToggleNode,
+  expandedNodes: _expandedNodes,
+  onToggleNode: _onToggleNode,
   focusedTopicId,
   projectActiveTopics,
   previewPanelId,
@@ -1082,10 +1082,12 @@ export function TopicTree({
       // stesso `renderItem` delle righe dell'albero: nessun renderer nuovo,
       // quindi nessun modo di divergere da come quelle righe si comportano.
       renderExpanded={item => {
-        // La board non ha «tab figlie»: quello che sta sotto di lei sono i
-        // TASK, letti per stato. Stessa grammatica della fascia di un progetto
-        // (un livello dentro, righe della sidebar), contenuto diverso.
-        if (item.id === BOARD_ID) return <BoardStateBand byStatus={boardByStatus} depth={1} />;
+        // La board non ha «tab figlie», e i suoi task NON si aprono qui sotto:
+        // il riassunto per stato sta sulla riga, dove si legge senza gesti, e
+        // la lista dei titoli sta nella board. Due liste degli stessi task in
+        // due superfici possono dire cose diverse; una sola non può.
+        // `null` ⇒ la tessera non si espande e il click porta alla board.
+        if (item.id === BOARD_ID) return null;
         const children = item.type === 'project' ? (item.children ?? []) : [];
         if (children.length === 0) return null;
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
@@ -1103,68 +1105,47 @@ export function TopicTree({
   // Fissata, la board NON ha una riga: vive come tessera nella griglia (vedi
   // `pinnedBlock`). La stessa cosa in due posti non è una scorciatoia, è un
   // doppione — la regola che vale già per le righe dentro le card dei gruppi.
-  const boardExpanded = expandedNodes.has(BOARD_ID);
   const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && (boardTaskCount > 0 || boardOpen) ? (
-          <div key="board-row" data-testid="sidebar-board-row">
-            {/* La stessa card di ogni altra riga: 6px di rientro (ROW_INSET),
-                angoli tondi, `mt-px` come tutte. `mb-0` perché lo spazio SOTTO
-                appartiene a ciò che segue — il blocco dei fissati porta il suo,
-                e sommare i due margini rompeva il ritmo verticale. Era l'unica
-                riga a filo dei bordi, con 12px di padding interno: sembrava di
-                un altro elenco. */}
-            <div
-              data-testid="sidebar-board-card"
-              className={`flex items-center gap-1 mx-1.5 mt-px mb-0 pl-1 pr-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
-                boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
-              }`}
-              // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
-              // pane: è così che la si fissa (lasciandola sui Fissati) e che la
-              // si porta in un gruppo, senza passare da un menu.
-              draggable
-              onDragStart={e => {
-                e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
-                e.dataTransfer.effectAllowed = 'copyMove';
-              }}
-              onContextMenu={e => {
-                e.preventDefault();
-                setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
-              }}
-            >
-              {/* Il chevron è un bersaglio SUO, come nei progetti: aprire per
-                  vedere cosa c'è dentro non è la stessa cosa che aprire la
-                  board. Senza di lui i task per stato esistevano solo sotto la
-                  tessera fissata — cioè dietro due gesti che nessuno indovina. */}
-              <button
-                type="button"
-                data-testid="sidebar-board-chevron"
-                aria-label={boardExpanded ? 'Chiudi i task' : 'Mostra i task per stato'}
-                aria-expanded={boardExpanded}
-                onClick={e => { e.stopPropagation(); onToggleNode?.(BOARD_ID); }}
-                className="flex-shrink-0 p-0.5 rounded hover:bg-app-hover"
-              >
-                <ChevronRight size={12} className={`transition-transform ${boardExpanded ? 'rotate-90' : ''}`} />
-              </button>
-              <button
-                type="button"
-                onClick={onOpenBoard}
-                data-testid="sidebar-board-generale"
-                aria-selected={boardOpen}
-                className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
-              >
-                {/* Glifo neutro come ogni altra riga: il verde faceva sembrare
-                    la board un tipo a parte, e il colore nella sidebar è
-                    riservato a uno STATO (attenzione, selezione), non a
-                    un'identità. */}
-                <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
-                <span className="text-[12px] font-medium flex-1 truncate">{BOARD_LABEL}</span>
-              </button>
-              {/* Il badge di sempre, non uno verde disegnato a mano: due badge
-                  diversi per la stessa cosa (quanti ti aspettano) sono due
-                  grammatiche in un elenco solo. */}
-              <NotificationBadge count={boardTaskCount} />
-            </div>
-            {boardExpanded && <BoardStateBand byStatus={boardByStatus} depth={1} />}
-          </div>
+          <button
+            key="board-row"
+            type="button"
+            onClick={onOpenBoard}
+            data-testid="sidebar-board-generale"
+            aria-selected={boardOpen}
+            // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
+            // pane: è così che la si fissa (lasciandola sui Fissati) e che la si
+            // porta in un gruppo, senza passare da un menu.
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
+              e.dataTransfer.effectAllowed = 'copyMove';
+            }}
+            onContextMenu={e => {
+              e.preventDefault();
+              setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
+            }}
+            // La stessa card di ogni altra riga: 6px di rientro (ROW_INSET),
+            // angoli tondi, `mt-px` come tutte. `mb-0` perché lo spazio SOTTO
+            // appartiene a ciò che segue — il blocco dei fissati porta il suo, e
+            // sommare i due margini rompeva il ritmo verticale. Era l'unica riga
+            // a filo dei bordi, con 12px di padding interno: sembrava di un
+            // altro elenco.
+            className={`flex items-center gap-1.5 mx-1.5 mt-px mb-0 px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
+              boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
+            }`}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
+          >
+            {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
+                board un tipo a parte, e nella sidebar il colore è riservato a
+                uno STATO (attenzione, selezione), non a un'identità. Qui sotto
+                il colore torna, ma per dire proprio uno stato: la colonna. */}
+            <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
+            <span className="text-[12px] font-medium flex-1 min-w-0 text-left truncate">{BOARD_LABEL}</span>
+            {/* Quanti, e in quale colonna — sulla riga, senza aprire niente.
+                Sostituisce sia il badge col totale (un numero solo non dice se
+                stai aspettando tu o un agente) sia la fascia che si apriva. */}
+            <BoardStatusCounts byStatus={boardByStatus} />
+          </button>
   ) : null;
 
   return (
