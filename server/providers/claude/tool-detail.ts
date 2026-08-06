@@ -19,6 +19,7 @@
  */
 
 import type { ToolCall, ToolCallDetail } from "../../types";
+import { isPlanFile } from "../../../shared/plan-file";
 
 /** Lowercase + strip leading/trailing punctuation for alias match. */
 function canon(name: string): string {
@@ -114,10 +115,23 @@ export function deriveToolDetail(
 
   // Write variants
   if (c === "write" || c === "write_file" || c === "create_file") {
+    const filePath = s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "";
+    const content = s(a.content);
+    // Una scrittura in `.claude/plans/` NON è una scrittura: è il PIANO.
+    //
+    // In `--permission-mode plan` la CLI 2.1.223 non espone più `ExitPlanMode`
+    // (provato sul wire: 29 tool, e quello non c'è), quindi il modello non ha
+    // più un modo di consegnare il piano — e ripiega su quello che gli resta,
+    // cioè scriverlo in `~/.claude/plans/<slug>.md`. Lì dentro il piano
+    // compariva come una riga `Write` verso una cartella che nessuno apre: il
+    // lavoro c'era tutto e a schermo non si vedeva.
+    if (content && isPlanFile(filePath)) {
+      return { type: "plan", text: content };
+    }
     return {
       type: "write",
-      filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
-      ...(s(a.content) ? { content: s(a.content)! } : {}),
+      filePath,
+      ...(content ? { content } : {}),
     };
   }
 
