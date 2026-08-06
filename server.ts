@@ -1,5 +1,6 @@
 import { basename, join, resolve, sep } from "path";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
+import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -86,7 +87,7 @@ import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isLoopbackAddress, isAuthGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -1405,6 +1406,21 @@ function corsPreflightHeaders(req: Request, origin: string): Record<string, stri
   };
 }
 
+/**
+ * Confronto a tempo costante fra due stringhe già validate come esadecimali di
+ * lunghezza fissa. `timingSafeEqual` lancia se i buffer hanno lunghezze diverse,
+ * quindi la disuguaglianza di lunghezza si tratta prima e senza chiamarlo. Usato
+ * solo dal ramo `/__daemon/*`: dopo la change `lan-open-same-origin` è l'unico
+ * segreto che il server confronta.
+ */
+function timingSafeEqualStr(presented: string, expected: string | null | undefined): boolean {
+  if (!expected) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 const server = Bun.serve<WSData>({
   port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
@@ -1445,15 +1461,29 @@ const server = Bun.serve<WSData>({
     const isApiRequest = pathname.startsWith("/api/");
     if (isApiRequest) console.log(`[HTTP] → ${method} ${pathname}`);
 
-    // Phase B · DAEMON-02: token-authed loopback control endpoints.
+    // Phase B · DAEMON-02: token-authed LOOPBACK control endpoints.
     // We read the state file fresh on every call so a state-file rewrite
     // (e.g. token rotation in a future phase) takes effect immediately.
+    //
+    // LAN-OPEN-02: il "loopback" del commento non era nel codice — si guardava solo
+    // il token. Finché ogni peer remoto doveva comunque presentarne uno per l'API
+    // il divario restava teorico; da quando la LAN è aperta (change
+    // `lan-open-same-origin`) non lo è più, perché il token del daemon è leggibile
+    // da chiunque sia sulla rete via `/preview/…/.topics/daemon-state.json`. Il
+    // peer va quindi respinto PRIMA di guardare il token, e il confronto è a tempo
+    // costante. Costo zero per chi lo usa davvero: `cli/topics.ts`, la sonda del
+    // guscio Tauri e la procedura di reload chiamano tutte da 127.0.0.1.
     if (pathname.startsWith("/__daemon/")) {
+      if (!isLoopbackAddress(server.requestIP(req)?.address ?? null)) {
+        return new Response(JSON.stringify({ error: "unauthorized" }), {
+          status: 401, headers: { "content-type": "application/json" },
+        });
+      }
       const fresh = readState();
       const auth = req.headers.get("authorization") || "";
       const match = auth.match(/^Bearer\s+([0-9a-f]{64})$/i);
       const token = match?.[1] ?? "";
-      if (!fresh || token.length !== 64 || token !== fresh.token) {
+      if (!fresh || token.length !== 64 || !timingSafeEqualStr(token, fresh.token)) {
         return new Response(JSON.stringify({ error: "unauthorized" }), {
           status: 401, headers: { "content-type": "application/json" },
         });
@@ -1499,40 +1529,33 @@ const server = Bun.serve<WSData>({
       return new Response("Not Found", { status: 404 });
     }
 
-    // ── Auth gate (S1/S2 hardening) — guards /api, /ws, /preview, /media.
-    // LOOPBACK is trusted (the local shell reaches :3333 via its own :13333
-    // proxy; desktop web/dev are same-machine), a REMOTE peer must present the
-    // pairing token (the daemon state-file token), and a MUTATING request or WS
-    // upgrade carrying a FOREIGN Origin is blocked (a website the owner visits
-    // can CSRF the loopback server). OPTIONS preflight is exempt (answered
-    // below). The state file is read ONLY for the rare non-loopback request, so
-    // the local app pays nothing. Recovery hatch: TOPICS_AUTH_OFF=1 + kickstart.
-    // NOTE: `/media/` (top-level file server for ~/.topics/media — agent
-    // screenshots, browser downloads, task preview media) is gated alongside
-    // `/preview/` so a remote LAN peer can't read those files without the token;
-    // loopback (the local app) still pays nothing.
-    if (method !== "OPTIONS" && isAuthGatedPath(pathname)) {
-      const ip = server.requestIP(req)?.address ?? null;
-      const loopback = isLoopbackAddress(ip);
+    // ── Origin gate — guards /api, /ws, /preview, /media, /uploads.
+    // Una sola decisione, e riguarda l'ORIGINE: viene bloccata una richiesta
+    // MUTANTE o un upgrade WS la cui `Origin` non è lo stesso sito dell'`Host`
+    // (né una origine ammessa esplicitamente). È la difesa contro un sito che
+    // l'utente visita e che da lì guida questo server.
+    //
+    // NON c'è più un asse di TRASPORTO: nessun token, nessun controllo
+    // sull'indirizzo del peer. Chi può raggiungere la porta lo decide la rete —
+    // vedi `server/lib/auth-gate.ts` per il modello intero e per il perché le
+    // richieste non mutanti non passano di qui (le protegge l'assenza di
+    // `Access-Control-Allow-Origin` in `corsAllowOrigin`).
+    //
+    // Il preflight OPTIONS è esente (gli si risponde sotto). Botola di recupero:
+    // TOPICS_AUTH_OFF=1 + kickstart.
+    if (method !== "OPTIONS" && isOriginGatedPath(pathname)) {
       const decision = evaluateAuth({
-        ip,
         origin: req.headers.get("origin"),
         method,
         pathname,
-        token: loopback
-          ? null
-          : req.headers.get("x-topics-token") ||
-            req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-            url.searchParams.get("token") ||
-            null,
-        expectedToken: loopback ? null : readState()?.token ?? null,
+        host: req.headers.get("host"),
         authOff: process.env.TOPICS_AUTH_OFF === "1",
         allowedOrigins: resolveAllowedOrigins(),
       });
       if (!decision.allow) {
-        if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — auth ${decision.status}: ${decision.reason}`);
+        if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — origin ${decision.status}: ${decision.reason}`);
         const o = corsAllowOrigin(req);
-        return new Response(JSON.stringify({ error: decision.reason, code: "unauthorized" }), {
+        return new Response(JSON.stringify({ error: decision.reason, code: "forbidden" }), {
           status: decision.status,
           headers: { "content-type": "application/json", ...(o ? { "Access-Control-Allow-Origin": o, Vary: "Origin" } : {}) },
         });

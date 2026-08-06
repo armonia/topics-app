@@ -1,18 +1,17 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, isWebSocketPath, resolveAllowedOrigins, type AuthInput } from "./auth-gate";
+import {
+  evaluateAuth, isLoopbackAddress, isSameSite, canonHost, originHost,
+  isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins, type AuthInput,
+} from "./auth-gate";
 
-const TOKEN = "a".repeat(64);
-
-// Sensible defaults = a loopback GET with the real token available. Each test
-// overrides only what it exercises.
+// Default sensati = una GET same-site sul server locale. Ogni test sovrascrive
+// solo ciò che esercita.
 function input(over: Partial<AuthInput> = {}): AuthInput {
   return {
-    ip: "127.0.0.1",
     origin: null,
     method: "GET",
     pathname: "/api/topics",
-    token: null,
-    expectedToken: TOKEN,
+    host: "127.0.0.1:3333",
     authOff: false,
     ...over,
   };
@@ -33,8 +32,8 @@ describe("auth-gate · isLoopbackAddress", () => {
 
 describe("auth-gate · isWebSocketPath", () => {
   it("matches the PRIMARY bare /ws socket AND the /ws/… sub-sockets", () => {
-    // Regression: the primary client socket is `/ws` (no trailing slash,
-    // useWebSocket.ts); keying only on `/ws/` left it ungated.
+    // Regression: il socket primario è `/ws` (senza slash finale, useWebSocket.ts);
+    // chiavare solo su `/ws/` lo lasciava scoperto.
     for (const p of ["/ws", "/ws/terminal/abc", "/ws/browser/xyz"]) {
       expect(isWebSocketPath(p)).toBe(true);
     }
@@ -46,13 +45,13 @@ describe("auth-gate · isWebSocketPath", () => {
   });
 });
 
-describe("auth-gate · isAuthGatedPath", () => {
+describe("auth-gate · isOriginGatedPath", () => {
   it("gates the API, BOTH WS forms (/ws + /ws/…), and every file-serving root", () => {
     for (const p of [
       "/api/topics",
       "/api/files/save",
       "/api/media?path=/etc/passwd",
-      "/ws",                 // ← the primary ui-state + live-chat socket
+      "/ws",                 // ← il socket primario, ui-state + chat dal vivo
       "/ws/terminal/abc",
       "/ws/browser/xyz",
       "/preview/Users/x/secret.pdf",
@@ -60,157 +59,255 @@ describe("auth-gate · isAuthGatedPath", () => {
       "/media/agent-screenshots/x.png",
       "/uploads/attachment.png",
     ]) {
-      expect(isAuthGatedPath(p)).toBe(true);
+      expect(isOriginGatedPath(p)).toBe(true);
     }
   });
   it("leaves the public SPA / health surface open", () => {
     for (const p of ["/", "/index.html", "/assets/index-abc.js", "/health", "/favicon.ico"]) {
-      expect(isAuthGatedPath(p)).toBe(false);
+      expect(isOriginGatedPath(p)).toBe(false);
     }
   });
   it("does not gate look-alike prefixes that aren't the real roots", () => {
-    // guards against a `/mediafoo` or `/previews` bypass illusion — the trailing
-    // slash in the prefixes means only the actual roots match (and /ws is exact).
     for (const p of ["/mediafoo", "/preview", "/apix", "/media", "/websocket", "/uploadsx"]) {
-      expect(isAuthGatedPath(p)).toBe(false);
+      expect(isOriginGatedPath(p)).toBe(false);
     }
   });
 });
 
-describe("auth-gate · isLocalOrigin", () => {
-  it("accepts every origin the app itself uses", () => {
-    for (const o of [
-      "tauri://localhost",
-      "http://tauri.localhost",
-      "https://tauri.localhost",
-      "http://localhost:13333",
-      "https://localhost:3333",
-      "http://127.0.0.1:3333",
+describe("auth-gate · canonHost", () => {
+  it("collapses every name that means THIS machine into one class", () => {
+    const local = canonHost("localhost");
+    expect(local).not.toBeNull();
+    for (const h of [
+      "localhost", "localhost:3333", "LOCALHOST",
+      "127.0.0.1", "127.0.0.1:3333", "127.0.0.5",
+      "::1", "[::1]", "[::1]:3333", "0:0:0:0:0:0:0:1",
+      "::ffff:127.0.0.1", "tauri.localhost", "app.localhost",
     ]) {
-      expect(isLocalOrigin(o)).toBe(true);
+      expect(canonHost(h)).toBe(local!);
     }
   });
-  it("rejects external sites", () => {
-    for (const o of ["https://evil.com", "http://attacker.example", "https://notlocalhost.com"]) {
-      expect(isLocalOrigin(o)).toBe(false);
-    }
+
+  it("strips the port but never mistakes a bare IPv6 for host:port", () => {
+    expect(canonHost("192.168.1.12:3333")).toBe("192.168.1.12");
+    expect(canonHost("macbook.local:3333")).toBe("macbook.local");
+    // Più di un `:` ⇒ IPv6 nudo: non va troncato al primo.
+    expect(canonHost("fe80::1234:5678")).toBe("fe80::1234:5678");
+    // Fra parentesi la porta si toglie comunque.
+    expect(canonHost("[fe80::1]:3333")).toBe("fe80::1");
+  });
+
+  it("returns null for nothing and for an unterminated bracket", () => {
+    expect(canonHost(null)).toBeNull();
+    expect(canonHost("")).toBeNull();
+    expect(canonHost("   ")).toBeNull();
+    expect(canonHost("[::1")).toBeNull();
+  });
+
+  it("keeps LAN, mDNS and public names distinct from each other", () => {
+    expect(canonHost("192.168.1.12")).toBe("192.168.1.12");
+    expect(canonHost("evil.com")).toBe("evil.com");
+    // Regression: `notlocalhost.com` non deve finire nella classe locale.
+    expect(canonHost("notlocalhost.com")).toBe("notlocalhost.com");
+  });
+});
+
+describe("auth-gate · originHost", () => {
+  it("reads the hostname out of every origin shape the app produces", () => {
+    expect(originHost("https://192.168.1.12:3333")).toBe("192.168.1.12");
+    expect(originHost("https://macbook-pro-di-attilio.local:3333")).toBe("macbook-pro-di-attilio.local");
+    // `new URL(...).hostname` restituisce l'IPv6 CON le parentesi: vanno tolte.
+    expect(originHost("https://[::1]:3333")).toBe(canonHost("localhost"));
+  });
+  it("returns null for the opaque `null` origin and for garbage", () => {
+    expect(originHost("null")).toBeNull();
+    expect(originHost("not an origin")).toBeNull();
+  });
+});
+
+describe("auth-gate · isSameSite", () => {
+  it("accepts every origin/host pair the app itself produces", () => {
+    // Il guscio Tauri: splice L4, Origin e Host arrivano da due mondi diversi.
+    expect(isSameSite("tauri://localhost", "127.0.0.1:13333")).toBe(true);
+    expect(isSameSite("http://tauri.localhost", "127.0.0.1:13333")).toBe(true);
+    // Il proxy Vite in dev: `changeOrigin: true` riscrive Host e lascia Origin.
+    expect(isSameSite("https://localhost:3332", "127.0.0.1:3333")).toBe(true);
+    // Il telefono in LAN, per IP e per nome mDNS.
+    expect(isSameSite("https://192.168.1.12:3333", "192.168.1.12:3333")).toBe(true);
+    expect(isSameSite("https://macbook.local:3333", "macbook.local:3333")).toBe(true);
+  });
+
+  it("is blind to scheme and port, as the old isLocalOrigin was", () => {
+    expect(isSameSite("http://192.168.1.12:9999", "192.168.1.12:3333")).toBe(true);
+  });
+
+  it("rejects a different host, an opaque origin, and a missing side", () => {
+    expect(isSameSite("https://evil.com", "192.168.1.12:3333")).toBe(false);
+    expect(isSameSite("https://notlocalhost.com", "127.0.0.1:3333")).toBe(false);
+    expect(isSameSite("null", "192.168.1.12:3333")).toBe(false);
+    expect(isSameSite(null, "192.168.1.12:3333")).toBe(false);
+    expect(isSameSite("https://192.168.1.12:3333", null)).toBe(false);
   });
 });
 
 describe("auth-gate · evaluateAuth", () => {
-  it("kill-switch bypasses everything (remote, no token, foreign origin)", () => {
-    const r = evaluateAuth(input({ authOff: true, ip: "8.8.8.8", token: null, origin: "https://evil.com", method: "POST" }));
+  it("kill-switch bypasses everything (foreign origin, mutation)", () => {
+    const r = evaluateAuth(input({ authOff: true, origin: "https://evil.com", method: "POST" }));
     expect(r.allow).toBe(true);
   });
 
-  it("loopback GET with no token/origin → allow", () => {
-    expect(evaluateAuth(input()).allow).toBe(true);
+  // ── L'asse che è stato RIMOSSO: nessun peer deve più presentare un token.
+  // Prima di `lan-open-same-origin` ognuno di questi era un 401.
+
+  it("un telefono in LAN, senza alcun token, fa una GET → allow", () => {
+    const r = evaluateAuth(input({ host: "192.168.1.12:3333", origin: "https://192.168.1.12:3333" }));
+    expect(r.allow).toBe(true);
   });
 
-  it("loopback POST with a LOCAL origin → allow", () => {
-    expect(evaluateAuth(input({ method: "POST", origin: "tauri://localhost" })).allow).toBe(true);
-    expect(evaluateAuth(input({ method: "POST", origin: "http://localhost:13333" })).allow).toBe(true);
+  it("un telefono in LAN, senza alcun token, fa una MUTAZIONE → allow", () => {
+    const r = evaluateAuth(input({
+      method: "POST", host: "192.168.1.12:3333", origin: "https://192.168.1.12:3333",
+    }));
+    expect(r.allow).toBe(true);
   });
 
-  it("loopback POST with a FOREIGN origin → 403 (CSRF)", () => {
+  it("un telefono in LAN apre il /ws PRIMARIO senza token → allow", () => {
+    const r = evaluateAuth(input({
+      pathname: "/ws", host: "192.168.1.12:3333", origin: "https://192.168.1.12:3333",
+    }));
+    expect(r.allow).toBe(true);
+  });
+
+  it("un telefono in LAN apre un sub-WS (terminale) senza token → allow", () => {
+    const r = evaluateAuth(input({
+      pathname: "/ws/terminal/x", host: "192.168.1.12:3333", origin: "https://192.168.1.12:3333",
+    }));
+    expect(r.allow).toBe(true);
+  });
+
+  it("per nome mDNS, che è la strada consigliata (l'IP cambia col DHCP, il nome no)", () => {
+    const r = evaluateAuth(input({
+      method: "POST",
+      host: "macbook-pro-di-attilio.local:3333",
+      origin: "https://macbook-pro-di-attilio.local:3333",
+    }));
+    expect(r.allow).toBe(true);
+  });
+
+  // ── L'asse che RESTA: l'origine.
+
+  it("un sito ostile su una MUTAZIONE → 403", () => {
     const r = evaluateAuth(input({ method: "POST", origin: "https://evil.com" }));
     expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
   });
 
-  it("loopback GET with a foreign origin → allow (GET is not mutating, not WS)", () => {
-    expect(evaluateAuth(input({ method: "GET", origin: "https://evil.com" })).allow).toBe(true);
+  it("un sito ostile che punta al TELEFONO, non al loopback → 403", () => {
+    // Il caso che la regola vecchia non copriva: prima il check d'origine viveva
+    // dentro il ramo loopback, quindi per un peer remoto era irraggiungibile.
+    const r = evaluateAuth(input({
+      method: "POST", host: "192.168.1.12:3333", origin: "https://evil.com",
+    }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
   });
 
-  it("loopback WS upgrade with a foreign origin → 403", () => {
+  it("un sito ostile su un upgrade WS → 403", () => {
     const r = evaluateAuth(input({ pathname: "/ws/terminal/x", origin: "https://evil.com" }));
     expect(r.allow).toBe(false);
     if (!r.allow) expect(r.status).toBe(403);
   });
 
-  it("loopback WS upgrade with a local origin → allow", () => {
-    expect(evaluateAuth(input({ pathname: "/ws/terminal/x", origin: "tauri://localhost" })).allow).toBe(true);
-  });
-
-  // Regression: the PRIMARY socket is the bare `/ws` (ui-state + live chat). It
-  // must get the SAME token + CSRF treatment as `/ws/…`, not slip through.
-  it("bare /ws with a foreign origin → 403 (CSRF applies to the primary socket)", () => {
+  // Regression: il socket PRIMARIO è il `/ws` nudo (ui-state + chat dal vivo).
+  // Deve ricevere lo stesso trattamento di `/ws/…`, non scivolare fuori.
+  it("il /ws nudo con origine forestiera → 403 (il CSRF vale sul socket primario)", () => {
     const r = evaluateAuth(input({ pathname: "/ws", origin: "https://evil.com" }));
     expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
   });
 
-  it("bare /ws from a remote peer with NO token → 401", () => {
-    const r = evaluateAuth(input({ pathname: "/ws", ip: "192.168.1.5", token: null }));
-    expect(r).toEqual({ allow: false, status: 401, reason: "pairing token required for remote access" });
+  it("un'origine OPACA (`null` letterale: about:blank, iframe sandboxed, data:) → 403", () => {
+    const r = evaluateAuth(input({ method: "POST", origin: "null" }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
   });
 
-  it("bare /ws on loopback with a local origin → allow (the real app is unaffected)", () => {
+  it("una GET con origine forestiera → allow (non muta; a proteggerla è il CORS)", () => {
+    // Vedi il commento di testa in auth-gate.ts: la risposta resta illeggibile
+    // perché corsAllowOrigin non concede mai un'origine forestiera. Quel patto è
+    // pinnato da tests/e2e/lan-same-origin.spec.ts.
+    expect(evaluateAuth(input({ method: "GET", origin: "https://evil.com" })).allow).toBe(true);
+  });
+
+  it("nessun header Origin su una mutazione → allow (non è un browser)", () => {
+    // CLI, tool MCP, hook HTTP, sendBeacon di teardown. Il CSRF è un attacco da
+    // browser: chi può omettere l'header è già dentro la macchina o la rete.
+    expect(evaluateAuth(input({ method: "POST", origin: null })).allow).toBe(true);
+  });
+
+  it("Host assente ⇒ nessuna origine è same-site → 403", () => {
+    const r = evaluateAuth(input({ method: "POST", origin: "https://192.168.1.12:3333", host: null }));
+    expect(r.allow).toBe(false);
+  });
+
+  // ── Le origini configurate a mano (un hostname di tunnel).
+
+  it("allowedOrigins lascia passare un'origine configurata", () => {
+    const r = evaluateAuth(input({
+      method: "POST", origin: "https://tunnel.example", allowedOrigins: ["https://tunnel.example"],
+    }));
+    expect(r.allow).toBe(true);
+  });
+
+  it("un'origine forestiera NON in allowedOrigins → 403", () => {
+    const r = evaluateAuth(input({
+      method: "POST", origin: "https://evil.com", allowedOrigins: ["https://tunnel.example"],
+    }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+  });
+
+  // ── La fiducia loopback non è cambiata: questi valevano prima e valgono ora.
+
+  it("loopback GET senza origine → allow", () => {
+    expect(evaluateAuth(input()).allow).toBe(true);
+  });
+
+  it("loopback POST con l'origine del guscio → allow", () => {
+    expect(evaluateAuth(input({ method: "POST", origin: "tauri://localhost", host: "127.0.0.1:13333" })).allow).toBe(true);
+    expect(evaluateAuth(input({ method: "POST", origin: "http://localhost:13333" })).allow).toBe(true);
+  });
+
+  it("loopback WS con l'origine del guscio → allow", () => {
+    expect(evaluateAuth(input({ pathname: "/ws/terminal/x", origin: "tauri://localhost" })).allow).toBe(true);
     expect(evaluateAuth(input({ pathname: "/ws", origin: "tauri://localhost" })).allow).toBe(true);
   });
 
-  it("remote with the valid token → allow", () => {
-    expect(evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN })).allow).toBe(true);
-  });
-
-  it("remote with NO token → 401", () => {
-    const r = evaluateAuth(input({ ip: "192.168.1.5", token: null }));
-    expect(r).toEqual({ allow: false, status: 401, reason: "pairing token required for remote access" });
-  });
-
-  it("remote with a WRONG token (same length) → 401", () => {
-    expect(evaluateAuth(input({ ip: "192.168.1.5", token: "b".repeat(64) })).allow).toBe(false);
-  });
-
-  it("remote with a wrong-length token → 401 (no timingSafeEqual throw)", () => {
-    expect(evaluateAuth(input({ ip: "192.168.1.5", token: "short" })).allow).toBe(false);
-  });
-
-  // LAN-PAIR-02: a valid token from a remote peer IS the CSRF proof — a hostile
-  // site can neither learn the 256-bit token nor set x-topics-token cross-origin
-  // (that trips a preflight the server refuses). So a token-authed remote peer is
-  // allowed WITHOUT the foreign-origin block. (Previously this returned 403.)
-  it("remote with valid token AND foreign origin on a mutation → allow (token bypasses CSRF)", () => {
-    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, method: "POST", origin: "http://192.168.1.12:3333" }));
-    expect(r.allow).toBe(true);
-  });
-
-  it("remote with valid token AND foreign origin on a WS upgrade → allow", () => {
-    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, pathname: "/ws", origin: "http://192.168.1.12:3333" }));
-    expect(r.allow).toBe(true);
-  });
-
-  it("remote with valid token AND foreign origin on a sub-WS (/ws/…) → allow", () => {
-    const r = evaluateAuth(input({ ip: "192.168.1.5", token: TOKEN, pathname: "/ws/terminal/x", origin: "https://evil.com" }));
-    expect(r.allow).toBe(true);
-  });
-
-  it("null ip is treated as non-loopback → needs a token", () => {
-    expect(evaluateAuth(input({ ip: null, token: null })).allow).toBe(false);
-    expect(evaluateAuth(input({ ip: null, token: TOKEN })).allow).toBe(true);
-  });
-
-  it("no expectedToken configured → remote can never authenticate", () => {
-    expect(evaluateAuth(input({ ip: "192.168.1.5", token: "whatever", expectedToken: null })).allow).toBe(false);
-  });
-
-  // LAN-PAIR-02: the previously-dead allowedOrigins branch, now reachable, on the
-  // LOOPBACK CSRF path (default ip 127.0.0.1) — an operator-configured extra origin.
-  it("explicit allowedOrigins lets a configured origin through a loopback mutation", () => {
-    expect(evaluateAuth(input({ method: "POST", origin: "https://phone.pwa", allowedOrigins: ["https://phone.pwa"] })).allow).toBe(true);
-  });
-
-  it("loopback mutation with a foreign origin NOT in allowedOrigins → 403", () => {
-    const r = evaluateAuth(input({ method: "POST", origin: "https://evil.com", allowedOrigins: ["https://phone.pwa"] }));
-    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+  it("il proxy Vite in dev, che riscrive Host e non Origin → allow", () => {
+    expect(evaluateAuth(input({
+      method: "POST", origin: "https://localhost:3332", host: "127.0.0.1:3333",
+    })).allow).toBe(true);
   });
 });
 
 describe("auth-gate · resolveAllowedOrigins", () => {
   it("parses TOPICS_ALLOWED_ORIGINS as a trimmed, comma-separated, non-empty list", () => {
-    // Cached on first call; set env before the first read in this fresh process.
     const prev = process.env.TOPICS_ALLOWED_ORIGINS;
     process.env.TOPICS_ALLOWED_ORIGINS = " https://a.example , , https://b.example ";
     try {
       expect(resolveAllowedOrigins()).toEqual(["https://a.example", "https://b.example"]);
+    } finally {
+      if (prev === undefined) delete process.env.TOPICS_ALLOWED_ORIGINS;
+      else process.env.TOPICS_ALLOWED_ORIGINS = prev;
+    }
+  });
+
+  it("rilegge la variabile a ogni chiamata: la cache al primo uso era una trappola", () => {
+    // Prima il valore veniva memoizzato al primo accesso, quindi cambiarlo a caldo
+    // non aveva effetto e restava quello del boot — su una manopola che ora è viva.
+    const prev = process.env.TOPICS_ALLOWED_ORIGINS;
+    try {
+      process.env.TOPICS_ALLOWED_ORIGINS = "https://uno.example";
+      expect(resolveAllowedOrigins()).toEqual(["https://uno.example"]);
+      process.env.TOPICS_ALLOWED_ORIGINS = "https://due.example";
+      expect(resolveAllowedOrigins()).toEqual(["https://due.example"]);
+      delete process.env.TOPICS_ALLOWED_ORIGINS;
+      expect(resolveAllowedOrigins()).toEqual([]);
     } finally {
       if (prev === undefined) delete process.env.TOPICS_ALLOWED_ORIGINS;
       else process.env.TOPICS_ALLOWED_ORIGINS = prev;

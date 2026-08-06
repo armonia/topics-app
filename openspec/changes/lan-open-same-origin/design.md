@@ -93,28 +93,41 @@ nel working tree**: è morto con l'archiviazione di Electron
 (`scripts/stage-server-dist.mjs`, ramo `electron-archive`), e generava comunque solo
 `DNS:localhost,IP:127.0.0.1`. La procedura vive nella testa di una persona sola.
 
+**La risposta era già nel certificato che c'è.** Il problema non è la SAN marcia: è
+che ci si è puntati con un **IP**, e l'IP è l'unica cosa che il DHCP cambia. La SAN
+elenca anche `MacBook-Pro-di-Attilio.local`, e quel nome non cambia mai. Verificato il
+2026-08-06:
+
+```
+https://macbook-pro-di-attilio.local:3333/  →  200, --cacert certs/ca-cert.pem
+```
+
+L'iPhone risolve `.local` da solo via Bonjour, senza configurazione. Quindi la
+strada è **indirizzare al nome mDNS, non all'IP** — e il problema del DHCP sparisce
+senza riemettere niente.
+
 | # | Opzione | Vale | Costa |
 |---|---|---|---|
-| 1 | Self-signed, SAN a mano | niente di nuovo | si rompe a ogni DHCP; CA da installare a mano su ogni iPhone (profilo **+** Impostazioni → Attendibilità); SW mai registrabile |
-| 2 | **`tailscale cert`** ⭐ | Let's Encrypt **vero** per `<host>.ts.net`; zero installazioni sul telefono; **nome stabile, indipendente dal DHCP** → elimina la classe di guasto | il telefono deve stare sul tailnet; rinnovo ~90gg → serve un launchd |
-| 3 | Dominio vero + ACME DNS-01 | fidato ovunque, anche fuori dal tailnet | il record A punta a un IP privato e va aggiornato al cambio DHCP → **riporta il problema**, salvo reservation DHCP; credenziali Cloudflare sulla macchina |
-| 4 | mkcert / CA locale distribuita | nessuna dipendenza di rete | doppio tap di trust per dispositivo, da rifare a ogni rotazione; resta il problema SAN sugli IP |
+| 1 | **Nome `.local`, cert attuale, click-through** ⭐ | zero lavoro; il nome è già nella SAN e non marcisce; `isSecureContext` resta `true` | un interstiziale da accettare una volta per dispositivo |
+| 2 | **Nome `.local` + CA installata sul telefono** ⭐⭐ | niente interstiziale; **sblocca il service worker**, cioè la PWA installabile | installare `certs/ca-cert.pem` una volta per dispositivo (profilo **+** Impostazioni → Info → Attendibilità certificati) |
+| 3 | Puntare all'IP, riemettere la SAN | niente | si rompe al prossimo DHCP. È lo stato di oggi, ed è il guasto che stiamo guardando |
+| 4 | Dominio vero + ACME DNS-01 | fidato ovunque, anche fuori dalla LAN | il record A punta a un IP privato e va aggiornato al cambio DHCP; credenziali sulla macchina; l'app non esce dalla LAN, quindi non serve |
 | 5 | `NO_TLS=1` | niente interstiziale | perde `isSecureContext` (misurato: su HTTP non-localhost `clipboard`, `randomUUID`, `subtle`, `serviceWorker`, `mediaDevices` sono **tutti** `undefined`) e mette in chiaro sulla LAN scrollback dei terminali e chat |
 
-**Consigliata: 2**, con 3 come strada di lungo periodo se l'app deve uscire dal
-tailnet. Deliverable minimo, senza il quale la 2 è la 1 con un orologio diverso:
+**Consigliata: 1 adesso, 2 quando servirà la PWA installabile.** Nessuno dei due è
+un prerequisito per entrare dal telefono.
 
-```
-scripts/refresh-tailscale-cert.sh
-  tailscale cert --min-validity 720h \
-    --cert-file certs/fullchain.pem --key-file certs/key.pem \
-    "$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
-  → se i file cambiano: POST /__daemon/restart-when-idle   (mai kickstart -k)
-~/Library/LaunchAgents/com.armonia.topics-cert.plist — settimanale
-```
+`tailscale cert` è stato valutato e **scartato**: il tailnet qui è uno strumento di
+simulazione della LAN, non un canale di distribuzione, e legare il certificato del
+prodotto a un servizio che non fa parte del prodotto è una dipendenza che non serve
+a nessuno.
 
-`--min-validity` rende lo script idempotente: gira ogni settimana, riemette solo
-quando serve.
+Resta un debito vero e indipendente: **nel working tree non esiste alcuno script che
+generi `certs/`**. È morto con l'archiviazione di Electron
+(`scripts/stage-server-dist.mjs`, ramo `electron-archive`) e generava comunque solo
+`DNS:localhost,IP:127.0.0.1`. La procedura vive nella testa di una persona sola. Uno
+script che riemetta il cert dalla CA locale con la SAN giusta — nome mDNS incluso —
+va scritto e committato, indipendentemente dall'opzione scelta.
 
 ## 7. Matrice di decisione da pinnare nei test
 
