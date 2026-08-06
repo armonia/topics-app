@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { ListChecks, ChevronRight } from 'lucide-react';
 import type { TodoSnapshot } from './selectLatestTodo';
+import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 
 export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const [expanded, setExpanded] = useState(false);
@@ -18,11 +19,11 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
   const allDone = done === total;
 
   return (
-    <div data-testid="todo-strip" className="mx-2 mb-1 rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text">
+    <div data-testid="todo-strip" className={CHAT_STRIP_NEUTRAL}>
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        className={CHAT_STRIP_ROW}
         aria-expanded={expanded}
       >
         <ChevronRight
@@ -34,7 +35,7 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
           {done}/{total}
         </span>
         <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
-          {active ? (active.activeForm ?? active.content) : allDone ? 'Tutto completato' : 'In coda'}
+          {active ? (active.activeForm ?? active.content) : allDone ? 'Tutto completato' : 'Da fare'}
         </span>
       </button>
 
