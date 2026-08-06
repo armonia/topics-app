@@ -2,45 +2,43 @@
  * auth-gate — la UNICA decisione di autorizzazione su `/api`, `/ws` e le radici
  * che servono file (`/preview`, `/media`, `/uploads`) del server :3333.
  *
- * Modello (change `lan-open-same-origin`, 2026-08-06). Ci sono due assi, e il
- * server ne decide UNO SOLO:
+ * DUE assi, e vanno superati ENTRAMBI:
  *
- *   TRASPORTO — *chi può raggiungere la porta*. Delegato alla rete. Nessun token,
- *     nessuna proprietà dell'indirizzo del peer: un telefono sulla LAN è un client
- *     come gli altri. Prima esisteva un pairing token per i peer non-loopback; è
- *     stato rimosso perché il link che lo trasportava non lo produceva nessuna UI,
- *     e sarà sostituito da un'autenticazione centralizzata che autentica la
- *     CONNESSIONE. Il punto d'innesto lato client è `installNetShim`.
+ *   ORIGINE (CSRF) — *quale pagina sta guidando il browser*. Un sito ostile
+ *     aperto in una scheda qualunque raggiunge questo server DALLA MACCHINA
+ *     dell'utente. Vale per chiunque, sessione valida compresa: un cookie buono
+ *     guidato da una pagina forestiera E' il CSRF, non la sua smentita.
  *
- *   ORIGINE (CSRF) — *quale pagina sta guidando il browser*. Questo resta, e non
- *     lo sostituisce nessuna autenticazione di rete: un sito ostile aperto in una
- *     scheda qualunque raggiunge questo server DALLA MACCHINA dell'utente, e con
- *     quello guiderebbe i terminali, scriverebbe file, lancerebbe script.
+ *   IDENTITA' — *chi sta bussando*. Risolto dal chiamante (serve il DB) e passato
+ *     qui già deciso, così questo modulo resta puro. Vedi `lib/device-auth.ts`.
  *
- * La regola, in ordine:
- *   1. `authOff`                      → allow  (botola di recupero)
- *   2. non mutante e non WS           → allow  (le GET le protegge il CORS, sotto)
- *   3. `Origin` assente               → allow  (non è un browser: CLI, MCP, hook, sendBeacon)
- *   4. same-site(origin, host)        → allow
- *   5. origin ∈ allowedOrigins        → allow
- *   6. altrimenti                     → 403
+ * L'ordine conta, ed è la ragione per cui questo file è stato riscritto. Fino a
+ * `device-auth` la regola usciva ad `allow` per ogni metodo non mutante PRIMA di
+ * ogni altro controllo: innestare l'identità dopo avrebbe lasciato **tutte le GET
+ * aperte a `curl`** dalla rete, `/preview` compreso — che è esattamente la falla
+ * misurata il 2026-08-06 (un `GET /preview/<path assoluto>` da una seconda rete
+ * presente sulla macchina rispondeva `200`). La corsia veloce delle letture ora
+ * vive solo dentro l'asse d'ORIGINE, dove è corretta; l'identità le vede tutte.
+ *
+ * La regola:
+ *   1. `authOff`                                   → allow (botola di recupero)
+ *   2. mutante o WS, con Origin forestiera         → 403
+ *   3. identità risolta e negativa                 → 401 col suo `code`
+ *   4. altrimenti                                  → allow
  *
  * Il confronto same-site è sull'HOSTNAME canonicalizzato, non sull'autorità, e
  * `localhost`/`127.*`/`::1`/`*.localhost` collassano in una classe sola. Serve a
  * due proxy reali che riscrivono un lato e non l'altro: quello del guscio Tauri
  * (splice L4: `Origin: tauri://localhost` con `Host: 127.0.0.1:13333`) e quello di
- * Vite in dev (`changeOrigin: true` riscrive Host e lascia Origin). È anche già la
- * semantica di prima, che era cieca a porta e schema — cambia solo che il termine
- * di paragone non è più un elenco di nomi locali ma il nome del server stesso, così
- * il telefono passa su qualunque indirizzo senza allowlist di IP che marcisce.
+ * Vite in dev (`changeOrigin: true` riscrive Host e lascia Origin). Così il
+ * telefono passa su qualunque indirizzo senza allowlist di IP che marcisce.
  *
- * PERCHÉ LE GET NON PASSANO DI QUI, e perché è portante: un `<img>`/`<script>`
- * cross-origin non manda `Origin`, quindi estendere il check non li fermerebbe; e
- * una `fetch` cross-origin non può LEGGERE la risposta perché `corsAllowOrigin`
+ * PERCHE' LE LETTURE NON PASSANO DAL CHECK D'ORIGINE: un `<img>`/`<script>`
+ * cross-origin non manda `Origin`, quindi estenderlo non li fermerebbe; e una
+ * `fetch` cross-origin non può LEGGERE la risposta perché `corsAllowOrigin`
  * (server.ts) non emette mai `Access-Control-Allow-Origin` per un'origine
- * forestiera. Quell'assenza è ciò che protegge le letture. Allargare il CORS «per
- * far funzionare la PWA» aprirebbe in lettura tutta `/api` senza che niente diventi
- * rosso: per questo `tests/e2e/lan-same-origin.spec.ts` la pinna.
+ * forestiera. Quell'assenza è portante e `tests/e2e/lan-same-origin.spec.ts` la
+ * pinna. Ma NON è autenticazione — a fermare `curl` è l'asse dell'identità.
  *
  * Puro + input iniettati, così l'intera matrice è testabile senza un server.
  */
@@ -58,9 +56,21 @@ export interface AuthInput {
   authOff: boolean;
   /** Origini extra ammesse oltre alla same-site, es. l'host di un tunnel. */
   allowedOrigins?: string[];
+  /**
+   * L'esito dell'asse IDENTITA', già risolto dal chiamante (richiede il DB, e
+   * questo modulo resta puro). Assente ⇒ nessuna identità richiesta, cioè il
+   * comportamento precedente a `device-auth`.
+   */
+  identity?: { ok: true } | { ok: false; status: number; reason: string; code: string };
 }
 
-export type AuthResult = { allow: true } | { allow: false; status: number; reason: string };
+export type AuthResult =
+  | { allow: true }
+  /** `code` distingue un rifiuto d'ORIGINE da uno d'IDENTITA': il client apre la
+   *  schermata di appaiamento solo sul secondo, e un 401 senza codice sarebbe di
+   *  nuovo un vicolo cieco muto — il difetto per cui il pairing precedente non è
+   *  mai servito a nessuno. */
+  | { allow: false; status: number; reason: string; code?: string };
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -195,15 +205,46 @@ export function resolveAllowedOrigins(): string[] {
 export function evaluateAuth(i: AuthInput): AuthResult {
   if (i.authOff) return { allow: true };
 
-  // Solo le richieste che CAMBIANO qualcosa (o aprono un socket) possono essere
-  // forgiate in modo utile: una lettura cross-origin resta illeggibile perché il
-  // CORS non concede mai l'origine forestiera.
+  // ── Asse ORIGINE (CSRF) ────────────────────────────────────────────────────
+  // Vale per CHIUNQUE, sessione valida compresa: un cookie buono guidato da una
+  // pagina forestiera E' il CSRF, non la sua smentita. Solo le richieste che
+  // CAMBIANO qualcosa (o aprono un socket) possono essere forgiate in modo utile
+  // — una lettura cross-origin resta illeggibile perché il CORS non concede mai
+  // l'origine forestiera.
+  if (MUTATING.has(i.method) || isWebSocketPath(i.pathname)) {
+    // Nessun `Origin` ⇒ non è un browser (CLI, tool MCP, hook HTTP, sendBeacon
+    // di teardown). Il CSRF è un attacco da browser.
+    if (i.origin && !isSameSite(i.origin, i.host) && !(i.allowedOrigins?.includes(i.origin) ?? false)) {
+      return { allow: false, status: 403, reason: "cross-site origin blocked" };
+    }
+  }
+
+  // ── Asse IDENTITA' ─────────────────────────────────────────────────────────
+  // Il chiamante l'ha già risolta (serve il DB) e ce la passa. Se manca, si
+  // ricade sul comportamento precedente a `device-auth`: nessuna identità
+  // richiesta. Serve perché il gate resti puro e perché i test che non parlano
+  // di identità continuino a descrivere il solo asse d'origine.
+  if (i.identity && !i.identity.ok) {
+    return { allow: false, status: i.identity.status, reason: i.identity.reason, code: i.identity.code };
+  }
+
+  return { allow: true };
+}
+
+/**
+ * La sola decisione d'ORIGINE, senza l'asse identità. Tenuta esportata perché è
+ * ciò che il gate faceva prima di `device-auth` e perché la matrice CSRF si
+ * prova senza tirare dentro dispositivi e sessioni.
+ */
+export function evaluateOrigin(i: AuthInput): AuthResult {
+  if (i.authOff) return { allow: true };
+
   if (!MUTATING.has(i.method) && !isWebSocketPath(i.pathname)) return { allow: true };
 
   // Nessun `Origin` ⇒ non è un browser (CLI, tool MCP, hook HTTP, sendBeacon di
   // teardown). Il CSRF è un attacco da browser: chi può omettere l'header è già
   // dentro la macchina o dentro la rete, e in entrambi i casi non è questo il
-  // confine che lo ferma.
+  // confine che lo ferma — a fermarlo, da `device-auth`, è l'asse dell'identità.
   if (!i.origin) return { allow: true };
 
   if (isSameSite(i.origin, i.host)) return { allow: true };
