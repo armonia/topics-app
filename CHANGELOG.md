@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.26 — 2026-08-06
+
+### Sotto il cofano
+- Il bordo grasso della sidebar progetto era una regola che scambiava «trascinabile» per «è una linea»
+- Ogni riga della lista git dice quante righe cambia, non solo quali file
+- L'anteprima del drop e' la tessera vera, non un rettangolo azzurro
+
 ## 2.2.25 — 2026-08-06
 
 ### Sotto il cofano
@@ -40,6 +47,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Via la vista per tipo, e il progetto diventa trascinabile
 - v2.2.20 — tessere: anteprima del riordino, vista per tipo rimossa
 - Le strisce sopra il composer si allineano, e due code smettono di chiamarsi uguale
+- Changelog per 2.2.25
+- Se la CLI non può più chiedere l'approvazione, la chiede Topics
 
 ## 2.2.19 — 2026-08-06
 
