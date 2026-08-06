@@ -51,7 +51,11 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   plan:          { icon: 'BookOpen',      label: 'Piano',        color: '#f97316' },
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
-  board:         { icon: 'Kanban',        label: 'Board generale', color: '#10b981', singleton: true, addableScopes: ['standalone'] },
+  // 'Board' secca anche qui: il gemello di progetto (`kanban`) porta lo stesso
+  // nome, ma i due non compaiono mai nello stesso menu — `addableScopes` li
+  // tiene su superfici diverse (standalone vs progetto), quindi «generale»
+  // distingueva da una cosa che non era mai lì accanto.
+  board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['standalone'] },
   cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },

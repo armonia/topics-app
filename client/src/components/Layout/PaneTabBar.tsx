@@ -7,6 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
+import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
@@ -896,7 +897,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const isSeenTab = seenKey ? seenSubjects.has(seenKey) : isFullyActive;
         const attentionTier = attentionFillFor(rawTier, isSeenTab);
         const onFill = attentionTier !== null;
-        const label = pane.title || (pane.type === 'chat' ? 'New Chat' : config.label);
+        // Le utility (`__board__`, `__dashboard__`, `__cron__`) non si
+        // rinominano: il loro `title` è solo una COPIA dell'etichetta congelata
+        // il giorno in cui la pane è nata. Farla vincere significa che
+        // ribattezzare la board lascia «Board generale» sulla tab di chi ce
+        // l'ha già aperta, per sempre. Per loro comanda la config.
+        const label = (isUtilityPanelId(pane.id) ? config.label : pane.title)
+          || (pane.type === 'chat' ? 'New Chat' : config.label);
         // Lo stato A PAROLE, per chi non vede il colore.
         //
         // Una tab non diceva il proprio stato da nessuna parte: né `title` né

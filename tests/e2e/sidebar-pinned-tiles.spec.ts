@@ -472,7 +472,7 @@ test.describe("Sidebar — tessere fissate", () => {
  * trascinabile e i Fissati sanno accogliere una pane qualunque — non perché sia
  * stato scritto un percorso apposta per lei.
  */
-test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
+test.describe("Sidebar — fissare da fuori, e la Board", () => {
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     created.length = 0;
@@ -557,11 +557,7 @@ test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
 
     // La board compare quando la sua tab è aperta, anche a zero task.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
-    // La CARD, non il bottone dell'etichetta: da quando la riga ha un chevron
-    // suo, `sidebar-board-generale` è il bersaglio interno e comincia dopo di
-    // lui — misurarlo direbbe 30px e non avrebbe niente a che vedere col
-    // rientro della riga.
-    const boardRow = page.getByTestId("sidebar-board-card");
+    const boardRow = page.getByTestId("sidebar-board-generale");
     await expect(boardRow).toBeVisible({ timeout: 15000 });
 
     const sidebar = page.locator('[aria-label="Topics sidebar"]');
@@ -602,25 +598,13 @@ test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
       await voce.click();
 
       // Fissata è una TESSERA, e la riga sparisce: mai la stessa cosa in due posti.
-      const tessera = tileNamed(page, "Board generale");
+      const tessera = tileNamed(page, "Board");
       await expect(tessera).toBeVisible({ timeout: 15000 });
       await expect(boardRow).toHaveCount(0);
 
-      // La fascia sotto la tessera: i task, raggruppati per stato.
-      await tessera.click();
-      const band = page.getByTestId("board-state-band");
-      await expect(band).toBeVisible({ timeout: 15000 });
-      await expect(band.getByTestId("board-state-group-review")).toBeVisible();
-      await expect(band.getByTestId("board-state-group-backlog")).toBeVisible();
-      await expect(band.getByText(`E2E-Board-Review-${stamp}`)).toBeVisible();
-      await expect(band.getByText(`E2E-Board-Backlog-${stamp}`)).toBeVisible();
-
-      // Chi aspetta te sta in cima: l'ordine della fascia è di priorità, non
-      // quello del kanban da sinistra a destra.
-      const ordine = await band.locator('[data-testid^="board-state-group-"]').evaluateAll(els =>
-        els.map(e => e.getAttribute("data-testid")),
-      );
-      expect(ordine.indexOf("board-state-group-review")).toBeLessThan(ordine.indexOf("board-state-group-backlog"));
+      // Fissata, la tessera NON apre una fascia: il riassunto sta sulla riga e
+      // la lista dei titoli sta nella board. Cliccarla porta alla board.
+      await expect(tessera).toHaveAttribute("aria-expanded", "false");
 
       // E si torna indietro dalla stessa voce, col verso opposto.
       await tessera.click({ button: "right" });
@@ -665,7 +649,7 @@ test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
 
     // La board compare quando la sua tab è aperta, anche a zero task.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
-    await expect(page.getByTestId("sidebar-board-card")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("sidebar-board-generale")).toBeVisible({ timeout: 15000 });
 
     const righe = page.getByTestId("pinned-row");
     await expect(righe).toHaveCount(2, { timeout: 15000 });
@@ -675,7 +659,7 @@ test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
       expect(b).not.toBeNull();
       return b!;
     };
-    const board = await box(page.getByTestId("sidebar-board-card"));
+    const board = await box(page.getByTestId("sidebar-board-generale"));
     const riga0 = await box(righe.nth(0));
     const riga1 = await box(righe.nth(1));
     const filo = await box(page.getByTestId("pinned-divider").first());
@@ -690,12 +674,18 @@ test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
     expect(spazi).toEqual({ boardTessere: 6, fraRighe: 6, tessereFilo: 6 });
   });
 
-  test("TILE-15: i task per stato si aprono dalla RIGA, non solo dalla tessera", async ({ page, request }) => {
-    // Prima stavano solo sotto la tessera fissata: due gesti (fissa, poi apri)
-    // che nessuno indovina, per una board che di suo non è fissata.
+  test("TILE-15: la riga della board dice quanti task e in quale colonna, senza aprire niente", async ({ page, request }) => {
+    // Prima era un accordion: un gesto per sapere una cosa che sta in tre
+    // numeri, e quella cosa — «quanti in review, quanti stanno girando» — e'
+    // esattamente cio' che si vuole senza aprire niente. E il badge col totale
+    // non distingueva se ad aspettare fossi tu o un agente.
     const stamp = Date.now();
     const creati: string[] = [];
-    for (const [text, status] of [[`E2E-Riga-Review-${stamp}`, "review"], [`E2E-Riga-Todo-${stamp}`, "todo"]]) {
+    for (const [text, status] of [
+      [`E2E-Conta-Review-${stamp}`, "review"],
+      [`E2E-Conta-Corso-A-${stamp}`, "in_progress"],
+      [`E2E-Conta-Corso-B-${stamp}`, "in_progress"],
+    ]) {
       const res = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, { data: { text, status } });
       expect(res.ok()).toBe(true);
       creati.push((await res.json()).id as string);
@@ -704,25 +694,26 @@ test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
     try {
       await setPins(page, []);
       await gotoSidebar(page);
-      const chevron = page.getByTestId("sidebar-board-chevron");
-      await expect(chevron).toBeVisible({ timeout: 15000 });
-      await expect(chevron).toHaveAttribute("aria-expanded", "false");
+      const riga = page.getByTestId("sidebar-board-generale");
+      await expect(riga).toBeVisible({ timeout: 15000 });
 
-      await chevron.click();
-      const band = page.getByTestId("board-state-band");
-      await expect(band).toBeVisible({ timeout: 15000 });
-      await expect(band.getByTestId("board-state-group-review")).toBeVisible();
-      await expect(band.getByTestId("board-state-group-todo")).toBeVisible();
-      await expect(band.getByText(`E2E-Riga-Review-${stamp}`)).toBeVisible();
+      // Niente da aprire: nessun chevron, nessuna fascia.
+      await expect(page.getByTestId("sidebar-board-chevron")).toHaveCount(0);
+      await expect(page.getByTestId("board-state-band")).toHaveCount(0);
 
-      // Il chevron è un bersaglio SUO: aprire per vedere cosa c'è dentro non è
-      // la stessa cosa che aprire la board.
-      await chevron.click();
-      await expect(band).toHaveCount(0);
+      // I conteggi stanno sulla riga, e sono quelli veri.
+      await expect(riga.getByTestId("board-count-review")).toHaveText(/1/, { timeout: 15000 });
+      await expect(riga.getByTestId("board-count-in_progress")).toHaveText(/2/);
+      // Una colonna vuota non disegna un numero: uno zero non e' informazione.
+      await expect(riga.getByTestId("board-count-todo")).toHaveCount(0);
 
-      // E il glifo non è più verde: nella sidebar il colore dice uno STATO.
-      const colore = await page.getByTestId("sidebar-board-generale").locator("svg").first()
-        .evaluate(el => getComputedStyle(el).color);
+      // «Generale» non si legge piu' da nessuna parte: la board di progetto sta
+      // in un altro menu, quindi non c'era niente da cui distinguerla.
+      await expect(riga).toHaveText(/Board/);
+      await expect(riga).not.toHaveText(/generale/i);
+
+      // E il glifo non e' piu' verde: nella sidebar il colore dice uno STATO.
+      const colore = await riga.locator("svg").first().evaluate(el => getComputedStyle(el).color);
       expect(colore, "il glifo della board deve essere neutro").not.toMatch(/52,\s*211,\s*153/); // emerald-400
     } finally {
       for (const id of creati) await request.delete(`${E2E_BASE}/api/boards/_none/tasks/${id}`).catch(() => {});

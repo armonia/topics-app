@@ -58,6 +58,19 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
   done: 'text-emerald-400',
 };
 
+/** Lo stesso colore di `STATUS_ICON_COLOR`, come RIEMPIMENTO — per i pallini
+ *  che riassumono una colonna dove non c'è spazio per scriverne il nome (il
+ *  conteggio per stato sulla riga della board, nella sidebar). Sta qui accanto
+ *  al gemello perché i due non possono divergere: un pallino di un colore e
+ *  l'icona della stessa colonna di un altro sarebbero due lingue. */
+export const STATUS_DOT: Record<TaskStatus, string> = {
+  backlog: 'bg-app-text-muted',
+  todo: 'bg-app-text-heading',
+  in_progress: 'bg-sky-400',
+  review: 'bg-rose-400',
+  done: 'bg-emerald-400',
+};
+
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
   queued: { text: 'in coda', cls: 'bg-white/10 text-app-text-heading' },
