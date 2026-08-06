@@ -410,6 +410,10 @@ export function PinnedTiles({
                     <PinnedTile
                       item={item}
                       expanded={expanded.has(key)}
+                      // La stessa domanda che fa `toggle`: se non c'è niente da
+                      // aprire il click porta e basta, e la tessera non deve
+                      // promettere una fascia che non arriva.
+                      expandable={renderExpanded(item) !== null}
                       focused={meta.focused}
                       attention={meta.attention}
                       dragging={dragKey === key && !reordering}
