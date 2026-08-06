@@ -382,7 +382,12 @@ export function createAppContext(baseDir: string): AppContext {
         $system_prompt: topic.systemPrompt || null,
         $project_path: topic.projectPath || null,
         $sort_order: topic.sortOrder ?? 0,
-        $autonomy_level: topic.autonomyLevel || 'ask',
+        // Di base la chat AGISCE. Con `|| 'ask'` un topic senza scelta veniva
+        // scritto come se avesse scelto di proporre e basta — e da quando
+        // quell'etichetta decide `--permission-mode` significava plan mode, cioè
+        // una sessione che non può né agire né consegnare il piano. Vedi la
+        // migration 081 e l'invariante dichiarata in lib/autonomy-mode.ts.
+        $autonomy_level: topic.autonomyLevel || 'auto-apply',
         $provider: topic.provider || null,
         $model: topic.model || null,
         // effort column (migration 033). NULL = no per-topic override → global

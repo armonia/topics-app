@@ -932,7 +932,7 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
   // openspec/changes/autonomy-level-needs-permission-channel/. Questo test
   // copriva la PERSISTENZA di quel valore — che continua a funzionare via
   // `PATCH /api/topics/:id`, colonna intatta — ma non piu' il controllo.
-  test("CHAT-CONFIG: il composer espone l'effort inline, e non finge un'autonomia", async ({ page, request }) => {
+  test("CHAT-CONFIG: il composer espone l'effort inline, e l'autonomia sta fuori dal pannello", async ({ page, request }) => {
     const topic = await createTopic(request, `E2E-Config-${Date.now()}`);
     try {
       await goToApp(page);
@@ -948,8 +948,10 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
       // L'effort e' la manopola che questa superficie serve davvero.
       await expect(panel, "il pannello mostra i tier di effort").toContainText(/effort/i);
 
-      // E NESSUN selettore di autonomia: un controllo che appare impostato e non
-      // fa niente e' peggio di un controllo assente.
+      // L'autonomia NON sta più qui dentro: da quando decide davvero
+      // `--permission-mode` è tornata in vista nel composer, sempre leggibile
+      // senza aprire niente (vedi il test qui sotto). Dentro il pannello resta
+      // l'effort, che è la manopola per cui questa superficie esiste.
       await expect(page.getByTestId("session-autonomy-ask")).toHaveCount(0);
       await expect(page.getByTestId("session-autonomy-auto-apply")).toHaveCount(0);
       await expect(page.getByTestId("session-autonomy-yolo")).toHaveCount(0);
@@ -967,6 +969,39 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
           return body?.topics?.[topic.id]?.autonomyLevel;
         }, { message: "il valore e' ancora persistito lato server", timeout: 5_000 })
         .toBe("yolo");
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
+
+  test("CHAT-CONFIG: l'autonomia è SEMPRE in vista nel composer, e di base la chat agisce", async ({ page, request }) => {
+    // Il permesso che decide se un agente può toccare i tuoi file stava solo nel
+    // modale delle impostazioni, dietro un tasto destro su una tab. Ed era stato
+    // tolto da questa superficie quando non faceva niente: adesso fa, quindi
+    // torna dov'è la mano di chi scrive — e si legge SENZA aprire nulla, perché
+    // la differenza fra «fa e basta» e «prima chiede» non si scopre in un menu.
+    const topic = await createTopic(request, `E2E-Autonomy-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await openTopic(page, new RegExp(topic.name));
+
+      const picker = page.getByTestId("composer-autonomy");
+      await expect(picker, "il livello si legge dal composer, chiuso").toBeVisible({ timeout: 10_000 });
+      // Di base la chat AGISCE: un topic nuovo non nasce più bloccato in plan
+      // mode (migration 081 + l'insert che non scrive più 'ask' d'ufficio).
+      await expect(picker).toHaveAttribute("data-level", "auto-apply");
+      await expect(picker).toContainText("Agisce");
+
+      // Si cambia da qui, e il valore è quello vero del topic.
+      await picker.click();
+      await page.getByTestId("composer-autonomy-ask").click();
+      await expect(picker).toHaveAttribute("data-level", "ask");
+      await expect
+        .poll(async () => {
+          const body = await (await request.get(`${E2E_BASE}/api/topics`)).json();
+          return body?.topics?.[topic.id]?.autonomyLevel;
+        }, { message: "la scelta è persistita", timeout: 5_000 })
+        .toBe("ask");
     } finally {
       await deleteTopic(request, topic.id);
     }
