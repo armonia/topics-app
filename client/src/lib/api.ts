@@ -799,6 +799,17 @@ let slashCommandsCache: Promise<CustomSlashCommand[]> | null = null;
 /** The user's custom slash commands + skills (for composer autocomplete). The
  *  headless CLI expands them; the composer only surfaces them. Best-effort. */
 export const slashCommandsApi = {
+  /**
+   * Il CORPO di un comando, letto dal disco dal server.
+   *
+   * Serve alla riga che mostra quale comando ha aperto il turno: sul filo il
+   * corpo non passa (la CLI espande lo slash prima del turno), ma il file c'è.
+   * Non è in cache: un comando lo si apre di rado, e il file può cambiare.
+   */
+  async source(name: string): Promise<{ name: string; kind: 'command' | 'skill'; path: string; body: string }> {
+    return request(`/slash-commands/${encodeURIComponent(name)}`);
+  },
+
   async list(): Promise<CustomSlashCommand[]> {
     if (!slashCommandsCache) {
       // Una richiesta fallita non deve restare in cache come fallimento
