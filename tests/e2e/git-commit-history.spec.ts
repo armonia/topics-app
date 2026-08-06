@@ -109,6 +109,80 @@ test.describe("cronologia dei commit", () => {
     await expect(storia.locator('[data-testid="commit-row"]').nth(1)).toHaveAttribute("aria-expanded", "false");
   });
 
+  test("cronologia e remotes stanno in fondo, attaccati, e le righe sulla stessa griglia", async ({ page, request }) => {
+    // Due difetti misurati, non visti a occhio:
+    //  1. I remotes stavano DENTRO lo scroller, che e' `flex-1`: da CHIUSI
+    //     restava una striscia vuota di 9,5px sotto di loro, e la cronologia
+    //     stava piu' giu' ancora, incollata al fondo. Due pie' di pagina a
+    //     quote diverse con un vuoto in mezzo.
+    //  2. Le righe della cronologia erano alte 24px contro i 25,5 di quelle
+    //     delle modifiche (`text-[12px]` contro la misura ereditata): due liste
+    //     nella stessa colonna fuori griglia, e l'evidenziazione al passaggio
+    //     del mouse lo mostrava riga per riga.
+    // Serve un albero SPORCO: con zero modifiche la lista dei file non si monta
+    // e con lei non c'e' lo scroller su cui il pie' di pagina deve appoggiarsi.
+    writeFileSync(`${PROJ}/README.md`, "riga uno\nriga due\nriga tre\nriga quattro\n");
+
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    const storia = await apriStoria(win);
+    const pannello = win.locator('[data-testid="git-changes"]');
+    // Il file e' stato scritto FUORI dall'app: che arrivi al pannello dipende
+    // dal watcher dei file, che ora ricalcola anche lo stato git (senza, non
+    // toccando `.git`, non lo notava nessuno fino al poll — 60s col WS attivo).
+    await expect(pannello.locator('[title="README.md"]').first()).toBeVisible({ timeout: 10000 });
+
+    const geometria = () => pannello.evaluate((root: HTMLElement) => {
+      const bordi = (el: Element | null) => {
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { top: +b.top.toFixed(1), bot: +b.bottom.toFixed(1), h: +b.height.toFixed(1) };
+      };
+      const remotes = [...root.querySelectorAll("button")]
+        .find(b => /^Remotes|^Add remote/.test(b.textContent || ""))?.closest("div.border-t") ?? null;
+      return {
+        pannello: bordi(root),
+        scroller: bordi(root.querySelector(".overflow-y-auto")),
+        remotes: bordi(remotes),
+        cronologia: bordi(root.querySelector('[data-testid="commit-history"]')),
+      };
+    });
+
+    // ── Sezioni CHIUSE: e' lo stato di cui l'utente si e' lamentato ──────────
+    const chiuse = await geometria();
+    // La lista dei file ha spazio vero: lo scroller non e' schiacciato.
+    expect(chiuse.scroller!.h).toBeGreaterThan(20);
+    // E ogni pezzo comincia dove finisce quello prima, senza strisce vuote.
+    expect(chiuse.remotes!.top).toBeCloseTo(chiuse.scroller!.bot, 0);
+    expect(chiuse.cronologia!.top).toBeCloseTo(chiuse.remotes!.bot, 0);
+    expect(chiuse.cronologia!.bot).toBeCloseTo(chiuse.pannello!.bot, 0);
+
+    // ── Cronologia APERTA: scorre dentro di se', non sfonda il pannello ──────
+    await storia.getByRole("button", { name: /Cronologia/ }).click();
+    await expect(storia.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
+    const aperta = await geometria();
+    expect(aperta.cronologia!.bot).toBeLessThanOrEqual(aperta.pannello!.bot + 0.5);
+
+    // ── Stessa griglia: una riga di commit e una riga di modifica ────────────
+    const misura = (loc: import("@playwright/test").Locator) =>
+      loc.evaluate((el: HTMLElement) => {
+        const b = el.getBoundingClientRect();
+        return { h: +b.height.toFixed(1), x: +b.x.toFixed(1), padL: getComputedStyle(el).paddingLeft };
+      });
+    const rigaCommit = await misura(storia.locator('[data-testid="commit-row"]').first());
+    const rigaFile = await misura(pannello.locator('[title="README.md"]').first());
+    expect(rigaCommit.h).toBe(rigaFile.h);
+    expect(rigaCommit.x).toBe(rigaFile.x);
+    expect(rigaCommit.padL).toBe(rigaFile.padL);
+
+    git(["checkout", "--", "README.md"]);
+  });
+
   test("il PRIMO commit si apre senza padre e mostra tutto come aggiunto", async ({ page, request }) => {
     // `<hash>^` non esiste sul commit iniziale: git esce non-zero e la rotta
     // risponde vuoto. E' la cosa giusta (un commit iniziale e' tutto aggiunto),

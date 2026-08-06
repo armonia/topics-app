@@ -17,6 +17,12 @@ import type { GitLogEntry, GitCommitDetail, GitCommitFile } from '../../types';
  * quando apri la sezione, i file di un commit quando apri quel commit, il diff
  * quando apri quel file. Un `git show` per ogni commit in lista sarebbe stato
  * il modo più veloce per rendere lento il pannello.
+ *
+ * Le righe NON hanno una tipografia loro: prendono quella delle righe della
+ * lista modifiche, con cui dividono il pannello. Con un `text-[12px]` erano
+ * alte 24px contro 25,5 (misurato), cioè due liste sulla stessa colonna che non
+ * stanno sulla stessa griglia — e l'evidenziazione al passaggio del mouse lo
+ * mostra riga per riga.
  */
 
 const PAGINA = 20;
@@ -42,7 +48,7 @@ function RigaFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void })
       <span className={`${statoColore(file.status)} text-[8px] font-bold w-[14px] text-center flex-shrink-0`}>
         {file.status}
       </span>
-      <span className="truncate text-app-text-body min-w-0 text-[12px]">
+      <span className="truncate text-app-text-body min-w-0">
         {file.origPath && (
           <span className="text-app-text-muted line-through mr-1">
             {pathBasename(file.origPath) || file.origPath}
@@ -130,8 +136,8 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
   }, [projectPath, apertoHash]);
 
   return (
-    <div className="border-t border-app-border" data-testid="commit-history">
-      <div className="flex items-center justify-between px-3 py-1">
+    <div className="border-t border-app-border flex flex-col min-h-0" data-testid="commit-history">
+      <div className="flex items-center justify-between px-3 py-1 flex-shrink-0">
         <button
           onClick={() => setExpanded(v => !v)}
           aria-expanded={expanded}
@@ -144,8 +150,14 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
         {expanded && loading && <Spinner size="sm" />}
       </div>
 
+      {/* Aperta, la lista scorre DENTRO di se': e' un pie' di pagina, non deve
+          spingere. Senza, con venti commit in un pannello basso il contenuto
+          sfondava il fondo del pannello (misurato: 2,5px oltre) e lo scroller
+          dei file si schiacciava a zero. Il tetto la limita anche quando lo
+          spazio ci sarebbe: aprire la cronologia non deve far sparire la lista
+          delle modifiche. */}
       {expanded && (
-        <div className="pb-1">
+        <div className="pb-1 overflow-y-auto min-h-0 max-h-[220px]">
           {errore && <div className="px-3 py-1 text-[11px] text-red-500">{errore}</div>}
           {!errore && !loading && commits.length === 0 && (
             <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessun commit</div>
@@ -163,7 +175,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
                   className={`w-full flex items-center gap-1.5 px-3 py-[3px] text-left transition-colors ${aperto ? 'bg-app-hover' : 'hover:bg-app-hover'}`}
                 >
                   <GitCommit size={10} className="flex-shrink-0 text-app-text-tertiary" />
-                  <span className="truncate text-[12px] text-app-text-body min-w-0">{c.message}</span>
+                  <span className="truncate text-app-text-body min-w-0">{c.message}</span>
                   <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-[10px] text-app-text-muted">
                     <span className="font-mono">{c.shortHash || c.hash.slice(0, 7)}</span>
                     <span>{c.ago}</span>
