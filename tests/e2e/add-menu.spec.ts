@@ -212,6 +212,42 @@ test.describe.serial("Add menu — sistema", () => {
     await expect(page.getByTestId("pane-add-menu")).not.toContainText("ESC");
   });
 
+  test("ADD-09: \u2318K e il menu \u00ab+\u00bb offrono la STESSA lista, o \u00e8 rosso", async ({ page, request }) => {
+    // Il gate che rende vera la parola \u00abinsieme\u00bb. Il modello \u00e8 gi\u00e0 condiviso,
+    // ma finch\u00e9 una delle due superfici poteva RESTRINGERLO a mano \u2014 c'era un
+    // `COMMAND_PALETTE_PILL_IDS` \u2014 la deriva poteva ripartire in silenzio: un
+    // tipo di pane nuovo sarebbe comparso nel menu e non in \u2318K, esattamente
+    // come era gi\u00e0 successo con opencode, Browser e Board.
+    //
+    // Confronto per ID, non per etichetta: gli id sono il contratto, i testi
+    // cambiano (e sono appena cambiati \u2014 \u00abNew Chat\u00bb \u2192 \u00abChat\u00bb).
+    await resetPaneStore(request, []);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+
+    await page.keyboard.press("Meta+n");
+    await expect(page.getByTestId("pane-add-palette")).toBeVisible();
+    const menuIds = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid="pane-add-menu"] [data-testid^="pane-add-menu-"]'))
+        .map((el) => el.getAttribute("data-testid")!.replace("pane-add-menu-", ""))
+        .sort(),
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pane-add-palette")).toHaveCount(0);
+
+    await page.keyboard.press("Meta+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    const pillIds = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid^="cmdk-add-"]'))
+        .map((el) => el.getAttribute("data-testid")!.replace("cmdk-add-", ""))
+        .sort(),
+    );
+
+    expect(pillIds.length).toBeGreaterThan(5);
+    expect(pillIds, "\u2318K e il menu \u00ab+\u00bb devono offrire lo stesso insieme").toEqual(menuIds);
+    await page.keyboard.press("Escape");
+  });
+
   test("ADD-06: il chip non entra nel nome accessibile della riga", async ({ page, request }) => {
     // `getByRole('button', { name: 'Shell', exact: true })` esiste in
     // terminal-tab-reload.spec.ts: se il chip finisse nel nome accessibile

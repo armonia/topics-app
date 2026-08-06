@@ -52,7 +52,6 @@ import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM_TOUCH, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
-import { isDesktop } from '../../lib/shell';
 import { Menu } from './Menu';
 import { buildAddMenuItems, AddMenuIcon, type AddMenuItem } from './addMenuItems';
 import type { PaneType } from '../../types';
@@ -126,10 +125,10 @@ export function PaneAddMenuItems({
     availableTypes,
     onNewChat,
     onAddPane,
-    // Apri / Crea Progetto sono una feature della variante STANDALONE (da
-    // dentro un progetto non si apre né si crea un progetto) e servono il
-    // picker di sistema — quindi solo desktop.
-    onProjectPicker: scope === 'standalone' && isDesktop ? openProjectPicker : undefined,
+    // Lo scoping (solo standalone, solo desktop) lo applica `buildAddMenuItems`:
+    // è una proprietà della VOCE, non dell'ospite, e finché è stata dell'ospite
+    // le due superfici hanno dato risposte diverse.
+    onProjectPicker: openProjectPicker,
   });
 
   const choose = (item: AddMenuItem) => () => {

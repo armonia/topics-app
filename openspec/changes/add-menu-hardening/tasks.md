@@ -49,6 +49,18 @@
 - [x] 5.3 Pill di ⌘K derivate dallo stesso modello; `onNewClaude/onNewCodex/
       onNewTerminal` sostituite da `onAddPane`
 - [x] 5.4 `handleStandaloneAddPane` in `App.tsx`: una callback per due superfici
+- [x] 5.5 Via anche il SOTTOINSIEME scritto a mano (`COMMAND_PALETTE_PILL_IDS`):
+      ⌘K rende l'intera lista standalone, non una selezione. Finché restava,
+      la deriva poteva ripartire — un tipo nuovo sarebbe comparso nel menu e
+      non in ⌘K, esattamente com'era già successo
+- [x] 5.6 `onNewProject` + `onCreateProject` di `CommandPalette` → UNA prop
+      `onProjectPicker` (due nomi che App cablava alla stessa funzione)
+- [x] 5.7 Lo scoping della voce Progetto (solo standalone, solo desktop) si
+      sposta nel MODELLO: era dell'ospite, e infatti ⌘K la offriva anche sul web
+      dove `selectDirectory` ritorna null — un no-op silenzioso. **Trovato dal
+      gate ADD-09, non a mano**
+- [x] 5.8 `dividerBefore` del modello reso anche nella barra pill: menu e ⌘K
+      separano gli stessi gruppi senza doversi accordare
 
 ## 6. Mnemonic
 
@@ -70,7 +82,8 @@
 
 ## 7. Verifica
 
-- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 8 test, il menu come sistema: 8/8 verdi
+- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 9 test, il menu come sistema: 9/9 verdi
+      (ADD-09 confronta gli ID offerti da ⌘K e dal menu «+»: divergere è rosso)
       (incluso ADD-07: la geometria del chip MISURATA sul DOM — uno per riga, a
       destra dell'etichetta, ≤14px dal bordo, nessuno sfora il pannello)
 - [x] 7.2 Regressione: browser-add-empty, command-palette, panels, project-tabs,
