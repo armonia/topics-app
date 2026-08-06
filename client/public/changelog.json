@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.38",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.37",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto il ⚡ c'è scritto quanto costa premerlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo scatto era un ciclo di dragleave, e a 32px la tessera va IN RIGA",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.37",
     "date": "2026-08-06",
     "sections": {
