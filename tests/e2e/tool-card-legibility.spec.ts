@@ -366,6 +366,10 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       const corpo = riga.locator('[data-testid="invoked-command-body"]');
       await expect(corpo).toBeVisible({ timeout: 10_000 });
       await expect(corpo).toContainText("riassunto");
+      // Nessuna etichetta sopra il corpo: l'intestazione dice già `/recap`.
+      await expect(riga).not.toContainText("CONTENUTO DEL COMANDO");
+      await expect(riga).not.toContainText("Contenuto del comando");
+      await expect(riga).not.toContainText("Istruzioni della skill");
 
       await cmd.screenshot({ path: "test-results/user-slash-command.png" });
       await riga.screenshot({ path: "test-results/invoked-command-row.png" });

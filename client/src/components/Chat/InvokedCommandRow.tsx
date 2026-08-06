@@ -13,10 +13,10 @@ import { slashCommandsApi } from '../../lib/api';
  * La riga NON finge una chiamata a un tool: non nasce da `tool_calls`, non si
  * salva, e il corpo non è «il risultato» di niente. È il FILE del comando,
  * letto dal disco su richiesta — la stessa cartella da cui Topics ricava
- * l'elenco dei comandi. Per questo l'etichetta del corpo dice «contenuto
- * attuale»: è il file com'è adesso, non una fotografia di quando è girato. Su
- * un comando lanciato un minuto fa è la stessa cosa; su una chat di sei mesi
- * fa potrebbe non esserlo, e dirlo costa una riga.
+ * l'elenco dei comandi. È il file com'è ADESSO, non una fotografia di quando è
+ * girato: su un comando lanciato un minuto fa è la stessa cosa, su una chat di
+ * sei mesi fa può non esserlo — sta nel titolo del corpo, non come etichetta a
+ * schermo, perché è una precisazione per chi se la chiede.
  *
  * L'intestazione è il comando e basta — `/recap` — non «Skill (/recap)»: il
  * nome della categoria non aggiunge niente che il resto della riga non dica.
@@ -68,10 +68,11 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
         </span>
       </button>
       {open && (
+        // Niente etichetta sopra il corpo: l'intestazione dice già `/recap`, e
+        // aperta la riga non può mostrare altro che il suo contenuto. La nota
+        // che è il file com'è ADESSO — e non com'era quando è girato — sta nel
+        // titolo, dove chi se lo chiede la trova e chi no non la legge.
         <div className="ml-5 pb-1.5 space-y-1">
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
-            {kind === 'skill' ? 'Istruzioni della skill' : 'Contenuto del comando'} · attuale
-          </div>
           {error ? (
             <div className="text-[11px] text-amber-600 dark:text-amber-400">{error}</div>
           ) : body === null ? (
@@ -79,6 +80,7 @@ export function InvokedCommandRow({ command, args }: { command: string; args?: s
           ) : (
             <pre
               data-testid="invoked-command-body"
+              title={`Contenuto attuale del file di /${command} — non una copia di quando è girato`}
               className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
             >
               {body}
