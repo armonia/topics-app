@@ -152,7 +152,7 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex flex-col items-center justify-center gap-1',
-        'h-14 min-w-0 rounded-lg px-1.5 select-none overflow-hidden',
+        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none overflow-hidden',
         'transition-colors duration-100',
         'ring-1 ring-inset',
         expanded ? 'ring-app-border' : 'ring-black/5 dark:ring-white/5',

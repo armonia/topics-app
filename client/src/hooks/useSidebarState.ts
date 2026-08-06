@@ -346,39 +346,48 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
    * cancellano a vicenda. È già successo, e allora costava un pin; ora dentro
    * c'è anche la disposizione delle tessere, cioè lavoro manuale.
    */
-  const publish = useCallback(async (next: SidebarState, attempt = 0): Promise<void> => {
-    const base = serverSeqRef.current;
-    const q = base !== null ? `?base=${base}` : '';
-    try {
-      // PANE-01-ALLOWED: non-pane ui-state key (sidebar-state).
-      const res = await fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}${q}`, { // PANE-01-ALLOWED
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      });
+  const publish = useCallback(async (initial: SidebarState): Promise<void> => {
+    let next = initial;
+    // Un ciclo e non una ricorsione: il retry è lo STESSO tentativo su una base
+    // più recente, e scritto così il tetto dei giri è in vista invece di essere
+    // un parametro che si passa da solo.
+    for (let attempt = 0; attempt <= PUBLISH_MAX_RETRY; attempt++) {
+      const base = serverSeqRef.current;
+      const q = base !== null ? `?base=${base}` : '';
+      try {
+        // PANE-01-ALLOWED: non-pane ui-state key (sidebar-state).
+        const res = await fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}${q}`, { // PANE-01-ALLOWED
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(next),
+        });
 
-      if (res.status === 409) {
-        if (attempt >= PUBLISH_MAX_RETRY || !mountedRef.current) return;
+        if (res.status !== 409) {
+          if (res.ok) {
+            const seq = readServerSeq(await res.json().catch(() => null));
+            if (seq !== null) serverSeqRef.current = seq;
+          }
+          return;
+        }
+
+        // Qualcuno ha scritto nel frattempo: si rilegge e si fonde, invece di
+        // ripassarci sopra.
+        if (attempt === PUBLISH_MAX_RETRY || !mountedRef.current) return;
         // PANE-01-ALLOWED: rilettura della stessa chiave non-pane per il retry.
         const fresh = await fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED
           .then((r): Promise<unknown> | null => (r.ok ? r.json() : null))
           .catch(() => null);
+        if (!mountedRef.current) return;
         serverSeqRef.current = readServerSeq(fresh);
         const sv = sanitizeSidebarPayload(fresh);
-        if (!mountedRef.current) return;
-        const merged = sv ? mergeSidebarStates(hydrateSidebarState(sv), next) : next;
+        next = sv ? mergeSidebarStates(hydrateSidebarState(sv), next) : next;
         isFromServerRef.current = true;
-        setStateRaw(merged);
-        saveToStorage(merged);
-        return publish(merged, attempt + 1);
+        setStateRaw(next);
+        saveToStorage(next);
+      } catch {
+        // Rete giù: lo stato resta in localStorage e riparte alla prossima modifica.
+        return;
       }
-
-      if (res.ok) {
-        const seq = readServerSeq(await res.json().catch(() => null));
-        if (seq !== null) serverSeqRef.current = seq;
-      }
-    } catch {
-      // Rete giù: lo stato resta in localStorage e riparte alla prossima modifica.
     }
   }, []);
 
