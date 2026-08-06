@@ -120,3 +120,34 @@ describe('answerFromText', () => {
     expect(answerFromText(raw, 'ciao')).toMatchObject({ kind: 'raw', text: 'ciao' });
   });
 });
+
+describe('la scelta su un piano non si risponde scrivendo', () => {
+  // Fra due opzioni esatte, «vai» o «no direi» sono un indovinello — e
+  // indovinare male esegue un piano che volevi rifiutare. Il gesto è il
+  // bottone; il composer non deve promettere il contrario.
+  const planAsk: PendingAsk = {
+    toolCallId: 'toolu_plan',
+    toolName: 'Write',
+    schema: {
+      kind: 'questions',
+      questions: [{
+        question: 'Approvo questo piano?',
+        header: 'Piano',
+        options: [{ label: 'Approva ed esegui' }, { label: 'Rifiuta e riprova' }],
+      }],
+    },
+  };
+
+  test('answerFromText si tira indietro', () => {
+    expect(answerFromText(planAsk, 'sì vai')).toBeNull();
+    expect(answerFromText(planAsk, 'Approva ed esegui')).toBeNull();
+  });
+
+  test('una domanda normale a una voce resta rispondibile a parole', () => {
+    const normale: PendingAsk = {
+      toolCallId: 't', toolName: 'x',
+      schema: { kind: 'questions', questions: [{ question: 'Quale runtime?', header: 'R', options: [{ label: 'Bun' }] }] },
+    };
+    expect(answerFromText(normale, 'Bun')).not.toBeNull();
+  });
+});
