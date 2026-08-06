@@ -202,4 +202,51 @@ test.describe("sidebar progetto: la rail collassata", () => {
       .poll(async () => Math.round((await bar.boundingBox())!.width), { timeout: 5000 })
       .toBe(224);
   });
+
+  test("in modalità fluttuante la maniglia resta trasparente e i divisori veri no", async ({ page, request }) => {
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+    await expect(win.locator('[data-testid="project-sidebar"]')).toBeVisible({ timeout: 10000 });
+
+    // La classe si accende solo su desktop, quindi in E2E non comparirebbe mai
+    // e questo caso resterebbe non coperto. Si aggiunge da fuori come fa la
+    // scena "floating" della landing (client/src/demo/landing-cursor.js), che
+    // e il motivo per cui App.tsx tiene quel className costante.
+    const acceso = await page.evaluate(() => {
+      const shell = document.querySelector(".flex.bg-app-bg.overflow-hidden");
+      if (!shell) return false;
+      shell.classList.add("floating-splits");
+      return true;
+    });
+    expect(acceso, "il guscio dell'app si trova e accetta la classe").toBe(true);
+
+    const dati = await win.evaluate(el => {
+      const bar = el.querySelector('[data-testid="project-sidebar"]')!;
+      const grip = el.querySelector('[data-testid="project-sidebar-resizer"]')!;
+      // Un divisore vero della barra: 1px, con il suo `bg-app-border`.
+      const linea = el.querySelector('.h-\\[1px\\].bg-app-border');
+      return {
+        grip: getComputedStyle(grip).backgroundColor,
+        bordoBarra: getComputedStyle(bar).borderRightColor,
+        linea: linea ? getComputedStyle(linea).backgroundColor : null,
+        dentroCard: !!grip.closest("[data-split-card]"),
+      };
+    });
+
+    // Il punto della regressione: una regola agganciata a `cursor-col-resize`
+    // dipingeva gli 8px della maniglia in colore bordo, e a destra della barra
+    // usciva una cucitura spessa dove ovunque c'e un capello.
+    expect(dati.dentroCard, "la maniglia sta dentro una card, dove la regola arriva").toBe(true);
+    expect(dati.grip, "la maniglia non si dipinge nemmeno da fluttuante").toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    // E la regola deve continuare a fare il suo mestiere: restituire la linea a
+    // chi ce l'aveva. Cancellarla avrebbe passato l'asserzione qui sopra e
+    // spento i divisori del progetto.
+    expect(dati.linea, "il divisore da 1px tiene il colore di un bordo qualsiasi").toBe(dati.bordoBarra);
+  });
 });

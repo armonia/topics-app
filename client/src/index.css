@@ -1772,9 +1772,21 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
  * (var(--border)) line for any divider nested under a card. Higher specificity
  * (the extra [data-split-card]) wins over the rule above for these only; the
  * top-level dividers (not inside a card) stay transparent over their gaps.
- * Specificity alone carries it — no !important. */
-.floating-splits [data-split-card] .cursor-col-resize:not(:hover),
-.floating-splits [data-split-card] .cursor-row-resize:not(:hover) {
+ * Specificity alone carries it — no !important.
+ *
+ * `.bg-app-border` in the selector is load-bearing, not decoration: RESTORE, not
+ * paint. `cursor-*-resize` says «draggable», which is not the same as «is a
+ * line». Two draggables carry it and have no resting line by design: the project
+ * sidebar's edge grip (`w-2`) and the app sidebar handle (App.tsx, `width: 10`).
+ * Keyed on the cursor alone, this rule invented an 8px band of border colour
+ * down the right edge of the project sidebar in floating mode — a fat seam
+ * where every other edge is a hairline ("è largo, c'è qualcosa che non va").
+ * Requiring the class the element already had means we can only give back a line
+ * to something that HAD one, which is what the rule above took away and all this
+ * pair is for. See SplitTree.tsx, which already documents the contract as
+ * keyed on the background. */
+.floating-splits [data-split-card] .cursor-col-resize.bg-app-border:not(:hover),
+.floating-splits [data-split-card] .cursor-row-resize.bg-app-border:not(:hover) {
   background-color: var(--border);
 }
 
