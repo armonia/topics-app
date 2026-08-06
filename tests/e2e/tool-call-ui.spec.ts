@@ -111,8 +111,11 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     await expect(assistant.locator('[data-testid="tool-call-status-tc-bash-1"][data-status="success"]')).toBeVisible();
     await expect(assistant.locator('[data-testid="tool-call-status-tc-read-1"][data-status="success"]')).toBeVisible();
 
-    // Footer renders with all three metrics.
-    const footer = assistant.locator('[data-testid="message-meta-footer"]');
+    // La striscia di chiusura non sta più DENTRO il contenuto del messaggio:
+    // vive nella riga di servizio che <MessageBubble> apre sotto la bolla,
+    // insieme all'ora. Ci si aggancia quindi alla RIGA del messaggio.
+    const bubble = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+    const footer = bubble.locator('[data-testid="message-meta-footer"]');
     await expect(footer).toBeVisible();
     await expect(footer).toContainText("3.9s");
     await expect(footer).toContainText("786 tokens");
@@ -159,10 +162,25 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       // anticipo. Le due voci sommano al prompt: 900k + 100k = 1M.
       await expect(split).toContainText("900k da cache");
       await expect(split).toContainText("100k nuovi");
-      // La striscia intera, come si legge: è una UI STATICA, quindi la prova
-      // durevole è un'immagine e non un video.
-      await page.locator('[data-testid="message-meta-footer"]').last()
-        .screenshot({ path: "test-results/message-token-split.png" });
+      // La striscia ora si RIVELA passandoci sopra, e sta su UNA riga sola
+      // insieme all'ora. Va provato che sia davvero così, o il verde non
+      // vorrebbe dire niente: Playwright considera visibile anche un elemento a
+      // opacity 0, quindi senza queste due misure la suite resterebbe verde con
+      // la striscia invisibile o spezzata su due righe.
+      const bubble = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      const row = bubble.locator('[data-testid="message-meta-row"]');
+      const opacity = () => row.evaluate((el) => getComputedStyle(el).opacity);
+      expect(Number(await opacity())).toBeLessThan(0.5);
+      await bubble.hover();
+      await expect.poll(async () => Number(await opacity()), { timeout: 4000 }).toBeGreaterThan(0.9);
+
+      // Una riga sola: l'altezza della riga di servizio non supera quella di una
+      // singola riga di testo a 11px (line-height 1.5 ≈ 16,5px, con margine).
+      const h = await row.evaluate((el) => el.getBoundingClientRect().height);
+      expect(h).toBeLessThan(24);
+
+      // La prova durevole è l'immagine della riga come si legge, sotto il mouse.
+      await row.screenshot({ path: "test-results/message-meta-row.png" });
     } finally {
       await deleteTopic(request, fresh.id);
     }
@@ -192,8 +210,15 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       const assistant = page.locator('[data-testid="message-content-assistant"]').last();
       await assistant.waitFor({ state: "visible", timeout: 10_000 });
 
-      // No footer at all.
-      await expect(assistant.locator('[data-testid="message-meta-footer"]')).toHaveCount(0);
+      // Nessuna striscia. Agganciata alla RIGA del messaggio e non al suo
+      // contenuto: dentro `message-content-assistant` la striscia non c'è più
+      // per costruzione, quindi questo conteggio sarebbe passato SEMPRE — un
+      // guardiano che non può fallire non è un guardiano.
+      const bubble = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      await expect(bubble).toBeVisible();
+      await expect(bubble.locator('[data-testid="message-meta-footer"]')).toHaveCount(0);
+      // L'ora invece c'è: la riga di servizio esiste, è la striscia a mancare.
+      await expect(bubble.locator('[data-testid="message-meta-row"]')).toHaveCount(1);
     } finally {
       await deleteTopic(request, fresh.id);
     }
