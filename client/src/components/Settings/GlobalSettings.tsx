@@ -39,9 +39,16 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'devices', label: 'Dispositivi', icon: Smartphone },
 ];
 
-export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
+export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
-  const [section, setSection] = useState<SectionId>('appearance');
+  const [section, setSection] = useState<SectionId>(initialSection ?? 'appearance');
+  // Chi apre il pannello da un punto preciso ci vuole arrivare, non ripartire da
+  // «Aspetto». Si riallinea a ogni APERTURA, non solo al montaggio: il pannello
+  // resta montato fra un'apertura e l'altra, quindi un `useState` iniziale
+  // servirebbe una volta sola.
+  useEffect(() => {
+    if (isOpen && initialSection) setSection(initialSection);
+  }, [isOpen, initialSection]);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Escape chiude + Tab resta dentro + il focus torna al bottone che ha aperto.
@@ -144,6 +151,13 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
           Font Size
           <span className="ml-auto text-[12px] text-app-text-muted font-normal">{settings.fontSize}px</span>
         </label>
+        {/* `aria-label` esplicita: la <label> qui sopra NON avvolge l'input e non
+            lo lega per `for`, quindi questo cursore non aveva NESSUN nome
+            accessibile — e da quando "Larghezza chat" (27ccc796) ha portato un
+            secondo `type="range"` nel pannello, i due erano indistinguibili sia
+            per uno screen reader sia per chi li cerca per ruolo. Il nome è
+            fisso e non include i "13px" del contatore: un nome che cambia col
+            valore non è un'ancora. */}
         <input
           type="range"
           min={12}
@@ -152,6 +166,7 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
           value={settings.fontSize}
           onChange={(e) => onChange('fontSize', parseInt(e.target.value))}
           className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
+          aria-label="Font Size"
         />
         <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
           <span>12px</span>
