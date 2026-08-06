@@ -12,7 +12,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   SIDEBAR_VIEW_MODES,
+  hydrateSidebarState,
+  mergeSidebarStates,
   nextSidebarViewMode,
+  readServerSeq,
   sanitizeSidebarPayload,
   type SidebarViewMode,
 } from "./useSidebarState";
@@ -127,5 +130,116 @@ describe("nextSidebarViewMode", () => {
     let m: SidebarViewMode = SIDEBAR_VIEW_MODES[0];
     for (let i = 0; i < SIDEBAR_VIEW_MODES.length; i++) { visti.add(m); m = nextSidebarViewMode(m); }
     expect([...visti].sort()).toEqual([...SIDEBAR_VIEW_MODES].sort());
+  });
+});
+
+// ── hydrateSidebarState: default, migrazioni, riconciliazione ────────────────
+
+describe("hydrateSidebarState", () => {
+  test("un payload senza layout non rompe: la disposizione esce dall'ordine di pin", () => {
+    const s = hydrateSidebarState({ pinnedItems: ["a", "b", "c"] });
+    expect(s.pinnedLayout.flatMap(r => r.keys)).toEqual(["a", "b", "c"]);
+    for (const row of s.pinnedLayout) {
+      expect(row.widths.length).toBe(row.keys.length);
+    }
+  });
+
+  test("la chiave di progetto codificata diventa grezza", () => {
+    const s = hydrateSidebarState({ pinnedItems: ["project:%2Fwork%2Fx"] });
+    expect(s.pinnedItems).toEqual(["project:/work/x"]);
+  });
+
+  test("lo stesso progetto salvato in entrambe le forme resta UNO", () => {
+    // È lo stato che si trova sul campo: fissato una volta dalla sidebar
+    // (grezzo) e una dalla tab (codificato), prima che le due forme fossero
+    // unificate.
+    const s = hydrateSidebarState({
+      pinnedItems: ["project:/work/x", "topic-1", "project:%2Fwork%2Fx"],
+    });
+    expect(s.pinnedItems).toEqual(["project:/work/x", "topic-1"]);
+    expect(s.pinnedLayout.flatMap(r => r.keys)).toEqual(["project:/work/x", "topic-1"]);
+  });
+
+  test("il layout perde le celle dei fissati spariti e accoglie quelli nuovi", () => {
+    const s = hydrateSidebarState({
+      pinnedItems: ["a", "nuovo"],
+      pinnedLayout: [{ keys: ["a", "sparito"], widths: [0.5, 0.5] }],
+    });
+    expect(s.pinnedLayout.flatMap(r => r.keys).sort()).toEqual(["a", "nuovo"]);
+  });
+
+  test("è idempotente", () => {
+    const once = hydrateSidebarState({ pinnedItems: ["a", "b"], pinnedLayout: [] });
+    const twice = hydrateSidebarState(once);
+    expect(twice.pinnedItems).toEqual(once.pinnedItems);
+    expect(twice.pinnedLayout).toEqual(once.pinnedLayout);
+  });
+
+  test("regge pinnedItems non-array o sporco senza esplodere", () => {
+    expect(hydrateSidebarState({ pinnedItems: 42 as never }).pinnedItems).toEqual([]);
+    expect(hydrateSidebarState({ pinnedItems: ["a", 7 as never, "b"] }).pinnedItems).toEqual(["a", "b"]);
+  });
+
+  test("il campo layout sopravvive al giro di sanitize (è in DEFAULT_STATE)", () => {
+    // Se `pinnedLayout` non fosse fra le chiavi note, il sanitize lo scarterebbe
+    // in silenzio a ogni GET/WS/cross-tab: scritto e mai riletto.
+    const payload = { pinnedItems: ["a"], pinnedLayout: [{ keys: ["a"], widths: [1] }] };
+    const sv = sanitizeSidebarPayload(payload);
+    expect(sv?.pinnedLayout).toBeDefined();
+    expect(hydrateSidebarState(sv!).pinnedLayout[0].keys).toEqual(["a"]);
+  });
+});
+
+// ── mergeSidebarStates: cosa succede quando il server rifiuta la scrittura ───
+
+describe("mergeSidebarStates", () => {
+  const base = (over: Partial<ReturnType<typeof hydrateSidebarState>>) =>
+    hydrateSidebarState({ ...over });
+
+  test("i pin dei due lati si sommano, nessuno viene perso", () => {
+    const remote = base({ pinnedItems: ["a", "remoto"] });
+    const local = base({ pinnedItems: ["a", "locale"] });
+    const m = mergeSidebarStates(remote, local);
+    expect(m.pinnedItems.sort()).toEqual(["a", "locale", "remoto"]);
+  });
+
+  test("ogni pin arrivato da fuori riceve comunque una cella", () => {
+    const remote = base({ pinnedItems: ["a", "remoto"] });
+    const local = base({ pinnedItems: ["a"] });
+    const m = mergeSidebarStates(remote, local);
+    expect(m.pinnedLayout.flatMap(r => r.keys).sort()).toEqual(["a", "remoto"]);
+  });
+
+  test("la disposizione locale comanda: chi ha appena trascinato è qui", () => {
+    const remote = base({ pinnedItems: ["a", "b"], pinnedLayout: [{ keys: ["a", "b"], widths: [0.5, 0.5] }] });
+    const local = base({ pinnedItems: ["a", "b"], pinnedLayout: [{ keys: ["b"], widths: [1] }, { keys: ["a"], widths: [1] }] });
+    const m = mergeSidebarStates(remote, local);
+    expect(m.pinnedLayout.map(r => r.keys)).toEqual([["b"], ["a"]]);
+  });
+
+  test("i nodi espansi si sommano", () => {
+    const m = mergeSidebarStates(base({ expandedNodes: ["x"] }), base({ expandedNodes: ["y"] }));
+    expect(m.expandedNodes.sort()).toEqual(["x", "y"]);
+  });
+
+  test("le intenzioni di questo schermo restano locali", () => {
+    const remote = base({ viewMode: "grouped", showArchived: true });
+    const local = base({ viewMode: "state", showArchived: false });
+    const m = mergeSidebarStates(remote, local);
+    expect(m.viewMode).toBe("state");
+    expect(m.showArchived).toBe(false);
+  });
+});
+
+describe("readServerSeq", () => {
+  test("legge la versione dalla busta", () => {
+    expect(readServerSeq({ value: {}, server_seq: 7 })).toBe(7);
+  });
+
+  test("null quando non c'è o non è un numero", () => {
+    expect(readServerSeq(null)).toBeNull();
+    expect(readServerSeq({ value: {} })).toBeNull();
+    expect(readServerSeq({ server_seq: "7" })).toBeNull();
+    expect(readServerSeq({ server_seq: Number.NaN })).toBeNull();
   });
 });
