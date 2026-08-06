@@ -82,7 +82,7 @@ import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
-import { permissionModeForAutonomy } from "../lib/autonomy-mode";
+import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 
 /**
@@ -230,7 +230,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const matchedTopic = getTopicBySessionKey(sessionKey);
       // Reset browser navigate tracking for this topic so new URLs can trigger
       if (matchedTopic) browserNavigatedTopics.delete(matchedTopic.id);
-      const planMode = body.planMode === true;
+      // Il piano ha UNA leva sola, ed è l'autonomia della chat.
+      //
+      // C'erano due modi di chiedere un piano, e facevano cose diverse: un
+      // interruttore nel composer che iniettava questo blocco di prompt — una
+      // RICHIESTA, che il modello poteva ignorare, tenuta in localStorage e mai
+      // sincronizzata — e il livello di autonomia `ask`, che passa
+      // `--permission-mode plan` alla CLI, dove i file non si possono proprio
+      // scrivere. Potevano contraddirsi a vicenda sullo stesso turno.
+      //
+      // L'interruttore è sparito; il blocco di prompt no, perché è quello che
+      // dà al piano il formato che l'app poi sa leggere («## Plan / ## Summary»,
+      // planModeContent). Adesso lo accende il livello di autonomia. Stessa
+      // forma del Fast Mode qui sotto: flag per-turno OPPURE preferenza del
+      // topic. Il flag resta accettato per i chiamanti headless (dispatcher,
+      // bridge), che non hanno un composer da cui premere niente.
+      const planMode = planModeFor({ turnFlag: body.planMode === true, autonomy: matchedTopic?.autonomyLevel });
       // Fast Mode: per-turn flag OR per-topic persisted preference. Either is
       // enough to opt in. Resolution into an actual model id happens after
       // provider resolution below (the mapping is provider-dependent).

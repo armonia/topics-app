@@ -21,6 +21,7 @@ import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
+import type { SendMessageOptions } from '@/hooks/useChat';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -46,7 +47,7 @@ export interface ProjectWindowPaneProps {
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
   stopSession: (sk: string) => boolean;
-  sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -314,7 +315,7 @@ export function ProjectWindowPane({
         const topic = pane.topicId ? topics[pane.topicId] : null;
         if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">Topic not found</div>;
         const wrappedSendMessage = pane.preview
-          ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
+          ? async (sk: string, content: string, options?: SendMessageOptions) => {
               pinPaneById(pane.id);
               return sendMessage(sk, content, options);
             }

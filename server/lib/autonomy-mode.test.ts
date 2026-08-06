@@ -5,7 +5,7 @@
  * modalità che in `--print` resta appesa).
  */
 import { describe, test, expect } from "bun:test";
-import { permissionModeForAutonomy, describeAutonomy, DEFAULT_PERMISSION_MODE } from "./autonomy-mode";
+import { permissionModeForAutonomy, describeAutonomy, DEFAULT_PERMISSION_MODE, planModeFor } from "./autonomy-mode";
 
 describe("permissionModeForAutonomy", () => {
   test("i tre livelli mappano sulle modalità provate sul campo", () => {
@@ -46,5 +46,34 @@ describe("describeAutonomy", () => {
 
   test("anche «nessuna scelta» dice cosa succede", () => {
     expect(describeAutonomy(null)).toContain("nessun livello scelto");
+  });
+});
+
+describe("planModeFor — il piano ha una leva sola", () => {
+  test("l'autonomia «ask» accende il piano da sé", () => {
+    // È la sostituzione della leva sparita: il blocco di prompt che dava al
+    // piano il suo formato adesso lo accende il livello, non un interruttore
+    // separato in localStorage che poteva dire il contrario dei permessi.
+    expect(planModeFor({ autonomy: "ask" })).toBe(true);
+    expect(planModeFor({ turnFlag: false, autonomy: "ask" })).toBe(true);
+  });
+
+  test("gli altri livelli non lo accendono", () => {
+    expect(planModeFor({ autonomy: "auto-apply" })).toBe(false);
+    expect(planModeFor({ autonomy: "yolo" })).toBe(false);
+    expect(planModeFor({ autonomy: null })).toBe(false);
+    expect(planModeFor({ autonomy: undefined })).toBe(false);
+    // Un livello scritto male non deve poter mettere una chat in piano di
+    // straforo: è lo stesso ripiego silenzioso che la PATCH ora rifiuta con 400.
+    expect(planModeFor({ autonomy: "ASK" })).toBe(false);
+    expect(planModeFor({ autonomy: "propone" })).toBe(false);
+  });
+
+  test("il flag per-turno resta, per chi non ha un composer", () => {
+    // Dispatcher e bridge MCP non hanno un bottone da premere: il flag sul
+    // corpo della richiesta è la loro strada, e vale da solo.
+    expect(planModeFor({ turnFlag: true })).toBe(true);
+    expect(planModeFor({ turnFlag: true, autonomy: "yolo" })).toBe(true);
+    expect(planModeFor({})).toBe(false);
   });
 });

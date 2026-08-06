@@ -19,6 +19,7 @@ import { useTopicLoading, useTopicAwaitingInput, useTopicWatching } from '@/stat
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import type { SendMessageOptions } from '@/hooks/useChat';
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -28,7 +29,7 @@ interface ChatPanelProps {
   topic: Topic; isFocused: boolean; onFocus: () => void; onClose: () => void;
   onDragStart: (e: React.DragEvent) => void; onToggleSidebar?: () => void; isDragOver: boolean;
   getSessionMessages: (sk: string) => ChatMessage[]; getCompactionMarkers?: (sk: string) => CompactionMarker[]; isSessionLoading: (sk: string) => boolean;
-  isSessionStreaming: (sk: string) => boolean; wasSessionStopped: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  isSessionStreaming: (sk: string) => boolean; wasSessionStopped: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   /**
    * Abort the in-flight assistant turn for `sessionKey`. Returns true iff
    * the chat was a brand-new throwaway (one-user-message thread) — the

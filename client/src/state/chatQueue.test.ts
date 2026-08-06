@@ -35,14 +35,14 @@ beforeEach(() => {
 
 describe('accodare e rileggere', () => {
   test('un messaggio accodato è durevole e conserva le sue opzioni', () => {
-    enqueueTurn(SK, 'primo', { planMode: true });
+    enqueueTurn(SK, 'primo', { fastMode: true });
     expect(store.map.has(queueKey(SK))).toBe(true);
 
     // Simula un'altra finestra (o un reload): cache azzerata, si rilegge da disco.
     __setQueueStorage(store);
     const [item] = getQueue(SK);
     expect(item.content).toBe('primo');
-    expect(item.options?.planMode).toBe(true);
+    expect(item.options?.fastMode).toBe(true);
   });
 
   test('il vuoto non entra in coda', () => {

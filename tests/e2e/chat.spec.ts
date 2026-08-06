@@ -257,8 +257,12 @@ test.describe.serial("Chat", () => {
     await expect(
       page.getByRole("button", { name: /Attach file/ })
     ).toBeVisible({ timeout: 10_000 });
+    // Il piano non è più un interruttore accanto alla graffetta: è un LIVELLO
+    // di autonomia, e questo è il controllo che lo porta. C'erano due modi di
+    // chiederlo — un flag di prompt in localStorage e questo, che passa
+    // `--permission-mode plan` alla CLI — e solo il secondo veniva rispettato.
     await expect(
-      page.getByRole("button", { name: /Toggle plan mode/ })
+      page.getByRole("button", { name: /Autonomia/ })
     ).toBeVisible({ timeout: 5_000 });
     await expect(
       page.getByRole("button", { name: /Record voice/ })

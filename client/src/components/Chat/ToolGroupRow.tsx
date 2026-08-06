@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Loader2, X, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow, ElapsedTimer, SETTLED_GROUP_METRIC_CLASS } from './ToolCallRow';
 import {
@@ -59,7 +59,11 @@ function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]
               <ChevronRight size={12} className="text-app-text-muted" />
             )}
           </span>
-          <Zap size={13} className={`flex-shrink-0 ${live ? 'text-primary' : 'text-app-text-muted'}`} />
+          {/* `Workflow` e non un lampo: questa riga dice «una corsa di N
+              azioni», non «veloce». Il lampo in questa app ha un significato
+              solo — velocità — ed è del Fast Mode, che sta nel composer sotto
+              questa stessa colonna. */}
+          <Workflow size={13} className={`flex-shrink-0 ${live ? 'text-primary' : 'text-app-text-muted'}`} />
           <span className={`flex-shrink-0 font-medium ${live ? 'text-primary' : summary.errors > 0 ? 'text-red-500' : 'text-app-text'}`}>
             {live
               ? `${settledCount}/${summary.total} azioni`

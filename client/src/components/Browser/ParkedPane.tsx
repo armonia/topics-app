@@ -8,7 +8,7 @@
  * quindi si può anche leggere e cliccare, cosa che sopra una WKWebView non
  * sarebbe possibile (composita sopra tutto).
  */
-import { PlugZap, RotateCw } from 'lucide-react';
+import { Unplug, RotateCw } from 'lucide-react';
 import { loopbackDownText } from './navErrorMessage';
 
 interface ParkedPaneProps {
@@ -33,7 +33,10 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
       data-parked-url={url}
     >
       <div className="max-w-md text-center">
-        <PlugZap size={28} className="mx-auto mb-3 text-app-text-tertiary" aria-hidden />
+        {/* `Unplug` e non `PlugZap`: la spina col lampo è il segno di
+            «acceso» e stava sopra la riga che dice che non c'è nessuno in
+            ascolto — il glifo diceva il contrario del testo. */}
+        <Unplug size={28} className="mx-auto mb-3 text-app-text-tertiary" aria-hidden />
         <div className="text-[13px] font-medium text-app-text">{message}</div>
         {hint && <div className="mt-1.5 text-[12px] text-app-text-muted leading-snug">{hint}</div>}
         <div className="mt-1.5 text-[11px] text-app-text-tertiary">

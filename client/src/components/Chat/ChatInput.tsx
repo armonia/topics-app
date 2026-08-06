@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -31,7 +31,9 @@ const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m
 
 // Available slash commands
 const SLASH_COMMANDS = [
-  { cmd: '/status', label: 'Status', description: 'Show session status', icon: Zap },
+  // `Info` e non un lampo: qui non si accelera niente, si legge uno stato. Il
+  // lampo in questa app vuol dire UNA cosa sola — velocità — ed è del Fast Mode.
+  { cmd: '/status', label: 'Status', description: 'Show session status', icon: Info },
   { cmd: '/context', label: 'Context', description: 'Show context-window usage (tokens, budget, sources)', icon: Gauge },
   // La compattazione esisteva già e l'app ne disegna anche l'esito (i divider
   // «context compacted», partitionMarkers.ts), ma l'UNICO modo di lanciarla era
@@ -396,16 +398,13 @@ interface ChatInputProps {
   othersTypingText: string;
   mentionedFiles: MentionedFile[];
   setMentionedFiles: React.Dispatch<React.SetStateAction<MentionedFile[]>>;
-  planMode?: boolean;
-  onTogglePlanMode?: () => void;
   /** Export the conversation as Markdown (composer ⋯ menu row). */
   onExportConversation?: () => void;
   /**
    * Fast Mode toggle (openspec change `chat-fast-mode`). When ON, the chat
    * route uses the provider's native fast model (haiku / gpt-4o-mini / …).
-   * Independent of plan mode — both can be ON simultaneously. Persisted
-   * per-topic on the server; the toggle is positioned between Plan mode
-   * and the Context ring in the composer's left tool cluster.
+   * Persisted per-topic on the server; primo bottone del gruppo a sinistra
+   * dopo la graffetta.
    */
   fastMode?: boolean;
   onToggleFastMode?: () => void;
@@ -470,8 +469,6 @@ export function ChatInput({
   othersTypingText,
   mentionedFiles,
   setMentionedFiles,
-  planMode,
-  onTogglePlanMode,
   onExportConversation,
   fastMode,
   onToggleFastMode,
@@ -1105,7 +1102,7 @@ export function ChatInput({
         // behavior off THIS element's width (the pane/tab), not the
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
-        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
+        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
         style={{ maxWidth: '100%' }}
       >
         {isRecording ? (
@@ -1249,19 +1246,18 @@ export function ChatInput({
                 >
                   <Paperclip size={16} />
                 </button>
-                <button
-                  type="button"
-                  onClick={onTogglePlanMode}
-                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
-                    planMode
-                      ? 'text-indigo-500 bg-indigo-500/10'
-                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                  }`}
-                  title={planMode ? 'Plan Mode ON' : 'Plan Mode OFF'}
-                  aria-label="Toggle plan mode"
-                >
-                  <ClipboardList size={16} />
-                </button>
+                {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
+                    stessa cosa: un interruttore in localStorage che iniettava
+                    una RICHIESTA nel prompt («sei in plan mode, non toccare
+                    niente») e che nessuno faceva rispettare, a quattro bottoni
+                    di distanza dal selettore di autonomia — stessa icona, colore
+                    diverso — che invece passa `--permission-mode plan` alla CLI
+                    e i file non li fa proprio scrivere. Potevano contraddirsi,
+                    e non si sincronizzava fra dispositivi.
+                    La leva ora è una: «Propone prima» nel selettore qui accanto.
+                    Il blocco di prompt non è andato perso — lo inietta la route
+                    quando l'autonomia è `ask` (routes/chat.ts), così il piano
+                    esce nel formato di sempre. */}
                 {onToggleFastMode && (
                   <button
                     type="button"
@@ -1280,6 +1276,15 @@ export function ChatInput({
                     aria-pressed={!!fastMode}
                     data-testid="chat-input-fast-mode"
                   >
+                    {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
+                        Ne aveva dieci, di significati: il modello, l'autonomia
+                        «Agisce», la corsa di tool, i processi del progetto, un
+                        cron armato, un KPI, `/status`, la pane morta. Tre di
+                        quelli stavano in QUESTA riga insieme a questo, quindi il
+                        lampo non insegnava niente a nessuno. Adesso resta qui e
+                        nella sezione «Prestazioni» del changelog — stessa cosa,
+                        detta due volte. Prima di metterne un altro: dice
+                        «veloce»? Se no, non è questo il glifo. */}
                     <Zap size={16} />
                   </button>
                 )}
