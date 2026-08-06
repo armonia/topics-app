@@ -161,9 +161,18 @@ isolamento e non lo toccano. Il presidio è un test a due dispositivi
 
 ## Fuori scope → backlog
 
-1. **Il commutatore di Spazio irraggiungibile sul telefono**: a 393px il tap sulla
-   riga «Gruppo 2» atterra su `DIV.flex min-w-0 flex-1…` invece che sul `BUTTON`
-   (a 1280px atterra giusto). Difetto di hit-test, misurato il 06/08. Task a parte.
+1. **Il commutatore di Spazio sul telefono: da stabilire, non è un fatto.**
+   Rettifica di un'affermazione sbagliata scritta qui il 06/08 («a 393px il tap
+   atterra su un altro elemento»): quella misura è stata presa con la sidebar
+   COLLASSATA, e l'elemento che intercettava era una card della board, non un
+   contenitore della sidebar. Non prova nessun difetto di hit-test.
+   Ciò che è accertato: sotto i 768px la sidebar parte forzatamente collassata
+   (`useSidebarAndLayout.ts:168-169`, che scavalca anche l'impostazione salvata),
+   quindi «Gruppo 2» è `0×0` all'avvio; e l'apertura passa da un gesto di swipe
+   dal bordo (`App.tsx:961`, `handleEdgeTouchStart`), che non si riproduce con
+   eventi touch sintetici — due tentativi falliti, quindi **non so** se un dito
+   vero apra la sidebar e raggiunga il commutatore. Va provato su un dispositivo
+   prima di aprire un task di fix: il rischio è inseguire un difetto inesistente.
 2. `task-browser-layout:<id>` e `sidebar-state`: stesso trasporto, stessa domanda,
    lavoro separato.
 3. Un dispositivo nuovo atterra sullo Spazio di default e nessun pixel glielo dice —
