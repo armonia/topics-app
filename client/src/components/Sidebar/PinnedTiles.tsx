@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -152,6 +152,20 @@ export function PinnedTiles({
     setIncomingRow(null);
     setAdopting(false);
   }, []);
+
+  // Il gesto è finito, comunque sia finito.
+  //
+  // Prima l'azzeramento viveva solo nei nostri `drop` e nell'`onDragEnd` della
+  // tessera — cioè copriva i drag che NASCONO qui. Un drag che arriva da fuori
+  // e finisce altrove (una riga trascinata sui fissati e poi rilasciata sulla
+  // lista) lasciava `adopting`/`dropAt` accesi per sempre: la griglia restava
+  // convinta di avere un gesto in corso, e il gesto dopo non funzionava più.
+  // È il «faccio avanti e indietro e poi non riesco più».
+  useEffect(() => {
+    const fine = () => clearDrag();
+    window.addEventListener('dragend', fine);
+    return () => window.removeEventListener('dragend', fine);
+  }, [clearDrag]);
 
   /** Un drag che possiamo servire: porta il tipo giusto E viene da QUESTA
    *  griglia. Un drag della stessa forma da un'altra finestra porterebbe il

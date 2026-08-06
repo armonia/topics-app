@@ -287,6 +287,9 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex items-center gap-1',
+        // Senza nome l'icona è tutto il contenuto: al centro. Con il nome la
+        // tessera è una riga, e una riga comincia da sinistra.
+        hasRealIcon ? 'justify-center' : '',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
@@ -373,14 +376,22 @@ export function PinnedTile({
             : null}
       </span>
 
-      {/* 11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
+      {/* Il nome solo dove SERVE a riconoscere.
+          Un progetto che spedisce una favicon si riconosce da quella, e
+          ripetere il titolo accanto sarebbe la stessa informazione due volte in
+          uno spazio che non ce l'ha. Gli altri tipi mostrano un glifo di
+          categoria — quattro icone-chat identiche non distinguono niente — e lì
+          il titolo È l'identità.
+          11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
           scende nemmeno per far entrare una parola in più. */}
-      <span
-        data-testid="pinned-tile-name"
-        className="relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary"
-      >
-        {item.name}
-      </span>
+      {!hasRealIcon && (
+        <span
+          data-testid="pinned-tile-name"
+          className="relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary"
+        >
+          {item.name}
+        </span>
+      )}
 
       {item.notificationCount > 0 && (
         // In linea, non appoggiato in un angolo: in una riga il conteggio sta

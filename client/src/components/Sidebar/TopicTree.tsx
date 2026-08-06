@@ -237,6 +237,11 @@ export interface TopicTreeProps {
    *  una sola operazione, perché pin e disposizione riconciliano l'uno
    *  sull'altro e in due passi la cella si perde (vedi `pinAt`). */
   onPinAt?: (id: string, at: PinnedDropTarget) => void;
+  /** Toglie il pin e BASTA. Distinto da `onTogglePin`, che per una chat con la
+   *  tab chiusa la ARCHIVIA anche — semantica giusta per «non mi serve più»,
+   *  sbagliata per «rimettila nella lista»: la riga sparirebbe proprio dal
+   *  posto in cui l'hai appena trascinata. */
+  onUnpinToList?: (id: string) => void;
   /** Active (non-done) task count across all projects. When > 0, a
    *  "Board generale" row is shown above the Fissati block. */
   boardTaskCount?: number;
@@ -300,6 +305,7 @@ export function TopicTree({
   pinnedLayout = [],
   onPinnedLayoutChange,
   onPinAt,
+  onUnpinToList,
   boardTaskCount = 0,
   boardByStatus,
   boardOpen = false,
@@ -1359,7 +1365,7 @@ export function TopicTree({
         // blocco dei fissati non conta — lì il drop è un riordino, e servirlo
         // due volte vorrebbe dire riordinare e sfissare nello stesso gesto.
         onDragOver={e => {
-          if (!onTogglePin || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
+          if (!(onUnpinToList ?? onTogglePin) || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
           // Sopra i fissati l'anteprima si SPEGNE, e lo decide questo stesso
           // evento: `dragover` è l'unico che arriva a ogni movimento e sa dove
           // sei davvero. Spegnerla su `dragleave` era la causa del tremolio —
@@ -1390,11 +1396,16 @@ export function TopicTree({
         onDrop={e => {
           const wasPreviewing = unpinPreview;
           setUnpinPreview(null);
-          if (!onTogglePin || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
+          if (!(onUnpinToList ?? onTogglePin) || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
           if ((e.target as Element | null)?.closest?.('[data-testid="sidebar-pinned-section"]')) return;
           e.preventDefault();
           const key = e.dataTransfer.getData(DND_TYPES.PINNED_TILE) || wasPreviewing;
-          if (key && pinnedIds.has(key)) onTogglePin(key);
+          // `onUnpinToList`, non `onTogglePin`: quest'ultimo archivia una chat
+          // con la tab chiusa, e qui vuol dire farla sparire dalla lista un
+          // istante dopo averla trascinata dentro — e senza più modo di
+          // riprenderla. Il ripiego resta per chi non passa la prop nuova.
+          const sfissa = onUnpinToList ?? onTogglePin;
+          if (key && sfissa && pinnedIds.has(key)) sfissa(key);
         }}
       >
         {/* Board generale — THE single sidebar row for the board, above the

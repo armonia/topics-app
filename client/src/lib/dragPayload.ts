@@ -20,6 +20,7 @@
  */
 
 let draggedPane: string | null = null;
+let listening = false;
 
 /**
  * Ricorda la pane che parte. Da chiamare nel `dragstart`, accanto al
@@ -28,9 +29,17 @@ let draggedPane: string | null = null;
  */
 export function rememberDraggedPane(paneId: string): void {
   draggedPane = paneId;
-  // `once` + window: il `dragend` bolla sempre fin qui, e non serve che la
-  // sorgente si ricordi di pulire (metà delle sorgenti non ha un `onDragEnd`).
-  window.addEventListener('dragend', forgetDraggedPane, { once: true });
+  // UN listener per la vita del modulo, non uno per gesto.
+  //
+  // Con `{ once: true }` ne nasceva uno a ogni `dragstart` e ne moriva uno a
+  // ogni `dragend`: finché i due si alternano il conto torna, ma un gesto che
+  // finisce senza `dragend` (o due drag annidati) lascia listener appesi che
+  // si accumulano e sparano tutti al primo `dragend` successivo. Uno solo,
+  // registrato una volta, non ha stati intermedi da sbagliare.
+  if (!listening) {
+    window.addEventListener('dragend', forgetDraggedPane);
+    listening = true;
+  }
 }
 
 /** La pane in volo, o `null` se il drag viene da un'altra finestra. */

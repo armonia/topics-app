@@ -1180,6 +1180,8 @@ function App() {
             pinnedLayout={sidebar.pinnedLayout}
             onPinnedLayoutChange={sidebar.setPinnedLayout}
             onPinAt={sidebar.pinAt}
+            // Il pin nudo: «rimettila nella lista» non archivia niente.
+            onUnpinToList={sidebar.togglePin}
             boardTaskCount={boardTaskCount}
             boardByStatus={boardByStatus}
             boardOpen={openPanels.includes('__board__')}
