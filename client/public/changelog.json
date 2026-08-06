@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.2.27",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.26",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dai al server un'identità: dispositivi appaiati, approvati dal Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancellare vuol dire spostare nel cestino, non rm -rf",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rendi visibile l'identità: il cancello, la conferma sul Mac, e chi sei sopra la barra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riallinea i documenti: «no built-in authentication» adesso è falso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il primo ritentativo dello stato git arriva dopo 2 secondi, non dopo 30",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cronologia dei commit esce dal codice morto ed entra nel pannello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via la cartella dalla tessera: al suo posto il segno che si apre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.26",
     "date": "2026-08-06",
     "sections": {
