@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, BookOpen, Clock, Cpu, FolderOpen, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, ChevronDown, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, SELECTED_SURFACE } from '../../lib/selectionStyles';
@@ -12,11 +12,20 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 
-const TYPE_ICONS: Record<SidebarItem['type'], LucideIcon> = {
+/**
+ * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
+ * riconoscerle: quattro chat si chiamano tutte diversamente ma si somigliano.
+ *
+ * `project` non c'è, ed è una scelta: la cartella non diceva niente che il nome
+ * non dicesse già — un progetto si chiama come la sua cartella — e rubava lo
+ * spazio in cui invece serve dire l'unica cosa che il nome NON dice, cioè che
+ * quella tessera si apre. Un progetto con una favicon si riconosce da quella;
+ * uno senza mostra il nome e basta.
+ */
+const TYPE_ICONS: Partial<Record<SidebarItem['type'], LucideIcon>> = {
   chat: MessageSquare,
   terminal: TerminalSquare,
   browser: Globe,
-  project: FolderOpen,
   utility: Wrench,
 };
 
@@ -71,6 +80,7 @@ export function PinnedTile({
   onDragStart,
   onDragEnd,
   dragging,
+  expandable,
 }: {
   item: SidebarItem;
   expanded: boolean;
@@ -85,6 +95,10 @@ export function PinnedTile({
   onDragStart?: () => void;
   onDragEnd?: () => void;
   dragging?: boolean;
+  /** C'è qualcosa da aprire qui sotto (le tab di un progetto). Solo allora la
+   *  tessera porta il segno che si apre: metterlo su una che non si apre
+   *  sarebbe una promessa che il click non mantiene. */
+  expandable?: boolean;
 }) {
   const projectPath = item.type === 'project' ? (item.projectPath ?? '') : '';
   const icon = useProjectIcon(projectPath);
@@ -224,7 +238,7 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex flex-col items-center justify-center gap-1',
-        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none',
+        'h-14 w-full min-w-0 rounded-lg px-1.5 pb-2.5 select-none',
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
         // senza icona non deve sembrare spenta, deve sembrare sobria.
@@ -289,18 +303,43 @@ export function PinnedTile({
         />
       )}
 
-      <span className="relative flex items-center justify-center">
-        {hasRealIcon
-          ? <ProjectFavicon path={projectPath} size={22} />
-          : <Glyph size={16} className="text-app-text-secondary" aria-hidden="true" />}
-      </span>
+      {(hasRealIcon || Glyph) && (
+        <span className="relative flex items-center justify-center">
+          {hasRealIcon
+            ? <ProjectFavicon path={projectPath} size={22} />
+            : Glyph && <Glyph size={16} className="text-app-text-secondary" aria-hidden="true" />}
+        </span>
+      )}
 
       {showName && (
         // 11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
-        // scende nemmeno per far entrare una parola in più.
-        <span className="relative w-full truncate text-center text-[11px] leading-none text-app-text-secondary">
+        // scende nemmeno per far entrare una parola in più. Senza icona il nome
+        // può prendersi due righe: è tutto ciò che quella tessera ha per farsi
+        // riconoscere, e troncarlo a metà parola su una riga sola la rende
+        // indistinguibile dalla vicina dello stesso progetto padre.
+        <span className={`relative w-full text-center text-[11px] leading-[1.15] text-app-text-secondary ${
+          hasRealIcon ? 'truncate' : 'line-clamp-2 px-0.5'
+        }`}>
           {item.name}
         </span>
+      )}
+
+      {/* IL SEGNO CHE SI APRE.
+          Un progetto fissato fa due cose col click — ci si va sopra, e le sue
+          tab compaiono nella fascia qui sotto — ma la seconda non la dichiarava
+          niente: la cartella diceva «sono un progetto», che si sapeva già dal
+          nome. Un chevron rivolto in giù dice l'unica cosa che il nome non dice,
+          e nella direzione in cui succede davvero (la fascia si apre SOTTO la
+          riga). Ruota quando è aperta, come ogni altra disclosure dell'app. */}
+      {expandable && (
+        <ChevronDown
+          size={10}
+          aria-hidden="true"
+          data-testid="pinned-expand-hint"
+          className={`pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 text-app-text-faint transition-transform duration-150 ${
+            expanded ? 'rotate-180' : ''
+          }`}
+        />
       )}
 
       {item.notificationCount > 0 && (
