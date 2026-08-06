@@ -421,9 +421,11 @@ export const boardApi = {
   /** Stop a running dispatch: parks the task and aborts the agent's turn. */
   stop: (projectId: string, taskId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/stop`, { method: 'POST', body: JSON.stringify({}) }),
-  /** Every board the server can resolve (the project selector's options). */
+  /** Every board the server can resolve (the project selector's options), più
+   *  `newProjectDir`: la cartella in cui nascerebbe un progetto creato per
+   *  nome. È dedotta lato server, e va MOSTRATA prima di creare. */
   projects: () =>
-    req<{ projects: BoardProjectRef[] }>('/all-boards/projects').then(r => r.projects),
+    req<{ projects: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
   /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
    *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>

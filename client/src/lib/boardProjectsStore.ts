@@ -19,11 +19,12 @@
  * stesso istante.
  */
 import { useSyncExternalStore } from 'react';
-import { boardApi, boardIdForPath, type BoardProjectRef } from './board';
-import { projectsApi } from './api';
-import { selectDirectory } from './shell/app';
+import { boardApi, type BoardProjectRef } from './board';
 
 let projects: BoardProjectRef[] | null = null;
+/** La cartella dove nascerà un progetto creato per nome: dedotta dal server,
+ *  da MOSTRARE prima di creare (è una deduzione, non una configurazione). */
+let newProjectDir: string | null = null;
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
 const listeners = new Set<() => void>();
 
@@ -38,7 +39,9 @@ async function fetchOnce(force = false): Promise<BoardProjectRef[] | null> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      projects = (await boardApi.projects()).slice().sort(byName);
+      const res = await boardApi.projects();
+      projects = res.projects.slice().sort(byName);
+      newProjectDir = res.newProjectDir ?? null;
     } catch {
       // Una lista vuota è la stessa cosa che «non lo so» per chi rende: il
       // chip ricade su nome-dall'id e nessuna icona, invece di girare per
@@ -56,6 +59,21 @@ async function fetchOnce(force = false): Promise<BoardProjectRef[] | null> {
 /** L'indice, o `null` finché la prima fetch non è tornata. */
 export function getBoardProjects(): BoardProjectRef[] | null {
   return projects;
+}
+
+/** La cartella dove finirebbe un progetto creato per nome (`null` prima della
+ *  prima fetch, o se il server non sa dirlo). */
+export function getNewProjectDir(): string | null {
+  return newProjectDir;
+}
+
+/** Reattivo, per la riga «Crea "x"… in <cartella>». */
+export function useNewProjectDir(enabled = true): string | null {
+  return useSyncExternalStore(
+    enabled ? subscribeBoardProjects : noopSubscribe,
+    enabled ? getNewProjectDir : getNull,
+    getNull,
+  );
 }
 
 export function subscribeBoardProjects(cb: () => void): () => void {
@@ -96,38 +114,6 @@ export function useBoardProjects(enabled = true): BoardProjectRef[] | null {
     enabled ? getBoardProjects : getNull,
     getNull,
   );
-}
-
-/**
- * «Scegli una cartella già sul disco e fanne un progetto» — lo stesso gesto
- * della voce «Progetto…» del menu «+», portato dentro il selettore.
- *
- * Tre passi, e nessuno è saltabile:
- *  1. il pannello di sistema (che col suo bottone «Nuova cartella» è anche il
- *     modo di CREARLA: non esiste una API «crea» separata da chiamare);
- *  2. la registrazione (`POST /api/projects`) — senza, il server non conosce
- *     quella dir, quindi il dispatcher non sa risolvere l'id della board in un
- *     percorso e l'endpoint dell'icona la rifiuta. Un progetto scelto ma non
- *     registrato darebbe un task che nessuno può eseguire;
- *  3. la rilettura dell'indice, che è la fonte di verità su nome e id.
- *
- * Ritorna `null` se l'utente annulla o se non c'è pannello (web). Se la
- * registrazione fallisce ma la cartella esiste, si ricade su un ref calcolato
- * qui: meglio un progetto selezionabile che un menu che non fa niente.
- */
-export async function pickProjectFolder(): Promise<BoardProjectRef | null> {
-  const path = (await selectDirectory())?.replace(/\/+$/, '') ?? null;
-  if (!path) return null;
-  const name = path.split('/').pop() || path;
-  try {
-    if (!(await projectsApi.byPath(path))) await projectsApi.create({ name, path });
-  } catch { /* già registrato con un altro slug, o store non disponibile */ }
-  const index = await fetchOnce(true);
-  const known = index?.find((p) => p.path === path);
-  if (known) return known;
-  const ref: BoardProjectRef = { projectId: boardIdForPath(path), name, path };
-  addBoardProject(ref);
-  return ref;
 }
 
 /**
