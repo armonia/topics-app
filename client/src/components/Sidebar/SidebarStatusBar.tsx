@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
@@ -101,9 +101,13 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-export function SidebarStatusBar({ wsStatus, dataNotice }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
+  /** Apre Impostazioni → Dispositivi. La riga dell'identità è il punto da cui si
+   *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
+   *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
+  onOpenDevices?: () => void;
 } = {}) {
   // Subscribed HERE, in the leaf that shows the number, not up in App.
   // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
@@ -354,7 +358,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           nessuno — dal telefono l'unico segnale era «Reconnecting…» per sempre.
           Sul computer non compare: li' l'identita' e' il fatto di essere seduti
           davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
-      <DeviceIdentityRow />
+      <DeviceIdentityRow onOpenDevices={onOpenDevices} />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -648,27 +652,69 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
  * aspetta una conferma. Sul computer dice «Questo computer», che e' anche il
  * modo di dire che qui dentro si e' per trasporto e non per sessione.
  */
-function DeviceIdentityRow() {
+function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
+
+  // Quanti dispositivi ci sono, e quanti sono vivi adesso. È l'informazione che
+  // rende la riga una RISPOSTA e non un'etichetta: «Questo computer» da solo non
+  // dice niente che non si sappia già stando seduti davanti.
+  const caricaAltri = useCallback(async () => {
+    try {
+      // La guardia sta QUI e non nell'effetto: un effetto che decide se chiamare
+      // è un effetto che scrive stato in modo condizionale, ed è la forma che
+      // `set-state-in-effect` marca. Chiamare sempre, e non fare niente quando
+      // non serve, è la stessa cosa con una responsabilità in meno.
+      const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const b = await r.json() as { devices: Array<{ connected: boolean; revokedAt: number | null }> };
+      const vivi = (b.devices ?? []).filter((d) => d.revokedAt === null);
+      setAltri({ connessi: vivi.filter((d) => d.connected).length, totali: vivi.length });
+    } catch { /* transitorio: la riga resta senza conteggio invece di mentire */ }
+  }, []);
+
+  // Il conteggio si prende DOPO il primo paint, non durante. Questa riga sta in
+  // fondo alla sidebar e il suo numero non serve a nessuno nel primo frame:
+  // farlo partire dentro l'effetto significherebbe una scrittura di stato
+  // sincrona in montaggio — che è ciò che `set-state-in-effect` marca, e ha
+  // ragione. Un rinvio a zero millisecondi lo toglie dal percorso critico
+  // davvero, non lo nasconde.
+  useEffect(() => {
+    const chiedi = () => { void caricaAltri(); };
+    const primo = setTimeout(chiedi, 0);
+    window.addEventListener('topics:auth-pair-resolved', chiedi);
+    window.addEventListener('topics:auth-device-revoked', chiedi);
+    return () => {
+      clearTimeout(primo);
+      window.removeEventListener('topics:auth-pair-resolved', chiedi);
+      window.removeEventListener('topics:auth-device-revoked', chiedi);
+    };
+  }, [caricaAltri]);
 
   if (session.status !== 'paired') return null;
   const locale = session.as === 'loopback';
 
   return (
-    <div
+    <button
       data-testid="device-identity"
-      // Come la fascia sopra: nessuno sfondo proprio, eredita la colonna.
-      className="flex items-center gap-1.5 border-t border-app-border text-[11px] text-app-text-secondary min-h-7"
+      onClick={onOpenDevices}
+      disabled={!onOpenDevices}
+      className="flex w-full items-center gap-1.5 border-t border-app-border bg-app-bg text-left text-[11px] text-app-text-secondary min-h-6 hover:bg-app-hover disabled:hover:bg-transparent"
       style={{ paddingInline: ROW_INSET }}
-      title={locale
-        ? 'Sei su questo computer: l\'accesso non passa da una sessione.'
-        : 'Dispositivo autorizzato. Puoi revocarlo da Impostazioni → Dispositivi.'}
+      title="Apri l\u2019elenco dei dispositivi autorizzati"
     >
       {locale
         ? <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />
         : <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />}
       <span className="truncate">{session.name}</span>
-    </div>
+      {altri && altri.totali > 0 && (
+        <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
+          {altri.connessi > 0 && <span className="h-1.5 w-1.5 rounded-full bg-green-500" />}
+          {altri.connessi > 0 ? `${altri.connessi}/${altri.totali}` : `${altri.totali}`}
+        </span>
+      )}
+    </button>
   );
 }
+
