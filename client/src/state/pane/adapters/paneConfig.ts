@@ -202,27 +202,6 @@ export function normalizePinKey(key: string): string {
 }
 
 /**
- * Una tab fissata non si chiude: prima la si toglie dai Fissati.
- *
- * Decisione di prodotto (Attilio, 2026-08-03), e discende dal modello a UNO
- * stato: chiudere una tab È il ritiro della cosa che c'è dentro — la chat viene
- * archiviata, la sessione ritirata. Se chiudere è definitivo, allora fissare
- * deve poter dire «questa no». Prima le due cose convivevano nel modo peggiore:
- * la tab fissata si chiudeva e si archiviava come le altre, e restava in lista
- * solo grazie a un'eccezione nella barra laterale — cioè il fissaggio non
- * proteggeva niente, decorava.
- *
- * Vale per ogni tipo fissabile (chat, terminale, browser, progetto): il criterio
- * è `pinKeyForPane`, la stessa chiave con cui il fissaggio è stato messo.
- * Una pane non fissabile (senza chiave) è sempre chiudibile.
- */
-export function isPaneClosable(pane: Pane, isPinned: (pinKey: string) => boolean): boolean {
-  const key = pinKeyForPane(pane);
-  if (!key) return true;
-  return !isPinned(key);
-}
-
-/**
  * Il TARGET DI PERMALINK di un pane (`shared/tab-link`), o `null` se quel pane
  * non è indirizzabile. Gemella di `pinKeyForPane` e con la stessa filosofia: UNA
  * funzione per tutti i tipi, così nessuna superficie può dimenticarne uno (la

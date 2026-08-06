@@ -385,9 +385,9 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     for (const id of pinCreated) await deleteTopic(request, id);
   });
 
-  // PIN-1: full chat lifecycle — pin, close (archives; row persists via the
-  // pinnedIds escape), reopen (unarchives), unpin while closed (archives).
-  test("PIN-1: una chat fissata NON si chiude; tolta dai Fissati si chiude e archivia", async ({
+  // PIN-1: il ciclo di vita completo di una chat fissata — fissa, chiudi (la
+  // tessera resta), riapri dalla tessera, togli il pin.
+  test("PIN-1: una chat fissata si chiude, la tessera resta, e un click la riapre", async ({
     page,
     request,
   }) => {
@@ -413,37 +413,28 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(row).toHaveAttribute("data-pinned", "true");
     await expectServerPin(request, t.id, true);
 
-    // FISSATA ⇒ NON SI CHIUDE. È la regola decisa il 03/08 («se è pinnata manco
-    // posso chiuderla finché non la dis-pinno») e applicata in `ee55a33f`: la X e
-    // la voce di menu spariscono, e ci passano anche tastiera e chiamanti futuri
-    // perché il divieto sta in `isPaneClosable`, non nel bottone.
+    // FISSATA ⇒ SI CHIUDE LO STESSO, e la tessera resta.
     //
-    // Questo test chiedeva il contrario — chiudeva la tab fissata e verificava
-    // che il topic si archiviasse — e descriveva un mondo che non esiste più.
-    // Riscritto il 04/08 sul contratto nuovo: prima si prova che NON si chiude,
-    // poi che tolta dai Fissati si chiude e archivia come qualunque altra.
+    // Il 03/08 la regola era l'opposto: fissata voleva dire non chiudibile
+    // (`ee55a33f`). Rovesciata il 06/08 su indicazione di Attilio — «le tab
+    // pinnate dovrebbero essere comunque chiudibili ma restano pinnate e quindi
+    // riapribili finché non togli il pin». Il fissaggio torna una SCORCIATOIA
+    // che resta, non un lucchetto da smontare per fare la cosa più comune.
     const paneTab = page.getByTestId(`pane-tab-${t.id}`);
     await expect(paneTab).toBeVisible({ timeout: 5000 });
-    await paneTab.click({ button: "right" });
-    await expect(page.getByRole("button", { name: /Chiudi ora/ })).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    // E la tab è ancora lì: il menu non l'ha chiusa di nascosto.
-    await expect(paneTab).toBeVisible();
-
-    // Tolta dai Fissati, torna una chat come le altre: si chiude e si archivia.
-    await row.click({ button: "right" });
-    const menuUnpin = page.getByRole("menu");
-    await menuUnpin.waitFor({ state: "visible" });
-    await menuUnpin.getByRole("menuitem", { name: "Rimuovi dai Fissati" }).click();
-    await expectServerPin(request, t.id, false);
-
     await paneTab.click({ button: "right" });
     await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
-    // Chiusa da NON fissata, si archivia — che è il segnale «chiusa» durevole e
-    // valido su tutti i client (modello a due stati). E la riga esce dai Fissati:
-    // non era più fissata già prima della chiusura.
+    // La tessera è ancora lì — l'escape `pinnedIds` tiene la riga anche
+    // archiviata — e il pin non si è mosso.
+    const closedTile = pinnedSection.getByRole("treeitem", { name: new RegExp(name) });
+    await expect(closedTile).toBeVisible({ timeout: 5000 });
+    await expectServerPin(request, t.id, true);
+
+    // Un click la riapre, e riaprendola si disarchivia.
+    await closedTile.click();
+    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeVisible({ timeout: 10000 });
     await expect
       .poll(
         async () => {
@@ -453,8 +444,16 @@ test.describe("Sidebar — Fissati (pinning)", () => {
         },
         { timeout: 10000 }
       )
-      .toBe(true);
-    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toHaveCount(0);
+      .toBe(false);
+
+    // Tolto il pin la tessera se ne va: è quello il gesto che smonta la
+    // scorciatoia.
+    await closedTile.click({ button: "right" });
+    const menuUnpin = page.getByRole("menu");
+    await menuUnpin.waitFor({ state: "visible" });
+    await menuUnpin.getByRole("menuitem", { name: "Rimuovi dai Fissati" }).click();
+    await expectServerPin(request, t.id, false);
+    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toHaveCount(0, { timeout: 10000 });
   });
 
   // La parte «un click riapre la chat archiviata» viveva in coda a questo test,
@@ -462,20 +461,17 @@ test.describe("Sidebar — Fissati (pinning)", () => {
   // Non è stata riscritta qui perché non è la stessa prova: la copre
   // `reopen-closed-tab.spec.ts`, che riapre senza passare dal fissaggio.
 
-  // PIN-3 — riscritto il 04/08, perché la sua premessa non è più raggiungibile.
+  // PIN-3 — una chat fissata e LASCIATA APERTA è dove l'avevi lasciata anche
+  // dopo un ricarico: tab aperta, topic non archiviato, riga ancora fra i
+  // Fissati.
   //
-  // Prima verificava che una chat fissata e CHIUSA non risorgesse dopo un
-  // ricarico. Da `ee55a33f` una chat fissata non si chiude affatto, quindi lo
-  // stato «fissata e chiusa» non esiste: il vecchio bug è impossibile per
-  // costruzione, e il test non poteva più nemmeno arrivare al punto (cadeva sul
-  // «Chiudi ora» che non c'è).
-  //
-  // Quello che resta da difendere è lo stesso esito visto dall'utente — la chat
-  // fissata è dove l'avevi lasciata — e ora si prova al contrario: dopo un
-  // ricarico la tab è ANCORA APERTA, il topic NON è archiviato e la riga è
-  // ancora fra i Fissati. Se qualcuno riaprisse la strada alla chiusura di una
-  // tab fissata, questo test se ne accorge.
-  test("PIN-3: una chat fissata resta aperta attraverso un ricarico (non si chiude, non si archivia)", async ({
+  // Storia: fino al 04/08 provava che una fissata e CHIUSA non risorgesse; poi
+  // `ee55a33f` rese le fissate non chiudibili e il test fu girato su «resta
+  // aperta». Dal 06/08 chiudere è di nuovo possibile (il pin è una scorciatoia,
+  // non un lucchetto) — ma quello che questo test difende, cioè che un ricarico
+  // non muova nulla di ciò che hai lasciato aperto, vale indipendentemente, e
+  // la chiusura ha il suo test in PIN-1.
+  test("PIN-3: una chat fissata lasciata aperta è dove l'avevi lasciata dopo un ricarico", async ({
     page,
     request,
   }) => {
@@ -497,10 +493,8 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(paneTab).toBeVisible({ timeout: 10000 });
     await expectServerPin(request, t.id, true);
 
-    // La chiusura non è offerta: né la X né la voce di menu.
-    await paneTab.click({ button: "right" });
-    await expect(page.getByRole("button", { name: /Chiudi ora/ })).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    // Non la si chiude: qui si prova proprio che restando aperta il ricarico
+    // non la muove. (Che chiudere sia possibile lo prova PIN-1.)
 
     // Ricarico: la tab è ancora aperta…
     await page.goto("/");
@@ -524,8 +518,9 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(reloadedRow).toHaveAttribute("data-pinned", "true", { timeout: 10000 });
   });
 
-  // PIN-2: projects are pinnable too; pins survive a reload
-  test("PIN-2: pin a project → close its tab keeps the row → pins survive reload → click reopens", async ({
+  // PIN-2: anche un PROGETTO si fissa, la sua tessera regge la chiusura della
+  // tab e il ricarico, e un click ci riporta dentro.
+  test("PIN-2: un progetto fissato — la tessera resta chiusa la tab, sopravvive al ricarico, e un click ci riporta", async ({
     page,
     request,
   }) => {
@@ -545,28 +540,35 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await projectBtn.click({ button: "right" });
     await page.getByRole("button", { name: "Fissa", exact: true }).click();
 
+    // Dentro il blocco Fissati il progetto non è più la riga con il suo
+    // `project-toggle-*`: è una TESSERA. Resta un `treeitem` con lo stesso nome
+    // accessibile, che è il contratto su cui questo test ha sempre poggiato —
+    // «il progetto fissato si vede lì dentro» — e non la forma che aveva.
     const pinnedSection = page.getByTestId("sidebar-pinned-section");
-    await expect(pinnedSection.getByTestId("project-toggle-e2e-pin-project")).toBeVisible({ timeout: 5000 });
+    const pinnedTile = pinnedSection.getByRole("treeitem", { name: "e2e-pin-project" });
+    await expect(pinnedTile).toBeVisible({ timeout: 5000 });
     // Pin key = the sidebar item id form (`project:<rawPath>`).
     await expectServerPin(request, `project:${projectPath}`, true);
 
-    // Close the project tab — the pinned row must persist.
+    // Chiusa la tab, la tessera resta: è la scorciatoia, e la scorciatoia non
+    // dipende dal fatto che la cosa sia aperta adesso.
     const projectPaneTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`);
     await expect(projectPaneTab).toBeVisible({ timeout: 5000 });
     await projectPaneTab.click({ button: "right" });
     await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(projectPaneTab).toBeHidden({ timeout: 5000 });
-    await expect(pinnedSection.getByTestId("project-toggle-e2e-pin-project")).toBeVisible({ timeout: 5000 });
+    await expect(pinnedTile).toBeVisible({ timeout: 5000 });
 
     // Reload — pins survive (localStorage warm-load + server hydrate).
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    await expect(
-      page.getByTestId("sidebar-pinned-section").getByTestId("project-toggle-e2e-pin-project")
-    ).toBeVisible({ timeout: 10000 });
+    const reloadedTile = page
+      .getByTestId("sidebar-pinned-section")
+      .getByRole("treeitem", { name: "e2e-pin-project" });
+    await expect(reloadedTile).toBeVisible({ timeout: 10000 });
 
-    // One click reopens the project tab.
-    await page.getByTestId("project-toggle-e2e-pin-project").click();
+    // Un click sulla tessera riporta alla tab del progetto.
+    await reloadedTile.click();
     await expect(
       page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`)
     ).toBeVisible({ timeout: 10000 });

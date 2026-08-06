@@ -6,7 +6,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, isPaneClosable, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
@@ -1094,11 +1094,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 the spinner and notification badge are the trailing-most things on
                 the tab ("loading e stato a fine tab"). The close X is revealed on
                 hover in this slot; idle it shows the ⌘N index (Electron). */}
-            {/* Fissata → niente X: la si toglie dai Fissati e poi si chiude
-                (vedi `isPaneClosable`). Nascosta, non disabilitata: un bottone
-                che non fa niente è peggio di un bottone che non c'è, e il
-                glyph del pin qui accanto dice già perché. */}
-            {!nonClosablePaneIds?.has(pane.id) && (!isFissato || isPaneClosable(pane, isFissato)) && (
+            {/* Anche una tab FISSATA si chiude. Il fissaggio non è un
+                lucchetto: è una scorciatoia che resta — chiusa la tab, la
+                tessera nei Fissati rimane e riaprirla la riporta dov'era
+                (riaprendo si disarchivia). Il lucchetto restava solo finché non
+                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
+                fare la cosa più comune che ci si fa. */}
+            {!nonClosablePaneIds?.has(pane.id) && (
               <PaneCloseButton
                 paneId={pane.id}
                 onClose={onClose}
@@ -1398,12 +1400,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               Falls back to onClose for legacy callers that don't pass
               onCloseImmediate. Hidden for structurally-owned (non-closable)
               panes, same as the tab X. */}
-          {!nonClosablePaneIds?.has(ctxMenu.paneId) && (() => {
-            // Stessa regola della X: una tab fissata non si chiude nemmeno dal
-            // menu contestuale, altrimenti la protezione sarebbe una tenda.
-            const p = panes.find(x => x.id === ctxMenu.paneId);
-            return !p || !isFissato || isPaneClosable(p, isFissato);
-          })() && (
+          {!nonClosablePaneIds?.has(ctxMenu.paneId) && (
             <>
               <button
                 onClick={() => {
