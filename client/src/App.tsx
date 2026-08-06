@@ -134,7 +134,7 @@ const BOOT_TAB_PERMALINK = (() => {
 const BOOT_DEEP_LINK = bootDeepLinkTarget();
 
 const TOPICS_MENU_PAGES = [
-  { id: 'board' as const, icon: LayoutGrid, label: 'Board generale' },
+  { id: 'board' as const, icon: LayoutGrid, label: 'Board' },
   { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
   { id: 'cron' as const, icon: Timer, label: 'Cron Jobs' },
 ];
