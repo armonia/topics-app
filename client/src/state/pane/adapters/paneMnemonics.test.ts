@@ -16,7 +16,7 @@ import { TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 
 /** L'etichetta con cui la riga viene DAVVERO dipinta (stessa fonte del menu). */
 const LABELS: Record<AddMenuItemId, string> = {
-  'new-chat': 'New Chat',
+  'new-chat': 'Chat',
   shell: TERMINAL_AGENT_LABELS.shell,
   'claude-code': TERMINAL_AGENT_LABELS['claude-code'],
   codex: TERMINAL_AGENT_LABELS.codex,
@@ -26,8 +26,7 @@ const LABELS: Record<AddMenuItemId, string> = {
   files: getPaneConfig('files').label,
   kanban: getPaneConfig('kanban').label,
   board: getPaneConfig('board').label,
-  'open-project': 'Apri Progetto',
-  'create-project': 'Crea Progetto',
+  'open-project': 'Progetto…',
 };
 
 describe('mnemonics del menu "New…"', () => {
@@ -68,11 +67,14 @@ describe('mnemonics del menu "New…"', () => {
   });
 
   it('C resta a Claude Code: è l\'agente di default', () => {
-    // Regressione mirata: la tentazione naturale è dare C a Codex (viene prima
-    // in ordine alfabetico dentro il blocco terminale). Sarebbe la scelta
-    // sbagliata — l'agente che si apre di più è Claude Code.
+    // Regressione mirata, e vale per DUE tentazioni: dare C a Codex (viene
+    // prima in ordine alfabetico nel blocco terminale) o darla a Chat (è la
+    // prima riga). Entrambe sarebbero la scelta sbagliata — la voce che si
+    // apre di più è Claude Code, e le altre due hanno una lettera libera più
+    // in là nella loro etichetta.
     expect(ADD_MENU_MNEMONICS['claude-code']).toBe('C');
     expect(ADD_MENU_MNEMONICS.codex).toBe('X');
+    expect(ADD_MENU_MNEMONICS['new-chat']).toBe('H');
   });
 
   it('ogni riga dichiarata negli scope esiste nella mappa, e viceversa', () => {
