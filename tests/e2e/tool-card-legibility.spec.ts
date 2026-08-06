@@ -209,6 +209,60 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     }
   });
 
+  test("la card usa la superficie dell'app, non il fondo dei blocchi di codice", async ({ page, request }) => {
+    // Il `pre` globale di index.css è UNLAYERED, e in Tailwind v4 batte
+    // qualunque utility. Le card scrivevano `bg-app-hover/40 px-2 py-1.5
+    // text-[11px]` e non ne applicavano NESSUNA: veniva dipinto `--code-bg`
+    // (#1f2937, un ardesia bluastro anche in tema chiaro) con 12px di padding e
+    // 13px di testo. Misurato prima e dopo — per questo il test misura, invece
+    // di guardare le classi.
+    const fresh = await createTopic(request, "Tinta card " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "leggi",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u.id, content: "Fatto.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [{ id: "tint-1", name: "Read", args: { file_path: "/a.ts" }, status: "success", result: "const x = 1;" }],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const row = page.locator('[data-testid="tool-call-row-tint-1"]');
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await row.locator("button").first().click();
+
+      const misura = await row.locator('[data-testid="tool-call-result"]').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          bg: cs.backgroundColor,
+          codeBg: getComputedStyle(document.documentElement).getPropertyValue('--code-bg').trim(),
+          padTop: cs.paddingTop,
+          fontSize: cs.fontSize,
+        };
+      });
+
+      // La tinta è NEUTRA: in oklab le componenti a/b sono la deriva di colore,
+      // e su un grigio di sistema devono essere ~0. Il vecchio #1f2937 aveva
+      // hue 215 e il 28% di saturazione.
+      const ab = (misura.bg.match(/-?[\d.]+/g) ?? []).slice(1, 3).map(Number);
+      expect(Math.abs(ab[0] ?? 1)).toBeLessThan(0.01);
+      expect(Math.abs(ab[1] ?? 1)).toBeLessThan(0.01);
+      expect(misura.bg).not.toContain('31, 41, 55');
+      expect(misura.bg).not.toBe(misura.codeBg);
+      // …e le misure che le classi dichiarano vengono davvero applicate.
+      expect(misura.padTop).toBe('6px');
+      expect(misura.fontSize).toBe('11px');
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
   test("un risultato salvato come array di blocchi torna leggibile", async ({ page, request }) => {
     const u = await seedMessage(request, {
       sessionKey,
