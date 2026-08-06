@@ -15,6 +15,13 @@
  * quelle sotto; i punti che pinnano non decidono più niente, chiedono e basta
  * (`shouldPin`).
  *
+ * Il secondo campo, `userHeld`, non è un terzo flag risorto: non risponde alla
+ * stessa domanda con un'altra voce, ne risponde a una diversa — «chi ha in
+ * mano lo scroll adesso». Le due si sovrapponevano finché nessuno pinnava
+ * fuori dallo stream; da quando ci sono i pin sulla RIMISURA, «ancorato» non
+ * bastava più a dire «puoi tirarlo giù». Sta comunque qui dentro, ed entrambe
+ * si consultano da un punto solo.
+ *
  * Nota sul terzo flag scomparso. `userIntentUpRef` esisteva per distinguere
  * «l'utente ha afferrato lo scroll» da «un tool block ha fatto crescere il
  * contenuto sotto la posizione pinnata» (che NON è uno scroll dell'utente e
@@ -45,6 +52,14 @@ export const AT_BOTTOM_TOLERANCE_PX = 150;
 export const RESTORE_DETACH_PX = 50;
 
 /**
+ * Sotto questa distanza la vista è al fondo VERO, e la presa dell'utente si
+ * scioglie (`userHeld`). Deve essere una manciata di pixel, non la tolleranza
+ * dei 150: dentro quella banda ci sta comodamente uno che sta leggendo le
+ * ultime righe, e scioglierglela lì significa ributtarcelo.
+ */
+export const BOTTOM_RELEASE_PX = 4;
+
+/**
  * Calo di `scrollTop` che vale come "l'utente ha tirato su la vista". Sotto
  * questa soglia è jitter di rimisura — il pin dell'app alza `scrollTop`, non lo
  * abbassa mai, quindi un calo vero è sempre l'utente.
@@ -59,11 +74,34 @@ export interface ScrollAuthorityState {
   anchored: boolean;
   /** Istante fino al quale gli scarti di misura non contano come sgancio. */
   guardUntil: number;
+  /**
+   * L'utente ha le MANI sullo scroll e non è ancora tornato al fondo vero.
+   *
+   * Esiste perché `anchored` da solo non copriva la fascia sotto i 150px.
+   * Lì l'autorità dice ancora «ancorato» — di proposito: un colpo di rotellina
+   * da pochi pixel non deve far comparire il bottone «torna in fondo» — e per
+   * un pezzo quella convinzione è stata innocua, perché fuori dallo stream
+   * nessuno pinnava. Poi sono arrivati i pin sulla RIMISURA (il
+   * ResizeObserver sulla lista, `totalListHeightChanged` fuori dall'apertura,
+   * l'altezza del composer), e proprio dentro quella fascia: scorrere
+   * all'insù, in una lista virtualizzata, MONTA righe nuove e cambia
+   * l'altezza totale — cioè il gesto dell'utente si autoinnescava addosso il
+   * pin che lo riportava giù. Il difetto era «scrollo su e mi ributta
+   * sotto», e il pezzo mancante non era una soglia: era il fatto che nessuno
+   * teneva il conto di CHI ha in mano lo scroll.
+   *
+   * Lo alza solo un gesto vero (rotellina, dito, trascinamento della barra):
+   * di gesti l'app non ne produce. Lo scioglie solo il ritorno al fondo VERO
+   * — `BOTTOM_RELEASE_PX`, non i 150 — o un intento esplicito (invio,
+   * «torna in fondo», cambio di topic).
+   */
+  userHeld: boolean;
 }
 
 export const initialScrollAuthority: ScrollAuthorityState = {
   anchored: true,
   guardUntil: 0,
+  userHeld: false,
 };
 
 export type ScrollEvent =
@@ -110,8 +148,15 @@ export type ScrollEvent =
    * `teleported` = ci è arrivata di colpo da lontano, senza che l'avessimo
    * portata noi. Non è un gesto umano: è la lista che si è ri-ancorata da sé
    * dopo una rimisura. Vedi la transizione.
+   *
+   * `distanceFromBottom` distingue «Virtuoso considera questo il fondo»
+   * (soglia 150) dal fondo VERO. Solo il secondo scioglie `userHeld`: chi si
+   * è riportato a 100px dal fondo sta ancora leggendo, e riprendergli lo
+   * scroll lì è lo stesso difetto di prima con un altro nome. Assente = si
+   * comporta come prima (scioglie), così i chiamanti che non misurano non
+   * cambiano semantica.
    */
-  | { type: 'reached-bottom'; teleported?: boolean }
+  | { type: 'reached-bottom'; teleported?: boolean; distanceFromBottom?: number }
   /** Virtuoso: la vista non è più in fondo. Può essere l'utente o la crescita del contenuto. */
   | { type: 'left-bottom'; streaming: boolean; distanceFromBottom: number }
   /** Offset ripristinato da un undo di pane. */
@@ -139,9 +184,21 @@ function detach(state: ScrollAuthorityState): ScrollDecision {
   return { state: { ...state, anchored: false }, pin: false };
 }
 
-/** Riancora e arma la guardia: la forma condivisa di ogni scroll forzato. */
-function reanchor(now: number, pin: boolean): ScrollDecision {
-  return { state: { anchored: true, guardUntil: now + SCROLL_GUARD_MS }, pin };
+/** Alza la presa dell'utente — stessa regola di identità di `detach`. */
+function hold(state: ScrollAuthorityState): ScrollAuthorityState {
+  return state.userHeld ? state : { ...state, userHeld: true };
+}
+
+/**
+ * Riancora e arma la guardia: la forma condivisa di ogni scroll forzato.
+ *
+ * `keepHold` serve a un solo caso, ed è quello che conta: un turno che
+ * COMINCIA ri-afferma l'ancoraggio, ma non è un intento dell'utente — lo
+ * avviano anche la board, un agente, un'altra finestra — quindi non ha nessun
+ * diritto di sciogliergli la presa e trascinarlo in fondo.
+ */
+function reanchor(now: number, pin: boolean, keepHold = false): ScrollDecision {
+  return { state: { anchored: true, guardUntil: now + SCROLL_GUARD_MS, userHeld: keepHold }, pin };
 }
 
 export function reduceScroll(
@@ -166,7 +223,7 @@ export function reduceScroll(
     // riancora comunque. Questo era il salto in fondo mentre si leggeva.
     case 'stream-start':
       if (!state.anchored) return { state, pin: false };
-      return reanchor(now, false);
+      return reanchor(now, false, state.userHeld);
 
     // Inviare È l'intento di seguire la risposta: vince anche su una vista che
     // l'utente aveva deliberatamente portato indietro a leggere.
@@ -174,7 +231,17 @@ export function reduceScroll(
     case 'scroll-to-bottom':
       return reanchor(now, true);
 
-    case 'user-scrolled-up':
+    case 'user-scrolled-up': {
+      // Un GESTO alza la presa, e lo fa PRIMA di ogni altra considerazione.
+      //
+      // Non è un doppione di `anchored`: sotto i 150px l'autorità resta
+      // ancorata di proposito (il bottone non deve comparire per un colpo di
+      // rotellina), ed è esattamente lì che i pin sulla rimisura riportavano
+      // giù chi stava scorrendo. La distanza qui non serve nemmeno
+      // misurarla bene — cosa impossibile dentro `wheel`, che gira PRIMA che
+      // il browser applichi il delta: un gesto è un gesto a qualunque
+      // distanza, e di gesti l'app non ne produce.
+      const held = (event.source ?? 'delta') === 'gesture' ? hold(state) : state;
       // Dentro la finestra di guardia il calo di `scrollTop` è NOSTRO, non suo.
       //
       // «Il pin alza soltanto, quindi un calo è sempre l'utente» era vero per un
@@ -196,13 +263,13 @@ export function reduceScroll(
       // 600ms dopo ogni nostro scroll forzato — cioè proprio nell'istante in cui
       // uno reagisce a un salto che non voleva.
       if (!event.streaming && (event.source ?? 'delta') === 'delta' && now < state.guardUntil) {
-        return { state, pin: false };
+        return { state: held, pin: false };
       }
       // Durante lo stream sganciare deve essere IMMEDIATO: il pin gira a ogni
       // chunk e, se aspettassimo l'atBottomStateChange di Virtuoso, ributterebbe
       // la vista in fondo prima che quello arrivi — l'utente resterebbe
       // inchiodato al fondo.
-      if (event.streaming) return detach(state);
+      if (event.streaming) return detach(held);
       // Fuori dallo stream nessuno sta combattendo con lui, quindi un colpo di
       // rotellina da pochi pixel non deve far comparire il bottone: sgancia
       // solo se la vista è DAVVERO lontana dal fondo. Con la distanza si
@@ -210,19 +277,28 @@ export function reduceScroll(
       // prima la geometria di Virtuoso, che però tace finché non supera la sua
       // soglia — ed è lì che l'aggancio sembrava incollato.
       if (event.distanceFromBottom != null && event.distanceFromBottom > AT_BOTTOM_TOLERANCE_PX) {
-        return detach(state);
+        return detach(held);
       }
-      return { state, pin: false };
+      return { state: held, pin: false };
+    }
 
-    case 'reached-bottom':
+    case 'reached-bottom': {
       // Un salto in fondo che non abbiamo fatto noi e che l'utente non ha
       // compiuto — la lista che si ri-ancora da sé dopo una rimisura — non è un
       // ritorno in fondo: è il difetto. Perdonarlo significava incollare la
       // vista per il resto della sessione a chi stava leggendo indietro.
       if (event.teleported) return { state, pin: false };
+      // La presa si scioglie solo al fondo VERO. Virtuoso chiama «in fondo»
+      // tutto ciò che sta entro 150px, e a 100px dal fondo si sta ancora
+      // leggendo: sciogliere lì rimetterebbe in circolo i pin sulla rimisura
+      // addosso a chi non ha ancora finito.
+      const atTrueBottom =
+        event.distanceFromBottom == null || event.distanceFromBottom <= BOTTOM_RELEASE_PX;
+      const released = state.userHeld && atTrueBottom ? { ...state, userHeld: false } : state;
       // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
-      if (state.anchored) return { state, pin: false };
-      return { state: { ...state, anchored: true }, pin: false };
+      if (released.anchored) return { state: released, pin: false };
+      return { state: { ...released, anchored: true }, pin: false };
+    }
 
     case 'left-bottom':
       // Durante lo stream questo evento NON è mai l'utente — quello passa da
@@ -271,12 +347,18 @@ export function reduceScroll(
  * qui, e non ripetuto in sei punti: il salto possiede la viewport finché la sua
  * breve grazia non scade, e ogni ancoraggio al fondo lo annullerebbe (era il
  * bug: `scrollTop 0 → fondo` entro 100ms dal salto).
+ *
+ * `userHeld` è il secondo veto, e vale per la stessa ragione: mentre l'utente
+ * ha in mano lo scroll, la viewport è SUA. Sta qui e non nei singoli punti che
+ * pinnano — sono cinque e ognuno se lo sarebbe dimenticato in modo diverso,
+ * che è precisamente la storia raccontata in cima a questo file.
  */
 export function shouldPin(
   state: ScrollAuthorityState,
   ctx: { jumpPending: boolean },
 ): boolean {
   if (ctx.jumpPending) return false;
+  if (state.userHeld) return false;
   return state.anchored;
 }
 

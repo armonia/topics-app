@@ -557,7 +557,17 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           </button>
         </div>
       </div>
-      <pre className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-[12.5px] leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`} style={{ margin: 0 }}>
+      {/* `tabIndex` quando il blocco scorre in orizzontale: una regione che
+          scorre e non è raggiungibile da tastiera è una riga di codice che con
+          la sola tastiera non si può leggere fino in fondo (axe:
+          scrollable-region-focusable). Prima non si vedeva perché senza tetto
+          di larghezza il codice quasi non traboccava mai; con la colonna capata
+          trabocca spesso, ed è lo stesso difetto di prima, solo visibile. */}
+      <pre
+        {...(wordWrap ? {} : { tabIndex: 0 })}
+        className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-[12.5px] leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`}
+        style={{ margin: 0 }}
+      >
         <code className="text-[12.5px]">
           {showLineNumbers ? (
             <table className="border-collapse w-full">
@@ -1223,7 +1233,11 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         return (
           <>
             {hasPreContentRows && (
-              <div className="space-y-0 mb-1.5">
+              // Il margine sotto serve a STACCARE le righe dalla prosa che
+              // segue. Quando prosa non ce n'è — un turno che ha solo agito, che
+              // è la forma di gran lunga più comune — quei 6px sono vuoto
+              // aggiunto sotto ogni riga di azione, e basta.
+              <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
                 {thinking && <ReasoningRow content={thinking} partial={partial} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} />
               </div>

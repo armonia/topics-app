@@ -35,6 +35,24 @@
   &::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
 }
 
+/* LA MISURA DI LETTURA della chat.
+   Una riga lunga quanto una pane larga si legge male: l'occhio, tornando a
+   capo, perde il rigo. È il motivo per cui ogni superficie di lettura seria —
+   Claude Code nel terminale compreso — capa la colonna e la centra, invece di
+   riempire.
+   Sta su un'utility e non su una classe scritta a mano perché va messa in
+   quattro punti che DEVONO restare allineati fra loro (la lista, il composer
+   con le sue strisce, la banda dei messaggi appuntati, lo scheletro di
+   caricamento): un solo nome, una sola misura.
+   Il valore arriva da `--chat-measure`, che App.tsx stampa sul root dai
+   settings; il fallback nel `var()` copre qualunque root che non ci passi
+   (test, storybook, la demo del sito). `none` = piena larghezza. */
+@utility chat-measure {
+  width: 100%;
+  max-width: var(--chat-measure, 820px);
+  margin-inline: auto;
+}
+
 /* Topbar tabs — fully hidden by default, ghost 3px thumb only on direct hover */
 @utility scrollbar-topbar {
   scrollbar-width: none;

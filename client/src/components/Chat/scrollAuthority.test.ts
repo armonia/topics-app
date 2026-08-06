@@ -392,3 +392,122 @@ describe('sequenze vere', () => {
     expect(s.anchored).toBe(true);
   });
 });
+
+/**
+ * LA PRESA DELL'UTENTE — la fascia sotto i 150px, dove il difetto viveva.
+ *
+ * Sotto la tolleranza l'autorità resta `anchored` di proposito (il bottone
+ * «torna in fondo» non deve comparire per un colpo di rotellina), e finché
+ * nessuno pinnava fuori dallo stream quella convinzione era innocua. Coi pin
+ * sulla rimisura non lo è più: scorrere all'insù monta righe nuove, l'altezza
+ * totale cambia, e il pin che ne segue riportava giù chi stava scorrendo.
+ */
+describe('presa dell’utente (userHeld)', () => {
+  it('un GESTO a 40px dal fondo non sgancia (niente bottone) ma vieta il pin', () => {
+    const d = reduceScroll(
+      at(),
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 40 },
+      T0,
+    );
+    expect(d.state.anchored).toBe(true); // il bottone resta nascosto, come prima
+    expect(d.state.userHeld).toBe(true);
+    expect(shouldPin(d.state, { jumpPending: false })).toBe(false);
+  });
+
+  it('un calo AMBIGUO dentro la guardia non alza la presa (è un nostro riassestamento)', () => {
+    const s = run(at({ guardUntil: T0 + SCROLL_GUARD_MS }), [
+      { type: 'user-scrolled-up', streaming: false, source: 'delta', distanceFromBottom: 40 },
+    ]);
+    expect(s.userHeld).toBe(false);
+    expect(shouldPin(s, { jumpPending: false })).toBe(true);
+  });
+
+  it('la presa regge a una raffica di rimisure: è il caso live che rompeva', () => {
+    let s = reduceScroll(
+      at(),
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      T0,
+    ).state;
+    for (let i = 0; i < 10; i++) {
+      // Ogni riga montata scorrendo cambia l'altezza totale: Virtuoso lo
+      // annuncia entro la tolleranza, e prima da qui ripartiva il pin.
+      const d = reduceScroll(s, { type: 'left-bottom', streaming: false, distanceFromBottom: 60 }, T0 + i);
+      s = d.state;
+      expect(d.pin).toBe(false);
+      expect(shouldPin(s, { jumpPending: false })).toBe(false);
+    }
+  });
+
+  it('torna al fondo VERO → la presa si scioglie e l’aggancio riprende', () => {
+    const s = run(at(), [
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      { type: 'reached-bottom', distanceFromBottom: 0 },
+    ]);
+    expect(s.userHeld).toBe(false);
+    expect(shouldPin(s, { jumpPending: false })).toBe(true);
+  });
+
+  it('«in fondo» secondo Virtuoso (100px) NON la scioglie: lì si sta ancora leggendo', () => {
+    const s = run(at(), [
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      { type: 'reached-bottom', distanceFromBottom: 100 },
+    ]);
+    expect(s.userHeld).toBe(true);
+    expect(shouldPin(s, { jumpPending: false })).toBe(false);
+  });
+
+  it('un ritorno al fondo TELEPORTATO non scioglie niente', () => {
+    const s = run(at(), [
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      { type: 'reached-bottom', teleported: true, distanceFromBottom: 0 },
+    ]);
+    expect(s.userHeld).toBe(true);
+  });
+
+  it('un turno che COMINCIA non gliela toglie: non è detto che l’abbia avviato lui', () => {
+    const s = run(at(), [
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      { type: 'stream-start' },
+    ]);
+    expect(s.userHeld).toBe(true);
+    expect(shouldPin(s, { jumpPending: false })).toBe(false);
+  });
+
+  it('invio, «torna in fondo» e cambio topic sono intenti espliciti: la sciolgono', () => {
+    for (const e of [
+      { type: 'user-sent' },
+      { type: 'scroll-to-bottom' },
+      { type: 'topic-switch' },
+    ] as ScrollEvent[]) {
+      const s = run(at(), [
+        { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+        e,
+      ]);
+      expect(s.userHeld).toBe(false);
+    }
+  });
+
+  it('durante lo stream il gesto sgancia E tiene la presa', () => {
+    const d = reduceScroll(
+      at(),
+      { type: 'user-scrolled-up', streaming: true, source: 'gesture', distanceFromBottom: 10 },
+      T0,
+    );
+    expect(d.state.anchored).toBe(false);
+    expect(d.state.userHeld).toBe(true);
+  });
+
+  it('stato invariato ⇒ stesso oggetto (il riduttore vive in un render)', () => {
+    const held = reduceScroll(
+      at(),
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      T0,
+    ).state;
+    const again = reduceScroll(
+      held,
+      { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 60 },
+      T0,
+    ).state;
+    expect(again).toBe(held);
+  });
+});

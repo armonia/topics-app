@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
@@ -22,9 +22,35 @@ import {
   isUserScrollUp,
   initialScrollAuthority,
   AT_BOTTOM_TOLERANCE_PX,
+  BOTTOM_RELEASE_PX,
   type ScrollAuthorityState,
   type ScrollEvent,
 } from './scrollAuthority';
+import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
+
+/**
+ * La LISTA di Virtuoso, cappata alla misura di lettura.
+ *
+ * Il tetto va qui — sul contenuto — e non sullo scroller, per due motivi che
+ * si vedono subito se si sbaglia: cappando lo scroller la barra di
+ * scorrimento finisce in mezzo alla pane invece che sul suo bordo, e ci si
+ * scollano i due elementi che sono `absolute inset-0` rispetto a lui
+ * (l'overlay del drop dei file, l'ancoraggio del bottone «torna in fondo»).
+ * Tutta la geometria dell'autorità di scroll è VERTICALE, quindi un cap
+ * orizzontale su un discendente le è invisibile.
+ *
+ * Definita a livello di modulo: un'identità nuova a ogni render farebbe
+ * rimontare l'intero subtree della lista a ogni token di streaming.
+ *
+ * `{...props}` PRIMA di className, e non è pignoleria: da lì arriva
+ * `data-testid="virtuoso-item-list"`, che l'osservatore della crescita
+ * (`ro.observe(lista)`, più sotto) usa per trovare questo elemento.
+ */
+const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
+  function ChatList({ className, ...props }, ref) {
+    return <div {...props} ref={ref} className={`${className ?? ''} chat-measure`} />;
+  },
+);
 
 interface MessageListProps {
   isMobile: boolean;
@@ -130,6 +156,9 @@ export function MessageList({
   // banner. Non è una seconda autorità — nessuno lo legge per decidere.
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const lastScrollTopRef = useRef(0);
+  /** Il punto più alto da cui l'utente sta scendendo DENTRO un gesto: serve a
+   *  sommare i cali piccoli di un trackpad o di un dito. Vedi `onScroll`. */
+  const scrollUpAnchorRef = useRef(0);
   const prevStreamingRef = useRef(false);
   const [newMsgCount, setNewMsgCount] = useState(0);
   const [showNewBanner, setShowNewBanner] = useState(false);
@@ -158,10 +187,11 @@ export function MessageList({
   // token. The footer only depends on inputAreaHeight.
   const virtuosoComponents = useMemo(() => ({
     Footer: () => inputAreaHeight > 0 ? <div style={{ height: inputAreaHeight }} /> : null,
+    List: ChatList,
   }), [inputAreaHeight]);
 
   // Memoize filtered messages
-  const filteredMessages = useMemo(() =>
+  const visibleMessages = useMemo(() =>
     currentMessages.filter(msg => {
       // Keep partial assistant messages (streaming placeholder)
       if (msg.role === 'assistant' && msg.partial) return true;
@@ -184,11 +214,37 @@ export function MessageList({
     [currentMessages]
   );
 
-  // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
-  const markerPartition = useMemo(
-    () => partitionMarkers(filteredMessages, compactionMarkers),
-    [filteredMessages, compactionMarkers],
+  /**
+   * Le corse di tool tornano a essere UN item.
+   *
+   * Il transcript di Claude Code emette un messaggio assistant per ogni blocco:
+   * misurato sul DB, l'85% dei messaggi assistant di una chat è «una sola tool
+   * call, testo vuoto». Il raggruppatore lavora dentro un messaggio, quindi
+   * riceveva sempre un array di lunghezza uno e non raggruppava mai — e ogni
+   * azione si portava dietro il vestito completo di un messaggio (margini,
+   * bolla, la riga del timestamp che occupa spazio anche invisibile). Fondendo
+   * la corsa qui, il raggruppatore vede finalmente il gruppo e il vestito si
+   * paga una volta. Vedi `coalesceToolRun.ts`.
+   */
+  const { items: filteredMessages, carrierById } = useMemo(
+    () => coalesceToolRuns(visibleMessages),
+    [visibleMessages],
   );
+
+  // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
+  // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
+  // assorbito dev'essere ancora trovabile (altrimenti `partitionMarkers` lo
+  // butta in cima, che è la sua rete di sicurezza, non il posto giusto).
+  const markerPartition = useMemo(
+    () => partitionMarkers(visibleMessages, compactionMarkers),
+    [visibleMessages, compactionMarkers],
+  );
+  /** I marker di un item = i suoi, più quelli dei messaggi che ha assorbito. */
+  const markersAfter = useCallback((msg: CoalescedMessage) => {
+    const ids = msg.mergedIds ?? (msg.id ? [msg.id] : []);
+    const out = ids.flatMap((id) => markerPartition.byAfter.get(id) ?? []);
+    return out.length ? out : undefined;
+  }, [markerPartition]);
 
   /**
    * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
@@ -262,6 +318,13 @@ export function MessageList({
   const lastPinAtRef = useRef(0);
   /** Finestra entro cui un arrivo al fondo è ancora attribuibile al nostro pin. */
   const PIN_ATTRIBUTION_MS = 500;
+  /** Entro tanto da un nostro pin, un calo di `scrollTop` è il riassestamento
+   *  della lista, non un gesto — per quanto il dito sia passato di lì. */
+  const SELF_PIN_SETTLE_MS = 150;
+  /** I tre controlli a scoppio ritardato dell'apertura (`OPEN_VERIFY_MS`), per
+   *  poterli spegnere: pinnano con `force`, quindi uno rimasto in volo dopo un
+   *  cambio di topic scrive sullo scroller della chat sbagliata. */
+  const openVerifyTimersRef = useRef<number[]>([]);
 
   /** C'è un salto da palette che possiede la viewport per questa topic? */
   const jumpPending = useCallback(() => !!peekScrollToMessage(topic.id), [topic.id]);
@@ -292,12 +355,17 @@ export function MessageList({
     // l'altezza smette di cambiare: appena la distanza è zero si esce.
     let attempts = 0;
     const run = () => {
-      lastPinAtRef.current = Date.now();
       const el = scrollerElRef.current;
       // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
       // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
       if (!el) return;
       if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+      // DOPO le guardie: qui si registrano i pin ESEGUITI, non quelli tentati.
+      // Stava in cima, quindi un pin che poi si tirava indietro rinfrescava
+      // comunque la finestra di attribuzione — e per 500ms un auto-riancoraggio
+      // di Virtuoso non veniva più riconosciuto come `teleported`, cioè
+      // `reached-bottom` riancorava chi stava leggendo indietro.
+      lastPinAtRef.current = Date.now();
       el.scrollTop = el.scrollHeight;
       const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (residuo > 1 && attempts < (opts?.settleFrames ?? PIN_SETTLE_FRAMES)) {
@@ -336,6 +404,21 @@ export function MessageList({
       setNewMsgCount(0);
       setShowNewBanner(false);
       prevMsgCountRef.current = 0;
+      // NB: `initialTopMostIndexRef` NON si scongela qui, ed è deliberato.
+      // Passando da una chat corta a una lunga il ref resta quello di prima e
+      // la nuova lista monta all'indice sbagliato — un difetto vero, ma
+      // azzerarlo qui ne apre uno peggiore: al cambio di topic `currentMessages`
+      // può essere ancora, per un render, la lista STALE della chat precedente
+      // (è lo stesso transitorio per cui il salto da palette non consuma il
+      // bersaglio finché `sawLoadCompleteRef` non è vero), e il ref si
+      // ricongelerebbe su quella — stavolta in modo permanente. Misurato: con
+      // l'azzeramento qui, la chat riapriva a metà su una lista lunga.
+      // Il rimedio giusto è congelare l'indice sulla lista di QUESTA topic,
+      // non azzerarlo alla cieca.
+      // I controlli in volo dell'apertura precedente pinnano con `force`: se
+      // scattano adesso, lo fanno sullo scroller di questa chat.
+      openVerifyTimersRef.current.forEach(window.clearTimeout);
+      openVerifyTimersRef.current = [];
       // Riparte ancorata e arma la guardia: la lista si rimonta e si rimisura
       // tutta. Il pin vero lo fa l'effetto che aspetta il caricamento.
       dispatchScroll({ type: 'topic-switch' });
@@ -420,17 +503,42 @@ export function MessageList({
     // Non è un poll: sono tre istanti fissi entro la finestra di apertura, e
     // ognuno si tira indietro se l'utente ha toccato lo scroll o se la vista è
     // ormai lontana dal fondo (allora è una scelta sua, non un residuo).
+    // …e si cancellano. Pinnano con `force`, cioè scavalcando `shouldPin`: un
+    // timer sopravvissuto a un cambio di topic entro 1,4s leggeva
+    // `scrollerElRef.current`, che nel frattempo è lo scroller della chat
+    // NUOVA — e gliela portava in fondo. Il topic si ricontrolla anche dentro
+    // il timer, perché lo scroller può essere lo stesso elemento riusato.
+    // I timer stanno in un ref e NON in una cleanup dell'effetto: questo
+    // effetto ri-gira a ogni messaggio nuovo (`filteredMessages.length` è fra
+    // le dipendenze) e una cleanup li spegnerebbe al primo messaggio che
+    // arriva durante l'apertura — cioè proprio quando servono.
+    const apertura = topic.id;
     for (const ritardo of OPEN_VERIFY_MS) {
-      window.setTimeout(() => {
+      openVerifyTimersRef.current.push(window.setTimeout(() => {
         if (userTouchedRef.current) return;
+        if (openPinnedForRef.current !== apertura) return;
         const el = scrollerElRef.current;
         if (!el || el.clientHeight === 0) return;
         const residuo = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (residuo <= 1 || residuo > AT_BOTTOM_TOLERANCE_PX) return;
+        if (residuo <= 1) return;
+        // Nessun tetto alla distanza: la guardia che conta è `userTouchedRef`,
+        // e l'ha già superata. Il tetto dei 150 stava qui per dire «se sei
+        // lontano è una tua scelta» — ma se l'utente non ha toccato niente,
+        // essere lontani non è una sua scelta: è un pezzo di lista arrivato
+        // tardi, ed è esattamente ciò che questi tre controlli esistono per
+        // rimediare. Con il tetto si tiravano indietro proprio nei casi
+        // peggiori (misurato: 225px di scarto e nessuno che lo chiudeva).
         pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
-      }, ritardo);
+      }, ritardo));
     }
   }, [topic.id, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, OPEN_VERIFY_MS]);
+
+  // Smontando la pane i timer dell'apertura devono morire con lei: pinnano con
+  // `force`, e uno rimasto in volo scrive su uno scroller che non è più suo.
+  useEffect(() => () => {
+    openVerifyTimersRef.current.forEach(window.clearTimeout);
+    openVerifyTimersRef.current = [];
+  }, []);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -480,7 +588,12 @@ export function MessageList({
     if (!scroller || scroller.clientHeight === 0) return;
     const targetId = peekScrollToMessage(topic.id);
     if (!targetId) return;
-    const index = filteredMessages.findIndex((m) => m.id === targetId);
+    // L'id cercato può essere stato ASSORBITO da una corsa di tool: in quel
+    // caso la riga esiste ancora, si chiama solo con l'id del portante. Senza
+    // questo passaggio il salto da palette su un'azione non trovava niente e
+    // scartava il bersaglio come se il messaggio fosse stato cancellato.
+    const rowId = carrierById.get(targetId) ?? targetId;
+    const index = filteredMessages.findIndex((m) => m.id === rowId);
     if (index < 0) {
       // Drop the target ONLY when an AUTHORITATIVE thread lacks the id
       // (inactive branch, deleted message) — i.e. this instance has watched a
@@ -508,10 +621,12 @@ export function MessageList({
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
     });
-    setJumpHighlightId(targetId);
+    // Si evidenzia la RIGA, quindi l'id del portante: `jumpHighlightId` viene
+    // confrontato con `msg.id` dell'item.
+    setJumpHighlightId(rowId);
     if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
     jumpHighlightTimer.current = setTimeout(() => setJumpHighlightId(null), 2400);
-  }, [topic.id, filteredMessages, currentLoading]);
+  }, [topic.id, filteredMessages, currentLoading, carrierById]);
   useEffect(() => {
     if (!currentLoading && filteredMessages.length > 0) tryScrollToTarget();
   }, [currentLoading, filteredMessages.length, tryScrollToTarget]);
@@ -580,7 +695,15 @@ export function MessageList({
   // riancorare qui quel falso negativo bloccherebbe il pin per tutto il turno.
   // This effect is declared BEFORE the streaming scroll effect so React runs
   // it first in the same render cycle.
+  /** Lo stesso valore, ma leggibile da un gestore di eventi senza comparire
+   *  nelle sue dipendenze: l'effetto dei listener monta anche un
+   *  ResizeObserver, e ricrearlo a ogni inizio/fine stream significava
+   *  incassare l'osservazione INIZIALE che `observe()` consegna sempre —
+   *  dritta nel ramo che ri-pinna al fondo. Cioè: un salto in fondo a ogni
+   *  transizione di streaming, anche a chi era risalito a leggere. */
+  const streamingRef = useRef(_currentStreaming);
   useEffect(() => {
+    streamingRef.current = _currentStreaming;
     if (_currentStreaming && !prevStreamingRef.current) dispatchScroll({ type: 'stream-start' });
     prevStreamingRef.current = _currentStreaming;
   }, [_currentStreaming, dispatchScroll]);
@@ -625,7 +748,7 @@ export function MessageList({
     // finestra di guardia — vedi `user-scrolled-up` in scrollAuthority.
     const releaseToUser = (source: 'gesture' | 'delta') => (userTouchedRef.current = true, dispatchScroll({
       type: 'user-scrolled-up',
-      streaming: _currentStreaming,
+      streaming: streamingRef.current,
       source,
       distanceFromBottom: Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight),
     }));
@@ -670,10 +793,54 @@ export function MessageList({
     };
     const onScroll = () => {
       const st = el.scrollTop;
-      if (isUserScrollUp(lastScrollTopRef.current, st)) {
-        releaseToUser(Date.now() < gestureUntil ? 'gesture' : 'delta');
+      const gesto = Date.now() < gestureUntil;
+      // I cali si SOMMANO, ma solo mentre l'utente ha le mani sopra.
+      //
+      // Il confronto fra due `scroll` consecutivi non vede lo scroll lento: un
+      // trackpad o un dito producono cali di pochi pixel per evento e non
+      // superano mai la soglia, quindi risalendo piano l'app non veniva a
+      // sapere che l'utente stava scorrendo. Sommandoli, venti passi da 3px
+      // pesano quanto un colpo di rotellina.
+      //
+      // Fuori da un input, però, sommare è SBAGLIATO, e si vede subito: nella
+      // finestra di apertura la lista si assesta abbassando `scrollTop` a
+      // piccoli passi, e l'accumulo li leggeva come «ha scrollato lui» —
+      // marcando `userTouchedRef` e spegnendo il pin che stava portando la
+      // chat in fondo. Cioè: la chat riapriva a metà. Senza gesto si torna al
+      // confronto fra eventi consecutivi, che di quell'assestamento non si
+      // accorge (ed è giusto così: non è l'utente).
+      if (!gesto || st > scrollUpAnchorRef.current) scrollUpAnchorRef.current = st;
+      const riferimento = gesto ? scrollUpAnchorRef.current : lastScrollTopRef.current;
+      if (isUserScrollUp(riferimento, st)) {
+        // Subito dopo un NOSTRO pin, il calo è nostro anche se il dito era
+        // appena passato di lì.
+        //
+        // `scrollToIndex('LAST')` porta la vista in fondo e poi Virtuoso
+        // rimisura le altezze: quel riassestamento ABBASSA `scrollTop` di
+        // qualche decina di pixel — è la stessa ambiguità per cui esiste la
+        // finestra di guardia. Ma la guardia, per un gesto, si scavalca
+        // apposta (un gesto l'app non lo produce), e nel varco ci cadeva il
+        // riassestamento che segue di un frame l'ultima rotellina: la presa si
+        // rialzava da sola un istante dopo che «torna in fondo» l'aveva
+        // sciolta, e la chat restava ferma a 12px dal fondo senza che nessun
+        // pin potesse più chiuderli. Centocinquanta millisecondi: nulla per una
+        // mano, tutto per il nostro assestamento.
+        const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS;
+        releaseToUser(gesto && !nostro ? 'gesture' : 'delta');
+        scrollUpAnchorRef.current = st;
       }
       lastScrollTopRef.current = st;
+      // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
+      // evento apposta perché Virtuoso non ne manda. La sua soglia è 150px:
+      // chi è risalito di 60px non l'ha mai fatta scattare, quindi non c'era
+      // nessun `reached-bottom` a chiudere il giro — e la chat sarebbe rimasta
+      // senza aggancio per il resto della sessione.
+      if (
+        authorityRef.current.userHeld &&
+        el.scrollHeight - st - el.clientHeight <= BOTTOM_RELEASE_PX
+      ) {
+        dispatchScroll({ type: 'reached-bottom', distanceFromBottom: 0 });
+      }
     };
     el.addEventListener('wheel', onWheel, { passive: true });
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -718,7 +885,37 @@ export function MessageList({
       // `pinToBottom`) più la geometria misurata adesso, così questo pin può
       // solo finire un movimento già quasi compiuto e non trascina mai giù chi
       // sta leggendo indietro.
-      if (el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_TOLERANCE_PX) return;
+      const r = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // Un pixel di banda morta, non di più — e la tentazione di allargarla va
+      // resistita. A riposo si vede un'oscillazione: pinnare cambia
+      // `scrollTop`, la lista virtualizzata smonta/rimonta una riga al bordo,
+      // l'altezza balla di ~6px e il giro riparte (misurato: h fra 1409 e
+      // 1415). Allargare la banda a 8px la spegne, ma lascia la chat FERMA a
+      // sei pixel dal fondo — ed è esattamente il difetto che tre test
+      // pretendono non esista («il fondo vero, non quasi»). Il ballo è
+      // preesistente e costa poco; lo scarto fermo si vede. Fra i due si
+      // sceglie il ballo.
+      if (r <= 1) return;
+      // DENTRO L'APERTURA la distanza non è un argomento.
+      //
+      // Il resto di questa regola esiste per non strappare la vista a chi sta
+      // leggendo, e per quello la tolleranza è giusta: si può solo finire un
+      // movimento quasi compiuto. Ma finché la chat si sta APRENDO non c'è
+      // nessuno da cui guardarsi — `userTouchedRef` lo dice — e la distanza
+      // misura solo quanto è grande l'ULTIMO pezzo di contenuto arrivato.
+      // Misurato: su una lista fitta l'ultima crescita è di 225px in un colpo
+      // (la lista che monta le righe che le restano PIÙ il footer che prende
+      // l'altezza del composer, nello stesso frame), e con la sola soglia dei
+      // 150 ogni via di recupero si tirava indietro proprio lì — la chat
+      // restava aperta a 225px dal fondo, ferma, senza più nessun evento.
+      // Non è un caso di nicchia: più la chat è compatta, più righe entrano in
+      // un frame, più grande è quel salto.
+      const now = Date.now();
+      if (!userTouchedRef.current && now <= openingUntilRef.current && now <= openingHardStopRef.current) {
+        pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
+        return;
+      }
+      if (r > AT_BOTTOM_TOLERANCE_PX) return;
       pinToBottom();
     });
     ro.observe(el);
@@ -741,7 +938,10 @@ export function MessageList({
       el.removeEventListener('touchmove', markGesture);
       el.removeEventListener('pointerdown', markGesture);
     };
-  }, [scrollerEl, topic.id, _currentStreaming, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES]);
+    // `_currentStreaming` NON sta qui: lo legge `streamingRef`. Vedi il commento
+    // sul ref — rimontare i listener a ogni transizione di stream faceva
+    // ripartire l'osservazione iniziale del ResizeObserver, e con essa il pin.
+  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -796,11 +996,22 @@ export function MessageList({
   // bottom — under the composer ("il loader finisce sotto l'input"). Re-anchor
   // on every height change, unless the user deliberately scrolled up or a
   // palette jump owns the viewport.
-  const prevInputAreaHeightRef = useRef(inputAreaHeight);
+  //
+  // Due precisazioni, e sono quelle che rendono innocuo il box della CODA.
+  // Quel box sta fuori dallo scroller (è nel composer), ma la sua altezza
+  // rientra qui dentro: `inputAreaHeight` è il Footer di Virtuoso, cioè
+  // contenuto scrollato. Comparire e sparire, a ogni ciclo della coda, sono
+  // due cambi d'altezza — e prima ognuno era un pin.
+  //  • si pinna solo quando lo spazio CRESCE: è l'unico caso in cui qualcosa
+  //    rischia di finire sotto il composer. Uno shrink non nasconde niente;
+  //  • si confronta arrotondato, perché `contentRect.height` è un float e il
+  //    rumore subpixel bastava a far partire il giro.
+  const prevInputAreaHeightRef = useRef(Math.round(inputAreaHeight));
   useEffect(() => {
-    const changed = inputAreaHeight !== prevInputAreaHeightRef.current;
-    prevInputAreaHeightRef.current = inputAreaHeight;
-    if (!changed) return;
+    const h = Math.round(inputAreaHeight);
+    const grew = h > prevInputAreaHeightRef.current;
+    prevInputAreaHeightRef.current = h;
+    if (!grew) return;
     pinToBottom({ frames: 2 });
   }, [inputAreaHeight, pinToBottom]);
 
@@ -924,7 +1135,7 @@ export function MessageList({
       <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
 
       {currentLoading && currentMessages.length === 0 ? (
-        <div className={`${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'} overflow-hidden`}>
+        <div className={`chat-measure ${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'} overflow-hidden`}>
           {[1,2,3].map(i => (
             <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
               <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
@@ -939,7 +1150,7 @@ export function MessageList({
           ))}
         </div>
       ) : filteredMessages.length === 0 ? (
-        <div className={`text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
+        <div className={`chat-measure text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
           <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
           {topic.systemPrompt && (
             <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
@@ -1009,6 +1220,13 @@ export function MessageList({
           followOutput={(isAtBottom: boolean) => {
             if (peekScrollToMessage(topic.id)) return false;
             if (_currentStreaming) return false;
+            // Anche questo è un pin, solo che lo esegue Virtuoso e quindi non
+            // passa da `shouldPin`. La sua idea di «in fondo» è la stessa
+            // fascia dei 150px: senza questa riga, chi era risalito di 149px si
+            // vedeva ANIMARE la vista verso il basso a ogni item nuovo — la
+            // versione più fastidiosa del difetto, perché dura più frame ed è
+            // esattamente il momento in cui uno sta tirando su.
+            if (authorityRef.current.userHeld) return false;
             return isAtBottom ? 'smooth' : false;
           }}
           // 150 (not 50) so the redesign's initial bottom-anchor — which
@@ -1082,7 +1300,14 @@ export function MessageList({
                 distanzaPrima > AT_BOTTOM_TOLERANCE_PX &&
                 Date.now() - lastPinAtRef.current > PIN_ATTRIBUTION_MS;
               // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
-              dispatchScroll({ type: 'reached-bottom', teleported });
+              // La distanza VERA viaggia con l'evento: «in fondo» per Virtuoso
+              // vuol dire entro 150px, e a 100px dal fondo l'utente sta ancora
+              // leggendo — non è il momento di riprendergli lo scroll.
+              dispatchScroll({
+                type: 'reached-bottom',
+                teleported,
+                distanceFromBottom: el ? el.scrollHeight - el.scrollTop - el.clientHeight : 0,
+              });
               setNewMsgCount(0);
               setShowNewBanner(false);
               return;
@@ -1108,7 +1333,7 @@ export function MessageList({
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
-            const trailingMarkers = msg.id ? markerPartition.byAfter.get(msg.id) : undefined;
+            const trailingMarkers = markersAfter(msg);
             // One boundary, one signal: a divider hoists the recap out of the
             // message BELOW it (that's where the CLI writes it) and renders the
             // expander itself, and that message then skips its own fold.
@@ -1121,7 +1346,7 @@ export function MessageList({
               : null;
             const hoistOwnSummary = idx === 0
               ? !!leadingSummary
-              : !!(prev?.id && markerPartition.byAfter.get(prev.id)?.length);
+              : !!(prev && markersAfter(prev)?.length);
             return (
               <>
               {idx === 0 && markerPartition.leading.map((mk, i) => (
