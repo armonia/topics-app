@@ -737,35 +737,31 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     }).catch(() => {});
   });
 
-  test("TILE-16: un progetto dice che si apre — anche a tab chiuse — e il contenuto resta centrato", async ({ page, request }) => {
+  test("TILE-16: il segno di apertura sta accanto al titolo, e a zero tab non c'è", async ({ page, request }) => {
     // La cartella non diceva niente che il nome non dicesse già — un progetto si
     // chiama come la sua cartella — e occupava lo spazio dell'unica cosa che il
     // nome NON dice: che quella tessera si apre.
-    //
-    // Due regressioni viste sull'app vera, entrambe coperte qui:
-    // 1. il segno spariva quando il progetto non aveva tab APERTE, cioè andava e
-    //    veniva da solo sullo stesso progetto;
-    // 2. riservargli una fascia in fondo alla tessera scentrava icona e titolo.
     const projectPath = "/tmp/e2e-tile-affordance";
     const chat = await createTopic(request, `E2E-Afford-${Date.now()}`, { projectPath });
-    const solo = await createTopic(request, `E2E-Afford-Solo-${Date.now()}`);
-    created.push(chat.id, solo.id);
+    // NON un prefisso dell'altro: `getByRole(name)` fa match per
+    // SOTTOSTRINGA, e "…-affordance" pescherebbe anche "…-affordance-vuoto".
+    const vuoto = "/tmp/e2e-tile-senza-tab";
+    const chatVuoto = await createTopic(request, `E2E-AffordVuoto-${Date.now()}`, { projectPath: vuoto });
+    created.push(chat.id, chatVuoto.id);
 
-    // SOLO il progetto: la sua chat resta non fissata e con la tab chiusa,
-    // quindi non è un figlio visibile — il caso in cui il segno spariva.
-    await setPins(page, [`project:${projectPath}`, solo.id]);
+    // Il primo progetto ha un figlio VISIBILE (la sua chat è fissata anche lei);
+    // il secondo no, e la sua tab è chiusa.
+    await setPins(page, [`project:${projectPath}`, chat.id, `project:${vuoto}`]);
     await gotoSidebar(page);
-    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+    await expect(tiles(page)).toHaveCount(3, { timeout: 15000 });
 
     const progetto = tileNamed(page, "e2e-tile-affordance");
     const segno = progetto.getByTestId("pinned-expand-hint");
-    await expect(segno, "il segno c'è anche senza tab aperte").toHaveCount(1, { timeout: 15000 });
+    await expect(segno).toHaveCount(1, { timeout: 15000 });
 
     // Niente cartella: al progetto resta il solo segno di apertura.
     await expect(progetto.locator("svg")).toHaveCount(1);
 
-    // Il contenuto è CENTRATO nella tessera: il segno vive in un angolo e non
-    // ruba spazio verticale.
     const box = async (l: Locator) => {
       const b = await l.boundingBox();
       expect(b).not.toBeNull();
@@ -781,7 +777,6 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
 
     // Il segno sta ACCANTO a ciò che identifica, sulla stessa riga: davanti al
     // nome (o all'icona, quando c'è) come nell'albero sta davanti alla cartella.
-    // Staccato sotto non apparteneva a niente.
     const marker = await box(segno);
     expect(marker.x + marker.width, "il segno precede il titolo").toBeLessThanOrEqual(testo.x + 1);
     const centri = Math.abs((marker.y + marker.height / 2) - (testo.y + testo.height / 2));
@@ -793,18 +788,16 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     const giro = () => segno.evaluate(el => getComputedStyle(el).rotate);
     expect(await giro(), "a riposo punta a destra, come ogni chevron delle righe").toBe("none");
 
-    // Aperta: il segno si gira, e la fascia RISPONDE invece di non esserci.
     await progetto.click();
-    const fascia = page.getByTestId("pinned-expansion");
-    await expect(fascia).toBeVisible({ timeout: 15000 });
-    await expect(fascia).toHaveText(/Nessuna tab aperta/);
+    await expect(page.getByTestId("pinned-expansion")).toBeVisible({ timeout: 15000 });
     // 90°, non 180: è lo STESSO chevron delle righe (progetti, gruppi,
     // sotto-agenti), quindi ruota come loro.
     await expect.poll(giro, { timeout: 5000 }).toBe("90deg");
 
-    // Una chat fissata non ha niente da aprire: niente segno, e nessuna
-    // promessa che il click non mantiene.
-    await expect(tileNamed(page, solo.name).getByTestId("pinned-expand-hint")).toHaveCount(0);
+    // A ZERO TAB non c'è niente da aprire: niente segno e nessuna fascia vuota.
+    // Una riga che dice «non c'è niente» è una riga in più per dire un vuoto.
+    const senzaTab = tileNamed(page, "e2e-tile-senza-tab");
+    await expect(senzaTab.getByTestId("pinned-expand-hint")).toHaveCount(0);
   });
 });
 

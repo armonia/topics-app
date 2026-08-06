@@ -1220,19 +1220,15 @@ export function TopicTree({
         if (item.id === BOARD_ID) return null;
         if (item.type !== 'project') return null;
         const children = item.children ?? [];
-        // Un progetto si apre SEMPRE, anche a zero tab. Prima la fascia
-        // esisteva solo con dei figli visibili — cioè la tessera portava il
-        // segno «si apre» quando avevi una tab aperta e lo perdeva quando la
-        // chiudevi, sullo stesso progetto. Un'affordance che va e viene da sola
-        // non è un'affordance: è una cosa che a volte c'è. E «nessuna tab
-        // aperta» è una risposta, non un vuoto da nascondere.
-        if (children.length === 0) {
-          return (
-            <div className="py-1 text-[11px] text-app-text-muted" style={{ paddingLeft: ROW_INSET + SIDEBAR_INDENT_STEP }}>
-              Nessuna tab aperta
-            </div>
-          );
-        }
+        // Zero tab aperte ⇒ NIENTE fascia, e quindi niente chevron sulla
+        // tessera: una riga che dice «non c'è niente» è una riga in più per
+        // dire un vuoto che si vedeva già dal fatto che non si apre nulla.
+        //
+        // Il prezzo è dichiarato: il segno «si apre» compare e sparisce col
+        // primo e l'ultimo tab di quel progetto. È il compromesso scelto
+        // (Attilio, 06/08) fra un'affordance sempre presente e una fascia che a
+        // volte si apre sul vuoto.
+        if (children.length === 0) return null;
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
         // sue tab stanno un livello dentro — lo stesso passo che hanno
         // nell'albero e sotto un terminale orchestratore.
