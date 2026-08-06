@@ -1,7 +1,5 @@
-/**
- * I casi sono presi dal `.gitignore` di QUESTO repo, perché è lì che il vecchio
- * parse faceva sparire file che git traccia.
- */
+/** I casi vengono dal `.gitignore` di questo repo, dove il vecchio parse
+ *  faceva sparire file che git traccia. */
 import { test, expect } from "bun:test";
 import { IgnoreSet } from "./gitignore";
 
@@ -9,7 +7,7 @@ test("una regola ancorata non colpisce le omonime in profondità", () => {
   const ig = new IgnoreSet().addFile("/data/\n");
   expect(ig.ignores("data", true)).toBe(true);
   expect(ig.ignores("data/topics.db", false)).toBe(true);
-  // Il caso che ha fatto sparire `landing/src/data/` — che git TRACCIA.
+  // Il caso che faceva sparire `landing/src/data/`, che git traccia.
   expect(ig.ignores("landing/src/data", true)).toBe(false);
   expect(ig.ignores("landing/src/data/changelog.json", false)).toBe(false);
 });
@@ -41,8 +39,8 @@ test("le wildcard IN MEZZO al nome funzionano", () => {
   expect(ig.ignores("tabbar-01.png", false)).toBe(true);
   expect(ig.ignores("shots/tabbar-01.png", false)).toBe(true);
   expect(ig.ignores("tabbar.png", false)).toBe(false);
-  // Il vecchio matcher aveva solo i rami `*.ext` e `prefisso*`: questo pattern
-  // non ha mai escluso niente.
+  // Il vecchio matcher aveva solo i rami `*.ext` e `prefisso*`, quindi questo
+  // pattern non ha mai escluso niente.
   expect(ig.ignores("altro-01.png", false)).toBe(false);
 });
 

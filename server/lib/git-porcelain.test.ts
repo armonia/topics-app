@@ -1,8 +1,8 @@
 /**
- * La stringa di prova è l'output LETTERALE di `git status --porcelain -z` su un
- * repo costruito apposta (rename + accento + untracked), catturato con
- * `tr '\0' '|'`. Non è inventata: il formato dei rename — nuovo prima, vecchio
- * dopo, in due campi — è esattamente ciò che il vecchio parse sbagliava.
+ * La stringa di prova non e inventata: e l'output letterale di
+ * `git status --porcelain -z` su un repo costruito apposta (rename, accento,
+ * untracked), catturato con `tr '\0' '|'`. Il formato dei rename, nuovo prima
+ * e vecchio dopo in due campi, e esattamente cio che il vecchio parse sbagliava.
  */
 import { test, expect } from "bun:test";
 import { parsePorcelainZ, isConflicted, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
@@ -13,8 +13,8 @@ const REAL = " M città.md\0R  new.md\0old.md\0?? untracked.txt\0";
 test("il path non-ASCII arriva grezzo, non ottalizzato", () => {
   const e = parsePorcelainZ(REAL);
   expect(e[0].path).toBe("città.md");
-  // Senza -z sarebbe `"citt\303\240.md"`, virgolette comprese, e ogni
-  // `git add --` su quella stringa risponde `fatal: pathspec`.
+  // Senza -z sarebbe `"citt\303\240.md"`, virgolette comprese, e `git add --`
+  // su quella stringa risponde `fatal: pathspec`.
   expect(e[0].path).not.toContain("\\");
   expect(e[0].path).not.toContain('"');
 });
@@ -87,7 +87,7 @@ const CONTAINER = "?? match-compass/\0 M altro/x.ts\0";
 test("la cartella aperta non diventa una riga senza nome", () => {
   const e = parsePorcelainZ(CONTAINER);
   const s = scopeToPrefix(e, "match-compass/");
-  // Prima restava dentro con path "" — il pannello diceva «1 modifica» e
+  // Prima restava dentro con path "": il pannello diceva «1 modifica» e
   // mostrava una riga vuota con la sola pastiglia `U`.
   expect(s).toEqual([]);
   expect(s.every(x => x.path.length > 0)).toBe(true);
