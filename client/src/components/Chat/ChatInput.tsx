@@ -1273,22 +1273,18 @@ export function ChatInput({
                     Il blocco di prompt non è andato perso — lo inietta la route
                     quando l'autonomia è `ask` (routes/chat.ts), così il piano
                     esce nel formato di sempre. */}
-                {onToggleFastMode && (
+                {onToggleFastMode && fastUi && (
                   <button
                     type="button"
                     onClick={onToggleFastMode}
-                    disabled={!fastUi.available}
-                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
+                    className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
                       fastUi.pressed
                         ? 'text-amber-500 bg-amber-500/10'
-                        : fastUi.available
-                          ? 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                          : 'text-app-text-faint cursor-not-allowed'
+                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
                     }`}
                     title={fastUi.title}
                     aria-label="Toggle fast mode"
                     aria-pressed={fastUi.pressed}
-                    aria-disabled={!fastUi.available}
                     data-testid="chat-input-fast-mode"
                   >
                     {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
@@ -1302,7 +1298,20 @@ export function ChatInput({
                         «veloce»? Se no, non è questo il glifo.
                         PIENO quando è acceso: in una riga tutta di contorni il
                         solo colore ambra non bastava a dire «attivo». */}
-                    <Zap size={16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
+                    <Zap size={fastUi.costMultiplier ? 14 : 16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
+                    {/* Quanto costa: 2× lo stesso modello a velocità normale, dal
+                        listino che la CLI scrive nei suoi stessi documenti
+                        (10$/50$ contro 5$/25$ per 1M). «Più veloce» da solo non
+                        è un'informazione finché non dici quanto costa.
+                        Non interattivo: un badge che entrasse nel conteggio dei
+                        bersagli tattili sarebbe un secondo bottone da 12px dentro
+                        il primo. */}
+                    {fastUi.costMultiplier && (
+                      <span
+                        className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
+                        data-testid="fast-mode-cost"
+                      >{fastUi.costMultiplier}×</span>
+                    )}
                   </button>
                 )}
                 {!isDraftTopic && (
