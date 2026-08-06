@@ -144,6 +144,10 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     await expect(fresh).toHaveAttribute("data-status", "success");
     await expect(fresh.locator(".text-green-500")).toHaveCount(0);
 
+    // Qui il MODELLO ha chiamato il tool: la riga sintetica non ci va, o la
+    // stessa cosa sarebbe detta due volte.
+    await expect(page.locator('[data-testid="invoked-command-row"]')).toHaveCount(0);
+
     await fresh.screenshot({ path: "test-results/skill-card-instructions.png" });
   });
 
@@ -337,7 +341,16 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await expect(cmd).toHaveAttribute("data-command", "recap");
       await expect(cmd).toContainText("/recap");
 
+      // …e il TURNO dice che sta girando quel comando: la riga che prima
+      // compariva solo quando il modello sceglieva di chiamare il tool `Skill`.
+      // Non finge una chiamata: non nasce da `tool_calls` e non si apre.
+      const riga = page.locator('[data-testid="invoked-command-row"]').last();
+      await expect(riga).toBeVisible();
+      await expect(riga).toHaveAttribute("data-command", "recap");
+      await expect(riga).toContainText("/recap");
+
       await cmd.screenshot({ path: "test-results/user-slash-command.png" });
+      await riga.screenshot({ path: "test-results/invoked-command-row.png" });
     } finally {
       await deleteTopic(request, fresh.id);
     }
@@ -356,8 +369,11 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      await expect(page.locator('[data-testid="message-content-user"]').last()).toContainText("Projects/topics-app");
-      await expect(page.locator('[data-testid="user-slash-command"]')).toHaveCount(0);
+      // Scoped all'ULTIMO messaggio: le pane dei test precedenti restano
+      // montate, e i loro `/recap` sono chip legittimi.
+      const ultimo = page.locator('[data-testid="chat-message"][data-role="user"]').last();
+      await expect(ultimo).toContainText("Projects/topics-app");
+      await expect(ultimo.locator('[data-testid="user-slash-command"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, fresh.id);
     }
