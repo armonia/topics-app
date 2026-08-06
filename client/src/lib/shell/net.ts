@@ -7,7 +7,6 @@
 // origin. These helpers are the single place that knows the difference.
 
 import { isTauri } from './index';
-import { getPairingToken, withTokenHeader, withTokenQuery } from './pairing';
 
 // The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
 // certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the
@@ -42,73 +41,56 @@ export function __resetNetShimForTests(): void {
 }
 
 /**
- * Shim globale su `fetch` + `EventSource`. Fa DUE cose, per due ragioni diverse,
- * e si installa se serve almeno una delle due:
+ * Shim globale su `fetch` + `EventSource`: riscrive gli URL relativi verso
+ * l'origine del data server.
  *
- * 1. **Riscrittura URL (solo Tauri).** Sotto Tauri la UI è servita da
- *    `tauri://localhost`, quindi le decine di `fetch('/api/…')` relative
- *    risolverebbero contro l'origine locale e fallirebbero: il leading-'/' va
- *    riscritto verso l'origine del data server. Su web `serverHttpBase()` è `''`,
- *    quindi questa parte è già un no-op per costruzione.
+ * Serve SOLO sotto Tauri, dove la UI è servita da `tauri://localhost`: le decine
+ * di `fetch('/api/…')` relative risolverebbero contro l'origine locale — che non
+ * ha un server — e fallirebbero. Su web `serverHttpBase()` è `''`, quindi la
+ * riscrittura sarebbe un no-op per costruzione e lo shim non si installa affatto:
+ * il browser sull'origine del server resta senza monkey-patch.
  *
- * 2. **Token di pairing (chiunque ne abbia uno).** Un dispositivo remoto paiato
- *    deve presentare `x-topics-token` su OGNI chiamata mutante, e nel client ce
- *    ne sono 80 su `/api` — 46 mutanti — sparse in oltre 20 file: i sync del
- *    pane-store, i tombstone, il layout di progetto, le tab del browser del task
- *    usano `fetch` NUDO con header propri, perché devono aggiungere
- *    `X-Client-Id` e usare `keepalive`. Non passano da `api.ts::request`, quindi
- *    `withTokenHeader` là dentro non li copre.
+ * Ha portato per un periodo anche il token di pairing, che è stata la ragione per
+ * cui si installava pure fuori da Tauri: nel client ci sono ~80 chiamate `/api`,
+ * 46 mutanti, sparse in oltre 20 file, e le più calde — sync del pane-store,
+ * tombstone, layout di progetto, tab del browser del task — usano `fetch` NUDO
+ * con header propri (`X-Client-Id`, `keepalive`) e non passano da
+ * `api.ts::request`. Il token non esiste più (change `lan-open-same-origin`), ma
+ * quel fatto resta vero: **questo è l'unico choke point** che le vede tutte. Se
+ * l'autenticazione centralizzata dovrà attaccare un header di sessione, si
+ * attacca qui — non nei 46 callsite.
  *
- * Il gate era `!isTauri → esci`, e questo lasciava la PWA in LAN — l'unico caso
- * per cui il token esiste — senza token su tutti quei percorsi: 401 sul sync
- * delle tab, cioè la rottura che LAN-PAIR-01 doveva chiudere. Ora si installa
- * anche fuori da Tauri quando un token è memorizzato. Su web SENZA token non si
- * installa affatto: il browser locale sull'origine del server resta identico a
- * prima, senza monkey-patch.
- *
- * Va chiamata una volta all'avvio, DOPO `capturePairingTokenFromUrl()` — il gate
- * legge il token, che quella funzione ha appena messo in storage.
- *
- * I callsite WebSocket usano `serverWsBase()` + `withTokenQuery` espliciti (un
- * WebSocket non è shimmabile con la stessa pulizia).
+ * Va chiamata una volta all'avvio. I callsite WebSocket usano `serverWsBase()`
+ * esplicito: un WebSocket non è shimmabile con la stessa pulizia.
  */
 export function installNetShim(): void {
   if (shimInstalled || typeof window === 'undefined') return;
-  // Serve per la riscrittura (Tauri) o per il token (dispositivo paiato). Se
-  // nessuna delle due, meglio nessun shim.
-  if (!isTauri && getPairingToken() === null) return;
+  // Fuori da Tauri la riscrittura è un no-op: nessuno shim.
+  if (!isTauri) return;
   shimInstalled = true;
   const base = serverHttpBase();
   const orig = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    // LAN-PAIR-01: attach the pairing token as `x-topics-token` on rewritten
-    // `/…` calls (inert on desktop/loopback where no token is stored — kept for
-    // symmetry with the api.ts fetch path). Only the leading-'/' (server-bound)
-    // calls get the header; foreign absolute URLs pass through untouched.
+    // Solo le chiamate col leading-'/' (dirette al server) vengono riscritte; un
+    // URL assoluto verso un'altra origine passa intatto.
     if (typeof input === 'string' && input.startsWith('/')) {
-      return orig(base + input, { ...init, headers: withTokenHeader(init?.headers) });
+      return orig(base + input, init);
     }
     if (input instanceof Request && input.url.startsWith('/')) {
-      const req = new Request(base + input.url, input);
-      // Merge the token over the effective headers: init.headers wins over the
-      // Request's own, matching the original `orig(req, init)` precedence.
-      const headers = withTokenHeader(init?.headers ?? req.headers);
-      return orig(req, { ...init, headers });
+      return orig(new Request(base + input.url, input), init);
     }
     return orig(input, init);
   };
 
-  // EventSource (SSE) ha lo stesso problema di URL relativo della fetch — sotto
-  // Tauri un '/api/activity/stream' nudo risolverebbe contro tauri://localhost
-  // (nessun server) e il feed sarebbe morto — e lo stesso problema di token della
-  // fetch: un dispositivo paiato deve presentarlo, e SSE non porta header, quindi
-  // va in query. EventSource è un costruttore, quindi si sottoclassa.
+  // EventSource (SSE) ha lo stesso problema di URL relativo della fetch: sotto
+  // Tauri un '/api/activity/stream' nudo risolverebbe contro tauri://localhost,
+  // dove non c'è nessun server, e il feed sarebbe morto. EventSource è un
+  // costruttore, quindi si sottoclassa.
   const OrigES = window.EventSource;
   if (OrigES) {
     class ShimmedEventSource extends OrigES {
       constructor(url: string | URL, init?: EventSourceInit) {
-        const rewritten = typeof url === 'string' && url.startsWith('/') ? base + url : url;
-        super(typeof rewritten === 'string' ? withTokenQuery(rewritten) : rewritten, init);
+        super(typeof url === 'string' && url.startsWith('/') ? base + url : url, init);
       }
     }
     window.EventSource = ShimmedEventSource as typeof EventSource;
