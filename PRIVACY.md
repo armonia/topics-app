@@ -23,7 +23,7 @@ When Topics talks to these services, the relevant data (e.g. your prompts) is ha
 
 ## Your responsibility
 
-Because Topics runs a local server with no built-in authentication — and by default listens on every network interface, so that your phone on the same Wi-Fi can reach it — anyone with access to that port can read your local data. Run it only on a network you trust, and do not expose it to the public internet. To restrict it to your own machine, set `SERVER_HOST=127.0.0.1` (see [SECURITY.md](SECURITY.md)).
+Topics listens on every network interface by default, so your phone on the same Wi-Fi can reach it — but any device other than your own computer must be **authorized once, by you, from that computer**, and can be revoked at any time. An authorized device has your powers: it can read your local data. Approve only devices you control. Run Topics on a network you trust, do not expose it to the public internet, and to restrict it to your own machine set `SERVER_HOST=127.0.0.1` (see [SECURITY.md](SECURITY.md)).
 
 ---
 

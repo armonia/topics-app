@@ -105,9 +105,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
 
 ## Security
 
-Topics runs a **local server with no built-in authentication or access control**, and by default it listens on **every network interface** — not just localhost. That is what lets you open it from your phone on the same Wi-Fi. It also means **anyone who can reach the port has full control**: your files, your terminals, your API keys.
+Topics runs a **local server** and by default listens on **every network interface** — not just localhost. That is what lets you open it from your phone on the same Wi-Fi.
 
-**The network is the boundary.** Run Topics on a network you trust. To restrict it to your own machine, set `SERVER_HOST=127.0.0.1`.
+**Other devices must be authorized once.** Open Topics from the new device: it shows a six-character code, your computer shows the matching request, you approve it. Authorization is per device and revocable. The machine Topics runs on is trusted by transport, so you can never lock yourself out of your own computer.
+
+Authentication says who may use Topics — it does not make an untrusted network safe. Run it on a network you trust, and to restrict the server to your own machine set `SERVER_HOST=127.0.0.1`.
 
 **Do not expose Topics to the public internet.** If you use remote-access tooling (Tailscale, Cloudflare Tunnel, etc.), put your own authentication in front of it. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
