@@ -8,6 +8,7 @@ import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
 import { useGitStatus } from '../../hooks/useGitStatus';
+import { isRecentFailure } from '../../lib/processFailure';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 
@@ -27,9 +28,6 @@ interface ProjectSidebarProps {
 }
 
 type SectionId = 'files' | 'git' | 'processes';
-
-/** Quanto a lungo un'uscita fallita resta degna della pastiglia rossa. */
-const FAILURE_BADGE_WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * Un'icona della rail collassata, con la sua pastiglia.
@@ -133,22 +131,10 @@ export function ProjectSidebar({
 
   // Running process count for the Processes header badge (shared hook — no duplicate polling)
   const { scripts, runningCount } = useScripts({ projectPath, onMessage: onWSMessage });
-  // `status === 'error'` da solo NON è un fallimento, ed è la differenza fra un
-  // segnale e un allarme che si impara a ignorare. `-1` è il codice-sentinella
-  // di DUE casi che non chiedono niente a nessuno: lo stop volontario
-  // (`processes.ts:716`) e «il processo è morto mentre il server era giù»
-  // (`processes.ts:184`) — che su questa macchina, con TOPICS_SERVER_WATCH=1,
-  // succede a OGNI salvataggio sotto `server/`: ogni dev server vivo diventa
-  // `error`. Senza questo filtro la pastiglia rossa sarebbe accesa quasi sempre
-  // e non vorrebbe dire niente. Serve un'uscita davvero non-zero, e recente:
-  // `recent` è persistito su disco, quindi un fallimento di ieri resterebbe
-  // rosso per sempre.
-  const failedCount = scripts.filter(s => {
-    if (s.status !== 'error' || (s.exitCode ?? -1) <= 0) return false;
-    if (!s.completedAt) return false;
-    const age = Date.now() - new Date(s.completedAt).getTime();
-    return Number.isFinite(age) && age < FAILURE_BADGE_WINDOW_MS;
-  }).length;
+  // La regola del «fallimento vero» sta in `lib/processFailure`, condivisa con
+  // la lista dei processi: due copie della stessa soglia divergono al primo che
+  // la tocca.
+  const failedCount = scripts.filter(sp => isRecentFailure(sp)).length;
 
   // Stato git — dalla sidebar, non dal pannello. È questa la superficie che
   // sopravvive al collasso: GitChanges è lazy e SMONTATO quando la sezione è
