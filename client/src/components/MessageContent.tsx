@@ -14,6 +14,7 @@ import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
+import { InvokedCommandRow } from './Chat/InvokedCommandRow';
 import type { ToolCall } from '../types';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
@@ -998,6 +999,9 @@ interface MessageContentProps {
   onPlanApprove?: () => void;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: (approved: boolean) => void;
+  /** Il comando che ha aperto QUESTO turno, quando l'utente l'ha digitato:
+   *  la CLI lo espande prima del turno e sul filo non resta traccia. */
+  invokedCommand?: { command: string; args?: string } | null;
   onPlanReject?: () => void;
   // Session viewer
   /**
@@ -1019,7 +1023,7 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1048,6 +1052,15 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
     [role, cleanText],
   );
+
+  // La riga del comando NON si mostra se il turno ha già una sua riga di
+  // `Skill`/`SlashCommand`: quello è il caso in cui è stato il MODELLO a
+  // chiamarla, e dirlo due volte sarebbe rumore.
+  const showInvoked = useMemo(() => {
+    if (!invokedCommand || role !== 'assistant') return false;
+    const tools = (blocks ?? []).flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])).concat(toolCalls ?? []);
+    return !tools.some((t) => /^(skill|slashcommand|slash_command)$/i.test(t.name));
+  }, [invokedCommand, role, blocks, toolCalls]);
 
   // Plan detection is reused at both legacy-path gates below; cleanText is
   // already memoized so this dependency is stable.
@@ -1169,6 +1182,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // unrelated rows. Visually lighter, easier to scan.
     return (
       <div data-testid="message-content-assistant">
+        {showInvoked && invokedCommand && (
+          <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
+        )}
         {blockGroups.map((g) => {
           if (g.kind === 'thinking') {
             return (
@@ -1241,6 +1257,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // inside the prose via renderContentWithInlineTools.
   return (
     <div data-testid="message-content-assistant">
+      {showInvoked && invokedCommand && (
+        <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
+      )}
       {(() => {
         // When there's no prose, the inline-tools-with-contentOffset path
         // would render NOTHING (it only fires inside `cleanText && ...`),

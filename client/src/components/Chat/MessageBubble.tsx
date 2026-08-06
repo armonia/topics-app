@@ -2,12 +2,24 @@ import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
+import { parseSlashInvocation } from '../../../../shared/slash-invocation';
 import { MessageContent } from '../MessageContent';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress } from '../../hooks/useLongPress';
 
-// Detect touch-only devices (no fine pointer / no hover capability)
-const isTouchDevice = typeof window !== 'undefined' && (
-  'ontouchstart' in window || window.matchMedia('(hover: none)').matches
-);
+// «Sono su un dispositivo touch?» si chiede a `useMobile`, e basta. Qui c'era
+// una costante di MODULO valutata una volta sola all'import: un valore che non
+// reagisce mai (né a un cambio di puntatore, né a un'apertura in un'altra
+// finestra) e che era anche una seconda definizione di un fatto che l'app già
+// conosce — cioè un modo per farle divergere.
+//
+// Ma la costante di modulo leggeva `(hover: none)`, e sostituirla con `isTouch`
+// ha cambiato la DOMANDA, non solo la fonte: «si può toccare» non è «non c'è
+// hover». Su un portatile con schermo touch sono vere entrambe, e la barra
+// azioni + la riga di servizio sono rimaste inchiodate a opacity-40/60 invece
+// di apparire al passaggio del mouse. Qui si legge `hasHover` per ciò che si
+// NASCONDE dietro l'hover e `isTouch` per ciò che si AGGIUNGE al dito, e sullo
+// stesso device possono convivere. Vedi il blocco in testa a `useMobile`.
 
 // Detect emoji-only messages (1-5 emojis/symbols with no other text).
 // ZWJ (\u200d) and VS16 (\ufe0f) are intentional allow-listed *filler*
@@ -118,13 +130,20 @@ export const MessageBubble = memo(function MessageBubble({
   onRetry,
   isLast,
 }: MessageBubbleProps) {
+  // Il turno è stato aperto da un comando digitato? Lo sa solo il messaggio
+  // precedente: la CLI espande lo slash prima del turno e sul filo non lascia
+  // niente.
+  const invokedCommand = msg.role === 'assistant' && prev?.role === 'user'
+    ? parseSlashInvocation(prev.content)
+    : null;
+
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
   const emojiMsg = isEmojiOnly(msg.content);
+  const { isTouch, hasHover } = useMobile();
 
   // Long-press state for touch devices
   const [showActions, setShowActions] = useState(false);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Two-click delete confirm: first click arms (button turns red "Delete?"),
   // second click within the window fires. Auto-disarms after 3s so a stray
@@ -144,32 +163,29 @@ export const MessageBubble = memo(function MessageBubble({
     disarmTimer.current = setTimeout(() => setDeleteArmed(false), 3000);
   }, [deleteArmed, onDeleteMessage, msg]);
 
-  const handleTouchStart = useCallback(() => {
-    if (!isTouchDevice) return;
-    longPressTimer.current = setTimeout(() => {
-      setShowActions(true);
-    }, 500);
-  }, []);
+  // «Tieni premuto» = la primitiva condivisa (hooks/useLongPress). Qui c'era la
+  // SECONDA copia dello stesso timer da 500ms che viveva anche in `PaneTabBar`,
+  // con gli stessi due buchi: tolleranza zero sul movimento (un pixel di
+  // tremolio e il gesto moriva, quindi con un dito vero spesso non partiva) e
+  // nessun `touchcancel`, cioè un timer che restava armato quando il sistema si
+  // prendeva il tocco. La barra si scopriva da sola qualche istante dopo.
+  const longPress = useLongPress(() => setShowActions(true), { enabled: isTouch });
 
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  const handleTouchMove = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  // Visibility class: on touch devices show at reduced opacity always (or full on long-press),
-  // on pointer devices show on group hover
-  const actionsVisibility = isTouchDevice
-    ? (showActions ? 'opacity-100' : 'opacity-40')
-    : 'opacity-0 group-hover:opacity-100';
+  // Visibilità della barra azioni, in TRE rami e in quest'ordine — perché i due
+  // fatti non sono esclusivi e su un ibrido valgono insieme:
+  //  1. long-press andato a segno → piena, sempre (è la richiesta esplicita del
+  //     dito, e deve vincere anche dove il mouse c'è);
+  //  2. c'è un puntatore che fa hover → nascosta e rivelata dal gruppo, come su
+  //     qualunque desktop;
+  //  3. nessun hover → semi-visibile a riposo, altrimenti su un telefono la
+  //     barra non esisterebbe finché non indovini il «tieni premuto».
+  // Il ramo (2) era gated su `!isTouch`: su un portatile touch cadeva nel (3) e
+  // la barra restava a opacity-40 anche col mouse sopra.
+  const actionsVisibility = showActions
+    ? 'opacity-100'
+    : hasHover
+      ? 'opacity-0 group-hover:opacity-100'
+      : 'opacity-40';
 
   const actionBtnClass = "w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-primary rounded";
 
@@ -182,10 +198,41 @@ export const MessageBubble = memo(function MessageBubble({
       data-testid="chat-message"
       data-role={msg.role}
       data-message-id={msg.id}
-      className={emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : 'mb-1.5'}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchMove={handleTouchMove}
+      // IL CALLOUT DI iOS NON DEVE PARTIRE DURANTE I 500 ms.
+      //
+      // Era l'unico elemento con long-press senza niente addosso: sul telefono,
+      // mentre il timer del gesto scorre, WebKit apre la sua lente + il menu
+      // «Copia/Cerca» sopra il testo, e la barra azioni arriva sotto a un menu
+      // di sistema che non abbiamo chiesto.
+      //
+      // Ma qui il testo È il contenuto, e un `select-none` secco costerebbe la
+      // selezione col mouse — cioè lo stesso errore che questo giro sta
+      // chiudendo (trattare «touch» come se escludesse il puntatore). Quindi
+      // due cose distinte:
+      //  · `-webkit-touch-callout: none` SEMPRE: toglie il menu di sistema e
+      //    non costa un pixel a chi ha un mouse (su desktop non esiste proprio);
+      //  · `select-none` solo dove NON c'è hover, cioè sul telefono, dove il
+      //    «tieni premuto» è l'unica strada per la barra azioni — e per copiare
+      //    il testo c'è il bottone Copia lì dentro. Su un ibrido (touch + mouse)
+      //    la selezione resta: lì il gesto convive col puntatore.
+      className={`${emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : 'mb-1.5'} ${isTouch && !hasHover ? 'select-none' : ''}`}
+      style={{ WebkitTouchCallout: 'none' }}
+      // Il segno che la pressione è stata registrata: su iPhone `haptic()` è un
+      // no-op, quindi senza questo mezzo secondo di attesa sarebbe cieco.
+      data-pressing={longPress.pressed || undefined}
+      {...longPress.handlers}
+      // L'ECO DEL LONG-PRESS SI MANGIA QUI, ESPLICITAMENTE.
+      //
+      // Prima `consumeClick()` non veniva chiamato MAI: reggeva solo perché
+      // questo wrapper non aveva `onClick` e il `preventDefault()` di
+      // `useLongPress.onTouchEnd` sopprime il clic sintetico. Due condizioni
+      // implicite, e la prima cade al primo handler che qualcuno aggiunge qui —
+      // che a quel punto sparerebbe subito dopo l'apertura della barra azioni.
+      // Chiamandolo il contratto diventa visibile e il flag non resta armato:
+      // fase di bubbling e nessuno `stopPropagation`, quindi i bottoni della
+      // barra (che sono discendenti e hanno già eseguito il loro handler) non
+      // perdono un clic.
+      onClick={() => { if (longPress.consumeClick()) return; }}
     >
       {/* Date separator */}
       {dateSep && (
@@ -309,6 +356,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanApprove={onPlanApprove}
                 onPlanReject={onPlanReject}
                 onPlanDecision={onPlanDecision}
+                invokedCommand={invokedCommand}
                 sessionKey={topic.sessionKey}
                 onMessage={onMessage}
               />
@@ -388,7 +436,7 @@ export const MessageBubble = memo(function MessageBubble({
               data-testid="message-meta-row"
               className={`text-[11px] mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
-              } ${isTouchDevice ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}
+              } ${hasHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-60'}`}
             >
               <span className="text-app-placeholder flex-shrink-0">{formatTimestamp(msg.timestamp)}</span>
               {msg.role === 'assistant' && !msg.partial && (
