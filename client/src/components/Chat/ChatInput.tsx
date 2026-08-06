@@ -23,6 +23,7 @@ import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { AutonomyPicker } from './AutonomyPicker';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -412,6 +413,10 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** Quanto può fare da sé la chat. Sempre in vista nel composer: decide
+   *  `--permission-mode` della sessione, cioè se l'agente può toccare i file. */
+  autonomy?: import('../../types').AutonomyLevel | null;
+  onAutonomyChange?: (level: import('../../types').AutonomyLevel) => void;
   /** Per-topic effort-tier override (migration 033). null = provider default. */
   effort?: string | null;
   onEffortChange?: (effort: string | null) => void;
@@ -474,6 +479,8 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  autonomy,
+  onAutonomyChange,
   effort,
   onEffortChange,
   defaultProviderLabel,
@@ -1309,6 +1316,9 @@ export function ChatInput({
                     effort used to be buried under a "Provider & model" trigger,
                     and autonomy (the permission mode) was reachable only from
                     the settings modal behind a tab right-click. */}
+                {onAutonomyChange && (
+                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+                )}
                 <SessionConfigPopover
                   effort={effort ?? null}
                   onEffortChange={onEffortChange}
