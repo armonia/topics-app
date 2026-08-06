@@ -694,7 +694,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 // contiene, non esiste ancora. Dirlo è l'unica cosa vera.
                 <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                   <AlertCircle size={14} className="mx-auto mb-1 opacity-40" />
-                  {tr('git.folderUntracked')}
+                  {gitStatus!.repoName
+                    ? tr('git.folderUntrackedIn', { repo: gitStatus!.repoName })
+                    : tr('git.folderUntracked')}
                 </div>
               ) : (
               <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
@@ -1110,7 +1112,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]">
               <div className="text-center">
                 <CheckCircle size={24} className="mx-auto mb-2 opacity-30" />
-                <p>{gitStatus.folderUntracked ? tr('git.folderUntracked') : tr('git.cleanTree')}</p>
+                <p>{gitStatus.folderUntracked
+                  ? (gitStatus.repoName ? tr('git.folderUntrackedIn', { repo: gitStatus.repoName }) : tr('git.folderUntracked'))
+                  : tr('git.cleanTree')}</p>
                 <p className="text-[11px] mt-1 opacity-60">{tr('git.nothingToCommit')}</p>
               </div>
             </div>
