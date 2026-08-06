@@ -226,13 +226,8 @@ test.describe.serial("Cross-window topic + message sync", () => {
     const page = await ctx.newPage();
 
     try {
-      // The "+ Add pane → New Chat" entry point is gated behind the paid
-      // `enableNewChat` setting (default OFF — a new chat drives a paid provider
-      // turn). Opt in before first paint so the button renders (App.tsx:1017
-      // passes onNewChat={undefined} when disabled → PaneTabBar omits it).
-      await page.addInitScript(() =>
-        localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true })),
-      );
+      // "+ → New Chat" c'è sempre: il gate `enableNewChat` è stato rimosso
+      // (2026-08-06), quindi niente da seminare prima del primo paint.
       await goToApp(page);
 
       // Open an existing topic first so the standalone chat group renders
@@ -361,14 +356,7 @@ test.describe.serial("Cross-window topic + message sync", () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      // The App-level "New Chat" entry point is gated behind the paid
-      // `enableNewChat` setting (default OFF — a new chat drives a paid provider
-      // turn). Opt in before first paint so the menu item renders (App.tsx wires
-      // onNewChat={undefined} when disabled → PaneAddMenu omits the row).
-      // Mirrors the sibling :197 setup.
-      await page.addInitScript(() =>
-        localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true })),
-      );
+      // La riga "New Chat" c'è sempre: gate `enableNewChat` rimosso (2026-08-06).
       await goToApp(page);
 
       // Open an existing topic so the standalone chat group (and its "Add pane"

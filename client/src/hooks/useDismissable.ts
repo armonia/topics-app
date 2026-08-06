@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { registerOpenPopover } from '../lib/popoverRegistry';
 
 /**
  * useDismissable — ONE dismissal contract for every custom menu / dropdown /
@@ -16,6 +17,10 @@ import { useEffect, useRef } from 'react';
  * Contract:
  *   - pointerdown (capture) OR touchstart outside every ref in `refs` → onClose.
  *   - keydown Escape (capture, stopPropagation) → onClose.
+ *   - **uno alla volta**: aprendosi, questo popover chiude ogni altro popover
+ *     aperto che non lo contenga (`lib/popoverRegistry`). Prima esisteva solo
+ *     come effetto collaterale del `pointerdown` sul nuovo trigger, quindi ogni
+ *     apertura da tastiera (⌘N) impilava invece di sostituire.
  *   - on the open→closed transition, if focus is still INSIDE the menu (or
  *     nowhere), return it to the trigger. If the user already moved focus
  *     elsewhere (outside click, tabbed away), leave it — never yank focus back.
@@ -32,12 +37,16 @@ export interface UseDismissableOptions {
   /** Return focus to the trigger on close (default true). Skipped when the user
    *  has already moved focus outside the menu. */
   restoreFocus?: boolean;
+  /** false = aprendosi NON caccia gli altri popover. Per le sotto-superfici che
+   *  devono convivere con quella che le ospita. Default true. */
+  exclusive?: boolean;
 }
 
-export function useDismissable({ open, onClose, refs, restoreFocus = true }: UseDismissableOptions): void {
+export function useDismissable({ open, onClose, refs, restoreFocus = true, exclusive = true }: UseDismissableOptions): void {
   // Latest values without re-subscribing the document listeners each render.
   const onCloseRef = useRef(onClose);
   const refsRef = useRef(refs);
+  const exclusiveRef = useRef(exclusive);
   // Mirror in an effect (NOT during render) so the react-hooks/refs rule holds:
   // both are read only inside the effects/handlers below, which run after this
   // mirror commits. Declared first so it wins the commit-order race against the
@@ -45,6 +54,7 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true }: Use
   useEffect(() => {
     onCloseRef.current = onClose;
     refsRef.current = refs;
+    exclusiveRef.current = exclusive;
   });
 
   // Element focused when the menu opened — the focus-restore target.
@@ -59,6 +69,17 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true }: Use
       (document.activeElement as HTMLElement | null) ?? refsRef.current[0]?.current ?? null;
 
     const inside = (t: Node): boolean => refsRef.current.some((r) => !!r.current?.contains(t));
+
+    // Uno alla volta. `refs[0]` (il trigger dichiarato) e NON `activeElement`:
+    // ⌘N parte spesso col fuoco già dentro un menu aperto, e activeElement
+    // farebbe passare la palette per un figlio di quel menu — cioè li terrebbe
+    // aperti entrambi, che è il bug. Vedi lib/popoverRegistry.
+    const unregister = registerOpenPopover({
+      close: () => onCloseRef.current(),
+      trigger: () => refsRef.current[0]?.current ?? null,
+      nodes: () => refsRef.current.map((r) => r.current),
+      exclusive: exclusiveRef.current,
+    });
 
     const onPointer = (e: Event) => {
       const t = e.target as Node | null;
@@ -77,6 +98,7 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true }: Use
     document.addEventListener('touchstart', onPointer, { capture: true, passive: true });
     document.addEventListener('keydown', onKey, true);
     return () => {
+      unregister();
       document.removeEventListener('pointerdown', onPointer, true);
       document.removeEventListener('touchstart', onPointer, true);
       document.removeEventListener('keydown', onKey, true);

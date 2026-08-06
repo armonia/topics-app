@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
+import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 
@@ -12,7 +13,9 @@ import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/li
  *   - a portal to <body> (escapes parent `overflow`/stacking contexts),
  *   - viewport-aware placement with flip-above + horizontal clamp (`computeMenuPosition`),
  *   - the `useDismissable` contract (outside-pointer close, Escape, focus-restore),
- *   - roving keyboard nav (Arrow/Home/End) over real focusable items,
+ *   - roving keyboard nav (Arrow/Home/End) over real focusable items, più
+ *     l'attivazione col tasto NUDO per le righe che dichiarano `data-mnemonic`
+ *     (hooks/useMenuKeyboard),
  *   - `role="menu"`/`"listbox"` + `.glass-surface` — the double marker
  *     `browserOcclusion.OVERLAY_SELECTOR` needs to lift the menu over native panes,
  *   - the mobile bottom-sheet, and the tokenised `Z_POPOVER` layer.
@@ -20,11 +23,9 @@ import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/li
  * Look is unchanged: it reuses the canonical `POPOVER_SURFACE`/`POPOVER_SHEET`.
  */
 
-// Real, individually-focusable rows. Buttons qualify without needing an explicit
-// role, so existing button-based menus become keyboard-navigable unchanged; a
-// menu that adds role="menuitem"/"option" gets proper semantics on top.
-const ITEM_SELECTOR =
-  '[role="menuitem"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), button:not([disabled])';
+// La selezione delle righe navigabili vive in `hooks/useMenuKeyboard` insieme
+// alla regola che la usa — qui c'era una copia, e una regola in due posti è una
+// regola che diverge.
 
 export interface MenuProps {
   open: boolean;
@@ -46,6 +47,14 @@ export interface MenuProps {
   restoreFocus?: boolean;
   /** Extra nodes that count as "inside" for dismissal (nested panels/menus). */
   extraRefs?: Array<React.RefObject<HTMLElement | null>>;
+  /** `data-testid` sul pannello. Serve ai call-site il cui pannello è già un
+   *  contratto per i test (es. `pane-add-menu`, atteso da 16 spec E2E): senza,
+   *  adottare la primitiva significherebbe romperli tutti. */
+  testId?: string;
+  /** Etichetta accessibile del menu (`aria-label` sul pannello). */
+  ariaLabel?: string;
+  /** false = aprendosi NON chiude gli altri popover (sotto-superficie). */
+  exclusive?: boolean;
 }
 
 export function Menu({
@@ -60,6 +69,9 @@ export function Menu({
   unmanagedFocus = false,
   restoreFocus = true,
   extraRefs,
+  testId,
+  ariaLabel,
+  exclusive = true,
 }: MenuProps) {
   const { isMobile } = useMobile();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -71,6 +83,7 @@ export function Menu({
     onClose,
     refs: [anchorRef, panelRef, ...(extraRefs ?? [])],
     restoreFocus,
+    exclusive,
   });
 
   const reposition = useCallback(() => {
@@ -108,25 +121,7 @@ export function Menu({
     panelRef.current?.focus({ preventScroll: true });
   }, [open, unmanagedFocus, isMobile]);
 
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (unmanagedFocus) return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
-      const items = Array.from(panel.querySelectorAll<HTMLElement>(ITEM_SELECTOR));
-      if (items.length === 0) return;
-      e.preventDefault();
-      const idx = items.indexOf(document.activeElement as HTMLElement);
-      const target =
-        e.key === 'Home' ? 0
-        : e.key === 'End' ? items.length - 1
-        : e.key === 'ArrowDown' ? (idx < 0 ? 0 : (idx + 1) % items.length)
-        : idx < 0 ? items.length - 1 : (idx - 1 + items.length) % items.length;
-      items[target]?.focus();
-    },
-    [unmanagedFocus],
-  );
+  const onKeyDown = useMenuKeyboard({ panelRef, enabled: !unmanagedFocus });
 
   if (!open) return null;
 
@@ -140,6 +135,8 @@ export function Menu({
         role={role}
         tabIndex={-1}
         onKeyDown={onKeyDown}
+        data-testid={testId}
+        aria-label={ariaLabel}
         className={
           isMobile
             ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} outline-none`

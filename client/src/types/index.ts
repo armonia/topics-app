@@ -1252,13 +1252,15 @@ export interface AppSettings {
   // (Topic.muted, migration 073); this is the project-wide counterpart, keyed
   // by projectPath because a project has no guaranteed per-entity settings row.
   mutedProjects: string[];
-  // Gates creation of NEW standalone/project chats (the "New Chat" affordance,
-  // ⌘⇧N, and the command-palette pill). A new chat drives a paid provider turn
-  // (subscription only works through an interactive PTY — see the billing
-  // constraint), so this is OPT-IN and defaults to OFF: when false the New Chat
-  // entry points are hidden and ⌘⇧N is inert. Surfaced in Settings → Features,
-  // flagged as a paid feature.
-  enableNewChat: boolean;
+  // NB: `enableNewChat` è stato RIMOSSO (2026-08-06). Esisteva perché una chat
+  // nuova sembrava un turno a consumo; non lo è — il path `claude-code` pesca
+  // dall'abbonamento Pro/Max. Il default era già passato a `true`, ma il valore
+  // salvato (`false`) lo scavalcava per sempre su ogni client che l'aveva
+  // toccato una volta: la voce "New Chat" spariva da TUTTI e sei gli host del
+  // menu "+" senza che niente lo dicesse. Un interruttore che può solo rompere
+  // non è una feature. Non reintrodurlo: se un giorno servisse davvero gatare
+  // la creazione di chat, il gate va sul MOTIVO (provider a consumo), non su un
+  // booleano di preferenza.
   /**
    * La lingua dell'interfaccia. `auto` segue il browser.
    *

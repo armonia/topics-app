@@ -20,7 +20,16 @@
  * dead-center.
  */
 export const MODAL_OVERLAY =
-  'fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm';
+  'fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm';
+
+/**
+ * Il piano dei modali, come classe Tailwind. Gemello di `Z_MODAL` in
+ * `lib/popoverStyles.ts` (10000) — i due DEVONO restare allineati: un modale a
+ * `z-50` finiva sotto ogni popover (9999) e un dropdown rimasto aperto si
+ * disegnava sopra il velo. Nessuna superficie modale scrive più il numero a
+ * mano: si importa questa, o `Z_MODAL` se serve come valore inline.
+ */
+export const MODAL_LAYER = 'z-[10000]';
 
 /**
  * Standalone backdrop layer, for modals that render the dimming div separately

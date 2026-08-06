@@ -823,9 +823,6 @@ export function TopicTree({
                       scope="project"
                       onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
                       onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-                      // Cmd+N targets the focused group's New Chat, not
-                      // this specific project's — kbd hint would lie.
-                      showShortcuts={false}
                       triggerTitle="Add to project"
                     />
                   </div>
@@ -1461,7 +1458,6 @@ function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPa
           scope="project"
           onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
           onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-          showShortcuts={false}
           onClose={close}
         />
         {/* Divider before project-level actions — only when both halves render. */}

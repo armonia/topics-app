@@ -432,10 +432,9 @@ test.describe("D: Split Type Guards", () => {
     terminalSessionId = session.id;
 
     const termPaneId = `terminal:${session.id}`;
-    // Seed a topic ALONGSIDE the terminal: with `enableNewChat` off (the
-    // default) a single-pane pool split falls back to the legacy "silent
-    // solo" (no companion spawns, nothing visibly changes) — H22 pins that.
-    // Here the pool keeps the topic, so the terminal split is VISIBLE.
+    // Seed a topic ALONGSIDE the terminal: qui il pool ha gia' due pane,
+    // quindi lo split del terminale e' visibile senza che nasca nessuna chat
+    // di compagnia (quel ramo lo copre H22, che parte da una pane sola).
     const [idA] = topicIds;
     await seedAndLoad(page, [idA, termPaneId]);
     await waitForTabs(page, 2);
@@ -713,18 +712,16 @@ test.describe("H: Mixed Pane Types in Split", () => {
     }
   });
 
-  test("H22: topic offers Split Right; lone-pane split is the silent-solo fallback", async ({ page, request }) => {
+  test("H22: topic offers Split Right; splitting a lone pane spawns its companion chat", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const session = await createTerminalSession(request, { name: "EC-Mixed-Term" });
     termSessionId = session.id;
 
-    // Pin enableNewChat OFF: this test asserts the "silent solo" fallback, which
-    // only happens when `onNewChat` is unwired. The app default is now ON
-    // (chat runs on the local subscription), so splitting a lone pane would
-    // otherwise spawn a companion chat and add a tab. Pin the OFF path here.
-    await page.addInitScript(() =>
-      localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: false })),
-    );
+    // Il gate `enableNewChat` non esiste piu' (rimosso 2026-08-06): `onNewChat`
+    // e' SEMPRE cablato, quindi il ramo "silent solo" di
+    // PanelGrid.handleSplitPane e' irraggiungibile dall'app e questo test pinna
+    // il comportamento vero — dividere l'unica pane del pool fa nascere la chat
+    // di compagnia, cosi' lo split si VEDE invece di rinominare la cella.
 
     const [idA] = topicIds;
 
@@ -734,11 +731,10 @@ test.describe("H: Mixed Pane Types in Split", () => {
     const topicHasSplit = await rightClickTabHasOption(page, 0, "Dividi a destra");
     expect(topicHasSplit, "Topic tab should have Split Right").toBe(true);
 
-    // Second: splitting the ONLY pane of the pool (a lone terminal) is the
-    // legacy "silent solo" fallback when `enableNewChat` is off (pinned above):
-    // no companion pane spawns, so nothing visibly changes — the pane must
-    // survive unharmed with its single tab bar (no empty pool cell, no
-    // lost tab). PanelGrid.handleSplitPane documents this fallback.
+    // Second: dividere l'UNICA pane del pool (un terminale solo). Senza la chat
+    // di compagnia il pool resterebbe vuoto e l'utente non vedrebbe nessuno
+    // split: verrebbe solo rietichettata una cella. Quindi ne nasce una —
+    // due barre, una tab per barra (PanelGrid.handleSplitPane lo documenta).
     const termPaneId = `terminal:${session.id}`;
     // CHIUDERE la topic della prima metà, altrimenti la pane «sola» non è sola.
     //
@@ -755,8 +751,8 @@ test.describe("H: Mixed Pane Types in Split", () => {
 
     await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await page.waitForTimeout(1000);
-    expect(await countTabBars(page)).toBe(1);
-    expect(await countTabs(page)).toBe(1);
+    expect(await countTabBars(page)).toBe(2);
+    expect(await countTabs(page)).toBe(2);
   });
 
   test("H23: split a topic while terminal tabs exist — terminal stays in standalone", async ({ page, request }) => {

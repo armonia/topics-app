@@ -1231,8 +1231,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             onNewChat={onNewChat}
             onAddPane={onAddPane}
             availableTypes={availableTypes}
-            // Cmd/Ctrl+N targets the focused group's New Chat — true here.
-            showShortcuts
+            // NESSUN hint ⌘N qui. Il commento che c'era («Cmd+N targets the
+            // focused group's New Chat — true here») era falso: ⌘N apre la
+            // palette STANDALONE dell'header, cioè una seconda superficie sopra
+            // il gruppo che stai guardando, e non crea niente in questo gruppo.
+            // Le lettere per-riga restano: quelle sono vere ovunque.
             noElectronDrag
           />
         </div>
