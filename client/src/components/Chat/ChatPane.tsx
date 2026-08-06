@@ -4,7 +4,7 @@ import { adoptLegacyQueue, clearQueue, removeTurn, updateTurn, useChatQueue } fr
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi } from '../../lib/api';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
@@ -761,6 +761,34 @@ function ChatPaneComponent({
     sendMessage(topic.sessionKey, 'Plan rejected. Please propose an alternative approach.');
   }, [sendMessage, topic.sessionKey]);
 
+  /**
+   * La decisione presa sul piano che il turno ha proposto senza poterlo
+   * consegnare (plan mode senza `ExitPlanMode` — vedi server/lib/plan-approval.ts).
+   *
+   * Approvare ALZA l'autonomia della chat ad `auto-apply`, e resta lì. Non è
+   * una scorciatoia: `--permission-mode` è un flag di SPAWN, quindi ogni
+   * cambio fa ripartire la sessione CLI. Concederlo «solo per questo turno»
+   * vorrebbe dire due respawn per ogni approvazione e una corsa con te se nel
+   * frattempo tocchi il selettore — mentre così il cambio è UNO, visibile nel
+   * selettore, e reversibile quando vuoi. L'opzione lo dice a chiare lettere
+   * prima che tu la scelga.
+   */
+  const handlePlanDecision = useCallback(async (approved: boolean) => {
+    if (!approved) {
+      sendMessage(topic.sessionKey, 'Piano rifiutato. Proponi un\'altra strada, sempre senza toccare niente.');
+      return;
+    }
+    try {
+      await topicsApi.update(topic.id, { autonomyLevel: 'auto-apply' });
+    } catch {
+      // Se l'autonomia non si è alzata, mandare il messaggio farebbe ripartire
+      // il turno nella stessa trappola: meglio dirlo e non fingere.
+      toast.error('Non sono riuscito ad alzare l\'autonomia: il piano non parte.');
+      return;
+    }
+    sendMessage(topic.sessionKey, 'Piano approvato. Eseguilo.');
+  }, [sendMessage, topic.sessionKey, topic.id]);
+
   const handleRetry = useCallback(() => {
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return;
@@ -995,7 +1023,7 @@ function ChatPaneComponent({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
