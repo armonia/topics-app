@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
@@ -472,6 +472,14 @@ export function TopicTree({
   /** La chiave della tessera trascinata FUORI dai fissati, mentre il cursore è
    *  sulla lista. È solo l'anteprima: lo sfissaggio avviene al drop. */
   const [unpinPreview, setUnpinPreview] = useState<string | null>(null);
+  useEffect(() => {
+    // Il gesto è finito, comunque sia finito: rilasciato, annullato con Escape,
+    // uscito dalla finestra. `dragend` bolla fino a window in tutti e tre i
+    // casi, ed è l'unico segnale che non oscilla mentre il cursore si muove.
+    const fine = () => setUnpinPreview(null);
+    window.addEventListener('dragend', fine);
+    return () => window.removeEventListener('dragend', fine);
+  }, []);
 
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
@@ -1352,17 +1360,33 @@ export function TopicTree({
         // due volte vorrebbe dire riordinare e sfissare nello stesso gesto.
         onDragOver={e => {
           if (!onTogglePin || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
-          if ((e.target as Element | null)?.closest?.('[data-testid="sidebar-pinned-section"]')) return;
+          // Sopra i fissati l'anteprima si SPEGNE, e lo decide questo stesso
+          // evento: `dragover` è l'unico che arriva a ogni movimento e sa dove
+          // sei davvero. Spegnerla su `dragleave` era la causa del tremolio —
+          // vedi sotto.
+          if ((e.target as Element | null)?.closest?.('[data-testid="sidebar-pinned-section"]')) {
+            if (unpinPreview) setUnpinPreview(null);
+            return;
+          }
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           const key = draggedPaneId();
           const riga = key ? pinKeyFromPaneId(key) : null;
           if (riga && riga !== unpinPreview) setUnpinPreview(riga);
         }}
-        onDragLeave={e => {
-          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-          setUnpinPreview(null);
-        }}
+        // NESSUN `onDragLeave` qui, ed è il punto.
+        //
+        // Il tremolio: inserire la riga d'anteprima allunga la lista, quindi
+        // sotto il cursore finisce un altro elemento e parte un `dragleave`.
+        // Con `relatedTarget` valido la guardia lo assorbiva, ma quel campo è
+        // `null` ogni volta che si passa sopra a un elemento che il browser non
+        // riporta — e allora l'anteprima spariva, la lista si accorciava, il
+        // cursore tornava dov'era, `dragenter`, anteprima di nuovo: un ciclo a
+        // ~60 colpi al secondo, che è esattamente lo «scatto».
+        //
+        // Lo spegnimento vive dove non può oscillare: `dragover` quando sei
+        // sopra i fissati (qui sopra), `drop`, e il `dragend` globale — che il
+        // browser emette SEMPRE, anche su Escape o su un drop fuori finestra.
         onDrop={e => {
           const wasPreviewing = unpinPreview;
           setUnpinPreview(null);
