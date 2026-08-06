@@ -807,3 +807,50 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     await expect(tileNamed(page, solo.name).getByTestId("pinned-expand-hint")).toHaveCount(0);
   });
 });
+
+test.describe("Sidebar — creare una tab da una tessera", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-17: il «+» della riga c'è anche sulla tessera di un progetto, e solo lì", async ({ page, request }) => {
+    // Fissato un progetto, la sua riga nell'albero poteva non esserci più (una
+    // tessera vive anche a tab chiuse): senza il «+» qui, creare una tab DENTRO
+    // quel progetto non aveva più nessuna strada.
+    const projectPath = "/tmp/e2e-tile-plus";
+    const chat = await createTopic(request, `E2E-Plus-${Date.now()}`, { projectPath });
+    const solo = await createTopic(request, `E2E-Plus-Solo-${Date.now()}`);
+    created.push(chat.id, solo.id);
+
+    await setPins(page, [`project:${projectPath}`, solo.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+
+    const cella = page.getByTestId("sidebar-pinned-section")
+      .locator("div.group\\/cell")
+      .filter({ has: page.getByRole("treeitem", { name: "e2e-tile-plus" }) });
+    const piu = cella.getByTestId("pane-add-menu-trigger");
+
+    // C'è, ma solo al passaggio del mouse: a riposo la tessera resta pulita.
+    await expect(piu).toHaveCount(1, { timeout: 15000 });
+    await expect(piu).toBeHidden();
+    await cella.hover();
+    await expect(piu).toBeVisible();
+
+    // È il menu VERO, non un bottone che somiglia: apre le stesse voci.
+    await piu.click();
+    await expect(page.getByTestId("pane-add-menu")).toBeVisible({ timeout: 10000 });
+    await page.keyboard.press("Escape");
+
+    // Una chat fissata non contiene niente: nessun «+» da offrire.
+    const cellaChat = page.getByTestId("sidebar-pinned-section")
+      .locator("div.group\\/cell")
+      .filter({ has: page.getByRole("treeitem", { name: solo.name }) });
+    await cellaChat.hover();
+    await expect(cellaChat.getByTestId("pane-add-menu-trigger")).toHaveCount(0);
+  });
+});

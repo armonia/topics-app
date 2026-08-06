@@ -35,7 +35,9 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SELECTED_SURFACE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { spawnDragGhost } from '@/components/Layout/dragGhost';
+import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
@@ -115,6 +117,61 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
  *  esattamente ciò che rende la board fissabile. */
 const BOARD_ID = utilityPanelId('board');
 const BOARD_LABEL = 'Board';
+
+/**
+ * L'ALTEZZA DI UNA RIGA D'ALBERO, in un posto solo.
+ *
+ * 44 su mobile perché è il minimo di bersaglio delle linee guida iOS; 34 su
+ * desktop perché è la misura che regge la subline (nome + «cosa sta facendo»),
+ * quella che la riga chat ha già. Prima ce n'erano tre: `h-11 md:h-8` (44/32)
+ * per progetto, sezione, terminale e browser, `h-8` FISSA per utility e board —
+ * cioè 32px anche su iPhone, sotto soglia e 12px più basse delle vicine — e la
+ * chat per conto suo. Tre numeri per la stessa riga si vedono solo mettendole
+ * una sopra l'altra, che è come la sidebar si guarda sempre.
+ */
+const ROW_H = 'h-11 md:h-[34px]';
+
+/** I fantasmi di trascinamento ancora attaccati al DOM. `spawnDragGhost` li
+ *  aggiunge e li toglie da sé al frame dopo; il Set è il registro condiviso che
+ *  la sua firma pretende, e vale da rete di sicurezza se una riga sparisce a
+ *  metà trascinamento. */
+const DRAG_GHOSTS = new Set<HTMLElement>();
+
+/**
+ * Una riga che, TENUTA PREMUTA, apre LO STESSO menu del tasto destro.
+ *
+ * Esiste come componente per due motivi che il solo hook non copre:
+ *  · le righe dell'albero nascono dentro un `.map` (`renderProjectItem` non è un
+ *    componente), e lì un hook non si può chiamare;
+ *  · `pressed` deve essere di QUELLA riga: una sola istanza condivisa fra tutte
+ *    le righe di progetto le farebbe rimpicciolire tutte insieme.
+ *
+ * Il clic-eco si mangia in CATTURA sul contenitore, non nei figli: l'`onClick`
+ * di una riga di progetto sta sui bottoni dentro (chevron e nome), e fermare
+ * l'evento prima che scenda è l'unico modo di coprirli tutti senza ripetere
+ * `consumeClick()` in ognuno.
+ */
+function LongPressRow({
+  isTouch,
+  children,
+  onClickCapture,
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement> & { isTouch: boolean }) {
+  const lp = useLongPress(openContextMenuAt, { enabled: isTouch });
+  return (
+    <div
+      {...rest}
+      {...lp.handlers}
+      data-pressing={lp.pressed || undefined}
+      onClickCapture={(e) => {
+        if (lp.consumeClick()) { e.stopPropagation(); e.preventDefault(); return; }
+        onClickCapture?.(e);
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -256,6 +313,11 @@ export function TopicTree({
   const [pinOnlyMenu, setPinOnlyMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
+  // La riga della board: una sola in tutta la sidebar, quindi il gesto può
+  // stare qui invece che dentro un componente suo. Il suo menu ha UNA voce —
+  // «Aggiungi/Rimuovi dai Fissati» — e col solo tasto destro da telefono la
+  // board, una volta fissata, non si sarebbe più potuta togliere.
+  const boardPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
   // closure can derive a project's electric-blue rollup synchronously.
   const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
@@ -530,12 +592,21 @@ export function TopicTree({
         aria-selected={isFocused}
         data-testid={`sidebar-utility-${utilType}`}
         onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: utilType } }))}
-        className={`flex items-center gap-1.5 mx-1.5 my-px px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
-          isFocused ? SELECTED_SURFACE : 'hover:bg-app-hover'
+        // La card di ogni altra riga, CHIAMATA invece che ricopiata: era una
+        // seconda scrittura a mano della stessa cosa (`px-1.5` contro ROW_PX,
+        // `rounded-md` contro `rounded-lg`, `12px` che è ROW_INSET × 2 scritto in
+        // cifre), quindi divergeva dal contratto a ogni ritocco della card vera.
+        className={`flex items-center gap-1.5 ${ROW_PX} ${ROW_H} select-none ${
+          sidebarRowCard({ focused: isFocused })
         }`}
-        style={{ width: 'calc(100% - 12px)' }}
+        style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
       >
-        <Icon size={13} className="flex-shrink-0 text-emerald-400" />
+        {/* Glifo NEUTRO, la stessa decisione già presa per la riga della board
+            («il verde faceva sembrare la board un tipo a parte»): nella sidebar
+            il colore dice uno STATO — attenzione, selezione — non un'identità.
+            Questo `text-emerald-400` era l'ultimo verde rimasto, e su una riga
+            accanto alla board ormai grigia leggeva come «questa è speciale». */}
+        <Icon size={13} className="flex-shrink-0 text-app-text-secondary" />
         <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
         {/* Was missing entirely: the row rendered no badge at all, so an agents
             pane could light up its TAB (pinned by tab-notifications.spec.ts
@@ -713,14 +784,20 @@ export function TopicTree({
     return (
       <div key={item.id}>
         {/* Project header */}
-        <div
+        <LongPressRow
+          // Col dito il menu del progetto non esisteva: il tasto destro ne apre
+          // quattro voci — «Segna tutto come letto», «Fissa», «Muta notifiche»,
+          // «Archivia» — e da telefono se ne raggiungeva UNA. Tenere premuto apre
+          // ORA lo stesso menu del mouse (evento `contextmenu` sintetizzato,
+          // stesso `onContextMenu` qui sotto): un menu solo, per costruzione.
+          isTouch={isTouch}
           // `pl-1 pr-2` (not the shared `px-2`): the accordion chevron is the
           // leading control, and a full 8px left pad + the chevron button's own
           // centring pushed it ~12px in from the card edge — too much dead space
           // before the arrow. Tighten the LEFT only; the RIGHT keeps `pr-2`
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
-          className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
+          className={`group/proj flex items-center ${ROW_H} pl-1 pr-2 select-none ${
             // "Ho guardato un progetto" vuol dire: ho guardato ciò che stava
             // segnalando — guardarne l'INTESTAZIONE non è aver letto le chat che ci
             // stanno dentro. Quel pezzo ora sta dentro `projectAttentionTier`, che
@@ -737,22 +814,18 @@ export function TopicTree({
           // era il menu contestuale. Porta la chiave della PANE, che per un
           // progetto è il path CODIFICATO: chi riceve apre o sposta una pane, e
           // con la chiave della riga il drop cadrebbe su una pane inesistente.
-          draggable
+          // Su touch il drag nativo si spegne: il lift di HTML5 contende lo
+          // stesso gesto del «tieni premuto», e chi vince è il caso.
+          draggable={!isTouch}
           onDragStart={(e) => {
             e.dataTransfer.setData(DND_TYPES.PANEL_ID, createPaneId('project', pp));
             rememberDraggedPane(createPaneId('project', pp));
             e.dataTransfer.effectAllowed = 'move';
-            const ghost = document.createElement('div');
-            ghost.style.cssText =
-              'position:fixed;left:-9999px;top:-9999px;display:flex;align-items:center;' +
-              'padding:6px 12px;border-radius:8px;font:500 13px/1 system-ui,sans-serif;' +
-              'color:#fff;white-space:nowrap;pointer-events:none;' +
-              'background:color-mix(in srgb, var(--primary) 90%, transparent);' +
-              'box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-            ghost.textContent = item.name;
-            document.body.appendChild(ghost);
-            e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-            requestAnimationFrame(() => { try { document.body.removeChild(ghost); } catch { /* già via */ } });
+            // Il fantasma è quello CONDIVISO (`dragGhost.ts`), non una terza
+            // copia: erano tre pillole scritte a mano con tre ombre e tre
+            // padding diversi, e le tre superfici che trascinano mostravano tre
+            // cose leggermente diverse per lo stesso gesto.
+            spawnDragGhost(e, { text: item.name, size: 'md' }, DRAG_GHOSTS);
           }}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -890,9 +963,14 @@ export function TopicTree({
                 )}
               </>
             )}
-            {/* Touch: overflow menu */}
+            {/* Touch: il «+» della riga. NON è il menu contestuale del progetto —
+                quello, con «Segna tutto come letto», «Fissa» e «Muta notifiche»,
+                si apre tenendo premuta la riga (vedi `LongPressRow` sopra) ed è
+                lo stesso del tasto destro. Qui ci sono le voci che sul desktop
+                stanno dietro il «+» che compare al passaggio del mouse, cioè
+                quelle che su touch non avrebbero altra strada. */}
             {isTouch && (onNewTopicInProject || onAddProjectPane || onArchiveProject) && (
-              <TouchProjectMenu
+              <TouchProjectAddMenu
                 pp={pp}
                 allArchived={allArchived}
                 onNewTopicInProject={onNewTopicInProject}
@@ -901,7 +979,7 @@ export function TopicTree({
               />
             )}
           </div>
-        </div>
+        </LongPressRow>
 
         {/* Accordion children */}
         {isExpanded && children.length > 0 && (
@@ -948,16 +1026,24 @@ export function TopicTree({
     const isCollapsed = collapsedSections.has(sectionKey);
     const totalUnread = items.reduce((sum, item) => sum + item.notificationCount, 0);
 
+    // Niente `border-t`: la card grammar dichiara di TOGLIERE le linee
+    // divisorie, e questa era l'ultima rimasta — a separare proprio la cosa
+    // (la sezione) che già si distingue per la sua intestazione.
     return (
-      <div key={sectionKey} className="flex-shrink-0 border-t border-app-border first:border-t-0">
-        {/* Section header — collapsible, matches old sidebar design */}
-        <div className="group flex items-center h-11 md:h-8 hover:bg-app-hover transition-colors">
+      <div key={sectionKey} className="flex-shrink-0">
+        {/* L'intestazione è una CARD come ogni altra riga: rientrata di 6px
+            (ROW_INSET, via `mx-1.5`), angoli tondi, hover rientrato con lei.
+            Prima l'hover era full-bleed da bordo a bordo mentre ogni riga sotto
+            ce l'ha rientrato, e il testo partiva da `paddingLeft: 12` inline —
+            due px più a sinistra dei 6+8 delle righe con card, cioè un
+            disallineamento troppo piccolo per vedersi e abbastanza grande per
+            far sembrare storta la colonna. */}
+        <div className={`group flex items-center ${ROW_H} ${ROW_PX} ${sidebarRowCard({})}`}>
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
             aria-label={`sezione ${label}`}
-            className="flex items-center gap-2 flex-1 h-full text-left"
-            style={{ paddingLeft: 12 }}
+            className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
           >
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
             <span className="text-[13px] text-app-text">{label}</span>
@@ -970,7 +1056,10 @@ export function TopicTree({
               className={`transition-transform duration-150 text-app-text-tertiary ${!isCollapsed ? 'rotate-90' : ''}`}
             />
           </button>
-          <div className="flex items-center gap-1 pr-1">
+          {/* Nessun `pr-1`: il padding di destra ora è quello della card
+              (ROW_PX), lo stesso che allinea in colonna badge e spinner di
+              tutte le righe sotto. */}
+          <div className="flex items-center gap-1">
             <NotificationBadge count={totalUnread} />
           </div>
         </div>
@@ -1048,6 +1137,24 @@ export function TopicTree({
         if (pinnedIds.has(key)) return;
         if (at) onPinAt?.(key, at);
         else onTogglePin?.(key);
+      }}
+      // Il «+» della tessera: la STESSA `PaneAddMenu` della riga del progetto,
+      // con gli stessi callback. Solo per i progetti — sono l'unica cosa
+      // fissabile che contiene tab: un «+» su una chat fissata non avrebbe
+      // niente da creare dentro. Su touch niente, come per la riga: lì il menu
+      // arriva dalla pressione lunga.
+      renderActions={item => {
+        if (item.type !== 'project' || !item.projectPath) return null;
+        if (isTouch || (!onNewTopicInProject && !onAddProjectPane)) return null;
+        const pp = item.projectPath;
+        return (
+          <PaneAddMenu
+            scope="project"
+            onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
+            onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
+            triggerTitle="Aggiungi al progetto"
+          />
+        );
       }}
       // Serve a disegnare l'anteprima con la cosa VERA, e quindi deve cercare
       // fra TUTTE le righe, non fra i fissati: quella in volo, per definizione,
@@ -1145,13 +1252,16 @@ export function TopicTree({
           <button
             key="board-row"
             type="button"
-            onClick={onOpenBoard}
+            onClick={() => { if (boardPress.consumeClick()) return; onOpenBoard(); }}
             data-testid="sidebar-board-generale"
             aria-selected={boardOpen}
+            {...boardPress.handlers}
+            data-pressing={boardPress.pressed || undefined}
             // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
             // pane: è così che la si fissa (lasciandola sui Fissati) e che la si
-            // porta in un gruppo, senza passare da un menu.
-            draggable
+            // porta in un gruppo, senza passare da un menu. Su touch no: il lift
+            // nativo di HTML5 contende il «tieni premuto».
+            draggable={!isTouch}
             onDragStart={e => {
               e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
               rememberDraggedPane(BOARD_ID);
@@ -1161,16 +1271,21 @@ export function TopicTree({
               e.preventDefault();
               setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
             }}
-            // La stessa card di ogni altra riga: 6px di rientro (ROW_INSET),
-            // angoli tondi, `mt-px` come tutte. `mb-0` perché lo spazio SOTTO
-            // appartiene a ciò che segue — il blocco dei fissati porta il suo, e
-            // sommare i due margini rompeva il ritmo verticale. Era l'unica riga
-            // a filo dei bordi, con 12px di padding interno: sembrava di un
-            // altro elenco.
-            className={`flex items-center gap-1.5 mx-1.5 mt-px mb-0 px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
-              boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
+            // La stessa card di ogni altra riga, e adesso CHIAMANDOLA: il
+            // commento diceva già «la stessa card», ma le classi erano una copia
+            // scritta a mano (`px-1.5` contro ROW_PX, `rounded-md` contro
+            // `rounded-lg`), quindi la copia e l'originale potevano divergere —
+            // e lo facevano.
+            //
+            // `marginBottom: 0` sovrascrive il `my-px` della card, e non è un
+            // capriccio: lo spazio SOTTO appartiene a ciò che segue — il blocco
+            // dei fissati porta i suoi 6px (TILE_GAP) — e sommare i due margini
+            // fa 7px dove il ritmo ne vuole 6 (lo blocca `sidebar-pinned-tiles`
+            // TILE-14).
+            className={`flex items-center gap-1.5 ${ROW_PX} ${ROW_H} select-none ${
+              sidebarRowCard({ focused: boardOpen })
             }`}
-            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)`, marginBottom: 0 }}
           >
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
@@ -1503,7 +1618,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
-        `group/terminal flex items-center h-11 md:h-8 ${ROW_PX}`,
+        `group/terminal flex items-center ${ROW_H} ${ROW_PX}`,
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
@@ -1590,7 +1705,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
               <button
                 ref={overflowRef}
                 onClick={(e) => { e.stopPropagation(); setOverflowOpen(o => !o); }}
-                className="flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
+                // `tap-expand`: il bottone resta 24px (la riga ne è alta 34 e
+                // portarlo a 44 la sfonderebbe), cresce solo l'AREA SENSIBILE,
+                // e solo su `pointer: coarse`.
+                className="tap-expand flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
                 title={tr('sidebar.moreOptions')}
               >
                 <MoreHorizontal size={12} />
@@ -1692,9 +1810,23 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   );
 }
 
-// ── Touch project overflow menu ────────────────────────────────────────────────
+// ── Il «+» della riga di progetto, su touch ────────────────────────────────────
+//
+// SI CHIAMA «Add» PERCHÉ È QUELLO, e il nome vecchio (`TouchProjectMenu`) era la
+// causa del difetto: sembrava IL menu del progetto su touch, e chi lo guardava
+// dava per scontato che ci fosse tutto. Invece il menu del progetto ha quattro
+// voci — «Segna tutto come letto», «Fissa», «Muta notifiche», «Archivia» — e da
+// qui se ne raggiungeva una sola, cioè proprio le cose che dal telefono si fanno
+// di più erano irraggiungibili.
+//
+// Da oggi le due strade sono distinte e nessuna è un sottoinsieme muto
+// dell'altra: il MENU del progetto si apre tenendo premuta la riga ed è lo
+// stesso del tasto destro (`LongPressRow`); QUESTO è il gemello del «+» che sul
+// desktop compare al passaggio del mouse — aggiungere una chat o una pane — più
+// l'archiviazione, che sul desktop sta nel bottone accanto al «+» e su touch non
+// avrebbe altra porta.
 
-interface TouchProjectMenuProps {
+interface TouchProjectAddMenuProps {
   pp: string;
   allArchived: boolean;
   // Note: claudeSkipPermissions state is owned inside PaneAddMenuItems via
@@ -1704,7 +1836,7 @@ interface TouchProjectMenuProps {
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
 }
 
-function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onArchiveProject }: TouchProjectMenuProps) {
+function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onArchiveProject }: TouchProjectAddMenuProps) {
   const tr = useT();
   const overflowBtnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -1718,7 +1850,14 @@ function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPa
       <button
         ref={overflowBtnRef}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
+        // Niente `bg-surface` (è il colore delle PANE, un gradino SOPRA il
+        // chrome su cui questa riga sta: da lì il bottone sembrava incollato
+        // sopra la sidebar invece che dentro la riga) e niente
+        // `hover:bg-app-hover`, che è un opaco tarato su quella stessa
+        // superficie. A riposo trasparente come ogni controllo della sidebar,
+        // in rilievo con SIDEBAR_HOVER. `tap-expand` per i 44px di iOS senza
+        // sfondare la riga.
+        className={`tap-expand flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
         title={tr('sidebar.moreOptions')}
       >
         <MoreHorizontal size={14} />
@@ -1868,15 +2007,25 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
   // while browser rows did not). Cursor-positioned, portaled via ContextMenuPortal.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const hasMenu = !!onTogglePin || !!onCloseBrowser;
+  // La riga più scoperta di tutte: qui dentro `isTouch` non esisteva proprio,
+  // quindi da iPhone un browser aperto non si chiudeva più dalla sidebar (lo
+  // slot della X è rivelato dall'hover, e su touch l'hover non c'è) e le sue due
+  // voci — «Fissa», «Chiudi browser» — vivevano solo sotto il tasto destro.
+  const { isTouch } = useMobile();
+  const press = useLongPress(openContextMenuAt, { enabled: isTouch && hasMenu });
   return (
     <div
       className={[
-        `group flex items-center h-11 md:h-8 cursor-pointer text-[14px] md:text-[13px] ${ROW_PX}`,
+        // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra
+        // il proprio callout di selezione mentre tieni premuto.
+        `group flex items-center ${ROW_H} cursor-pointer select-none text-[14px] md:text-[13px] ${ROW_PX}`,
         sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       data-pinned={pinned ? 'true' : undefined}
-      onClick={() => onOpenBrowser?.(bc.id)}
+      {...press.handlers}
+      data-pressing={press.pressed || undefined}
+      onClick={() => { if (press.consumeClick()) return; onOpenBrowser?.(bc.id); }}
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
@@ -1912,7 +2061,11 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         // Hover-only close slot (or visible while a close is pending) so the
         // spinner above sits FLUSH at the trailing edge at rest — reserving it
         // always pushed the spinner ~28px in from the edge.
-        <span className={`flex-shrink-0 w-6 h-6 items-center justify-center mr-1 relative z-10 ${pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
+        // SU TOUCH RESTA SEMPRE VISIBILE, come già fa la riga del terminale
+        // accanto (`isTouch || pendingClose ? 'flex' : …`): senza hover la X
+        // restava `hidden` per sempre e un browser aperto dalla sidebar non si
+        // chiudeva più.
+        <span className={`flex-shrink-0 w-6 h-6 items-center justify-center mr-1 relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
           {pendingClose ? (
             <PendingActionRing
               status={pendingClose}
@@ -1921,13 +2074,17 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
               pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
             />
           ) : (
-            <span className="hidden group-hover:flex items-center justify-center w-full h-full">
+            <span className={`items-center justify-center w-full h-full ${isTouch ? 'flex' : 'hidden group-hover:flex'}`}>
               <PendingActionRing
                 status={null}
                 size={14}
                 onIdleClick={() => onCloseBrowser(bc.id)}
                 idleTitle="Chiudi browser"
                 idleAriaLabel={`Chiudi browser ${itemName}`}
+                // Il cerchio è 14px: `tap-expand` gli dà i 44px di area
+                // sensibile che iOS pretende, senza toccare il disegno (e solo
+                // su `pointer: coarse`).
+                className="tap-expand"
               />
             </span>
           )}
