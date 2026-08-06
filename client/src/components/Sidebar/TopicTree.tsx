@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -15,6 +15,7 @@ import { topicsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
+import { DND_TYPES } from '@/lib/dndTypes';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
@@ -39,7 +40,7 @@ import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { SpaceGroupCard, useSpaceCards } from './SpaceGroups';
 
 /**
@@ -96,26 +97,6 @@ function describeChildAttention(children: SidebarItem[] | undefined): string | u
   const rest = ringing.length - shown.length;
   return `${total} da guardare: ${shown.join(' · ')}${rest > 0 ? ` · +altri ${rest}` : ''}`;
 }
-
-const TYPE_ICONS = {
-  chat: MessageSquare,
-  terminal: TerminalSquare,
-  browser: Globe,
-  project: FolderOpen,
-  utility: Wrench,
-} as const;
-
-// Section headings for the by-type view. All Italian: they used to read
-// "Projects / Chats / Terminals / Browsers / Strumenti" — four English labels
-// next to one Italian one, in the same tree as the Italian "Finestre" and
-// "Fissati" sections.
-const TYPE_LABELS: Record<SidebarItem['type'], string> = {
-  project: 'Progetti',
-  chat: 'Chat',
-  terminal: 'Terminali',
-  browser: 'Browser',
-  utility: 'Strumenti',
-};
 
 // Utility-row glyphs, keyed by the icon NAME the builder lifts from
 // PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
@@ -432,11 +413,6 @@ export function TopicTree({
     return groupSidebarItemsBySpace(unpinnedItems, paneSpaceById ?? new Map<string, string>());
   }, [unpinnedItems, spaceScoped, paneSpaceById]);
 
-  const groupedItems = useMemo(
-    () => viewMode === 'grouped' ? groupSidebarItems(unpinnedItems) : null,
-    [unpinnedItems, viewMode]
-  );
-
   // Vista per STATO: attende te / al lavoro / il resto. I Set arrivano dallo
   // store dei segnali — la stessa fonte che dipinge i fill delle righe, quindi la
   // sezione in cui una riga finisce e il suo colore non possono divergere.
@@ -715,6 +691,28 @@ export function TopicTree({
             sidebarRowCard({ focused: folderFilled, attention: attentionFillFor(projTier, folderFilled) })
           }`}
           data-pinned={item.pinned ? 'true' : undefined}
+          // La riga di un progetto non è mai stata trascinabile: si potevano
+          // trascinare chat, terminali e browser, non il progetto — quindi non
+          // c'era modo di portarlo in un gruppo o sui fissati, e l'unica strada
+          // era il menu contestuale. Porta la chiave della PANE, che per un
+          // progetto è il path CODIFICATO: chi riceve apre o sposta una pane, e
+          // con la chiave della riga il drop cadrebbe su una pane inesistente.
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData(DND_TYPES.PANEL_ID, createPaneId('project', pp));
+            e.dataTransfer.effectAllowed = 'move';
+            const ghost = document.createElement('div');
+            ghost.style.cssText =
+              'position:fixed;left:-9999px;top:-9999px;display:flex;align-items:center;' +
+              'padding:6px 12px;border-radius:8px;font:500 13px/1 system-ui,sans-serif;' +
+              'color:#fff;white-space:nowrap;pointer-events:none;' +
+              'background:color-mix(in srgb, var(--primary) 90%, transparent);' +
+              'box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+            ghost.textContent = item.name;
+            document.body.appendChild(ghost);
+            e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+            requestAnimationFrame(() => { try { document.body.removeChild(ghost); } catch { /* già via */ } });
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
@@ -945,9 +943,6 @@ export function TopicTree({
     );
   };
 
-  const renderGroupSection = (type: SidebarItem['type'], items: SidebarItem[]) =>
-    renderSection(type, TYPE_ICONS[type], TYPE_LABELS[type], items);
-
   // ── Il blocco dei Fissati, in UN posto solo ──────────────────────────────
   //
   // Prima i quattro modi di vista ripetevano ognuno intestazione +
@@ -1154,20 +1149,7 @@ export function TopicTree({
             )}
             {unpinnedItems.map(item => renderItem(item))}
           </>
-        ) : (
-          // Grouped: the Fissati pseudo-section first, then the collapsible
-          // per-type sections (fed the UNpinned items so nothing double-renders).
-          groupedItems && (
-            <>
-              {pinnedBlock.length > 0 && renderPinnedTiles()}
-              {(['project', 'chat', 'terminal', 'browser', 'utility'] as const).map(type => {
-                const items = groupedItems[type];
-                if (items.length === 0) return null;
-                return renderGroupSection(type, items);
-              })}
-            </>
-          )
-        )}
+        ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
             "di cosa devo occuparmi" invece del tipo di pane. L'ordine è la
             priorità di lettura: chi aspetta una tua risposta in cima, poi chi sta
@@ -1175,15 +1157,34 @@ export function TopicTree({
         {!spaceScoped && viewMode === 'state' && stateGroups && (
           <>
             {pinnedBlock.length > 0 && renderPinnedTiles()}
-            {STATE_SECTIONS.map(({ key, icon, label }) => {
-              const items = stateGroups[key];
-              if (items.length === 0) return null;
-              return (
-                <div key={key} data-testid={`sidebar-state-section-${key}`}>
-                  {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
-                </div>
-              );
-            })}
+            {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non
+                aspetta te e non sta lavorando». Quando è l'unico bucket pieno
+                non contrappone niente — è la lista, e intitolarla «Il resto»
+                fa sembrare che ci sia dell'altro fuori. Succede di continuo:
+                basta sciogliere i gruppi e ricadere in questa vista con nulla
+                di attivo, e ti compare un'intestazione che sembra un gruppo.
+                Zero chrome quando non c'è niente da distinguere, come per il
+                gruppo unico. */}
+            {(() => {
+              const soloIlResto =
+                stateGroups.awaiting.length === 0 && stateGroups.working.length === 0;
+              if (soloIlResto) {
+                return (
+                  <div data-testid="sidebar-state-section-rest">
+                    {stateGroups.rest.map(item => renderItem(item))}
+                  </div>
+                );
+              }
+              return STATE_SECTIONS.map(({ key, icon, label }) => {
+                const items = stateGroups[key];
+                if (items.length === 0) return null;
+                return (
+                  <div key={key} data-testid={`sidebar-state-section-${key}`}>
+                    {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
+                  </div>
+                );
+              });
+            })()}
           </>
         )}
 

@@ -22,7 +22,7 @@ const PROJECT_FILE = "e2e-marker.txt";
 
 // Full sidebar-state payload — every legacy field is included so the server's
 // migration path (which fires when viewMode is absent) can't reset viewMode.
-function sidebarState(viewMode: "timeline" | "grouped") {
+function sidebarState(viewMode: "timeline" | "state") {
   return {
     viewMode,
     showArchived: false,
@@ -37,12 +37,7 @@ function sidebarState(viewMode: "timeline" | "grouped") {
   };
 }
 
-/** Persist grouped view on the SERVER (wins over localStorage on mount). */
-async function setGroupedView(request: APIRequestContext): Promise<void> {
-  await request.put(`${BASE_URL}/api/ui-state/sidebar-state`, { data: sidebarState("grouped") });
-}
-
-/** Restore the default timeline view so later tests aren't left in grouped mode. */
+/** Restore the default timeline view so later tests aren't left in another mode. */
 async function resetTimelineView(request: APIRequestContext): Promise<void> {
   await request.put(`${BASE_URL}/api/ui-state/sidebar-state`, { data: sidebarState("timeline") });
 }
@@ -115,27 +110,30 @@ test.describe("Panels & Views", () => {
     await expect(addMenu).toBeHidden({ timeout: 5000 });
   });
 
-  test("terminal section exists", async ({ page, request }) => {
+  // Qui c'era "terminal section exists": verificava che la riga di un terminale
+  // finisse sotto l'intestazione «sezione Terminali» del modo PER TIPO, rimosso
+  // il 06/08 (Attilio). Il soggetto del test non esiste più, quindi resta la
+  // parte che è ancora una verità: quelle intestazioni non si disegnano più in
+  // nessuna vista.
+  //
+  // NOTA, trovata riscrivendolo e non inseguita: seminando la pane di un
+  // terminale (`resetPaneStore`) — e anche mettendola in `openPanels` — la sua
+  // riga NON compare nella sidebar. Il vecchio test non se ne accorgeva perché
+  // guardava l'intestazione della sezione, non la riga. È una domanda a sé
+  // (roster delle sessioni? gate di visibilità?) in un'area che un'altra
+  // sessione sta riscrivendo, e va guardata con quel contesto in mano.
+  test("le intestazioni per TIPO non esistono in nessuna vista", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Sidebar sections (Terminali/Browser/…) only render in GROUPED view; the
-    // default is the unified timeline. viewMode is SERVER-persisted
-    // (useSidebarState fetches /api/ui-state/sidebar-state on mount and it wins
-    // over localStorage), so a localStorage-only seed is clobbered — set it on
-    // the server, including all legacy fields to block the migration path.
-    await setGroupedView(request);
-    // A grouped section renders only when it has ≥1 item (TopicTree:724 hides
-    // empty sections), and a standalone terminal shows only with an OPEN tab
-    // (buildSidebarItems §4). Seed a real session AND its pane so the Terminals
-    // section has content.
     const session = await createTerminalSession(request, { name: "E2E-PanelTerm" });
     await resetPaneStore(request, [`terminal:${session.id}`]);
     try {
       await goToApp(page);
-      // Accessible name is `sezione <label>` (TopicTree renderSection) and the
-      // labels are Italian since ed903cfc — match it exactly, not by a loose
-      // substring that a rename can silently stop matching.
-      const terminalsBtn = page.getByRole("button", { name: "sezione Terminali" });
-      await expect(terminalsBtn).toBeVisible({ timeout: 10000 });
+      for (const label of ["Terminali", "Browser", "Chat", "Progetti", "Strumenti"]) {
+        await expect(
+          page.getByRole("button", { name: `sezione ${label}` }),
+          `nessuna sezione «${label}»`,
+        ).toHaveCount(0);
+      }
     } finally {
       await deleteTerminalSession(request, session.id);
       await resetPaneStore(request, []);
@@ -145,19 +143,13 @@ test.describe("Panels & Views", () => {
 
   test("browser section shows instances", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Sidebar sections only render in GROUPED view (default is timeline) and
-    // only when non-empty. A browser row is emitted for every open `browser:`
-    // pane (buildSidebarItems:512 — no live context required), so seeding a
-    // browser pane populates the sezione Browser. viewMode is server-persisted,
-    // so grouped mode must be set on the server (see terminal test above).
-    await setGroupedView(request);
+    // Come sopra: la "sezione Browser" era del modo per tipo. La riga di un
+    // browser viene emessa per ogni pane `browser:` aperta
+    // (buildSidebarItems:512 — non serve un contesto vivo), ed e' quella la
+    // cosa da difendere.
     await resetPaneStore(request, ["browser:e2e-panel-browser"]);
     try {
       await goToApp(page);
-      const browserSection = page.getByRole("button", { name: "sezione Browser" });
-      await expect(browserSection.first()).toBeVisible({ timeout: 10000 });
-
-      await browserSection.first().click();
       await expect
         .poll(
           async () => /[Bb]rowser/.test((await page.locator("body").textContent()) ?? ""),
@@ -198,7 +190,10 @@ test.describe("Panels & Views", () => {
     // il componente cade comunque nel ramo inattivo (RemoteAccessPanel.tsx:92
     // e 166). Nessuna dipendenza dall'esito della chiamata, quindi.
     const tunnelToggle = page.getByRole("button", {
-      name: /Enable Tailscale Funnel|Disable Tunnel/,
+      // Rinominati in `770083ed` ("Il bottone diceva «Funnel» e intendeva
+      // Internet"): il commit non aggiornò questo locator, e il test cercava da
+      // allora due etichette che non esistono più.
+      name: /Esponi sul tailnet|Disattiva l'esposizione/,
     });
     await expect(tunnelToggle).toBeVisible({ timeout: 10000 });
   });

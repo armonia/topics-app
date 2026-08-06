@@ -11,7 +11,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   buildSidebarItems,
-  groupSidebarItems,
   groupSidebarItemsBySpace,
   sidebarItemPaneId,
   type SidebarItem,
@@ -386,24 +385,6 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
     expect(items.find((i) => i.id === "terminal:s1")).toBeUndefined();
   });
 
-  test("groupSidebarItems never sees a 'pinned' type — pinned items bucket by their REAL type", () => {
-    const items = buildSidebarItems({
-      ...base,
-      workspaceProjects: [],
-      topics: { a1: topic("a1", "Alpha") },
-      terminalSessions: [],
-      openPanels: [],
-      projectOpenPanes: {},
-      pinnedIds: new Set(["a1", `project:${PP}`]),
-    });
-    const groups = groupSidebarItems(items);
-    // Only the five canonical buckets exist…
-    expect(Object.keys(groups).sort()).toEqual(["browser", "chat", "project", "terminal", "utility"]);
-    // …and pinned items land in their real-type bucket, flagged pinned.
-    expect(groups.chat.map((i) => i.id)).toEqual(["a1"]);
-    expect(groups.chat[0].pinned).toBe(true);
-    expect(groups.project.map((i) => i.id)).toEqual([`project:${PP}`]);
-  });
 });
 
 describe("buildSidebarItems — browser row title (tab/sidebar parity)", () => {
@@ -587,7 +568,11 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
     expect(items.find((i) => i.type === "utility")).toBeUndefined();
   });
 
-  test("grouped view files utility rows under their own section", () => {
+  // Il modo "per tipo" e' stato rimosso (06/08) e con lui `groupSidebarItems`:
+  // qui si verificava che una riga utility finisse nella sua sezione. Quello che
+  // resta da difendere e' che la riga utility ESISTA con il suo tipo — il resto
+  // era una proprieta' di una vista che non c'e' piu'.
+  test("una tab utility aperta produce la sua riga, di tipo utility", () => {
     const items = buildSidebarItems({
       ...base,
       workspaceProjects: [],
@@ -595,8 +580,8 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
       openPanels: ["__dashboard__"],
       projectOpenPanes: {},
     });
-    const groups = groupSidebarItems(items);
-    expect(groups.utility.map((i) => i.id)).toEqual(["__dashboard__"]);
+    const utility = items.filter((i) => i.type === "utility");
+    expect(utility.map((i) => i.id)).toEqual(["__dashboard__"]);
   });
 
   /**
