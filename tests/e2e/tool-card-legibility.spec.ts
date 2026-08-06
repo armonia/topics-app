@@ -122,6 +122,68 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     await fresh.screenshot({ path: "test-results/skill-card-instructions.png" });
   });
 
+  test("una corsa VIVA: il chevron dice la verità, il cronometro gira, i figli sono rientrati", async ({ page, request }) => {
+    // Da quando i messaggi consecutivi di sola azione si fondono, la riga di
+    // gruppo si vede DAVVERO tutti i giorni — e con lei tre difetti che prima
+    // erano teorici: il chevron puntato a destra su un corpo aperto, nessun
+    // numero mentre la corsa va avanti (una riga singola in corso il suo
+    // cronometro ce l'ha sempre avuto), e i figli sulla stessa colonna del
+    // genitore, senza gerarchia.
+    const fresh = await createTopic(request, "Corsa Viva " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    const base = Date.now() - 30_000;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk,
+        role: "user",
+        content: "fai quattro cose",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [
+          { id: "lv-1", name: "Read", args: { file_path: "/a.ts" }, status: "success", result: "a", startedAt: base, endedAt: base + 1000 },
+          { id: "lv-2", name: "Read", args: { file_path: "/b.ts" }, status: "success", result: "b", startedAt: base + 1500, endedAt: base + 2500 },
+          { id: "lv-3", name: "Read", args: { file_path: "/c.ts" }, status: "success", result: "c", startedAt: base + 3000, endedAt: base + 4000 },
+          { id: "lv-4", name: "Bash", args: { command: "bun test" }, status: "running", startedAt: base + 5000 },
+        ],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const group = page.locator('[data-testid="tool-group-row"]').last();
+      await expect(group).toBeVisible({ timeout: 15_000 });
+      await expect(group).toContainText("3/4 azioni");
+
+      // Il corpo è aperto (l'azione in corso si vede) e il chevron lo dice.
+      const running = page.locator('[data-testid="tool-call-row-lv-4"]');
+      await expect(running).toBeVisible();
+      await expect(group.locator('[data-testid="tool-group-chevron"]')).toHaveAttribute("data-open", "true");
+
+      // Il cronometro della corsa gira: parte da `startedAt` del primo, quindi
+      // ~30s fa. Sta nella RIGA di riepilogo, non nell'azione in corso.
+      const groupClock = group.locator('[data-testid="tool-group-summary"] [data-testid="tool-elapsed"]');
+      await expect(groupClock).toBeVisible();
+      await expect(groupClock).toContainText(/\d/);
+
+      // Gerarchia: le azioni del gruppo cominciano più a destra della riga che
+      // le contiene.
+      const groupLeft = (await group.locator('[data-testid="tool-group-summary"]').boundingBox())!.x;
+      const childLeft = (await running.boundingBox())!.x;
+      expect(childLeft).toBeGreaterThan(groupLeft + 8);
+
+      await group.screenshot({ path: "test-results/tool-group-live.png" });
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
   test("un risultato salvato come array di blocchi torna leggibile", async ({ page, request }) => {
     const u = await seedMessage(request, {
       sessionKey,

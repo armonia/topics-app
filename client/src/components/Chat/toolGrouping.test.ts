@@ -161,3 +161,37 @@ describe('formatters', () => {
     expect(formatTokensCompact(0)).toBe('');
   });
 });
+
+describe('summarizeToolGroup · quando la corsa è COMINCIATA', () => {
+  const tc = (id: string, over: Partial<ToolCall> = {}): ToolCall =>
+    ({ id, name: 'Read', args: {}, status: 'success', ...over }) as ToolCall;
+
+  test('è il primo startedAt della corsa, non l\'ultimo', () => {
+    const s = summarizeToolGroup([
+      tc('b', { startedAt: 2000, endedAt: 2500 }),
+      tc('a', { startedAt: 1000, endedAt: 1500 }),
+      tc('c', { startedAt: 3000, endedAt: 3500 }),
+    ]);
+    expect(s.startedAt).toBe(1000);
+    expect(s.durationMs).toBe(2500);
+  });
+
+  test('a corsa VIVA il numero buono è l\'inizio: `durationMs` copre solo i conclusi', () => {
+    const s = summarizeToolGroup([
+      tc('a', { startedAt: 1000, endedAt: 1500 }),
+      tc('b', { status: 'running', startedAt: 2000 }),
+    ]);
+    expect(s.running).toBe(1);
+    expect(s.startedAt).toBe(1000);
+    // 1500 − 1000: l'azione ancora in corso non ha un `endedAt`, quindi questa
+    // NON è la durata della corsa — è la ragione per cui la riga la mostra solo
+    // a corsa finita, e mentre è viva fa ticchettare `startedAt`.
+    expect(s.durationMs).toBe(500);
+  });
+
+  test('righe vecchie senza timestamp: nessun inizio inventato', () => {
+    const s = summarizeToolGroup([tc('a'), tc('b')]);
+    expect(s.startedAt).toBeUndefined();
+    expect(s.durationMs).toBeUndefined();
+  });
+});

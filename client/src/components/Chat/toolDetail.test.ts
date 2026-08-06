@@ -112,3 +112,29 @@ describe('toolDetail — TaskCreate / TaskUpdate', () => {
     expect(deriveToolDetail('Task', { subagent_type: 'Explore', description: 'cerca' })?.type).toBe('sub_agent');
   });
 });
+
+describe('percorsi lunghi: si accorciano in MEZZO, non in coda', () => {
+  test('il nome del file sopravvive', () => {
+    const d = deriveToolDetail('Read', { file_path: '/Users/x/Projects/topics-app/client/src/components/Chat/MessageMetaFooter.tsx' });
+    const { summary } = buildToolDisplayLabel(d);
+    expect(summary).toContain('MessageMetaFooter.tsx');
+    expect(summary).toContain('…');
+    expect(summary!.length).toBeLessThan(45);
+  });
+
+  test('un percorso corto non viene toccato', () => {
+    const d = deriveToolDetail('Read', { file_path: '/Users/x/Projects/topics-app/server.ts' });
+    expect(buildToolDisplayLabel(d).summary).toBe('server.ts');
+  });
+
+  test('resta la cartella di testa, così si sa DOVE si è', () => {
+    const d = deriveToolDetail('Edit', { file_path: '/Users/x/Projects/topics-app/client/src/state/pane/adapters/hooks/useProjectTabStatus.ts' });
+    expect(buildToolDisplayLabel(d).summary).toMatch(/^client\/…\//);
+  });
+
+  test('senza abbastanza segmenti si lascia intero: un moncone sarebbe peggio', () => {
+    const long = '/Users/x/' + 'a'.repeat(80) + '.ts';
+    const d = deriveToolDetail('Read', { file_path: long });
+    expect(buildToolDisplayLabel(d).summary).toBe('a'.repeat(80) + '.ts');
+  });
+});

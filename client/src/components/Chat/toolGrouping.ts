@@ -60,6 +60,11 @@ export interface ToolGroupSummary {
   /** Wall-clock span of the run — first startedAt → last endedAt — when both
    *  bounds exist. Absent for legacy rows without timestamps. */
   durationMs?: number;
+  /** Quando è cominciata la corsa. Serve al gruppo ANCORA VIVO, che di durata
+   *  non ne ha una (manca l'ultimo `endedAt`) e restava senza nessun numero
+   *  mentre una riga singola in corso il suo cronometro ce l'ha: il momento in
+   *  cui si vorrebbe sapere da quanto va avanti è proprio quello. */
+  startedAt?: number;
   /** Somma del costo delle azioni del gruppo, in centesimi. Presente solo se
    *  almeno una riga porta un costo (messaggi vecchi non ne hanno). */
   costCents?: number;
@@ -104,6 +109,7 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     errors,
     running,
     ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(firstStart !== undefined ? { startedAt: firstStart } : {}),
     ...(costCents !== undefined ? { costCents } : {}),
     ...(tokens !== undefined ? { tokens } : {}),
   };
