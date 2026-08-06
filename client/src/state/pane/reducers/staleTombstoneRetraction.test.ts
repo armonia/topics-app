@@ -16,18 +16,37 @@ import type { PaneState, Pane } from "../types";
  * membership-stripped the re-opened pane (deterministic ids: topic tabs = the
  * topic UUID), and its first PUT closed the tab on every client.
  *
- * Fix: `Pane.openedAt` — stamped on every closed→open transition — makes the
- * comparison CAUSAL: a close marker only beats a pane whose openedAt predates
- * it. A marker older than the pane's (re)open is stale and is RETRACTED
- * (tombstone + closedStack records), on both hydrate halves:
- *   - strip half: the incoming LWW-newer snapshot lists the pane as open;
- *   - union half: the local live pane is newer than the incoming marker.
- * Panes without openedAt (legacy) keep the old marker-wins behavior.
+ * Fix originale: `Pane.openedAt`, per rendere il confronto causale. NON bastava:
+ * `openedAt` è timbrato da chi APRE e `closedAt` da chi CHIUDE, e i due venivano
+ * confrontati su una TERZA macchina. Due orologi a muro di dispositivi diversi
+ * non ordinano niente — misurato il 2026-08-06, una pane chiusa il 23/07 era
+ * ancora aperta su un telefono, e la ritrattazione si propagava all'indietro
+ * cancellando il marcatore anche sulla macchina che aveva chiuso.
+ *
+ * Fix vero: `Pane.openedSeq` contro `TombstoneMark.seq`. Entrambi vengono dal
+ * `lastSeq` dello store, che è tenuto al passo col `server_seq` del server —
+ * quindi ordinano fra dispositivi. Un client fermo da due settimane porta un
+ * `openedSeq` basso e PERDE.
+ *
+ * Manca uno dei due seq (pane o marcatore precedenti al campo)? Vince il
+ * marcatore: al massimo si richiude una pane davvero riaperta, mai il contrario.
+ * La ritrattazione avviene su entrambe le metà dell'idratazione:
+ *   - strip half: lo snapshot in arrivo (LWW più nuovo) elenca la pane aperta;
+ *   - union half: la pane viva locale è più avanti del marcatore in arrivo.
  */
 
 const T_OPEN_OLD = 1_000_000; // original open, long ago
 const T_CLOSE = 2_000_000; //   close recorded by some client
 const T_REOPEN = 3_000_000; //  deliberate re-open AFTER the close
+
+// I gemelli CAUSALI dei tre istanti sopra. Sono questi a decidere; i T_* restano
+// solo perché il marcatore porta ancora un orologio per ordinare il cap FIFO.
+const S_OPEN_OLD = 10;
+const S_CLOSE = 20;
+const S_REOPEN = 30;
+
+/** Marcatore nella forma corrente. */
+const mark = (at: number, seq: number) => ({ at, seq });
 
 const blank = (): PaneState => ({
   panes: {},
@@ -45,7 +64,7 @@ const blank = (): PaneState => ({
 const openPane = (
   state: PaneState,
   id: string,
-  opts: { type?: Pane["type"]; openedAt?: number } = {},
+  opts: { type?: Pane["type"]; openedAt?: number; openedSeq?: number } = {},
 ) =>
   paneReducer(state, {
     type: "OPEN_PANE",
@@ -54,6 +73,7 @@ const openPane = (
       type: opts.type ?? "chat",
       groupId: "group:default",
       ...(opts.openedAt !== undefined ? { openedAt: opts.openedAt } : {}),
+      ...(opts.openedSeq !== undefined ? { openedSeq: opts.openedSeq } : {}),
     },
   });
 
@@ -90,7 +110,7 @@ describe("strip half: incoming snapshot lists a pane the local client tombstoned
   test("stale local marker (webapp boot) — pane re-opened elsewhere survives, marker retracted", () => {
     // The stale webapp: holds a weeks-old tombstone for topic X, no pane X.
     const s = blank();
-    s.tombstones["topic-X"] = T_CLOSE;
+    s.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
     s.closedStack.push({
       id: "topic-X",
       closedAt: T_CLOSE,
@@ -100,10 +120,10 @@ describe("strip half: incoming snapshot lists a pane the local client tombstoned
       level: "app",
       focusedAtClose: false,
       tabOrderSnapshot: [],
-      seq: 1,
+      seq: S_CLOSE,
     });
     // Server hydrate: X was re-opened on the desktop AFTER the close.
-    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_REOPEN } }));
+    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_REOPEN, openedSeq: S_REOPEN } }));
 
     expect(s.panes["topic-X"]).toBeDefined();
     expect(paneIds(s)).toContain("topic-X");
@@ -117,21 +137,21 @@ describe("strip half: incoming snapshot lists a pane the local client tombstoned
     // This client closed X at T_CLOSE; a peer that slept through the close
     // wakes and PUTs its stale state still listing X open since T_OPEN_OLD.
     const s = blank();
-    s.tombstones["topic-X"] = T_CLOSE;
-    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_OPEN_OLD } }));
+    s.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
+    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD } }));
 
     expect(s.panes["topic-X"]).toBeUndefined();
     expect(paneIds(s)).not.toContain("topic-X");
-    expect(s.tombstones["topic-X"]).toBe(T_CLOSE); // marker survives
+    expect(s.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE)); // il marcatore sopravvive
   });
 
-  test("legacy incoming pane without openedAt — marker wins (pre-field behavior)", () => {
+  test("pane in arrivo SENZA openedSeq (legacy) — vince il marcatore", () => {
     const s = blank();
-    s.tombstones["topic-X"] = T_CLOSE;
+    s.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
     hydrate(s, snapshotWith({ "topic-X": { id: "topic-X" } }));
 
     expect(s.panes["topic-X"]).toBeUndefined();
-    expect(s.tombstones["topic-X"]).toBe(T_CLOSE);
+    expect(s.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE));
   });
 });
 
@@ -139,9 +159,9 @@ describe("union half: incoming snapshot carries a marker for a pane open locally
   test("local pane re-opened AFTER the incoming marker — kept, marker not merged", () => {
     // The desktop: topic X deliberately re-opened at T_REOPEN.
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_REOPEN });
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
     // A stale peer's PUT: no pane X, but its ancient tombstone for X rides in.
-    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": T_CLOSE } }));
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } }));
 
     expect(s.panes["topic-X"]).toBeDefined();
     expect(paneIds(s)).toContain("topic-X");
@@ -150,7 +170,7 @@ describe("union half: incoming snapshot carries a marker for a pane open locally
 
   test("stale closedStack record alone (no tombstone) is also beaten by a newer open", () => {
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_REOPEN });
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
     hydrate(
       s,
       snapshotWith(
@@ -166,7 +186,7 @@ describe("union half: incoming snapshot carries a marker for a pane open locally
               level: "app",
               focusedAtClose: false,
               tabOrderSnapshot: [],
-              seq: 1,
+              seq: S_CLOSE,
             },
           ],
         },
@@ -182,19 +202,19 @@ describe("union half: incoming snapshot carries a marker for a pane open locally
 
   test("incoming marker NEWER than the local open — genuine remote close, pane dropped", () => {
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_OPEN_OLD });
-    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": T_CLOSE } }));
+    openPane(s, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD });
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } }));
 
     expect(s.panes["topic-X"]).toBeUndefined();
     expect(paneIds(s)).not.toContain("topic-X");
-    expect(s.tombstones["topic-X"]).toBe(T_CLOSE);
+    expect(s.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE));
   });
 
-  test("local legacy pane without openedAt — incoming marker wins (pre-field behavior)", () => {
+  test("pane locale SENZA openedSeq (legacy) — vince il marcatore in arrivo", () => {
     const s = blank();
     openPane(s, "topic-X");
-    delete s.panes["topic-X"].openedAt; // simulate a pane persisted before the field
-    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": T_CLOSE } }));
+    delete s.panes["topic-X"].openedSeq; // pane persistita prima del campo
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } }));
 
     expect(s.panes["topic-X"]).toBeUndefined();
   });
@@ -217,7 +237,7 @@ describe("openedAt lifecycle", () => {
 
   test("UNDO_CLOSE stamps the restore as a fresh open", () => {
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_OPEN_OLD });
+    openPane(s, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD });
     paneReducer(s, {
       type: "CLOSE_PANE",
       payload: { id: "topic-X", groupId: "group:default", groupIndex: 0 },
@@ -229,7 +249,7 @@ describe("openedAt lifecycle", () => {
 
   test("openedAt survives the serialize → sanitize → hydrate round-trip", () => {
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_REOPEN });
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
     const snap = selectLocalSnapshot(s);
     const clean = sanitizeSnapshot(snap);
     expect(clean?.panes?.["topic-X"]?.openedAt).toBe(T_REOPEN);
@@ -239,14 +259,88 @@ describe("openedAt lifecycle", () => {
     expect(fresh.panes["topic-X"].openedAt).toBe(T_REOPEN);
   });
 
-  test("PANE_ID_REMAP carries openedAt across the draft → real promotion", () => {
+  test("PANE_ID_REMAP porta openedAt E openedSeq attraverso la promozione bozza → reale", () => {
     const s = blank();
-    openPane(s, "draft:1", { openedAt: T_REOPEN });
+    openPane(s, "draft:1", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
     paneReducer(s, {
       type: "PANE_ID_REMAP",
       payload: { from: "draft:1", to: "topic-X", updates: {} },
     });
     expect(s.panes["topic-X"].openedAt).toBe(T_REOPEN);
+    expect(s.panes["topic-X"].openedSeq).toBe(S_REOPEN);
+  });
+});
+
+describe("il caso Japan: un dispositivo dormiente non resuscita piu' nulla", () => {
+  // Riproduzione del guasto misurato il 2026-08-06.
+  //
+  // Una pane chiusa il 23/07 risultava ancora aperta su un telefono. Il telefono
+  // l'aveva aperta DOPO quella data secondo il proprio orologio — ma senza mai
+  // riuscire a sincronizzare (in quel periodo ogni /api tornava 401 per la
+  // barriera di pairing). Quindi: `openedAt` piu' recente del `closedAt`, e
+  // `openedSeq` FERMO a prima della chiusura, perche' quel client non aveva mai
+  // visto avanzare la storia condivisa.
+  //
+  // Vecchia regola (orologi): la pane sopravvive E il marcatore viene ritratto,
+  // quindi la resurrezione si propaga all'indietro fino alla macchina che aveva
+  // chiuso. Regola nuova (causalita'): la pane cade e il marcatore resta.
+  const T_PHONE_OPEN = T_CLOSE + 999_000; // orologio del telefono: PIU' AVANTI
+  const S_PHONE_OPEN = S_CLOSE - 5; //      storia condivisa vista: INDIETRO
+
+  test("openedAt piu' recente ma openedSeq indietro: la pane cade, il marcatore RESTA", () => {
+    const phone = blank();
+    openPane(phone, "topic-X", { openedAt: T_PHONE_OPEN, openedSeq: S_PHONE_OPEN });
+
+    hydrate(phone, snapshotWith({}, { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } }));
+
+    expect(phone.panes["topic-X"]).toBeUndefined();
+    expect(paneIds(phone)).not.toContain("topic-X");
+    // La meta' che contava davvero: il marcatore NON viene ritratto, quindi il
+    // prossimo PUT del telefono non riapre la pane sulle altre macchine.
+    expect(phone.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE));
+  });
+
+  test("stessa scena dall'altra meta': lo snapshot in arrivo elenca la pane, il marcatore locale vince", () => {
+    const desktop = blank();
+    desktop.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
+
+    // Il telefono ha PUTtato il suo stato: elenca la pane con un orologio
+    // avanti e un seq indietro.
+    hydrate(
+      desktop,
+      snapshotWith({
+        "topic-X": { id: "topic-X", openedAt: T_PHONE_OPEN, openedSeq: S_PHONE_OPEN },
+      }),
+    );
+
+    expect(desktop.panes["topic-X"]).toBeUndefined();
+    expect(desktop.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE));
+  });
+
+  test("ma una riapertura VERA sopravvive: chi ha visto la chiusura puo' riaprire", () => {
+    // La regola nuova non deve uccidere il caso legittimo insieme al guasto:
+    // qui il client ha visto la chiusura (seq avanti) e ha riaperto davvero.
+    const s = blank();
+    openPane(s, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_CLOSE + 1 });
+
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } }));
+
+    expect(s.panes["topic-X"]).toBeDefined();
+    expect(paneIds(s)).toContain("topic-X");
+    expect(s.tombstones["topic-X"]).toBeUndefined();
+  });
+
+  test("marcatore LEGACY (senza seq): vince il marcatore, che e' la direzione sicura", () => {
+    // Migrazione: i 381 marcatori gia' sul server sono numeri nudi. Normalizzati
+    // a seq 0, e con seq 0 nessun openedSeq li scavalca. Al massimo si richiude
+    // una pane davvero riaperta — l'utente la riapre — mai il contrario.
+    const s = blank();
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
+
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": T_CLOSE as unknown as never } }));
+
+    expect(s.panes["topic-X"]).toBeUndefined();
+    expect(s.tombstones["topic-X"]).toEqual(mark(T_CLOSE, 0));
   });
 });
 
@@ -254,15 +348,15 @@ describe("mixed-version peers: incoming snapshot stripped of openedAt", () => {
   test("local openedAt survives a wholesale apply from an old-build peer and still beats the stale marker", () => {
     // Local (new build): topic X re-opened after the close.
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_REOPEN });
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
     // Old-build peer re-PUTs: it lists X open (it hydrated it) but its
     // sanitizer stripped openedAt, and its merged map still carries the
     // stale marker (old code never retracts).
     hydrate(
       s,
       snapshotWith(
-        { "topic-X": { id: "topic-X" } }, // no openedAt on the wire
-        { tombstones: { "topic-X": T_CLOSE } },
+        { "topic-X": { id: "topic-X" } }, // niente openedAt NE' openedSeq sul filo
+        { tombstones: { "topic-X": mark(T_CLOSE, S_CLOSE) } },
       ),
     );
 
@@ -271,14 +365,17 @@ describe("mixed-version peers: incoming snapshot stripped of openedAt", () => {
     // while some clients still run the pre-fix bundle).
     expect(s.panes["topic-X"]).toBeDefined();
     expect(s.panes["topic-X"].openedAt).toBe(T_REOPEN);
+    // È QUESTO il campo che tiene viva la regola: perderlo in un giro su un
+    // peer vecchio non degrada la precisione, spegne la ritrattazione.
+    expect(s.panes["topic-X"].openedSeq).toBe(S_REOPEN);
     expect(paneIds(s)).toContain("topic-X");
     expect(s.tombstones["topic-X"]).toBeUndefined();
   });
 
   test("the graft keeps the NEWEST of the two timestamps", () => {
     const s = blank();
-    openPane(s, "topic-X", { openedAt: T_OPEN_OLD });
-    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_REOPEN } }));
+    openPane(s, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD });
+    hydrate(s, snapshotWith({ "topic-X": { id: "topic-X", openedAt: T_REOPEN, openedSeq: S_REOPEN } }));
     expect(s.panes["topic-X"].openedAt).toBe(T_REOPEN);
   });
 });
@@ -287,14 +384,19 @@ describe("end-to-end: the reported bug, two stores through the LWW blob", () => 
   test("desktop reopens a topic; a stale webapp boots, hydrates, PUTs — the tab survives everywhere", () => {
     // ── Desktop: topic X was closed at some point, then deliberately reopened.
     const desktop = blank();
-    openPane(desktop, "topic-X", { openedAt: T_OPEN_OLD });
+    openPane(desktop, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD });
     paneReducer(desktop, {
       type: "CLOSE_PANE",
       payload: { id: "topic-X", groupId: "group:default", groupIndex: 0 },
     });
-    const closedAt = desktop.tombstones["topic-X"];
-    expect(closedAt).toBeGreaterThan(0);
-    openPane(desktop, "topic-X", { openedAt: closedAt + 60_000 }); // reopen later
+    const closedMark = desktop.tombstones["topic-X"];
+    expect(closedMark.at).toBeGreaterThan(0);
+    expect(closedMark.seq).toBeGreaterThan(0);
+    // Riapertura DOPO la chiusura, e "dopo" si misura sul seq.
+    openPane(desktop, "topic-X", {
+      openedAt: closedMark.at + 60_000,
+      openedSeq: closedMark.seq + 1,
+    });
     expect(desktop.tombstones["topic-X"]).toBeUndefined();
 
     // Desktop PUTs → this is the server blob the webapp will hydrate.
@@ -303,7 +405,7 @@ describe("end-to-end: the reported bug, two stores through the LWW blob", () => 
     // ── Webapp: stale localStorage from BEFORE the reopen — it still holds the
     // marker (it merged the close, never learned of the retraction).
     const webapp = blank();
-    webapp.tombstones["topic-X"] = closedAt;
+    webapp.tombstones["topic-X"] = closedMark;
 
     // Webapp boots and hydrates the server blob (LWW-newer).
     hydrate(webapp, { ...serverBlob }, 1000);

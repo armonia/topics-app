@@ -137,7 +137,7 @@ describe("multi-client: durable tombstone survives closedStack FIFO overflow", (
     // B closes X — closedStack record AND durable tombstone recorded on B.
     close(B, "browser:X");
     expect(B.closedStack.some((r) => r.id === "browser:X")).toBe(true);
-    expect(B.tombstones["browser:X"]).toBeGreaterThan(0);
+    expect(B.tombstones["browser:X"].at).toBeGreaterThan(0);
 
     // The user then closes 55 OTHER tabs on B, pushing X out of the FIFO-bounded
     // (CLOSED_STACK_MAX = 50) closedStack.
@@ -148,7 +148,7 @@ describe("multi-client: durable tombstone survives closedStack FIFO overflow", (
     // X's closedStack RECORD is gone (evicted by the FIFO bound)…
     expect(B.closedStack.some((r) => r.id === "browser:X")).toBe(false);
     // …but its DURABLE tombstone remains (TOMBSTONES_MAX = 500 >> 55).
-    expect(B.tombstones["browser:X"]).toBeGreaterThan(0);
+    expect(B.tombstones["browser:X"].at).toBeGreaterThan(0);
 
     // A (stale) still lists X and PUTs at a higher seq. The durable tombstone
     // beats the stale union — X must NOT resurrect.
@@ -190,7 +190,7 @@ describe("multi-client: durable tombstone survives closedStack FIFO overflow", (
       close(A, `browser:filler-${i}`);
     }
     expect(A.closedStack.some((r) => r.id === "browser:X")).toBe(false);
-    expect(A.tombstones["browser:X"]).toBeGreaterThan(0);
+    expect(A.tombstones["browser:X"].at).toBeGreaterThan(0);
 
     // A FRESH peer B (never saw the close) holds X open locally — opened
     // BEFORE A's close (explicit openedAt: under the causal openedAt-vs-marker

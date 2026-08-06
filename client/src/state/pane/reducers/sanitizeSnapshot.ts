@@ -19,8 +19,8 @@
  *     casting.
  */
 
-import type { Pane, PaneType, Group, ClosedPaneRecord, SpaceMeta } from '../types';
-import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX, TOMBSTONES_MAX } from '../types';
+import type { Pane, PaneType, Group, ClosedPaneRecord, SpaceMeta, TombstoneMark } from '../types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX, TOMBSTONES_MAX, toTombstoneMark } from '../types';
 // Stessa regola di PANE_TYPES qui sotto: la lista dei tipi di terminale si
 // IMPORTA, non si ricopia. Le due whitelist scritte a mano che stavano più
 // giù si erano fermate a tre valori e buttavano via `opencode` a ogni
@@ -37,7 +37,7 @@ export interface SanitizedSnapshot {
   /** Durable close markers (paneId → closedAt ms) — merged per-id by the
    *  reducer, keeping the newest closedAt. See PaneState.tombstones: the
    *  FIFO-independent tombstone the HYDRATE strip consults. */
-  tombstones?: Record<string, number>;
+  tombstones?: Record<string, TombstoneMark>;
   /** Spazi registry — merged per-id by the reducer (mergeSpaces), never
    *  wholesale-applied. */
   spaces?: Record<string, SpaceMeta>;
@@ -134,6 +134,14 @@ function sanitizePane(raw: unknown): Pane | null {
   if (typeof raw.openedAt === 'number' && Number.isFinite(raw.openedAt)) {
     pane.openedAt = raw.openedAt;
   }
+  // Il gemello CAUSALE di `openedAt`, e quello su cui la ritrattazione decide
+  // davvero. Vale la stessa nota qui sopra, con gli interessi: senza questa voce
+  // in whitelist il campo verrebbe cancellato a ogni giro sul server, e la
+  // regola ricadrebbe per sempre sul ramo «manca il seq → vince il marcatore»,
+  // cioe' una pane legittimamente riaperta morirebbe a ogni idratazione.
+  if (typeof raw.openedSeq === 'number' && Number.isFinite(raw.openedSeq)) {
+    pane.openedSeq = raw.openedSeq;
+  }
   // Spazio membership — SYNCED per-pane (absent ⟺ default space). MANDATORY
   // whitelist entry: dropping it here would erase membership on every server
   // round-trip (the B1/B2 silent-erase class). The default id is normalised
@@ -185,18 +193,25 @@ function sanitizeSpaces(raw: unknown): Record<string, SpaceMeta> | null {
  * keeping the most-recently-closed ids (mirrors the reducer's capTombstones and
  * sanitizeClosedStack's keep-the-tail rule).
  */
-function sanitizeTombstones(raw: unknown): Record<string, number> | null {
+/**
+ * Accetta ENTRAMBE le forme: il numero nudo (legacy, solo orologio) e il
+ * marcatore `{at, seq}`. `toTombstoneMark` normalizza il primo a `seq: 0`, cioe'
+ * «non so a che punto della storia condivisa e' avvenuta questa chiusura» → in
+ * `HYDRATE` decide il marcatore. E' la direzione sicura: al massimo si richiude
+ * una pane davvero riaperta, mai il contrario.
+ */
+function sanitizeTombstones(raw: unknown): Record<string, TombstoneMark> | null {
   if (!isPlainObject(raw)) return null;
-  const out: Record<string, number> = {};
+  const out: Record<string, TombstoneMark> = {};
   for (const [id, v] of Object.entries(raw)) {
-    if (typeof id === 'string' && id && typeof v === 'number' && Number.isFinite(v)) {
-      out[id] = v;
-    }
+    if (typeof id !== 'string' || !id) continue;
+    const mark = toTombstoneMark(v);
+    if (mark) out[id] = mark;
   }
   const ids = Object.keys(out);
   if (ids.length <= TOMBSTONES_MAX) return out;
-  const kept = ids.sort((a, b) => out[b] - out[a]).slice(0, TOMBSTONES_MAX);
-  const capped: Record<string, number> = {};
+  const kept = ids.sort((a, b) => out[b].at - out[a].at).slice(0, TOMBSTONES_MAX);
+  const capped: Record<string, TombstoneMark> = {};
   for (const id of kept) capped[id] = out[id];
   return capped;
 }
