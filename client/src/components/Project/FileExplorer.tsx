@@ -1373,7 +1373,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         onClick={handleDelete}
         className="w-full text-left px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
       >
-        <Trash2 size={14} /> Delete{isMultiSelect ? ` (${multiSelectCount})` : ''}
+        <Trash2 size={14} /> Sposta nel cestino{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
     </div>,
     document.body
@@ -1546,17 +1546,20 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   );
 });
 
+// «This cannot be undone» adesso sarebbe una bugia: il server sposta nel
+// cestino di sistema (server/lib/trash.ts) invece di cancellare. Il testo dice
+// dove finisce la roba, perche' e' l'unica informazione che serve a decidere.
 function DeleteConfirmDialog({ paths, onConfirm, onCancel }: { paths: string[]; onConfirm: () => void; onCancel: () => void }) {
   return (
     <ConfirmDialog
-      title={paths.length === 1 ? 'Delete Item' : 'Delete Items'}
-      confirmLabel="Delete"
+      title="Sposta nel cestino"
+      confirmLabel="Sposta nel cestino"
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
       {paths.length === 1
-        ? <>Delete <span className="font-mono">{basename(paths[0])}</span>? This cannot be undone.</>
-        : <>Delete {paths.length} items? This cannot be undone.</>}
+        ? <>Sposto <span className="font-mono">{basename(paths[0])}</span> nel cestino di sistema. Da lì puoi rimetterlo a posto.</>
+        : <>Sposto {paths.length} elementi nel cestino di sistema. Da lì puoi rimetterli a posto.</>}
     </ConfirmDialog>
   );
 }
