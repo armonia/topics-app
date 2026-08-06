@@ -682,6 +682,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Checkout failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true, branch: body.branch });
       } catch (err: any) { return json({ error: "Checkout error: " + err.message }, 500); }
     }
@@ -763,7 +764,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // when the batch exits non-zero.
         const batch = Bun.spawn(["git", "add", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
         await batch.exited;
-        if (batch.exitCode === 0) return json({ ok: true });
+        if (batch.exitCode === 0) { invalidateGitCache(resolvedDir); return json({ ok: true }); }
         const failed: string[] = [];
         for (const f of files) {
           const proc = Bun.spawn(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
@@ -771,6 +772,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           if (proc.exitCode !== 0) failed.push(f);
         }
         if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
     }
@@ -797,6 +799,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const stderr = await new Response(proc.stderr).text();
         await proc.exited;
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Stage-all failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Stage-all error: " + err.message }, 500); }
     }
@@ -857,7 +860,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // per-file only on a non-zero batch exit to attribute the failures.
         const batch = Bun.spawn(["git", "reset", "HEAD", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
         await batch.exited;
-        if (batch.exitCode === 0) return json({ ok: true });
+        if (batch.exitCode === 0) { invalidateGitCache(resolvedDir); return json({ ok: true }); }
         const failed: string[] = [];
         for (const f of files) {
           const proc = Bun.spawn(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
@@ -865,6 +868,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           if (proc.exitCode !== 0) failed.push(f);
         }
         if (failed.length > 0) return json({ ok: false, error: "Failed to unstage some files", failed }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
     }
@@ -888,6 +892,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         if (proc.exitCode !== 0 && /fatal|error:/i.test(stderr)) {
           return json({ error: stderr.trim() || "Unstage-all failed" }, 400);
         }
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Unstage-all error: " + err.message }, 500); }
     }
@@ -925,6 +930,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
         }
         if (failed.length > 0) return json({ ok: false, error: "Failed to discard some files", failed }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Discard error: " + err.message }, 500); }
     }
@@ -956,6 +962,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Commit failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true, output: stdout.trim() });
       } catch (err: any) { return json({ error: "Commit error: " + err.message }, 500); }
     }
@@ -1409,6 +1416,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "git init failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Git init error: " + err.message }, 500); }
     }
@@ -1427,6 +1435,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Create branch failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true, branch: body.name });
       } catch (err: any) { return json({ error: "Create branch error: " + err.message }, 500); }
     }
@@ -1444,6 +1453,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Delete branch failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Delete branch error: " + err.message }, 500); }
     }
@@ -1489,6 +1499,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote add failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Remote add error: " + err.message }, 500); }
     }
@@ -1505,6 +1516,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote remove failed" }, 400);
+        invalidateGitCache(resolvedDir);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Remote remove error: " + err.message }, 500); }
     }
