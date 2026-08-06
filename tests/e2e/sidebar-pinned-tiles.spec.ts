@@ -513,12 +513,17 @@ test.describe("Sidebar — fissare da fuori, e la Board", () => {
       const tipi = Array.from(dt.types);
       row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
       await attendi();
+      const anteprima = row.querySelector('[data-testid="pinned-drop-preview"]');
       const durante = {
-        fantasma: !!row.querySelector('[data-testid="pinned-drop-ghost"]'),
+        // Non un rettangolo colorato: la TESSERA vera, con il nome della cosa
+        // che sta per atterrare.
+        anteprimaReale: !!anteprima,
+        nome: anteprima?.querySelector("[data-pinned-tile]")?.getAttribute("aria-label") ?? null,
         celle: row.children.length,
-        // Il riquadro sull'INTERA sezione si spegne: l'anteprima precisa c'è già,
-        // e due segnali per lo stesso fatto ne fanno uno muto.
-        sezioneAccesa: section.className.includes("ring-primary/40"),
+        // Niente azzurro: né il fantasma tratteggiato di prima, né il riquadro
+        // sull'intera sezione. L'anteprima è la cosa, e basta.
+        fantasmaVuoto: !!row.querySelector('[data-testid="pinned-drop-ghost"]'),
+        sezioneAccesa: section.className.includes("ring-primary"),
       };
 
       row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
@@ -528,9 +533,11 @@ test.describe("Sidebar — fissare da fuori, e la Board", () => {
     });
 
     expect(esito.tipi, "la riga del progetto deve portare la chiave della PANE").toContain("application/x-panel-id");
-    expect(esito.durante.fantasma, "l'anteprima deve disegnare la cella che nascerà").toBe(true);
+    expect(esito.durante.anteprimaReale, "l'anteprima deve essere la tessera vera").toBe(true);
+    expect(esito.durante.nome, "e deve portare il nome della cosa trascinata").toBe("e2e-tile-dropin");
     expect(esito.durante.celle, "la riga deve mostrarsi con una cella in più").toBe(2);
-    expect(esito.durante.sezioneAccesa, "il riquadro dell'intera sezione deve spegnersi").toBe(false);
+    expect(esito.durante.fantasmaVuoto, "niente rettangolo di ripiego quando la cosa si sa nominare").toBe(false);
+    expect(esito.durante.sezioneAccesa, "niente riquadro azzurro sulla sezione").toBe(false);
 
     // Fissato E in prima posizione: quella scelta col cursore, non in coda.
     await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });

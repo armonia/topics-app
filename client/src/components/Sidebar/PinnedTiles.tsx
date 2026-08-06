@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
 import {
@@ -68,6 +69,7 @@ export function PinnedTiles({
   onToggleItem,
   onContextMenu,
   onPinItem,
+  resolveItem,
   renderExpanded,
 }: {
   /** I fissati da mostrare, in ordine di pin. Il layout si riconcilia su questi. */
@@ -84,6 +86,11 @@ export function PinnedTiles({
    *  pane la fa la griglia. `at` è la cella sotto il cursore quando il drop cade
    *  su una riga o fra due righe — senza, la tessera si accoda. */
   onPinItem?: (key: string, at?: PinnedDropTarget) => void;
+  /** La riga della sidebar per una chiave, anche se NON è fra i fissati: serve
+   *  a disegnare l'anteprima come la tessera vera invece che come un rettangolo
+   *  colorato. `null` quando la chiave non ha una riga qui (drag da un'altra
+   *  finestra, o una pane senza presenza in sidebar). */
+  resolveItem?: (key: string) => SidebarItem | null;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -95,9 +102,10 @@ export function PinnedTiles({
   // riordinare. `dragKeyRef` è aggiornato in modo sincrono dal `dragstart`,
   // quindi la risposta giusta è già disponibile nel momento in cui serve.
   const [dropAt, setDropAt] = useState<
-    { rowIdx: number; insertAt: number; fromThisRow: boolean; movingKey: string | null } | null
+    { rowIdx: number; insertAt: number; fromThisRow: boolean; movingKey: string | null; incoming: SidebarItem | null } | null
   >(null);
   const [newRowAt, setNewRowAt] = useState<number | null>(null);
+  const [incomingRow, setIncomingRow] = useState<SidebarItem | null>(null);
   const [adopting, setAdopting] = useState(false);
   const dragKeyRef = useRef<string | null>(null);
 
@@ -109,6 +117,7 @@ export function PinnedTiles({
     setDragKey(null);
     setDropAt(null);
     setNewRowAt(null);
+    setIncomingRow(null);
     setAdopting(false);
   }, []);
 
@@ -128,6 +137,16 @@ export function PinnedTiles({
     dragKeyRef.current === null &&
     (e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
       e.dataTransfer.types.includes(DND_TYPES.PANEL_ID));
+
+  /** La cosa in volo, come RIGA — quella che l'anteprima disegnerà. Durante il
+   *  `dragover` il `dataTransfer` non si legge (regola del browser), quindi la
+   *  chiave arriva dal ripiano che la sorgente ha lasciato al `dragstart`. Se
+   *  non c'è (drag da un'altra finestra) l'anteprima ripiega sul posto vuoto. */
+  const incomingItem = (): SidebarItem | null => {
+    const paneId = draggedPaneId();
+    if (!paneId || !resolveItem) return null;
+    return resolveItem(pinKeyFromPaneId(paneId));
+  };
 
   /** La chiave di riga della pane trascinata. Leggibile SOLO nel `drop`:
    *  durante il `dragover` il browser espone i tipi ma non i dati. */
@@ -192,6 +211,10 @@ export function PinnedTiles({
         e.dataTransfer.dropEffect = ours ? 'move' : 'copy';
         setDropAt(null);
         setNewRowAt(at);
+        // Chi sta per atterrare: sua, se il drag parte da questa griglia;
+        // altrimenti la riga che il ripiano del drag sa nominare.
+        const moving = dragKeyRef.current;
+        setIncomingRow(moving ? byId.get(moving) ?? null : incomingItem());
       }}
       onDragLeave={() => setNewRowAt(cur => (cur === at ? null : cur))}
       onDrop={e => {
@@ -207,28 +230,46 @@ export function PinnedTiles({
         if (key) onPinItem?.(key, { kind: 'newRow', atRowIdx: at });
         clearDrag();
       }}
-      className={`mx-1.5 rounded transition-all duration-100 ${
-        newRowAt === at
-          ? 'h-7 bg-primary/10 ring-1 ring-inset ring-primary/40'
-          : dragKey || adopting
-            ? 'h-2'
-            : ''
+      className={`mx-1.5 transition-all duration-100 ${
+        newRowAt === at ? '' : dragKey || adopting ? 'h-2' : ''
       }`}
       style={newRowAt === at || dragKey || adopting ? undefined : { height: trailing ? 0 : TILE_GAP }}
-    />
+    >
+      {/* La riga nuova si vede per quello che sarà: la tessera vera, a tutta
+          larghezza, al 60%. Prima era una barra azzurra — che dice «qui», ma
+          non dice COSA, ed è l'unica cosa che uno vuole sapere mentre tiene
+          premuto. Senza una riga da nominare (drag da un'altra finestra) resta
+          il posto vuoto, tratteggiato nel grigio dei bordi: nessun colore
+          acceso per dire «non lo so». */}
+      {newRowAt === at && (
+        incomingRow
+          ? <div className="opacity-60 pointer-events-none">
+              <PinnedTile
+                item={incomingRow}
+                expanded={false}
+                focused={false}
+                attention={null}
+                onToggle={() => {}}
+              />
+            </div>
+          : <div
+              data-testid="pinned-drop-ghost"
+              className="h-14 rounded-lg border border-dashed border-app-border"
+            />
+      )}
+    </div>
     );
   };
 
   return (
     <div
       data-testid="sidebar-pinned-section"
-      // L'alone sulla SEZIONE è il ripiego: dice «cade nei Fissati» quando il
-      // cursore non è ancora su nessuna cella. Appena una riga (o uno spazio fra
-      // due righe) prende il drag, l'anteprima è quella — precisa — e tenere
-      // acceso anche il riquadro grande direbbe due volte una cosa sola.
-      className={`flex flex-col min-h-0 flex-shrink-0 rounded-lg transition-colors duration-100 ${
-        adopting && !dropAt && newRowAt === null ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''
-      }`}
+      // Nessun alone sulla sezione. L'anteprima è la tessera vera nella cella
+      // dove atterrerà: un riquadro azzurro sopra direbbe una seconda volta,
+      // più forte e con meno precisione, ciò che si sta già vedendo. `adopting`
+      // resta perché apre gli spazi fra le righe — quelli sì devono diventare
+      // colpibili — non perché dipinga qualcosa.
+      className="flex flex-col min-h-0 flex-shrink-0 rounded-lg"
       style={anyExpanded ? { maxHeight: EXPANDED_MAX_HEIGHT } : undefined}
       role="group"
       aria-label="Fissati"
@@ -306,6 +347,9 @@ export function PinnedTiles({
                   insertAt: insertIndexAt(e.currentTarget, e.clientX),
                   fromThisRow: moving !== null && row.keys.includes(moving),
                   movingKey: moving,
+                  // Solo per il caso «da fuori»: da dentro la riga si riordina
+                  // con le tessere che ci sono già, e non c'è nessun ospite.
+                  incoming: moving ? null : incomingItem(),
                 });
               }}
               onDragLeave={e => {
@@ -329,13 +373,29 @@ export function PinnedTiles({
               {cells.map((key, i) => {
                 const flex = { flex: `${widths[i] ?? 1 / cells.length} 1 0%`, minWidth: 0 };
                 if (key === null) {
+                  // La cella che nascerà, disegnata con la COSA che ci cade
+                  // dentro: stessa icona, stesso nome, stessa tinta che avrà un
+                  // istante dopo. Al 60% perché è ancora un'ipotesi, non un
+                  // fatto. Il rettangolo tratteggiato resta solo quando non
+                  // c'è una riga da nominare — e allora è grigio, non azzurro:
+                  // un colore acceso per dire «non lo so» è rumore.
                   return (
-                    <div
-                      key="ghost"
-                      data-testid="pinned-drop-ghost"
-                      style={flex}
-                      className="h-14 rounded-lg border border-dashed border-primary/50 bg-primary/5"
-                    />
+                    <div key="ghost" style={flex} className="min-w-0">
+                      {dropAt?.incoming
+                        ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
+                            <PinnedTile
+                              item={dropAt.incoming}
+                              expanded={false}
+                              focused={false}
+                              attention={null}
+                              onToggle={() => {}}
+                            />
+                          </div>
+                        : <div
+                            data-testid="pinned-drop-ghost"
+                            className="h-14 rounded-lg border border-dashed border-app-border"
+                          />}
+                    </div>
                   );
                 }
                 const item = byId.get(key);
