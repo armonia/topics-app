@@ -353,6 +353,10 @@ function App() {
   const [searchScope, setSearchScope] = useState<'all' | 'projects'>('all');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
+  // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
+  // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
+  // normale, cioè «Aspetto».
+  const [settingsSection, setSettingsSection] = useState<'devices' | undefined>(undefined);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
@@ -1203,7 +1207,11 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
+        <SidebarStatusBar
+          wsStatus={wsStatus}
+          dataNotice={topicsError}
+          onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+        />
         </ErrorBoundary>
       </div>
 
@@ -1481,7 +1489,8 @@ function App() {
         <Suspense fallback={null}>
           <GlobalSettings
             isOpen={showSettings}
-            onClose={() => setShowSettings(false)}
+            initialSection={settingsSection}
+            onClose={() => { setShowSettings(false); setSettingsSection(undefined); }}
             settings={appSettings}
             onSettingsChange={setAppSettings}
             themeMode={themeMode}

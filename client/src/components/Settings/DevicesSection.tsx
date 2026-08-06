@@ -60,12 +60,34 @@ export function DevicesSection() {
       setComputer(b.thisComputer ?? null);
       setErrore(null);
     } catch {
+      // Un errore qui è quasi sempre TRANSITORIO: il server si ricarica in un
+      // paio di secondi a ogni salvataggio, e una richiesta partita in quella
+      // finestra non trova nessuno. Prima questo lasciava il pannello bloccato
+      // sul messaggio per sempre, perché `carica` girava una volta sola al
+      // montaggio: un guasto di due secondi diventava permanente, e l'unico
+      // rimedio era riavviare l'app. Ora si riprova da soli, e comunque c'è un
+      // bottone: un errore senza un gesto per uscirne è un vicolo cieco.
       setErrore('Non riesco a leggere l’elenco dei dispositivi.');
       setDevices([]);
     }
   }, []);
 
   useEffect(() => { void carica(); }, [carica]);
+
+  // Ritenta da solo finché non riesce, con attese crescenti (1s, 2s, 4s, 8s) e
+  // poi si ferma: insistere all'infinito su un server spento è rumore.
+  useEffect(() => {
+    if (!errore) return;
+    let n = 0;
+    let t: ReturnType<typeof setTimeout>;
+    const riprova = () => {
+      n += 1;
+      void carica();
+      if (n < 4) t = setTimeout(riprova, 1000 * 2 ** n);
+    };
+    t = setTimeout(riprova, 1000);
+    return () => clearTimeout(t);
+  }, [errore, carica]);
 
   // Un dispositivo appaiato o revocato da un'altra finestra deve comparire qui
   // senza che si debba riaprire il pannello.
@@ -124,7 +146,17 @@ export function DevicesSection() {
         </p>
       </div>
 
-      {errore && <p className="text-[12px] text-red-500">{errore}</p>}
+      {errore && (
+        <div className="flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/30 px-3 py-2">
+          <p className="flex-1 text-[12px] text-app-text-secondary">{errore}</p>
+          <button
+            onClick={() => { setErrore(null); void carica(); }}
+            className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
+          >
+            Riprova
+          </button>
+        </div>
+      )}
 
       {devices === null && <p className="text-[12px] text-app-text-muted">Carico…</p>}
 
