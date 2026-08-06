@@ -19,12 +19,14 @@
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking } from "../../shared/board";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { newProjectParentDir } from "../services/project-path-resolver";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
@@ -866,17 +868,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     // /api/all-boards/projects — the board index (task-detail project selector).
     //   GET  → every project dir the server knows, as {projectId, name, path}
-    //          (projectId = the same hash the boards key on).
-    //   POST → scaffold a NEW workspace project (same contract as the session
-    //          create-project route: sanitized name, dir + CLAUDE.md, 409 on
-    //          collision) so "Nuovo progetto…" works from the board too.
+    //          (projectId = the same hash the boards key on), PIÙ `newProjectDir`:
+    //          la cartella in cui nascerebbe un progetto creato per nome. Il
+    //          client la MOSTRA sulla riga «Crea "x"… in <cartella>» — è dedotta
+    //          (`newProjectParentDir`), e una deduzione che crea cartelle sul
+    //          disco altrui va detta prima, non scoperta dopo.
+    //   POST → scaffold a NEW project (same contract as the session create-project
+    //          route: sanitized name, dir + CLAUDE.md, 409 on collision) so
+    //          "Nuovo progetto…" works from the board too.
     if (pathname === "/api/all-boards/projects") {
+      const knownDirs = (): string[] => {
+        try { return opts?.listProjectDirs?.() ?? []; } catch { return []; /* best-effort */ }
+      };
+      const newDir = (): string | null => (opts?.workspaceDir
+        ? newProjectParentDir(knownDirs(), { workspaceDir: opts.workspaceDir, homeDir: homedir() })
+        : null);
       if (method === "GET") {
         const seen = new Set<string>();
         const projects: Array<{ projectId: string; name: string; path: string }> = [];
-        let dirs: string[] = [];
-        try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-        for (const raw of dirs) {
+        for (const raw of knownDirs()) {
           if (typeof raw !== "string" || !raw.startsWith("/")) continue;
           const path = raw.replace(/\/+$/, "");
           if (!path || seen.has(path)) continue;
@@ -884,20 +894,41 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           projects.push({ projectId: projectIdForPath(path), name: basename(path), path });
         }
         projects.sort((a, b) => a.name.localeCompare(b.name));
-        return json({ projects });
+        return json({ projects, newProjectDir: newDir() });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);
         const body = (await readJSON(req)) as any;
         const safeName = (typeof body?.name === "string" ? body.name.trim() : "").replace(/[^a-zA-Z0-9_-]/g, "");
         if (!safeName) return json({ error: "name (alphanumeric) is required", code: "invalid_input" }, 400);
-        const dir = join(opts.workspaceDir, safeName);
+        // Nella cartella dei progetti, non nel workspace: il workspace è
+        // plumbing dell'agente, e un progetto battuto a mano che finisce lì
+        // dispaccia ma non lo ritrovi più.
+        const dir = join(newDir() ?? opts.workspaceDir, safeName);
         if (existsSync(dir)) {
           return json({ error: `project "${safeName}" already exists`, code: "project_exists" }, 409);
         }
         try {
           mkdirSync(dir, { recursive: true });
           writeFileSync(join(dir, "CLAUDE.md"), `# ${safeName}\n`);
+          // REGISTRARLO, non solo crearlo. L'indice dei progetti è l'unione di
+          // ciò che il server già referenzia (store, topic, worktree, cwd dei
+          // terminali) più una scansione del workspace: una cartella nuova FUORI
+          // dal workspace non è in nessuna di quelle liste, quindi sparirebbe dal
+          // selettore al primo reload e il dispatcher non saprebbe risolvere l'id
+          // della sua board. Finché si creava dentro il workspace il problema non
+          // esisteva — la scansione lo ripescava — ed è riemerso appena i progetti
+          // hanno cominciato a nascere dove l'utente li tiene davvero.
+          const store = ctx.projectStore;
+          if (store && !store.getByPath(dir)) {
+            // Slug già preso da un altro progetto: se ne prova uno derivato
+            // invece di lasciare la cartella orfana e invisibile.
+            const base = store.slugify(safeName);
+            for (const slug of [base, `${base}-${projectIdForPath(dir).split("-").pop()}`]) {
+              try { store.create({ name: safeName, slug, path: dir, color: null, icon: null }); break; }
+              catch { /* slug in conflitto: prova il prossimo */ }
+            }
+          }
         } catch (e) { return fail(e); }
         return json({ projectId: projectIdForPath(dir), name: safeName, path: dir }, 201);
       }

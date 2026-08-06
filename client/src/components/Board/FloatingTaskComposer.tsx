@@ -3,8 +3,7 @@ import { Check, ChevronDown, ClipboardList, Loader2, Send, Sparkles } from 'luci
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, UNASSIGNED_PROJECT_ID, type BoardProjectRef } from '../../lib/board';
-import { addBoardProject, pickProjectFolder, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
-import { isDesktop } from '../../lib/shell';
+import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
@@ -38,6 +37,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   // sempre, mentre il drawer di dettaglio — che fetcha al mount — l'icona ce
   // l'aveva. Stesso progetto, due superfici, due risposte.
   const projects = useBoardProjects(global);
+  const newProjectDir = useNewProjectDir(global);
   const [targetProject, setTargetProject] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('board:composerProject');
@@ -178,18 +178,6 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     } catch (e) { onError(e instanceof Error ? e.message : 'create project failed'); }
     finally { setProjBusy(false); }
   };
-  // «Apri / Crea progetto…»: la stessa finestra di sistema della voce
-  // «Progetto…» del menu «+». Solo desktop — su web non c'è un pannello, e una
-  // riga che non fa niente è peggio di una riga assente.
-  const doPickFolder = async () => {
-    if (projBusy) return;
-    setProjBusy(true);
-    try {
-      const picked = await pickProjectFolder();
-      if (picked) pickProject(picked);
-    } catch (e) { onError(e instanceof Error ? e.message : 'apertura progetto fallita'); }
-    finally { setProjBusy(false); }
-  };
 
   const submit = async () => {
     const raw = text.trim();
@@ -297,7 +285,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
                     listLabel="Progetto del task"
                     onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
                     autoSelected={autoTarget}
-                    onPickFolder={isDesktop ? doPickFolder : undefined}
+                    newProjectDir={newProjectDir}
                   />
                 </Menu>
               </>

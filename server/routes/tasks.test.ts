@@ -513,6 +513,59 @@ describe("board router (human, project-scoped)", () => {
     }
   });
 
+  test("un progetto creato per nome nasce nella CARTELLA DEI PROGETTI, non nel workspace", async () => {
+    const { mkdtempSync, mkdirSync, existsSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const ws = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
+    const home = mkdtempSync(join(tmpdir(), "tasks-router-home-"));
+    const projects = join(home, "Projects");
+    mkdirSync(join(projects, "alpha"), { recursive: true });
+    mkdirSync(join(projects, "beta"), { recursive: true });
+    try {
+      // Store finto ma con il contratto vero: creare FUORI dal workspace deve
+      // REGISTRARE il progetto, o l'indice non lo conosce e sparisce al reload.
+      const rows: Array<{ name: string; slug: string; path: string }> = [];
+      const projectStore = {
+        slugify: (n: string) => n.toLowerCase(),
+        getByPath: (path: string) => rows.find((r) => r.path === path) ?? null,
+        create: (input: { name: string; slug: string; path: string }) => {
+          if (rows.some((r) => r.slug === input.slug)) throw new Error("slug in uso");
+          rows.push(input);
+          return input;
+        },
+      };
+      const ctx = makeCtx(db, broadcasts);
+      (ctx as unknown as { projectStore: unknown }).projectStore = projectStore;
+      const r = createTasksRouter(ctx, undefined, {
+        listProjectDirs: () => [join(projects, "alpha"), join(projects, "beta")],
+        workspaceDir: ws,
+      });
+
+      // Il GET lo DICHIARA, così il client può stamparlo prima di creare.
+      const list = await (await call(r, "GET", "/api/all-boards/projects"))!.json();
+      expect(list.newProjectDir).toBe(projects);
+
+      const created = (await call(r, "POST", "/api/all-boards/projects", { name: "terzo" }))!;
+      expect(created.status).toBe(201);
+      const proj = await created.json();
+      // Accanto ad alpha e beta — non sepolto in ~/.openclaw/workspace.
+      expect(proj.path).toBe(join(projects, "terzo"));
+      expect(existsSync(join(projects, "terzo", "CLAUDE.md"))).toBe(true);
+      expect(existsSync(join(ws, "terzo"))).toBe(false);
+      // Registrato: è così che l'indice continuerà a vederlo.
+      expect(projectStore.getByPath(join(projects, "terzo"))).toBeTruthy();
+
+      // Slug già occupato → non lascia la cartella orfana: ne deriva un altro.
+      rows.push({ name: "quarto", slug: "quarto", path: "/altrove/quarto" });
+      expect((await call(r, "POST", "/api/all-boards/projects", { name: "quarto" }))!.status).toBe(201);
+      expect(projectStore.getByPath(join(projects, "quarto"))).toBeTruthy();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("delivery snapshot: entering review records branch + commit, once", async () => {
     // The audit's whole premise: the branch is reaped on landing, so the COMMIT
     // recorded at delivery is the only durable handle on "what was delivered".
