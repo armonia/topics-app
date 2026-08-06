@@ -9,7 +9,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { getPaneConfig, getTerminalSessionFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/signals';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { cachedIconTint, sampleIconTint } from '../../lib/iconTint';
+import { cachedIconPalette, cachedIconTint, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 
 const TYPE_ICONS: Record<SidebarItem['type'], LucideIcon> = {
   chat: MessageSquare,
@@ -104,6 +104,29 @@ export function PinnedTile({
   const iconTint = icon.src !== null && sampled !== null && sampled.src === icon.src ? sampled.tint : null;
   const tint = iconTint ?? typeTint ?? null;
 
+  // La PALETTE per settori: serve alla cornice, che non porta una tinta sola ma
+  // i colori dell'icona DOVE stanno (verde in alto, blu in basso, come nel logo).
+  const [palette, setPalette] = useState<{ src: string; colors: string[] | null } | null>(() => {
+    const known = icon.src ? cachedIconPalette(icon.src) : undefined;
+    return icon.src && known !== undefined ? { src: icon.src, colors: known } : null;
+  });
+  useEffect(() => {
+    const src = icon.src;
+    if (!src) return;
+    let alive = true;
+    void sampleIconPalette(src).then(colors => { if (alive) setPalette({ src, colors }); });
+    return () => { alive = false; };
+  }, [icon.src]);
+  const sectorColors = icon.src !== null && palette !== null && palette.src === icon.src ? palette.colors : null;
+
+  // Un'icona senza palette (o una tessera senza icona) ricade sulla tinta unica:
+  // la cornice si accende lo stesso, di un colore solo. Niente palette e niente
+  // tinta ⇒ niente cornice, come per il fondo.
+  const ringStops = sectorColors ?? (tint ? [tint, tint] : null);
+  const ringGradient = ringStops
+    ? `conic-gradient(from 0deg, ${[...ringStops, ringStops[0]].join(', ')})`
+    : null;
+
   // Gli stessi segnali delle righe, dagli stessi hook: una tessera non può
   // dire «tutto calmo» mentre la riga della stessa cosa è accesa.
   const topicTier = useTopicAttentionFill(item.type === 'chat' ? item.id : undefined);
@@ -155,18 +178,55 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex flex-col items-center justify-center gap-1',
-        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none overflow-hidden',
+        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none',
         'transition-colors duration-100',
-        'ring-1 ring-inset',
-        expanded ? 'ring-app-border' : 'ring-black/5 dark:ring-white/5',
+        // Senza colori da riflettere resta il filo neutro di prima: una tessera
+        // senza icona non deve sembrare spenta, deve sembrare sobria.
+        ringGradient ? '' : 'ring-1 ring-inset ring-black/5 dark:ring-white/5',
         surface,
         dragging ? 'opacity-40' : '',
       ].join(' ')}
       style={tint ? ({ '--tile-tint': tint } as React.CSSProperties) : undefined}
     >
-      {/* L'alone d'identità. Sta sotto il contenuto e sopra la superficie di
-          stato, a bassa opacità: una tinta, non una vernice. `aria-hidden`
-          perché non porta informazione che non sia già nel nome. */}
+      {/* LA CORNICE CHE RIFLETTE L'ICONA.
+          Due strati dello stesso gradiente conico: uno sfocato che DEBORDA (la
+          luce che cade attorno) e uno nitido ritagliato ad anello dalla maschera
+          (il filo di luce sul bordo). I colori girano nell'ordine in cui stanno
+          nell'icona, quindi il verde resta in alto e il blu in basso invece di
+          fondersi in una tinta media — che è la differenza fra «colorato» e
+          «illuminato da quella cosa lì».
+          Statica: l'animazione è il segnale di «sta lavorando», e due segnali
+          sullo stesso canale non ne fanno uno più forte, ne fanno uno muto. */}
+      {ringGradient && (
+        <>
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute -inset-1 rounded-[14px] transition-opacity duration-150 ${
+              focused || expanded ? 'opacity-55' : 'opacity-0 group-hover/tile:opacity-25'
+            }`}
+            style={{ background: ringGradient, filter: 'blur(7px)' }}
+          />
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-150 ${
+              focused || expanded ? 'opacity-90' : 'opacity-35 group-hover/tile:opacity-60'
+            }`}
+            style={{
+              background: ringGradient,
+              padding: 1.5,
+              // La maschera tiene solo la cornice: `exclude` e' lo standard,
+              // `xor` il nome che WebKit conosce da prima. Servono entrambi.
+              WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+              WebkitMaskComposite: 'xor',
+              mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+              maskComposite: 'exclude',
+            }}
+          />
+        </>
+      )}
+
+      {/* L'alone d'identita' sul FONDO. Sta sotto il contenuto e sopra la
+          superficie di stato, a bassa opacita': una tinta, non una vernice. */}
       {tint && (
         <span
           aria-hidden="true"
