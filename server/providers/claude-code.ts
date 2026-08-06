@@ -30,7 +30,8 @@ import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
-import { hasPendingAsk, endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { hasPendingAsk, endAsk, cancelAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -75,7 +76,16 @@ const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
 const DEFAULT_PERMISSION_MODE = "bypassPermissions";
 
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
+// Tetto di vita del figlio CLI. NON conta il tempo in cui la palla è
+// dell'umano: finché un `ask_user_question` è a schermo il tetto si riarma
+// (`armTurnDeadline`), esattamente come fanno già il watchdog del turno qui
+// sotto (`turnWatchdogDecision`) e il tetto a orologio dei turni headless.
+// Era l'ULTIMO orologio senza quell'esenzione, ed era anche il più letale: a
+// due ore ammazzava il figlio sotto un pannello ancora cliccabile — e siccome
+// era il tetto più basso, costringeva la domanda a scadere prima di lui.
 const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000;      // 2 hours
+/** Ogni quanto il tetto di vita ricontrolla, mentre una domanda è a schermo. */
+const LIFETIME_REARM_MS = 60 * 1000;
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
@@ -222,13 +232,15 @@ export function buildSafeEnv(): Record<string, string> {
   env.JARVIS_SPAWN = "1";
 
   // The CLI's own patience with an MCP tool call. Its default (30 min) is
-  // SHORTER than how long a question is allowed to stay on screen (ASK_TTL_MS,
-  // 90 min), so a human who took a long lunch came back to "no response and no
-  // progress for 1800s" and a question that had died under them. The bridge now
-  // emits `notifications/progress` on every poll leg, which resets this timer in
-  // a client that honours it — this is the belt for one that doesn't, and it
-  // costs nothing elsewhere: a genuinely wedged tool is still reaped by the
-  // 30-minute turn watchdog, which only stands down for a PENDING ASK.
+  // SHORTER than how long a question is allowed to stay on screen (ASK_TTL_MS),
+  // so a human who took a long lunch came back to "no response and no progress
+  // for 1800s" and a question that had died under them. The bridge emits
+  // `notifications/progress` on every poll leg, which resets this timer in a
+  // client that honours it — questo è la cintura per uno che non lo fa, e non
+  // costa niente altrove: un tool davvero incastrato lo miete comunque il
+  // watchdog del turno (30 min), che si ferma SOLO per una domanda a schermo.
+  // Cresce insieme al TTL della domanda per costruzione: legarlo a mano a un
+  // numero è esattamente il modo in cui i due si sono già disallineati una volta.
   env.MCP_TOOL_TIMEOUT = String(ASK_TTL_MS + 5 * 60_000);
 
   return env;
@@ -953,7 +965,12 @@ interface PersistentProcess {
    *  decided it, and no action inherits an earlier action's cost. */
   attributedToolCalls?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
-  lifetimeTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Tetto di vita del figlio. Non è un `setTimeout` nudo ma un
+   * `armTurnDeadline`, perché deve saper stare fermo mentre una domanda è a
+   * schermo: si spegne con `.clear()`, non con `clearTimeout`.
+   */
+  lifetimeTimer: TurnDeadline | null;
   /**
    * Per-stream heartbeat interval that re-emits `onSubAgentUpdate` snapshots
    * for any pending Task() parents when no provider event has occurred for
@@ -1538,6 +1555,17 @@ export class ClaudeCodeProvider implements AIProvider {
       this.killProcess(pp);
       this.processes.delete(sessionKey);
     }
+    // Una domanda aperta su questa sessione muore QUI, esplicitamente.
+    //
+    // `/clear` è l'unica strada che ammazza il figlio senza passare da
+    // `endStream` (la route ha già cancellato le righe, quindi non c'è più il
+    // tool `waiting_for_input` da cui `endStream` risalirebbe) e senza passare
+    // dall'abort (che il suo `cancelAsk` ce l'ha, routes/topics.ts). La voce in
+    // `activeAsks` sopravviveva a tutto, e da lì in poi `hasPendingAsk` giurava
+    // che una domanda fosse a schermo su una sessione dove non c'era più niente
+    // — disarmando, per il turno DOPO, sia il watchdog del turno sia il tetto di
+    // vita, che su quella promessa si fermano.
+    cancelAsk(sessionKey, "sessione azzerata con /clear");
     forgetClaudeSessionId(sessionKey);
     console.log(`[claude-code] resetSession: ${sessionKey} riparte con una sessione nuova al prossimo turno`);
   }
@@ -1855,14 +1883,7 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     // --- Max lifetime timer ---
-    pp.lifetimeTimer = setTimeout(() => {
-      console.log("[claude-code] Max lifetime reached, killing process");
-      this.killProcess(pp);
-      // Find and remove from map
-      for (const [key, p] of this.processes) {
-        if (p === pp) { this.processes.delete(key); break; }
-      }
-    }, MAX_LIFETIME_MS);
+    pp.lifetimeTimer = this.armLifetime(pp, sessionKey);
 
     return pp;
   }
@@ -1929,10 +1950,7 @@ export class ClaudeCodeProvider implements AIProvider {
     };
     this.wireBrokerHandlers(pp, client, sessionKey, onLine);
     pp.io = brokerIO(client, sessionKey);
-    pp.lifetimeTimer = setTimeout(() => {
-      this.killProcess(pp);
-      for (const [key, p] of this.processes) { if (p === pp) { this.processes.delete(key); break; } }
-    }, MAX_LIFETIME_MS);
+    pp.lifetimeTimer = this.armLifetime(pp, sessionKey);
     return pp;
   }
 
@@ -2077,6 +2095,19 @@ export class ClaudeCodeProvider implements AIProvider {
     if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
 
     const client = getAiBridgeClient();
+    // La voce che stiamo per sostituire va DISARMATA, non lasciata cadere.
+    //
+    // Qui si passa proprio quando `existing` è INERTE (nessuno `streamHandler`)
+    // — ed è esattamente lo stato in cui il reaper d'inattività è armato, perché
+    // lo arma il `finally` di un turno finito. Sostituendo la voce nella mappa
+    // senza spegnere i suoi timer, quel timer resta vivo su un `pp` che nessuno
+    // possiede più: quindici minuti dopo chiama `killProcess`, che in modalità
+    // broker è `client.kill(sessionKey)` — cioè uccide lo STESSO figlio che il
+    // `pp` adottato sta guidando, e con la `delete` per chiave sfratta pure lui.
+    // Se in mezzo c'era una domanda a schermo (è il ramo `awaiting-input` qui
+    // sotto), il pannello moriva a un quarto d'ora dalla riadozione con
+    // «il turno è finito mentre la domanda era ancora a schermo».
+    if (existing) this.cleanupTimers(existing);
     const pp = this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
 
@@ -2195,7 +2226,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // Detects on the ACCUMULATED tail (pp.stderrBuf), not a single chunk: the CLI
   // can split an error across write()s; the 2 KiB cap keeps the scan cheap and
   // both detections are latch-style (idempotent on re-match).
-  private handleStderrData(pp: PersistentProcess, _sessionKey: string, d: Buffer): void {
+  private handleStderrData(pp: PersistentProcess, sessionKey: string, d: Buffer): void {
     pp.stderrBuf += d.toString();
     if (pp.stderrBuf.length > 2048) pp.stderrBuf = pp.stderrBuf.slice(-2048);
 
@@ -2206,14 +2237,24 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingReject
     ) {
       const reject = pp.pendingReject;
-      setTimeout(() => {
-        if (pp.pendingReject === reject) {
-          pp.pendingResolve = null;
-          pp.pendingReject = null;
-          pp.streamHandler = null;
-          reject(new Error("RATE_LIMIT"));
-        }
-      }, RATE_LIMIT_GRACE_MS);
+      // La grazia si RIARMA finché una domanda è a schermo. Il sospetto nasce da
+      // una coda di 2 KiB riesaminata a ogni chunk: un `429` di dieci minuti fa,
+      // ancora dentro quella coda, viene riletto su una riga di stderr qualunque
+      // e a dieci secondi butta giù il turno. Se in quel momento la palla è
+      // dell'umano, il turno non è né lento né limitato: è fermo perché deve.
+      armTurnDeadline({
+        ms: RATE_LIMIT_GRACE_MS,
+        rearmMs: RATE_LIMIT_GRACE_MS,
+        isWaitingForHuman: () => hasPendingAsk(sessionKey),
+        onExpired: () => {
+          if (pp.pendingReject === reject) {
+            pp.pendingResolve = null;
+            pp.pendingReject = null;
+            pp.streamHandler = null;
+            reject(new Error("RATE_LIMIT"));
+          }
+        },
+      });
     }
   }
 
@@ -2855,9 +2896,41 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Timer Management ---
 
+  /**
+   * Il tetto di vita del figlio — che NON conta il tempo dell'umano.
+   *
+   * Stesso primitivo del tetto a orologio dei turni headless
+   * (`armTurnDeadline`): finché `hasPendingAsk` dice che un pannello è a
+   * schermo, il tetto si riarma invece di scattare. Una domanda aperta è un
+   * figlio BLOCCATO sulla risposta JSON-RPC del bridge — non consuma niente e
+   * non è impazzito: è fermo perché deve. Appena la domanda si chiude (risposta,
+   * interruzione, o figlio morto sotto il pannello) il primo tick utile trova
+   * `hasPendingAsk` falso e il tetto scatta come ha sempre fatto.
+   */
+  private armLifetime(
+    pp: PersistentProcess,
+    sessionKey: string,
+    /** Solo per i test: due ore non si aspettano, e la regola va provata. */
+    opts: { ms?: number; rearmMs?: number } = {},
+  ): TurnDeadline {
+    return armTurnDeadline({
+      ms: opts.ms ?? MAX_LIFETIME_MS,
+      rearmMs: opts.rearmMs ?? LIFETIME_REARM_MS,
+      isWaitingForHuman: () => hasPendingAsk(sessionKey),
+      onExpired: () => {
+        console.log("[claude-code] Max lifetime reached, killing process");
+        this.killProcess(pp);
+        // Find and remove from map
+        for (const [key, p] of this.processes) {
+          if (p === pp) { this.processes.delete(key); break; }
+        }
+      },
+    });
+  }
+
   private cleanupTimers(pp: PersistentProcess): void {
     if (pp.inactivityTimer) { clearTimeout(pp.inactivityTimer); pp.inactivityTimer = null; }
-    if (pp.lifetimeTimer) { clearTimeout(pp.lifetimeTimer); pp.lifetimeTimer = null; }
+    if (pp.lifetimeTimer) { pp.lifetimeTimer.clear(); pp.lifetimeTimer = null; }
     this.stopHeartbeat(pp);
   }
 
@@ -2979,13 +3052,31 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.subAgentEmit.clear();
   }
 
-  private resetInactivityTimer(key: string, pp: PersistentProcess): void {
+  private resetInactivityTimer(
+    key: string,
+    pp: PersistentProcess,
+    /** Solo per i test: quindici minuti non si aspettano. */
+    opts: { ms?: number } = {},
+  ): void {
     if (pp.inactivityTimer) clearTimeout(pp.inactivityTimer);
     pp.inactivityTimer = setTimeout(() => {
+      // Identità PRIMA di tutto: questo timer può appartenere a un `pp` che nel
+      // frattempo è stato sostituito nella mappa (`reattach` adotta il figlio
+      // vivo del broker). `killProcess` in modalità broker uccide il figlio PER
+      // CHIAVE, e la `delete` qui sotto sfratta chiunque occupi la chiave adesso:
+      // senza questo controllo un orfano ammazza il processo di un altro. Il
+      // disarmo lo fa anche `reattach`; questo è il fermo che regge da solo.
+      if (this.processes.get(key) !== pp) { pp.inactivityTimer = null; return; }
+      // E il tempo dell'umano non si conta. Questo è il reaper della POOL tra un
+      // turno e l'altro, ma un turno parcheggiato su una domanda si presenta
+      // proprio così: nessun evento in arrivo, perché il figlio è bloccato sulla
+      // risposta JSON-RPC del bridge. Era l'unico dei quattro orologi sul
+      // percorso di una domanda senza l'esenzione che gli altri tre hanno già.
+      if (hasPendingAsk(key)) { this.resetInactivityTimer(key, pp, opts); return; }
       console.log(`[claude-code] Inactivity timeout for ${key}`);
       this.killProcess(pp);
       this.processes.delete(key);
-    }, INACTIVITY_TIMEOUT_MS);
+    }, opts.ms ?? INACTIVITY_TIMEOUT_MS);
   }
 
   /** Suspend idle reaping for the duration of an active turn. The timer is a

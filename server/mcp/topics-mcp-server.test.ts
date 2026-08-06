@@ -42,7 +42,10 @@ import {
   callReadChatMessages,
   callResolveTab,
   handleMessage,
+  ASK_LEG_MS,
+  ASK_MAX_LEGS,
 } from "./topics-mcp-server";
+import { ASK_TTL_MS } from "../lib/ask-user-bridge";
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -1244,6 +1247,16 @@ describe("callAskUserQuestion", () => {
       { onProgress: (leg) => progress.push(leg) },
     );
     expect(progress).toEqual([1, 2, 3]);
+  });
+
+  test("il tetto delle gambe non decide mai la morte di una domanda: sta sopra il TTL del server", () => {
+    // Chi chiude una domanda è il SERVER (`cancelled`), non questo ciclo. Il
+    // tetto delle gambe è solo un anti-giro-a-vuoto, e se scende sotto il TTL
+    // diventa lui a uccidere il pannello — con il messaggio sbagliato («gave up
+    // after N poll legs») al posto di quello vero. È già successo: 500 gambe da
+    // 25 s = 3 h 28, che stava sopra il TTL di 90 minuti di allora e sotto
+    // quello di adesso. Il margine si prova, non si ricorda.
+    expect(ASK_MAX_LEGS * ASK_LEG_MS).toBeGreaterThan(ASK_TTL_MS);
   });
 });
 
