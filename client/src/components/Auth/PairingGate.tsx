@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { refreshSession, subscribeSession, type SessionState } from '@/lib/auth/session';
+import { refreshSession, type SessionState } from '@/lib/auth/session';
 
 /**
  * La schermata che vede un dispositivo NON appaiato.
@@ -132,17 +132,4 @@ export function PairingGate({ session }: { session: SessionState }) {
       </div>
     </div>
   );
-}
-
-/** Monta il cancello quando serve, e interroga il server all'avvio. */
-export function PairingGateHost() {
-  const [session, setSession] = useState<SessionState>({ status: 'loading' });
-  useEffect(() => subscribeSession(setSession), []);
-  useEffect(() => { void refreshSession(); }, []);
-
-  // `loading` NON mostra il cancello: sbatterlo in faccia per la frazione di
-  // secondo prima che la risposta arrivi farebbe lampeggiare «non autorizzato»
-  // a ogni avvio, anche a chi è dentro.
-  if (session.status !== 'unpaired') return null;
-  return <PairingGate session={session} />;
 }

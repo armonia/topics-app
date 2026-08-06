@@ -9,6 +9,7 @@ import App from './App'
 import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
+import { SessionRoot } from './components/Share/SessionRoot';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
 // server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
@@ -62,6 +63,11 @@ initWindowPresence();
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
+        sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
+        cose che il gate nega, e il risultato è una pagina di errori. */}
+    <SessionRoot>
+      <App />
+    </SessionRoot>
   </StrictMode>,
 );

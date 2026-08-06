@@ -63,7 +63,6 @@ import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast';
-import { PairingGateHost } from './components/Auth/PairingGate';
 import { PairingApproval } from './components/Auth/PairingApproval';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
@@ -76,7 +75,7 @@ import { resolvePaneSpace } from './state/pane/reducers/spaces';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
+import { RESTING_SURFACE, ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -956,8 +955,7 @@ function App() {
       same context.
     */}
     <PendingActionProvider countdownMs={1500}>
-    <PairingGateHost />
-      <PairingApproval />
+    <PairingApproval />
       <div
       // NB: the landing demo (client/src/demo/landing-cursor.js, scene
       // "floating") toggles `.floating-splits` on THIS element from outside
@@ -1008,7 +1006,13 @@ function App() {
         // hover sta QUI e non sulla singola barra perché il bersaglio nascosto
         // sarebbe altrimenti impossibile da trovare: entri nella sidebar e il
         // controllo c'è.
-        className={`group/sidebar bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
+        // `bg-app-chrome`, non `bg-surface`: la sidebar è CHROME, e il chrome
+        // arretra sotto la pagina invece di stare sopra. Era `bg-surface`
+        // (#fff / #181a20), cioè più CHIARA della pagina — su iPhone lasciava
+        // un gradino verso la barra di stato nera di iOS, e la fascia in cima
+        // cambiava tinta aprendo e chiudendo la sidebar. Il token porta con sé
+        // anche la trasparenza sulla shell mac: vedi --chrome-bg in index.css.
+        className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
             : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
         }`}
@@ -1062,7 +1066,10 @@ function App() {
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
                 className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
-                  showTopicsMenu ? 'bg-app-hover' : 'hover:bg-app-hover'
+                  // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
+                  // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
+                  // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.
+                  showTopicsMenu ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
                 }`}
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
