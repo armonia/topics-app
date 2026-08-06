@@ -187,6 +187,31 @@ test.describe.serial("Add menu — sistema", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("ADD-08: un solo corpo tipografico per superficie, e niente intestazione", async ({ page, request }) => {
+    // La palette e' portata su `document.body`, FUORI dal wrapper dove App
+    // scrive `fontSize`: ogni testo senza classe di dimensione ricade sui 16px
+    // di default del browser. Ci era cascato l'header — chip ESC a 16px accanto
+    // a lettere da 12px — e la stessa trappola aspetta chiunque aggiunga testo
+    // a un pannello portato. Il gate misura la CLASSE, non l'istanza.
+    await resetPaneStore(request, []);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Meta+n");
+    await expect(page.getByTestId("pane-add-palette")).toBeVisible();
+
+    const sizes = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="pane-add-menu"]')!;
+      return Array.from(panel.querySelectorAll("kbd")).map((k) => getComputedStyle(k).fontSize);
+    });
+    expect(sizes.length).toBeGreaterThan(5);
+    expect(new Set(sizes).size, `corpi diversi: ${[...new Set(sizes)].join(", ")}`).toBe(1);
+
+    // E l'intestazione non torna: questa e' una lista d'azione, non una
+    // palette di ricerca — il titolo ripeteva cosa fosse e il chip ESC
+    // ricordava un tasto che sanno tutti.
+    await expect(page.getByTestId("pane-add-menu")).not.toContainText("ESC");
+  });
+
   test("ADD-06: il chip non entra nel nome accessibile della riga", async ({ page, request }) => {
     // `getByRole('button', { name: 'Shell', exact: true })` esiste in
     // terminal-tab-reload.spec.ts: se il chip finisse nel nome accessibile
