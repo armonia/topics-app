@@ -19,22 +19,16 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
   let topicName: string;
   let sessionKey: string;
 
+  // La semina sta nel `beforeAll`, non dentro il primo test: dentro il primo
+  // test ogni altro test del file dipende dal fatto che quello sia GIRATO —
+  // vero in `describe.serial`, falso appena si lancia un `-g` o si isola un
+  // rosso, che è esattamente il momento in cui serve.
   test.beforeAll(async ({ request }) => {
     topicName = "Tool Cost " + Date.now();
     const t = await createTopic(request, topicName);
     topicId = t.id;
     sessionKey = `topic:${t.id.slice(0, 8)}`;
-  });
 
-  test.afterAll(async ({ request }) => {
-    if (topicId) await deleteTopic(request, topicId);
-  });
-
-  test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [topicId]);
-  });
-
-  test("ogni riga mostra il SUO costo, il gruppo somma le sue azioni", async ({ page, request }) => {
     const base = Date.now() - 120_000;
     const u = await seedMessage(request, {
       sessionKey,
@@ -95,7 +89,17 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
         { id: "grp-e1", name: "Edit", args: { file_path: "/a.ts" }, status: "success", startedAt: base + 9_500, endedAt: base + 12_000, costCents: 2.4, tokens: 20_000 },
       ],
     });
+  });
 
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
+  });
+
+  test("ogni riga mostra il SUO costo, il gruppo somma le sue azioni", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -123,5 +127,52 @@ test.describe.serial("Costo per-azione sulle righe di tool", () => {
       body: await page.screenshot({ fullPage: false }),
       contentType: "image/png",
     });
+  });
+
+  test("i numeri a consuntivo si accendono solo sotto il puntatore", async ({ page }) => {
+    // Durata e costo di un'azione FINITA sono una nota a margine: ripetuti su
+    // ogni riga di ogni turno disegnavano una colonna di cifre lungo tutta la
+    // chat. Restano al loro posto — lo spazio è riservato, la riga non salta —
+    // e compaiono quando li cerchi. Si misura l'opacità DIPINTA, non la classe:
+    // una regola che non viene generata (variante Tailwind composta a runtime)
+    // supererebbe qualunque controllo sul className.
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const readRow = page.locator('[data-testid="tool-call-row-tc-read-big"]');
+    await expect(readRow).toBeVisible({ timeout: 10_000 });
+    const cost = readRow.locator('[data-testid="tool-cost"]');
+    const duration = readRow.locator('[data-testid="tool-duration"]');
+    const opacity = (l: typeof cost) => l.evaluate((el) => getComputedStyle(el).opacity);
+
+    // A riposo: presenti nel DOM (il testo si legge, i test di attribuzione ci
+    // contano) ma non dipinti.
+    await expect.poll(() => opacity(cost)).toBe("0");
+    expect(await opacity(duration)).toBe("0");
+    // …e lo SPAZIO è già occupato: il riquadro non è a larghezza zero, quindi
+    // niente riflusso quando si accendono.
+    const boxAtRest = await cost.boundingBox();
+    expect(boxAtRest!.width).toBeGreaterThan(0);
+
+    // Sotto il puntatore: si accendono entrambi.
+    await readRow.hover();
+    await expect.poll(() => opacity(cost)).toBe("1");
+    expect(await opacity(duration)).toBe("1");
+    const boxOnHover = await cost.boundingBox();
+    expect(Math.round(boxOnHover!.x)).toBe(Math.round(boxAtRest!.x));
+
+    // Il gruppo ha il SUO gruppo di hover: passare su una riga interna non deve
+    // accendere il riepilogo sopra (era la trappola del `group` senza nome —
+    // l'antenato più vicino è la bolla del messaggio INTERA).
+    const group = page.locator('[data-testid="tool-group-row"]');
+    const groupCost = group.locator('[data-testid="tool-group-cost"]');
+    await expect(group).toBeVisible();
+    expect(await opacity(groupCost)).toBe("0");
+    await group.locator('[data-testid="tool-group-summary"]').hover();
+    await expect.poll(() => opacity(groupCost)).toBe("1");
+    // Tornati sulla riga singola, il riepilogo si rispegne.
+    await readRow.hover();
+    await expect.poll(() => opacity(groupCost)).toBe("0");
   });
 });
