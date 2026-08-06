@@ -20,6 +20,7 @@ import type { ToolCallDetail } from '../../types';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
+import { skillInstructions } from './toolCardBody';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -478,12 +479,12 @@ export function NotebookEditCard({ notebookPath, cellId, editMode, cellType }: {
  * card vuota — e vuota resta, senza il segnaposto.
  */
 export function SkillCard({ result }: { result?: string }) {
-  const isPlaceholder = !result || /^Launching skill:/.test(result.trim());
-  if (isPlaceholder) return null;
+  const body = skillInstructions(result);
+  if (!body) return null;
   return (
     <div className="space-y-1">
       <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Istruzioni caricate</div>
-      <ClampedPre text={result} />
+      <ClampedPre text={body} />
     </div>
   );
 }
@@ -526,6 +527,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 }
 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
+
 
 export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallDetail; isError?: boolean; isRunning?: boolean }) {
   switch (detail.type) {

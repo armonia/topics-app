@@ -107,9 +107,12 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     await expect(bashRow).toContainText("Shell");
     await expect(readRow).toContainText("Read");
 
-    // Both finished-state rows show the success check.
-    await expect(assistant.locator('[data-testid="tool-call-status-tc-bash-1"][data-status="success"]')).toBeVisible();
-    await expect(assistant.locator('[data-testid="tool-call-status-tc-read-1"][data-status="success"]')).toBeVisible();
+    // Lo stato è una proprietà della RIGA: da quando l'esito buono non ha più
+    // un simbolo (la spunta verde confermava la norma su ogni riga riuscita),
+    // la colonna di destra può essere vuota, e un contenitore vuoto non è
+    // «visibile» per nessuno.
+    await expect(assistant.locator('[data-testid="tool-call-row-tc-bash-1"]')).toHaveAttribute("data-status", "success");
+    await expect(assistant.locator('[data-testid="tool-call-row-tc-read-1"]')).toHaveAttribute("data-status", "success");
 
     // La striscia di chiusura non sta più DENTRO il contenuto del messaggio:
     // vive nella riga di servizio che <MessageBubble> apre sotto la bolla,

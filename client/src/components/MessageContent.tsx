@@ -1154,7 +1154,12 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             return (
               <div
                 key={`g-tools-${g.startIdx}`}
-                className="my-1 space-y-px"
+                // Niente margine attorno alla corsa: la riga ha gia' il suo
+                // `py-1`, e i due sommati facevano 16px di aria attorno a una
+                // riga di testo alta 20 — misurato, il riquadro del gruppo era
+                // 36px per 20px di contenuto. Lo stacco dalla prosa lo da' gia'
+                // il margine del messaggio.
+                className="space-y-px"
               >
                 <GroupedToolRows tools={g.tools} sessionKey={sessionKey} />
               </div>

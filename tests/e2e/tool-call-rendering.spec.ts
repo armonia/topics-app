@@ -100,10 +100,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await expect(toolCallName).toContainText("Read");
 
     // Assert status is success
-    const toolCallStatus = toolCallCard.locator(
-      '[data-testid="tool-call-status-tc-1"]'
-    );
-    await expect(toolCallStatus).toHaveAttribute("data-status", "success");
+    await expect(toolCallCard).toHaveAttribute("data-status", "success");
 
     // Click to expand the tool call
     await toolCallCard.click();
@@ -160,10 +157,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await expect(toolCallCard).toBeVisible({ timeout: 15_000 });
 
     // Assert status is error
-    const toolCallStatus = toolCallCard.locator(
-      '[data-testid="tool-call-status-tc-err"]'
-    );
-    await expect(toolCallStatus).toHaveAttribute("data-status", "error");
+    await expect(toolCallCard).toHaveAttribute("data-status", "error");
 
     // Expand and check error content
     await toolCallCard.click();
