@@ -356,9 +356,24 @@ export const MessageBubble = memo(function MessageBubble({
               </button>
             </div>
           )}
-          {/* Timestamp on hover */}
+          {/* Timestamp on hover.
+              Su desktop è FUORI FLUSSO, e non è un vezzo: compare solo al
+              passaggio del mouse ma stava sempre nel DOM, quindi si prendeva la
+              sua riga — ~18px INVISIBILI sotto ogni messaggio. Con una chat
+              fatta di righe di azioni alte ventisei pixel, quello era il grosso
+              del vuoto fra una riga e l'altra. Toglierlo dal flusso non può
+              nemmeno causare uno spostamento al passaggio del mouse, che
+              sarebbe il rimedio peggiore del male (una rimisura sotto il
+              cursore, per giunta proprio quella che i pin dello scroll
+              inseguono). Su touch resta in flusso: lì è sempre visibile. */}
           {msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
-            <div className={`text-[11px] text-app-placeholder mt-0.5 transition-opacity ${isTouchDevice ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'} ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+            <div
+              className={`text-[11px] text-app-placeholder transition-opacity ${msg.role === 'user' ? 'text-right' : 'text-left'} ${
+                isTouchDevice
+                  ? 'mt-0.5 opacity-60'
+                  : 'absolute top-full left-0 right-0 opacity-0 group-hover:opacity-100 pointer-events-none z-10'
+              }`}
+            >
               {formatTimestamp(msg.timestamp)}
             </div>
           )}

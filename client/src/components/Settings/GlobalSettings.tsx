@@ -156,6 +156,40 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
         </div>
       </div>
 
+      {/* Misura di lettura della chat — il tetto oltre il quale la colonna non
+          si allarga più. Una riga lunga quanto una pane larga si legge male:
+          tornando a capo l'occhio perde il rigo. Il fondo scala (600) è la
+          soglia sotto cui il tetto smette di avere senso e diventa «piena
+          larghezza». */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          <Type size={14} />
+          Larghezza chat
+          <span className="ml-auto text-[12px] text-app-text-muted font-normal">
+            {settings.chatMaxWidth > 0 ? `${settings.chatMaxWidth}px` : 'Piena larghezza'}
+          </span>
+        </label>
+        <input
+          type="range"
+          min={580}
+          max={1300}
+          step={20}
+          // 580 = il gradino sotto il minimo utile: lì il tetto si spegne.
+          value={settings.chatMaxWidth > 0 ? settings.chatMaxWidth : 580}
+          onChange={(e) => {
+            const v = parseInt(e.target.value);
+            onChange('chatMaxWidth', v <= 580 ? 0 : v);
+          }}
+          className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
+          aria-label="Larghezza massima della colonna di chat"
+        />
+        <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
+          <span>Piena</span>
+          <span>820px</span>
+          <span>1300px</span>
+        </div>
+      </div>
+
       {/* Theme */}
       {onThemeChange && (
         <div>

@@ -75,6 +75,25 @@ async function settleAtBottom(scroller: Scroller): Promise<void> {
   await expect.poll(() => isAtBottom(scroller), { timeout: 15_000 }).toBe(true);
 }
 
+/**
+ * PRECONDIZIONE, non decorazione: «c'è davvero qualcosa da scorrere».
+ *
+ * Tre test qui sotto sono cascati con messaggi opachi — «il gesto non ha
+ * portato la vista lontano dal fondo», «la freccia non compare» — mentre lo
+ * scroll funzionava benissimo: era il transcript che, compattato il layout,
+ * non superava più la finestra di 150px. Un test che misura uno scroll deve
+ * dire a voce alta se lo scroll non è nemmeno possibile, altrimenti accusa il
+ * codice di un difetto che non ha.
+ */
+async function assertScrollabile(scroller: Scroller): Promise<void> {
+  const eccedenza = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+  expect(
+    eccedenza,
+    `il transcript deve eccedere la finestra di piu' della tolleranza (${AT_BOTTOM_TOLERANCE_PX}px), ` +
+      `altrimenti non c'e' scroll da osservare: semina piu' messaggi`,
+  ).toBeGreaterThan(AT_BOTTOM_TOLERANCE_PX * 2);
+}
+
 /** Legge `scrollTop` finché due letture consecutive coincidono: lo scroll si è fermato. */
 async function stableScrollTop(scroller: Scroller): Promise<number> {
   let last = await scroller.evaluate((el) => el.scrollTop);
@@ -105,14 +124,25 @@ async function stableScrollTop(scroller: Scroller): Promise<number> {
  * un istante dopo cambia.
  */
 async function scrollToTop(page: Page, scroller: Scroller): Promise<number> {
-  await scroller.hover();
   let previous = Number.POSITIVE_INFINITY;
+  // Due giri fermi, non uno: il primo può esserlo perché fra un colpo e l'altro
+  // la lista ha rimisurato (monta le righe che le mancano) e il colpo è caduto
+  // mentre l'altezza cambiava. Mollare lì restituiva una posizione a metà, e il
+  // test accusava l'app di non aver rispettato uno scroll che non era finito.
+  let fermi = 0;
   for (let attempt = 0; attempt < 12; attempt++) {
+    // Si ri-punta a ogni giro: il composer cambia altezza e la pane si sposta
+    // sotto il cursore, e una rotellina fuori bersaglio non scorre niente.
+    await scroller.hover();
     await page.mouse.wheel(0, -2000);
     const settled = await stableScrollTop(scroller);
     if (settled === 0) return 0;
-    if (settled >= previous) return settled;
-    previous = settled;
+    if (settled >= previous) {
+      if (++fermi >= 2) return settled;
+    } else {
+      fermi = 0;
+      previous = settled;
+    }
   }
   return previous;
 }
@@ -126,8 +156,17 @@ test.describe("Chat scroll behavior", () => {
     const topic = await createTopic(request, topicName);
     topicId = topic.id;
 
-    // Seed with enough messages to make the chat scrollable
-    for (let i = 0; i < 20; i++) {
+    // Seed with enough messages to make the chat scrollable.
+    //
+    // Erano venti, e sono diventati pochi: la chat si è COMPATTATA (la riga
+    // dell'orario non occupa più il suo spazio da invisibile, e le corse di
+    // tool sono un item solo), quindi venti messaggi corti stanno quasi dentro
+    // la finestra. Con `scrollHeight - clientHeight` sceso sotto i 150px di
+    // tolleranza, tre test qui sotto cadevano — non per un difetto dello
+    // scroll, ma perché non c'era più abbastanza da scorrere. Quaranta danno
+    // margine, e `assertScrollabile` sotto lo verifica invece di darlo per
+    // scontato: la prossima volta che la densità cambia, il rosso lo dirà.
+    for (let i = 0; i < 40; i++) {
       await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
         data: { content: `Seed message ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
         ignoreHTTPSErrors: true,
@@ -190,6 +229,7 @@ test.describe("Chat scroll behavior", () => {
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
     await settleAtBottom(scroller);
+    await assertScrollabile(scroller);
 
     const scrollBefore = await scrollToTop(page, scroller);
 
@@ -328,6 +368,7 @@ test.describe("Chat scroll behavior", () => {
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
     await settleAtBottom(scroller);
+    await assertScrollabile(scroller);
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 
@@ -360,6 +401,7 @@ test.describe("Chat scroll behavior", () => {
     // guarda nessuno. Asserire lo fa cadere con il messaggio giusto.
     await expect(scroller, 'la chat deve montare lo scroller virtualizzato').toHaveCount(1, { timeout: 10_000 });
     await settleAtBottom(scroller);
+    await assertScrollabile(scroller);
 
     const scrollBtn = page.getByRole("button", { name: "Scroll to bottom" });
 

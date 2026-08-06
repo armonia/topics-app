@@ -946,11 +946,17 @@ function App() {
       onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
         fontSize: `${appSettings.fontSize}px`,
+        // La misura di lettura della chat viaggia come variabile, non come
+        // classe: la classe qui sopra DEVE restare costante fra i render (lo
+        // dice il commento), e una variabile in `style` non la tocca. La legge
+        // l'utility `chat-measure` — un posto solo per quattro punti che
+        // devono restare allineati.
+        '--chat-measure': appSettings.chatMaxWidth > 0 ? `${appSettings.chatMaxWidth}px` : 'none',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
         height: viewportHeight != null ? `${viewportHeight}px` : undefined,
-      }}
+      } as React.CSSProperties}
     >
       {/* Skip to main content link for keyboard users */}
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">

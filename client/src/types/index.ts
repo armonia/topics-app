@@ -1272,6 +1272,18 @@ export interface AppSettings {
   // is working (see .chat-working-ring). Surfaced in Settings → Appearance.
   // Defaults ON.
   workingGlow: boolean;
+  /**
+   * Larghezza massima della colonna di lettura della chat, in px. `0` =
+   * nessun tetto (la chat riempie la pane, com'era prima).
+   *
+   * Vive nei settings e non in un CSS fisso perché la misura giusta dipende
+   * da come si tiene l'app: chi guarda una chat sola a tutto schermo la vuole
+   * più stretta di chi ne affianca tre. Viaggia come `--chat-measure` sul root
+   * (App.tsx) e la legge l'utility `chat-measure`, così i punti che la usano —
+   * lista, composer con le sue strisce, appuntati, scheletro — non possono
+   * disallinearsi fra loro. Surfaced in Settings → Appearance.
+   */
+  chatMaxWidth: number;
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

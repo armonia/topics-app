@@ -29,6 +29,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Animated "working" glow ring around actively-streaming chat panes — ON by
   // default (subtle, readability-safe; users can disable in Settings → Appearance).
   workingGlow: true,
+  // Misura di lettura della chat. 820px sta attorno alle 90 colonne al corpo di
+  // serie: la stessa fascia in cui si tengono le superfici di lettura serie,
+  // Claude Code nel terminale compreso. Attiva di serie perché il difetto che
+  // corregge — la riga lunga quanto la pane, dove l'occhio perde il rigo
+  // tornando a capo — si vede appena la finestra è larga, cioè quasi sempre.
+  // 0 = piena larghezza, per chi la preferisce com'era.
+  chatMaxWidth: 820,
 };
 
 const STORAGE_KEY = 'app-settings';
