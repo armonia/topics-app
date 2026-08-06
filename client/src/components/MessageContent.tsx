@@ -995,6 +995,8 @@ interface MessageContentProps {
   costCents?: number | null;
   // Plan mode
   onPlanApprove?: () => void;
+  /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
+  onPlanDecision?: (approved: boolean) => void;
   onPlanReject?: () => void;
   // Session viewer
   /**
@@ -1016,7 +1018,7 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1165,7 +1167,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 // il margine del messaggio.
                 className="space-y-px"
               >
-                <GroupedToolRows tools={g.tools} sessionKey={sessionKey} />
+                <GroupedToolRows tools={g.tools} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
               </div>
             );
           }
@@ -1239,7 +1241,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
                 {thinking && <ReasoningRow content={thinking} partial={partial} />}
-                <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} />
+                <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
               </div>
             )}
 

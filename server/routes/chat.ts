@@ -82,6 +82,8 @@ import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
+import { permissionModeForAutonomy } from "../lib/autonomy-mode";
+import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -1182,7 +1184,41 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 return Array.isArray(parsed) && parsed.length > 0;
               } catch { return false; }
             })();
-            if (reason === "done" && !fullContent.trim() && !rowHasTools) {
+            // Il turno che ha PROPOSTO e non ha potuto consegnare.
+            //
+            // In plan mode la CLI 2.1.223 non espone più `ExitPlanMode`, quindi
+            // il modello scrive il piano in `~/.claude/plans/` e resta fermo:
+            // non può agire e non può chiedere l'approvazione. Se la CLI non ha
+            // più il tool per chiederla, la chiede l'applicazione — con lo
+            // STESSO pannello di `AskUserQuestion`, che è già il modo in cui
+            // questa chat dice «tocca a te». Senza, il turno si chiudeva col
+            // cartello «non ha prodotto niente» sopra una colonna di azioni
+            // riuscite e un piano che nessuno vedeva.
+            const pendingPlan = findPlanAwaitingApproval(blocks);
+            const askingPlanApproval = shouldAskPlanApproval({
+              reason,
+              permissionMode: permissionModeForAutonomy(matchedTopic?.autonomyLevel),
+              plan: pendingPlan,
+            });
+            if (askingPlanApproval && pendingPlan) {
+              const schema = planApprovalSchema();
+              updateToolCallFields(sessionKey, pendingPlan.toolCallId, {
+                status: "waiting_for_input",
+                userInputSchema: schema,
+              });
+              updateBlockTool(pendingPlan.toolCallId, { status: "waiting_for_input", userInputSchema: schema });
+              broadcastToAll({
+                type: "stream:tool_user_input_required",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId: pendingPlan.toolCallId,
+                schema,
+              });
+            }
+
+            // Il cartello del turno a vuoto NON vale quando il turno ha
+            // proposto un piano: lì c'è eccome qualcosa, ed è una domanda.
+            if (reason === "done" && !fullContent.trim() && !rowHasTools && !askingPlanApproval) {
               // Il testo non dà più la colpa al servizio AI: qui sappiamo solo
               // che il turno si è chiuso a mani vuote, e le volte in cui è
               // successo il guasto era in casa nostra. Dice invece la cosa che

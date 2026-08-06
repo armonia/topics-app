@@ -24,7 +24,7 @@ import {
  * to tool instead of N rows flashing open and closed. On settle it collapses
  * to the single summary row.
  */
-function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: string }) {
+function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; onPlanDecision?: (approved: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
   const live = summary.running > 0;
@@ -112,7 +112,7 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
         // colonna della riga che le contiene, e la gerarchia spariva.
         <div className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px">
           {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
-            <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} />
+            <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
           ))}
         </div>
       )}
@@ -127,17 +127,17 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
  * per-call rows below it. This is the single entry MessageContent (blocks
  * timeline + legacy bucket) uses for tool runs.
  */
-export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: string }) {
+export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; onPlanDecision?: (approved: boolean) => void }) {
   const segments = useMemo(() => partitionToolGroup(tools), [tools]);
   return (
     <>
       {segments.map((seg) =>
         seg.kind === 'solo' ? (
-          <ToolCallRow key={seg.tool.id} toolCall={seg.tool} sessionKey={sessionKey} />
+          <ToolCallRow key={seg.tool.id} toolCall={seg.tool} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
         ) : seg.tools.length >= GROUP_MIN ? (
-          <ToolGroupRow key={`grp-${seg.tools[0].id}`} tools={seg.tools} sessionKey={sessionKey} />
+          <ToolGroupRow key={`grp-${seg.tools[0].id}`} tools={seg.tools} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />
         ) : (
-          seg.tools.map((tc) => <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} />)
+          seg.tools.map((tc) => <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} onPlanDecision={onPlanDecision} />)
         ),
       )}
     </>
