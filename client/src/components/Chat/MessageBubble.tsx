@@ -3,6 +3,7 @@ import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, T
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { parseSlashInvocation } from '../../../../shared/slash-invocation';
+import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -136,6 +137,14 @@ export const MessageBubble = memo(function MessageBubble({
   const invokedCommand = msg.role === 'assistant' && prev?.role === 'user'
     ? parseSlashInvocation(prev.content)
     : null;
+
+  // I numeri del turno: se non ce n'è nemmeno uno, la riga dei metadati non ha
+  // niente da dire oltre all'ora.
+  const hasTurnMetrics =
+    (msg.latencyMs ?? 0) > 0 ||
+    (msg.usagePromptTokens ?? 0) > 0 ||
+    (msg.usageCompletionTokens ?? 0) > 0 ||
+    (msg.costCents ?? 0) > 0;
 
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
@@ -431,7 +440,15 @@ export const MessageBubble = memo(function MessageBubble({
               accesa e spenta, quindi il passaggio del mouse non rimisura niente
               — che era l'altra metà del motivo per cui era finita fuori flusso.
               Mai a capo: se un giorno non ci sta, scorre. */}
-          {msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
+          {/* La riga esiste per i numeri del TURNO. Su una corsa di sola azione
+              non ce ne sono — la durata di ogni passo sta già in fondo alla sua
+              riga di tool — e da quando i messaggi di solo lavoro si fondono
+              ognuna di quelle corse è un messaggio: si riservavano quattordici
+              pixel ciascuna per ripetere in hover un numero già in chiaro.
+              Il confine è avere i numeri, non avere la prosa: un turno fermo su
+              una domanda è senza prosa ma si CHIUDE come un messaggio finito,
+              con la sua durata e il suo costo, e quella riga gli serve. */}
+          {(!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
               data-testid="message-meta-row"
               className={`text-[11px] mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
