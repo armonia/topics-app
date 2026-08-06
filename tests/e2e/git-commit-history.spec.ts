@@ -183,6 +183,51 @@ test.describe("cronologia dei commit", () => {
     git(["checkout", "--", "README.md"]);
   });
 
+  test("con l'albero PULITO il piede resta in fondo, e l'icona git non e' accesa", async ({ page, request }) => {
+    // Il caso che il test qui sopra NON copre, perche' quello sporca l'albero
+    // apposta per avere lo scroller. Con zero modifiche al posto della lista
+    // c'e' un messaggio corto, che non e' `flex-1` e quindi non spinge niente:
+    // il pie' di pagina si appoggiava a quel messaggio e tutto lo spazio
+    // restante finiva SOTTO la cronologia. Stesso difetto di prima, stato
+    // opposto.
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    const storia = await apriStoria(win);
+    const pannello = win.locator('[data-testid="git-changes"]');
+
+    // Albero pulito: il messaggio c'e', la lista no.
+    await expect(pannello.getByText(/Albero di lavoro pulito|Clean working tree/)).toBeVisible({ timeout: 10000 });
+    expect(storia).toBeTruthy();
+
+    const g = await pannello.evaluate((root: HTMLElement) => {
+      const b = (el: Element | null) => el ? { top: +el.getBoundingClientRect().top.toFixed(1), bot: +el.getBoundingClientRect().bottom.toFixed(1) } : null;
+      return { pannello: b(root), cronologia: b(root.querySelector('[data-testid="commit-history"]')) };
+    });
+    expect(g.cronologia!.bot).toBeCloseTo(g.pannello!.bot, 0);
+
+    // E l'icona di git non e' colorata: sta accanto alla pastiglia del
+    // conteggio e alle frecce ahead/behind, che il colore ce l'hanno per dire
+    // qualcosa. Un blu sempre acceso non e uno stato. Le sorelle File e
+    // Processi non sono colorate: il confronto e' con loro, non con un valore
+    // scritto a mano.
+    const colori = await win.evaluate((root: HTMLElement) => {
+      const iconaDi = (etichetta: string) => {
+        const riga = [...root.querySelectorAll("div")]
+          .find(d => d.className.includes("h-8") && (d.textContent || "").trim().startsWith(etichetta));
+        const svg = riga?.querySelector("svg");
+        return svg ? getComputedStyle(svg).color : null;
+      };
+      return { git: iconaDi("Git"), file: iconaDi("File"), processi: iconaDi("Processi") };
+    });
+    expect(colori.git).not.toBeNull();
+    expect(colori.git).toBe(colori.file ?? colori.processi);
+  });
+
   test("il PRIMO commit si apre senza padre e mostra tutto come aggiunto", async ({ page, request }) => {
     // `<hash>^` non esiste sul commit iniziale: git esce non-zero e la rotta
     // risponde vuoto. E' la cosa giusta (un commit iniziale e' tutto aggiunto),

@@ -704,7 +704,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         >
           {/* Left: icon + label + chevron */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <GitBranch size={14} className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : 'text-primary'}`} />
+            {/* Nessun colore addosso: l'icona sta accanto a DUE cose che il colore ce
+                l'hanno per dire qualcosa (la pastiglia col numero di modifiche, le
+                frecce ahead/behind). Un blu sempre acceso non e uno stato, e
+                toglie forza a quelli che lo sono — e le icone sorelle, File e
+                Processi, non sono colorate. Muto resta solo il caso «non e un
+                repo», che e un'informazione vera. */}
+            <GitBranch size={14} className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`} />
             <span className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
             <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
           </div>
@@ -942,8 +948,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 anche da chiusi) e la cronologia sotto lo scroller, incollata al
                 fondo. Due piè di pagina a livelli diversi con un vuoto in mezzo.
                 Fuori dallo scroller stanno fermi, e lo spazio che avanza è
-                SOPRA di loro, dove la lista può scorrere. */}
-            <div className="flex flex-col min-h-0">
+                SOPRA di loro, dove la lista può scorrere.
+
+                `mt-auto` perché con l'albero PULITO non c'è nessuno scroller:
+                al posto della lista c'è un messaggio corto, che non è `flex-1`
+                e quindi non spinge niente. Senza, il piè di pagina si
+                appoggiava a quel messaggio e tutto lo spazio restante finiva
+                SOTTO la cronologia — cioè lo stesso difetto di prima, ma nello
+                stato opposto. Col `flex-1` presente `mt-auto` non fa nulla. */}
+            <div className="flex flex-col min-h-0 mt-auto">
               {remotes.length === 0 && !showAddRemote ? (
                 <div className="px-3 py-2 border-t border-app-border">
                   <button
@@ -1102,7 +1115,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               onClick={() => setShowBranches(!showBranches)}
               className="flex items-center gap-1.5 hover:bg-app-hover px-1.5 py-0.5 rounded transition-colors"
             >
-              <GitBranch size={14} className="text-primary" />
+              <GitBranch size={14} />
               <span className="text-[12px] font-semibold text-app-text-heading">{gitStatus.branch}</span>
               <ChevronDown size={10} className={`text-app-text-muted transition-transform ${showBranches ? 'rotate-180' : ''}`} />
             </button>
