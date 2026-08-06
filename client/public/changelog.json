@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.29",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il segno di apertura c'e' SEMPRE su un progetto, e sta in un angolo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.28",
     "date": "2026-08-06",
     "sections": {
@@ -190,6 +206,31 @@
       "internal": [
         {
           "it": "Rimetti a posto i quattro tasti della ricerca, e il progetto che spariva sotto di essi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.28",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il selettore progetto è UNO: stessa lista, stessa icona, stessa ricerca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra l'identità anche sul computer, togli Tailscale dal menu, aggiungi il rinomina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ritira REMOTE-01 dalle specifiche, e ricostruisci il bundle servito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta la scelta sul piano dove si guarda: sopra il composer",
           "en": "",
           "scope": null
         }
