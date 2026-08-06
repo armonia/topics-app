@@ -25,6 +25,7 @@
  */
 import { watch } from "fs";
 import type { AppContext } from "./types";
+import { refreshGitStatus } from "./git-watcher";
 
 const DEBOUNCE_MS = 300;
 /** Tetto ai progetti osservati insieme: ogni watcher ricorsivo costa. */
@@ -70,6 +71,12 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
     timer = setTimeout(() => {
       timer = null;
       ctx.broadcastToAll({ type: "files:changed", projectPath });
+      // E anche lo stato git: il watcher di `.git` guarda `index`, `HEAD` e
+      // `refs`, cioè le operazioni git. Salvare un file non tocca niente di
+      // quello, quindi una modifica fatta da un editor esterno, da un agente o
+      // da un terminale non faceva scattare nessun push — e con il canale WS
+      // attivo il poll del client è a 60 secondi.
+      void refreshGitStatus(projectPath, ctx);
     }, DEBOUNCE_MS);
   };
 
