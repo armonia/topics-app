@@ -245,6 +245,21 @@ test.describe.serial("Add menu — sistema", () => {
 
     expect(pillIds.length).toBeGreaterThan(5);
     expect(pillIds, "\u2318K e il menu \u00ab+\u00bb devono offrire lo stesso insieme").toEqual(menuIds);
+
+    // E la barra dei comandi in fondo sta su UNA riga. Andava a capo perche'
+    // portava anche le otto voci di creazione: \u00abbrutto\u00bb e' un'impressione,
+    // due `offsetTop` diversi sono un numero. Ora le voci sono righe cercabili
+    // e la barra tiene solo i comandi globali.
+    const barRows = await page.evaluate(() => {
+      const pills = Array.from(
+        document.querySelectorAll('[data-testid="command-palette"] button'),
+      ).filter((b) => (b as HTMLElement).closest("section") === null && (b as HTMLElement).offsetParent !== null);
+      const bar = pills.filter((b) => !b.hasAttribute("data-cmd-idx"));
+      const tops = new Set(bar.map((b) => Math.round(b.getBoundingClientRect().top)));
+      return { count: bar.length, rows: tops.size };
+    });
+    expect(barRows.count).toBeGreaterThan(0);
+    expect(barRows.rows, "la barra dei comandi non deve andare a capo").toBe(1);
     await page.keyboard.press("Escape");
   });
 
