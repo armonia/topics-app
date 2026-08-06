@@ -1101,6 +1101,13 @@ export interface GitStatus {
    * pannello direbbe «nessuna modifica», che è falso.
    */
   folderUntracked?: boolean;
+  /**
+   * Il repo che OSPITA la cartella aperta, quando questa è una sua
+   * sottocartella. Vuoto se la cartella è essa stessa la radice del repo. Il
+   * pannello lo nomina perché ramo, remote e cronologia che mostra sono di
+   * quel repo, non della cartella — e senza dirlo si contraddice da solo.
+   */
+  repoName?: string;
 }
 
 export interface GitBranch {

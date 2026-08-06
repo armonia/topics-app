@@ -29,6 +29,12 @@ interface ProjectSidebarProps {
 
 type SectionId = 'files' | 'git' | 'processes';
 
+/** La colonna di partenza: 224px, cioè il vecchio `w-56` cablato. */
+const DEFAULT_SIDEBAR_W = 224;
+/** Sotto, l'albero dei file diventa illeggibile; sopra, mangia la finestra. */
+const MIN_SIDEBAR_W = 160;
+const MAX_SIDEBAR_W = 560;
+
 /** Sotto questa altezza una sezione aperta non mostra nulla: è solo intestazione. */
 const MIN_USEFUL_H = 96;
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
@@ -174,6 +180,23 @@ export function ProjectSidebar({
     });
   };
 
+  // ── Larghezza della barra ────────────────────────────────────────────────
+  // Per progetto, come apertura e altezze: un albero di file profondo e uno
+  // piatto non vogliono la stessa colonna, e la misura giusta è quella che hai
+  // scelto lì.
+  const WIDTH_KEY = `project-sidebar-width:${projectPath}`;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem(WIDTH_KEY);
+      const n = saved ? parseInt(saved, 10) : NaN;
+      if (Number.isFinite(n)) return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, n));
+    } catch {}
+    return DEFAULT_SIDEBAR_W;
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(WIDTH_KEY, String(sidebarWidth)); } catch {}
+  }, [WIDTH_KEY, sidebarWidth]);
+
   // ── Bottom sections (Git, Processes) — anchored at bottom with pixel heights ──
   // Files fills remaining space (flex-1). Git/Processes pinned at bottom.
   const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number>>(() => {
@@ -187,6 +210,8 @@ export function ProjectSidebar({
   useEffect(() => {
     try { sessionStorage.setItem(HEIGHTS_KEY, JSON.stringify(bottomHeights)); } catch {}
   }, [HEIGHTS_KEY, bottomHeights]);
+
+  const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const dragRef = useRef<{
     section: 'git' | 'processes';
@@ -214,20 +239,35 @@ export function ProjectSidebar({
         window.dispatchEvent(new Event('topics:pane-resize-end'));
       }
     };
+    // Il velo a tutto schermo è lo STESSO delle altre resize (useGridResize):
+    // tiene il puntatore fuori dagli iframe e dalle pane native mentre trascini,
+    // e si alza solo al primo movimento vero, così un click secco non si
+    // ritrova il mouseup su un altro bersaglio.
+    const raiseChrome = (cursor: 'row-resize' | 'col-resize') => {
+      if (dragOverlay.current) return;
+      const ov = document.createElement('div');
+      ov.style.cssText = `position:fixed;inset:0;z-index:2147483647;cursor:${cursor}`;
+      document.body.appendChild(ov);
+      dragOverlay.current = ov;
+      window.dispatchEvent(new Event('topics:pane-resize-start'));
+    };
     const onMove = (e: MouseEvent) => {
+      const w = widthDragRef.current;
+      if (w) {
+        if ((e.buttons & 1) === 0) { onUp(); return; }
+        const dx = e.clientX - w.startX;
+        if (!dragOverlay.current && Math.abs(dx) <= DRAG_SLOP_PX) return;
+        raiseChrome('col-resize');
+        setSidebarWidth(Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, w.startWidth + dx)));
+        return;
+      }
       const r = dragRef.current;
       if (!r) return;
       // Lost-mouseup recovery: button no longer down — end the drag.
       if ((e.buttons & 1) === 0) { onUp(); return; }
       const delta = e.clientY - r.startY;
       if (!dragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
-      if (!dragOverlay.current) {
-        const ov = document.createElement('div');
-        ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:row-resize';
-        document.body.appendChild(ov);
-        dragOverlay.current = ov;
-        window.dispatchEvent(new Event('topics:pane-resize-start'));
-      }
+      raiseChrome('row-resize');
       if (r.otherSection) {
         // Redistributing between git ↔ processes
         const newTop = Math.max(MIN_H, r.startHeight - delta);
@@ -239,8 +279,9 @@ export function ProjectSidebar({
       }
     };
     const onUp = () => {
-      if (!dragRef.current) return;
+      if (!dragRef.current && !widthDragRef.current) return;
       dragRef.current = null;
+      widthDragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       dropChrome();
@@ -252,8 +293,24 @@ export function ProjectSidebar({
       window.removeEventListener('mouseup', onUp);
       // Unmount mid-drag: balance the pane-resize-start already dispatched.
       dragRef.current = null;
+      widthDragRef.current = null;
       dropChrome();
     };
+  }, []);
+
+  const startWidthResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    widthDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth]);
+
+  /** Doppio click sul bordo: torna alla misura di partenza. */
+  const resetWidth = useCallback(() => {
+    widthDragRef.current = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    setSidebarWidth(DEFAULT_SIDEBAR_W);
   }, []);
 
   const startBottomResize = useCallback((section: 'git' | 'processes', otherSection?: 'git' | 'processes') => (e: React.MouseEvent) => {
@@ -437,7 +494,25 @@ export function ProjectSidebar({
   }
 
   return (
-    <div className="chrome-glass w-56 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
+    <div
+      data-testid="project-sidebar"
+      className="chrome-glass flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden relative"
+      style={{ width: sidebarWidth }}
+    >
+      {/* Maniglia sul bordo destro. Sta DENTRO la barra, in overlay sul bordo,
+          e non come colonna a sé: una colonna in più cambierebbe il calcolo
+          della larghezza e il bordo si vedrebbe doppio.
+          Tutta dentro, `right-0`: la barra ha `overflow-hidden`, quindi una
+          maniglia che sporge (`-right-1`) viene RITAGLIATA per metà — resta
+          visibile ma non prende il mouse, e il trascinamento non parte. 8px di
+          zona di presa, che è quanto basta senza rubare spazio al contenuto. */}
+      <div
+        data-testid="project-sidebar-resizer"
+        onMouseDown={startWidthResize}
+        onDoubleClick={resetWidth}
+        title={tr('project.sidebar.resize')}
+        className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize hover:bg-primary/40 transition-colors"
+      />
       {/* Header — height matches the pane tab bar (h-10) */}
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
         <span className="text-[12px] font-semibold text-app-text-secondary truncate" title={projectName}>{projectName}</span>
