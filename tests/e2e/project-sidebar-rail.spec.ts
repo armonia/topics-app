@@ -187,6 +187,15 @@ test.describe("sidebar progetto: la rail collassata", () => {
       .poll(async () => Math.round((await bar.boundingBox())!.width), { timeout: 5000 })
       .toBeGreaterThan(280);
 
+    // La maniglia non si dipinge: il bordo della barra deve restare quello di
+    // ogni altro bordo, e l'unico segnale che si puo trascinare e il cursore.
+    // Senza questa riga la tinta al passaggio era tornata viva senza che
+    // nessun test se ne accorgesse.
+    await grip.hover();
+    const dipinta = await grip.evaluate(el => getComputedStyle(el).backgroundColor);
+    expect(dipinta, "la maniglia resta trasparente anche al passaggio").toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    expect(await grip.evaluate(el => getComputedStyle(el).cursor)).toBe("col-resize");
+
     // Doppio click: torna alla misura di partenza.
     await grip.dblclick();
     await expect

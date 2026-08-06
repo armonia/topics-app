@@ -499,19 +499,19 @@ export function ProjectSidebar({
       className="chrome-glass flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
-      {/* Maniglia sul bordo destro. Sta DENTRO la barra, in overlay sul bordo,
-          e non come colonna a sé: una colonna in più cambierebbe il calcolo
-          della larghezza e il bordo si vedrebbe doppio.
-          Tutta dentro, `right-0`: la barra ha `overflow-hidden`, quindi una
-          maniglia che sporge (`-right-1`) viene RITAGLIATA per metà — resta
-          visibile ma non prende il mouse, e il trascinamento non parte. 8px di
-          zona di presa, che è quanto basta senza rubare spazio al contenuto. */}
+      {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.
+          Colorarla al passaggio dava al bordo della barra un aspetto diverso da
+          ogni altro bordo solo perche e trascinabile, e la barra non e un
+          controllo.
+          Sta dentro la barra (`right-0`), non fuori: la barra ha
+          `overflow-hidden`, quindi una maniglia che sporge viene ritagliata per
+          meta, resta visibile e non prende il mouse. */}
       <div
         data-testid="project-sidebar-resizer"
         onMouseDown={startWidthResize}
         onDoubleClick={resetWidth}
         title={tr('project.sidebar.resize')}
-        className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize hover:bg-primary/40 transition-colors"
+        className="absolute inset-y-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
