@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.24 — 2026-08-06
+
+### Sotto il cofano
+- Riporta la versione sopra il massimo mai committato: 2.2.24
+- Un solo passo verticale, e i task per stato si aprono dalla riga
+
 ## 2.2.23 — 2026-08-06
 
 ### Sotto il cofano
