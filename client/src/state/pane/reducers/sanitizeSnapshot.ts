@@ -405,7 +405,18 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   }
   if (raw.tombstones !== undefined) {
     const tb = sanitizeTombstones(raw.tombstones);
-    if (tb) out.tombstones = tb;
+    if (tb) {
+      // La chiave parallela `tombstoneSeqs` porta la grandezza causale accanto
+      // alla mappa di numeri retrocompatibile (vedi selectors.ts). Un client
+      // vecchio non la scrive: allora ogni seq resta 0 e decide il marcatore,
+      // che e' la direzione sicura.
+      if (isPlainObject(raw.tombstoneSeqs)) {
+        for (const [id, v] of Object.entries(raw.tombstoneSeqs)) {
+          if (tb[id] && typeof v === 'number' && Number.isFinite(v) && v > 0) tb[id].seq = v;
+        }
+      }
+      out.tombstones = tb;
+    }
   }
   if (raw.spaces !== undefined) {
     const sp = sanitizeSpaces(raw.spaces);
