@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Loader2, X, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, X, Zap } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import {
@@ -60,28 +60,29 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
             )}
           </span>
           <Zap size={13} className={`flex-shrink-0 ${live ? 'text-primary' : 'text-app-text-muted'}`} />
-          <span className={`flex-shrink-0 font-medium ${live ? 'text-primary' : 'text-app-text'}`}>
+          <span className={`flex-shrink-0 font-medium ${live ? 'text-primary' : summary.errors > 0 ? 'text-red-500' : 'text-app-text'}`}>
             {live
               ? `${settledCount}/${summary.total} azioni`
               : `${summary.total} azioni`}
           </span>
-          <span className="min-w-0 flex-1 text-[11px] text-app-text-muted truncate">
-            {formatToolCounts(summary.counts)}
-          </span>
-          {/* Quanti sono falliti — il NUMERO, senza icona: il simbolo lo porta
-              già l'esito qui a destra, e disegnarlo due volte sulla stessa riga
-              faceva sembrare due errori diversi. */}
+          {/* L'esito si dice SOLO quando è cattivo, e si dice qui, accanto al
+              nome del gruppo — una volta sola, con il numero. Prima la ✗ era
+              disegnata due volte (qui e a destra) e la spunta verde stava su
+              ogni gruppo riuscito, cioè su quasi tutti: confermava la norma. */}
           {summary.errors > 0 && (
             <span
               data-testid="tool-group-errors"
-              className="flex-shrink-0 text-[11px] tabular-nums text-red-500"
+              className="flex-shrink-0 inline-flex items-center gap-0.5 text-[11px] tabular-nums text-red-500"
             >
-              {summary.errors} {summary.errors === 1 ? 'fallita' : 'fallite'}
+              <X size={11} /> {summary.errors} {summary.errors === 1 ? 'fallita' : 'fallite'}
             </span>
           )}
-          {/* Larghezza minima: senza, la comparsa del cronometro e il passaggio
-              da spinner a spunta spostavano il testo a ogni cambio di stato. */}
-          <span className="flex-shrink-0 inline-flex items-center justify-end gap-1.5 min-w-[3.5rem]">
+          <span className="min-w-0 flex-1 text-[11px] text-app-text-muted truncate">
+            {formatToolCounts(summary.counts)}
+          </span>
+          {/* La colonna di destra è ormai di soli NUMERI: durata e costo, che si
+              allineano a destra riga per riga. */}
+          <span className="flex-shrink-0 inline-flex items-center justify-end gap-1.5">
             {/* Viva: da quanto va avanti. Finita: quanto ci ha messo. Prima, un
                 gruppo in corso non mostrava NESSUN numero — mentre una riga
                 singola in corso il suo cronometro ce l'ha sempre avuto. */}
@@ -99,13 +100,8 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
                 {groupCost}
               </span>
             )}
-            {live ? (
-              <Loader2 size={11} className="animate-spin text-primary" />
-            ) : summary.errors > 0 ? (
-              <X size={11} className="text-red-500" />
-            ) : (
-              <Check size={11} className="text-green-500" />
-            )}
+            {/* Qui resta solo ciò che è VIVO. L'esito sta accanto al nome. */}
+            {live && <Loader2 size={11} className="animate-spin text-primary" />}
           </span>
         </span>
       </button>

@@ -114,10 +114,31 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     const occurrences = ((await fresh.innerText()).match(/\/recap/g) ?? []).length;
     expect(occurrences).toBe(1);
 
-    // Il messaggio vecchio: niente segnaposto, la card resta muta.
+    // Il messaggio vecchio non ha istruzioni da mostrare, quindi la riga non
+    // offre nemmeno il gesto: prima il chevron c'era e apriva il vuoto — è
+    // esattamente così che si è letto «la skill non apre nulla».
     const old = page.locator('[data-testid="tool-call-row-tc-skill-old"]');
-    await old.locator("button").first().click();
+    await expect(old).toBeVisible();
     await expect(old).not.toContainText("Launching skill");
+    // Non c'è proprio un bottone: la riga non promette un gesto che non ha.
+    await expect(old.locator("button")).toHaveCount(0);
+    await old.click();
+    await expect(old.locator('[data-testid="tool-call-result"]')).toHaveCount(0);
+
+    // …e il nome parte comunque dalla stessa colonna della riga che si apre:
+    // togliere il chevron non deve disallineare la pila.
+    const xOf = async (sel: string) =>
+      (await page.locator(`${sel} [data-testid="tool-call-name"]`).boundingBox())!.x;
+    const dx = Math.abs(
+      (await xOf('[data-testid="tool-call-row-tc-skill-old"]')) -
+        (await xOf('[data-testid="tool-call-row-tc-skill-new"]')),
+    );
+    expect(dx).toBeLessThan(1);
+
+    // Nessuna spunta verde su un'azione riuscita: l'esito si dice solo quando è
+    // cattivo. Lo stato resta leggibile come attributo della riga.
+    await expect(fresh).toHaveAttribute("data-status", "success");
+    await expect(fresh.locator(".text-green-500")).toHaveCount(0);
 
     await fresh.screenshot({ path: "test-results/skill-card-instructions.png" });
   });
