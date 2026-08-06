@@ -210,6 +210,12 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       const childLeft = (await running.boundingBox())!.x;
       expect(childLeft).toBeGreaterThan(groupLeft + 8);
 
+      // La corsa di sola azione NON si porta dietro la riga dei metadati: la
+      // durata di ogni passo è già in fondo alla sua riga, e riservare 14px per
+      // messaggio per ripeterla in hover era spazio speso per niente.
+      const rigaLavoro = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      await expect(rigaLavoro.locator('[data-testid="message-meta-row"]')).toHaveCount(0);
+
       await group.screenshot({ path: "test-results/tool-group-live.png" });
     } finally {
       await deleteTopic(request, fresh.id);
