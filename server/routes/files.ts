@@ -438,10 +438,19 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; }
         } catch {}
         let relativePrefix = "";
+        // Il nome del repo che OSPITA la cartella aperta. Serve a dire di chi
+        // sono le cose che il pannello mostra: aprendo come progetto una
+        // sottocartella, il ramo, i remote e la cronologia sono del repo di
+        // sopra, non di quella cartella — e senza dirlo il pannello si
+        // contraddice da solo («non tracciata» accanto a una lista di branch).
+        let repoName = "";
         try {
           const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) { relativePrefix = resolvedDir.slice(gitRoot.length + 1); if (relativePrefix && !relativePrefix.endsWith("/")) relativePrefix += "/"; }
+          if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) {
+            relativePrefix = resolvedDir.slice(gitRoot.length + 1); if (relativePrefix && !relativePrefix.endsWith("/")) relativePrefix += "/";
+            repoName = gitRoot.split("/").filter(Boolean).pop() ?? "";
+          }
         } catch {}
         // Emit the RAW 2-char XY porcelain code (do NOT trim): the client parses
         // it positionally — status[0]=staged (index), status[1]=unstaged (worktree).
@@ -454,7 +463,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // contiene: git la collassa in un record solo e non elenca ciò che c'è
         // dentro. Va DETTO, non elencato — vedi `statusOfPrefix`.
         const folderUntracked = statusOfPrefix(parsed, relativePrefix) === "??";
-        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind, folderUntracked };
+        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind, folderUntracked, repoName };
         // Bound the cache: the key is the caller-supplied ?path= (resolved, no
         // allowlist), so it grows with every distinct git repo ever queried and
         // is only ever invalidated for paths a watcher fires on. Evict the
@@ -614,7 +623,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // normale qui — l'utente cliccava, non vedeva errori, e il pannello si
       // ricaricava identico. `stderr` era già in `pipe`: bastava guardarlo.
       try {
-        const proc = Bun.spawn(["git", "add", "-A"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // `-- .` NON è ridondante. Da git 2.0 `git add -A` lavora sull'INTERO
+        // albero di lavoro, non sulla cartella corrente: aprendo come progetto
+        // una sottocartella di un repo più grande, questo bottone stagiava
+        // anche tutto ciò che sta FUORI da essa — misurato su un caso reale:
+        // 17.682 file invece dei 11.031 della cartella, cioè 6.651 file che il
+        // pannello non mostra nemmeno. Ciò che il bottone fa deve coincidere
+        // con ciò che la lista dice.
+        const proc = Bun.spawn(["git", "add", "-A", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const stderr = await new Response(proc.stderr).text();
         await proc.exited;
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Stage-all failed" }, 400);
@@ -697,7 +713,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "reset", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // Scopato alla cartella aperta, per lo stesso motivo di `stage-all`:
+        // togliere dallo stage roba che qui dentro non si vede sarebbe
+        // altrettanto sorprendente.
+        const proc = Bun.spawn(["git", "reset", "HEAD", "--", "."], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const stderr = await new Response(proc.stderr).text();
         await proc.exited;
         // `git reset HEAD` esce 1 anche quando ha lavorato, se restano

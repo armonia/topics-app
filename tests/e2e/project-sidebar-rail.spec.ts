@@ -172,4 +172,39 @@ test.describe("sidebar progetto — la rail collassata", () => {
       .poll(async () => (await section.boundingBox())?.height ?? 0, { timeout: 5000 })
       .toBeGreaterThan(60);
   });
+
+  test("la barra si ridimensiona dal bordo, e il doppio click la riporta al default", async ({ page, request }) => {
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+
+    const bar = win.locator('[data-testid="project-sidebar"]');
+    const grip = win.locator('[data-testid="project-sidebar-resizer"]');
+    await expect(bar).toBeVisible({ timeout: 10000 });
+    const start = (await bar.boundingBox())!;
+    expect(Math.round(start.width), "parte dalla misura di default").toBe(224);
+
+    // Trascina il bordo verso destra. Il primo movimento deve superare la
+    // soglia anti-click (DRAG_SLOP_PX), altrimenti non è un drag.
+    const g = (await grip.boundingBox())!;
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(g.x + g.width / 2 + 40, g.y + g.height / 2, { steps: 5 });
+    await page.mouse.move(g.x + g.width / 2 + 90, g.y + g.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => Math.round((await bar.boundingBox())!.width), { timeout: 5000 })
+      .toBeGreaterThan(280);
+
+    // Doppio click sul bordo: torna alla misura di partenza.
+    await grip.dblclick();
+    await expect
+      .poll(async () => Math.round((await bar.boundingBox())!.width), { timeout: 5000 })
+      .toBe(224);
+  });
 });
