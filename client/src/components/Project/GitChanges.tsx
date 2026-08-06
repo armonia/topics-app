@@ -931,71 +931,48 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     onStageAll={handleStageAll}
                     stagingAll={stagingAll}
                     renderFileRow={renderFileRow}
-                    remotes={remotes}
-                    remotesExpanded={remotesExpanded}
-                    onToggleRemotes={() => setRemotesExpanded(v => !v)}
-                    showAddRemote={showAddRemote}
-                    onToggleAddRemote={() => setShowAddRemote(v => !v)}
-                    newRemoteName={newRemoteName}
-                    newRemoteUrl={newRemoteUrl}
-                    onRemoteNameChange={setNewRemoteName}
-                    onRemoteUrlChange={setNewRemoteUrl}
-                    onAddRemote={handleAddRemote}
-                    onRemoveRemote={handleRemoveRemote}
-                    addingRemote={addingRemote}
                   />
                 </>
               );
             })()}
 
-            {/* Show "Add remote" inline when no changes but repo exists */}
-            {gitStatus!.files.length === 0 && remotes.length === 0 && (
-              <div className="px-3 py-2 border-t border-app-border">
-                {!showAddRemote ? (
+            {/* PIÈ DI PAGINA: remotes e cronologia, sotto la lista e attaccati fra
+                loro. Stavano a due quote diverse — i remotes DENTRO lo scroller
+                (che è `flex-1`, quindi restava una striscia vuota sotto di loro
+                anche da chiusi) e la cronologia sotto lo scroller, incollata al
+                fondo. Due piè di pagina a livelli diversi con un vuoto in mezzo.
+                Fuori dallo scroller stanno fermi, e lo spazio che avanza è
+                SOPRA di loro, dove la lista può scorrere. */}
+            <div className="flex flex-col min-h-0">
+              {remotes.length === 0 && !showAddRemote ? (
+                <div className="px-3 py-2 border-t border-app-border">
                   <button
-                    onClick={() => setShowAddRemote(true)}
+                    onClick={() => { setShowAddRemote(true); setRemotesExpanded(true); }}
                     className="flex items-center gap-1 text-[11px] text-app-text-muted hover:text-primary transition-colors"
                   >
                     <Link size={10} />
                     Add remote
                   </button>
-                ) : (
-                  <AddRemoteForm
-                    name={newRemoteName}
-                    url={newRemoteUrl}
-                    onNameChange={setNewRemoteName}
-                    onUrlChange={setNewRemoteUrl}
-                    onAdd={handleAddRemote}
-                    onCancel={() => setShowAddRemote(false)}
-                    adding={addingRemote}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Show remotes list when no changes but remotes exist */}
-            {gitStatus!.files.length === 0 && remotes.length > 0 && (
-              <RemotesSection
-                remotes={remotes}
-                expanded={remotesExpanded}
-                onToggle={() => setRemotesExpanded(v => !v)}
-                showAddRemote={showAddRemote}
-                onToggleAdd={() => setShowAddRemote(v => !v)}
-                newRemoteName={newRemoteName}
-                newRemoteUrl={newRemoteUrl}
-                onNameChange={setNewRemoteName}
-                onUrlChange={setNewRemoteUrl}
-                onAdd={handleAddRemote}
-                onRemove={handleRemoveRemote}
-                adding={addingRemote}
-                compact
-              />
-            )}
-
-            {/* La cronologia c'è anche quando l'albero è pulito: è il caso in
-                cui serve di più, perché è l'unica cosa da guardare. In
-                compatta le righe non si aprono — vedi handleHistoryFileClick. */}
-            <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
+                </div>
+              ) : (
+                <RemotesSection
+                  remotes={remotes}
+                  expanded={remotesExpanded}
+                  onToggle={() => setRemotesExpanded(v => !v)}
+                  showAddRemote={showAddRemote}
+                  onToggleAdd={() => { setShowAddRemote(v => !v); setRemotesExpanded(true); }}
+                  newRemoteName={newRemoteName}
+                  newRemoteUrl={newRemoteUrl}
+                  onNameChange={setNewRemoteName}
+                  onUrlChange={setNewRemoteUrl}
+                  onAdd={handleAddRemote}
+                  onRemove={handleRemoveRemote}
+                  adding={addingRemote}
+                  compact
+                />
+              )}
+              <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
+            </div>
           </>
         )}
 
@@ -1491,7 +1468,7 @@ type CompactItem =
   | { type: 'unstaged-header' }
   | { type: 'conflicted-header' }
   | { type: 'file'; file: GitFile; group: 'staged' | 'unstaged' | 'conflicted' }
-  | { type: 'remotes' };
+;
 
 interface CompactFileListProps {
   stagedFiles: GitFile[];
@@ -1505,18 +1482,6 @@ interface CompactFileListProps {
   onStageAll: () => void;
   stagingAll: boolean;
   renderFileRow: (file: GitFile, group: 'staged' | 'unstaged' | 'conflicted') => React.ReactNode;
-  remotes: { name: string; fetchUrl: string; pushUrl: string }[];
-  remotesExpanded: boolean;
-  onToggleRemotes: () => void;
-  showAddRemote: boolean;
-  onToggleAddRemote: () => void;
-  newRemoteName: string;
-  newRemoteUrl: string;
-  onRemoteNameChange: (v: string) => void;
-  onRemoteUrlChange: (v: string) => void;
-  onAddRemote: () => void;
-  onRemoveRemote: (name: string) => void;
-  addingRemote: boolean;
 }
 
 function CompactFileList({
@@ -1525,11 +1490,6 @@ function CompactFileList({
   onToggleStaged, onToggleUnstaged,
   onUnstageAll, onStageAll, stagingAll,
   renderFileRow,
-  remotes, remotesExpanded, onToggleRemotes,
-  showAddRemote, onToggleAddRemote,
-  newRemoteName, newRemoteUrl,
-  onRemoteNameChange, onRemoteUrlChange,
-  onAddRemote, onRemoveRemote, addingRemote,
 }: CompactFileListProps) {
   // Build flat item list: headers + files + remotes
   const items = useMemo<CompactItem[]>(() => {
@@ -1551,11 +1511,8 @@ function CompactFileList({
         for (const f of unstagedFiles) list.push({ type: 'file', file: f, group: 'unstaged' });
       }
     }
-    if (remotes.length > 0 || showAddRemote) {
-      list.push({ type: 'remotes' });
-    }
     return list;
-  }, [stagedFiles, unstagedFiles, conflictedFiles, stagedExpanded, unstagedExpanded, remotes.length, showAddRemote]);
+  }, [stagedFiles, unstagedFiles, conflictedFiles, stagedExpanded, unstagedExpanded]);
 
   // For small lists, use simple overflow scroll — no Virtuoso overhead
   if (items.length <= 200) {
@@ -1639,24 +1596,6 @@ function CompactFileList({
         );
       case 'file':
         return renderFileRow(item.file, item.group);
-      case 'remotes':
-        return (
-          <RemotesSection
-            remotes={remotes}
-            expanded={remotesExpanded}
-            onToggle={onToggleRemotes}
-            showAddRemote={showAddRemote}
-            onToggleAdd={onToggleAddRemote}
-            newRemoteName={newRemoteName}
-            newRemoteUrl={newRemoteUrl}
-            onNameChange={onRemoteNameChange}
-            onUrlChange={onRemoteUrlChange}
-            onAdd={onAddRemote}
-            onRemove={onRemoveRemote}
-            adding={addingRemote}
-            compact
-          />
-        );
     }
   }
 }
