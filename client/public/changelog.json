@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.32",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "un dispositivo che vede solo i task che gli condividi",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il chevron va ACCANTO a cio' che identifica, non staccato sotto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.31",
     "date": "2026-08-06",
     "sections": {
@@ -232,6 +254,26 @@
         },
         {
           "it": "v2.2.23 — e la versione torna a salire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.31",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra TUTTI i dispositivi: il computer in elenco, chi è connesso adesso, e dove sei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Nuovo progetto» nella creazione task: c'era, ma non si vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetti l'autonomia in vista, e falla partire da «agisce»",
           "en": "",
           "scope": null
         }

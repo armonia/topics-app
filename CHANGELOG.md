@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.32 — 2026-08-06
+
+### Sotto il cofano
+- un dispositivo che vede solo i task che gli condividi
+- Il chevron va ACCANTO a cio' che identifica, non staccato sotto
+
 ## 2.2.31 — 2026-08-06
 
 ### Sotto il cofano
@@ -65,6 +71,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Remote Access: i test cercavano bottoni che non esistono da un rename
 - Il drop da fuori dice dove finisce, e la board diventa una tessera
 - v2.2.23 — e la versione torna a salire
+- Changelog per 2.2.31
+- Mostra TUTTI i dispositivi: il computer in elenco, chi è connesso adesso, e dove sei
+- «Nuovo progetto» nella creazione task: c'era, ma non si vedeva
+- Rimetti l'autonomia in vista, e falla partire da «agisce»
 
 ## 2.2.22 — 2026-08-06
 
