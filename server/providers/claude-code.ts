@@ -26,7 +26,8 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { readFastMode, fastModeCommand, sameFastMode, type FastModeStatus } from "./fast-mode";
+import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeStatus } from "./fast-mode";
+import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
@@ -1742,9 +1743,17 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   private fastModeStatus: FastModeStatus | null = null;
 
-  /** Letto dallo snapshot manager quando ricostruisce la riga del provider. */
-  fastMode(): FastModeStatus | null {
-    return this.fastModeStatus;
+  /**
+   * Letto dallo snapshot manager quando ricostruisce la riga del provider.
+   * Porta con sé il PREZZO: «più veloce» da solo non è un'informazione finché
+   * non dici quanto costa, ed è la domanda che si fa chi guarda il bottone.
+   */
+  fastMode(): (FastModeStatus & { costMultiplier: number | null }) | null {
+    if (!this.fastModeStatus) return null;
+    return {
+      ...this.fastModeStatus,
+      costMultiplier: fastModeMultiplier(this.defaultModel(), modelPrice),
+    };
   }
 
   /** Un evento della CLI ha parlato di fast mode: se è cambiato, si pubblica. */
@@ -1753,7 +1762,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!seen || sameFastMode(seen, this.fastModeStatus)) return;
     this.fastModeStatus = seen;
     try {
-      getSnapshotManager().patchEntry("claude-code", { fastMode: { ...seen } });
+      getSnapshotManager().patchEntry("claude-code", { fastMode: this.fastMode() ?? undefined });
     } catch { /* snapshot non ancora montato: la riga lo prenderà al prossimo refresh */ }
   }
 

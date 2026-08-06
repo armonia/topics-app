@@ -69,8 +69,14 @@ function normalizeModel(model: string): string {
   return model.toLowerCase().replace(/\[[^\]]*\]\s*$/, '').trim();
 }
 
-// Fuzzy match model name to pricing entry
-function findPricing(model: string): { input: number; output: number } | null {
+/**
+ * Il prezzo di un modello, senza effetti collaterali. Pubblica perché serve
+ * anche fuori dal conto di un turno — il moltiplicatore della fast mode si
+ * CALCOLA dai listini invece di essere scritto a mano
+ * (`providers/fast-mode.ts`). Il registro dei modelli senza prezzo resta in
+ * `findPricing`: è memoria per il pannello di stato, non parte del prezzo.
+ */
+export function modelPrice(model: string): { input: number; output: number } | null {
   // Exact match first
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
 
@@ -102,6 +108,14 @@ function findPricing(model: string): { input: number; output: number } | null {
   if (lower.includes('o3-mini')) return MODEL_PRICING['gpt-o3-mini'];
   if (lower.includes('o3')) return MODEL_PRICING['gpt-o3'];
 
+  return null;
+}
+
+/** `modelPrice` più il registro degli sconosciuti: «gratis» è indistinguibile
+ *  da un turno che davvero non è costato niente, quindi va DETTO. */
+function findPricing(model: string): { input: number; output: number } | null {
+  const price = modelPrice(model);
+  if (price) return price;
   if (!unknownModels.has(model)) {
     unknownModels.add(model);
     console.warn(`[usage] Modello senza prezzo: "${model}" — il costo di questi turni resta a 0. Aggiungilo a MODEL_PRICING.`);

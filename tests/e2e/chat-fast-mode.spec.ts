@@ -187,7 +187,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     expect(captured.planMode).toBeUndefined();
   });
 
-  test("FAST-MODE-04: quando la CLI dice che non si può, il bottone lo DICE (e non finge)", async ({ page }) => {
+  test("FAST-MODE-04: quando la CLI dice che non si può, il bottone NON c'è", async ({ page }) => {
     // Il caso vero di oggi: le chat girano `claude --print --input-format
     // stream-json`, cioè la via Agent SDK, e la CLI risponde
     // `fast_mode_disabled_reason: "sdk_opt_in_required"`. Prima, con lo stesso
@@ -201,7 +201,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
         isDefault: true,
         models: [] as unknown[],
         requirements: [] as unknown[],
-        fastMode: { state: "off", reason: "sdk_opt_in_required" },
+        fastMode: { state: "off", reason: "sdk_opt_in_required", costMultiplier: 2 },
         fetchedAt: "2026-08-07T00:00:00Z",
       }],
       defaultProvider: "claude-code",
@@ -231,11 +231,60 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await page.getByRole("textbox", { name: /Message input/ }).waitFor({ state: "visible", timeout: 15_000 });
 
     const fastBtn = page.getByTestId("chat-input-fast-mode");
+    // Non c'è proprio: un comando che non si può usare non occupa una riga.
+    await expect(fastBtn).toHaveCount(0);
+    // E gli altri controlli della riga restano al loro posto.
+    await expect(page.getByTestId("chat-input-context-ring")).toBeVisible();
+  });
+
+  test("FAST-MODE-05: quando si può, sotto il ⚡ c'è quanto costa", async ({ page }) => {
+    // 2× = 10$/50$ della fast mode contro i 5$/25$ di Opus standard, listino
+    // che la CLI scrive nei suoi stessi documenti. «Più veloce» da solo non è
+    // un'informazione finché non dici quanto costa.
+    const snapshot = {
+      providers: [{
+        name: "claude-code",
+        label: "Claude Code",
+        status: "ready",
+        isDefault: true,
+        models: [] as unknown[],
+        requirements: [] as unknown[],
+        fastMode: { state: "off", reason: null, costMultiplier: 2 },
+        fetchedAt: "2026-08-07T00:00:00Z",
+      }],
+      defaultProvider: "claude-code",
+      generatedAt: "2026-08-07T00:00:00Z",
+    };
+    await page.route("**/api/providers/snapshot", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }),
+    );
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => {
+        const text = typeof msg === "string" ? msg : "";
+        if (text.includes('"providers:snapshot"')) {
+          ws.send(JSON.stringify({ type: "providers:snapshot", snapshot }));
+          return;
+        }
+        ws.send(msg);
+      });
+      ws.onMessage((msg) => server.send(msg));
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await page.getByRole("textbox", { name: /Message input/ }).waitFor({ state: "visible", timeout: 15_000 });
+
+    const fastBtn = page.getByTestId("chat-input-fast-mode");
     await expect(fastBtn).toBeVisible();
-    await expect(fastBtn).toBeDisabled();
-    // Il motivo, con le parole della CLI — non un «non disponibile» generico.
-    expect(await fastBtn.getAttribute("title")).toContain("Agent SDK");
-    // E non si disegna acceso: sarebbe la stessa bugia di prima, in un colore.
-    await expect(fastBtn).toHaveAttribute("aria-pressed", "false");
+    await expect(fastBtn).toBeEnabled();
+    const badge = page.getByTestId("fast-mode-cost");
+    await expect(badge).toHaveText("2×");
+    // Il numero sta anche nel tooltip: il badge da solo non dice DI COSA è il doppio.
+    expect(await fastBtn.getAttribute("title")).toContain("2×");
+    // Il badge non è un bersaglio tattile a sé, e il bottone resta alto 32.
+    await expect(badge).toHaveCSS("pointer-events", "none");
+    expect(Math.round((await fastBtn.boundingBox())!.height)).toBe(32);
   });
 });

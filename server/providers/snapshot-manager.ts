@@ -151,7 +151,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         // dentro lo stream di una sessione viva, e il provider lo tiene. Qui si
         // ricopia perché una riga ricostruita non lo perda per strada (poi ogni
         // cambio arriva da `patchEntry`).
-        fastMode: (provider as { fastMode?: () => { state: "off" | "on" | "cooldown"; reason: string | null } | null }).fastMode?.() ?? undefined,
+        fastMode: (provider as { fastMode?: () => ProviderSnapshotEntry["fastMode"] | null }).fastMode?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: effortTierFor(name),

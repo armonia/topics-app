@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { readFastMode, fastModeAvailable, sameFastMode, fastModeCommand } from "./fast-mode";
+import { readFastMode, fastModeAvailable, sameFastMode, fastModeCommand, fastModeMultiplier } from "./fast-mode";
 
 /**
  * Gli eventi qui sotto sono COPIATI da una run vera della CLI 2.1.223
@@ -76,5 +76,31 @@ describe("sameFastMode", () => {
     expect(sameFastMode({ state: "off", reason: null }, { state: "on", reason: null })).toBe(false);
     expect(sameFastMode(null, null)).toBe(true);
     expect(sameFastMode(null, { state: "on", reason: null })).toBe(false);
+  });
+});
+
+describe("fastModeMultiplier", () => {
+  // Listino standard, come in server/usage/pricing.ts.
+  const price = (m: string) =>
+    /opus/i.test(m) ? { input: 5, output: 25 } : /sonnet/i.test(m) ? { input: 3, output: 15 } : null;
+
+  it("su Opus costa il DOPPIO — 10$/50$ contro 5$/25$, listino scritto dalla CLI", () => {
+    expect(fastModeMultiplier("claude-opus-5", price)).toBe(2);
+    expect(fastModeMultiplier("claude-opus-4-8", price)).toBe(2);
+  });
+
+  it("il numero è CALCOLATO: cambia il listino, cambia il numero", () => {
+    // Se Opus tornasse a 15$/75$, la fast mode non costerebbe più il doppio.
+    expect(fastModeMultiplier("claude-opus-4-5", () => ({ input: 15, output: 75 }))).toBeCloseTo(50 / 75, 10);
+  });
+
+  it("fuori dalla famiglia Opus la fast mode non esiste: nessun numero", () => {
+    expect(fastModeMultiplier("claude-sonnet-5", price)).toBeNull();
+    expect(fastModeMultiplier("gpt-5.5", price)).toBeNull();
+    expect(fastModeMultiplier(null, price)).toBeNull();
+  });
+
+  it("modello senza prezzo → niente numero, non uno zero", () => {
+    expect(fastModeMultiplier("claude-opus-99", () => null)).toBeNull();
   });
 });

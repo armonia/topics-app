@@ -15,14 +15,14 @@
 import type { ProvidersSnapshot } from '../types';
 
 export interface FastModeUi {
-  /** Si può accendere? Un motivo presente = qualcosa la blocca adesso. */
-  available: boolean;
   /** `on` / `cooldown` = la CLI la sta servendo (o è in pausa dopo un limite). */
   state: 'off' | 'on' | 'cooldown';
   /** La frase da mostrare, già in italiano. */
   title: string;
-  /** Il bottone va disegnato acceso? Mai, se non si può: sarebbe una bugia. */
+  /** Il bottone va disegnato acceso? */
   pressed: boolean;
+  /** Quanto costa rispetto alla velocità normale (2 = il doppio), o `null`. */
+  costMultiplier: number | null;
 }
 
 /**
@@ -49,45 +49,56 @@ export function fastModeReasonText(reason: string): string {
 }
 
 /**
- * Che cosa mostrare sul bottone. `providerOverride` decide da quale riga dello
- * snapshot leggere: la fast mode è un fatto del provider che serve QUESTA chat.
+ * Che cosa mostrare sul bottone, o `null` per NON mostrarlo affatto.
  *
- * Quando lo snapshot non dice niente (nessuna sessione ha ancora parlato, o un
- * provider che non ne ha il concetto) il bottone resta VIVO: «non lo so» non è
- * «non si può», e spegnere un comando per ignoranza è il modo più veloce per
- * farlo sembrare rotto.
+ * Se la fast mode non è servibile il bottone non esiste: un comando spento con
+ * accanto la spiegazione del perché è comunque una cosa che occupa spazio e non
+ * si può usare. Il motivo resta a disposizione di chi indaga
+ * (`fastModeReasonText`), non della riga di icone.
+ *
+ * `providerOverride` decide da quale riga dello snapshot leggere: la fast mode
+ * è un fatto del provider che serve QUESTA chat.
+ *
+ * Quando lo snapshot non dice niente — nessuna sessione ha ancora parlato — il
+ * bottone RESTA: «non lo so» non è «non si può», e farlo sparire per ignoranza
+ * lo farebbe lampeggiare via al primo evento.
  */
 export function fastModeUi(args: {
   snapshot: ProvidersSnapshot | null;
   providerOverride?: { provider: string; model: string } | null;
   /** Il flag della topic: quello che l'utente ha chiesto. */
   requested: boolean;
-}): FastModeUi {
+}): FastModeUi | null {
   const { snapshot, providerOverride, requested } = args;
   const providerName = providerOverride?.provider ?? snapshot?.defaultProvider ?? null;
   const entry = providerName ? snapshot?.providers.find((p) => p.name === providerName) : undefined;
   const status = entry?.fastMode ?? null;
 
-  const available = !status?.reason;
+  if (status?.reason) return null; // non servibile → non c'è
   const state = status?.state ?? 'off';
 
-  if (!available) {
-    return { available: false, state, title: fastModeReasonText(status!.reason!), pressed: false };
-  }
+  // Il prezzo vale per il modello che serve QUESTA chat: se ne è stato fissato
+  // uno fuori dalla famiglia Opus, la fast mode lì non esiste e il numero non
+  // si mostra (l'autorità resta la CLI, che risponderebbe `model_not_allowed`).
+  const pinned = providerOverride?.model;
+  const applies = !pinned || /opus/i.test(pinned);
+  const costMultiplier = applies ? status?.costMultiplier ?? null : null;
+  const prezzo = costMultiplier ? ` Costa ${costMultiplier}× lo stesso modello a velocità normale.` : '';
+
   if (state === 'cooldown') {
     return {
-      available: true,
       state,
-      title: 'Fast mode in pausa dopo un limite di frequenza: riprende da sola.',
+      title: `Fast mode in pausa dopo un limite di frequenza: riprende da sola.${prezzo}`,
       pressed: true,
+      costMultiplier,
     };
   }
   return {
-    available: true,
     state,
-    title: requested
-      ? 'Fast mode ON: stesso modello, uscita più rapida.'
-      : 'Fast mode OFF: premi per chiederla su questa chat.',
+    title: (requested
+      ? 'Fast mode ON: stesso modello, fino a 2,5× più veloce in uscita.'
+      : 'Fast mode OFF: premi per chiederla su questa chat.') + prezzo,
     pressed: requested,
+    costMultiplier,
   };
 }
