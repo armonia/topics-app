@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, ChevronRight, Play, Pause, Trash2, RefreshCw, Calendar, Zap } from 'lucide-react';
+import { Clock, ChevronRight, Play, Trash2, RefreshCw, Calendar, Power, PowerOff } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 
 interface CronJob {
@@ -223,7 +223,11 @@ function JobRow({ job, onToggle, onRun, onDelete }: JobRowProps) {
         }`}
         title={job.enabled ? 'Disable' : 'Enable'}
       >
-        {job.enabled ? <Zap size={12} /> : <Pause size={12} />}
+        {/* Acceso/spento, non lampo/pausa. Questo bottone ARMA il job; a
+            quaranta pixel c'è già un `Play` che vuol dire «esegui adesso», e
+            fra un lampo e una pausa non si capiva quale dei due fosse lo stato
+            e quale il comando. */}
+        {job.enabled ? <Power size={12} /> : <PowerOff size={12} />}
       </button>
 
       {/* Info */}

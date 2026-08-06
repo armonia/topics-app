@@ -60,6 +60,26 @@ export function permissionModeForAutonomy(level: string | null | undefined): str
   }
 }
 
+/**
+ * Il turno va in PIANO?
+ *
+ * Il piano si chiedeva in due modi, e non erano lo stesso: un interruttore nel
+ * composer che iniettava una richiesta nel prompt (`planModeContent`) — che il
+ * modello poteva ignorare, tenuta in localStorage, mai sincronizzata — e il
+ * livello di autonomia `ask`, che passa `--permission-mode plan` alla CLI, dove
+ * i file non si possono proprio scrivere. Sullo stesso turno potevano
+ * contraddirsi: prompt «non toccare niente», permessi «fai pure».
+ *
+ * L'interruttore è sparito. Il blocco di prompt no — è quello che dà al piano
+ * il formato che l'app sa poi leggere — e lo accende il livello di autonomia.
+ *
+ * Il flag per-turno resta accettato perché i chiamanti headless (dispatcher,
+ * bridge MCP) non hanno un composer da cui premere niente.
+ */
+export function planModeFor(opts: { turnFlag?: boolean; autonomy?: string | null }): boolean {
+  return opts.turnFlag === true || opts.autonomy === "ask";
+}
+
 /** Cosa succede davvero, in una riga — per l'interfaccia e per il registro. */
 export function describeAutonomy(level: string | null | undefined): string {
   switch (level) {

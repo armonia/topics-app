@@ -1162,7 +1162,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         let spawnConfigChanged = false;
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
-          const next = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
+          // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
+          //
+          // Ripiegare su `ask` voleva dire che una stringa sbagliata — un typo,
+          // un client vecchio, un rinomino a metà — metteva la chat in PIANO:
+          // l'agente smette di toccare i file e chi ha scritto crede di aver
+          // impostato tutt'altro. È la deriva già vista due volte fra il CHECK
+          // di SQLite e l'union TS, e il ripiego silenzioso è ciò che la
+          // rendeva invisibile.
+          if (!valid.includes(body.autonomyLevel)) {
+            return json({ error: `autonomyLevel must be one of ${valid.join(', ')}`, code: 'invalid_autonomy_level' }, 400);
+          }
+          const next = body.autonomyLevel as Topic['autonomyLevel'];
           // L'autonomia decide `--permission-mode`, quindi è un flag di SPAWN
           // come provider e modello: senza il respawn la scelta non avrebbe
           // effetto finché la chat non riparte da sola — cioè sembrerebbe

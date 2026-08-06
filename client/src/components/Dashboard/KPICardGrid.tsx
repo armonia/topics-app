@@ -1,7 +1,7 @@
 import type { DashboardKPIs } from '../../lib/api';
 import { KPICard } from './KPICard';
 import {
-  Zap,
+  CalendarClock,
   CalendarCheck,
   Clock,
   Loader,
@@ -37,7 +37,11 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         label="Throughput (Today)"
         value={kpis.throughputDay}
         unit="tasks"
-        icon={Zap}
+        // Fa FAMIGLIA con la card della settimana qui sotto: i due numeri sono
+        // la stessa misura su due finestre, quindi il glifo deve dire la
+        // finestra. Il lampo che c'era diceva «veloce», che qui non c'entra —
+        // ed è il significato che il lampo tiene nel composer del Fast Mode.
+        icon={CalendarClock}
         trend={kpis.throughputDay > 0 ? 'up' : 'flat'}
       />
       <KPICard

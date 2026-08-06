@@ -177,7 +177,6 @@ export interface LinkTopicRequest {
 export interface ChatRequest {
   sessionKey: string;
   messages: Message[];
-  planMode?: boolean;
   /**
    * Fast Mode flag for this turn. When `true` AND no per-message `model`
    * override AND `topic.model` is null, the server resolves the effective

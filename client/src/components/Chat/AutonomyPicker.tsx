@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Zap, ShieldCheck, ClipboardList, Check } from 'lucide-react';
+import { ShieldCheck, ShieldOff, ClipboardList, Check } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 import type { AutonomyLevel } from '../../types';
@@ -18,13 +18,24 @@ import type { AutonomyLevel } from '../../types';
  * Il livello si legge SEMPRE, anche chiuso: è il punto: la differenza fra «fa e
  * basta» e «prima chiede» non si scopre aprendo un menu.
  */
-const LEVELS: { value: AutonomyLevel; label: string; short: string; desc: string; icon: typeof Zap }[] = [
+/**
+ * Le tre icone sono UNA SCALA, e prima non lo erano.
+ *
+ * «Agisce» portava un lampo — che in questa app vuol dire velocità, ed era il
+ * terzo lampo con il terzo significato nella stessa riga del composer — e
+ * «Nessun freno» portava uno scudo SPUNTATO, cioè il segno della protezione
+ * proprio sul livello che la toglie: il glifo diceva il contrario della voce.
+ *
+ * Adesso i tre glifi raccontano una cosa sola, quanta rete c'è sotto: il piano
+ * da approvare, lo scudo dei permessi, lo scudo tolto.
+ */
+const LEVELS: { value: AutonomyLevel; label: string; short: string; desc: string; icon: typeof ShieldCheck }[] = [
   {
     value: 'auto-apply',
     label: 'Agisce',
     short: 'Agisce',
     desc: 'Legge, scrive ed esegue senza chiedere. È il modo normale di lavorare.',
-    icon: Zap,
+    icon: ShieldCheck,
   },
   {
     value: 'ask',
@@ -38,7 +49,7 @@ const LEVELS: { value: AutonomyLevel; label: string; short: string; desc: string
     label: 'Nessun freno',
     short: 'Libero',
     desc: 'Come «agisce», ma senza nessuna barriera di permessi. Serve raramente.',
-    icon: ShieldCheck,
+    icon: ShieldOff,
   },
 ];
 
@@ -83,6 +94,14 @@ export function AutonomyPicker({ value, onChange }: {
           setOpen((o) => !o);
         }}
         title={`Autonomia: ${current.label} — ${current.desc}`}
+        // Il nome accessibile diceva solo «Agisce»: fuori contesto non è il nome
+        // di niente. Chi ascolta sente adesso di che cosa è il livello — ed è
+        // anche l'unico modo di agganciarlo dal ruolo, che è come si distingue
+        // il composer VISIBILE da quello di una pane nascosta (l'albero di
+        // accessibilità la esclude, un selettore CSS no).
+        aria-label={`Autonomia: ${current.label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className={`h-7 px-2 inline-flex items-center gap-1 rounded-lg text-[11px] font-medium transition-colors ${
           current.value === 'ask'
             ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'

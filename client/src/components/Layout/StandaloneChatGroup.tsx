@@ -38,6 +38,7 @@ import { PaneKeepAlive } from './PaneKeepAlive';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
+import type { SendMessageOptions } from '@/hooks/useChat';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -63,7 +64,7 @@ interface StandaloneChatGroupProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   wasSessionStopped: (sk: string) => boolean;
-  sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
@@ -104,7 +105,7 @@ interface StandaloneChatGroupProps {
   // Report open browser context IDs to parent
   onOpenBrowserContextIds?: (ids: string[]) => void;
   // Draft chat support
-  promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
+  promoteDraft?: (draftId: string, firstMessage: string, options?: SendMessageOptions) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
   // Split a pane into its own grid cell (right or down)
   onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
@@ -687,14 +688,14 @@ export function StandaloneChatGroup({
     const isDraft = isDraftPaneId(paneId);
     const isPinned = effectivePinnedIds.has(paneId);
     const wrappedSendMessage = isDraft
-      ? async (_sk: string, content: string, options?: { planMode?: boolean }) => {
+      ? async (_sk: string, content: string, options?: SendMessageOptions) => {
           if (promoteDraft) {
             await promoteDraft(paneId, content, options);
           }
           return true;
         }
       : !isPinned
-        ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
+        ? async (sk: string, content: string, options?: SendMessageOptions) => {
             ordering.ops.pin(paneId);
             return sendMessage(sk, content, options);
           }

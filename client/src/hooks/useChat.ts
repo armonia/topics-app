@@ -115,7 +115,6 @@ const isContextMessage = (content: string): boolean => {
 };
 
 export interface SendMessageOptions {
-  planMode?: boolean;
   /**
    * Fast Mode flag for this turn. Forwarded as `chatRequest.fastMode`; the
    * server resolves the actual model via `getFastModelFor(provider.name)`.
@@ -1502,7 +1501,6 @@ export function useChat() {
       });
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
-      if (options?.planMode) chatRequest.planMode = true;
       if (options?.fastMode) chatRequest.fastMode = true;
       if (options?.provider) chatRequest.provider = options.provider;
       if (options?.model) chatRequest.model = options.model;

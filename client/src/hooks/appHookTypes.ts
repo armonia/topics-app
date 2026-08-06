@@ -13,6 +13,7 @@
  */
 
 import type { ChatMessage, TerminalSessionInfo } from '../types';
+import type { SendMessageOptions } from '@/hooks/useChat';
 
 /**
  * Stream / WS callbacks the panel hook needs from useChat.
@@ -37,7 +38,7 @@ export interface ChatStreamHandlers {
   sendMessage: (
     sessionKey: string,
     content: string,
-    options?: { planMode?: boolean },
+    options?: SendMessageOptions,
   ) => Promise<unknown>;
   drainQueue: () => void;
 }
