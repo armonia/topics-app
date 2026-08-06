@@ -2,7 +2,36 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.11 — 2026-08-05
+## 2.2.14 — 2026-08-06
+
+### Sotto il cofano
+- Il chip va misurato, non guardato: gate sulla geometria della lettera
+- L'albero dei file non finisce più al terzo livello, e smette di nascondere file tracciati
+- L'albero dei file smette di essere una fotografia
+- I fissati diventano tessere, e l'etichetta se ne va
+- Il log dei processi smette di perdere righe, e un fallimento lascia una traccia
+- Il menu non si presenta: via l'intestazione, e la lettera nuda anche su New Chat
+- Il pin torna una scorciatoia: la tab fissata si chiude e la tessera resta
+- Allinea la change a cio' che e' stato consegnato
+- Due voci per un solo comportamento, e l'unica riga col verbo
+- A cedere era sempre la colonna sbagliata, e il chevron del gruppo mentiva
+
+## 2.2.13 — 2026-08-06
+
+### Sotto il cofano
+- Sotto la risposta c'erano due righe: adesso ce n'è una, e appare solo se la cerchi
+- Il gate aveva due lavori in una riga sola: resta quello che nessuna rete può fare
+- Il bottone diceva «Funnel» e intendeva Internet: ora espone sul tailnet, e stavolta sale davvero
+- Via la chiave che nessuno poteva consegnare, e lo shim resta per la ragione per cui era nato
+- SECURITY.md prometteva di trattare come vulnerabilità ciò che abbiamo appena reso il default
+- La prova che mancava alla change vecchia: la board si dipinge su uno schermo da telefono
+- Chiudi il rosso della freccia «torna in fondo»: il test scrollava come nessun utente può
+- Le tessere fissate: la change, prima del codice
+- Un progetto fissato dalla tab non arrivava mai fra i Fissati
+- Le fondamenta delle tessere: disposizione, tinta, e una scrittura che non cancella
+- Il menu "New" era unificato di sopra e riscritto di sotto: tre bug in un punto cieco
+
+## 2.2.12 — 2026-08-06
 
 ### Novità
 - **tempi** · sidebar e tab dicono da quanto lavora, o quanto fa che ha finito
@@ -12,7 +41,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **browser** · import_chrome legge anche da Dia, Arc e Chromium
 
 ### Correzioni
-- **notifiche** · a ogni avvio l'app riannunciava ogni chat gia' finita
 - **costi** · i prezzi erano fermi a modelli ritirati, e il conto era il triplo
 - **perf** · SessionActivity sottoscriveva l'orologio anche per le righe inerti
 - **dashboard** · smetti di sommare come denaro i costi che sappiamo sbagliati
@@ -149,6 +177,78 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Carta e strumento: il sito si ribalta, il prodotto resta l'unica cosa scura
 - Un cancello per il sito, che prova anche quello che non e' markup
 - Un commit sulla landing che cancella due componenti React
+- Una nav sola, un footer solo, uno sprite solo. E la build smette di scrivere al posto mio
+- I commenti smettono di viaggiare, e il gate legge anche title e description
+- Il grafo torna a parlare di codice, e AutonomyLevel smette di esistere due volte
+- Il blog smette di parlare del nostro guscio e comincia a parlare di quanto costano gli agenti
+- Tre schemi al posto di tre numeri grossi
+- Quattro cancelli che nessuno apriva, e i disable che ora devono dire perche'
+- La pagina smette di essere carta e diventa la stessa rampa del prodotto
+- Il theme-color e il commento dei grafici seguono il fondo nuovo
+- Tre criteri di accettazione che risultavano "skipped" e nessuno li leggeva
+- Un cricchetto sugli skip, perche' "24 passed, 3 skipped" non lo legge nessuno
+- Il tetto a orologio non conta il tempo dell'umano
+- Il watcher dei sub-agent esce dal file di rotte, e finalmente si puo' interrogare
+- «Aspetta te» si legge dalla riga, e l'avviso del contesto dice cosa comporta
+- Il glifo del progetto smette di contraddire il suo stesso fill
+- L'aggancio dello scroll smette di trascinarti giù mentre leggi
+- L'agente torna a essere il provider che hai scelto, e il feed che nessuno leggeva sparisce
+- Il modello adesso SA di poter consigliare un'opzione
+- Il gruppo scende dove stanno le sue tab, e può portarsele in una finestra
+- La presenza risponde alla domanda giusta: quale gruppo vive in quale finestra
+- Lo scroll della chat: i listener erano attaccati a niente
+- Il gruppo staccato si VEDE, e il click va alla sua finestra: ora è un test
+- La freccia porta al fondo VERO, e la ricarica non riapre in cima
+- Il gruppo AVVOLGE le sue tab, e non c'è più nessun posto separato dove vive
+- Non chiedere a WebKit dov'è una pane: è la domanda che fa morire l'app
+- Otto superfici erano rimaste calde sotto una pagina fredda
+- Togli l'avviso di contesto dal caso in cui non c'è niente da decidere
+- Di' cosa è successo quando una scheda riapre su una porta locale spenta
+- Niente display doppio sulla strip: line-clamp imposta già -webkit-box
+- Il gruppo contiene le sue tab, non le righe che gli capitano sotto
+- Non caricare una scheda verso una porta locale che è spenta
+- I gruppi non si alternano più: ci sono tutti, ognuno è una card che tiene le sue tab
+- Una seconda home su /v3: cinque atti, scene invece di fotografie, e un campo che dura tutta la pagina
+- Le lastre scure prendono la stessa grana, e il campo dichiara il suo tetto
+- Il noindex della v3 non era in pagina, e il suo foglio di stile si scopriva troppo tardi
+- Sonda prima di aprire, e non lasciare che la sonda diventi un blocco
+- I fissati tornano sopra i gruppi, e una volta sola
+- Il gruppo si vede anche sul lavoro: una cornice, minima e animata solo in luce
+- La chat riapre in fondo anche quando l'ultimo messaggio è più alto della finestra
+- Scheda su porta locale spenta: niente pane bianca, una schermata che parla
+- Le scene erano un'app che non esiste: navy inventato, raggi a 3/5/7px
+- Il cancello del contrasto era cieco all'opacita' degli antenati
+- Sul telefono il ritaglio non ritagliava niente: 144px di lastra vuota
+- Il branding non c'era: un PNG di due fumetti, e due tinte che non si parlavano
+- La Board generale torna ferma in cima, sopra i fissati e fuori dai gruppi
+- Ogni riga dei piani con del testo dopo il grassetto era rotta, anche in produzione
+- Il campo era l'unica proprieta' della pagina giudicata a occhio — e non rispettava il proprio design
+- Togli «Nuovo gruppo» dalla sidebar: un gruppo nasce portandoci una tab
+- Un gruppo lo disegna UNA finestra sola — e la sua finestra si può muovere
+- distingui il GESTO dell'utente dalla nostra stessa rimisura
+- Il pannello di risposta non perde più quello che hai scritto
+- La finestra-gruppo perdeva il suo gruppo: glielo cancellava la board
+- The page had two grounds all along; only one of them was on the page
+- A light that follows you, and a gate that can see it
+- The light interludes were twice the reference's, and the flattest of them was 2,179px
+- The hover is the affordance, because the card is the page
+- One ground, one surface, and the seams had nothing left to join
+- Ogni finestra vede tutti i gruppi, il ricarica le riguarda tutte, e una tab portata fuori si porta dietro un gruppo
+- Il cartello è l'ultima risorsa: si porta davanti la finestra giusta e ci si sposta
+- The background became the subject: nine thousand points and seven shapes
+- Il ricaricamento non ti deposita più a metà chat
+- Un'etichetta bruciata teneva in ostaggio il gruppo: ora la finestra ha un nome usa-e-getta
+- One body and its halo, because both references turned out to be something else
+- La barra chiusa si allinea ai tab, e smette di tacere
+- Il corpo della skill non era la risposta, e 4.735 risultati erano un array JSON
+- Un ramo remoto non ti stacca più HEAD, e il rosso torna a voler dire qualcosa
+- La porta senza maniglia: il pairing funzionava, ma nessuno poteva consegnare la chiave
+- Scorrere all'insù non ti combatte più, e una corsa di tool è una riga sola
+
+## 2.2.11 — 2026-08-02
+
+### Correzioni
+- **notifiche** · a ogni avvio l'app riannunciava ogni chat gia' finita
 
 ## 2.2.10 — 2026-08-02
 
