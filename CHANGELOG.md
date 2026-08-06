@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.29 — 2026-08-06
+
+### Sotto il cofano
+- Il segno di apertura c'e' SEMPRE su un progetto, e sta in un angolo
+
 ## 2.2.28 — 2026-08-06
 
 ### Sotto il cofano
@@ -53,6 +58,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Rimetti a posto i quattro tasti della ricerca, e il progetto che spariva sotto di essi
+- Changelog per 2.2.28
+- Il selettore progetto è UNO: stessa lista, stessa icona, stessa ricerca
+- Mostra l'identità anche sul computer, togli Tailscale dal menu, aggiungi il rinomina
+- Ritira REMOTE-01 dalle specifiche, e ricostruisci il bundle servito
+- Porta la scelta sul piano dove si guarda: sopra il composer
 
 ## 2.2.21 — 2026-08-06
 
