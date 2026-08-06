@@ -458,3 +458,169 @@ test.describe("Sidebar — tessere fissate", () => {
       .toEqual([ids[2], ids[0], ids[1]]);
   });
 });
+
+/**
+ * Il drop che arriva da FUORI, e la Board generale.
+ *
+ * Sono lo stesso pezzo visto da due lati: la board si fissa perché la sua riga è
+ * trascinabile e i Fissati sanno accogliere una pane qualunque — non perché sia
+ * stato scritto un percorso apposta per lei.
+ */
+test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-11: trascinare un progetto sui Fissati mostra dove finisce, e ci finisce", async ({ page, request }) => {
+    // Il difetto: sul drag esterno si accendeva solo il riquadro dell'intera
+    // sezione — «cade qui dentro», non DOVE. E il drop accodava comunque, perché
+    // fissare e disporre sono due scritture che riconciliano l'una sull'altra e
+    // la cella della cosa appena fissata veniva scartata.
+    const projectPath = "/tmp/e2e-tile-dropin";
+    const projChat = await createTopic(request, `E2E-DropIn-Proj-${Date.now()}`, { projectPath });
+    const solo = await createTopic(request, `E2E-DropIn-Pinned-${Date.now()}`);
+    created.push(projChat.id, solo.id);
+
+    await setPins(page, [solo.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    // La sorgente è la RIGA VERA del progetto nell'albero: il payload lo produce
+    // il suo `dragstart`, non il test. Un `setData` rimosso fallisce qui.
+    const projectRow = page.locator('[draggable="true"]').filter({ hasText: "e2e-tile-dropin" }).first();
+    await expect(projectRow).toBeVisible({ timeout: 15000 });
+
+    const esito = await projectRow.evaluate(async (src) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const section = document.querySelector('[data-testid="sidebar-pinned-section"]') as HTMLElement;
+      const row = (section.querySelector("[data-pinned-tile]") as HTMLElement).parentElement!.parentElement as HTMLElement;
+      const box = (row.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      // A sinistra della metà della prima tessera ⇒ posizione 0.
+      const punto = { clientX: box.left + 2, clientY: box.top + 5 };
+      const dt = new DataTransfer();
+
+      src.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      const tipi = Array.from(dt.types);
+      row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      await attendi();
+      const durante = {
+        fantasma: !!row.querySelector('[data-testid="pinned-drop-ghost"]'),
+        celle: row.children.length,
+        // Il riquadro sull'INTERA sezione si spegne: l'anteprima precisa c'è già,
+        // e due segnali per lo stesso fatto ne fanno uno muto.
+        sezioneAccesa: section.className.includes("ring-primary/40"),
+      };
+
+      row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      src.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return { tipi, durante };
+    });
+
+    expect(esito.tipi, "la riga del progetto deve portare la chiave della PANE").toContain("application/x-panel-id");
+    expect(esito.durante.fantasma, "l'anteprima deve disegnare la cella che nascerà").toBe(true);
+    expect(esito.durante.celle, "la riga deve mostrarsi con una cella in più").toBe(2);
+    expect(esito.durante.sezioneAccesa, "il riquadro dell'intera sezione deve spegnersi").toBe(false);
+
+    // Fissato E in prima posizione: quella scelta col cursore, non in coda.
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedLayout ?? []).flatMap((r: { keys: string[] }) => r.keys);
+      }, { timeout: 15000 })
+      .toEqual([`project:${projectPath}`, solo.id]);
+  });
+
+  test("TILE-12: la riga della Board e il filo divisore stanno sulla stessa colonna delle altre", async ({ page, request }) => {
+    // La board era l'UNICA riga a filo dei bordi (px-3, niente card) e il filo
+    // l'unico elemento rientrato di 12px: due colonne diverse nello stesso
+    // elenco, che è esattamente ciò che si vedeva come «padding incoerente».
+    const solo = await createTopic(request, `E2E-Pad-Pinned-${Date.now()}`);
+    const altra = await createTopic(request, `E2E-Pad-Row-${Date.now()}`);
+    created.push(solo.id, altra.id);
+    await setPins(page, [solo.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    // La board compare quando la sua tab è aperta, anche a zero task.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
+    const boardRow = page.getByTestId("sidebar-board-generale");
+    await expect(boardRow).toBeVisible({ timeout: 15000 });
+
+    const sidebar = page.locator('[aria-label="Topics sidebar"]');
+    const bordo = (await sidebar.boundingBox())!.x;
+    const sinistra = async (l: Locator) => Math.round((await l.boundingBox())!.x - bordo);
+
+    const tessera = await sinistra(tiles(page).first());
+    const board = await sinistra(boardRow);
+    const filo = await sinistra(page.getByTestId("pinned-divider").first());
+
+    // Un'unica colonna: ROW_INSET = 6px, la stessa per la card di ogni riga.
+    expect(board, "la riga della board deve rientrare come una card").toBe(tessera);
+    expect(filo, "il filo deve rientrare come le tessere sopra e le righe sotto").toBe(tessera);
+  });
+
+  test("TILE-13: la Board si fissa, diventa tessera e mostra i task PER STATO", async ({ page, request }) => {
+    const stamp = Date.now();
+    const inReview = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, {
+      data: { text: `E2E-Board-Review-${stamp}`, status: "review" },
+    });
+    expect(inReview.ok(), "il task in review deve nascere").toBe(true);
+    const daFare = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, {
+      data: { text: `E2E-Board-Backlog-${stamp}`, status: "backlog" },
+    });
+    expect(daFare.ok()).toBe(true);
+    const ids = [(await inReview.json()).id as string, (await daFare.json()).id as string];
+
+    try {
+      await setPins(page, []);
+      await gotoSidebar(page);
+      const boardRow = page.getByTestId("sidebar-board-generale");
+      await expect(boardRow, "con task attivi la riga c'è anche a tab chiusa").toBeVisible({ timeout: 15000 });
+
+      // Il menu della riga: una voce sola, e dice il verso GIUSTO.
+      await boardRow.click({ button: "right" });
+      const voce = page.getByTestId("pin-toggle-item");
+      await expect(voce).toHaveText(/Aggiungi ai Fissati/, { timeout: 5000 });
+      await voce.click();
+
+      // Fissata è una TESSERA, e la riga sparisce: mai la stessa cosa in due posti.
+      const tessera = tileNamed(page, "Board generale");
+      await expect(tessera).toBeVisible({ timeout: 15000 });
+      await expect(boardRow).toHaveCount(0);
+
+      // La fascia sotto la tessera: i task, raggruppati per stato.
+      await tessera.click();
+      const band = page.getByTestId("board-state-band");
+      await expect(band).toBeVisible({ timeout: 15000 });
+      await expect(band.getByTestId("board-state-group-review")).toBeVisible();
+      await expect(band.getByTestId("board-state-group-backlog")).toBeVisible();
+      await expect(band.getByText(`E2E-Board-Review-${stamp}`)).toBeVisible();
+      await expect(band.getByText(`E2E-Board-Backlog-${stamp}`)).toBeVisible();
+
+      // Chi aspetta te sta in cima: l'ordine della fascia è di priorità, non
+      // quello del kanban da sinistra a destra.
+      const ordine = await band.locator('[data-testid^="board-state-group-"]').evaluateAll(els =>
+        els.map(e => e.getAttribute("data-testid")),
+      );
+      expect(ordine.indexOf("board-state-group-review")).toBeLessThan(ordine.indexOf("board-state-group-backlog"));
+
+      // E si torna indietro dalla stessa voce, col verso opposto.
+      await tessera.click({ button: "right" });
+      await expect(page.getByTestId("pin-toggle-item")).toHaveText(/Rimuovi dai Fissati/, { timeout: 5000 });
+      await page.getByTestId("pin-toggle-item").click();
+      await expect(page.getByTestId("sidebar-board-generale")).toBeVisible({ timeout: 15000 });
+    } finally {
+      for (const id of ids) {
+        await request.delete(`${E2E_BASE}/api/boards/_none/tasks/${id}`).catch(() => {});
+      }
+    }
+  });
+});

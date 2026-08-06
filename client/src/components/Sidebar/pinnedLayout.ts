@@ -40,6 +40,12 @@ export const PINNED_ROW_SOFT_MAX = 6;
  *  stretta non deve poter distruggere la disposizione fatta su una larga. */
 export const PINNED_TILE_MIN = 40;
 
+/** Dove una cosa trascinata da FUORI viene posata dentro la griglia: dentro una
+ *  riga (a una certa posizione) oppure su una riga nuova aperta fra due. */
+export type PinnedDropTarget =
+  | { kind: 'row'; rowIdx: number; insertAt: number }
+  | { kind: 'newRow'; atRowIdx: number };
+
 const isRow = (r: unknown): r is PinnedRow =>
   !!r && typeof r === 'object' &&
   Array.isArray((r as PinnedRow).keys) &&
@@ -180,6 +186,30 @@ export function movePinnedTile(
   row.keys.splice(insertAt, 0, key);
   row.widths = widthsFor(row.keys.length);
   return next;
+}
+
+/**
+ * Piazza una chiave APPENA fissata dove il drop l'ha lasciata.
+ *
+ * L'ordine dei due passi è il punto: `movePinnedTile` su una chiave che il
+ * layout non conosce è un no-op silenzioso, quindi prima la cella deve
+ * ESISTERE — la crea `reconcilePinnedLayout` accodandola — e solo dopo la si
+ * sposta. Farlo al contrario (spostare, poi riconciliare) produce esattamente
+ * il bug che si vedeva: la tessera compare in fondo, mai sotto il cursore.
+ *
+ * `pinnedItems` deve già contenere `key`: è la lista di CHI è fissato, e questa
+ * funzione non decide quello — decide solo dove sta.
+ */
+export function placePinnedTile(
+  pinnedItems: readonly string[],
+  layout: readonly PinnedRow[] | undefined | null,
+  key: string,
+  target: PinnedDropTarget,
+): PinnedRow[] {
+  const base = reconcilePinnedLayout(pinnedItems, layout);
+  return target.kind === 'row'
+    ? movePinnedTile(base, key, { rowIdx: target.rowIdx, insertAt: target.insertAt })
+    : insertPinnedRow(base, key, target.atRowIdx);
 }
 
 /** Sposta una tessera su una riga NUOVA, inserita a `atRowIdx`. */
