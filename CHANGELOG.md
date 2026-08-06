@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.36 — 2026-08-06
+
+### Sotto il cofano
+- L'anteprima mostrava la cosa sbagliata, e alle misure sbagliate
+
+## 2.2.35 — 2026-08-06
+
+### Sotto il cofano
+- Changelog per 2.2.34
+- `useLongPress` era importato da HEAD e non tracciato: main non compilava
+- Traccia SIDEBAR_HOVER: HEAD lo importava e non esisteva ancora
+- Il piano ha UNA leva, e il lampo UN significato
+
 ## 2.2.34 — 2026-08-06
 
 ### Sotto il cofano

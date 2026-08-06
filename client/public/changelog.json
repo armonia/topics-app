@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.2.36",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'anteprima mostrava la cosa sbagliata, e alle misure sbagliate",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.35",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.34",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`useLongPress` era importato da HEAD e non tracciato: main non compilava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traccia SIDEBAR_HOVER: HEAD lo importava e non esisteva ancora",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano ha UNA leva, e il lampo UN significato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.34",
     "date": "2026-08-06",
     "sections": {
