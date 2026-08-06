@@ -987,7 +987,7 @@ function ChatPaneComponent({
   return (
     <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
       {commandResult && (
-        <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+        <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
           <button onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
@@ -999,7 +999,15 @@ function ChatPaneComponent({
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
-      <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
+      {/* `chat-measure` qui capa e CENTRA in un colpo solo tutto il blocco di
+          fondo — GoalBar, TodoStrip, SubAgentsStrip, la timeline dei
+          checkpoint, il composer e con lui il box della coda — sulla stessa
+          colonna della lista. Con `left-0 right-0` il posizionamento è
+          sovra-vincolato e lo risolvono i margini auto dell'utility, quindi il
+          blocco si centra invece di allargarsi. `inputAreaHeight` continua a
+          misurare giusto: il ResizeObserver legge `contentRect.height`, che è
+          l'altezza, non la larghezza. */}
+      <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0 chat-measure">
         {goal ? (
           <GoalBar
             goal={goal}
