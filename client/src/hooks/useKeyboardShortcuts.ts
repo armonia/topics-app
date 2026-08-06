@@ -39,7 +39,7 @@ export interface UseKeyboardShortcutsArgs {
   showSearch: boolean;
   showNewTopic: false | { projectPath?: string };
   showShortcuts: boolean;
-  showFileSearch: false | { projectPath: string };
+  showFileSearch: false | { projectPaths: string[]; mode: 'name' | 'content' };
   /** Paid New Chat gate — when false, ⌘⇧N (New Topic modal) is inert (mirrored into a ref). */
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
@@ -56,13 +56,13 @@ export interface UseKeyboardShortcutsArgs {
   stopSession: (sessionKey: string) => boolean;
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
-  /** Palette scope — ⌘K opens 'all', ⌘F opens 'projects' (jump to project). */
+  /** Palette scope — ⌘K apre 'all', ⌘⇧P apre 'projects' (salta a un progetto). */
   setSearchScope: Dispatch<SetStateAction<'all' | 'projects'>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   /** ⌘, — le Preferenze, come su ogni app macOS. */
   setShowSettings: Dispatch<SetStateAction<boolean>>;
-  setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
+  setShowFileSearch: Dispatch<SetStateAction<false | { projectPaths: string[]; mode: 'name' | 'content' }>>;
 }
 
 /**
@@ -137,18 +137,36 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   } = args;
 
   useEffect(() => {
-    // File quick-open — shared by ⌘P (VS Code muscle memory) and ⌘⇧F (legacy
-    // binding, kept working). Scoped to the focused project, falling back to
-    // the first known project path.
-    const toggleFileSearch = () => {
-      const focusedProjectPath = focusedProjectPathRef.current;
-      const topics = topicsRef.current;
+    /**
+     * Il perimetro di ⌘P e ⌘F: il progetto a FUOCO per primo, poi gli altri
+     * APERTI come tab. È così che si lavora qui — un progetto per tab — e
+     * cercare in uno solo quando ne hai tre aperti risponde «non c'è» di una
+     * cosa che c'è nella tab accanto.
+     *
+     * Ripiego sui progetti noti dalle topic quando non c'è niente a fuoco:
+     * meglio cercare da qualche parte che non aprire nulla e sembrare rotti.
+     */
+    const searchProjectPaths = (): string[] => {
+      const focused = focusedProjectPathRef.current;
+      const open = openPanelsRef.current
+        .filter((id) => isProjectPaneId(id))
+        .map((id) => getProjectPathFromPaneId(id))
+        .filter(Boolean) as string[];
+      const ordered = [...new Set([...(focused ? [focused] : []), ...open])];
+      if (ordered.length > 0) return ordered;
+      return [...new Set(Object.values(topicsRef.current).map(t => t.projectPath).filter(Boolean))] as string[];
+    };
+
+    /** ⌘P = per nome, ⌘F = nel contenuto. Stessa superficie, due modi. */
+    const toggleFileSearch = (mode: 'name' | 'content') => {
       setShowFileSearch(prev => {
-        if (prev) return false;
-        if (focusedProjectPath) return { projectPath: focusedProjectPath };
-        const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
-        if (projectPaths.length >= 1) return { projectPath: projectPaths[0] };
-        return false;
+        // Premere l'altro tasto mentre è già aperta CAMBIA modo invece di
+        // chiudere: chiudere e riaprire per passare da nome a contenuto è
+        // esattamente l'attrito che questa superficie unica toglie.
+        if (prev) return prev.mode === mode ? false : { ...prev, mode };
+        const projectPaths = searchProjectPaths();
+        if (projectPaths.length === 0) return false;
+        return { projectPaths, mode };
       });
     };
 
@@ -209,31 +227,48 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // ⌘P — FILE quick-open scoped to the focused project (VS Code muscle
-      // memory). Was a redundant alias of ⌘K; now it's the file finder.
-      // Always preventDefault so the browser print dialog never opens.
-      if (isMod && e.key === 'p') {
-        e.preventDefault();
-        toggleFileSearch();
-        return;
-      }
-
-      // ⌘⇧F — same file quick-open (the original binding, kept working).
-      if (isMod && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        toggleFileSearch();
-        return;
-      }
-
-      // ⌘F — command palette pre-scoped to PROJECTS (find/jump to a project).
-      // CRITICAL: never hijack find/typing in a focused text input, the
-      // terminal (xterm's helper textarea), or an editor — bail WITHOUT
-      // preventDefault so the focused surface keeps its own ⌘F.
-      if (isMod && !e.shiftKey && e.key === 'f') {
-        if (isTextInputFocused(e.target)) return;
+      // ⌘⇧P — TROVA UN PROGETTO (la palette, pre-scopata su 'projects').
+      //
+      // Stava su ⌘F, che è la lettera sbagliata: in ogni applicazione del mondo
+      // ⌘F vuol dire «cerca QUI DENTRO», non «cambia contesto». ⌘⇧P era libero
+      // e in VS Code è già il tasto delle cose che si scelgono da un elenco.
+      // Va controllato PRIMA di ⌘P: con Shift premuto `e.key` è 'P' maiuscola,
+      // quindi i due rami non si sovrappongono, ma l'ordine rende esplicito che
+      // il più specifico viene prima.
+      if (isMod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
         setSearchScope('projects');
         setShowSearch(prev => !prev);
+        return;
+      }
+
+      // ⌘P — apri un file per NOME (VS Code muscle memory).
+      //
+      // Fino al 2026-08-06 questo tasto si annunciava «Quick-open file» e apriva
+      // un grep nel CONTENUTO: l'etichetta diceva una cosa e il tasto ne faceva
+      // un'altra, mentre la ricerca per nome viveva sepolta dentro ⌘K. Ora fa
+      // ciò che dichiara. `preventDefault` sempre, o si apre la stampa.
+      if (isMod && !e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        toggleFileSearch('name');
+        return;
+      }
+
+      // ⌘F — CERCA DENTRO: progetto a fuoco più quelli aperti.
+      //
+      // CRITICO: mai rubare la find a un campo di testo, al terminale (la
+      // textarea di xterm) o a un editor — si esce SENZA preventDefault, così
+      // la superficie a fuoco tiene la sua ⌘F. È l'unico ramo con questa
+      // uscita, ed è la ragione per cui ⌘F qui non è mai stata invadente.
+      //
+      // L'ECCEZIONE è la ricerca stessa: quando è già aperta il fuoco sta nel
+      // SUO campo, quindi la guardia scattava e ⌘F non commutava più il modo —
+      // il tasto sembrava morto proprio nella superficie che comanda. Un campo
+      // che appartiene alla ricerca non è un campo da cui difenderla.
+      if (isMod && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+        if (!modalsRef.current.showFileSearch && isTextInputFocused(e.target)) return;
+        e.preventDefault();
+        toggleFileSearch('content');
         return;
       }
 

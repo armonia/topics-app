@@ -54,10 +54,14 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: ['⌘', 'K'], description: 'Command palette', native: { chars: ['k'] } },
-      // ⌘F/⌘⇧F are display-only: a focused browser pane keeps ⌘F for find-in-page.
-      { keys: ['⌘', 'F'], description: 'Find project' },
-      { keys: ['⌘', 'P'], description: 'Quick-open file', native: { chars: ['p'] } },
-      { keys: ['⌘', '⇧', 'F'], description: 'Quick-open file (alias)' },
+      // ⌘F resta display-only: una pane browser a fuoco se la tiene per la
+      // find-in-page, e il gestore web esce senza preventDefault quando il
+      // fuoco è in un campo di testo, nel terminale o in un editor.
+      { keys: ['⌘', 'F'], description: 'Cerca nei progetti aperti' },
+      // ⌘P e ⌘⇧P condividono il char "p": il renderer li separa sullo shiftKey,
+      // come già fa per ⌘N/⌘⇧N.
+      { keys: ['⌘', 'P'], description: 'Apri un file per nome', native: { chars: ['p'] } },
+      { keys: ['⌘', '⇧', 'P'], description: 'Trova un progetto', native: { chars: ['p'] } },
       // ⌘N and ⌘⇧N share the char "n"; the renderer splits them on shiftKey.
       { keys: ['⌘', 'N'], description: 'New… (add menu)', native: { chars: ['n'] } },
       { keys: ['⌘', '⇧', 'N'], description: 'New chat (with template)', native: { chars: ['n'] } },

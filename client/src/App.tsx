@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
-import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
+import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
@@ -50,7 +50,7 @@ import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs, createPaneId } from './state/pane/adapters';
+import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
@@ -354,7 +354,7 @@ function App() {
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showFileSearch, setShowFileSearch] = useState<false | { projectPath: string }>(false);
+  const [showFileSearch, setShowFileSearch] = useState<false | { projectPaths: string[]; mode: 'name' | 'content' }>(false);
   // The sidebar header "New" button used to track its dropdown via a
   // local `showNewMenu` boolean and a `newMenuBtnRef`. Both moved into
   // <PaneAddMenu> when we unified the three add-menu implementations
@@ -436,7 +436,7 @@ function App() {
 
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
-  const boardTaskCount = useGlobalBoardCount(onWSMessage);
+  const { activeCount: boardTaskCount, byStatus: boardByStatus } = useGlobalBoard(onWSMessage);
 
   // topicId → task index for dispatched tasks. Due consumatori: il banner di
   // completamento ci mette dentro il taskId (un click apre il drawer del task)
@@ -630,6 +630,22 @@ function App() {
    * (onNewClaude/onNewCodex/onNewTerminal) e infatti offriva un insieme
    * DIVERSO — niente opencode, niente Browser, niente Board.
    */
+  /**
+   * Il perimetro di ricerca: progetto a FUOCO per primo, poi gli altri aperti
+   * come tab. Stessa regola di ⌘F/⌘P in `useKeyboardShortcuts` — qui serve alla
+   * voce «Cerca nei file» della palette ⌘K, che deve aprire la stessa cosa che
+   * apre il tasto, non una versione ristretta.
+   */
+  const searchProjectPaths = useMemo(() => {
+    const open = openPanels
+      .filter((id) => isProjectPaneId(id))
+      .map((id) => getProjectPathFromPaneId(id))
+      .filter(Boolean) as string[];
+    const ordered = [...new Set([...(focusedProjectPath ? [focusedProjectPath] : []), ...open])];
+    if (ordered.length > 0) return ordered;
+    return [...new Set(Object.values(topics).map((t) => t.projectPath).filter(Boolean))] as string[];
+  }, [focusedProjectPath, openPanels, topics]);
+
   const handleStandaloneAddPane = useCallback((type: PaneType, subType?: string) => {
     if (type === 'terminal') {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
@@ -1163,7 +1179,9 @@ function App() {
             onTogglePin={handleTogglePin}
             pinnedLayout={sidebar.pinnedLayout}
             onPinnedLayoutChange={sidebar.setPinnedLayout}
+            onPinAt={sidebar.pinAt}
             boardTaskCount={boardTaskCount}
+            boardByStatus={boardByStatus}
             boardOpen={openPanels.includes('__board__')}
             // La board sta ferma in cima alla sidebar, sopra i fissati e sopra
             // ogni gruppo — ma la sua TAB vive in un gruppo come tutte. Se è in
@@ -1527,10 +1545,8 @@ function App() {
             onAutoTilePanels={() => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'))}
             onOpenFileSearch={() => {
               setShowSearch(false);
-              // Resolve projectPath the same way as Cmd+Shift+F
-              if (focusedProjectPath) { setShowFileSearch({ projectPath: focusedProjectPath }); return; }
-              const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
-              if (projectPaths.length >= 1) { setShowFileSearch({ projectPath: projectPaths[0] }); }
+              // Stesso perimetro di ⌘F: progetto a fuoco più quelli aperti.
+              if (searchProjectPaths.length > 0) setShowFileSearch({ projectPaths: searchProjectPaths, mode: 'content' });
             }}
             themeMode={themeMode}
             projectPath={focusedProjectPath}
@@ -1561,12 +1577,18 @@ function App() {
       {showFileSearch !== false && (
         <Suspense fallback={null}>
           <FileSearch
-            projectPath={showFileSearch.projectPath}
+            projectPaths={showFileSearch.projectPaths}
+            mode={showFileSearch.mode}
+            onModeChange={(mode) => setShowFileSearch((prev) => (prev ? { ...prev, mode } : prev))}
             onOpenFile={(path, lineNumber) => {
-              // The file-search modal is scoped to a specific project; target
-              // THAT project's window so the file opens only there.
+              // Il file si apre nella finestra del progetto CHE LO CONTIENE, non
+              // in quella a fuoco: da quando la ricerca è multi-progetto le due
+              // possono essere diverse, e aprirlo nella finestra sbagliata
+              // significa mostrarti il file giusto nel posto sbagliato.
+              const owner = showFileSearch.projectPaths.find((root) => path.startsWith(root + '/'))
+                ?? showFileSearch.projectPaths[0];
               window.dispatchEvent(new CustomEvent('open-file', {
-                detail: { path, lineNumber, topicId: createPaneId('project', showFileSearch.projectPath) },
+                detail: { path, lineNumber, topicId: createPaneId('project', owner) },
               }));
             }}
             onClose={() => setShowFileSearch(false)}
