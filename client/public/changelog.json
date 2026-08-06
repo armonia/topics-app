@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.24",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Riporta la versione sopra il massimo mai committato: 2.2.24",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un solo passo verticale, e i task per stato si aprono dalla riga",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.23",
     "date": "2026-08-06",
     "sections": {
