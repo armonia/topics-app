@@ -18,6 +18,12 @@
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Il presidio `tests/unit/e2e-hermetic-coverage.test.ts` lo pretende da OGNI
+// spec, anche da una che parla solo con l'API: dimenticarlo non rompe niente
+// qui, rompe quaranta test più avanti in un file che non c'entra.
+hermetic(test);
 
 const FOREIGN = "https://evil.example";
 
