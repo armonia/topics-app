@@ -1792,6 +1792,24 @@ const server = Bun.serve<WSData>({
       if (!filePath.startsWith("/")) filePath = "/" + filePath;
       const resolved = resolve(filePath);
       if (resolved !== filePath || filePath.includes("..")) return new Response("Forbidden", { status: 403 });
+      // CONFINE. Fino al 2026-08-06 qui non ce n'era nessuno: l'unico controllo
+      // era «il path è canonico», quindi QUALUNQUE file del disco usciva da qui.
+      // Misurato: `GET /preview/etc/hosts` → 200 col contenuto, e da una seconda
+      // rete presente sulla macchina. `~/.ssh/id_rsa` stava dietro la stessa
+      // porta, e con lui `~/.topics/daemon-state.json`, cioè il token del daemon.
+      //
+      // L'identità (change `device-auth`) chiude la porta a chi non è appaiato,
+      // ma non rende sicuro un file server per chi è dentro: un dispositivo
+      // autorizzato non ha ragione di leggere `/etc`. Il confine è quello che il
+      // resto del server usa già — l'unione delle dir di progetto note
+      // (`resolveProjectPath`, che confronta il path REALE così un symlink dentro
+      // un progetto non diventa una porta) più le radici dei media e degli
+      // allegati. Non è una lista nuova da mantenere: è la stessa, riusata.
+      const dentroProgetto = ctx.resolveProjectPath(resolved) !== null;
+      if (!dentroProgetto && !ctx.isPathAllowed(resolved)) {
+        console.warn(`[Security] Preview path denied: ${resolved}`);
+        return new Response("Forbidden", { status: 403 });
+      }
       try {
         const file = Bun.file(resolved);
         if (await file.exists()) {
