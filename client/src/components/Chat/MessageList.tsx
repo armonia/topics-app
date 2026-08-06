@@ -260,6 +260,23 @@ export function MessageList({
     initialTopMostIndexRef.current = filteredMessages.length - 1;
   }
   /**
+   * …ma la PRIMA lista non è la storia: e' la CACHE.
+   *
+   * Al reload la chat nasce dalla copia locale, che e' tagliata a poche decine
+   * di messaggi; la storia vera arriva dopo, e su una conversazione lunga puo'
+   * essere venti volte piu' grande. L'indice congelato su quella prima ondata
+   * punta quindi a un messaggio che nella storia vera sta al tre per cento, e
+   * Virtuoso ci monta la vista: e' il «refresho e mi cambia la posizione».
+   * Non si vedeva nei test perche' seminano quaranta messaggi, cioe' meno del
+   * tetto della cache — la prima ondata E' la storia, e l'indice e' per forza
+   * giusto.
+   *
+   * Si ri-congela UNA volta sola, nell'istante in cui la lista diventa
+   * autorevole (fine di `loadHistory`, sotto). Non a ogni messaggio: quello era
+   * il difetto opposto, la lista che si strappava al fondo da sola.
+   */
+  const indexRefrozenRef = useRef(false);
+  /**
    * `align: 'end'`, e senza è un bug che si vede solo sulle chat vere.
    *
    * Con il solo indice, Virtuoso allinea l'INIZIO di quell'item in cima alla
@@ -381,9 +398,48 @@ export function MessageList({
   const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2; settleFrames?: number; force?: boolean }) => {
     const decision = reduceScroll(authorityRef.current, event, Date.now());
     authorityRef.current = decision.state;
-    setIsScrolledUp(!decision.state.anchored);
     if (decision.pin) pinToBottom(pinOpts);
   }, [pinToBottom]);
+
+  /**
+   * LA FRECCIA RISPONDE A UNA DOMANDA GEOMETRICA, e per questo la misura.
+   *
+   * Prima era `!anchored`, e sbagliava in tutte e due le direzioni. `anchored`
+   * non è la geometria: è la POLITICA su chi possiede la viewport, ed è
+   * indulgente di proposito. Peggio, era un latch a FRONTE D'ONDA — l'unica
+   * cosa che poteva accenderlo era `atBottomStateChange(false)` di Virtuoso,
+   * che scatta solo sulla TRANSIZIONE, e quella transizione ha tre porte che
+   * la ingoiano senza lasciare traccia (la finestra di guardia, lo stream, il
+   * ramo `teleported`). Ingoiata la transizione non ne arriva un'altra finché
+   * la vista non torna prima in fondo: la freccia restava sbagliata a tempo
+   * indeterminato. È il «fa fatica a capire quando mostrarla».
+   *
+   * Qui si guarda la sola cosa che la domanda richiede — quanta roba c'è sotto
+   * la piega — e la si guarda dove il layout è già letto: `onScroll` e il
+   * ResizeObserver. Nessun listener nuovo, nessun poll.
+   *
+   * ISTERESI, e non è un dettaglio: con una soglia sola la freccia
+   * tremolerebbe su ogni rimisura. Si accende oltre `ARROW_SHOW_PX`, si spegne
+   * sotto `ARROW_HIDE_PX`, e in mezzo TIENE il valore. La banda morta è due
+   * ordini di grandezza sopra l'unica oscillazione nota (il pin che si
+   * autoalimenta a ~6px, più sotto), e la soglia di accensione sta SOPRA i 150
+   * dell'autorità: l'intento originale — «un colpo di rotellina non deve far
+   * comparire il bottone» — non è solo preservato, è più stretto di prima.
+   */
+  const ARROW_SHOW_PX = 240;
+  const ARROW_HIDE_PX = 80;
+  const arrowShownRef = useRef(false);
+  const syncArrow = useCallback((el: HTMLElement | null) => {
+    // Pane nascosta (keep-alive, `display:none`): la viewport è alta 0 e ogni
+    // misura direbbe «sei in fondo». Si congela e si ricalcola quando torna
+    // visibile — il ramo esiste già nel ResizeObserver.
+    if (!el || el.clientHeight === 0) return;
+    const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const next = arrowShownRef.current ? d >= ARROW_HIDE_PX : d > ARROW_SHOW_PX;
+    if (next === arrowShownRef.current) return;
+    arrowShownRef.current = next;
+    setIsScrolledUp(next);
+  }, []);
 
   // True once THIS instance has watched a loadHistory cycle complete FOR THE
   // CURRENT TOPIC — the only moment the thread is known authoritative. The
@@ -403,7 +459,15 @@ export function MessageList({
       sawLoadCompleteRef.current = false;
       setNewMsgCount(0);
       setShowNewBanner(false);
-      prevMsgCountRef.current = 0;
+      // Si semina con la lunghezza CORRENTE, non con zero: azzerando, il primo
+      // giro dopo il cambio topic vedeva «da 0 a N messaggi» e contava l'intera
+      // storia della chat nuova come «messaggi arrivati mentre eri via».
+      prevMsgCountRef.current = filteredMessages.length;
+      arrowShownRef.current = false;
+      setIsScrolledUp(false);
+      // L'indice torna a potersi ri-congelare: la chat nuova avra' la sua
+      // prima ondata dalla cache e poi la sua storia.
+      indexRefrozenRef.current = false;
       // NB: `initialTopMostIndexRef` NON si scongela qui, ed è deliberato.
       // Passando da una chat corta a una lunga il ref resta quello di prima e
       // la nuova lista monta all'indice sbagliato — un difetto vero, ma
@@ -423,7 +487,7 @@ export function MessageList({
       // tutta. Il pin vero lo fa l'effetto che aspetta il caricamento.
       dispatchScroll({ type: 'topic-switch' });
     }
-  }, [topic.id, dispatchScroll]);
+  }, [topic.id, dispatchScroll, filteredMessages.length]);
 
   /**
    * Il pin di APERTURA: la prima volta che questa chat ha dei messaggi a
@@ -564,9 +628,27 @@ export function MessageList({
     if (wasLoading && !currentLoading && filteredMessages.length > 0) {
       // Pending palette jump wins over the bottom anchor — see the effect above.
       if (peekScrollToMessage(topic.id)) return;
-      dispatchScroll({ type: 'scroll-to-bottom' }, { viaVirtuoso: true });
+      // QUESTO e' il momento in cui la lista diventa autorevole, ed e' l'unico
+      // in cui vale la pena ri-puntare Virtuoso: l'indice congelato sulla cache
+      // ora e' sbagliato di centinaia di item. Una volta sola (il ref lo
+      // garantisce), altrimenti si torna alla lista che si strappa da sola.
+      if (!indexRefrozenRef.current) {
+        indexRefrozenRef.current = true;
+        initialTopMostIndexRef.current = filteredMessages.length - 1;
+      }
+      // E si RIARMA l'apertura, perche' finora e' corsa su un orologio partito
+      // dal MOUNT: se la storia atterra dopo un secondo e mezzo, i pin forzati
+      // sono gia' scaduti e quello che resta pretende una distanza <=150px su
+      // una lista appena cresciuta di centinaia di righe. Nessuno la chiudeva.
+      userTouchedRef.current = false;
+      openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
+      openingHardStopRef.current = Date.now() + OPEN_HARD_STOP_MS;
+      dispatchScroll(
+        { type: 'scroll-to-bottom' },
+        { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
+      );
     }
-  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id]);
+  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES]);
 
   // ── Palette jump: scroll to a searched message ────────────────────────────
   // A ⌘K message hit registers a pending target (scrollToMessage.ts) before
@@ -746,7 +828,17 @@ export function MessageList({
     // il calo di `scrollTop` lo produce anche Virtuoso quando rimisura dopo un
     // nostro scroll forzato. Solo la prima ha il diritto di scavalcare la
     // finestra di guardia — vedi `user-scrolled-up` in scrollAuthority.
-    const releaseToUser = (source: 'gesture' | 'delta') => (userTouchedRef.current = true, dispatchScroll({
+    // `userTouchedRef` lo alza SOLO un gesto vero.
+    //
+    // Prima lo alzava qualunque calo di `scrollTop`, sorgente `delta`
+    // compresa — cioe' anche il riassestamento del NOSTRO pin. Un solo
+    // assestamento spegneva in un colpo il ramo forzato di
+    // `totalListHeightChanged`, le tre verifiche dell'apertura e il ramo di
+    // apertura del ResizeObserver: tutte le vie di recupero, per un movimento
+    // che l'app aveva causato da sola. L'autorita' invece le due sorgenti le
+    // distingue gia' da se', quindi l'evento continua a partire per entrambe.
+    const releaseToUser = (source: 'gesture' | 'delta') => (
+      source === 'gesture' && (userTouchedRef.current = true), dispatchScroll({
       type: 'user-scrolled-up',
       streaming: streamingRef.current,
       source,
@@ -826,10 +918,22 @@ export function MessageList({
         // pin potesse più chiuderli. Centocinquanta millisecondi: nulla per una
         // mano, tutto per il nostro assestamento.
         const nostro = Date.now() - lastPinAtRef.current < SELF_PIN_SETTLE_MS;
-        releaseToUser(gesto && !nostro ? 'gesture' : 'delta');
-        scrollUpAnchorRef.current = st;
+        // Dentro quella finestra il movimento e' NOSTRO: non si declassa, non
+        // si emette affatto. Declassarlo a `delta` sembrava prudente e non lo
+        // era: fuori dalla finestra di guardia un `delta` con distanza grande
+        // sgancia comunque l'autorita', e da li' ogni pin non forzato e'
+        // vietato — cioe' si spegnevano le vie di recupero che restano dopo
+        // l'apertura, per un movimento che avevamo causato noi.
+        if (nostro) {
+          scrollUpAnchorRef.current = st;
+        } else {
+          releaseToUser(gesto ? 'gesture' : 'delta');
+          scrollUpAnchorRef.current = st;
+        }
       }
       lastScrollTopRef.current = st;
+      // La freccia si ri-sincronizza QUI, dove la geometria è già sotto mano.
+      syncArrow(el);
       // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
       // evento apposta perché Virtuoso non ne manda. La sua soglia è 150px:
       // chi è risalito di 60px non l'ha mai fatta scattare, quindi non c'era
@@ -866,11 +970,22 @@ export function MessageList({
       const hidden = el.clientHeight === 0;
       if (wasHidden && !hidden) {
         wasHidden = hidden;
-        pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES });
+        // FORZATO se nessuno l'ha toccata, e la differenza si vede solo sulle
+        // tab in secondo piano: una pane nascosta ha viewport alta 0, quindi il
+        // pin di apertura ci ha scritto sopra a vuoto e si e' consumato. Quando
+        // torna visibile l'unico rimedio era un pin NON forzato, che
+        // `shouldPin` puo' aver gia' vietato — e la chat restava dove capitava.
+        // Una pane nascosta non puo' aver ricevuto gesti: se `userTouchedRef` e'
+        // falso, il fondo e' ancora lo stato di riposo.
+        pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
+        // Tornata visibile: la misura congelata mentre era nascosta non vale
+        // più niente (viewport alta 0), si ricalcola.
+        syncArrow(el);
         return;
       }
       wasHidden = hidden;
       if (hidden) return;
+      syncArrow(el);
       // L'ULTIMA crescita, quella che nessuno annuncia.
       //
       // `totalListHeightChanged` è la contabilità di Virtuoso e copre le righe;
@@ -1030,13 +1145,17 @@ export function MessageList({
 
   // Detect new messages while scrolled up
   useEffect(() => {
-    if (currentMessages.length > prevMsgCountRef.current && isScrolledUp) {
-      const newCount = currentMessages.length - prevMsgCountRef.current;
+    // Sui messaggi RESI, non su quelli grezzi: la lista filtra (turni vuoti,
+    // marcatori) e fonde le corse di tool in un item solo, quindi contare
+    // `currentMessages` prometteva «+3 nuovi» per righe che a schermo non
+    // esistono — e cliccando non si trovava niente di nuovo.
+    if (filteredMessages.length > prevMsgCountRef.current && isScrolledUp) {
+      const newCount = filteredMessages.length - prevMsgCountRef.current;
       setNewMsgCount(prev => prev + newCount);
       setShowNewBanner(true);
     }
-    prevMsgCountRef.current = currentMessages.length;
-  }, [currentMessages.length, isScrolledUp]);
+    prevMsgCountRef.current = filteredMessages.length;
+  }, [filteredMessages.length, isScrolledUp]);
 
   // PANE-03 scroll-restore (review I1). Apply the undo-captured offset once
   // per topic mount, AFTER Virtuoso's default bottom-anchor settles. We run
@@ -1114,6 +1233,11 @@ export function MessageList({
     // corso è esattamente ciò a cui sta dicendo di no — non può vetarlo.
     const decision = reduceScroll(authorityRef.current, { type: 'scroll-to-bottom' }, Date.now());
     authorityRef.current = decision.state;
+    // La freccia sparisce SUBITO, senza aspettare la misura: il pin è
+    // asincrono (rAF) e lasciarla accesa per due frame dopo il click la fa
+    // sembrare non premuta. `arrowShownRef` va tenuto allineato, o la prossima
+    // misura crederebbe di doverla spegnere e non farebbe niente.
+    arrowShownRef.current = false;
     setIsScrolledUp(false);
     pinToBottom({ viaVirtuoso: true, force: true });
     setNewMsgCount(0);

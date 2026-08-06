@@ -27,6 +27,12 @@ const BASE = E2E_BASE;
  * finestra. Sono segnate una per una.
  */
 const AT_BOTTOM_TOLERANCE_PX = 150; // = AT_BOTTOM_TOLERANCE_PX in scrollAuthority.ts
+// Soglia di ACCENSIONE della freccia «torna in fondo» (= ARROW_SHOW_PX in
+// MessageList.tsx). La precondizione dei test si lega a QUESTA, non alla
+// tolleranza dell'autorità: è la freccia che questi test guardano, e se la
+// semina scendesse sotto ~240px di eccedenza non comparirebbe — un rosso che
+// accuserebbe il bottone invece della semina.
+const ARROW_SHOW_PX = 240;
 // Il fondo VERO non è più una TOLLERANZA: si misura (vedi `isAtTrueBottom`).
 // La storia per cui conta: con 60px il test passava mentre l'umano vedeva ancora
 // dello scroll sotto la freccia «torna in fondo» — la misura era più generosa
@@ -89,9 +95,9 @@ async function assertScrollabile(scroller: Scroller): Promise<void> {
   const eccedenza = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
   expect(
     eccedenza,
-    `il transcript deve eccedere la finestra di piu' della tolleranza (${AT_BOTTOM_TOLERANCE_PX}px), ` +
-      `altrimenti non c'e' scroll da osservare: semina piu' messaggi`,
-  ).toBeGreaterThan(AT_BOTTOM_TOLERANCE_PX * 2);
+    `il transcript deve eccedere la finestra di piu' della soglia della freccia ` +
+      `(${ARROW_SHOW_PX}px), altrimenti non c'e' niente da osservare: semina piu' messaggi`,
+  ).toBeGreaterThan(ARROW_SHOW_PX * 2);
 }
 
 /** Legge `scrollTop` finché due letture consecutive coincidono: lo scroll si è fermato. */
@@ -353,6 +359,56 @@ test.describe("Chat scroll behavior", () => {
       expect(await isAtTrueBottom(dopo)).toBe(true);
     } finally {
       await deleteTopic(request, solo.id);
+    }
+  });
+
+  test("il refresh resta in fondo anche su una chat piu' lunga della CACHE", async ({ page, request }) => {
+    // IL CASO CHE LA SUITE NON VEDEVA, ed e' quello che l'utente vede ogni
+    // giorno: al reload la chat nasce dalla copia locale, tagliata a 50
+    // messaggi (CACHE_MAX_MESSAGES in useChat.ts), e la storia vera arriva
+    // dopo. L'indice di montaggio di Virtuoso si congelava su quella prima
+    // ondata, quindi su una conversazione lunga puntava a un messaggio che
+    // nella storia sta a una frazione dell'inizio — «refresho e mi cambia la
+    // posizione». Con quaranta messaggi il difetto e' INVISIBILE: la prima
+    // ondata E' la storia, e l'indice e' per forza giusto. Ce ne vogliono piu'
+    // di cinquanta.
+    const lungoName = `scroll-lungo-${Date.now()}`;
+    const lungo = await createTopic(request, lungoName);
+    try {
+      for (let i = 0; i < 120; i++) {
+        await request.post(`${BASE}/api/topics/${lungo.id}/system-message`, {
+          data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+          ignoreHTTPSErrors: true,
+        });
+      }
+      await resetPaneStore(request, [lungo.id]);
+      await goToApp(page);
+      await openTopic(page, new RegExp(lungoName));
+
+      const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+      await expect(scroller).toHaveCount(1, { timeout: 10_000 });
+      await settleAtBottom(scroller);
+      // La cache si scrive al volo: si ricarica DOPO che c'e' qualcosa da
+      // ricaricare, altrimenti il reload non passa dal percorso in esame.
+      await expect
+        .poll(() => page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith("messages-cache-"))), { timeout: 10_000 })
+        .toBe(true);
+
+      await page.reload();
+      const dopo = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
+      await expect(dopo).toHaveCount(1, { timeout: 15_000 });
+
+      // Il fondo VERO, e dopo che la storia autorevole e' atterrata: e' proprio
+      // quel secondo momento a spostare la vista, non il montaggio.
+      await expect.poll(() => isAtTrueBottom(dopo), { timeout: 20_000 }).toBe(true);
+      await page.waitForTimeout(1500);
+      const finale = await dopo.evaluate((el) => ({
+        residuo: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+        righe: el.querySelectorAll("[data-item-index]").length,
+      }));
+      expect(finale.residuo, `posizione finale ${JSON.stringify(finale)}`).toBeLessThanOrEqual(TRUE_BOTTOM_PX);
+    } finally {
+      await deleteTopic(request, lungo.id);
     }
   });
 
