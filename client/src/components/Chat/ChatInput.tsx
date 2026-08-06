@@ -24,9 +24,6 @@ import { Menu } from '../Shared/Menu';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { AutonomyPicker } from './AutonomyPicker';
-import { fastCost as computeFastCost, formatMultiplier } from '../../lib/fastCost';
-import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { useLocale } from '../../hooks/useT';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -508,34 +505,6 @@ export function ChatInput({
   // Context budget ring — sits left of the model selector. Drafts have no
   // server-side topic yet, so skip the analysis call until promotion.
   const isDraftTopic = topic.id.startsWith('draft:');
-
-  // Quanto costa premere ⚡, sul listino vero. Lo snapshot dei provider è già
-  // in memoria (store condiviso, una sola fetch per sessione): qui non parte
-  // nessuna richiesta in più.
-  const { snapshot: providersSnapshot } = useProvidersSnapshot();
-  const locale = useLocale();
-  const fastCost = useMemo(
-    () => computeFastCost({ snapshot: providersSnapshot, providerOverride: providerOverride ?? null }),
-    [providersSnapshot, providerOverride],
-  );
-  // Il titolo dice il PERCHÉ del numero: un «0,2×» senza i due modelli accanto
-  // è un numero che bisogna indovinare.
-  const fastCostTitle = (() => {
-    const stato = fastMode ? 'Fast Mode ON' : 'Fast Mode OFF';
-    if (!fastCost) {
-      return fastMode
-        ? 'Fast Mode ON: usa il modello veloce del provider'
-        : 'Fast Mode OFF: usa il modello di default della topic';
-    }
-    if (fastCost.pinned) {
-      return `${stato}: qui non cambia niente — hai fissato ${fastCost.baseModel}, e un modello scelto a mano vince sul Fast (lo salta e lo scrive nei log).`;
-    }
-    const mult = formatMultiplier(fastCost.ratio, locale);
-    const coda = fastCost.spread > 0.05
-      ? ' (rapporto sull\'output; sull\'input è diverso)'
-      : '';
-    return `${stato}: ${fastCost.fastModel} al posto di ${fastCost.baseModel} — costa ${mult} rispetto ad adesso${coda}.`;
-  })();
   const { budgetPercent, sources: contextSources } = useContextInspector(isDraftTopic ? null : topic.id);
   // Proiezione delle sources che l'inspector ha GIA' scaricato: nessuna seconda
   // richiesta, e i token per file sono quelli veri invece di una stringa in
@@ -1293,12 +1262,16 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onToggleFastMode}
-                    className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
+                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
                       fastMode
                         ? 'text-amber-500 bg-amber-500/10'
                         : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
                     }`}
-                    title={fastCostTitle}
+                    title={
+                      fastMode
+                        ? "Fast Mode ON: usa il modello veloce del provider"
+                        : 'Fast Mode OFF: usa il modello di default della topic'
+                    }
                     aria-label="Toggle fast mode"
                     aria-pressed={!!fastMode}
                     data-testid="chat-input-fast-mode"
@@ -1311,23 +1284,8 @@ export function ChatInput({
                         lampo non insegnava niente a nessuno. Adesso resta qui e
                         nella sezione «Prestazioni» del changelog — stessa cosa,
                         detta due volte. Prima di metterne un altro: dice
-                        «veloce»? Se no, non è questo il glifo.
-                        Il glifo è PIENO quando è acceso: a 14px il contorno da
-                        solo, in una riga di icone tutte in contorno, non si
-                        legge come «attivo» — lo diceva solo l'ambra. */}
-                    <Zap size={fastCost ? 14 : 16} fill={fastMode ? 'currentColor' : 'none'} />
-                    {/* Quanto costa premerlo, sul listino VERO. Non è
-                        interattivo (`pointer-events-none`): un badge che entra
-                        nel conteggio dei bersagli tattili sarebbe un secondo
-                        bottone da 12px dentro il primo. Larghezza fissa del
-                        genitore (w-8) → quando lo snapshot atterra col prezzo, la
-                        riga non scatta. */}
-                    {fastCost && (
-                      <span
-                        className="pointer-events-none max-w-full overflow-hidden text-[9px] font-medium leading-none tabular-nums"
-                        data-testid="fast-mode-cost"
-                      >{formatMultiplier(fastCost.ratio, locale)}</span>
-                    )}
+                        «veloce»? Se no, non è questo il glifo. */}
+                    <Zap size={16} />
                   </button>
                 )}
                 {!isDraftTopic && (
