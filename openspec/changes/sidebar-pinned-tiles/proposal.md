@@ -61,7 +61,13 @@ espandono in una fascia sotto la loro riga.
 6. **Il layout viaggia col pin.** Nuovo campo `pinnedLayout` in `SidebarState`: sale sulla
    pipeline che i fissati già percorrono (localStorage + `ui-state` sul server + WS +
    cross-tab), quindi la disposizione ti segue da un device all'altro come i pin stessi.
-7. **Due precondizioni, non opzionali.** (a) La chiave di pin dei progetti si unifica sulla
+7. **Il pin torna una scorciatoia, non un lucchetto** (Attilio, 06/08): una tab fissata
+   **si chiude** come tutte le altre, resta fissata, e la sua tessera la riapre — finché
+   non togli il pin. Rovescia la regola del 03/08 (`ee55a33f`). Regge perché il ritiro non
+   cancella niente: la chat si archivia chiudendo, ma l'escape `pinnedIds` tiene la tessera
+   anche archiviata e riaprirla disarchivia. `isPaneClosable` sparisce, e con lei la
+   guardia sull'azione in `App.tsx`.
+8. **Due precondizioni, non opzionali.** (a) La chiave di pin dei progetti si unifica sulla
    forma grezza, con migrazione e dedup al caricamento. (b) La scrittura di `sidebar-state`
    passa a CAS (`?base=<server_seq>` + retry sul 409): il server lo supporta già
    (`ui-state.ts:283-328`), e con un layout dentro una scrittura persa non costa più un

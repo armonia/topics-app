@@ -172,3 +172,32 @@ versione corrente, invece di sovrascriverla.
 - **WHEN** l'applicazione lo carica
 - **THEN** le tessere sono disposte nell'ordine di pin
 - **AND** nessun errore viene sollevato
+
+### Requirement: LAYOUT-PIN-06 — Il fissaggio è una scorciatoia, non un lucchetto
+
+Una tab fissata SHALL essere chiudibile come qualunque altra, da ogni strada (bottone,
+menu contestuale, scorciatoia da tastiera). Chiudendola il fissaggio SHALL restare, la sua
+tessera SHALL restare nel blocco fissati, e un click su quella tessera SHALL riaprirla
+ripristinandola. Solo togliendo il pin la tessera SHALL sparire.
+
+#### Scenario: una tab fissata si chiude
+- **GIVEN** una chat fissata con la sua tab aperta
+- **WHEN** l'utente la chiude dal menu contestuale della tab
+- **THEN** la tab si chiude
+- **AND** la sua tessera è ancora nel blocco fissati
+
+#### Scenario: la tessera la riapre
+- **GIVEN** una chat fissata la cui tab è stata chiusa
+- **WHEN** l'utente clicca la sua tessera
+- **THEN** la tab si riapre
+- **AND** la chat non risulta archiviata
+
+#### Scenario: togliere il pin è il gesto che smonta la scorciatoia
+- **GIVEN** una tessera fissata
+- **WHEN** l'utente toglie il pin dal menu contestuale della tessera
+- **THEN** la tessera sparisce dal blocco fissati
+
+#### Scenario: ogni tipo può essere tolto dai Fissati dalla sua tessera
+- **GIVEN** una chat, un terminale e un browser fissati
+- **WHEN** l'utente apre il menu contestuale di ciascuna tessera
+- **THEN** ognuno offre la voce per togliere il pin
