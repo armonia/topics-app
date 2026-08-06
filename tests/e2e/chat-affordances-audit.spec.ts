@@ -134,6 +134,55 @@ test.describe("Chat — superfici e affordance, misurate", () => {
     ).toBeLessThanOrEqual(8);
   });
 
+  test("le strisce sopra il composer sono allineate FRA LORO e col composer", async ({ page }) => {
+    // Si erano allineate in tre modi diversi: `mx-2` fisso (TodoStrip,
+    // GoalBar), `mx-2/mx-3` a seconda della larghezza (gli avvisi e il
+    // composer), più due raggi. Su desktop lo scarto è di quattro pixel:
+    // abbastanza da vedersi come uno scalino, non abbastanza da sembrare
+    // voluto. Qui si MISURA, invece di fidarsi della classe: due componenti
+    // possono avere la stessa classe e stare in due contenitori diversi.
+    //
+    // La striscia si fa comparire per la via VERA: si invia mentre il turno è
+    // ancora aperto, che è l'unico modo in cui un utente la vede.
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await new Promise((r) => setTimeout(r, 20_000));
+      await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: "data: [DONE]\n\n" });
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const input = page.getByRole("textbox", { name: /Message input/ });
+    await input.waitFor({ state: "visible", timeout: 15_000 });
+    await input.fill("primo");
+    await input.press("Enter");
+    await input.fill("secondo");
+    await input.press("Enter");
+
+    const striscia = page.getByTestId("message-queue-badge");
+    await expect(striscia, "la striscia dei messaggi da inviare deve montare").toBeVisible({ timeout: 15_000 });
+
+    const bordi = await page.evaluate((nome) => {
+      const pane = document.querySelector(`[aria-label="Messages for ${nome}"]`)?.parentElement;
+      const form = pane?.querySelector("form");
+      const strip = document.querySelector('[data-testid="message-queue-badge"]')?.parentElement;
+      if (!form || !strip) return null;
+      const f = form.getBoundingClientRect(), s = strip.getBoundingClientRect();
+      return { formL: Math.round(f.left), formR: Math.round(f.right), stripL: Math.round(s.left), stripR: Math.round(s.right) };
+    }, topicName);
+
+    expect(bordi, "composer e striscia devono essere entrambi a schermo").not.toBeNull();
+    expect(Math.abs(bordi!.stripL - bordi!.formL), `bordo sinistro ${JSON.stringify(bordi)}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(bordi!.stripR - bordi!.formR), `bordo destro ${JSON.stringify(bordi)}`).toBeLessThanOrEqual(1);
+
+    // E il nome NON è «in coda»: quello lo dice la lista di cose da fare
+    // dell'agente, e due strisce affiancate non possono chiamarsi uguale.
+    await expect(striscia).toHaveText(/da inviare/i);
+    await expect(striscia).not.toHaveText(/—/);
+  });
+
   test("la freccia «torna in fondo» è centrata sulla colonna, non appesa al bordo", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));

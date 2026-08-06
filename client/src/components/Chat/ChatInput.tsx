@@ -22,6 +22,7 @@ import { useDismissable } from '@/hooks/useDismissable';
 import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 import { SpinnerFallback } from '../Shared/Spinner';
+import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -199,13 +200,11 @@ function MessageQueueBadge({
   onUpdateItem,
   onRemoveItem,
   onClear,
-  isMobile,
 }: {
   queue: string[];
   onUpdateItem: (index: number, content: string) => void;
   onRemoveItem: (index: number) => void;
   onClear: () => void;
-  isMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -232,13 +231,17 @@ function MessageQueueBadge({
     // bordo tenue, superficie neutra. NON arancione — l'arancione qui diceva
     // «attenzione» a una cosa che l'utente ha chiesto lui, e la faceva sembrare
     // un problema invece di una promessa.
-    <div className={`relative ${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-lg border border-app-border/60 bg-app-hover/40`} ref={popoverRef}>
+    // «Da inviare», non «in coda»: la lista di cose da fare dell'agente diceva
+    // anche lei «in coda», e due strisce affiancate col nome della stessa cosa
+    // non si distinguono. Qui l'unica cosa che conta è il VERSO: questi
+    // messaggi partono da te.
+    <div className={`relative ${CHAT_STRIP_NEUTRAL}`} ref={popoverRef}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         data-testid="message-queue-badge"
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
-        title={open ? 'Nascondi i messaggi in coda' : 'Mostra i messaggi in coda'}
+        className={CHAT_STRIP_ROW}
+        title={open ? 'Nascondi i messaggi da inviare' : 'Mostra i messaggi da inviare'}
         aria-expanded={open}
       >
         <ChevronRight
@@ -247,9 +250,11 @@ function MessageQueueBadge({
         />
         <Clock size={13} className="flex-shrink-0 text-app-text-secondary" />
         <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">{count}</span>
-        {/* Il testo dice COSA succede, non ripete il numero che ha accanto. */}
+        {/* Due frasi accostate, senza trattino a fare da colla: la prima dice
+            cosa sono, la seconda quando partono. */}
         <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
-          {count > 1 ? 'messaggi in coda' : 'messaggio in coda'} — parte a fine turno
+          da inviare
+          <span className="text-app-text-muted"> a fine turno</span>
         </span>
       </button>
 
@@ -257,7 +262,7 @@ function MessageQueueBadge({
         <div className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
-              In coda ({count})
+              Da inviare ({count})
             </span>
             <button
               type="button"
@@ -284,7 +289,7 @@ function MessageQueueBadge({
               TIENE la coda invece di farla partire (vedi `state/chatQueue.ts`).
               Dirlo qui evita che «ferma» sembri «cancella». */}
           <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
-            Partono quando il turno finisce. Fermare NON li cancella: restano qui.
+            Partono quando il turno finisce. Fermare non li cancella: restano qui.
           </div>
         </div>
       )}
@@ -521,7 +526,7 @@ export function ChatInput({
       ? '\nOgni chiamata al modello rilegge questi token: è il costo per risposta, non un problema di capienza.'
       : '';
   const ringTitle = realContext
-    ? `Contesto del modello: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` — ${realContext.model}` : ''}${ringCostHint}`
+    ? `Contesto del modello: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` · ${realContext.model}` : ''}${ringCostHint}`
     : `Contesto iniettato (stima): ${budgetPercent}%`;
 
   // Preavviso di compaction. Oggi la compaction si scopre a cose fatte, dal
@@ -908,7 +913,7 @@ export function ChatInput({
     <>
       {/* Status banners (outside floating card) */}
       {isCallActive && (
-        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl bg-gradient-to-r from-green-500/20 to-blue-500/20 border border-green-500/30 px-3 py-2 flex items-center gap-3 flex-shrink-0`}>
+        <div className={`${CHAT_STRIP} bg-gradient-to-r from-green-500/20 to-blue-500/20 border border-green-500/30 px-3 py-2 flex items-center gap-3 flex-shrink-0`}>
           <div className={`w-3 h-3 rounded-full ${
             callStatus === 'listening' ? 'bg-green-500 animate-pulse' :
             callStatus === 'processing' ? 'bg-yellow-500 animate-pulse' :
@@ -938,7 +943,7 @@ export function ChatInput({
         <div
           data-testid="no-reply-banner"
           data-reason={stoppedByUser ? 'stopped' : 'interrupted'}
-          className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
+          className={`${CHAT_STRIP} px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
             stoppedByUser
               ? 'bg-app-hover border border-app-border-light'
               : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40'
@@ -975,7 +980,7 @@ export function ChatInput({
         <div
           data-testid="context-notice"
           data-context-level={contextNotice.level}
-          className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl border px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
+          className={`${CHAT_STRIP} border px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
             contextNotice.severe
               ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40'
               : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40'
@@ -990,8 +995,8 @@ export function ChatInput({
               {contextNotice.reason === 'cost'
                 ? `Ogni risposta rilegge ${formatTokens(contextNotice.used)} token`
                 : contextNotice.level === 'critical'
-                  ? `Contesto quasi pieno — ${contextNotice.percent}%`
-                  : `Contesto che si riempie — ${contextNotice.percent}%`}
+                  ? `Contesto quasi pieno, ${contextNotice.percent}%`
+                  : `Contesto che si riempie, ${contextNotice.percent}%`}
             </div>
             <div className={`text-[11px] line-clamp-2 ${contextNotice.severe ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
               {/* La seconda riga non ripete il numero della prima: dice COSA
@@ -1006,7 +1011,7 @@ export function ChatInput({
                   lo dicono già i due bottoni qui accanto. */}
               {contextNotice.reason === 'cost'
                 ? `Nella finestra ci stanno (${contextNotice.percent}% di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}): il problema non è lo spazio, è che li ripaghi a ogni chiamata.`
-                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — compattare adesso costa meno dettaglio che a ridosso.`}
+                : `${formatTokens(contextNotice.used)} di ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)}. Compattare adesso costa meno dettaglio che a ridosso.`}
             </div>
           </div>
           <button
@@ -1083,7 +1088,6 @@ export function ChatInput({
           onUpdateItem={onUpdateQueueItem}
           onRemoveItem={onRemoveQueueItem}
           onClear={onClearQueue}
-          isMobile={isMobile}
         />
       )}
 
@@ -1262,8 +1266,8 @@ export function ChatInput({
                     }`}
                     title={
                       fastMode
-                        ? "Fast Mode ON — using the provider's fast model"
-                        : 'Fast Mode OFF — using the topic’s default model'
+                        ? "Fast Mode ON: usa il modello veloce del provider"
+                        : 'Fast Mode OFF: usa il modello di default della topic'
                     }
                     aria-label="Toggle fast mode"
                     aria-pressed={!!fastMode}

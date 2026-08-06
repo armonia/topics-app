@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { Check, ChevronRight, Pencil, Target, X } from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
+import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 
 interface Props {
   goal: TopicGoal;
@@ -58,7 +59,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
     return (
       <div
         data-testid="goal-bar-edit"
-        className="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/40 px-2.5 py-1.5"
+        className={`${CHAT_STRIP_NEUTRAL} flex items-center gap-2 px-2.5 py-1.5`}
       >
         <Target size={13} className="flex-shrink-0 text-app-text-secondary" />
         <input
@@ -83,7 +84,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
   return (
     <div
       data-testid="goal-bar"
-      className="mx-2 mb-1 rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text"
+      className={CHAT_STRIP_NEUTRAL}
     >
       <div className="flex items-center gap-2 px-2.5 py-1.5">
         <button
