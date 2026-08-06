@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.39 — 2026-08-07
+
+### Sotto il cofano
+- Sfissare trascinando ARCHIVIAVA la chat, e lo stato del drag restava acceso
+
 ## 2.2.38 — 2026-08-07
 
 ### Sotto il cofano
@@ -67,7 +72,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Il segno di apertura c'e' SEMPRE su un progetto, e sta in un angolo
 
-## 2.2.28 — 2026-08-06
+## 2.2.28 — 2026-08-07
 
 ### Sotto il cofano
 - Chiudi /preview, metti un tetto alle richieste, e dai una superficie alla revoca
@@ -75,8 +80,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Un progetto appena aperto non viene piu negato per cinque secondi
 - Si mette in stage un blocco alla volta, non piu il file intero
 - ⌘T apre una chat, e le scorciatoie rimappabili hanno le loro spec
+- Il ⚡ smette di scambiare il modello: chiede la fast mode, o dice perché non può
+- La riga dei metadati sparisce dalle corse di sola azione
 
-## 2.2.27 — 2026-08-06
+## 2.2.27 — 2026-08-07
 
 ### Sotto il cofano
 - Changelog per 2.2.26
@@ -87,13 +94,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il primo ritentativo dello stato git arriva dopo 2 secondi, non dopo 30
 - La cronologia dei commit esce dal codice morto ed entra nel pannello
 - Via la cartella dalla tessera: al suo posto il segno che si apre
+- Revert "Sotto il ⚡ c'è scritto quanto costa premerlo"
+- Togli l'etichetta sopra il corpo del comando
 
-## 2.2.26 — 2026-08-06
+## 2.2.26 — 2026-08-07
 
 ### Sotto il cofano
 - Il bordo grasso della sidebar progetto era una regola che scambiava «trascinabile» per «è una linea»
 - Ogni riga della lista git dice quante righe cambia, non solo quali file
 - L'anteprima del drop e' la tessera vera, non un rettangolo azzurro
+- Changelog per 2.2.38
+- Il comando si apre, e l'intestazione è il comando
 
 ## 2.2.25 — 2026-08-06
 

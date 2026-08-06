@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.39",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sfissare trascinando ARCHIVIAVA la chat, e lo stato del drag restava acceso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.38",
     "date": "2026-08-07",
     "sections": {
@@ -237,7 +253,7 @@
   },
   {
     "version": "2.2.28",
-    "date": "2026-08-06",
+    "date": "2026-08-07",
     "sections": {
       "new": [],
       "fixes": [],
@@ -267,13 +283,23 @@
           "it": "⌘T apre una chat, e le scorciatoie rimappabili hanno le loro spec",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il ⚡ smette di scambiare il modello: chiede la fast mode, o dice perché non può",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga dei metadati sparisce dalle corse di sola azione",
+          "en": "",
+          "scope": null
         }
       ]
     }
   },
   {
     "version": "2.2.27",
-    "date": "2026-08-06",
+    "date": "2026-08-07",
     "sections": {
       "new": [],
       "fixes": [],
@@ -318,13 +344,23 @@
           "it": "Via la cartella dalla tessera: al suo posto il segno che si apre",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Revert \"Sotto il ⚡ c'è scritto quanto costa premerlo\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli l'etichetta sopra il corpo del comando",
+          "en": "",
+          "scope": null
         }
       ]
     }
   },
   {
     "version": "2.2.26",
-    "date": "2026-08-06",
+    "date": "2026-08-07",
     "sections": {
       "new": [],
       "fixes": [],
@@ -342,6 +378,16 @@
         },
         {
           "it": "L'anteprima del drop e' la tessera vera, non un rettangolo azzurro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.38",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il comando si apre, e l'intestazione è il comando",
           "en": "",
           "scope": null
         }
