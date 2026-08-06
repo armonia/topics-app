@@ -571,6 +571,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
     // router owns because it reads the same dispatch config).
+    // ── OSPITI: il filtro sta QUI, prima dello smistamento, e non copiato in
+    // ogni ramo. È la stessa lezione di `resolveProjectPath`, il cui commento
+    // dice «il fix sta QUI e non sui 47 chiamanti: metterlo lì significherebbe
+    // dimenticarne uno, e quello dimenticato sarebbe il buco».
+    //
+    // Un ospite vede SOLO i task che gli sono stati condivisi, e li vede in sola
+    // lettura. Tutto il resto di questo router — board, dispatch, commenti,
+    // capacità, publish — non è roba sua: non è nascosto, è negato.
+    const identita = ctx.requestIdentity?.(req) ?? null;
+    if (identita?.role === "guest") {
+      const deviceId = identita.deviceId;
+      if (!deviceId) return json({ error: "ospite senza identità" }, 403);
+      // Sola lettura, senza eccezioni: un ospite che scrive in un thread o
+      // dispaccia un agente è una superficie diversa, e va progettata quando il
+      // caso esisterà (vedi `task-sharing-guests`, fuori scope).
+      if (method !== "GET") return json({ error: "sola lettura", code: "guest_read_only" }, 403);
+
+      const condivisi = new Set(
+        (ctx.db.query("SELECT task_id FROM task_shares WHERE device_id = ?").all(deviceId) as Array<{ task_id: string }>)
+          .map((r) => r.task_id),
+      );
+
+      // L'elenco: solo i suoi.
+      if (pathname === "/api/all-boards/tasks") {
+        const tutti = svc.list({ scope: "all", rootsOnly: true }) as Array<{ id: string }>;
+        return json({ tasks: tutti.filter((t) => condivisi.has(t.id)) });
+      }
+      // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
+      // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
+      // rotte di questo router usano.
+      const idNelPath = pathname.match(/\/api\/tasks\/([^/]+)/)?.[1];
+      if (idNelPath && condivisi.has(decodeURIComponent(idNelPath))) {
+        // prosegue allo smistamento normale
+      } else {
+        return json({ error: "non condiviso", code: "not_shared" }, 403);
+      }
+    }
+
     const isSession = pathname.startsWith("/api/sessions/");
     const isBoard = pathname.startsWith("/api/boards/");
     const isAllBoards = pathname.startsWith("/api/all-boards/");

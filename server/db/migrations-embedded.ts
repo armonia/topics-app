@@ -86,6 +86,7 @@ import m077 from "./migrations/078-topic-model-1m-window.sql" with { type: "text
 import m078 from "./migrations/079-board-night-mode.sql" with { type: "text" };
 import m079 from "./migrations/080-devices.sql" with { type: "text" };
 import m080 from "./migrations/081-autonomy-default-acts.sql" with { type: "text" };
+import m081 from "./migrations/082-task-shares.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -176,4 +177,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 79, name: "079-board-night-mode.sql", sql: m078 },
   { version: 80, name: "080-devices.sql", sql: m079 },
   { version: 81, name: "081-autonomy-default-acts.sql", sql: m080 },
+  { version: 82, name: "082-task-shares.sql", sql: m081 },
 ];

@@ -235,6 +235,16 @@ export interface AppContext {
    * server intero.
    */
   requestIp?: (req: Request) => string | null;
+  /**
+   * L'identita' gia' risolta per QUESTA richiesta: il gate la calcola comunque a
+   * ogni chiamata, e ricalcolarla nelle rotte vorrebbe dire due query e due
+   * verita' possibili. Popolata in `server.ts` subito dopo il gate.
+   *
+   * `null` = nessuna identita' risolta (percorso esente, o kill-switch). Le rotte
+   * che filtrano per ruolo devono trattarlo come «proprietario»: e' lo stesso
+   * significato che ha il loopback, ed e' il comportamento precedente.
+   */
+  requestIdentity?: (req: Request) => { role: 'owner' | 'guest'; deviceId: string | null } | null;
   broadcastToAll: (message: OutboundMessage) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
