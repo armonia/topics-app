@@ -6,19 +6,25 @@ import { reconcilePinnedLayout, type PinnedRow } from '../components/Sidebar/pin
 /**
  * Le viste della sidebar.
  *   - 'timeline' — una lista sola, ordinata per attività.
- *   - 'grouped'  — sezioni per TIPO di item (progetti / chat / terminali / …).
  *   - 'state'    — sezioni per STATO: attende te / al lavoro / il resto.
  *
- * 'state' risponde a una domanda che le altre due non pongono: "di cosa devo
+ * 'state' risponde a una domanda che 'timeline' non pone: "di cosa devo
  * occuparmi adesso?". In 'timeline' l'unico segnale era un boost binario sulle
- * notifiche, che mescolava "aspetta una mia risposta" e "ha finito" nello stesso
- * blocco; in 'grouped' il tipo di pane non dice niente su chi deve muoversi.
+ * notifiche, che mescolava "aspetta una mia risposta" e "ha finito" nello
+ * stesso blocco.
+ *
+ * ── Il modo 'grouped' (sezioni per TIPO) è stato RIMOSSO (Attilio, 06/08) ────
+ * Sapere che una cosa è una chat o un terminale non aiuta a decidere cosa
+ * guardare: il tipo si vede già dal glifo di ogni riga, quindi la sezione
+ * ripeteva un'informazione che era già lì e in cambio spezzava la lista. Un
+ * valore 'grouped' rimasto in uno stato salvato ricade su 'timeline'
+ * (`hydrateSidebarState`), non lascia la sidebar vuota.
  */
-export type SidebarViewMode = 'timeline' | 'grouped' | 'state';
+export type SidebarViewMode = 'timeline' | 'state';
 
 /** L'ordine del ciclo del bottone. Anche la guardia per un valore persistito che
  *  non riconosciamo: da lì si riparte da 'timeline'. */
-export const SIDEBAR_VIEW_MODES: readonly SidebarViewMode[] = ['timeline', 'grouped', 'state'];
+export const SIDEBAR_VIEW_MODES: readonly SidebarViewMode[] = ['timeline', 'state'];
 
 /** Il modo successivo nel ciclo. Puro, così il bottone non contiene logica. */
 export function nextSidebarViewMode(current: SidebarViewMode): SidebarViewMode {
@@ -140,6 +146,9 @@ const DEFAULT_STATE: SidebarState = {
  */
 export function hydrateSidebarState(parsed: PartialSidebarState): SidebarState {
   const merged: SidebarState = { ...DEFAULT_STATE, ...parsed };
+
+  // Il modo per TIPO non esiste più: chi ce l'aveva salvato torna alla lista.
+  if ((merged.viewMode as string) === 'grouped') merged.viewMode = 'timeline';
 
   // Formato vecchio (nessun viewMode): deriva dai flag di allora.
   if (!parsed.viewMode) {

@@ -749,25 +749,9 @@ export function groupSidebarItemsBySpace(
   return { bySpace, loose };
 }
 
-export function groupSidebarItems(items: SidebarItem[]): Record<SidebarItemType, SidebarItem[]> {
-  const groups: Record<SidebarItemType, SidebarItem[]> = {
-    project: [],
-    chat: [],
-    terminal: [],
-    browser: [],
-    utility: [],
-  };
-
-  for (const item of items) {
-    groups[item.type].push(item);
-  }
-
-  return groups;
-}
-
 // ── Raggruppamento per STATO ───────────────────────────────────────────────────
 //
-// Perché serve. La sidebar raggruppa per TIPO (`groupSidebarItems`) e ordina con
+// Perché serve. La sidebar ordina con
 // un boost BINARIO sulle notifiche: chi ha `notificationCount > 0` sale, e basta.
 // Quel boost non distingue le tre cose che l'utente distingue eccome — "aspetta
 // una mia risposta", "ha finito e non l'ho ancora guardato", "sta lavorando" —

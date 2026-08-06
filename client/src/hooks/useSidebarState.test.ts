@@ -105,12 +105,19 @@ describe("sanitizeSidebarPayload", () => {
  */
 describe("nextSidebarViewMode", () => {
   test("cicla nell'ordine dichiarato e torna all'inizio", () => {
-    expect(nextSidebarViewMode("timeline")).toBe("grouped");
-    expect(nextSidebarViewMode("grouped")).toBe("state");
+    expect(nextSidebarViewMode("timeline")).toBe("state");
     expect(nextSidebarViewMode("state")).toBe("timeline");
   });
 
-  test("tre click tornano al punto di partenza, da qualunque modo", () => {
+  test("il modo per TIPO non esiste piu': un valore salvato ricade sulla lista", () => {
+    // Rimosso il 06/08. Uno stato salvato prima non deve lasciare la sidebar
+    // vuota: `hydrateSidebarState` lo riporta a 'timeline'.
+    expect(hydrateSidebarState({ viewMode: "grouped" as SidebarViewMode }).viewMode).toBe("timeline");
+    // E il ciclo non ci passa piu'.
+    expect(SIDEBAR_VIEW_MODES).not.toContain("grouped" as SidebarViewMode);
+  });
+
+  test("un giro completo torna al punto di partenza, da qualunque modo", () => {
     for (const start of SIDEBAR_VIEW_MODES) {
       let m: SidebarViewMode = start;
       for (let i = 0; i < SIDEBAR_VIEW_MODES.length; i++) m = nextSidebarViewMode(m);

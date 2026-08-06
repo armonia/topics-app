@@ -1344,25 +1344,15 @@ function App() {
           >
             {/* Icona ed etichetta descrivono il modo SUCCESSIVO — cosa fa il
                 click — e lo chiedono a `nextSidebarViewMode`, la stessa funzione
-                che il toggle usa per muoversi: con tre modi, due liste di casi
-                scritte a mano divergerebbero al primo che se ne aggiunge. */}
+                che il toggle usa per muoversi: due liste di casi scritte a mano
+                divergerebbero al primo modo che si aggiunge o si toglie. */}
             {(() => {
               const next = nextSidebarViewMode(sidebar.viewMode);
-              const Icon = next === 'grouped' ? LayoutGrid : next === 'state' ? Hourglass : List;
+              const Icon = next === 'state' ? Hourglass : List;
               return <Icon size={isMobile ? 18 : 14} />;
             })()}
-            {/* "Vista per tipo", NOT "Vista a gruppi": this buckets the tree by
-                ITEM TYPE (progetti / chat / terminali / …). A "gruppo" in this
-                app is a WINDOW — the unit that detaches — so calling a
-                type-bucketed tree "a gruppi" made two unrelated things share a
-                word (the "non capisco spazi e gruppi" confusion). */}
             <span className="flex-1 text-left">{
-              (() => {
-                const next = nextSidebarViewMode(sidebar.viewMode);
-                return next === 'grouped' ? 'Vista per tipo'
-                  : next === 'state' ? 'Vista per stato'
-                  : 'Vista timeline';
-              })()
+              nextSidebarViewMode(sidebar.viewMode) === 'state' ? 'Vista per stato' : 'Vista timeline'
             }</span>
           </button>
           {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
