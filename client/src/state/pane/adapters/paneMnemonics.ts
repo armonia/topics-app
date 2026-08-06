@@ -42,11 +42,14 @@ export type AddMenuItemId =
   | 'files'
   | 'kanban'
   | 'board'
-  | 'open-project'
-  | 'create-project';
+  | 'open-project';
 
 export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
-  'new-chat': 'N',
+  // La riga si chiama «Chat», non «New Chat»: il verbo lo dice il menu, e ogni
+  // altra riga e' un sostantivo secco. C resta all'agente di DEFAULT (Claude
+  // Code, il piu' aperto), quindi la regola scorre alla lettera libera
+  // successiva dell'etichetta: c-H-at. Stesso meccanismo di Codex → X.
+  'new-chat': 'H',
   shell: 'S',
   // C è dell'agente DI DEFAULT. Codex prende la X di `Code·x`: è la lettera che
   // dice Codex e nient'altro, e lascia C dove l'utente se la aspetta.
@@ -60,9 +63,10 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   files: 'F',
   kanban: 'D',
   board: 'D',
-  'open-project': 'A',
-  // P è di "Progetto", che appare in tutte e due: la R di `C·r·ea` distingue.
-  'create-project': 'R',
+  // UNA riga sola per il progetto: «Apri» e «Crea» chiamavano la stessa
+  // funzione (`openProjectPicker`) e il pannello di sistema si intitola gia'
+  // «Apri / Crea progetto» — erano due voci per un solo comportamento.
+  'open-project': 'P',
 };
 
 /** Le righe che possono comparire insieme, per scope. Il test di unicità gira
@@ -70,5 +74,5 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
  *  proprio perché non si incontrano mai. */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'open-project', 'create-project'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'open-project'],
 };
