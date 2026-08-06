@@ -27,7 +27,16 @@ export function ScrollToBottom({ show, newCount, onClick, bottomOffset = 0 }: Sc
     <button
       onClick={onClick}
       data-testid="scroll-to-bottom"
-      className="absolute left-1/2 -translate-x-1/2 z-10 h-8 px-3 bg-app-user-bubble hover:bg-app-hover text-app-text border border-app-border-light rounded-full shadow-lg flex items-center gap-1.5 text-[12px] font-medium transition-colors duration-200"
+      // TONDA quando è sola, pillola solo quando ha un numero da portare.
+      //
+      // `rounded-full` su un rettangolo dà un OVALE, non un cerchio: la forma la
+      // decide il rapporto fra i lati, non il raggio. Con un `px-3` fisso la
+      // sola freccia misurava 38×32 — abbastanza per accorgersene. Senza
+      // conteggio la larghezza si fissa uguale all'altezza (`w-8 h-8`) e torna
+      // un cerchio; col conteggio si allarga, ed è l'unico caso in cui deve.
+      className={`absolute left-1/2 -translate-x-1/2 z-10 h-8 bg-app-user-bubble hover:bg-app-hover text-app-text border border-app-border-light rounded-full shadow-lg flex items-center justify-center text-[12px] font-medium transition-colors duration-200 ${
+        newCount > 0 ? 'px-3 gap-1.5' : 'w-8'
+      }`}
       style={{ bottom: bottomOffset + 12 }}
       title="Scroll to bottom"
       aria-label="Scroll to bottom"
@@ -35,7 +44,7 @@ export function ScrollToBottom({ show, newCount, onClick, bottomOffset = 0 }: Sc
       <ArrowDown size={14} className="flex-shrink-0" />
       {/* Il conteggio è una PAROLA, non un pallino rosso appiccicato: il rosso
           è il colore degli errori, e «tre messaggi nuovi» non è un errore.
-          Dentro la pillola c'è lo spazio per dirlo. */}
+          Quando c'è, la pillola gli fa spazio. */}
       {newCount > 0 && <span className="tabular-nums">{newCount > 99 ? '99+' : newCount}</span>}
     </button>
   );

@@ -122,5 +122,17 @@ test.describe("Chat — superfici e affordance, misurate", () => {
       Math.abs(geo!.centroBottone - geo!.centroColonna),
       `il bottone deve stare sul centro della colonna (colonna ${Math.round(geo!.larghezzaColonna)}px)`,
     ).toBeLessThan(8);
+
+    // …e dev'essere TONDA, non ovale. `rounded-full` su un rettangolo dà un
+    // ovale: la forma la decide il rapporto fra i lati. Senza conteggio i due
+    // lati devono coincidere — un padding orizzontale fisso bastava a
+    // sbilanciarla di sei pixel, e si vedeva.
+    const forma = await freccia.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), badge: !!el.querySelector("span") };
+    });
+    if (!forma.badge) {
+      expect(Math.abs(forma.w - forma.h), `senza conteggio dev'essere un cerchio (${forma.w}x${forma.h})`).toBeLessThanOrEqual(1);
+    }
   });
 });
