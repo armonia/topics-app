@@ -222,3 +222,124 @@ export function sampleIconTint(url: string): Promise<string | null> {
   inflight.set(url, job);
   return job;
 }
+
+/**
+ * La PALETTE dell'icona per settori angolari: il colore dominante di ogni
+ * spicchio, nell'ordine in cui gira attorno al centro (da ore 12, in senso
+ * orario).
+ *
+ * Serve al bordo che «riflette» l'icona: un colore solo, spalmato su tutta la
+ * cornice, è una tinta — quello che si vede in Dia è la luce dell'icona che
+ * cade DOVE sta il colore, verde in alto a sinistra e blu in basso perché è lì
+ * che stanno nel logo. Per ottenerlo il campione deve conservare la posizione,
+ * cioè esattamente ciò che `pickDominantColor` butta via.
+ *
+ * Uno spicchio senza niente di cromatico eredita il vicino, così la cornice non
+ * si spegne a tratti; se non c'è colore da nessuna parte, `null`.
+ */
+export function pickSectorPalette(
+  pixels: Uint8ClampedArray,
+  size: number,
+  sectors = 8,
+): string[] | null {
+  const sumR = new Array<number>(sectors).fill(0);
+  const sumG = new Array<number>(sectors).fill(0);
+  const sumB = new Array<number>(sectors).fill(0);
+  const weight = new Array<number>(sectors).fill(0);
+  const c = (size - 1) / 2;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const a = pixels[i + 3];
+      if (a < 128) continue;
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      if (min > 235 || max < 28) continue;
+      const sat = saturationOf(r, g, b);
+      if (sat < 0.18) continue;
+      // Angolo da ore 12, orario. Il pixel al centro non ha direzione: si salta.
+      const dx = x - c, dy = y - c;
+      const radius = Math.hypot(dx, dy);
+      if (radius < 0.5) continue;
+      let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      if (deg < 0) deg += 360;
+      const idx = Math.min(sectors - 1, Math.floor((deg / 360) * sectors));
+      // Peso anche per DISTANZA dal centro: il bordo lo dipinge ciò che sta al
+      // bordo dell'icona, non il suo cuore.
+      const w = sat * (a / 255) * radius;
+      weight[idx] += w;
+      sumR[idx] += r * w;
+      sumG[idx] += g * w;
+      sumB[idx] += b * w;
+    }
+  }
+
+  if (!weight.some(w => w > 0)) return null;
+
+  const raw: (RGB | null)[] = weight.map((w, i) =>
+    w > 0 ? { r: sumR[i] / w, g: sumG[i] / w, b: sumB[i] / w } : null,
+  );
+  // Gli spicchi vuoti prendono il vicino più prossimo (a giro), così la cornice
+  // non ha buchi neri fra un colore e l'altro.
+  const out: string[] = [];
+  for (let i = 0; i < sectors; i++) {
+    if (raw[i]) { out.push(toHex(raw[i]!)); continue; }
+    let found: RGB | null = null;
+    for (let d = 1; d <= sectors && !found; d++) {
+      found = raw[(i + d) % sectors] ?? raw[(i - d + sectors * 2) % sectors] ?? null;
+    }
+    out.push(toHex(found!));
+  }
+  return out;
+}
+
+/** Esiti già noti della palette, per URL. */
+const paletteCache = new Map<string, string[] | null>();
+const paletteInflight = new Map<string, Promise<string[] | null>>();
+
+/** La palette già in cache, o `undefined` se mai campionata. */
+export function cachedIconPalette(url: string): string[] | null | undefined {
+  return paletteCache.get(url);
+}
+
+/**
+ * Campiona la palette per settori di un'icona same-origin. Stesse regole di
+ * `sampleIconTint`: memoizzata, e il «niente» resta in memoria di sessione.
+ */
+export function sampleIconPalette(url: string): Promise<string[] | null> {
+  const known = paletteCache.get(url);
+  if (known !== undefined) return Promise.resolve(known);
+  const running = paletteInflight.get(url);
+  if (running) return running;
+
+  const job = new Promise<string[] | null>(resolve => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      try {
+        const size = ICON_SAMPLE_SIZE;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return resolve(null);
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, 0, 0, size, size);
+        resolve(pickSectorPalette(ctx.getImageData(0, 0, size, size).data, size));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  }).then(result => {
+    paletteCache.set(url, result);
+    paletteInflight.delete(url);
+    return result;
+  });
+
+  paletteInflight.set(url, job);
+  return job;
+}
