@@ -184,7 +184,14 @@ export interface ProviderSnapshotEntry {
    * deve dire invece di far finta di niente (oggi, nelle chat, è sempre
    * `sdk_opt_in_required`: la fast mode non esiste nella via Agent SDK).
    */
-  fastMode?: { state: 'off' | 'on' | 'cooldown'; reason: string | null };
+  fastMode?: {
+    state: 'off' | 'on' | 'cooldown';
+    reason: string | null;
+    /** Quanto costa la fast mode rispetto allo stesso modello a velocità
+     *  normale: 2 = il doppio (10$/50$ contro 5$/25$ per 1M, listino scritto
+     *  dalla CLI). `null` se su questo modello la fast mode non esiste. */
+    costMultiplier: number | null;
+  };
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

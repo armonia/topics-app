@@ -3,7 +3,7 @@ import { fastModeUi, fastModeReasonText } from './fastMode';
 import type { ProvidersSnapshot } from '../types';
 
 const snap = (
-  entries: Array<{ name: string; fastMode?: { state: 'off' | 'on' | 'cooldown'; reason: string | null } }>,
+  entries: Array<{ name: string; fastMode?: { state: 'off' | 'on' | 'cooldown'; reason: string | null; costMultiplier: number | null } }>,
   defaultProvider = 'claude-code',
 ): ProvidersSnapshot => ({
   providers: entries.map((e) => ({
@@ -20,50 +20,62 @@ const snap = (
 });
 
 describe('fastModeUi', () => {
-  it('bloccata → spento, e il tooltip DICE perché', () => {
-    // È il caso reale di oggi: le chat girano sulla via Agent SDK.
-    const ui = fastModeUi({
-      snapshot: snap([{ name: 'claude-code', fastMode: { state: 'off', reason: 'sdk_opt_in_required' } }]),
+  it('non servibile → il bottone NON esiste', () => {
+    // È il caso reale di oggi: le chat girano sulla via Agent SDK. Un comando
+    // spento che occupa spazio e non si può usare è peggio di uno assente.
+    expect(fastModeUi({
+      snapshot: snap([{ name: 'claude-code', fastMode: { state: 'off', reason: 'sdk_opt_in_required', costMultiplier: 2 } }]),
       requested: true,
-    });
-    expect(ui.available).toBe(false);
-    // Chiesta dall'utente, ma NON disegnata accesa: sarebbe una bugia.
-    expect(ui.pressed).toBe(false);
-    expect(ui.title).toContain('Agent SDK');
+    })).toBeNull();
   });
 
   it('libera → il bottone segue quello che l\'utente ha chiesto', () => {
-    const free = snap([{ name: 'claude-code', fastMode: { state: 'off', reason: null } }]);
-    expect(fastModeUi({ snapshot: free, requested: false })).toMatchObject({ available: true, pressed: false });
-    expect(fastModeUi({ snapshot: free, requested: true })).toMatchObject({ available: true, pressed: true });
+    const free = snap([{ name: 'claude-code', fastMode: { state: 'off', reason: null, costMultiplier: 2 } }]);
+    expect(fastModeUi({ snapshot: free, requested: false })).toMatchObject({ pressed: false, costMultiplier: 2 });
+    expect(fastModeUi({ snapshot: free, requested: true })).toMatchObject({ pressed: true, costMultiplier: 2 });
+  });
+
+  it('il prezzo sta anche nel tooltip, non solo nel badge', () => {
+    const ui = fastModeUi({
+      snapshot: snap([{ name: 'claude-code', fastMode: { state: 'off', reason: null, costMultiplier: 2 } }]),
+      requested: false,
+    })!;
+    expect(ui.title).toContain('2×');
   });
 
   it('cooldown = accesa ma in pausa, e lo dice', () => {
     const ui = fastModeUi({
-      snapshot: snap([{ name: 'claude-code', fastMode: { state: 'cooldown', reason: null } }]),
+      snapshot: snap([{ name: 'claude-code', fastMode: { state: 'cooldown', reason: null, costMultiplier: 2 } }]),
       requested: false,
-    });
-    expect(ui.available).toBe(true);
+    })!;
     expect(ui.pressed).toBe(true);
     expect(ui.title).toContain('pausa');
   });
 
-  it('«non lo so» NON spegne il bottone', () => {
+  it('«non lo so» NON fa sparire il bottone (ma non inventa un prezzo)', () => {
     // Nessuna sessione ha ancora parlato, o un provider che non ha il concetto.
-    expect(fastModeUi({ snapshot: snap([{ name: 'claude-code' }]), requested: false }).available).toBe(true);
-    expect(fastModeUi({ snapshot: null, requested: false }).available).toBe(true);
+    const ui = fastModeUi({ snapshot: snap([{ name: 'claude-code' }]), requested: false });
+    expect(ui).not.toBeNull();
+    expect(ui!.costMultiplier).toBeNull();
+    expect(fastModeUi({ snapshot: null, requested: false })).not.toBeNull();
+  });
+
+  it('un modello fissato fuori da Opus non ha fast mode: niente numero', () => {
+    const s = snap([{ name: 'claude-code', fastMode: { state: 'off', reason: null, costMultiplier: 2 } }]);
+    expect(fastModeUi({ snapshot: s, requested: false, providerOverride: { provider: 'claude-code', model: 'claude-sonnet-5' } })!.costMultiplier).toBeNull();
+    expect(fastModeUi({ snapshot: s, requested: false, providerOverride: { provider: 'claude-code', model: 'claude-opus-5[1m]' } })!.costMultiplier).toBe(2);
   });
 
   it('legge la riga del provider che serve QUESTA chat', () => {
     const s = snap([
-      { name: 'claude-code', fastMode: { state: 'off', reason: 'sdk_opt_in_required' } },
-      { name: 'codex', fastMode: { state: 'off', reason: null } },
+      { name: 'claude-code', fastMode: { state: 'off', reason: 'sdk_opt_in_required', costMultiplier: 2 } },
+      { name: 'codex', fastMode: { state: 'off', reason: null, costMultiplier: null } },
     ]);
-    expect(fastModeUi({ snapshot: s, requested: false }).available).toBe(false);
+    expect(fastModeUi({ snapshot: s, requested: false })).toBeNull();
     expect(fastModeUi({
       snapshot: s, requested: false,
       providerOverride: { provider: 'codex', model: 'gpt-5.5' },
-    }).available).toBe(true);
+    })).not.toBeNull();
   });
 });
 
