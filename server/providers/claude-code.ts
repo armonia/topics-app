@@ -26,6 +26,8 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
+import { skillBodyFromInjectedText } from "./claude/user-event-text";
+import { toolResultText } from "../../shared/tool-result-text";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { hasPendingAsk, endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
@@ -933,6 +935,17 @@ interface PersistentProcess {
    *  or announced directly with full args). Keeps the late-args path
    *  idempotent across block stop + every cumulative snapshot re-emission. */
   argsFinalized?: Set<string>;
+  /** Le chiamate al tool `Skill`, per nome. Serve a riconoscere, quando arriva
+   *  il loro `tool_result`, che il prossimo testo iniettato dalla CLI è il
+   *  corpo di QUELLA skill e non una risposta del modello. */
+  skillToolNames?: Map<string, string>;
+  /** Le `Skill` che hanno consegnato il risultato e aspettano il loro corpo,
+   *  in ordine di arrivo. Una coda e non uno slot perché il modello può
+   *  chiamarne due nello stesso messaggio. Si svuota al primo evento
+   *  `assistant`: se il modello ha ripreso a parlare, nessun corpo sta più
+   *  arrivando, e uno slot rimasto armato si mangerebbe il prossimo testo
+   *  iniettato (un `<system-reminder>` finito nella card di una skill). */
+  pendingSkillToolIds?: string[];
   /** Tool ids that already received their per-action usage attribution
    *  (`onToolUsage`). The CLI's `assistant` events are cumulative, so a
    *  tool_use recurs on later snapshots; this set makes the attribution
@@ -2501,15 +2514,18 @@ export class ClaudeCodeProvider implements AIProvider {
       }
       for (const block of eventContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
-          pp.sidechain.recordChildText(parentToolUseId, block.text);
+          // Solo il testo che il SOTTO-AGENTE ha davvero prodotto. Negli eventi
+          // `user` il testo è roba iniettata dalla CLI (il corpo di una skill,
+          // un promemoria di sistema): metterla nel log del sotto-agente la fa
+          // leggere come una sua conclusione.
+          if (event.type !== "user") pp.sidechain.recordChildText(parentToolUseId, block.text);
         } else if (block.type === "tool_use") {
           const childId = typeof block.id === "string" ? block.id : crypto.randomUUID();
           pp.sidechain.recordChildToolUse(parentToolUseId, childId, String(block.name ?? ""), block.input);
         } else if (block.type === "tool_result") {
           const childId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (childId) {
-            const result = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-            pp.sidechain.recordChildToolResult(childId, result, block.is_error === true);
+            pp.sidechain.recordChildToolResult(childId, toolResultText(block.content), block.is_error === true);
           }
         }
         // thinking blocks: ignore (not surfaced in sub-agent action log)
@@ -2545,16 +2561,40 @@ export class ClaudeCodeProvider implements AIProvider {
           newActionCount++;
         }
       }
+      // Un evento `user` NON è il modello che parla. La CLI lo usa per due cose:
+      // i `tool_result` (che devono passare, sotto) e il testo che INIETTA nel
+      // turno — il corpo di una skill appena lanciata, un `<system-reminder>`,
+      // l'eco di un comando slash. Finché questo ciclo trattava tutti i blocchi
+      // allo stesso modo, quel testo entrava in `pp.fullText` e usciva a schermo
+      // dentro la risposta: il prompt di `/recap` compariva prima della risposta,
+      // incollato senza nemmeno uno spazio. Verificato sul wire della CLI.
+      const injected = event.type === "user";
+      // Il modello ha ripreso a parlare: nessun corpo di skill sta più
+      // arrivando. Chi era in coda ci resta senza (una skill può non avere
+      // corpo) invece di intercettare il prossimo testo iniettato.
+      if (!injected) pp.pendingSkillToolIds = undefined;
       for (const block of eventContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
+          if (injected) {
+            this.absorbInjectedText(pp, handler, block.text, event.isSynthetic === true);
+            continue;
+          }
           pp.fullText += block.text;
           handler.onTextDelta(block.text, pp.fullText);
         } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
+          if (injected) continue;
           handler.onThinkingDelta?.(block.thinking);
         } else if (block.type === "tool_use") {
           const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
           if (settled.has(toolId)) continue;
           const toolName = String(block.name ?? "");
+          // Segna le `Skill`: al loro `tool_result` la CLI fa seguire il corpo
+          // del SKILL.md, e senza sapere quale tool l'ha chiesto quel testo non
+          // saprebbe dove andare (vedi absorbInjectedText).
+          if (toolName === "Skill") {
+            const skillName = (block.input as Record<string, unknown> | undefined)?.skill;
+            (pp.skillToolNames ??= new Map()).set(toolId, typeof skillName === "string" ? skillName : "");
+          }
           const input = block.input as Record<string, unknown> | undefined;
           if (pp.activeToolCalls.has(toolId)) {
             // Already announced EARLY by handlePartialStreamEvent (args were
@@ -2602,9 +2642,10 @@ export class ClaudeCodeProvider implements AIProvider {
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;
-          const resultContent = typeof block.content === "string"
-            ? block.content
-            : JSON.stringify(block.content);
+          // Il contenuto è una stringa OPPURE un array di blocchi: la seconda
+          // forma la usano quasi tutti i tool MCP, e serializzarla mostrava
+          // l'array JSON al posto del testo dentro la card.
+          const resultContent = toolResultText(block.content);
           // Propagate the SDK's `is_error` flag so the route can persist
           // status='error' and the UI renders red ✗ instead of green ✓.
           // Claude Code emits `is_error: true` on tool results whose tool
@@ -2633,6 +2674,10 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onToolResult(toolId, resultContent, isError);
           pp.activeToolCalls.delete(toolId);
           settled.add(toolId);
+          // «Launching skill: X» è tutto ciò che questo risultato dice. Il
+          // contenuto vero — le istruzioni caricate — arriva nell'evento subito
+          // dopo: da qui in poi sappiamo a chi appartiene.
+          if (pp.skillToolNames?.has(toolId)) (pp.pendingSkillToolIds ??= []).push(toolId);
           // A result for this tool means any user-input request it represented
           // is answered — drop it so that after a reattach REPLAY, pendingInputs
           // holds EXACTLY the questions still awaiting a human (Case 3).
@@ -2650,6 +2695,36 @@ export class ClaudeCodeProvider implements AIProvider {
         }
       }
     }
+  }
+
+  /**
+   * Il testo che la CLI INIETTA dentro un evento `user`: non è il modello che
+   * parla, quindi non entra nella risposta.
+   *
+   * Un caso solo ha una casa vera. Dopo un tool `Skill` la CLI manda il corpo
+   * intero del SKILL.md, e quel corpo appartiene alla riga del tool che l'ha
+   * chiesto: lì il risultato («Launching skill: recap») non aggiunge niente a
+   * quello che l'intestazione dice già, mentre le istruzioni caricate sono
+   * l'unica cosa che quella riga può davvero mostrare. Si sostituisce.
+   *
+   * Tutto il resto — `<system-reminder>`, l'eco di un comando slash, la coda dei
+   * messaggi — si scarta: era proprio la roba che finiva a schermo.
+   */
+  private absorbInjectedText(
+    pp: PersistentProcess,
+    handler: StreamHandler,
+    text: string,
+    isSynthetic: boolean,
+  ): void {
+    // `isSynthetic` è il marchio che la CLI mette sul testo che inietta lei —
+    // provato sul wire per entrambe le forme di skill. Senza quel marchio il
+    // testo non è un corpo di skill: si scarta e basta.
+    if (!isSynthetic) return;
+    const pending = pp.pendingSkillToolIds?.shift();
+    if (!pending) return;
+    const skill = skillBodyFromInjectedText(text);
+    if (!skill) return;
+    handler.onToolResult(pending, skill.body, false);
   }
 
   // ── Partial-input streaming (below) ──────────────────────────────────────
