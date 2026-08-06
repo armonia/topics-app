@@ -345,6 +345,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     setDiscardConfirm({ files: [filePath], group: 'unstaged' });
   }, []);
 
+  // Quali fra questi git non li ha mai visti. Decide cosa dice il dialogo di
+  // conferma: per un non tracciato lo scarto e' un viaggio nel cestino, per un
+  // tracciato e' una perdita definitiva. Vedi `DiscardConfirmDialog`.
+  const untrackedAmong = useCallback((files: string[]) => {
+    const stato = new Map((gitStatus?.files ?? []).map(f => [f.path, f.status]));
+    return files.filter(f => stato.get(f) === '??');
+  }, [gitStatus]);
+
   const executeDiscard = useCallback(async (files: string[]) => {
     try {
       // Un rename scartato a metà lascerebbe in giro la cancellazione del
@@ -987,6 +995,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {discardConfirm && createPortal(
           <DiscardConfirmDialog
             files={discardConfirm.files}
+            untracked={untrackedAmong(discardConfirm.files)}
             onConfirm={() => executeDiscard(discardConfirm.files)}
             onCancel={() => setDiscardConfirm(null)}
           />,
@@ -1346,6 +1355,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {discardConfirm && createPortal(
         <DiscardConfirmDialog
           files={discardConfirm.files}
+          untracked={untrackedAmong(discardConfirm.files)}
           onConfirm={() => executeDiscard(discardConfirm.files)}
           onCancel={() => setDiscardConfirm(null)}
         />,
@@ -1357,12 +1367,24 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
 // ── Discard confirmation dialog ──────────────────────────────────────
 
-function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[]; onConfirm: () => void; onCancel: () => void }) {
+/**
+ * Scartare non e' una cosa sola, e il dialogo lo deve dire.
+ *
+ * Su un file TRACCIATO lo scarto e' `git checkout --`: le modifiche non
+ * committate spariscono e non torna indietro niente. Su un file NON TRACCIATO
+ * git non ha nessuna copia, quindi il server lo sposta nel cestino di sistema
+ * (server/lib/trash.ts) e da li' si rimette a posto. Sono due esiti opposti
+ * dietro lo stesso bottone: l'avviso unico «verranno buttate per sempre» era
+ * falso per meta' dei casi, e il falso stava dalla parte che spaventa.
+ */
+function DiscardConfirmDialog({ files, untracked, onConfirm, onCancel }: { files: string[]; untracked: string[]; onConfirm: () => void; onCancel: () => void }) {
   const tr = useT();
   const fileNames = files.map(f => {
     const parts = f.split('/');
     return parts[parts.length - 1];
   });
+  const nonTracciati = untracked.length;
+  const tracciati = files.length - nonTracciati;
 
   return (
     <ConfirmDialog
@@ -1371,7 +1393,14 @@ function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[];
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
-      <p className="mb-3">{tr('git.discardWarning')}</p>
+      {tracciati > 0 && <p className="mb-3">{tr('git.discardWarning')}</p>}
+      {nonTracciati > 0 && (
+        <p className="mb-3">
+          {nonTracciati === files.length
+            ? tr('git.discardUntrackedOnly')
+            : tr('git.discardUntrackedSome').replace('{n}', String(nonTracciati))}
+        </p>
+      )}
       <div className="bg-app-hover rounded px-3 py-2 max-h-[120px] overflow-y-auto">
         {files.length === 1 ? (
           <span className="font-mono">{fileNames[0]}</span>

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, renameSync } from "fs";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -8,6 +8,7 @@ import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
 import { attachNumstats, readNumstats } from "../lib/git-numstat";
+import { moveToTrash } from "../lib/trash";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -789,9 +790,19 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           const statusProc = Bun.spawn(["git", "status", "--porcelain", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const statusOut = (await new Response(statusProc.stdout).text()).trim();
           if (statusOut.startsWith("??")) {
-            const rmProc = Bun.spawn(["rm", "-rf", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-            await rmProc.exited;
-            if (rmProc.exitCode !== 0) failed.push(file);
+            // Scartare un file NON TRACCIATO non è come scartare uno tracciato:
+            // git non ne ha copia, quindi qui non c'è niente da ripristinare.
+            // Ed è lo stesso bottone, sulla riga accanto. Va nel cestino.
+            //
+            // Il path arriva dal client: si ricompone contro la cartella
+            // risolta e si controlla che ci resti dentro. `git status` sopra è
+            // già una barriera (fuori dal repo risponde con un errore, non con
+            // `??`), ma una cancellazione non deve appoggiarsi a una barriera
+            // di rimbalzo.
+            const assoluto = resolve(resolvedDir, file);
+            if (assoluto !== resolvedDir && !assoluto.startsWith(resolvedDir + "/")) { failed.push(file); continue; }
+            const esito = await moveToTrash(assoluto);
+            if (!esito.ok) failed.push(file);
           } else {
             const proc = Bun.spawn(["git", "checkout", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
             await proc.exited;
@@ -978,15 +989,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedFile) return errorResponse(400, "Invalid path");
       if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
       try {
-        const stat = statSync(resolvedFile);
-        if (stat.isDirectory()) {
-          // Recursive delete for directories
-          const rmProc = Bun.spawn(["rm", "-rf", resolvedFile], { stdout: "pipe", stderr: "pipe" });
-          await rmProc.exited;
-        } else {
-          unlinkSync(resolvedFile);
-        }
-        return json({ ok: true });
+        // Nel cestino, non `rm -rf`. Vale per file e cartelle allo stesso modo:
+        // era l'unico punto del server che cancellava per davvero su richiesta
+        // di un click, senza conferma e senza un modo di tornare indietro.
+        //
+        // Se il cestino non è raggiungibile la chiamata FALLISCE. Ricadere su
+        // `rm` sarebbe peggio che non avere il cestino: si legge «spostato nel
+        // cestino», si va a cercarlo lì, e non c'è.
+        const esito = await moveToTrash(resolvedFile);
+        if (!esito.ok) return json({ error: esito.error || "Non sono riuscito a spostarlo nel cestino" }, 500);
+        return json({ ok: true, trashed: true });
       } catch (err: any) {
         return json({ error: "Failed to delete: " + err.message }, 500);
       }
