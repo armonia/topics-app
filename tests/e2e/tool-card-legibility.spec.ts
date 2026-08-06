@@ -3,6 +3,9 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
+import { E2E_HOME } from "./helpers/test-server";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 
 hermetic(test);
 
@@ -319,6 +322,9 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     // che sa cosa hai lanciato è il tuo messaggio.
     const fresh = await createTopic(request, "Comando " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
+    const cmdDir = join(E2E_HOME, ".claude", "commands");
+    mkdirSync(cmdDir, { recursive: true });
+    writeFileSync(join(cmdDir, "recap.md"), "Fai un riassunto in massimo 2 righe di questa chat.");
     try {
       const u = await seedMessage(request, {
         sessionKey: sk, role: "user", content: "/recap",
@@ -347,7 +353,19 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       const riga = page.locator('[data-testid="invoked-command-row"]').last();
       await expect(riga).toBeVisible();
       await expect(riga).toHaveAttribute("data-command", "recap");
+      // L'intestazione è il COMANDO, non «Skill (/recap)»: la categoria non
+      // aggiunge niente che la riga non dica già.
       await expect(riga).toContainText("/recap");
+      await expect(riga).not.toContainText("Skill (");
+      await expect(riga).not.toContainText("Comando (");
+
+      // …e si APRE: il corpo non passa dal filo, lo legge dal file il server.
+      // Il server di test ha un HOME isolato, quindi il comando va seminato lì
+      // — è esattamente il file che il server andrà a leggere.
+      await riga.locator("button").first().click();
+      const corpo = riga.locator('[data-testid="invoked-command-body"]');
+      await expect(corpo).toBeVisible({ timeout: 10_000 });
+      await expect(corpo).toContainText("riassunto");
 
       await cmd.screenshot({ path: "test-results/user-slash-command.png" });
       await riga.screenshot({ path: "test-results/invoked-command-row.png" });

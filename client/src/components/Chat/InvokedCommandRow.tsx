@@ -1,66 +1,91 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, Terminal } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles, Terminal } from 'lucide-react';
 import { slashCommandsApi } from '../../lib/api';
 
 /**
- * «Questo turno sta girando la skill X».
+ * «Questo turno gira /recap» — e cosa c'è dentro /recap.
  *
- * Quando lanci `/recap`, la CLI espande il comando PRIMA del turno: sul filo non
- * torna nessun `tool_use` (verificato), quindi non c'è nessuna riga di tool da
- * mostrare. Prima il segnale c'era per sbaglio — il corpo del comando colava
- * dentro la risposta — e toglierlo ha lasciato il turno muto.
+ * Quando lanci un comando, la CLI lo espande PRIMA del turno: sul filo non
+ * torna nessun `tool_use` e nessun testo (verificato), quindi non c'è nessuna
+ * riga di tool da mostrare. Prima il segnale c'era per sbaglio — il corpo del
+ * comando colava dentro la risposta — e toglierlo aveva lasciato il turno muto.
  *
- * Questa riga NON finge una chiamata a un tool: non nasce da `tool_calls`, non
- * viene salvata, non ha un corpo da aprire. Dice l'unica cosa che Topics sa per
- * certo — quale comando hai lanciato — nel posto dove la si cercava.
+ * La riga NON finge una chiamata a un tool: non nasce da `tool_calls`, non si
+ * salva, e il corpo non è «il risultato» di niente. È il FILE del comando,
+ * letto dal disco su richiesta — la stessa cartella da cui Topics ricava
+ * l'elenco dei comandi. Per questo l'etichetta del corpo dice «contenuto
+ * attuale»: è il file com'è adesso, non una fotografia di quando è girato. Su
+ * un comando lanciato un minuto fa è la stessa cosa; su una chat di sei mesi
+ * fa potrebbe non esserlo, e dirlo costa una riga.
  *
- * Skill o comando lo dice il registro (`/api/slash-commands`, campo `kind`):
- * quando non lo sappiamo ancora, si resta sul termine neutro invece di
- * indovinare.
+ * L'intestazione è il comando e basta — `/recap` — non «Skill (/recap)»: il
+ * nome della categoria non aggiunge niente che il resto della riga non dica.
  */
-
-/** Il registro è già in cache nel modulo dell'API: qui si legge e basta. */
-function useCommandKind(name: string): 'command' | 'skill' | null {
+export function InvokedCommandRow({ command, args }: { command: string; args?: string }) {
+  const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'command' | 'skill' | null>(null);
+  const [body, setBody] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Il registro è già in cache nel modulo dell'API: qui si legge il tipo per
+  // scegliere l'icona, senza una richiesta in più.
   useEffect(() => {
     let alive = true;
-    slashCommandsApi
-      .list()
-      .then((list) => {
-        if (!alive) return;
-        const hit = list.find((c) => c.name === name);
-        setKind(hit?.kind ?? null);
-      })
-      .catch(() => { /* registro non raggiungibile: si resta sul neutro */ });
+    slashCommandsApi.list()
+      .then((list) => { if (alive) setKind(list.find((c) => c.name === command)?.kind ?? null); })
+      .catch(() => { /* registro non raggiungibile: icona neutra */ });
     return () => { alive = false; };
-  }, [name]);
-  return kind;
-}
+  }, [command]);
 
-export function InvokedCommandRow({ command, args }: { command: string; args?: string }) {
-  const kind = useCommandKind(command);
-  const isSkill = kind === 'skill';
-  const Icon = isSkill ? Sparkles : Terminal;
+  // Il corpo si scarica alla PRIMA apertura: una chat lunga non deve leggere
+  // dal disco un file per ogni comando che contiene.
+  useEffect(() => {
+    if (!open || body !== null || error) return;
+    let alive = true;
+    slashCommandsApi.source(command)
+      .then((src) => { if (alive) setBody(src.body); })
+      .catch(() => { if (alive) setError('Il file di questo comando non è più leggibile.'); });
+    return () => { alive = false; };
+  }, [open, command, body, error]);
+
+  const Icon = kind === 'skill' ? Sparkles : Terminal;
+
   return (
-    <div
-      data-testid="invoked-command-row"
-      data-command={command}
-      data-kind={kind ?? 'unknown'}
-      className="text-[12px] flex items-center gap-2 py-1 text-app-text-secondary"
-      title={`Questo turno gira ${isSkill ? 'la skill' : 'il comando'} /${command}`}
-    >
-      {/* Il posto del chevron resta vuoto: questa riga non si apre, ma parte
-          dalla stessa colonna delle righe di azione che le stanno sotto. */}
-      <span className="w-3 flex-shrink-0" aria-hidden="true" />
-      <Icon size={13} className="flex-shrink-0 text-app-text-muted" />
-      <span className="flex-1 min-w-0 flex items-baseline gap-1">
-        <span className="flex-shrink-0 font-medium text-app-text">{isSkill ? 'Skill' : 'Comando'}</span>
-        <span className="min-w-0 flex items-baseline text-[11px] text-app-text-secondary font-mono">
-          <span className="flex-shrink-0">(</span>
-          <span className="truncate">/{command}{args ? ` ${args}` : ''}</span>
-          <span className="flex-shrink-0">)</span>
+    <div data-testid="invoked-command-row" data-command={command} data-kind={kind ?? 'unknown'} className="text-[12px]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title={`Questo turno gira ${kind === 'skill' ? 'la skill' : 'il comando'} /${command}`}
+        className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+      >
+        {open
+          ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />
+          : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />}
+        <Icon size={13} className="flex-shrink-0 text-app-text-muted" />
+        <span className="flex-1 min-w-0 flex items-baseline gap-1 font-mono">
+          <span className="flex-shrink-0 font-medium text-app-text">/{command}</span>
+          {args && <span className="min-w-0 truncate text-[11px] text-app-text-secondary">{args}</span>}
         </span>
-      </span>
+      </button>
+      {open && (
+        <div className="ml-5 pb-1.5 space-y-1">
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
+            {kind === 'skill' ? 'Istruzioni della skill' : 'Contenuto del comando'} · attuale
+          </div>
+          {error ? (
+            <div className="text-[11px] text-amber-600 dark:text-amber-400">{error}</div>
+          ) : body === null ? (
+            <div className="text-[11px] italic text-app-text-muted">Leggo il file…</div>
+          ) : (
+            <pre
+              data-testid="invoked-command-body"
+              className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
+            >
+              {body}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }

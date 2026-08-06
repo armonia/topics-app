@@ -35,6 +35,7 @@ import { waitForAnswer, deliverAnswer, hasPendingAsk, pendingAskAgeMs, cancelAsk
 // mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
+import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1071,6 +1072,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // composer just needs to surface them; on send they fall through to the
     // child (handleSlashCommand only intercepts the app allowlist). Best-effort:
     // a missing dir is simply skipped.
+    // Il CORPO di un comando slash. Sul filo non passa — la CLI espande lo
+    // slash prima del turno — ma il file c'è, ed è lo stesso da cui l'elenco
+    // qui sotto ricava nome e descrizione. Il nome arriva dal client: il
+    // cancello sta in lib/slash-command-source.ts, che rifiuta tutto ciò che
+    // potrebbe uscire dalle cartelle note (link simbolici compresi).
+    if (method === "GET" && pathname.startsWith("/api/slash-commands/")) {
+      const name = decodeURIComponent(pathname.slice("/api/slash-commands/".length));
+      if (!isValidSlashCommandName(name)) return errorResponse(400, "nome non valido");
+      const src = readSlashCommandSource(name);
+      if (!src) return errorResponse(404, "comando non trovato");
+      return json(src);
+    }
+
     if (method === "GET" && pathname === "/api/slash-commands") {
       const out: Array<{ name: string; description: string; kind: "command" | "skill" }> = [];
       const seen = new Set<string>();
