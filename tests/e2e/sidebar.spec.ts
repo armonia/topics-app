@@ -170,7 +170,11 @@ test.describe("Sidebar — Unified Timeline", () => {
       description: "SIDEBAR-AC2",
     });
 
-    // Pre-open tabs so sections have content in grouped view
+    // Il modo "per tipo" e' stato RIMOSSO (Attilio, 06/08): sapere che una cosa
+    // e' una chat o un terminale non aiuta a decidere cosa guardare — il tipo si
+    // vede gia' dal glifo di ogni riga, quindi la sezione ripeteva
+    // un'informazione che era gia' li' e in cambio spezzava la lista. Restano
+    // due modi, e il giro e' fra quei due.
     await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [created.topics[1]] },
     });
@@ -185,40 +189,31 @@ test.describe("Sidebar — Unified Timeline", () => {
     const topicsMenuBtn = page.locator('button[title="Settings & Tools"]');
     await topicsMenuBtn.click();
 
-    // Timeline → grouped: the menu row reads "Vista per tipo".
-    const groupedToggle = page.getByRole("button", { name: "Vista per tipo" });
-    await expect(groupedToggle).toBeVisible({ timeout: 5000 });
-    await groupedToggle.click();
+    // Il modo per tipo non e' piu' nemmeno offerto.
+    await expect(page.getByRole("button", { name: "Vista per tipo" })).toHaveCount(0);
 
-    // In grouped view, collapsible section headers should appear
-    await expect(
-      page.getByRole("button", { name: /sezione Chat/ })
-    ).toBeVisible({ timeout: 3000 });
-
-    // L'etichetta dice il modo SUCCESSIVO: dopo "per tipo" viene "per stato".
+    // Timeline → per stato. L'etichetta dice il modo SUCCESSIVO.
     const statoToggle = page.getByRole("button", { name: "Vista per stato" });
-    await expect(statoToggle).toBeVisible({ timeout: 3000 });
+    await expect(statoToggle).toBeVisible({ timeout: 5000 });
     await statoToggle.click();
 
-    // Vista per stato: le sezioni non sono più i TIPI di pane ma gli stati, e
-    // "Il resto" c'è sempre quando ci sono righe senza fase (qui nessuna sessione
-    // Claude è stata seminata, quindi tutte le righe stanno lì).
+    // Vista per stato: le sezioni sono gli STATI, mai i tipi.
     await expect(
       page.locator('[data-testid="sidebar-state-section-rest"]')
     ).toBeVisible({ timeout: 3000 });
     await expect(
       page.getByRole("button", { name: /sezione Chat/ })
-    ).toBeHidden({ timeout: 3000 });
+    ).toHaveCount(0);
 
-    // Il giro si chiude: da "per stato" si torna a timeline.
+    // Il giro si chiude in due: da "per stato" si torna a timeline.
     const timelineToggle = page.getByRole("button", { name: "Vista timeline" });
     await expect(timelineToggle).toBeVisible({ timeout: 3000 });
     await timelineToggle.click();
 
-    // Timeline: nessuna sezione, né per tipo né per stato.
+    // Timeline: nessuna sezione di nessun genere.
     await expect(
       page.getByRole("button", { name: /sezione Chat/ })
-    ).toBeHidden({ timeout: 3000 });
+    ).toHaveCount(0);
     await expect(
       page.locator('[data-testid="sidebar-state-section-rest"]')
     ).toBeHidden({ timeout: 3000 });
@@ -293,8 +288,10 @@ test.describe("Sidebar — Unified Timeline", () => {
     await expect(
       page.getByRole("button", { name: "Mostra archiviati" })
     ).toBeVisible({ timeout: 3000 });
+    // Il toggle c'e' e nomina il modo SUCCESSIVO. Da timeline il successivo e'
+    // "per stato": il modo "per tipo" e' stato rimosso il 06/08.
     await expect(
-      page.getByRole("button", { name: "Vista per tipo" })
+      page.getByRole("button", { name: "Vista per stato" })
     ).toBeVisible({ timeout: 3000 });
   });
 
