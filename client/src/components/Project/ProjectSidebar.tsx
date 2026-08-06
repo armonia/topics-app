@@ -469,6 +469,13 @@ export function ProjectSidebar({
             >
               <button
                 onClick={() => toggleSection('processes')}
+                // Ancora stabile per chi guarda da fuori: l'etichetta è tradotta
+                // dal 9d1991ea («Multilingua: terzo lotto»), quindi il testo non
+                // è un appiglio. E il bottone è un TOGGLE: `aria-expanded` è
+                // l'unico modo di aprirlo senza rischiare di richiuderlo — il
+                // gemello nella rail lo dichiara già (RailButton).
+                data-testid="project-sidebar-processes"
+                aria-expanded={expandedSections.processes}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
@@ -640,6 +647,11 @@ export function ProjectSidebar({
         >
           <button
             onClick={() => toggleSection('processes')}
+            // Stessa ancora della variante mobile qui sopra: l'etichetta è
+            // tradotta (9d1991ea) e il bottone è un toggle, quindi il testid dice
+            // «quale controllo» e `aria-expanded` dice «è già aperto?».
+            data-testid="project-sidebar-processes"
+            aria-expanded={expandedSections.processes}
             className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
           >
             <CirclePlay size={14} className="flex-shrink-0" />
