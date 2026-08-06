@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { isPairingRequired, subscribePairingRequired } from '@/lib/shell/pairing';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
@@ -127,11 +126,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
   const perf = usePerfMetrics(true, 5000);
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
-
-  // «Dispositivo non appaiato»: lo alza `api.ts` al primo 401 del server. Vive
-  // fuori da React perché a vederlo è la fetch, non un componente.
-  const [pairingRequired, setPairingRequired] = useState(isPairingRequired);
-  useEffect(() => subscribePairingRequired(setPairingRequired), []);
 
   // Desktop (Tauri) gates the relaunch button + the live-version override; these
   // route through the shell bridge (relaunch()/getVersion()).
@@ -491,12 +485,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
               wsStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'
             }`} />
             <span className="truncate">
-              {/* Un dispositivo non appaiato non sta «riconnettendo»: sta
-                  bussando a una porta chiusa. Dirlo e' l'unica differenza fra
-                  un'attesa e un vicolo cieco — vedi shell/pairing.ts. */}
-              {pairingRequired
-                ? 'Dispositivo non appaiato — riapri il link con ?token='
-                : wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
+              {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
             </span>
           </span>
         )}

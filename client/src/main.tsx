@@ -9,18 +9,10 @@ import App from './App'
 import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
-import { capturePairingTokenFromUrl } from './lib/shell/pairing';
 
-// LAN/PWA pairing (LAN-PAIR-01): capture a `?token=` launch param into storage
-// and strip it from the address bar BEFORE any fetch/WS fires, so the first
-// authenticated call carries the token and the bar is clean on first paint.
-// No-op on desktop/loopback (never launched with a token).
-capturePairingTokenFromUrl();
-
-// Shim di rete, DOPO la cattura del token (il suo gate lo legge): sotto Tauri
-// riscrive le fetch relative verso l'origine del data server, e su qualunque
-// shell attacca il token di pairing ai percorsi che usano `fetch` nudo. Deve
-// girare prima di ogni fetch di bootstrap. Su web senza token non si installa.
+// Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
+// server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
+// lì l'URL relativo è già quello giusto.
 installNetShim();
 
 const container = document.getElementById('root')

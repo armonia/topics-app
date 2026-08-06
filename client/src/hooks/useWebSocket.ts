@@ -5,7 +5,6 @@ import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
-import { withTokenQuery } from '../lib/shell/pairing';
 import { applyUnreadUpdate, clearUnreadFor, hasUnread } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
 import { SEEN_DWELL_MS } from '../state/signals';
@@ -101,9 +100,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    // LAN-PAIR-01: WS can't carry headers, so a paired remote device presents
-    // the token as a `?token=` query param; bare `/ws` on desktop/loopback.
-    const ws = new WebSocket(withTokenQuery(`${serverWsBase()}/ws`));
+    const ws = new WebSocket(`${serverWsBase()}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
