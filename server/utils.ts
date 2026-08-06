@@ -557,14 +557,33 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /**
+   * Il filtro che decide se un frame può raggiungere un dispositivo OSPITE.
+   * Iniettato da `server.ts` (serve il DB) e `null` finché non lo è: `null`
+   * significa «nessun ospite da filtrare», cioè il comportamento precedente.
+   */
+  let guestFilter: ((deviceId: string, message: OutboundMessage) => boolean) | null = null;
+  function setGuestBroadcastFilter(fn: typeof guestFilter): void { guestFilter = fn; }
+  function guestSocketFilter() { return guestFilter; }
+
   function broadcastToAll(message: OutboundMessage) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
+    // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
+    // non è una richiesta: senza questo filtro un ospite col socket aperto
+    // vedrebbe passare stato dei progetti, git, presenza, capacità di dispatch —
+    // cioè esattamente ciò che non gli abbiamo condiviso.
+    //
+    // Il filtro è per TIPO (allowlist) e poi per ENTITÀ. Per tipo perché dei ~91
+    // frame del registro solo 39 portano un id: affidarsi all'id lascerebbe
+    // passare gli altri 52. Per entità perché un tipo ammesso non basta —
+    // `task:updated` di un task non condiviso resta roba d'altri.
+    const guests = guestSocketFilter();
     for (const ws of wsClients) {
-      if (ws.readyState === 1) {
-        try { ws.send(payload); } catch (err) {
-          console.error(`[WS] Send error to ${ws.data.id}:`, err);
-        }
+      if (ws.readyState !== 1) continue;
+      if (guests && ws.data.deviceId && !guests(ws.data.deviceId, message)) continue;
+      try { ws.send(payload); } catch (err) {
+        console.error(`[WS] Send error to ${ws.data.id}:`, err);
       }
     }
     // Trigger push notifications for meaningful events
@@ -1815,7 +1834,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers,
+    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,

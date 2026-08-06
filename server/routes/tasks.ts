@@ -582,7 +582,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // lettura. Tutto il resto di questo router — board, dispatch, commenti,
     // capacità, publish — non è roba sua: non è nascosto, è negato.
     const identita = ctx.requestIdentity?.(req) ?? null;
-    if (identita?.role === "guest") {
+    // SOLO sui percorsi che QUESTO router serve. Il blocco intercettava anche
+    // `/api/topics/...`, che è di un altro router, e rispondeva «non condiviso»
+    // a una chat regolarmente concessa: un router che nega per conto di un altro
+    // è un guasto che si manifesta lontano dalla sua causa.
+    const miePath = pathname.startsWith("/api/tasks/")
+      || pathname.startsWith("/api/all-boards/")
+      || pathname.startsWith("/api/boards/")
+      || pathname === "/api/system/dispatch-capacity";
+    if (identita?.role === "guest" && miePath) {
       const deviceId = identita.deviceId;
       if (!deviceId) return json({ error: "ospite senza identità" }, 403);
       // Sola lettura, senza eccezioni: un ospite che scrive in un thread o
@@ -591,8 +599,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (method !== "GET") return json({ error: "sola lettura", code: "guest_read_only" }, 403);
 
       const condivisi = new Set(
-        (ctx.db.query("SELECT task_id FROM task_shares WHERE device_id = ?").all(deviceId) as Array<{ task_id: string }>)
-          .map((r) => r.task_id),
+        (ctx.db.query(
+          "SELECT resource_id FROM grants WHERE subject_type='device' AND subject_id = ? AND resource_type='task'",
+        ).all(deviceId) as Array<{ resource_id: string }>).map((r) => r.resource_id),
       );
 
       // L'elenco: solo i suoi.
