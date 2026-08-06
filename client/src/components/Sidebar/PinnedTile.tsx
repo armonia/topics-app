@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, BookOpen, ChevronDown, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, SELECTED_SURFACE } from '../../lib/selectionStyles';
@@ -332,19 +332,23 @@ export function PinnedTile({
           e nella direzione in cui succede davvero (la fascia si apre SOTTO la
           riga). Ruota quando è aperta, come ogni altra disclosure dell'app.
 
-          Sta in un ANGOLO, e non sotto il contenuto: 56px di tessera li
-          prendono già l'icona (22) e un nome che può andare a capo (~25), e
-          riservargli una fascia in fondo scentrava icona e titolo rispetto alla
-          tessera — che è esattamente ciò che si vedeva. In alto a sinistra
-          specchia il badge in alto a destra: i due angoli portano i due dati di
-          servizio, e il centro resta del contenuto. */}
+          È LO STESSO chevron delle righe: `ChevronRight` da 12, che ruota di
+          90° da aperto (progetti, sotto-agenti, card dei gruppi). Un glifo
+          diverso solo perché qui la superficie è un quadrato avrebbe fatto
+          sembrare due cose diverse un'apertura e un'apertura.
+
+          In basso al CENTRO, sull'asse del contenuto, non in un angolo — dove
+          era prima e stonava. E assoluto: 56px di tessera li prendono già
+          l'icona (22) e un nome che può andare a capo (~25), quindi il segno non
+          può chiedere spazio nel flusso. Riservargliene (`pb`) scentrava icona e
+          titolo rispetto alla tessera, che è il difetto di ieri. */}
       {expandable && (
-        <ChevronDown
-          size={10}
+        <ChevronRight
+          size={12}
           aria-hidden="true"
           data-testid="pinned-expand-hint"
-          className={`pointer-events-none absolute top-1 left-1 text-app-text-faint transition-transform duration-150 ${
-            expanded ? 'rotate-180' : ''
+          className={`pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 text-app-text-tertiary transition-transform duration-150 ${
+            expanded ? 'rotate-90' : ''
           }`}
         />
       )}
