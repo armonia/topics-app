@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -199,11 +199,13 @@ function MessageQueueBadge({
   onUpdateItem,
   onRemoveItem,
   onClear,
+  isMobile,
 }: {
   queue: string[];
   onUpdateItem: (index: number, content: string) => void;
   onRemoveItem: (index: number) => void;
   onClear: () => void;
+  isMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -226,33 +228,44 @@ function MessageQueueBadge({
   });
 
   return (
-    <div className="relative px-3 pb-1.5" ref={popoverRef}>
+    // Stessa scocca di TodoStrip e dell'avviso di contesto: una card rientrata,
+    // bordo tenue, superficie neutra. NON arancione — l'arancione qui diceva
+    // «attenzione» a una cosa che l'utente ha chiesto lui, e la faceva sembrare
+    // un problema invece di una promessa.
+    <div className={`relative ${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-lg border border-app-border/60 bg-app-hover/40`} ref={popoverRef}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         data-testid="message-queue-badge"
-        className="text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-1.5 transition-colors"
-        title={open ? 'Hide queued messages' : 'Show queued messages'}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        title={open ? 'Nascondi i messaggi in coda' : 'Mostra i messaggi in coda'}
         aria-expanded={open}
       >
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-        ({count} message{count > 1 ? 's' : ''} queued)
-        <span className="text-app-text-muted">{open ? '▾' : '▸'}</span>
+        <ChevronRight
+          size={13}
+          className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <Clock size={13} className="flex-shrink-0 text-app-text-secondary" />
+        <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">{count}</span>
+        {/* Il testo dice COSA succede, non ripete il numero che ha accanto. */}
+        <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
+          {count > 1 ? 'messaggi in coda' : 'messaggio in coda'} — parte a fine turno
+        </span>
       </button>
 
       {open && (
-        <div className={`absolute bottom-full left-3 right-3 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
+        <div className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
-              Queued message{count > 1 ? 's' : ''} ({count})
+              In coda ({count})
             </span>
             <button
               type="button"
               onClick={() => { onClear(); setOpen(false); }}
               className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
-              title="Clear all queued messages"
+              title="Svuota la coda"
             >
-              Clear all
+              Svuota
             </button>
           </div>
           <ul className="py-1.5">
@@ -271,7 +284,7 @@ function MessageQueueBadge({
               TIENE la coda invece di farla partire (vedi `state/chatQueue.ts`).
               Dirlo qui evita che «ferma» sembri «cancella». */}
           <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
-            Sent when the current turn ends. Stop keeps them here.
+            Partono quando il turno finisce. Fermare NON li cancella: restano qui.
           </div>
         </div>
       )}
@@ -1058,6 +1071,22 @@ export function ChatInput({
       )}
       </div>
 
+      {/* La coda sta CON le altre strisce, sopra il composer — non dentro.
+          Stava in fondo al form, sotto la riga dei bottoni: una scritta nuda in
+          arancione, attaccata al bordo inferiore, che sembrava un errore del
+          composer invece di uno stato della conversazione. È esattamente la
+          stessa cosa che dicono TodoStrip e l'avviso di contesto — «ecco cosa
+          sta per succedere» — e ora parla la loro lingua e sta al loro posto. */}
+      {messageQueue.length > 0 && (
+        <MessageQueueBadge
+          queue={messageQueue}
+          onUpdateItem={onUpdateQueueItem}
+          onRemoveItem={onRemoveQueueItem}
+          onClear={onClearQueue}
+          isMobile={isMobile}
+        />
+      )}
+
       {/* Floating input card */}
       <form
         onSubmit={onSubmit}
@@ -1450,14 +1479,6 @@ export function ChatInput({
           </>
         )}
         {chatError && <div className="text-red-500 text-[11px] px-3 pb-1.5">{chatError}</div>}
-        {messageQueue.length > 0 && (
-          <MessageQueueBadge
-            queue={messageQueue}
-            onUpdateItem={onUpdateQueueItem}
-            onRemoveItem={onRemoveQueueItem}
-            onClear={onClearQueue}
-          />
-        )}
       </form>
 
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom
