@@ -19,10 +19,13 @@ import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
-  type BoardTask, type TaskStatus, type BoardSettings,
+  boardApi, boardIdForPath, isProjectlessId, TASK_STATUSES, UNASSIGNED_PROJECT_ID,
+  type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
+import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { ProjectPickerBody } from './ProjectPicker';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
@@ -339,18 +342,64 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
       : [...filters.assignedTo, a];
     onFiltersChange({ ...filters, assignedTo: updated });
   };
-  const toggleProject = (pid: string) => {
-    const updated = filters.projectId.includes(pid)
-      ? filters.projectId.filter((x) => x !== pid)
-      : [...filters.projectId, pid];
-    onFiltersChange({ ...filters, projectId: updated });
-  };
   const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
-  const projects = Array.from(new Set(tasks.map((t) => t.projectId))).sort();
-  const showProjects = mode === 'all' && projects.length > 0;
-  const projName = (pid: string) => (pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, ''));
+
+  // ── Progetto: LO STESSO selettore del composer ────────────────────────────
+  // Prima questo filtro era un widget a parte che dell'indice progetti non
+  // sapeva nulla: niente ricerca, niente icone, e come nome l'id della board
+  // con l'hash tagliato via (`topics-app-4f2c` → «topics-app»), che assomiglia
+  // al nome vero ma non lo è. Ora la lista passa per `resolveProjectRefs`, che
+  // risolve nome e `path` — e senza `path` non c'è icona — dallo stesso indice
+  // che alimenta il chip del composer e il «Sposta su…» del drawer.
+  const projectIndex = useBoardProjects(mode === 'all');
+  const taskProjectIds = useMemo(() => Array.from(new Set(tasks.map((t) => t.projectId))), [tasks]);
+  // I task «senza progetto» sono di DUE specie (`_none` e la board catch-all
+  // `generale-<hash>`), ma per chi filtra sono una cosa sola: una riga, che
+  // accende e spegne entrambi gli id.
+  const projectlessIds = useMemo(() => taskProjectIds.filter(isProjectlessId), [taskProjectIds]);
+  const projectCounts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const t of tasks) {
+      const key = isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId;
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  }, [tasks]);
+  const projectOptions = useMemo(() => {
+    const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
+    return projectlessIds.length
+      ? [{ projectId: UNASSIGNED_PROJECT_ID, name: 'Senza progetto', path: '' }, ...refs]
+      : refs;
+  }, [taskProjectIds, projectlessIds, projectIndex]);
+  const showProjects = mode === 'all' && projectOptions.length > 0;
+  // Gli id che la riga «Senza progetto» rappresenta davvero.
+  const idsFor = (p: BoardProjectRef) =>
+    (p.projectId === UNASSIGNED_PROJECT_ID && projectlessIds.length ? projectlessIds : [p.projectId]);
+  const selectedProjectIds = useMemo(() => {
+    const sel = new Set(filters.projectId);
+    // La riga sintetica si accende se è acceso uno QUALSIASI dei suoi id.
+    if (projectlessIds.some((id) => sel.has(id))) sel.add(UNASSIGNED_PROJECT_ID);
+    return Array.from(sel);
+  }, [filters.projectId, projectlessIds]);
+  const toggleProject = (p: BoardProjectRef) => {
+    const ids = idsFor(p);
+    const on = ids.some((id) => filters.projectId.includes(id));
+    const updated = on
+      ? filters.projectId.filter((x) => !ids.includes(x))
+      : [...filters.projectId, ...ids.filter((id) => !filters.projectId.includes(id))];
+    onFiltersChange({ ...filters, projectId: updated });
+  };
+  // Le RIGHE accese (non gli id: «Senza progetto» ne rappresenta due). Un solo
+  // progetto filtrato → il chip lo MOSTRA (icona + nome), invece di dire
+  // «Progetto ·1» e costringere ad aprire il menu per sapere quale.
+  const pickedProjects = useMemo(
+    () => projectOptions.filter((p) => selectedProjectIds.includes(p.projectId)),
+    [projectOptions, selectedProjectIds],
+  );
+  const soleProject = pickedProjects.length === 1 ? pickedProjects[0]! : null;
+
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
 
   // Same chip look the composer uses for its model/priority/project pickers.
@@ -358,7 +407,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // its UA line-height — sits at the exact same height as these buttons.
   const chip = (active: boolean) =>
     `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
-      active ? 'bg-white/15 text-app-text' : 'bg-white/5 text-app-text-heading hover:bg-white/10'
+      active ? 'bg-black/15 text-app-text dark:bg-white/15' : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
     }`;
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
@@ -372,7 +421,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10 sm:w-40"
+          className="h-6 w-28 rounded-md bg-black/5 pl-6 pr-1.5 text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder focus:bg-black/10 dark:bg-white/5 dark:focus:bg-white/10 sm:w-40"
         />
       </div>
 
@@ -408,18 +457,33 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         </>
       )}
 
-      {/* Project — chip + Menu, only in the 'all' view */}
+      {/* Progetto — chip + LO STESSO ProjectPickerBody del composer, in
+          modalità multi-selezione: il menu non si chiude a ogni clic perché un
+          filtro si costruisce a più scelte. */}
       {showProjects && (
         <>
-          <button ref={projBtnRef} onClick={() => setProjOpen(true)} title="Filtra per progetto" className={chip(filters.projectId.length > 0)}>
-            Progetto{filters.projectId.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.projectId.length}</span>}
-            <ChevronDown className="h-3 w-3 text-app-text-muted" />
+          <button
+            ref={projBtnRef} onClick={() => setProjOpen(true)}
+            data-testid="filter-project-chip"
+            title={soleProject ? `Filtro progetto: ${soleProject.name}` : 'Filtra per progetto'}
+            className={`${chip(filters.projectId.length > 0)} min-w-0 max-w-[11rem]`}
+          >
+            {soleProject && <ProjectFavicon path={soleProject.path} size={12} />}
+            <span className="min-w-0 truncate">{soleProject ? soleProject.name : 'Progetto'}</span>
+            {!soleProject && pickedProjects.length > 0 && (
+              <span className="tabular-nums text-app-text-secondary">·{pickedProjects.length}</span>
+            )}
+            <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
           </button>
-          <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={200} role="listbox">
-            <p className={menuHeader}>{tr('common.project')}</p>
-            {projects.map((pid) => (
-              <FilterOption key={pid} selected={filters.projectId.includes(pid)} onClick={() => toggleProject(pid)} label={projName(pid)} />
-            ))}
+          <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={230} role="listbox" unmanagedFocus>
+            <ProjectPickerBody
+              projects={projectOptions}
+              selectedIds={selectedProjectIds}
+              onPick={toggleProject}
+              busy={false}
+              listLabel={tr('common.project')}
+              counts={projectCounts}
+            />
           </Menu>
         </>
       )}
@@ -766,15 +830,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // Project path index, only needed in the cross-project board (per-card
   // favicon — task.projectId is a one-way hash, ProjectFavicon needs a path).
-  const [projectPathById, setProjectPathById] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    if (mode !== 'all') return;
-    let alive = true;
-    boardApi.projects()
-      .then((ps) => { if (alive) setProjectPathById(new Map(ps.map((p) => [p.projectId, p.path]))); })
-      .catch(() => { /* card just falls back to the text label */ });
-    return () => { alive = false; };
-  }, [mode]);
+  // Dallo store CONDIVISO: card, filtro e composer devono vedere lo stesso
+  // indice nello stesso istante, altrimenti l'icona compare su una superficie
+  // e non sull'altra a seconda di chi ha fetchato prima.
+  const projectIndex = useBoardProjects(mode === 'all');
+  const projectPathById = useMemo(
+    () => new Map((projectIndex ?? []).map((p) => [p.projectId, p.path])),
+    [projectIndex],
+  );
 
   const patchLocal = useCallback((id: string, patch: Partial<BoardTask>) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -799,7 +862,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       const el = document.activeElement as HTMLElement | null;
       const isField = !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
       const inComposer = !!el?.closest('[data-testid="board-task-composer"]');
-      setTypingElsewhere(isField && !inComposer);
+      // Un campo dentro un MENU fluttuante non è «scrivere altrove»: il menu è
+      // portalato su <body>, quindi `closest` non lo riconduce mai al composer
+      // che lo ha aperto. Senza questa condizione, digitare nella ricerca del
+      // picker progetto smontava il composer — e con lui il menu stesso, che ne
+      // è figlio React: il popover spariva al primo carattere.
+      const inFloatingMenu = !!el?.closest('[data-popover]');
+      setTypingElsewhere(isField && !inComposer && !inFloatingMenu);
     };
     window.addEventListener('focusin', sync);
     window.addEventListener('focusout', sync);

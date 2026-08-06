@@ -23,6 +23,7 @@ import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORD
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
+import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -748,18 +749,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // the server-resolvable board index — fetched lazily on first open.
   const projChipRef = useRef<HTMLButtonElement>(null);
   const [projMenuOpen, setProjMenuOpen] = useState(false);
-  const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
   const [projBusy, setProjBusy] = useState(false);
 
   // Eager, not lazy: the chip needs the real path for its favicon (and an
   // accurate label) the moment the drawer opens, not only after the user
-  // clicks "Sposta su…" once. (fetch-on-mount: setState lands after the await.)
-  useEffect(() => { boardApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
+  // clicks "Sposta su…" once. Dallo store condiviso: era una quarta fetch
+  // dello STESSO indice, con l'icona che arrivava in un momento diverso da
+  // quello del composer e delle card.
+  const projects = useBoardProjects();
   const openProjMenu = () => setProjMenuOpen(true);
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
   const projectLabel = task && isProjectlessId(task.projectId)
     ? 'Nessun progetto'
-    : currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
+    : currentProject?.name ?? (task ? projectNameFromId(task.projectId) : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
     : task.assignedTopicId || isAgentWorking(task.dispatchState)
@@ -800,7 +802,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setProjBusy(true);
     try {
       const created = await boardApi.createProject(name);
-      setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : prev));
+      addBoardProject(created); // entra nell'indice per OGNI superficie, non solo qui
       await boardApi.move(task.projectId, taskId, created.projectId);
       setError(null); setProjMenuOpen(false);
       onChanged();

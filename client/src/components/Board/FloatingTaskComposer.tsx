@@ -3,9 +3,10 @@ import { Check, ChevronDown, ClipboardList, Loader2, Send, Sparkles } from 'luci
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, UNASSIGNED_PROJECT_ID, type BoardProjectRef } from '../../lib/board';
+import { addBoardProject, projectNameFromId, useBoardProjects } from '../../lib/boardProjectsStore';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
+import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow, friendlyModelLabel } from './format';
 import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -29,7 +30,13 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   const [focused, setFocused] = useState(false);
   const [planFirst, setPlanFirst] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
+  // L'indice dei progetti arriva dallo store CONDIVISO e parte al mount, non al
+  // primo focus. Il chip mostra il `path` del progetto scelto — e senza `path`
+  // non c'è icona: caricandolo pigramente, una bozza ripristinata (che espande
+  // il composer senza alcun focus) lasciava il chip col pallino di ripiego per
+  // sempre, mentre il drawer di dettaglio — che fetcha al mount — l'icona ce
+  // l'aveva. Stesso progetto, due superfici, due risposte.
+  const projects = useBoardProjects(global);
   const [targetProject, setTargetProject] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('board:composerProject');
@@ -109,27 +116,18 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   useEffect(() => {
     const handleTaskComposerFocus = () => {
       setFocused(true);
-      if (global) loadProjects();
       setTimeout(() => { taRef.current?.focus(); }, 0);
     };
     window.addEventListener('task-composer:focus', handleTaskComposerFocus);
     return () => window.removeEventListener('task-composer:focus', handleTaskComposerFocus);
-    // Re-subscribe only when `global` flips; loadProjects is called via the event
-    // and just refetches, so a captured reference is stale-safe (no need to churn
-    // the listener on every render its identity changes).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [global]);
+  }, []);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
   const expanded = focused || projOpen || modelOpen || prioOpen || text.trim().length > 0;
 
-  const loadProjects = () => {
-    if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
-  };
   const onFocus = () => {
     setFocused(true);
     markActiveComposer(COMPOSER_CURSOR_KEY);
-    if (global) loadProjects();
   };
   // Collapse only when focus truly LEFT the composer (not moving between its
   // own controls) — otherwise clicking "Plan first" would blur-shrink it.
@@ -157,7 +155,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     ? 'Progetto auto'
     : noneTarget
       ? 'Nessun progetto'
-      : targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
+      : targetRef?.name ?? (targetProject ? projectNameFromId(targetProject) : '');
 
   const pickProject = (p: BoardProjectRef) => {
     setTargetProject(p.projectId);
@@ -174,7 +172,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     setProjBusy(true);
     try {
       const created = await boardApi.createProject(name);
-      setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : [created]));
+      addBoardProject(created); // entra nell'indice per OGNI superficie, non solo qui
       pickProject(created);
     } catch (e) { onError(e instanceof Error ? e.message : 'create project failed'); }
     finally { setProjBusy(false); }
@@ -183,7 +181,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   const submit = async () => {
     const raw = text.trim();
     if (!raw || submitting) return;
-    if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); loadProjects(); return; }
+    if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); return; }
     const lines = raw.split('\n');
     const firstLine = lines[0].trim();
     const title = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
@@ -217,7 +215,12 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
         onBlurCapture={onBlurCapture}
         onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
-        className={`input-glass pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+        // @container: la riga dei chip qui sotto si compatta sulla larghezza di
+        // QUESTA card — cioè della pane — non del viewport. I breakpoint `sm:`
+        // non scattano mai dentro una pane stretta su uno schermo largo, che è
+        // il caso normale in un layout a riquadri. Stesso schema del composer
+        // della chat (ChatInput.tsx).
+        className={`input-glass @container pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
           expanded ? '-translate-y-2 border-app-border-light' : 'translate-y-0 border-app-border'
         }`}
       >
@@ -235,118 +238,133 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
           }`}
         />
         <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
-          {global && (
-            <>
-              <button
-                ref={projBtnRef}
-                onClick={() => { setProjOpen(true); loadProjects(); }}
-                data-testid="composer-project-chip"
-                title={autoTarget
-                  ? 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale'
-                  : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
-                className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-app-text hover:bg-white/10"
-              >
-                {autoTarget
-                  ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-                  : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-app-text-faint'}`} />} />}
-                <span className="truncate">{targetLabel || 'Progetto…'}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
-              </button>
-              <Menu
-                open={projOpen}
-                anchorRef={projBtnRef}
-                onClose={() => setProjOpen(false)}
-                minWidth={230}
-                role="listbox"
-                unmanagedFocus
-              >
-                <ProjectPickerBody
-                  projects={projects}
-                  selectedId={targetProject}
-                  onPick={pickProject}
-                  onCreate={doCreateProject}
-                  busy={projBusy}
-                  listLabel="Progetto del task"
-                  onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
-                  autoSelected={autoTarget}
-                />
-              </Menu>
-            </>
-          )}
-          <button
-            ref={modelBtnRef}
-            onClick={() => { setModelOpen(true); loadModels(); }}
-            data-testid="composer-model-chip"
-            title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
-            className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-white/10"
-          ><Sparkles className="h-3 w-3 text-app-text-muted" /> {model ? friendlyModelLabel(model) : 'Modello auto'} <ChevronDown className="h-3 w-3 text-app-text-muted" /></button>
-          <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
-            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello</p>
+          {/* Cluster dei chip: `min-w-0 flex-1` gli lascia stringersi sotto la
+              larghezza del contenuto e `overflow-x-auto` lo fa SCORRERE invece
+              di tagliare — prima la riga era un unico flex con `overflow-hidden`
+              e chip `shrink-0`: sotto ~430px di card il bottone Invia finiva
+              oltre il bordo e spariva, cioè il composer diventava inutilizzabile
+              proprio dove serve di più (pane stretta, telefono). I figli restano
+              `shrink-0` perché lo scroll funzioni davvero: senza, si
+              schiaccerebbero sotto il minimo tattile invece di traboccare. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scrollbar-hide">
+            {global && (
+              <>
+                <button
+                  ref={projBtnRef}
+                  onClick={() => setProjOpen(true)}
+                  data-testid="composer-project-chip"
+                  title={autoTarget
+                    ? 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale'
+                    : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
+                  // L'UNICO chip che può stringersi (l'etichetta è troncabile),
+                  // con un pavimento: sotto ~5.5rem resterebbero icona e chevron
+                  // senza una lettera di nome, che è peggio di far scorrere la riga.
+                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-xs text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+                >
+                  {autoTarget
+                    ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
+                    : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-app-text-faint'}`} />} />}
+                  <span className="truncate">{targetLabel || 'Progetto…'}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+                </button>
+                <Menu
+                  open={projOpen}
+                  anchorRef={projBtnRef}
+                  onClose={() => setProjOpen(false)}
+                  minWidth={230}
+                  role="listbox"
+                  unmanagedFocus
+                >
+                  <ProjectPickerBody
+                    projects={projects}
+                    selectedId={targetProject}
+                    onPick={pickProject}
+                    onCreate={doCreateProject}
+                    busy={projBusy}
+                    listLabel="Progetto del task"
+                    onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
+                    autoSelected={autoTarget}
+                  />
+                </Menu>
+              </>
+            )}
             <button
-              role="option" aria-selected={model === null}
-              onClick={() => { setModel(null); setModelOpen(false); }}
-              title="Lascia scegliere il provider"
-              className={POPOVER_ITEM}
-            >
-              <span className="min-w-0 flex-1">Intelligenza automatica</span>
-              {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-            </button>
-            {claudeModels.map((m) => (
+              ref={modelBtnRef}
+              onClick={() => { setModelOpen(true); loadModels(); }}
+              data-testid="composer-model-chip"
+              title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
+              className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+            ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : 'Modello auto'}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
+            <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Modello</p>
               <button
-                key={m} role="option" aria-selected={model === m}
-                onClick={() => { setModel(m); setModelOpen(false); }}
+                role="option" aria-selected={model === null}
+                onClick={() => { setModel(null); setModelOpen(false); }}
+                title="Lascia scegliere il provider"
                 className={POPOVER_ITEM}
               >
-                <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
-                {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                <span className="min-w-0 flex-1">Intelligenza automatica</span>
+                {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
-            ))}
-          </Menu>
-          <button
-            ref={prioBtnRef}
-            onClick={() => setPrioOpen(true)}
-            data-testid="composer-priority-chip"
-            title={prio !== null ? `Priorità: ${PRIORITY_LABEL[prio]}` : "Priorità automatica: la valuta l'agent appena inquadra il task"}
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-white/10"
-          >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-app-text-faint'}`} />
-            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'} <ChevronDown className="h-3 w-3 text-app-text-muted" />
-          </button>
-          <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
+              {claudeModels.map((m) => (
+                <button
+                  key={m} role="option" aria-selected={model === m}
+                  onClick={() => { setModel(m); setModelOpen(false); }}
+                  className={POPOVER_ITEM}
+                >
+                  <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
+                  {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+            </Menu>
             <button
-              role="option" aria-selected={prio === null}
-              onClick={() => { setPrio(null); setPrioOpen(false); }}
-              title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
-              className={POPOVER_ITEM}
+              ref={prioBtnRef}
+              onClick={() => setPrioOpen(true)}
+              data-testid="composer-priority-chip"
+              title={prio !== null ? `Priorità: ${PRIORITY_LABEL[prio]}` : "Priorità automatica: la valuta l'agent appena inquadra il task"}
+              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
-              <span className="min-w-0 flex-1">Automatica</span>
-              {prio === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-app-text-faint'}`} />
+              <span className={CHIP_LABEL}>{prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
-            {PRIORITY_ORDER.map((p) => (
+            <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">Priorità</p>
               <button
-                key={p} role="option" aria-selected={prio === p}
-                onClick={() => { setPrio(p); setPrioOpen(false); }}
+                role="option" aria-selected={prio === null}
+                onClick={() => { setPrio(null); setPrioOpen(false); }}
+                title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
                 className={POPOVER_ITEM}
               >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
-                <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
-                {prio === p && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
+                <span className="min-w-0 flex-1">Automatica</span>
+                {prio === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
-            ))}
-          </Menu>
-          <button
-            onClick={() => setPlanFirst((v) => !v)}
-            title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
-            className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
-              planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
-            }`}
-          ><ClipboardList className="h-3 w-3" /> Plan first</button>
+              {PRIORITY_ORDER.map((p) => (
+                <button
+                  key={p} role="option" aria-selected={prio === p}
+                  onClick={() => { setPrio(p); setPrioOpen(false); }}
+                  className={POPOVER_ITEM}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
+                  <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
+                  {prio === p && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+            </Menu>
+            <button
+              onClick={() => setPlanFirst((v) => !v)}
+              title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
+              className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-black/5 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
+              }`}
+            ><ClipboardList className="h-3 w-3 shrink-0" /><span className={CHIP_LABEL}>Plan first</span></button>
+          </div>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title="Crea il task (l'agent parte da Todo)"
-            className="ml-auto shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
+            data-testid="composer-send"
+            className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
         </div>
       </div>
