@@ -168,6 +168,25 @@ export function useWebSocket(): UseWebSocketReturn {
           return;
         }
 
+        // Appaiamento di un dispositivo: si ripubblica come evento di finestra.
+        // Il cartello di approvazione deve poter comparire OVUNQUE l'utente stia
+        // guardando — chi arriva col telefono in mano e' fermo su una schermata
+        // d'attesa, e una conferma sepolta in un pannello lo lascerebbe li'. Un
+        // evento di finestra evita di infilare uno stato d'autenticazione nel
+        // percorso caldo dei messaggi, che gira migliaia di volte al minuto.
+        {
+          const t = (raw as { type?: unknown })?.type;
+          if (t === 'auth:pair-requested' || t === 'auth:pair-resolved' || t === 'auth:device-revoked') {
+            const nome = t === 'auth:pair-requested'
+              ? 'topics:auth-pair-requested'
+              : t === 'auth:pair-resolved'
+                ? 'topics:auth-pair-resolved'
+                : 'topics:auth-device-revoked';
+            window.dispatchEvent(new CustomEvent(nome, { detail: raw }));
+            return;
+          }
+        }
+
         const validation = validateInbound(raw);
         if (!validation.ok) {
           if (import.meta.env.DEV) {

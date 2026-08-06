@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
+import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
@@ -346,6 +347,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
 
   return (
     <>
+      {/* CHI SEI, sopra la barra di stato.
+          Una riga sola, e solo quando c'e' qualcosa da dire. Un'autenticazione
+          che non si vede e' indistinguibile dalla sua assenza: e' il difetto per
+          cui il pairing precedente, che pure funzionava, non e' mai servito a
+          nessuno — dal telefono l'unico segnale era «Reconnecting…» per sempre.
+          Sul computer non compare: li' l'identita' e' il fatto di essere seduti
+          davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
+      <DeviceIdentityRow />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -614,5 +623,31 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
         <ChangelogModal currentVersion={appVersion} onClose={() => setShowChangelog(false)} />
       )}
     </>
+  );
+}
+
+/**
+ * L'identita' di questo dispositivo, sopra la barra di stato.
+ *
+ * Muta sul computer (`as === 'loopback'`): li' l'identita' non e' un'informazione,
+ * e' il presupposto. La riga esiste per il telefono, dove sapere COME sei entrato
+ * — e poter uscire — e' la differenza fra un accesso e un mistero.
+ */
+function DeviceIdentityRow() {
+  const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  useEffect(() => subscribeSession(setSession), []);
+
+  if (session.status !== 'paired' || session.as !== 'device') return null;
+
+  return (
+    <div
+      data-testid="device-identity"
+      className="flex items-center gap-1.5 border-t border-app-border bg-app-bg text-[11px] text-app-text-secondary min-h-6"
+      style={{ paddingInline: ROW_INSET }}
+      title="Dispositivo autorizzato. Puoi revocarlo da qualunque altro dispositivo gia' autorizzato."
+    >
+      <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
+      <span className="truncate">{session.name}</span>
+    </div>
   );
 }
