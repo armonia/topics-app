@@ -62,6 +62,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       // come già fa per ⌘N/⌘⇧N.
       { keys: ['⌘', 'P'], description: 'Apri un file per nome', native: { chars: ['p'] } },
       { keys: ['⌘', '⇧', 'P'], description: 'Trova un progetto', native: { chars: ['p'] } },
+      // ⌘T e ⌘⇧T condividono il char "t": la prima apre una chat, la seconda
+      // riapre l'ultima tab chiusa (più sotto, in «Panels & tabs»). Il renderer
+      // li separa sullo shiftKey, come già fa per ⌘N/⌘⇧N e ⌘P/⌘⇧P.
+      { keys: ['⌘', 'T'], description: 'Nuova chat', native: { chars: ['t'] } },
       // ⌘N and ⌘⇧N share the char "n"; the renderer splits them on shiftKey.
       { keys: ['⌘', 'N'], description: 'New… (add menu)', native: { chars: ['n'] } },
       { keys: ['⌘', '⇧', 'N'], description: 'New chat (with template)', native: { chars: ['n'] } },
