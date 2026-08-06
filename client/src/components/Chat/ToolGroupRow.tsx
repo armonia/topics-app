@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Loader2, X, Zap } from 'lucide-react';
 import type { ToolCall } from '../../types';
-import { ToolCallRow } from './ToolCallRow';
+import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import {
   GROUP_MIN,
   formatCostCents,
@@ -36,8 +36,15 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
       ? `${formatTokensCompact(summary.tokens)} tok`
       : '';
 
+  // Il corpo è aperto anche mentre la corsa è VIVA: lì mostra le azioni in
+  // corso, ed è il pannello caldo che passa di tool in tool. Il chevron deve
+  // dire QUESTO, non lo stato di `open`: puntato a destra su un corpo aperto
+  // era semplicemente falso, e il click sembrava non fare niente. Aperto, il
+  // click continua a scegliere fra tutte le azioni e le sole attive.
+  const expanded = open || live;
+
   return (
-    <div data-testid="tool-group-row" className="text-[12px]">
+    <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-[12px]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -45,31 +52,44 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
         data-testid="tool-group-summary"
       >
         <span className="flex items-center gap-2">
-          {open ? (
-            <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />
-          ) : (
-            <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
-          )}
+          <span data-testid="tool-group-chevron" data-open={expanded ? 'true' : 'false'} className="flex-shrink-0 inline-flex">
+            {expanded ? (
+              <ChevronDown size={12} className="text-app-text-muted" />
+            ) : (
+              <ChevronRight size={12} className="text-app-text-muted" />
+            )}
+          </span>
           <Zap size={13} className={`flex-shrink-0 ${live ? 'text-primary' : 'text-app-text-muted'}`} />
           <span className={`flex-shrink-0 font-medium ${live ? 'text-primary' : 'text-app-text'}`}>
             {live
               ? `${settledCount}/${summary.total} azioni`
               : `${summary.total} azioni`}
           </span>
-          <span className="text-[11px] text-app-text-muted truncate">
+          <span className="min-w-0 flex-1 text-[11px] text-app-text-muted truncate">
             {formatToolCounts(summary.counts)}
           </span>
+          {/* Quanti sono falliti — il NUMERO, senza icona: il simbolo lo porta
+              già l'esito qui a destra, e disegnarlo due volte sulla stessa riga
+              faceva sembrare due errori diversi. */}
           {summary.errors > 0 && (
             <span
               data-testid="tool-group-errors"
-              className="flex-shrink-0 inline-flex items-center gap-0.5 text-[11px] text-red-500"
+              className="flex-shrink-0 text-[11px] tabular-nums text-red-500"
             >
-              <X size={11} /> {summary.errors}
+              {summary.errors} {summary.errors === 1 ? 'fallita' : 'fallite'}
             </span>
           )}
-          <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1.5">
+          {/* Larghezza minima: senza, la comparsa del cronometro e il passaggio
+              da spinner a spunta spostavano il testo a ogni cambio di stato. */}
+          <span className="flex-shrink-0 inline-flex items-center justify-end gap-1.5 min-w-[3.5rem]">
+            {/* Viva: da quanto va avanti. Finita: quanto ci ha messo. Prima, un
+                gruppo in corso non mostrava NESSUN numero — mentre una riga
+                singola in corso il suo cronometro ce l'ha sempre avuto. */}
+            {live && summary.startedAt !== undefined && (
+              <ElapsedTimer since={summary.startedAt} title="Da quanto va avanti questa corsa di azioni" />
+            )}
             {summary.durationMs !== undefined && !live && (
-              <span className="text-[10px] tabular-nums text-app-text-muted">
+              <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-group-duration">
                 {formatDurationMs(summary.durationMs)}
               </span>
             )}
@@ -89,8 +109,12 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
           </span>
         </span>
       </button>
-      {(open || live) && (
-        <div className="space-y-px">
+      {expanded && (
+        // Rientro + filo a sinistra: è la timeline verticale che il commento di
+        // MessageContent promette da sempre («connected by a left border line»)
+        // e che non c'era. Senza, le azioni del gruppo stavano sulla stessa
+        // colonna della riga che le contiene, e la gerarchia spariva.
+        <div className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px">
           {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
             <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} />
           ))}

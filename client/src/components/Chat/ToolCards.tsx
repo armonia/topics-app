@@ -93,7 +93,7 @@ export function ReadCard({ filePath, content, offset, limit }: {
       {content && (
         <HighlightedPre
           testId="tool-call-result"
-          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5"
+          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
           code={content}
           lang={langFromPath(filePath)}
         />
@@ -111,7 +111,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
     <div className="space-y-1">
       <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {unifiedDiff ? (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {unifiedDiff.split('\n').map((line, i) => (
             <span key={i} className={
               line.startsWith('+') && !line.startsWith('+++') ? 'block text-green-500' :
@@ -122,7 +122,10 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
           ))}
         </pre>
       ) : (
-        <div className="grid grid-cols-2 gap-1.5">
+        // Due colonne solo quando ci sono davvero due lati: con uno solo, metà
+        // card restava bianca. `min-w-0` sulle celle o il codice lungo le
+        // allarga invece di scorrere dentro il proprio riquadro.
+        <div className={`grid gap-1.5 [&>*]:min-w-0 ${oldString && newString ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {oldString && (
             <div>
               <div className="text-[11px] uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
@@ -161,7 +164,7 @@ export function WriteCard({ filePath, content }: { filePath: string; content?: s
       {content && (
         <HighlightedPre
           testId="tool-call-result"
-          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40"
+          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40"
           code={content}
           lang={langFromPath(filePath)}
         />
@@ -288,9 +291,13 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
           <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
             {actions.map((a) => (
               <li key={a.index} className="flex items-start gap-2 text-[11px] font-mono leading-snug">
-                <span className="flex-shrink-0 text-app-text-muted w-4 text-right">{a.index + 1}.</span>
-                <span className="flex-shrink-0 text-purple-500/80">[{a.toolName}]</span>
-                <span className="flex-1 text-app-text-secondary truncate">{a.summary ?? ''}</span>
+                {/* `w-6`: al decimo passo «10.» non ci stava più in `w-4` e
+                    spingeva la colonna del tool. */}
+                <span className="flex-shrink-0 w-6 text-right tabular-nums text-app-text-muted">{a.index + 1}.</span>
+                {/* Il nome di un tool MCP è lungo quanto vuole: se non si
+                    restringe, a essere tagliato è il riassunto accanto. */}
+                <span className="min-w-0 shrink max-w-[45%] truncate text-purple-500/80">[{a.toolName}]</span>
+                <span className="flex-1 min-w-0 text-app-text-secondary truncate">{a.summary ?? ''}</span>
                 <span className="flex-shrink-0">
                   {a.status === 'running' && <span className="text-app-text-muted">·</span>}
                   {a.status === 'success' && <span className="text-green-500">✓</span>}
@@ -304,7 +311,7 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
       {result && (
         <div>
           <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Final result</div>
-          <ClampedPre text={result} maxH="max-h-56" />
+          <ClampedPre text={result} />
         </div>
       )}
     </div>
@@ -317,7 +324,7 @@ export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
-      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-80 overflow-auto">
+      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
         {text}
       </pre>
     </div>
@@ -513,7 +520,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
   return (
     <div className="space-y-1">
       {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
-      {result && <ClampedPre text={result} maxH="max-h-56" />}
+      {result && <ClampedPre text={result} />}
     </div>
   );
 }

@@ -162,7 +162,10 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
         // column aligned with settled rows). Settled rows stay flat.
-        isRunning ? 'bg-primary/5 ring-1 ring-primary/10 -mx-1.5 px-1.5' : ''
+        // `ring-inset`: il margine negativo porta la riga 6px oltre la colonna
+        // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
+        // bordo veniva tagliato a metà proprio sui due lati lunghi.
+        isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
       }`}
     >
       <button
@@ -175,17 +178,31 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             lookup, not one defined during render; createElement is the
             lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
         {createElement(Icon, { size: 13, className: `flex-shrink-0 ${isRunning ? 'text-primary' : 'text-app-text-muted'}` })}
-        {/* Claude Code-style header: `Shell(bun test)` / `Read(App.tsx)` —
-            the WHAT sits inside the parens at full contrast instead of a
-            timid muted afterthought. Truncation may eat the closing paren
-            on long args; that's the familiar CLI look. */}
-        <span data-testid="tool-call-name" className={`flex-shrink-0 font-medium ${isRunning ? 'text-primary' : 'text-app-text'}`}>{label ?? display.name}</span>
-        {display.summary && (
-          <span className="text-[11.5px] text-app-text-secondary truncate font-mono">
-            ({display.summary})
+        {/* Claude Code-style header: `Shell(bun test)` / `Read(App.tsx)` — la
+            COSA sta dentro le parentesi a pieno contrasto, non come ripensamento
+            smorto accanto.
+            Il gruppo nome+argomento è l'UNICA parte che si restringe: prima il
+            nome era `flex-shrink-0` e in una pane stretta a essere tagliati
+            erano durata, costo ed esito — cioè la colonna di destra, che è
+            larga uguale per tutte le righe e non avrebbe mai dovuto cedere.
+            Le parentesi stanno FUORI dal troncamento: dentro, quella di
+            chiusura spariva su ogni argomento lungo, cioè quasi sempre. */}
+        <span className="flex-1 min-w-0 flex items-baseline gap-1">
+          <span
+            data-testid="tool-call-name"
+            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : 'text-app-text'}`}
+          >
+            {label ?? display.name}
           </span>
-        )}
-        <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
+          {display.summary && (
+            <span className="min-w-0 flex items-baseline text-[11px] text-app-text-secondary font-mono">
+              <span className="flex-shrink-0">(</span>
+              <span className="truncate">{display.summary}</span>
+              <span className="flex-shrink-0">)</span>
+            </span>
+          )}
+        </span>
+        <span className="flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
           {/* Cronometro vivo SOLO mentre l'agente è davvero dentro al tool.
               In `waiting_for_input` non gira niente: la palla è dell'umano, e
               un contatore che scorre mentre si legge una domanda mette fretta
