@@ -26,17 +26,29 @@ describe("isPaneClosable", () => {
     expect(isPaneClosable(p, nessunPin)).toBe(true);
   });
 
-  test("terminale, browser e progetto: stessa regola, chiave = id della pane", () => {
+  test("terminale e browser: stessa regola, chiave = id della pane", () => {
     const casi: Array<[Pane["type"], string]> = [
       ["terminal", "terminal:s1"],
       ["browser", "browser:ctx1"],
-      ["project", "project:%2Ftmp%2Fp"],
     ];
     for (const [type, id] of casi) {
       const p = pane({ id, type });
       expect(isPaneClosable(p, pinned(id))).toBe(false);
       expect(isPaneClosable(p, nessunPin)).toBe(true);
     }
+  });
+
+  // Il progetto è l'unico tipo la cui chiave di pin NON è il pane id: la
+  // sidebar chiave sul path grezzo, e `pinKeyForPane` si è allineato a quello
+  // (prima restituiva la forma codificata, e un progetto fissato dalla tab non
+  // compariva mai fra i Fissati). Qui si verifica proprio quello: il predicato
+  // viene interrogato con la forma GREZZA anche se la pane porta quella
+  // codificata.
+  test("progetto fissato: la chiave è il path GREZZO, non il pane id codificato", () => {
+    const p = pane({ id: "project:%2Ftmp%2Fp", type: "project" });
+    expect(isPaneClosable(p, pinned("project:/tmp/p"))).toBe(false);
+    expect(isPaneClosable(p, pinned("project:%2Ftmp%2Fp"))).toBe(true);
+    expect(isPaneClosable(p, nessunPin)).toBe(true);
   });
 
   test("il pin di un'ALTRA tab non blocca questa", () => {

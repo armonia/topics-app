@@ -1163,6 +1163,8 @@ function App() {
             projectOpenPanes={projectOpenPanes}
             pinnedItems={sidebar.pinnedItems}
             onTogglePin={handleTogglePin}
+            pinnedLayout={sidebar.pinnedLayout}
+            onPinnedLayoutChange={sidebar.setPinnedLayout}
             boardTaskCount={boardTaskCount}
             boardOpen={openPanels.includes('__board__')}
             // La board sta ferma in cima alla sidebar, sopra i fissati e sopra

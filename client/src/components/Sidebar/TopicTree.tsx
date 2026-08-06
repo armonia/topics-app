@@ -12,7 +12,9 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
+import { createPaneId, getTerminalSessionFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
+import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
+import type { PinnedRow } from './pinnedLayout';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
@@ -169,6 +171,12 @@ export interface TopicTreeProps {
   /** Pin/unpin an item ("Fissa" / "Rimuovi dai Fissati") — App-level wrapper
    *  owns the unpin-while-closed archive semantics. */
   onTogglePin?: (id: string) => void;
+  /** La disposizione delle tessere fissate: righe di chiavi con le loro
+   *  larghezze. Viaggia con i pin (stesso `sidebar-state`), quindi segue
+   *  l'utente fra i device. Assente ⇒ derivata dall'ordine di pin. */
+  pinnedLayout?: PinnedRow[];
+  /** Nuova disposizione dopo un drag. */
+  onPinnedLayoutChange?: (next: PinnedRow[]) => void;
   /** Active (non-done) task count across all projects. When > 0, a
    *  "Board generale" row is shown above the Fissati block. */
   boardTaskCount?: number;
@@ -226,6 +234,8 @@ export function TopicTree({
   projectOpenPanes = {},
   pinnedItems = [],
   onTogglePin,
+  pinnedLayout = [],
+  onPinnedLayoutChange,
   boardTaskCount = 0,
   boardOpen = false,
   onOpenBoard,
@@ -926,6 +936,81 @@ export function TopicTree({
   const renderGroupSection = (type: SidebarItem['type'], items: SidebarItem[]) =>
     renderSection(type, TYPE_ICONS[type], TYPE_LABELS[type], items);
 
+  // ── Il blocco dei Fissati, in UN posto solo ──────────────────────────────
+  //
+  // Prima i quattro modi di vista ripetevano ognuno intestazione +
+  // `pinnedBlock.map(renderItem)`, con l'etichetta scritta due volte via i18n e
+  // due volte a mano dentro `renderSection`. Ora è una griglia di tessere senza
+  // etichetta, la stessa ovunque: cambiare vista non cambia più cosa sono i
+  // fissati, cambia solo cosa c'è sotto.
+
+  /** Ciò che solo qui si può sapere: la selezione, e il tier rolled-up di un
+   *  progetto (chat e terminali se lo risolvono da soli nella tessera). */
+  const pinnedMetaFor = (item: SidebarItem): PinnedTileMeta => {
+    if (item.type === 'project' && item.projectPath) {
+      const pp = item.projectPath;
+      const focused = focusedTopicId === createPaneId('project', pp);
+      const tier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds, seenSubjects);
+      return { focused, attention: attentionFillFor(tier, focused) };
+    }
+    return { focused: focusedTopicId === item.id, attention: null };
+  };
+
+  /** Cliccare un fissato ha sempre voluto dire «portami lì»: la fascia è un di
+   *  più, non un sostituto. Quindi il click porta là sopra comunque, e per un
+   *  progetto apre anche le sue tab qui sotto. */
+  const activatePinned = (item: SidebarItem) => {
+    switch (item.type) {
+      case 'project':
+        if (item.projectPath) onProjectClick?.(item.projectPath);
+        break;
+      case 'chat':
+        onTopicClick(item.id);
+        break;
+      case 'terminal': {
+        const sid = getTerminalSessionFromPaneId(item.id);
+        if (sid) onTerminalClick?.(sid, item.name);
+        break;
+      }
+      case 'browser':
+        if (item.browser) onOpenBrowser?.(item.browser.id);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const renderPinnedTiles = () => (
+    <PinnedTiles
+      items={pinnedBlock}
+      layout={pinnedLayout}
+      onLayoutChange={next => onPinnedLayoutChange?.(next)}
+      metaFor={pinnedMetaFor}
+      onToggleItem={activatePinned}
+      onContextMenu={(item, e) => {
+        if (item.type !== 'project' || !item.projectPath) return;
+        e.preventDefault();
+        const pp = item.projectPath;
+        const unreadTopicIds = (item.children ?? [])
+          .filter(c => c.type === 'chat' && (unreadData[c.id]?.unreadCount || 0) > 0)
+          .map(c => c.id);
+        const muted = (loadSettings().mutedProjects ?? []).includes(pp);
+        setProjectContextMenu({
+          x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name,
+          allArchived: item.archived, unreadTopicIds, pinned: true, muted,
+        });
+      }}
+      // La fascia porta le TAB del progetto — chat, terminali, browser — con lo
+      // stesso `renderItem` delle righe dell'albero: nessun renderer nuovo,
+      // quindi nessun modo di divergere da come quelle righe si comportano.
+      renderExpanded={item => {
+        const children = item.type === 'project' ? (item.children ?? []) : [];
+        if (children.length === 0) return null;
+        return <div className="py-1">{children.map(child => renderItem(child))}</div>;
+      }}
+    />
+  );
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   // La riga della board, disegnata una volta e piazzata dove appartiene: dentro
@@ -994,12 +1079,8 @@ export function TopicTree({
                 dentro la sua card: la stessa riga due volte non è una
                 scorciatoia, è un doppione. */}
             {pinnedBlock.length > 0 && (
-              <div data-testid="sidebar-pinned-section" className="mb-1">
-                <div className="flex items-center gap-1.5 px-3 h-6 select-none">
-                  <Pin size={10} className="text-app-text-tertiary flex-shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">{tr('sidebar.pinnedSection')}</span>
-                </div>
-                {pinnedBlock.map(item => renderItem(item))}
+              <div className="mb-1">
+                {renderPinnedTiles()}
                 <div className="h-px bg-app-border mx-3 my-1" />
               </div>
             )}
@@ -1028,16 +1109,12 @@ export function TopicTree({
           // they just don't jump position with the notification-first sort.
           <>
             {pinnedBlock.length > 0 && (
-              <div data-testid="sidebar-pinned-section">
-                <div className="flex items-center gap-1.5 px-3 h-6 select-none">
-                  <Pin size={10} className="text-app-text-tertiary flex-shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">{tr('sidebar.pinnedSection')}</span>
-                </div>
-                {pinnedBlock.map(item => renderItem(item))}
+              <>
+                {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
                 {unpinnedItems.length > 0 && <div className="h-px bg-app-border mx-3 my-1" />}
-              </div>
+              </>
             )}
             {unpinnedItems.map(item => renderItem(item))}
           </>
@@ -1046,11 +1123,7 @@ export function TopicTree({
           // per-type sections (fed the UNpinned items so nothing double-renders).
           groupedItems && (
             <>
-              {pinnedBlock.length > 0 && (
-                <div data-testid="sidebar-pinned-section">
-                  {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
-                </div>
-              )}
+              {pinnedBlock.length > 0 && renderPinnedTiles()}
               {(['project', 'chat', 'terminal', 'browser', 'utility'] as const).map(type => {
                 const items = groupedItems[type];
                 if (items.length === 0) return null;
@@ -1065,11 +1138,7 @@ export function TopicTree({
             lavorando, poi il resto. Una sezione vuota non si disegna. */}
         {!spaceScoped && viewMode === 'state' && stateGroups && (
           <>
-            {pinnedBlock.length > 0 && (
-              <div data-testid="sidebar-pinned-section">
-                {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
-              </div>
-            )}
+            {pinnedBlock.length > 0 && renderPinnedTiles()}
             {STATE_SECTIONS.map(({ key, icon, label }) => {
               const items = stateGroups[key];
               if (items.length === 0) return null;
