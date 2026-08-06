@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   bestTextTone,
+  pickSectorPalette,
   compositeOver,
   contrastRatio,
   fromHex,
@@ -170,5 +171,65 @@ describe('bestTextTone', () => {
         : contrastRatio(rgb(255, 255, 255), bg);
       expect(ratio).toBeGreaterThanOrEqual(other - 1e-9);
     }
+  });
+});
+
+describe('pickSectorPalette — il colore va dove sta', () => {
+  /** Un'icona `size`×`size` dipinta da una funzione (x,y) → [r,g,b,a]. */
+  function paint(size: number, f: (x: number, y: number) => [number, number, number, number]) {
+    const data = new Uint8ClampedArray(size * size * 4);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const [r, g, b, a] = f(x, y);
+        const i = (y * size + x) * 4;
+        data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = a;
+      }
+    }
+    return data;
+  }
+
+  test('metà sinistra blu, metà destra rossa → gli spicchi lo rispecchiano', () => {
+    const size = 16;
+    const data = paint(size, (x) => (x < size / 2 ? [40, 90, 220, 255] : [220, 40, 40, 255]));
+    const pal = pickSectorPalette(data, size, 8);
+    expect(pal).not.toBeNull();
+    expect(pal!.length).toBe(8);
+    // Spicchio 2 = ore 3 (destra) → rosso. Spicchio 6 = ore 9 (sinistra) → blu.
+    const right = fromHex(pal![2])!;
+    const left = fromHex(pal![6])!;
+    expect(right.r).toBeGreaterThan(right.b);
+    expect(left.b).toBeGreaterThan(left.r);
+  });
+
+  test('metà alta verde, metà bassa gialla → sopra e sotto si distinguono', () => {
+    const size = 16;
+    const data = paint(size, (_x, y) => (y < size / 2 ? [30, 190, 90, 255] : [240, 200, 40, 255]));
+    const pal = pickSectorPalette(data, size, 8)!;
+    const top = fromHex(pal[0])!;      // ore 12
+    const bottom = fromHex(pal[4])!;   // ore 6
+    expect(top.g).toBeGreaterThan(top.r);
+    expect(bottom.r).toBeGreaterThan(bottom.b);
+  });
+
+  test('icona monocroma o trasparente → nessuna palette', () => {
+    const size = 8;
+    expect(pickSectorPalette(paint(size, () => [255, 255, 255, 255]), size)).toBeNull();
+    expect(pickSectorPalette(paint(size, () => [200, 30, 30, 0]), size)).toBeNull();
+  });
+
+  test('uno spicchio vuoto eredita il vicino invece di spegnersi', () => {
+    // Un solo pixel colorato: tutti gli spicchi devono comunque avere un colore.
+    const size = 16;
+    const data = paint(size, (x, y) => (x === 2 && y === 2 ? [220, 40, 40, 255] : [255, 255, 255, 255]));
+    const pal = pickSectorPalette(data, size, 8);
+    expect(pal).not.toBeNull();
+    expect(pal!.length).toBe(8);
+    for (const c of pal!) expect(fromHex(c)).not.toBeNull();
+  });
+
+  test('è deterministica', () => {
+    const size = 16;
+    const data = paint(size, (x) => (x < 8 ? [40, 90, 220, 255] : [220, 40, 40, 255]));
+    expect(pickSectorPalette(data, size, 8)).toEqual(pickSectorPalette(data, size, 8));
   });
 });
