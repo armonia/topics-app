@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.31 — 2026-08-06
+
+### Sotto il cofano
+- Il segno di apertura e' lo STESSO chevron delle righe, in fondo al centro
+
+## 2.2.30 — 2026-08-06
+
+### Sotto il cofano
+- Changelog per 2.2.29
+- Una domanda all'umano non scade piu': il tempo non e' un motivo
+- I numeri a consuntivo delle azioni si accendono sotto il puntatore
+
 ## 2.2.29 — 2026-08-06
 
 ### Sotto il cofano

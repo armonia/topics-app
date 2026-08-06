@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.31",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il segno di apertura e' lo STESSO chevron delle righe, in fondo al centro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.30",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.29",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una domanda all'umano non scade piu': il tempo non e' un motivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I numeri a consuntivo delle azioni si accendono sotto il puntatore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.29",
     "date": "2026-08-06",
     "sections": {
