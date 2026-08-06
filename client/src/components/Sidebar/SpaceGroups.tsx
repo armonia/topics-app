@@ -31,7 +31,7 @@
  */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AppWindow, ChevronDown, ChevronRight, CornerDownLeft, Pencil, Trash2 } from 'lucide-react';
+import { AppWindow, ChevronDown, ChevronRight, CornerDownLeft, Merge, Pencil } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDismissable } from '../../hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
@@ -44,7 +44,7 @@ import { useSpaceWindows } from '../../state/windowPresence';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow, claimSpaceLocally } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
@@ -476,10 +476,13 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           {!isDefault && meta && !meta.deleted && (
             <>
               <div className={POPOVER_DIVIDER} />
+              {/* Non è una cancellazione, ed è un errore chiamarla così: le tab
+                  tornano tutte nel gruppo principale e niente si chiude — il
+                  reducer fa entrambe le mosse. Con «Elimina» e il cestino rosso
+                  il gesto sembrava distruttivo, quindi non lo si usava per la
+                  cosa che invece fa benissimo: rimettere insieme. */}
               <button
                 onClick={() => {
-                  // Cancellazione morbida: le tab tornano nel gruppo principale
-                  // (il reducer fa entrambe le mosse), niente si chiude.
                   dispatch({ type: 'SPACE_DELETE', payload: { id: card.id } });
                   // La griglia di quel gruppo era salvata su una chiave
                   // localStorage suffissata: il reducer è puro e non può
@@ -487,11 +490,12 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
                   clearPanelGridStorage(card.id);
                   setMenu(null);
                 }}
-                className={POPOVER_ITEM_DANGER}
-                title="Le schede tornano nel gruppo principale"
+                className={POPOVER_ITEM}
+                title="Le tab tornano tutte nel gruppo principale; niente si chiude"
+                data-testid="space-dissolve"
               >
-                <Trash2 size={14} />
-                <span className="flex-1">Elimina gruppo</span>
+                <Merge size={14} />
+                <span className="flex-1">Sciogli nel principale</span>
               </button>
             </>
           )}

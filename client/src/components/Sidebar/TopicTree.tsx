@@ -999,6 +999,10 @@ export function TopicTree({
       onLayoutChange={next => onPinnedLayoutChange?.(next)}
       metaFor={pinnedMetaFor}
       onToggleItem={activatePinned}
+      // Fissare una cosa lasciata cadere qui dentro. `isPinned` fa da guardia:
+      // `togglePin` è un interruttore, e su una cosa già fissata questo drop la
+      // TOGLIEREBBE dai fissati — il contrario di quello che il gesto dice.
+      onPinItem={key => { if (!pinnedIds.has(key)) onTogglePin?.(key); }}
       // Il menu contestuale della tessera è quello della RIGA, per ogni tipo.
       // Dimenticarne uno vuol dire che quella cosa, una volta fissata, non si
       // può più togliere dai Fissati: la riga con «Rimuovi dai Fissati» non

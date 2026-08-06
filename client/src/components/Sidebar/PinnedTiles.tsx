@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
 import {
   insertPinnedRow,
@@ -55,6 +56,7 @@ export function PinnedTiles({
   metaFor,
   onToggleItem,
   onContextMenu,
+  onPinItem,
   renderExpanded,
 }: {
   /** I fissati da mostrare, in ordine di pin. Il layout si riconcilia su questi. */
@@ -66,6 +68,9 @@ export function PinnedTiles({
    *  espandere: il chiamante decide (aprire la cosa, portarcisi sopra). */
   onToggleItem?: (item: SidebarItem, willExpand: boolean) => void;
   onContextMenu?: (item: SidebarItem, e: React.MouseEvent) => void;
+  /** Fissa una cosa arrivata da FUORI (una riga dentro un gruppo, una tab).
+   *  La chiave è già quella di riga: la conversione dalla pane la fa la griglia. */
+  onPinItem?: (key: string) => void;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -73,6 +78,7 @@ export function PinnedTiles({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<{ rowIdx: number; insertAt: number } | null>(null);
   const [newRowAt, setNewRowAt] = useState<number | null>(null);
+  const [adopting, setAdopting] = useState(false);
   const dragKeyRef = useRef<string | null>(null);
 
   const byId = new Map(items.map(i => [i.id, i]));
@@ -83,6 +89,7 @@ export function PinnedTiles({
     setDragKey(null);
     setDropAt(null);
     setNewRowAt(null);
+    setAdopting(false);
   }, []);
 
   /** Un drag che possiamo servire: porta il tipo giusto E viene da QUESTA
@@ -91,6 +98,14 @@ export function PinnedTiles({
    *  significherebbe inventarsi un movimento. */
   const isOurs = (e: React.DragEvent) =>
     dragKeyRef.current !== null && e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE);
+
+  /** Un drag che viene da FUORI e porta una pane: una riga dentro un gruppo,
+   *  una tab della barra. Lasciarla qui vuol dire «questa la voglio sempre
+   *  sotto mano», che è esattamente cosa significa fissare. */
+  const isForeignPane = (e: React.DragEvent) =>
+    dragKeyRef.current === null &&
+    (e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
+      e.dataTransfer.types.includes(DND_TYPES.PANEL_ID));
 
   /** Quante tessere della riga stanno a sinistra del cursore. */
   const insertIndexAt = (rowEl: HTMLElement, clientX: number): number => {
@@ -161,10 +176,34 @@ export function PinnedTiles({
   return (
     <div
       data-testid="sidebar-pinned-section"
-      className="flex flex-col min-h-0 flex-shrink-0"
+      className={`flex flex-col min-h-0 flex-shrink-0 rounded-lg transition-colors duration-100 ${
+        adopting ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''
+      }`}
       style={anyExpanded ? { maxHeight: EXPANDED_MAX_HEIGHT } : undefined}
       role="group"
       aria-label="Fissati"
+      // Lasciare qui una cosa che arriva da fuori la FISSA. È il gesto inverso
+      // di trascinarla via, e senza di esso l'unica strada per fissare era il
+      // menu contestuale — che dentro una card di gruppo non tutte le righe hanno.
+      onDragOver={e => {
+        if (!onPinItem || !isForeignPane(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        if (!adopting) setAdopting(true);
+      }}
+      onDragLeave={e => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setAdopting(false);
+      }}
+      onDrop={e => {
+        setAdopting(false);
+        if (!onPinItem || !isForeignPane(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
+          || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+        if (paneId) onPinItem(pinKeyFromPaneId(paneId));
+      }}
     >
       {rows.map((row, rowIdx) => {
         const dragFromThisRow = dragKey !== null && row.keys.includes(dragKey);
