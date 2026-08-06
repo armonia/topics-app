@@ -227,6 +227,23 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // ⌘T — UNA CHAT NUOVA, secca. La stessa convenzione di ogni browser (e di
+      // Dia, da cui arriva la richiesta): ⌘T apre la cosa che apri di più, senza
+      // chiedere quale. ⌘N resta la palette «New…», che serve quando la cosa da
+      // aprire NON è una chat — le due non si sostituiscono, si dividono il
+      // lavoro: la scorciatoia secca per il 90% dei casi, la lista per il resto.
+      //
+      // Passa dal bus `topics:new-chat` che App già ascolta (lo usa il rimando
+      // «nuova chat» del composer): nessuna callback nuova da tenere stabile, e
+      // un solo punto in cui «crea una chat» è definito.
+      //
+      // `!e.shiftKey`: ⌘⇧T è «riapri la tab chiusa», e sta più sotto.
+      if (isMod && !e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('topics:new-chat'));
+        return;
+      }
+
       // ⌘⇧P — TROVA UN PROGETTO (la palette, pre-scopata su 'projects').
       //
       // Stava su ⌘F, che è la lettera sbagliata: in ogni applicazione del mondo
