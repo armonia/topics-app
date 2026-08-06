@@ -34,7 +34,6 @@ import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
-import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
@@ -519,56 +518,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         }
       }
 
-      // ─── Fast Mode model resolution (openspec change `chat-fast-mode`) ───
+      // ─── Fast Mode ────────────────────────────────────────────────────
       //
-      // Fast Mode is the "soft default": it kicks in only when nothing more
-      // explicit was set. The user can still override with the per-message
-      // picker (`body.model`) or by persisting a topic-level model
-      // (`matchedTopic.model`); both win over Fast.
+      // NON è più uno scambio di modello. Lo era: con il Fast acceso questa
+      // route sostituiva il modello con quello «veloce» del provider (haiku),
+      // che è l'opposto di ciò che la fast mode di Claude Code fa — stesso
+      // modello (Opus), uscita più rapida, prezzo diverso. Un toggle che sotto
+      // lo stesso nome faceva un'altra cosa, e in silenzio: chi lo accendeva
+      // per andare più veloce si ritrovava un modello più debole.
       //
-      // Two opt-in paths:
-      //   1. `body.fastMode === true` — per-turn flag from the composer.
-      //   2. `matchedTopic.fastMode === true` — persisted per-topic preference
-      //      (synced across windows). Either is sufficient.
+      // Ora la richiesta viaggia COME richiesta fino al provider, che la gira
+      // alla CLI (`/fast on`) soltanto quando la CLI ha dichiarato di poterla
+      // servire. Oggi non può: nelle chat giriamo `--print --input-format
+      // stream-json`, cioè la via Agent SDK, e la CLI risponde
+      // `fast_mode_disabled_reason: sdk_opt_in_required`. Il composer lo dice,
+      // invece di far finta di aver fatto qualcosa — vedi providers/fast-mode.ts.
       //
-      // `getFastModelFor` is snapshot-aware: when the statically-mapped id
-      // isn't in the live model list (e.g. codex bumped a slug), it falls
-      // back to a heuristic (haiku → mini → flash) so fast mode doesn't
-      // silently no-op on a CLI/SDK version change.
+      // Due opt-in, come prima: il flag per-turno del composer e la preferenza
+      // persistita sulla topic.
       const fastModeActive = fastModeRequested || matchedTopic?.fastMode === true;
-      if (fastModeActive) {
-        if (overrideModel) {
-          // Picker / topic.model already set an explicit choice. Honour it
-          // and log so users can audit *why* their fast toggle "didn't work".
-          console.info(
-            `[Chat] Fast mode requested but explicit model "${overrideModel}" takes precedence ` +
-            `for provider "${topicProvider.name}" — fast mapping skipped.`,
-          );
-        } else {
-          const snap = getSnapshotManager().getSnapshot();
-          const entry = snap.providers.find(p => p.name === topicProvider.name);
-          const available = entry?.models ?? [];
-          const fastModel = getFastModelFor(topicProvider.name, available);
-          if (fastModel === null) {
-            // Either provider has no fast-model mapping (e.g. openclaw → null)
-            // OR the snapshot was non-empty and no heuristic matched. Both
-            // cases: delegate to the provider's default, log the reason.
-            const isGatewayDelegate = available.length > 0;
-            console.info(
-              isGatewayDelegate
-                ? `[Chat] Fast mode requested but no fast-tier model found in snapshot for ` +
-                  `"${topicProvider.name}" (have: [${available.slice(0, 5).join(", ")}]) — falling back to default.`
-                : `[Chat] Fast mode requested for provider "${topicProvider.name}" — no fast-model mapping; ` +
-                  `delegating routing to the provider/gateway.`,
-            );
-          } else {
-            overrideModel = fastModel;
-            console.info(
-              `[Chat] Fast mode active — using "${fastModel}" for provider "${topicProvider.name}".`,
-            );
-          }
-        }
-      }
 
       // ─── Streaming ───
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
@@ -2195,8 +2163,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean } = {};
             if (overrideModel) sendOptions.model = overrideModel;
+            // La richiesta di fast mode viaggia COME richiesta: decide il
+            // provider, che la gira alla CLI solo se la CLI ha detto di poterla
+            // servire. Qui non si sceglie nessun modello al posto suo.
+            if (fastModeActive) sendOptions.fastMode = true;
             // Se abbiamo deduplicato, diamo al provider anche la versione integra:
             // gli serve se la sessione CLI muore e deve rispedire su una appena
             // coniata, che il preambolo non l'ha mai visto. `adaptEnvelope` è pura,

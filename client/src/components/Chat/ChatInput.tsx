@@ -24,6 +24,8 @@ import { Menu } from '../Shared/Menu';
 import { SpinnerFallback } from '../Shared/Spinner';
 import { CHAT_STRIP, CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { AutonomyPicker } from './AutonomyPicker';
+import { fastModeUi } from '../../lib/fastMode';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -505,6 +507,19 @@ export function ChatInput({
   // Context budget ring — sits left of the model selector. Drafts have no
   // server-side topic yet, so skip the analysis call until promotion.
   const isDraftTopic = topic.id.startsWith('draft:');
+
+  // Fast Mode: si mostra quello che la CLI DICHIARA, non quello che vorremmo.
+  // Lo snapshot dei provider è già in memoria (store condiviso), quindi qui non
+  // parte nessuna richiesta in più.
+  const { snapshot: providersSnapshot } = useProvidersSnapshot();
+  const fastUi = useMemo(
+    () => fastModeUi({
+      snapshot: providersSnapshot,
+      providerOverride: providerOverride ?? null,
+      requested: !!fastMode,
+    }),
+    [providersSnapshot, providerOverride, fastMode],
+  );
   const { budgetPercent, sources: contextSources } = useContextInspector(isDraftTopic ? null : topic.id);
   // Proiezione delle sources che l'inspector ha GIA' scaricato: nessuna seconda
   // richiesta, e i token per file sono quelli veri invece di una stringa in
@@ -1262,18 +1277,18 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onToggleFastMode}
+                    disabled={!fastUi.available}
                     className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
-                      fastMode
+                      fastUi.pressed
                         ? 'text-amber-500 bg-amber-500/10'
-                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                        : fastUi.available
+                          ? 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                          : 'text-app-text-faint cursor-not-allowed'
                     }`}
-                    title={
-                      fastMode
-                        ? "Fast Mode ON: usa il modello veloce del provider"
-                        : 'Fast Mode OFF: usa il modello di default della topic'
-                    }
+                    title={fastUi.title}
                     aria-label="Toggle fast mode"
-                    aria-pressed={!!fastMode}
+                    aria-pressed={fastUi.pressed}
+                    aria-disabled={!fastUi.available}
                     data-testid="chat-input-fast-mode"
                   >
                     {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
@@ -1284,8 +1299,10 @@ export function ChatInput({
                         lampo non insegnava niente a nessuno. Adesso resta qui e
                         nella sezione «Prestazioni» del changelog — stessa cosa,
                         detta due volte. Prima di metterne un altro: dice
-                        «veloce»? Se no, non è questo il glifo. */}
-                    <Zap size={16} />
+                        «veloce»? Se no, non è questo il glifo.
+                        PIENO quando è acceso: in una riga tutta di contorni il
+                        solo colore ambra non bastava a dire «attivo». */}
+                    <Zap size={16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
                   </button>
                 )}
                 {!isDraftTopic && (

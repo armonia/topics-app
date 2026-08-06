@@ -82,11 +82,6 @@ export function subscribeBoardProjects(cb: () => void): () => void {
   return () => { listeners.delete(cb); };
 }
 
-/** Rilegge l'indice dal server (dopo che qualcuno ha creato un progetto fuori da qui). */
-export function reloadBoardProjects(): Promise<BoardProjectRef[] | null> {
-  return fetchOnce(true);
-}
-
 /**
  * Inserisce un progetto appena creato senza aspettare un altro giro sul
  * server. Idempotente: se l'id c'è già la lista non cambia (né identità né

@@ -26,6 +26,8 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
+import { readFastMode, fastModeCommand, sameFastMode, type FastModeStatus } from "./fast-mode";
+import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
@@ -1175,7 +1177,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; resetFallbackContent?: string },
+    options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean },
   ): Promise<{ runId?: string }> {
     // Serial queue: prevent concurrent stdin writes per session
     const prev = this.queues.get(sessionKey) ?? Promise.resolve();
@@ -1189,10 +1191,40 @@ export class ClaudeCodeProvider implements AIProvider {
       // claude-code spawns a long-lived child whose --model is set at spawn
       // time. Switching models requires respawning, which we don't do mid-flow.
       // To use a different model, set it as the topic default or in config.
+      // Fast mode: si porta la sessione allo stato voluto PRIMA del turno, e
+      // solo se la CLI ha detto che si può. Se è bloccata, `fastModeCommand`
+      // torna null e non si manda niente — un `/fast on` rifiutato tornerebbe
+      // come un messaggio dell'assistente dentro la chat.
+      await this.applyFastMode(sessionKey, options?.fastMode === true);
       return await this.sendChatInternal(sessionKey, message, handler, false, options?.resetFallbackContent);
     } finally {
       resolveQueue();
     }
+  }
+
+  /**
+   * Manda `/fast on|off` sulla sessione, se serve e se si può. Il comando è un
+   * normale turno utente in stream-json: la CLI lo intercetta come comando e
+   * risponde con un testo, quindi lo si manda SOLO quando cambierebbe davvero
+   * qualcosa — altrimenti ogni messaggio si porterebbe dietro un turno di
+   * servizio.
+   *
+   * Oggi, nelle chat, non parte mai: la CLI dichiara `sdk_opt_in_required`.
+   * Questa è la strada che si apre da sola il giorno che quel cancello cade,
+   * senza che nessuno debba ricordarsi di ricablarla.
+   */
+  private async applyFastMode(sessionKey: string, want: boolean): Promise<void> {
+    const cmd = fastModeCommand(this.fastModeStatus, want);
+    if (!cmd) return;
+    const pp = this.processes.get(sessionKey);
+    if (!pp?.alive) return;
+    try {
+      await pp.ready;
+      pp.io.writeStdin(JSON.stringify({
+        type: "user",
+        message: { role: "user", content: [{ type: "text", text: cmd }] },
+      }) + "\n");
+    } catch { /* la sessione risponderà comunque al turno vero */ }
   }
 
   private async sendChatInternal(
@@ -1699,6 +1731,30 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.spawnPersistentProcess(sessionKey);
     this.processes.set(sessionKey, pp);
     return pp;
+  }
+
+  /**
+   * L'ultimo stato di fast mode che la CLI ha DICHIARATO (init o result). È
+   * per-binario, non per-sessione: la ragione che blocca (oggi
+   * `sdk_opt_in_required`) dipende da COME lanciamo la CLI, uguale per tutte le
+   * chat. Lo si tiene qui e lo si pubblica nello snapshot dei provider, che è
+   * il canale che il composer già ascolta.
+   */
+  private fastModeStatus: FastModeStatus | null = null;
+
+  /** Letto dallo snapshot manager quando ricostruisce la riga del provider. */
+  fastMode(): FastModeStatus | null {
+    return this.fastModeStatus;
+  }
+
+  /** Un evento della CLI ha parlato di fast mode: se è cambiato, si pubblica. */
+  private observeFastMode(event: unknown): void {
+    const seen = readFastMode(event);
+    if (!seen || sameFastMode(seen, this.fastModeStatus)) return;
+    this.fastModeStatus = seen;
+    try {
+      getSnapshotManager().patchEntry("claude-code", { fastMode: { ...seen } });
+    } catch { /* snapshot non ancora montato: la riga lo prenderà al prossimo refresh */ }
   }
 
   private spawnPersistentProcess(sessionKey: string): PersistentProcess {
@@ -2348,6 +2404,11 @@ export class ClaudeCodeProvider implements AIProvider {
       }
       return;
     }
+
+    // Fast mode: la CLI lo dichiara in `system/init` e in ogni `result`. Si
+    // legge PRIMA del filtro qui sotto, che scarta tutti i `system` — è l'unico
+    // posto da cui quel dato passa, e perderlo significherebbe dedurlo.
+    this.observeFastMode(event);
 
     // Filter noise
     if (event.type === "system" || event.type === "rate_limit_event") return;

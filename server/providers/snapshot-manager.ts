@@ -147,6 +147,11 @@ export class ProviderSnapshotManager extends EventEmitter {
         version: diag?.version,
         models,
         defaultModel: provider.defaultModel?.() ?? undefined,
+        // Lo stato della fast mode non viene da un probe: lo dichiara la CLI
+        // dentro lo stream di una sessione viva, e il provider lo tiene. Qui si
+        // ricopia perché una riga ricostruita non lo perda per strada (poi ogni
+        // cambio arriva da `patchEntry`).
+        fastMode: (provider as { fastMode?: () => { state: "off" | "on" | "cooldown"; reason: string | null } | null }).fastMode?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: effortTierFor(name),
@@ -179,6 +184,23 @@ export class ProviderSnapshotManager extends EventEmitter {
     }
 
     this.entries.set(name, entry);
+    this.emit("change");
+  }
+
+  /**
+   * Aggiorna UN campo di una riga già in cache, senza ri-diagnosticare il
+   * provider. Serve a chi osserva un fatto che il probe non vede — lo stato
+   * della fast mode arriva dallo STREAM di una sessione viva, non da
+   * `diagnose()` — e deve poterlo pubblicare subito: `invalidate` costringerebbe
+   * a un giro completo di probe per un booleano.
+   *
+   * Nessuna riga in cache = nessun effetto: il prossimo `refreshOne` la
+   * costruirà da capo e chiederà di nuovo il valore.
+   */
+  patchEntry(name: string, patch: Partial<ProviderSnapshotEntry>): void {
+    const prior = this.entries.get(name);
+    if (!prior) return;
+    this.entries.set(name, { ...prior, ...patch });
     this.emit("change");
   }
 
