@@ -8,6 +8,7 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
@@ -143,6 +144,7 @@ export const TopicItem = memo(function TopicItem({
   // topic and MERGE it into the group it's dropped on ("raggruppa da sidebar").
   const handleDragStart = useCallback((e: React.DragEvent) => {
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
+    rememberDraggedPane(topic.id);
     e.dataTransfer.effectAllowed = 'move';
     // Compact drag ghost (matches the pre-regression look).
     const ghost = document.createElement('div');

@@ -15,6 +15,7 @@ import { topicsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
+import { rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
@@ -739,6 +740,7 @@ export function TopicTree({
           draggable
           onDragStart={(e) => {
             e.dataTransfer.setData(DND_TYPES.PANEL_ID, createPaneId('project', pp));
+            rememberDraggedPane(createPaneId('project', pp));
             e.dataTransfer.effectAllowed = 'move';
             const ghost = document.createElement('div');
             ghost.style.cssText =
@@ -1047,6 +1049,27 @@ export function TopicTree({
         if (at) onPinAt?.(key, at);
         else onTogglePin?.(key);
       }}
+      // Serve a disegnare l'anteprima con la cosa VERA, e quindi deve cercare
+      // fra TUTTE le righe, non fra i fissati: quella in volo, per definizione,
+      // fissata non è ancora. Anche fra i figli di un progetto e fra i suoi
+      // sotto-agenti, che sono righe come le altre ma non stanno al livello
+      // superiore. E la board, che una riga nell'albero non ce l'ha.
+      resolveItem={key => {
+        if (key === BOARD_ID) {
+          return {
+            id: BOARD_ID, type: 'utility', name: BOARD_LABEL, icon: 'LayoutGrid',
+            lastActivity: 0, notificationCount: boardTaskCount, archived: false,
+          };
+        }
+        const stack = [...filteredItems];
+        while (stack.length > 0) {
+          const item = stack.pop()!;
+          if (item.id === key) return item;
+          if (item.children) stack.push(...item.children);
+          if (item.subAgents) stack.push(...item.subAgents);
+        }
+        return null;
+      }}
       // Il menu contestuale della tessera è quello della RIGA, per ogni tipo.
       // Dimenticarne uno vuol dire che quella cosa, una volta fissata, non si
       // può più togliere dai Fissati: la riga con «Rimuovi dai Fissati» non
@@ -1118,6 +1141,7 @@ export function TopicTree({
             draggable
             onDragStart={e => {
               e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
+              rememberDraggedPane(BOARD_ID);
               e.dataTransfer.effectAllowed = 'copyMove';
             }}
             onContextMenu={e => {

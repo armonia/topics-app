@@ -8,6 +8,7 @@ import { useProjectIcon } from '../Shared/projectIconStore';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { getPaneConfig, getTerminalSessionFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/signals';
+import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 
@@ -214,6 +215,7 @@ export function PinnedTile({
         // stringa: chi lo riceve apre o sposta una pane, e con l'id della riga
         // il drop cadrebbe su una pane che non esiste — senza un errore.
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, sidebarItemPaneId(item));
+        rememberDraggedPane(sidebarItemPaneId(item));
         e.dataTransfer.effectAllowed = 'move';
         onDragStart?.();
       }}
