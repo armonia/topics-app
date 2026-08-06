@@ -1138,7 +1138,7 @@ describe('CLOSE_PANE — entity-less refs (ghost tabs)', () => {
     });
 
     expect(state.groups["group:default"].paneIds).toEqual([]);
-    expect(typeof state.tombstones["__board__"]).toBe("number");
+    expect(typeof state.tombstones["__board__"].at).toBe("number");
     expect(state.closedStack.length).toBe(0); // nothing restorable
   });
 
@@ -1156,7 +1156,7 @@ describe('CLOSE_PANE — entity-less refs (ghost tabs)', () => {
     expect(state.groups["g9"]).toBeUndefined();
     expect(state.groupOrder).toEqual([]);
     expect(state.focusedPaneId).toBeNull();
-    expect(typeof state.tombstones["__ghost__"]).toBe("number");
+    expect(typeof state.tombstones["__ghost__"].at).toBe("number");
   });
 });
 

@@ -1,5 +1,5 @@
-import type { PaneState, PaneAction, ClosedPaneRecord, PaneType } from '../types';
-import { CLOSED_STACK_MAX, TOMBSTONES_MAX, DEFAULT_SPACE_ID } from '../types';
+import type { PaneState, PaneAction, ClosedPaneRecord, PaneType, TombstoneMark } from '../types';
+import { CLOSED_STACK_MAX, TOMBSTONES_MAX, DEFAULT_SPACE_ID, toTombstoneMark } from '../types';
 import { groupsReducer } from './groups';
 import { undoReducer } from './undo';
 import { spacesReducer, mergeSpaces } from './spaces';
@@ -11,10 +11,17 @@ import { sanitizeSnapshot, KNOWN_PANE_TYPES } from './sanitizeSnapshot';
  * Older-write guard: only advance closedAt (a stale re-close must not shadow a
  * newer reopen that already cleared it in the same merge window).
  */
-function recordTombstone(state: PaneState, id: string, closedAt: number): void {
+function recordTombstone(state: PaneState, id: string, closedAt: number, closedSeq: number): void {
   if (!state.tombstones) state.tombstones = {};
   const prev = state.tombstones[id];
-  if (prev === undefined || closedAt > prev) state.tombstones[id] = closedAt;
+  // Guardia sulla scrittura vecchia: avanza solo. Si confronta su `seq` quando
+  // entrambi ce l'hanno — è la grandezza che ordina fra dispositivi — e si
+  // ricade sull'orologio solo quando uno dei due è un marcatore legacy.
+  if (prev === undefined) {
+    state.tombstones[id] = { at: closedAt, seq: closedSeq };
+  } else if ((prev.seq > 0 && closedSeq > 0) ? (closedSeq > prev.seq) : (closedAt > prev.at)) {
+    state.tombstones[id] = { at: closedAt, seq: Math.max(closedSeq, prev.seq) };
+  }
   capTombstones(state);
 }
 
@@ -23,9 +30,9 @@ function capTombstones(state: PaneState): void {
   const ids = Object.keys(state.tombstones);
   if (ids.length <= TOMBSTONES_MAX) return;
   const kept = ids
-    .sort((a, b) => (state.tombstones[b] ?? 0) - (state.tombstones[a] ?? 0))
+    .sort((a, b) => (state.tombstones[b]?.at ?? 0) - (state.tombstones[a]?.at ?? 0))
     .slice(0, TOMBSTONES_MAX);
-  const next: Record<string, number> = {};
+  const next: Record<string, TombstoneMark> = {};
   for (const id of kept) next[id] = state.tombstones[id];
   state.tombstones = next;
 }
@@ -104,7 +111,16 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // Legacy already-open panes stay unstamped — the marker keeps winning
       // for them exactly as before the field existed.
       const openedAt = pane.openedAt ?? (knownPane ? knownPane.openedAt : Date.now());
-      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id, spaceId, openedAt };
+      // Il gemello CAUSALE di `openedAt`, e quello su cui si decide davvero.
+      // Stesse regole: un inserimento FRESCO timbra, un ri-OPEN di una pane gia'
+      // viva conserva (altrimenti una navigazione del browser pane, che
+      // ri-OPEN_PANEa lo stesso id, farebbe scavalcare la chiusura genuina di un
+      // peer), un valore esplicito nel payload vince. `state.lastSeq + 1` e' lo
+      // stesso "sbircia il prossimo seq" gia' usato dal record di closedStack:
+      // scriverlo su `state.lastSeq` qui farebbe incrementare due volte il
+      // dispatcher, bruciando un seq per ogni apertura.
+      const openedSeq = pane.openedSeq ?? (knownPane ? knownPane.openedSeq : state.lastSeq + 1);
+      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id, spaceId, openedAt, openedSeq };
       if (!state.groups[groupId]) {
         state.groups[groupId] = {
           id: groupId,
@@ -185,7 +201,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           }
         }
         if (state.focusedPaneId === id) state.focusedPaneId = null;
-        recordTombstone(state, id, Date.now());
+        recordTombstone(state, id, Date.now(), state.lastSeq + 1);
         break;
       }
       if (!group) break;
@@ -238,7 +254,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       state.closedStack.push(record);
       while (state.closedStack.length > CLOSED_STACK_MAX) state.closedStack.shift(); // FIFO
       // Durable tombstone (survives the FIFO eviction above).
-      recordTombstone(state, id, record.closedAt);
+      recordTombstone(state, id, record.closedAt, record.seq);
       // Remove pane from group
       const idx = group.paneIds.indexOf(id);
       if (idx >= 0) group.paneIds.splice(idx, 1);
@@ -269,7 +285,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       });
       while (state.closedStack.length > CLOSED_STACK_MAX) state.closedStack.shift(); // FIFO
       // Durable tombstone for the project-inner close (same as CLOSE_PANE).
-      recordTombstone(state, record.id, record.closedAt ?? Date.now());
+      recordTombstone(state, record.id, record.closedAt ?? Date.now(), record.seq ?? state.lastSeq + 1);
       break;
     }
     case 'UNDO_CLOSE': {
@@ -393,14 +409,24 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // close-then-reopen cycle still holds the dead marker; membership alone
       // let that stale marker kill the re-opened tab on every client (the
       // stale-webapp-closes-topic-tabs bug).
-      const remoteClosedAt = new Map<string, number>();
-      for (const r of clean.closedStack ?? []) {
-        const prev = remoteClosedAt.get(r.id);
-        if (prev === undefined || r.closedAt > prev) remoteClosedAt.set(r.id, r.closedAt);
-      }
-      for (const [id, closedAt] of Object.entries(clean.tombstones ?? {})) {
-        const prev = remoteClosedAt.get(id);
-        if (prev === undefined || closedAt > prev) remoteClosedAt.set(id, closedAt);
+      // `seq` e non `closedAt`: e' la stessa correzione della meta' 2 qui sotto,
+      // e va fatta su ENTRAMBE o il guasto rientra da questo lato. Si tiene il
+      // seq PIU' ALTO per id — cioe' la chiusura piu' avanti nella storia
+      // condivisa. `0` significa «marcatore senza seq» (legacy) e vince sempre.
+      const remoteClosedSeq = new Map<string, number>();
+      const bumpClosed = (id: string, seq: number): void => {
+        const prev = remoteClosedSeq.get(id);
+        if (prev === undefined) { remoteClosedSeq.set(id, seq); return; }
+        // `0` = chiusura senza seq (marcatore legacy). E' il valore PIU' FORTE:
+        // «non so quando», quindi il marcatore vince e nessun seq noto lo
+        // scavalca. Fra due seq noti si tiene il piu' avanti nella storia.
+        if (prev === 0 || seq === 0) { remoteClosedSeq.set(id, 0); return; }
+        if (seq > prev) remoteClosedSeq.set(id, seq);
+      };
+      for (const r of clean.closedStack ?? []) bumpClosed(r.id, r.seq ?? 0);
+      for (const [id, raw] of Object.entries(clean.tombstones ?? {})) {
+        const mark = toTombstoneMark(raw);
+        if (mark) bumpClosed(id, mark.seq);
       }
       const localKeptPanes: PaneState['panes'] = {};
       const localKeptByGroup: Record<string, string[]> = {};
@@ -413,13 +439,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         for (const [id, pane] of Object.entries(state.panes)) {
           if (id.startsWith('draft:')) continue;     // re-injected separately below
           if (incomingIds.has(id)) continue;          // remote already has it
-          const closedAt = remoteClosedAt.get(id);
-          if (closedAt !== undefined) {
-            // Closed on another client → drop, UNLESS this live pane was
-            // (re)opened AFTER that close: then the marker is stale and the
-            // pane survives the union.
-            const openedAt = pane.openedAt;
-            if (!(typeof openedAt === 'number' && openedAt > closedAt)) continue;
+          const closedSeq = remoteClosedSeq.get(id);
+          if (closedSeq !== undefined) {
+            // Chiusa su un altro client → si lascia cadere, A MENO CHE questa
+            // pane viva sia stata (ri)aperta DOPO quella chiusura nella storia
+            // CONDIVISA — non secondo l'orologio di chi l'ha aperta. Manca uno
+            // dei due seq? Vince il marcatore. Vedi `Pane.openedSeq`.
+            const openedSeq = pane.openedSeq;
+            if (!(typeof openedSeq === 'number' && closedSeq > 0 && openedSeq > closedSeq)) continue;
             staleMarkerIds.push(id);
           }
           localKeptPanes[id] = pane;
@@ -454,6 +481,11 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // win the strip again on the next merge. Keep the NEWEST of the two
       // sides; either may have seen the more recent closed→open transition.
       const localOpenedAt = new Map<string, number>();
+      // Idem per il gemello CAUSALE, e qui la posta e' piu' alta: `openedSeq` e'
+      // il campo su cui la ritrattazione decide davvero, quindi perderlo in un
+      // giro su un peer vecchio non degrada la precisione — spegne la regola, e
+      // la pane legittimamente riaperta muore al primo marcatore stantio.
+      const localOpenedSeq = new Map<string, number>();
       // `scrollOffset` is DEVICE-LOCAL: sanitizeSnapshot strips it from every
       // inbound snapshot, so the wholesale `state.panes = clean.panes` below
       // would zero the live scroll position of every open chat on every WS
@@ -462,6 +494,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       const localScrollOffset = new Map<string, number>();
       for (const [id, p] of Object.entries(state.panes)) {
         if (typeof p.openedAt === 'number') localOpenedAt.set(id, p.openedAt);
+        if (typeof p.openedSeq === 'number') localOpenedSeq.set(id, p.openedSeq);
         if (typeof p.scrollOffset === 'number') localScrollOffset.set(id, p.scrollOffset);
       }
       if (clean.panes) {
@@ -469,6 +502,10 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         for (const [id, ts] of localOpenedAt) {
           const p = state.panes[id];
           if (p && (typeof p.openedAt !== 'number' || p.openedAt < ts)) p.openedAt = ts;
+        }
+        for (const [id, sq] of localOpenedSeq) {
+          const p = state.panes[id];
+          if (p && (typeof p.openedSeq !== 'number' || p.openedSeq < sq)) p.openedSeq = sq;
         }
         for (const [id, off] of localScrollOffset) {
           const p = state.panes[id];
@@ -510,12 +547,15 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // A local reopen (OPEN_PANE) already deleted the id here, so the merge
       // only re-adds ids the local client hasn't retracted.
       if (clean.tombstones) {
-        for (const [id, closedAt] of Object.entries(clean.tombstones)) {
-          if (typeof closedAt !== 'number') continue;
-          const prev = state.tombstones[id];
-          if (prev === undefined || closedAt > prev) state.tombstones[id] = closedAt;
+        for (const [id, raw] of Object.entries(clean.tombstones)) {
+          // `toTombstoneMark` normalizza anche la forma LEGACY (numero nudo):
+          // un marcatore che arriva da un client vecchio o da uno snapshot su
+          // disco scritto prima di questa change non ha `seq`, e diventa
+          // `seq: 0` — cioe' «decide il marcatore».
+          const mark = toTombstoneMark(raw);
+          if (!mark) continue;
+          recordTombstone(state, id, mark.at, mark.seq);
         }
-        capTombstones(state);
       }
       // Bidirectional tombstone strip. The `remoteClosedIds` filter above only
       // drops a LOCAL pane the REMOTE closed; it does nothing about the reverse
@@ -556,9 +596,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
             // tombstone retraction never reached us. Retract and keep the
             // pane instead of stripping the authoritative re-open (this was
             // the strip half of the stale-webapp-closes-topic-tabs bug).
-            // Legacy panes without openedAt: the marker wins, as before.
-            const openedAt = pane.openedAt;
-            if (typeof openedAt === 'number' && openedAt > state.tombstones[id]) {
+            // Il confronto e' CAUSALE, non su orologio: `openedSeq` e' quanto
+            // lontano questo client aveva visto lo stato condiviso quando ha
+            // aperto la pane, e `mark.seq` e' il punto in cui e' avvenuta la
+            // chiusura. Un dispositivo fermo da due settimane porta un
+            // `openedSeq` basso e PERDE — che e' l'esito giusto, e l'opposto di
+            // cio' che faceva il confronto fra `openedAt` e `closedAt`, timbrati
+            // su due macchine diverse e valutati su una terza (guasto misurato
+            // il 2026-08-06: una pane chiusa il 23/07 ancora aperta su un
+            // telefono, e la ritrattazione che si propagava all'indietro).
+            //
+            // Manca uno dei due? Il marcatore vince. Vale per le pane precedenti
+            // a `openedSeq` e per i marcatori legacy senza `seq`: al massimo si
+            // richiude una pane davvero riaperta — l'utente la riapre — e mai il
+            // contrario, che sarebbe una resurrezione silenziosa.
+            const mark = state.tombstones[id];
+            const openedSeq = pane.openedSeq;
+            if (typeof openedSeq === 'number' && mark.seq > 0 && openedSeq > mark.seq) {
               retractStaleMarker(state, id);
               tombstonedIds.delete(id);
               continue;
