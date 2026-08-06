@@ -1,8 +1,39 @@
 import { useState, useEffect } from 'react';
 
+/**
+ * `isTouch`, `isMobile` e `hasHover` SONO TRE DOMANDE DIVERSE. Qui c'è la
+ * risposta unica, perché confonderle ha già fatto danni misurabili.
+ *
+ *  · `isTouch` — «questo device SI PUÒ toccare» (`ontouchstart` /
+ *    `maxTouchPoints`). Serve per AGGIUNGERE affordance al dito: long-press al
+ *    posto del tasto destro, bersagli da 44px, drag nativo HTML5 spento (il suo
+ *    lift contende lo stesso gesto). Non dice NIENTE sul mouse: un portatile con
+ *    schermo touch è `isTouch` e ha anche il puntatore.
+ *
+ *  · `hasHover` — «esiste un puntatore che può PASSARE SOPRA senza premere»
+ *    (`(hover: hover)`). È l'unica domanda che autorizza a NASCONDERE un comando
+ *    dietro l'hover: se la risposta è no, quel comando è irraggiungibile. Serve
+ *    anche a decidere se armare i gestori MOUSE di un gesto.
+ *
+ *  · `isMobile` — «lo schermo è piccolo» (<768px, o <1024 se touch). È una
+ *    domanda di LAYOUT: quante colonne, sidebar a scomparsa, tab-strip unica.
+ *    Non c'entra né col dito né col mouse.
+ *
+ * Le tre non sono esclusive e vanno usate INSIEME quando servono insieme. Il
+ * caso che ha rotto le cose: `isTouch` usato come se significasse «niente
+ * hover» ha lasciato la barra azioni dei messaggi permanentemente a opacity-40
+ * (MessageBubble) e ha SPENTO i gestori mouse del «tieni premuto» sui bottoni
+ * Indietro/Avanti (BrowserToolbar) — su un ibrido la cronologia tornava
+ * raggiungibile col solo tasto destro, cioè esattamente il difetto che quel
+ * codice diceva di aver chiuso, spostato su un'altra popolazione.
+ * Regola: affordance touch → `isTouch`; nascondere dietro l'hover → `hasHover`;
+ * quante colonne → `isMobile`.
+ */
 interface MobileState {
   isMobile: boolean;           // Screen width < 768px
   isTouch: boolean;            // Touch device
+  /** Esiste un puntatore che fa hover — `(hover: hover)`. Vedi il blocco sopra. */
+  hasHover: boolean;
   isStandalone: boolean;       // PWA installed
   isIOS: boolean;              // iOS device
   isAndroid: boolean;          // Android device
@@ -28,6 +59,19 @@ export function useMobile(): MobileState {
     window.addEventListener('resize', updateState);
     window.addEventListener('orientationchange', updateState);
 
+    // `hasHover` non cambia con la finestra: cambia quando cambia il PUNTATORE
+    // (un mouse collegato a un tablet, la Magic Keyboard tolta da un iPad, la
+    // finestra spostata su un altro schermo). Nessun `resize` accompagna quegli
+    // eventi, quindi senza questo listener il valore resterebbe fermo a quello
+    // del montaggio — e i comandi nascosti dietro l'hover resterebbero nascosti
+    // (o scoperti) fino al remount.
+    const hoverMq = typeof window.matchMedia === 'function' ? window.matchMedia('(hover: hover)') : null;
+    // `addListener` è il fallback per i WebKit < 14: lì `addEventListener` sulla
+    // MediaQueryList non esiste, e senza il ramo vecchio il listener non si
+    // aggancia affatto invece di degradare.
+    if (hoverMq?.addEventListener) hoverMq.addEventListener('change', updateState);
+    else hoverMq?.addListener?.(updateState);
+
     // Listen for keyboard (iOS/Android). Capture the handler so cleanup can
     // remove it — an inline listener here leaked one visualViewport listener per
     // mount (useMobile is called from Menu/PaneAddMenu, mounted on every open).
@@ -43,6 +87,8 @@ export function useMobile(): MobileState {
     return () => {
       window.removeEventListener('resize', updateState);
       window.removeEventListener('orientationchange', updateState);
+      if (hoverMq?.removeEventListener) hoverMq.removeEventListener('change', updateState);
+      else hoverMq?.removeListener?.(updateState);
       if (vv && onViewportResize) vv.removeEventListener('resize', onViewportResize);
     };
   }, []);
@@ -55,6 +101,10 @@ function getInitialState(): MobileState {
     return {
       isMobile: false,
       isTouch: false,
+      // Fuori dal browser (SSR / test) si assume il puntatore: è il default che
+      // NON nasconde niente a nessuno — un comando visibile di troppo si vede,
+      // uno nascosto per errore non si raggiunge.
+      hasHover: true,
       isStandalone: false,
       isIOS: false,
       isAndroid: false,
@@ -68,6 +118,12 @@ function getInitialState(): MobileState {
   const isIOS = /iPhone|iPad|iPod/.test(ua);
   const isAndroid = /Android/.test(ua);
   const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  // Domanda ORTOGONALE a `isTouch`, non il suo contrario: su un portatile con
+  // schermo touch sono vere entrambe. Se `matchMedia` non c'è si assume di sì,
+  // per lo stesso motivo del ramo SSR qui sopra.
+  const hasHover = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(hover: hover)').matches
+    : true;
   const isMobile = window.innerWidth < 768 || (isTouch && window.innerWidth < 1024);
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
     // `navigator.standalone` is a non-standard iOS Safari flag (PWA installed to home screen).
@@ -87,6 +143,7 @@ function getInitialState(): MobileState {
   return {
     isMobile,
     isTouch,
+    hasHover,
     isStandalone,
     isIOS,
     isAndroid,

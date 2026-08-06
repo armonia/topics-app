@@ -14,7 +14,7 @@ import { PerfSection } from './PerfSection';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
-import { ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
+import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useAgentActivityCounts } from '@/state/signals';
@@ -366,7 +366,18 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           but looked worse, so the crowding is removed at the SOURCE instead:
           the two dev chips are merged into one, and the left readout truncates
           with an ellipsis rather than being severed. */}
-      <div className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* NESSUNO SFONDO PROPRIO: eredita quello della colonna. Era `bg-app-bg`,
+          cioè un token DIVERSO da quello della sidebar (`bg-surface` allora,
+          `bg-app-chrome` adesso) — i due estremi della stessa colonna con due
+          tinte, e su iPhone la fascia dell'home indicator (questo
+          `paddingBottom`) di un colore e quella in cima di un altro.
+          Ridipingerla con `bg-app-chrome` NON era la soluzione: sotto Tauri/mac
+          quel token porta l'alpha 0.55 della vibrancy, e una seconda mano dentro
+          la sidebar la comporrebbe con la prima (alpha efficace 0.80 contro
+          0.55) — la stessa cucitura che la regola anti-compounding di
+          `.chrome-glass` esiste per evitare, rientrata da un'altra porta.
+          Non dipingere è l'unico modo di essere davvero la stessa superficie. */}
+      <div data-testid="sidebar-status-bar" className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -374,7 +385,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
-          className={`flex items-center gap-1.5 text-[11px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
+          className={`flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden tap-expand-y ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
           title="Performance & stato sistema — apri per FPS live"
         >
           {openclawAvailable ? (
@@ -518,7 +529,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
             <button
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
-              className={`text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded px-1 -mx-0.5 transition-colors ${showVersionPopover ? 'bg-app-hover text-app-text-secondary' : ''}`}
+              className={`text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 -mx-0.5 transition-colors tap-expand-y ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
               title="Info versione e aggiornamenti"
             >
               v{appVersion}
@@ -561,7 +572,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className={`p-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
+            className={`p-0.5 rounded ${SIDEBAR_HOVER} transition-colors tap-expand ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
             title={isDesktop ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
           >
             {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
@@ -647,7 +658,8 @@ function DeviceIdentityRow() {
   return (
     <div
       data-testid="device-identity"
-      className="flex items-center gap-1.5 border-t border-app-border bg-app-bg text-[11px] text-app-text-secondary min-h-6"
+      // Come la fascia sopra: nessuno sfondo proprio, eredita la colonna.
+      className="flex items-center gap-1.5 border-t border-app-border text-[11px] text-app-text-secondary min-h-7"
       style={{ paddingInline: ROW_INSET }}
       title={locale
         ? 'Sei su questo computer: l\'accesso non passa da una sessione.'

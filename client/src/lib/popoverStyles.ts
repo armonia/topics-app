@@ -69,27 +69,40 @@ export const POPOVER_PANEL =
   'glass-surface border border-app-border rounded-lg shadow-lg';
 
 /**
- * A standard menu row: icon + label, touch-friendly on mobile, compact on
- * desktop. Matches the prevailing item rhythm already used by DropdownPortal /
- * PaneAddMenu so existing menus don't shift when adopting it.
+ * A standard menu row: icon + label. 44px alti sotto i 768px — la misura di un
+ * dito secondo le linee guida iOS — e compatti (~24px) da tablet in su, dove
+ * c'è un puntatore.
+ *
+ * I 44px erano l'ECCEZIONE, ed è il difetto che questa riga chiude: il default
+ * era `py-2`, cioè 36px sul telefono, e la variante giusta (`POPOVER_ITEM_TOUCH`,
+ * `py-3`) era usata da UN file su 49. Quarantotto menu su quarantanove si
+ * toccavano male, e chi leggeva `POPOVER_ITEM` non aveva modo di sospettarlo.
+ * Adesso l'eccezione è il default e la variante è solo un alias.
+ *
+ * NB — un menu con TANTE voci non si rimette in riga togliendogli i 44px: gli si
+ * dà un tetto e lo scroll (`max-height` + `overflow-y-auto`), come fa il menu
+ * della tab in `PaneTabBar`. Rimpicciolire le righe sposta il problema di
+ * qualche voce e rompe il bersaglio per tutti gli altri menu.
  */
 export const POPOVER_ITEM =
-  'w-full flex items-center gap-2 px-3 py-2 md:py-1.5 text-left text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
-
-/**
- * Variante a bersaglio TOUCH: identica a `POPOVER_ITEM` tranne la riga più alta
- * sotto i 768px (`py-3` invece di `py-2`). Serve ai menu che si aprono anche
- * come foglio sul telefono, dove 8px di padding fanno un bersaglio da ~30px —
- * sotto la soglia di un dito. Era una copia locale in `PaneAddMenu`, con la
- * divergenza NON dichiarata: chi leggeva `POPOVER_ITEM` credeva che tutte le
- * righe fossero uguali, e non lo erano.
- */
-export const POPOVER_ITEM_TOUCH =
   'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
 
-/** Destructive variant of POPOVER_ITEM (delete / clear / discard). */
+/**
+ * @deprecated Alias di {@link POPOVER_ITEM}, che ORA è già a bersaglio touch.
+ *
+ * Restava come classe a sé quando il default era più basso; da quando i 44px
+ * sono il default, tenerne due copie identiche è solo un modo per farle
+ * divergere di nuovo. Sopravvive per non rompere il suo unico call-site
+ * (`Shared/PaneAddMenu.tsx`): quando quello passa a `POPOVER_ITEM`, questa riga
+ * si cancella.
+ */
+export const POPOVER_ITEM_TOUCH = POPOVER_ITEM;
+
+/** Destructive variant of POPOVER_ITEM (delete / clear / discard). Stesso ritmo
+ *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
+ *  voce rossa avrebbe una riga più bassa delle altre. */
 export const POPOVER_ITEM_DANGER =
-  'w-full flex items-center gap-2 px-3 py-2 md:py-1.5 text-left text-[14px] md:text-[12px] text-red-600 dark:text-red-400 hover:bg-red-600/10 transition-colors';
+  'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] text-red-600 dark:text-red-400 hover:bg-red-600/10 transition-colors';
 
 /** Hairline separator between menu groups. */
 export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
