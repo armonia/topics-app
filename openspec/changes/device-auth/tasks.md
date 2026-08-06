@@ -58,21 +58,34 @@
   approvazione, una revoca che non morde) e cosa è FUORI (ciò che può fare un
   dispositivo autorizzato, che ha per progetto i poteri del proprietario).
 
-## 5. Resta aperto
+## 5. Completamenti
 
-- [ ] 5.1 **Elenco dispositivi in Impostazioni.** Gli endpoint ci sono e la revoca
-  funziona (provata con `curl`), ma manca il pannello: oggi si revoca solo via
-  API. Finché non c'è, la promessa «revocabile in qualunque momento» scritta in
-  `SECURITY.md` è vera solo per chi sa usare `curl`.
-- [ ] 5.2 **Rinominare un dispositivo.** «iPhone» basta con un telefono; con tre
+- [x] 5.1 **Elenco dispositivi in Impostazioni** (`Settings → Dispositivi`), con
+  revoca a due passi e i revocati che restano in elenco, barrati — una riga
+  cancellata non racconta niente. **Verifica:** aperto nella UI vera, titolo
+  «Dispositivi autorizzati» e due voci con «visto adesso · da 192.168.1.12».
+  Screenshot in `~/.topics/media/device-auth/pannello-dispositivi.png`.
+- [x] 5.4 **`/preview` confinato.** Non aveva nessun confine: l'unico controllo
+  era «il path è canonico». Ora passa da `resolveProjectPath` (confronto sul path
+  REALE, così un symlink dentro un progetto non è una porta) più le radici di
+  media e allegati. **Verifica dal vivo:** `/preview/etc/hosts` → 403, un file di
+  progetto → 200.
+- [x] 5.5 **Tetto sulle richieste di appaiamento**: 3 per indirizzo, 20 in tutto.
+  **Verifica:** la quarta richiesta dallo stesso indirizzo → 429.
+
+## 6. Resta aperto
+
+- [ ] 6.1 **Rinominare un dispositivo.** «iPhone» basta con un telefono; con tre
   no.
-- [ ] 5.3 **Prova su dispositivo VERO.** Il giro è stato provato con un viewport
+- [ ] 6.2 **Prova su dispositivo VERO.** Il giro è stato provato con un viewport
   iPhone in Chromium, non con Safari su iOS: mancano il click-through
   sull'interstiziale del certificato e il touch.
-- [ ] 5.4 **`/preview` resta da sandboxare.** L'auth chiude la porta; non rende
-  sicuro il file server per chi è dentro. `resolveSafePath` esiste in
-  `server/utils.ts` con **zero chiamanti**. Va fatto comunque.
-- [ ] 5.5 **Nessun rate limit su `pair/request`.** Il verso dell'approvazione
-  toglie il brute-force del codice, ma un peer sulla rete può inondare la coda
-  delle richieste in attesa. Oggi scadono in tre minuti e vivono in memoria; un
-  tetto per IP è comunque da mettere.
+- [ ] 6.3 **Identità del PROPRIETARIO (es. login Google).** Oggi l'identità dice
+  QUALE dispositivo, non CHI. Serve quando le persone diventano più di una — il
+  backlog ha già l'idea di «amicizia» per vedere le sessioni altrui. Vincolo da
+  sapere prima di provarci: Google non accetta come redirect URI un nome `.local`
+  o un IP privato, quindi il telefono non può fare OAuth verso questo server; a
+  fare il login sarebbe il COMPUTER (redirect su loopback, che è ammesso per le
+  app installate), e l'account servirebbe a firmare le approvazioni, non a
+  sostituire la sessione del dispositivo. E richiede Internet al momento del
+  login, cosa che oggi l'app non richiede mai.
