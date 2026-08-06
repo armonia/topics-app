@@ -5,6 +5,7 @@ import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Dow
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
@@ -1081,6 +1082,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {task ? STATUS_LABEL[task.status] : 'Carico…'}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
+        {/* Condividere sta accanto allo STATO, non dentro un menù: è una
+            proprietà della scheda come lo stato, e nasconderla in un
+            sottomenù avrebbe reso invisibile l'unica cosa che rende utile
+            l'identità costruita sotto. */}
+        {task && <ShareControl resourceType="task" resourceId={task.id} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
           <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
