@@ -271,6 +271,54 @@ describe("openedAt lifecycle", () => {
   });
 });
 
+describe("formato del filo: retrocompatibile, e il seq viaggia a fianco", () => {
+  // `selectLocalSnapshot` emette `tombstones` come MAPPA DI NUMERI perché il
+  // sanitizer delle versioni precedenti pretende `typeof v === 'number'` e
+  // scarterebbe un oggetto — buttando via OGNI marcatore e riaprendo le pane
+  // chiuse su quel client. Il seq viaggia in `tombstoneSeqs`, chiave nuova che
+  // un client vecchio ignora. Questo test è ciò che impedisce a un refactor
+  // "tanto ora è un oggetto" di trasformare un aggiornamento in una resurrezione.
+
+  test("in uscita `tombstones` è una mappa di NUMERI, il seq sta in `tombstoneSeqs`", () => {
+    const s = blank();
+    s.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
+    s.tombstones["topic-legacy"] = mark(T_CLOSE, 0);
+
+    const snap = selectLocalSnapshot(s) as unknown as {
+      tombstones: Record<string, unknown>;
+      tombstoneSeqs: Record<string, number>;
+    };
+
+    expect(snap.tombstones["topic-X"]).toBe(T_CLOSE);
+    expect(typeof snap.tombstones["topic-X"]).toBe("number");
+    expect(snap.tombstoneSeqs["topic-X"]).toBe(S_CLOSE);
+    // Un marcatore senza seq non inquina la chiave parallela con uno zero.
+    expect(snap.tombstoneSeqs["topic-legacy"]).toBeUndefined();
+  });
+
+  test("giro completo: il seq sopravvive a uscita → sanitize → idratazione", () => {
+    const a = blank();
+    openPane(a, "topic-X", { openedAt: T_OPEN_OLD, openedSeq: S_OPEN_OLD });
+    a.tombstones["topic-X"] = mark(T_CLOSE, S_CLOSE);
+
+    const b = blank();
+    hydrate(b, { ...selectLocalSnapshot(a) });
+
+    expect(b.tombstones["topic-X"]).toEqual(mark(T_CLOSE, S_CLOSE));
+  });
+
+  test("client vecchio (nessun `tombstoneSeqs`): seq 0, e decide il marcatore", () => {
+    const s = blank();
+    openPane(s, "topic-X", { openedAt: T_REOPEN, openedSeq: S_REOPEN });
+
+    // Lo snapshot di un peer sul bundle precedente: solo la mappa di numeri.
+    hydrate(s, snapshotWith({}, { tombstones: { "topic-X": T_CLOSE as unknown as never } }));
+
+    expect(s.tombstones["topic-X"]).toEqual(mark(T_CLOSE, 0));
+    expect(s.panes["topic-X"]).toBeUndefined();
+  });
+});
+
 describe("il caso Japan: un dispositivo dormiente non resuscita piu' nulla", () => {
   // Riproduzione del guasto misurato il 2026-08-06.
   //

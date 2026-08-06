@@ -53,7 +53,21 @@ function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
     // Durable close markers ride BOTH snapshot variants (server + local) so a
     // durable pane stays closed across a reload and cross-device even after its
     // closedStack record fell out of the FIFO-50. Merged per-id on hydrate.
-    tombstones: s.tombstones,
+    // FORMATO DEL FILO — retrocompatibile di proposito. `tombstones` esce come
+    // MAPPA DI NUMERI, la forma che il sanitizer delle versioni precedenti sa
+    // leggere: il suo filtro pretende `typeof v === 'number'` e scarterebbe un
+    // oggetto, buttando via OGNI marcatore e riaprendo le pane chiuse. Il `seq`
+    // — la grandezza causale su cui si decide — viaggia a fianco in una chiave
+    // NUOVA, che un client vecchio ignora senza accorgersene.
+    //
+    // Da togliere quando non ci sono piu' client sul bundle precedente; fino ad
+    // allora questa e' la differenza fra un aggiornamento e una resurrezione.
+    // `?? {}`: uno stato costruito a mano (test, migrazioni) puo' non avere la
+    // mappa, e prima ci passava attraverso indenne perche' non veniva letta.
+    tombstones: Object.fromEntries(Object.entries(s.tombstones ?? {}).map(([id, m]) => [id, m.at])),
+    tombstoneSeqs: Object.fromEntries(
+      Object.entries(s.tombstones ?? {}).filter(([, m]) => m.seq > 0).map(([id, m]) => [id, m.seq]),
+    ),
     // Spazi registry rides the snapshot in BOTH variants (server + local) so
     // membership survives reloads and syncs cross-device; the reducer merges
     // it per-id on hydrate (mergeSpaces), never wholesale.
