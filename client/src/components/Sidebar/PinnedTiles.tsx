@@ -10,6 +10,7 @@ import {
   previewWidths,
   reconcilePinnedLayout,
   samePinnedLayout,
+  type PinnedDropTarget,
   type PinnedRow,
 } from './pinnedLayout';
 
@@ -68,9 +69,11 @@ export function PinnedTiles({
    *  espandere: il chiamante decide (aprire la cosa, portarcisi sopra). */
   onToggleItem?: (item: SidebarItem, willExpand: boolean) => void;
   onContextMenu?: (item: SidebarItem, e: React.MouseEvent) => void;
-  /** Fissa una cosa arrivata da FUORI (una riga dentro un gruppo, una tab).
-   *  La chiave è già quella di riga: la conversione dalla pane la fa la griglia. */
-  onPinItem?: (key: string) => void;
+  /** Fissa una cosa arrivata da FUORI (una riga dentro un gruppo, una tab, un
+   *  progetto dell'albero). La chiave è già quella di riga: la conversione dalla
+   *  pane la fa la griglia. `at` è la cella sotto il cursore quando il drop cade
+   *  su una riga o fra due righe — senza, la tessera si accoda. */
+  onPinItem?: (key: string, at?: PinnedDropTarget) => void;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -107,12 +110,22 @@ export function PinnedTiles({
     dragKeyRef.current !== null && e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE);
 
   /** Un drag che viene da FUORI e porta una pane: una riga dentro un gruppo,
-   *  una tab della barra. Lasciarla qui vuol dire «questa la voglio sempre
-   *  sotto mano», che è esattamente cosa significa fissare. */
+   *  una tab della barra, il progetto nell'albero. Lasciarla qui vuol dire
+   *  «questa la voglio sempre sotto mano», che è esattamente cosa significa
+   *  fissare. */
   const isForeignPane = (e: React.DragEvent) =>
+    !!onPinItem &&
     dragKeyRef.current === null &&
     (e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
       e.dataTransfer.types.includes(DND_TYPES.PANEL_ID));
+
+  /** La chiave di riga della pane trascinata. Leggibile SOLO nel `drop`:
+   *  durante il `dragover` il browser espone i tipi ma non i dati. */
+  const foreignKey = (e: React.DragEvent): string | null => {
+    const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
+      || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+    return paneId ? pinKeyFromPaneId(paneId) : null;
+  };
 
   /** Quante tessere della riga stanno a sinistra del cursore. */
   const insertIndexAt = (rowEl: HTMLElement, clientX: number): number => {
@@ -158,22 +171,31 @@ export function PinnedTiles({
       key={`gap-${at}`}
       data-testid="pinned-new-row-zone"
       onDragOver={e => {
-        if (!isOurs(e)) return;
+        const ours = isOurs(e);
+        if (!ours && !isForeignPane(e)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
+        e.dataTransfer.dropEffect = ours ? 'move' : 'copy';
         setDropAt(null);
         setNewRowAt(at);
       }}
       onDragLeave={() => setNewRowAt(cur => (cur === at ? null : cur))}
       onDrop={e => {
-        if (!isOurs(e)) return;
+        const ours = isOurs(e);
+        if (!ours && !isForeignPane(e)) return;
         e.preventDefault();
-        commit(insertPinnedRow(rows, dragKeyRef.current!, at));
+        // La sezione ha un `drop` suo che fissa SENZA posizione: se il gesto è
+        // già stato servito qui, quello dietro accoderebbe la tessera dopo
+        // averla piazzata.
+        e.stopPropagation();
+        if (ours) { commit(insertPinnedRow(rows, dragKeyRef.current!, at)); return; }
+        const key = foreignKey(e);
+        if (key) onPinItem?.(key, { kind: 'newRow', atRowIdx: at });
+        clearDrag();
       }}
       className={`mx-1.5 rounded transition-all duration-100 ${
         newRowAt === at
           ? 'h-7 bg-primary/10 ring-1 ring-inset ring-primary/40'
-          : dragKey
+          : dragKey || adopting
             ? 'h-2'
             : 'h-0'
       }`}
@@ -183,8 +205,12 @@ export function PinnedTiles({
   return (
     <div
       data-testid="sidebar-pinned-section"
+      // L'alone sulla SEZIONE è il ripiego: dice «cade nei Fissati» quando il
+      // cursore non è ancora su nessuna cella. Appena una riga (o uno spazio fra
+      // due righe) prende il drag, l'anteprima è quella — precisa — e tenere
+      // acceso anche il riquadro grande direbbe due volte una cosa sola.
       className={`flex flex-col min-h-0 flex-shrink-0 rounded-lg transition-colors duration-100 ${
-        adopting ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''
+        adopting && !dropAt && newRowAt === null ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''
       }`}
       style={anyExpanded ? { maxHeight: EXPANDED_MAX_HEIGHT } : undefined}
       role="group"
@@ -193,7 +219,7 @@ export function PinnedTiles({
       // di trascinarla via, e senza di esso l'unica strada per fissare era il
       // menu contestuale — che dentro una card di gruppo non tutte le righe hanno.
       onDragOver={e => {
-        if (!onPinItem || !isForeignPane(e)) return;
+        if (!isForeignPane(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
         if (!adopting) setAdopting(true);
@@ -201,15 +227,16 @@ export function PinnedTiles({
       onDragLeave={e => {
         if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
         setAdopting(false);
+        setDropAt(null);
+        setNewRowAt(null);
       }}
       onDrop={e => {
-        setAdopting(false);
-        if (!onPinItem || !isForeignPane(e)) return;
+        if (!isForeignPane(e)) { setAdopting(false); return; }
         e.preventDefault();
         e.stopPropagation();
-        const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
-          || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
-        if (paneId) onPinItem(pinKeyFromPaneId(paneId));
+        const key = foreignKey(e);
+        if (key) onPinItem?.(key);
+        clearDrag();
       }}
     >
       {rows.map((row, rowIdx) => {
@@ -246,11 +273,16 @@ export function PinnedTiles({
               className="flex items-stretch px-1.5 flex-shrink-0"
               style={{ gap: TILE_GAP }}
               onDragOver={e => {
-                if (!isOurs(e)) return;
+                const ours = isOurs(e);
+                if (!ours && !isForeignPane(e)) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = ours ? 'move' : 'copy';
                 setNewRowAt(null);
-                const moving = dragKeyRef.current;
+                // Da fuori non c'è chiave da muovere: la riga GUADAGNA una
+                // cella, quindi fantasma + larghezze finali — la stessa
+                // anteprima del riordino, per lo stesso motivo (vedere dove
+                // finisce prima di lasciare).
+                const moving = ours ? dragKeyRef.current : null;
                 setDropAt({
                   rowIdx,
                   insertAt: insertIndexAt(e.currentTarget, e.clientX),
@@ -265,10 +297,15 @@ export function PinnedTiles({
                 setDropAt(cur => (cur?.rowIdx === rowIdx ? null : cur));
               }}
               onDrop={e => {
-                if (!isOurs(e)) return;
+                const ours = isOurs(e);
+                if (!ours && !isForeignPane(e)) return;
                 e.preventDefault();
+                e.stopPropagation(); // vedi `rowGap`: la sezione fissa senza posizione
                 const insertAt = insertIndexAt(e.currentTarget, e.clientX);
-                commit(movePinnedTile(rows, dragKeyRef.current!, { rowIdx, insertAt }));
+                if (ours) { commit(movePinnedTile(rows, dragKeyRef.current!, { rowIdx, insertAt })); return; }
+                const key = foreignKey(e);
+                if (key) onPinItem?.(key, { kind: 'row', rowIdx, insertAt });
+                clearDrag();
               }}
             >
               {cells.map((key, i) => {

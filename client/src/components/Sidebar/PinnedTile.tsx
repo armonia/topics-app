@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, Globe, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, Clock, Cpu, FolderOpen, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, SELECTED_SURFACE } from '../../lib/selectionStyles';
@@ -17,6 +17,14 @@ const TYPE_ICONS: Record<SidebarItem['type'], LucideIcon> = {
   browser: Globe,
   project: FolderOpen,
   utility: Wrench,
+};
+
+/** Le utility non sono un tipo solo: board, statistiche e cron condividono
+ *  `type: 'utility'` ma non il glifo. `item.icon` porta il NOME dell'icona da
+ *  PANE_CONFIG — la stessa mappa che usano la riga nell'albero e la tab, così
+ *  la tessera non può mostrare una chiave inglese al posto della board. */
+const UTILITY_ICONS: Record<string, LucideIcon> = {
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
 
 /** Quanto della tinta si vede sul fondo A RIPOSO.
@@ -169,7 +177,7 @@ export function PinnedTile({
   );
   const tier = attention ?? topicTier ?? termTier;
 
-  const Glyph = TYPE_ICONS[item.type];
+  const Glyph = (item.type === 'utility' ? UTILITY_ICONS[item.icon] : undefined) ?? TYPE_ICONS[item.type];
   const showName = !hasRealIcon;
 
   const surface = useMemo(() => {

@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WSMessage } from '../types';
 import { normalizePinKey } from '../state/pane/adapters';
-import { reconcilePinnedLayout, type PinnedRow } from '../components/Sidebar/pinnedLayout';
+import { placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
+
+/** Dove una cosa trascinata da fuori viene posata. Ri-esportato da qui perché è
+ *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
+export type { PinnedDropTarget } from '../components/Sidebar/pinnedLayout';
 
 /**
  * Le viste della sidebar.
@@ -461,6 +465,28 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     });
   }, []);
 
+  /**
+   * Fissa una cosa arrivata da fuori E la mette dove è stata lasciata cadere.
+   *
+   * Un solo `setStateRaw`, per lo stesso motivo di `togglePin`: fra i due
+   * aggiornamenti separati il layout conterrebbe una chiave che `pinnedItems`
+   * non ha ancora, e `reconcilePinnedLayout` — che gira dentro ENTRAMBI i
+   * setter — la butterebbe via. Il risultato visibile era una tessera che si
+   * posa in coda invece che sotto il cursore.
+   *
+   * Idempotente su una cosa già fissata: quel drop non è uno spostamento, e
+   * `togglePin` la SFISSEREBBE (è un interruttore) — il contrario del gesto.
+   */
+  const pinAt = useCallback((rawId: string, target: PinnedDropTarget) => {
+    lastLocalChangeRef.current = Date.now();
+    const id = normalizePinKey(rawId);
+    setStateRaw(prev => {
+      if (prev.pinnedItems.includes(id)) return prev;
+      const pinnedItems = [...prev.pinnedItems, id];
+      return { ...prev, pinnedItems, pinnedLayout: placePinnedTile(pinnedItems, prev.pinnedLayout, id, target) };
+    });
+  }, []);
+
   /** La disposizione dopo un drag. Riconciliata comunque: chi chiama passa una
    *  griglia, non la verità su cosa è fissato. */
   const setPinnedLayout = useCallback((next: PinnedRow[]) => {
@@ -509,6 +535,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     pinnedIds,
     pinnedLayout: state.pinnedLayout,
     setPinnedLayout,
+    pinAt,
     togglePin,
     isPinned,
     // New

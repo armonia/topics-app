@@ -230,7 +230,7 @@ describe("mergeSidebarStates", () => {
   });
 
   test("le intenzioni di questo schermo restano locali", () => {
-    const remote = base({ viewMode: "grouped", showArchived: true });
+    const remote = base({ viewMode: "timeline", showArchived: true });
     const local = base({ viewMode: "state", showArchived: false });
     const m = mergeSidebarStates(remote, local);
     expect(m.viewMode).toBe("state");

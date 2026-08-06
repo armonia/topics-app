@@ -1,31 +1,43 @@
 /**
- * useGlobalBoardCount — live count of ACTIVE (non-done) tasks across all
- * projects, for the "Board generale" sidebar affordance.
+ * useGlobalBoard — la board di TUTTI i progetti, dal vivo: quanti task attivi
+ * ci sono e quali, divisi per stato.
  *
- * Sources the global board feed (boardApi.listAll) once on mount, then refreshes
- * on any task:* WebSocket event. "Active" = anything not yet done (archived rows
- * are already excluded server-side). The sidebar shows its Board-generale row
- * only when this is > 0, so the count doubles as the visibility gate.
+ * Sorgente unica: il feed globale (`boardApi.listAll`) una volta al mount, poi
+ * a ogni evento `task:*` sul WebSocket. "Attivo" = non ancora `done` (gli
+ * archiviati li esclude già il server). Il conteggio fa anche da gate di
+ * visibilità: la riga «Board generale» compare solo quando è > 0.
+ *
+ * Prima questo hook faceva `.filter(...).length` e BUTTAVA le righe appena
+ * lette — poi la fascia della tessera fissata avrebbe dovuto richiedere al
+ * server esattamente le stesse righe per mostrarle. Una fetch, due consumatori.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WSMessage } from '../types';
-import { boardApi } from '../lib/board';
+import { boardApi, TASK_STATUSES, type BoardTask, type TaskStatus } from '../lib/board';
 
-export function useGlobalBoardCount(
+export interface GlobalBoard {
+  /** Task non ancora `done`, su tutti i progetti. */
+  activeCount: number;
+  /** Le righe per colonna kanban, ordinate come le mostra la board. */
+  byStatus: Record<TaskStatus, BoardTask[]>;
+}
+
+const EMPTY_BY_STATUS = (): Record<TaskStatus, BoardTask[]> =>
+  Object.fromEntries(TASK_STATUSES.map(s => [s, [] as BoardTask[]])) as Record<TaskStatus, BoardTask[]>;
+
+export function useGlobalBoard(
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
-): number {
-  const [count, setCount] = useState(0);
+): GlobalBoard {
+  const [tasks, setTasks] = useState<BoardTask[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const tasks = await boardApi.listAll();
-      setCount(tasks.filter((t) => t.status !== 'done').length);
+      setTasks(await boardApi.listAll());
     } catch {
-      /* leave the last known count on a transient failure */
+      /* leave the last known list on a transient failure */
     }
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
@@ -36,5 +48,16 @@ export function useGlobalBoardCount(
     });
   }, [onMessage, refresh]);
 
-  return count;
+  return useMemo(() => {
+    const byStatus = EMPTY_BY_STATUS();
+    let activeCount = 0;
+    for (const task of tasks) {
+      (byStatus[task.status] ??= []).push(task);
+      if (task.status !== 'done') activeCount++;
+    }
+    // `kanbanOrder` è l'ordine che l'umano ha dato alla colonna: la fascia deve
+    // leggersi come la colonna, non come l'ordine in cui il server ha risposto.
+    for (const status of TASK_STATUSES) byStatus[status].sort((a, b) => a.kanbanOrder - b.kanbanOrder);
+    return { activeCount, byStatus };
+  }, [tasks]);
 }

@@ -39,7 +39,10 @@ import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
-import type { SidebarViewMode } from '@/hooks/useSidebarState';
+import type { PinnedDropTarget, SidebarViewMode } from '@/hooks/useSidebarState';
+import type { BoardTask, TaskStatus } from '@/lib/board';
+import { BoardStateBand } from './BoardStateBand';
+import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { SpaceGroupCard, useSpaceCards } from './SpaceGroups';
 
@@ -105,6 +108,13 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
   Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
 
+/** La pane della Board generale. È anche la sua chiave di fissaggio: al
+ *  contrario di `file`/`git`/`kanban` — che nascono con un uuid diverso a ogni
+ *  apertura — questa stringa è la STESSA fra sessioni e fra device, che è
+ *  esattamente ciò che rende la board fissabile. */
+const BOARD_ID = utilityPanelId('board');
+const BOARD_LABEL = 'Board generale';
+
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 export interface TopicTreeProps {
@@ -158,9 +168,16 @@ export interface TopicTreeProps {
   pinnedLayout?: PinnedRow[];
   /** Nuova disposizione dopo un drag. */
   onPinnedLayoutChange?: (next: PinnedRow[]) => void;
+  /** Fissa una cosa arrivata da fuori PIAZZANDOLA dove è stata lasciata cadere:
+   *  una sola operazione, perché pin e disposizione riconciliano l'uno
+   *  sull'altro e in due passi la cella si perde (vedi `pinAt`). */
+  onPinAt?: (id: string, at: PinnedDropTarget) => void;
   /** Active (non-done) task count across all projects. When > 0, a
    *  "Board generale" row is shown above the Fissati block. */
   boardTaskCount?: number;
+  /** I task attivi raggruppati per stato — il contenuto della fascia quando la
+   *  Board generale è fissata a tessera. */
+  boardByStatus?: Record<TaskStatus, BoardTask[]>;
   /** True while the Board generale tab is open — makes the row tab-aware (it is
    *  the ONLY sidebar row for the board, so it must show selection like a tab). */
   boardOpen?: boolean;
@@ -217,7 +234,9 @@ export function TopicTree({
   onTogglePin,
   pinnedLayout = [],
   onPinnedLayoutChange,
+  onPinAt,
   boardTaskCount = 0,
+  boardByStatus,
   boardOpen = false,
   onOpenBoard,
   spaceScoped = false,
@@ -389,11 +408,31 @@ export function TopicTree({
         if (child.pinned) byId.set(child.id, child);
       }
     }
+    // La Board generale, quando è fissata, è una tessera come le altre. La riga
+    // la costruiamo QUI e non nel builder di proposito: il builder emette le
+    // utility dalle tab aperte, e la board ha già una riga dedicata sua — da lì
+    // nascerebbero due «Board generale» nel momento in cui apri la tab. Fissata
+    // vive nella griglia, non fissata nella sua riga in cima: mai in due posti.
+    if (pinnedItems.includes(BOARD_ID)) {
+      const q = searchQuery.trim().toLowerCase();
+      if (q === '' || BOARD_LABEL.toLowerCase().includes(q)) {
+        byId.set(BOARD_ID, {
+          id: BOARD_ID,
+          type: 'utility',
+          name: BOARD_LABEL,
+          icon: 'LayoutGrid',
+          lastActivity: 0,
+          notificationCount: boardTaskCount,
+          archived: false,
+          pinned: true,
+        });
+      }
+    }
     return pinnedItems.flatMap(id => {
       const item = byId.get(id);
       return item ? [item] : [];
     });
-  }, [filteredItems, pinnedItems]);
+  }, [filteredItems, pinnedItems, boardTaskCount, searchQuery]);
   const unpinnedItems = useMemo(
     () => filteredItems.filter(i => !i.pinned),
     [filteredItems]
@@ -982,7 +1021,11 @@ export function TopicTree({
       case 'browser':
         if (item.browser) onOpenBrowser?.(item.browser.id);
         break;
-      default:
+      case 'utility':
+        // La board porta prima la finestra dov'è la sua tab (è `onOpenBoard` a
+        // saperlo); le altre utility passano dal bus che usano i menu «+».
+        if (item.id === BOARD_ID && onOpenBoard) onOpenBoard();
+        else window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: item.id.slice(2, -2) } }));
         break;
     }
   };
@@ -997,7 +1040,13 @@ export function TopicTree({
       // Fissare una cosa lasciata cadere qui dentro. `isPinned` fa da guardia:
       // `togglePin` è un interruttore, e su una cosa già fissata questo drop la
       // TOGLIEREBBE dai fissati — il contrario di quello che il gesto dice.
-      onPinItem={key => { if (!pinnedIds.has(key)) onTogglePin?.(key); }}
+      // Con una cella sotto il cursore serve l'operazione ATOMICA: fissare e
+      // piazzare in due passi si annullano a vicenda (vedi `pinAt`).
+      onPinItem={(key, at) => {
+        if (pinnedIds.has(key)) return;
+        if (at) onPinAt?.(key, at);
+        else onTogglePin?.(key);
+      }}
       // Il menu contestuale della tessera è quello della RIGA, per ogni tipo.
       // Dimenticarne uno vuol dire che quella cosa, una volta fissata, non si
       // può più togliere dai Fissati: la riga con «Rimuovi dai Fissati» non
@@ -1020,10 +1069,11 @@ export function TopicTree({
           onTopicContextMenu(e, item.topic);
           return;
         }
-        if (item.type === 'terminal' || item.type === 'browser') {
-          // Terminali e browser non hanno un menu di riga proprio: il loro
-          // «Rimuovi dai Fissati» sta qui, ed è l'unica voce che serve perché
-          // una tessera fissata torni una riga come le altre.
+        if (item.type === 'terminal' || item.type === 'browser' || item.type === 'utility') {
+          // Terminali, browser e utility non hanno un menu di riga proprio: il
+          // loro «Rimuovi dai Fissati» sta qui, ed è l'unica voce che serve
+          // perché una tessera fissata torni una riga come le altre. Senza
+          // questo, fissare la board sarebbe a senso unico.
           e.preventDefault();
           setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: item.id, name: item.name });
         }
@@ -1032,6 +1082,10 @@ export function TopicTree({
       // stesso `renderItem` delle righe dell'albero: nessun renderer nuovo,
       // quindi nessun modo di divergere da come quelle righe si comportano.
       renderExpanded={item => {
+        // La board non ha «tab figlie»: quello che sta sotto di lei sono i
+        // TASK, letti per stato. Stessa grammatica della fascia di un progetto
+        // (un livello dentro, righe della sidebar), contenuto diverso.
+        if (item.id === BOARD_ID) return <BoardStateBand byStatus={boardByStatus} depth={1} />;
         const children = item.type === 'project' ? (item.children ?? []) : [];
         if (children.length === 0) return null;
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
@@ -1046,18 +1100,37 @@ export function TopicTree({
 
   // La riga della board, disegnata una volta e piazzata dove appartiene: dentro
   // la card del suo gruppo se la sua tab è aperta, in cima se non lo è.
-  const boardRow = onOpenBoard && (boardTaskCount > 0 || boardOpen) ? (
+  // Fissata, la board NON ha una riga: vive come tessera nella griglia (vedi
+  // `pinnedBlock`). La stessa cosa in due posti non è una scorciatoia, è un
+  // doppione — la regola che vale già per le righe dentro le card dei gruppi.
+  const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && (boardTaskCount > 0 || boardOpen) ? (
           <button
             type="button"
             onClick={onOpenBoard}
             data-testid="sidebar-board-generale"
             aria-selected={boardOpen}
-            className={`w-full flex items-center gap-1.5 px-3 h-8 mb-1 select-none text-app-text transition-colors ${
+            // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
+            // pane: è così che la si fissa (lasciandola sui Fissati) e che la si
+            // porta in un gruppo, senza passare da un menu.
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
+              e.dataTransfer.effectAllowed = 'copyMove';
+            }}
+            onContextMenu={e => {
+              e.preventDefault();
+              setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
+            }}
+            // La stessa card di ogni altra riga: 6px di rientro (ROW_INSET) e
+            // angoli tondi. Era l'unica riga a filo dei bordi, con 12px di
+            // padding interno: sembrava di un altro elenco.
+            className={`flex items-center gap-1.5 mx-1.5 my-px px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
               boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
             }`}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
           >
             <LayoutGrid size={13} className="flex-shrink-0 text-emerald-400" />
-            <span className="text-[12px] font-medium flex-1 text-left">Board generale</span>
+            <span className="text-[12px] font-medium flex-1 text-left">{BOARD_LABEL}</span>
             {boardTaskCount > 0 && (
               <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-emerald-500 text-white text-[9px] font-bold rounded-full leading-none px-1">
                 {boardTaskCount}
@@ -1110,10 +1183,16 @@ export function TopicTree({
                 dentro la sua card: la stessa riga due volte non è una
                 scorciatoia, è un doppione. */}
             {pinnedBlock.length > 0 && (
-              <div className="mb-1">
+              <>
                 {renderPinnedTiles()}
-                <div className="h-px bg-app-border mx-3 my-2.5" />
-              </div>
+                {/* Il filo rientra come TUTTO il resto della sidebar: 6px
+                    (ROW_INSET), gli stessi delle card dei gruppi sotto e delle
+                    tessere sopra. A 12px era l'unico elemento su una colonna
+                    sua, e il blocco dei fissati sembrava debordare. Il respiro
+                    sopra e sotto è lo stesso (my-2.5): un `mb-1` in più sul
+                    contenitore lo rendeva asimmetrico di 4px. */}
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />
+              </>
             )}
             <div data-testid="sidebar-groups">
             {spaceCards.map(card => {
@@ -1144,7 +1223,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div className="h-px bg-app-border mx-3 my-2.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />}
               </>
             )}
             {unpinnedItems.map(item => renderItem(item))}
@@ -1156,7 +1235,14 @@ export function TopicTree({
             lavorando, poi il resto. Una sezione vuota non si disegna. */}
         {!spaceScoped && viewMode === 'state' && stateGroups && (
           <>
-            {pinnedBlock.length > 0 && renderPinnedTiles()}
+            {pinnedBlock.length > 0 && (
+              <>
+                {renderPinnedTiles()}
+                {/* Stesso filo della vista a lista: i fissati si staccano da ciò
+                    che c'è sotto allo stesso modo in ogni vista. */}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />}
+              </>
+            )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non
                 aspetta te e non sta lavorando». Quando è l'unico bucket pieno
                 non contrappone niente — è la lista, e intitolarla «Il resto»
@@ -1205,8 +1291,11 @@ export function TopicTree({
         )}
       </div>
 
-      {/* Tessera fissata di un terminale/browser: una voce sola, quella che
-          serve per uscire dai Fissati. */}
+      {/* Righe e tessere senza un menu proprio (terminale, browser, board): una
+          voce sola, quella che porta dentro o fuori dai Fissati. Il verso lo
+          decide lo stato attuale — la stessa voce fissa una riga e sfissa una
+          tessera, e leggere «Rimuovi» su una cosa non fissata sarebbe una
+          bugia. */}
       {pinOnlyMenu && (
         <ContextMenuPortal
           open
@@ -1215,18 +1304,22 @@ export function TopicTree({
           onClose={() => setPinOnlyMenu(null)}
           minWidth={160}
         >
-          {onTogglePin && (
-            <button
-              onClick={() => {
-                onTogglePin(pinOnlyMenu.id);
-                setPinOnlyMenu(null);
-              }}
-              className={POPOVER_ITEM}
-            >
-              <PinOff size={14} />
-              <span>Rimuovi dai Fissati</span>
-            </button>
-          )}
+          {onTogglePin && (() => {
+            const isPinned = pinnedIds.has(pinOnlyMenu.id);
+            return (
+              <button
+                onClick={() => {
+                  onTogglePin(pinOnlyMenu.id);
+                  setPinOnlyMenu(null);
+                }}
+                className={POPOVER_ITEM}
+                data-testid="pin-toggle-item"
+              >
+                {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                <span>{isPinned ? 'Rimuovi dai Fissati' : 'Aggiungi ai Fissati'}</span>
+              </button>
+            );
+          })()}
         </ContextMenuPortal>
       )}
 
