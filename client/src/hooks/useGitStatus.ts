@@ -4,8 +4,10 @@ import type { GitStatus, WSMessage } from '../types';
 
 const POLL_VISIBLE = 15000;
 const POLL_BACKGROUND = 60000;
-/** Backoff massimo dopo errori consecutivi (vedi `bumpError`). */
+/** Backoff massimo dopo errori consecutivi (vedi `desiredInterval`). */
 const POLL_ERROR_MAX = 120000;
+/** Il primo ritentativo dopo un errore: corto, perché il primo errore di solito passa da solo. */
+const POLL_ERROR_FIRST = 2000;
 /**
  * Ogni quanto si aggiornano le ref remote-tracking.
  *
@@ -132,11 +134,23 @@ function publish(path: string, store: Store, status: GitStatus) {
   window.dispatchEvent(new CustomEvent('git-cache-updated'));
 }
 
-/** Intervallo desiderato: rilassato con il WS attivo, allungato dopo errori. */
-function desiredInterval(store: Store): number {
+/**
+ * Intervallo desiderato: rilassato con il WS attivo, allungato dopo errori.
+ *
+ * Il backoff parte CORTO, non dal passo normale moltiplicato. Prima il primo
+ * errore portava l'intervallo a 30 secondi, e il caso piu comune di errore e
+ * anche il piu effimero: il server tiene l'allowlist dei progetti in una cache
+ * da 5 secondi, quindi una cartella appena aperta puo prendersi un 400 e basta
+ * aspettare un battito. Con il vecchio passo si guardava un pannello in errore
+ * per mezzo minuto quando la risposta giusta era li dopo due secondi.
+ *
+ * 2s, 4s, 8s… fino al tetto: un blip si ripiglia subito, un guasto vero
+ * si dirada lo stesso.
+ */
+export function desiredInterval(store: Pick<Store, 'wsChannels' | 'errorStreak'>): number {
   const base = store.wsChannels > 0 ? POLL_BACKGROUND : POLL_VISIBLE;
   if (store.errorStreak === 0) return base;
-  return Math.min(POLL_ERROR_MAX, base * 2 ** Math.min(store.errorStreak, 3));
+  return Math.min(POLL_ERROR_MAX, POLL_ERROR_FIRST * 2 ** Math.min(store.errorStreak - 1, 6));
 }
 
 function retime(path: string, store: Store) {
