@@ -27,7 +27,15 @@
  * sits just under its sheet.
  *
  * Values are deliberately high (9998–10000) to clear the app's ad-hoc `z-[100]`
- * / `z-[60]` chrome; a popover must float over everything except a modal.
+ * chrome; a popover must float over everything except a modal.
+ *
+ * «Except a modal» era FALSO fino al 2026-08-06, ed è per questo che ⌘N
+ * sembrava aprire tutti i dropdown insieme: le palette a schermo intero
+ * (⌘N, ⌘K, il pannello scorciatoie) scrivevano `z-[60]` a mano, cioè
+ * DUEMILA volte sotto un popover a 9999. Entrambi figli di `document.body`,
+ * stesso stacking context: il dropdown già aperto si disegnava nitido sopra
+ * la palette E sopra il suo velo scuro. `Z_MODAL` chiude il buco — nessuna
+ * superficie modale deve più scriversi uno z-index a mano.
  */
 /**
  * Viewport inset every floating surface must stay within. It is the default of
@@ -41,6 +49,8 @@ export const POPOVER_MARGIN = 8;
 export const Z_POPOVER = 9999;
 export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
 export const Z_POPOVER_SCRIM = 9998; // mobile bottom-sheet backdrop, just under the sheet
+/** Palette e dialoghi a schermo intero: SOPRA ogni popover, per definizione. */
+export const Z_MODAL = 10000;
 
 /**
  * The floating panel itself, for menus whose container ALSO provides its own
@@ -65,6 +75,17 @@ export const POPOVER_PANEL =
  */
 export const POPOVER_ITEM =
   'w-full flex items-center gap-2 px-3 py-2 md:py-1.5 text-left text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
+
+/**
+ * Variante a bersaglio TOUCH: identica a `POPOVER_ITEM` tranne la riga più alta
+ * sotto i 768px (`py-3` invece di `py-2`). Serve ai menu che si aprono anche
+ * come foglio sul telefono, dove 8px di padding fanno un bersaglio da ~30px —
+ * sotto la soglia di un dito. Era una copia locale in `PaneAddMenu`, con la
+ * divergenza NON dichiarata: chi leggeva `POPOVER_ITEM` credeva che tutte le
+ * righe fossero uguali, e non lo erano.
+ */
+export const POPOVER_ITEM_TOUCH =
+  'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
 
 /** Destructive variant of POPOVER_ITEM (delete / clear / discard). */
 export const POPOVER_ITEM_DANGER =

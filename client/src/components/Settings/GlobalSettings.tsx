@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, MessageSquarePlus, LayoutGrid } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, LayoutGrid } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
@@ -23,12 +23,16 @@ interface GlobalSettingsProps {
   onThemeChange?: (mode: ThemeMode) => void;
 }
 
-type SectionId = 'appearance' | 'notifications' | 'features' | 'providers' | 'shortcuts';
+// «Features» è stata rimossa (2026-08-06): conteneva UN solo interruttore,
+// `enableNewChat`, e quell'interruttore poteva solo rompere — spento una volta,
+// faceva sparire "New Chat" da tutti e sei gli host del menu "+" senza dirlo, e
+// il valore salvato scavalcava per sempre il default acceso. Il gate è stato
+// tolto dal codice, non nascosto: qui resta la scheda vuota da non riaprire.
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'features', label: 'Features', icon: Sparkles },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
@@ -111,11 +115,8 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             {section === 'notifications' && (
               <NotificationsSection settings={localSettings} onChange={handleChange} />
             )}
-            {section === 'features' && (
-              <FeaturesSection settings={localSettings} onChange={handleChange} />
-            )}
             {section === 'providers' && <AIProvidersSection />}
-            {section === 'shortcuts' && <ShortcutsSection settings={localSettings} />}
+            {section === 'shortcuts' && <ShortcutsSection />}
           </div>
         </div>
       </div>
@@ -363,7 +364,7 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
   );
 }
 
-function ShortcutsSection({ settings }: { settings: AppSettings }) {
+function ShortcutsSection() {
   return (
     <div>
       <label className="text-[13px] font-medium text-app-text mb-3 block">Keyboard Shortcuts</label>
@@ -373,8 +374,7 @@ function ShortcutsSection({ settings }: { settings: AppSettings }) {
           ['⌘F', 'Find project'],
           ['⌘P', 'Quick-open file'],
           ['⌘N', 'New… (add menu)'],
-          // ⌘⇧N is only live when the paid New Chat feature is enabled.
-          ...(settings.enableNewChat ? [['⌘⇧N', 'New chat']] : []),
+          ['⌘⇧N', 'New chat'],
           ['Right ⌘ (tap)', 'Focus task composer'],
           ['⌘W', 'Close panel'],
           ['⌘B', 'Toggle sidebar'],
@@ -387,46 +387,6 @@ function ShortcutsSection({ settings }: { settings: AppSettings }) {
             </kbd>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-interface FeaturesSectionProps {
-  settings: AppSettings;
-  onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
-}
-
-/**
- * Features — capabilities the user can turn off. The "New Chat" gate ships ON:
- * structured chat runs on the local `claude-code` CLI, whose usage is included
- * in the Claude Pro/Max subscription (not metered API credits — verified
- * 2026-07). The toggle stays so anyone who wants to hide the entry points can.
- */
-function FeaturesSection({ settings, onChange }: FeaturesSectionProps) {
-  return (
-    <div className="space-y-5">
-      <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
-          <MessageSquarePlus size={14} />
-          New Chat
-          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400">
-            Subscription
-          </span>
-        </label>
-        <p className="text-[12px] text-app-text-muted mb-3">
-          Show the “New Chat” entry points (the button, ⌘⇧N, and the ⌘K
-          palette). Chat runs on your local Claude CLI login, so it uses your
-          Claude subscription — no metered API cost. On by default; turn it off
-          to hide the entry points.
-        </p>
-
-        <ToggleRow
-          label="Enable New Chat"
-          description="Show the New Chat entry points and activate ⌘⇧N."
-          value={settings.enableNewChat}
-          onChange={(v) => onChange('enableNewChat', v)}
-        />
       </div>
     </div>
   );

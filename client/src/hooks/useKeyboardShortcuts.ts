@@ -41,7 +41,6 @@ export interface UseKeyboardShortcutsArgs {
   showShortcuts: boolean;
   showFileSearch: false | { projectPath: string };
   /** Paid New Chat gate — when false, ⌘⇧N (New Topic modal) is inert (mirrored into a ref). */
-  enableNewChat: boolean;
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
   toggleSidebar: () => void;
@@ -107,7 +106,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const projectOpenPanesRef = useRef(args.projectOpenPanes);
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
-  const enableNewChatRef = useRef(args.enableNewChat);
   const closedTabsRef = useRef(args.closedTabs);
   const modalsRef = useRef({
     showSearch: args.showSearch,
@@ -120,7 +118,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   useEffect(() => { projectOpenPanesRef.current = args.projectOpenPanes; });
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
-  useEffect(() => { enableNewChatRef.current = args.enableNewChat; });
   useEffect(() => { closedTabsRef.current = args.closedTabs; });
   useEffect(() => {
     modalsRef.current = {
@@ -201,12 +198,11 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // pattern as topics:open-project-picker. (Moved off ⌘J: ⌘N is the
       // natural "new" key; Electron's default new-window is suppressed by
       // the preventDefault. In a plain browser tab the browser owns ⌘N —
-      // Electron is the primary target.) ⌘⇧N keeps the New Topic modal,
-      // gated on the paid New Chat feature like every chat-creation entry.
+      // Electron is the primary target.) ⌘⇧N keeps the New Topic modal.
       if (isMod && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         if (e.shiftKey) {
-          if (enableNewChatRef.current) setShowNewTopic({});
+          setShowNewTopic({});
           return;
         }
         window.dispatchEvent(new CustomEvent(OPEN_ADD_PALETTE_EVENT));
