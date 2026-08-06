@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.33 — 2026-08-06
+
+### Sotto il cofano
+- Changelog per 2.2.32
+- Cronologia e remotes in fondo, attaccati, e le righe su una griglia sola
+- Il pannello git smette di mostrare uno stato vecchio, per tre strade diverse
+- Chiudi il socket agli ospiti: il gate controlla le richieste, non ciò che il server spinge
+- Il «+» della riga arriva sulla tessera: e' l'unica strada che restava
+
 ## 2.2.32 — 2026-08-06
 
 ### Sotto il cofano
