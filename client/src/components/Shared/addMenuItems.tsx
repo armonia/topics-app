@@ -69,8 +69,6 @@ export interface AddMenuItem {
   /** Separatore PRIMA di questa riga (le voci di progetto aprono una finestra
    *  intera, non una pane: vanno staccate). */
   dividerBefore?: boolean;
-  /** Hint di scorciatoia GLOBALE mostrato al posto della lettera (solo ⌘N). */
-  globalKbd?: string;
   /** Come dipingere l'icona. */
   icon: AddMenuIconSpec;
 }
@@ -84,9 +82,6 @@ export interface BuildAddMenuItemsArgs {
   onAddPane?: (type: PaneType, subType?: string) => void;
   /** Apri/Crea Progetto — solo standalone e solo su desktop (serve il dialog OS). */
   onProjectPicker?: () => void;
-  /** true = la riga "New Chat" mostra ⌘N (vero SOLO dove ⌘N apre davvero
-   *  QUESTA superficie: la palette standalone). Altrove l'hint mentirebbe. */
-  showGlobalNewChatKbd?: boolean;
 }
 
 /** Ordine curato. `getAddableTypesForScope` restituisce i tipi nell'ordine di
@@ -107,7 +102,6 @@ export function buildAddMenuItems({
   onNewChat,
   onAddPane,
   onProjectPicker,
-  showGlobalNewChatKbd,
 }: BuildAddMenuItemsArgs): AddMenuItem[] {
   const items: AddMenuItem[] = [];
 
@@ -118,7 +112,6 @@ export function buildAddMenuItems({
       mnemonic: ADD_MENU_MNEMONICS['new-chat'],
       testId: 'pane-add-menu-new-chat',
       run: onNewChat,
-      globalKbd: showGlobalNewChatKbd ? 'newChat' : undefined,
       // Tinta di marca della pane chat (PANE_CONFIG.chat.color): senza, New Chat
       // restava l'unica riga a inchiostro neutro e il menu sembrava a metà.
       icon: { kind: 'lucide', Component: MessageSquare, color: getPaneConfig('chat').color },
