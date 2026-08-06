@@ -453,7 +453,7 @@ export function ProjectSidebar({
               <Suspense fallback={
                 <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <GitBranch size={14} className={`flex-shrink-0 ${git ? 'text-primary' : 'text-app-text-muted'}`} />
+                    <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
                     <span>{tr('project.sidebar.gitChanges')}</span>
                     <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                   </div>
@@ -580,7 +580,7 @@ export function ProjectSidebar({
               className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <GitBranch size={14} className={`flex-shrink-0 ${git ? 'text-primary' : 'text-app-text-muted'}`} />
+                <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
                 <span>{tr('project.sidebar.gitChanges')}</span>
                 <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                 {git && (
