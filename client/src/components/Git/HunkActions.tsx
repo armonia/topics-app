@@ -23,6 +23,11 @@ import type { GitHunkSummary } from '../../types';
  * nell'indice (Unstage). Mostrare entrambe le liste insieme vorrebbe dire due
  * numerazioni sullo schermo, e gli indici dei blocchi sono relativi al loro
  * diff: sbagliare lista vuol dire mettere in stage il blocco sbagliato.
+ *
+ * `px-3` e non `px-2`: e' il rientro dell'intestazione che sta subito sopra in
+ * entrambi i posti dove questa striscia compare (il pannello Git e la tab del
+ * diff). Con `px-2` il testo delle righe partiva 4px piu' a sinistra di quello
+ * sopra, e l'evidenziazione al passaggio del mouse rendeva lo scalino evidente.
  */
 
 export interface HunkActionsProps {
@@ -87,7 +92,7 @@ export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkAct
 
   if (loading && hunks.length === 0) {
     return (
-      <div className="px-2 py-1 border-b border-app-border flex items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="px-3 py-1 border-b border-app-border flex items-center gap-2 text-[11px] text-app-text-muted">
         <Spinner size="xs" /> Cerco i blocchi…
       </div>
     );
@@ -98,7 +103,7 @@ export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkAct
 
   return (
     <div className="border-b border-app-border" data-testid="hunk-actions">
-      <div className="px-2 py-1 flex items-center gap-1.5">
+      <div className="px-3 py-1 flex items-center gap-1.5">
         <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
           {hunks.length} blocchi
         </span>
@@ -108,14 +113,14 @@ export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkAct
         {inCorso !== null && <Spinner size="xs" />}
       </div>
 
-      {errore && <div className="px-2 pb-1 text-[11px] text-red-500">{errore}</div>}
+      {errore && <div className="px-3 pb-1 text-[11px] text-red-500">{errore}</div>}
 
       <div className="max-h-[140px] overflow-y-auto">
         {hunks.map(h => (
           <div
             key={h.index}
             data-testid="hunk-row"
-            className="flex items-center gap-1.5 px-2 py-[3px] group/hunk hover:bg-app-hover transition-colors"
+            className="flex items-center gap-1.5 px-3 py-[3px] group/hunk hover:bg-app-hover transition-colors"
           >
             <span className="text-[10px] font-mono text-app-text-muted flex-shrink-0 tabular-nums">
               :{h.oldStart}
