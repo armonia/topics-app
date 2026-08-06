@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
+import { useGitStatus } from '../../hooks/useGitStatus';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 
@@ -25,6 +27,65 @@ interface ProjectSidebarProps {
 }
 
 type SectionId = 'files' | 'git' | 'processes';
+
+/**
+ * Un'icona della rail collassata, con la sua pastiglia.
+ *
+ * La rail è larga 40px: qui non ci sta una parola, ci sta un numero. La regola
+ * è che ogni bottone porti AL PIÙ un sovrapposto — pastiglia numerica oppure
+ * punto, mai entrambi — e che tutto il resto (il ramo, il conteggio esteso, il
+ * perché) viva nel `title`, che è l'unico posto in cui c'è spazio davvero.
+ */
+function RailButton({
+  icon: Icon,
+  active,
+  onClick,
+  title,
+  badge = null,
+  tone = 'primary',
+  dot = false,
+}: {
+  icon: LucideIcon;
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  badge?: number | null;
+  tone?: 'primary' | 'success' | 'danger';
+  dot?: boolean;
+}) {
+  const toneClass = tone === 'danger'
+    ? 'bg-red-500 text-white'
+    : tone === 'success'
+      ? 'bg-emerald-500 text-white'
+      : 'bg-primary text-white';
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`relative w-7 h-7 flex items-center justify-center rounded transition-colors ${
+        active
+          ? 'text-primary bg-primary/10'
+          : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
+      }`}
+    >
+      <Icon size={16} />
+      {badge !== null && badge > 0 && (
+        // `ring` del colore della rail: senza, la pastiglia appoggiata
+        // sull'icona si confonde col tratto sottostante e il numero perde il
+        // bordo. Con l'anello resta leggibile anche sovrapposta.
+        <span
+          className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ring-elevated ${toneClass}`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {badge === null && dot && (
+        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ring-elevated ${toneClass}`} />
+      )}
+    </button>
+  );
+}
 
 export function ProjectSidebar({
   projectPath,
@@ -64,10 +125,23 @@ export function ProjectSidebar({
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   // Running process count for the Processes header badge (shared hook — no duplicate polling)
-  const { runningCount } = useScripts({ projectPath, onMessage: onWSMessage });
+  const { scripts, runningCount } = useScripts({ projectPath, onMessage: onWSMessage });
+  const failedCount = scripts.filter(s => s.status === 'error').length;
 
-  // Read cached git status for Suspense fallback (avoids flash without branch/changes)
-  const cachedGit = (() => {
+  // Stato git — dalla sidebar, non dal pannello. È questa la superficie che
+  // sopravvive al collasso: GitChanges è lazy e SMONTATO quando la sezione è
+  // chiusa, quindi se i numeri della rail dipendessero da lui sarebbero fermi
+  // all'ultima volta che qualcuno ha aperto il pannello. Qui c'è anche l'unico
+  // punto dell'albero che ha in mano `onWSMessage`: passarlo accende il push
+  // `git:status` del watcher server-side per TUTTI i consumer del progetto
+  // (store condiviso in useGitStatus), pannello e decorazioni dei file inclusi.
+  const { gitStatus, notGit } = useGitStatus({ projectPath, onMessage: onWSMessage });
+  const git = gitStatus && !notGit
+    ? { branch: gitStatus.branch, fileCount: gitStatus.files?.length ?? 0, ahead: gitStatus.ahead ?? 0, behind: gitStatus.behind ?? 0 }
+    : null;
+  // Il fallback di Suspense continua a mostrare qualcosa al primo montaggio,
+  // quando lo store non ha ancora risposto ma la sessione ha una cache.
+  const cachedGit = git ?? (() => {
     try {
       const raw = sessionStorage.getItem(`git-status-cache:${projectPath}`);
       if (raw) {
@@ -180,33 +254,74 @@ export function ProjectSidebar({
   }, [bottomHeights]);
 
   if (effectiveCollapsed) {
-    const iconSize = 16;
-    const btnClass = `${'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
+    const open = (section: SectionId) => () => {
+      onToggleCollapse();
+      setExpandedSections(prev => ({ ...prev, [section]: true }));
+    };
+    // Tooltip: è QUI che sta l'informazione lunga. Nella rail ci sono 40px, e
+    // il numero da solo dice «c'è qualcosa», non «cosa». Il titolo completa.
+    const plural = (key: string, n: number) =>
+      n === 1 ? tr(`${key}.one`) : tr(`${key}.many`, { n });
+    const gitTitle = git
+      ? [
+          `${tr('project.sidebar.gitChanges')} · ${git.branch}`,
+          git.fileCount > 0
+            ? plural('project.sidebar.changedFiles', git.fileCount)
+            : tr('project.sidebar.clean'),
+          [git.ahead > 0 ? `↑${git.ahead}` : '', git.behind > 0 ? `↓${git.behind}` : '']
+            .filter(Boolean).join(' '),
+        ].filter(Boolean).join('\n')
+      : tr('project.sidebar.gitChanges');
+    const procTitle = failedCount > 0
+      ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesFailed', failedCount)}`
+      : runningCount > 0
+        ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
+        : tr('project.sidebar.processes');
     return (
-      <div className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
-        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
-        <div className="w-6 h-px bg-app-border my-1" />
-        <button
-          onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, files: true })); }}
-          className={`${btnClass} ${expandedSections.files ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title={tr('project.sidebar.files')}
-        >
-          <FolderTree size={iconSize} />
-        </button>
-        <button
-          onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, git: true })); }}
-          className={`${btnClass} ${expandedSections.git ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title={tr('project.sidebar.gitChanges')}
-        >
-          <GitBranch size={iconSize} />
-        </button>
-        <button
-          onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, processes: true })); }}
-          className={`${btnClass} ${expandedSections.processes ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
-          title={tr('project.sidebar.processes')}
-        >
-          <Zap size={iconSize} />
-        </button>
+      <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
+        {/* Header — stessa riga di chrome della tab bar delle pane (h-10 +
+            border-b, vedi GroupLayout) e dell'header espanso qui sotto: il
+            bottone di espansione cade sulla STESSA linea mediana dei tab, e il
+            bordo attraversa tutta la rail invece di essere un trattino w-6. */}
+        <div data-testid="project-sidebar-rail-header" className="flex items-center justify-center h-10 border-b border-app-border flex-shrink-0">
+          <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
+        </div>
+        <div className="flex flex-col items-center py-2 gap-1">
+          <RailButton
+            icon={FolderTree}
+            active={expandedSections.files}
+            onClick={open('files')}
+            title={tr('project.sidebar.files')}
+          />
+          <RailButton
+            icon={GitBranch}
+            active={expandedSections.git}
+            onClick={open('git')}
+            title={gitTitle}
+            // Il NOME DEL RAMO non entra e non ci va: 40px sono ~5 caratteri, e
+            // nei tool seri il ramo vive nella status bar, non nella rail. Qui
+            // ci va il numero che VS Code mette sulla stessa icona — quante
+            // modifiche non committate — e il ramo sta nel tooltip, per intero.
+            badge={git && git.fileCount > 0 ? git.fileCount : null}
+            tone="primary"
+            // Nessuna modifica ma divergenza col remoto: un punto, non un
+            // secondo numero addosso al primo. Due pastiglie su un bottone da
+            // 28px diventano rumore e non si leggono più né l'una né l'altra.
+            dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
+          />
+          <RailButton
+            icon={Zap}
+            active={expandedSections.processes}
+            onClick={open('processes')}
+            title={procTitle}
+            // Il rosso è il motivo per cui questo badge esiste: un processo
+            // uscito male, oggi, non lo vedi da nessuna parte se la sidebar è
+            // chiusa. Vince sul verde perché è l'unico dei due che chiede di
+            // fare qualcosa.
+            badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
+            tone={failedCount > 0 ? 'danger' : 'success'}
+          />
+        </div>
       </div>
     );
   }

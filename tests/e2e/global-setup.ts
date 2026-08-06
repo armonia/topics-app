@@ -444,7 +444,16 @@ async function globalSetup() {
   //
   // Sta QUI, prima del lock e dei passi distruttivi: se manca il build non c'è
   // motivo di ammazzare la porta di nessuno.
-  await waitForFreshBundle(resolve(__dirname, "../../public"));
+  //
+  // `TOPICS_E2E_BUNDLE_DIR` deve saltare anche QUESTO controllo, non solo
+  // quello dentro `snapshotBundle`. Era il buco che rendeva la variabile
+  // inservibile proprio nel caso per cui esiste: con un bundle costruito
+  // altrove e nessun watcher a riscrivere `public/`, la suite moriva qui —
+  // «il bundle è fermo alle 00:55» — su una cartella che non stava per
+  // usare, e il messaggio mandava a cercare un build rotto che non c'era.
+  if (!process.env.TOPICS_E2E_BUNDLE_DIR?.trim()) {
+    await waitForFreshBundle(resolve(__dirname, "../../public"));
+  }
 
   // Il lock PRIMA di qualsiasi passo distruttivo.
   //
