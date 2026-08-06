@@ -171,12 +171,6 @@ export function bestTextTone(bg: RGB): { tone: 'light' | 'dark'; ratio: number }
 const cache = new Map<string, string | null>();
 const inflight = new Map<string, Promise<string | null>>();
 
-/** Solo per i test: azzera la memoizzazione. */
-export function __resetIconTintCache(): void {
-  cache.clear();
-  inflight.clear();
-}
-
 /** L'esito già in cache, o `undefined` se quell'URL non è mai stato campionato. */
 export function cachedIconTint(url: string): string | null | undefined {
   return cache.get(url);
