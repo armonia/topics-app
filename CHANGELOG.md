@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.38 — 2026-08-07
+
+### Sotto il cofano
+- Changelog per 2.2.37
+- Sotto il ⚡ c'è scritto quanto costa premerlo
+- Lo scatto era un ciclo di dragleave, e a 32px la tessera va IN RIGA
+
 ## 2.2.37 — 2026-08-06
 
 ### Sotto il cofano
