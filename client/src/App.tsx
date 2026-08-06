@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
-import type { SidebarTab, PaneType } from './types';
+import type { PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -36,7 +36,7 @@ import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } fr
 import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhenHydrated, tabAckReleasesIntent } from './lib/tabLink';
 import { TAB_PATH_PREFIX, type TabTarget } from '../../shared/tab-link';
 import { useDismissable } from './hooks/useDismissable';
-import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
 // default and revealed only while the Topics menu is open (the Rust shell hides
@@ -95,7 +95,6 @@ const importCommandPalette = () => import('./components/Shared/CommandPalette');
 const CommandPalette = lazy(() => importCommandPalette().then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
-const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
 /**
  * Il target del deep-link che la URL porta al boot, o `null`.
@@ -368,8 +367,6 @@ function App() {
   // Re-apply the user's saved Claude Code model preference once the providers
   // snapshot is available; resets each session unless localStorage has been set.
   useClaudeCodeModelSync();
-  const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
-  const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -379,19 +376,11 @@ function App() {
   // panel both count as "inside". restoreFocus off to preserve prior behaviour.
   useDismissable({
     open: showTopicsMenu,
-    onClose: () => { setShowTopicsMenu(false); setExpandedTool(null); },
+    onClose: () => { setShowTopicsMenu(false); },
     refs: [topicsMenuRef, topicsDropdownRef],
     restoreFocus: false,
   });
 
-  // Close remote access dropdown on outside click or Escape. The trigger now
-  // lives inside the Topics ▾ menu, so the Topics menu wrapper counts as "inside".
-  useDismissable({
-    open: expandedTool === 'remote',
-    onClose: () => setExpandedTool(null),
-    refs: [topicsMenuRef, remoteAccessDropdownRef],
-    restoreFocus: false,
-  });
 
 
   const {
@@ -1387,7 +1376,6 @@ function App() {
             onClick={() => {
               window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
               setShowTopicsMenu(false);
-              setExpandedTool(null);
             }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             title="Riunisce tutti i pannelli in uno solo (le schede restano aperte)"
@@ -1403,7 +1391,6 @@ function App() {
             onClick={() => {
               window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
               setShowTopicsMenu(false);
-              setExpandedTool(null);
             }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             title="Dispone tutte le schede aperte affiancate in una griglia bilanciata"
@@ -1411,19 +1398,12 @@ function App() {
             <Grid2x2 size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
-          <button
-            onClick={() => { setShowTopicsMenu(false); setExpandedTool('remote'); }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-          >
-            <Radio size={isMobile ? 18 : 14} />
-            <span className="flex-1 text-left">Remote Access</span>
-          </button>
           {TOPICS_MENU_PAGES
             .filter(({ id }) => id !== 'cron' || openclawAvailable)
             .map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
-                onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
+                onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); }}
                 className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <Icon size={isMobile ? 18 : 14} />
@@ -1431,7 +1411,7 @@ function App() {
               </button>
             ))}
           <button
-            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
+            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
             <SettingsIcon size={isMobile ? 18 : 14} />
@@ -1446,30 +1426,6 @@ function App() {
           via <PaneAddMenu scope="standalone" presentation="palette" /> (⌘N),
           so the trigger button AND the centered palette are the canonical
           components — no third menu implementation. */}
-
-      {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
-        <div
-          ref={remoteAccessDropdownRef}
-          // Same cap as the Topics menu above: RemoteAccessPanel is a tall
-          // panel with no max-h of its own, opening at the same unbounded
-          // coordinates — it ran off the bottom edge.
-          className={`${POPOVER_PANEL} min-w-[300px] overflow-y-auto overscroll-contain`}
-          style={{
-            position: 'fixed',
-            // Anchored to the Topics ▾ menu (its trigger is now the menu item),
-            // opening at the same spot as the Topics dropdown.
-            top: topicsMenuPos.top,
-            left: Math.max(POPOVER_MARGIN, topicsMenuPos.left),
-            maxHeight: `calc(100vh - ${topicsMenuPos.top + POPOVER_MARGIN}px)`,
-            zIndex: Z_POPOVER,
-          }}
-        >
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
-            <RemoteAccessPanel enabled />
-          </Suspense>
-        </div>,
-        document.body
-      )}
 
       {/* Context menu — keyed by topic so a right-click on a DIFFERENT topic
           remounts it: without the key, React reuses the instance and its local

@@ -20,7 +20,6 @@ import { archiveTopicFully } from "./server/services/archive-topic";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
-import { createRemoteRouter } from "./server/routes/remote";
 import { createMediaRouter } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
 import { createFilesRouter } from "./server/routes/files";
@@ -414,7 +413,6 @@ const webrtcBridge = createWebrtcBridge();
 const topicsRouter = createTopicsRouter(ctx, browserService);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
-const remoteRouter = createRemoteRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
 const branchesRouter = createBranchesRouter(ctx);
 const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
@@ -1829,7 +1827,6 @@ const server = Bun.serve<WSData>({
     if (isApiRequest) {
       const response = await topicsRouter(req, url, pathname, method)
         || await voiceRouter(req, url, pathname, method)
-        || await remoteRouter(req, url, pathname, method)
         || await mediaRouter(req, url, pathname, method)
         || await branchesRouter(req, url, pathname, method)
         || await projectsRouter(req, url, pathname, method)

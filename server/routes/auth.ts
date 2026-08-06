@@ -192,6 +192,18 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       })) });
     }
 
+    // Rinomina. «iPhone» basta con un telefono; con tre l'elenco smette di
+    // essere leggibile, e un elenco che non si legge non lo si guarda — cioe' la
+    // revoca smette di avere un posto da cui partire.
+    if (method === "PATCH" && pathname.startsWith("/api/auth/devices/")) {
+      const id = decodeURIComponent(pathname.slice("/api/auth/devices/".length));
+      const body = await readJSON(req) as { name?: unknown } | null;
+      const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : "";
+      if (!name) return json({ error: "nome vuoto" }, 400);
+      db.query("UPDATE devices SET name = ? WHERE id = ?").run(name, id);
+      return json({ ok: true, name });
+    }
+
     if (method === "DELETE" && pathname.startsWith("/api/auth/devices/")) {
       const id = decodeURIComponent(pathname.slice("/api/auth/devices/".length));
       // Revoca, non DELETE: una riga cancellata non racconta niente, una revocata
