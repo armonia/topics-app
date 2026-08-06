@@ -53,24 +53,38 @@ puliti. Il caso Japan è riprodotto in quattro test, incluso quello che verifica
 una riapertura LEGITTIMA sopravviva — ucciderla insieme al guasto sarebbe stato un
 regresso.
 
-- [x] 1.1 Server: `closed_rev` per ogni pane chiusa, e `rev` per scope allocato dal
-  server. **Verifica:** due chiusure consecutive ottengono rev crescenti.
-- [x] 1.2 Client: ogni intento porta il `baseRev` dello scope su cui è formulato.
-  **Verifica:** unit sul payload.
-- [x] 1.3 **Cancellare** il confronto `openedAt > tombstones[id]`
-  (`reducers/panes.ts:421-422` e `:561`) e `retractStaleMarker`. Al loro posto: il
-  server rifiuta un `open`/`reopen` il cui `baseRev` è anteriore al `closed_rev`
-  della stessa pane. **Verifica:** il caso Japan riprodotto — un client con snapshot
-  di due settimane NON resuscita la pane, e il tombstone del server resta intatto.
-- [x] 1.4 Verificare che la **riapertura legittima** sopravviva: un client che ha
-  visto la chiusura e poi riapre, riapre davvero. È il caso reale che la
-  ritrattazione difendeva; ucciderlo insieme alla resurrezione sarebbe un regresso.
-  **Verifica:** test a due dispositivi, punto 4 di `design.md §10`.
-- [x] 1.5 Cancellare i test della classe resurrezione che asseriscono la regola
-  vecchia: `staleTombstoneRetraction.test.ts` (321 righe), e le parti di
-  `tombstoneResurrection` / `multiClientResurrection` / `pinnedChatResurrection` che
-  pinnano il confronto di orologi. **Verifica:** ogni caso cancellato ha un
-  sostituto sul rev, o è documentato perché non può più accadere.
+> **Il piano prevedeva lavoro sul server; non è servito.** La grandezza causale
+> esisteva già lato client — `lastSeq`, che `syncWS` allinea al `server_seq`. Le
+> voci sotto sono riscritte su ciò che è stato fatto davvero, non sul piano:
+> spuntare 1.1 e 1.2 nella loro forma originale (`closed_rev` sul server, `baseRev`
+> sull'intento) sarebbe stato falso.
+
+- [x] 1.1 Il marcatore porta la grandezza causale: `tombstones` passa da
+  `Record<string, number>` a `Record<string, TombstoneMark>` con `{at, seq}`, dove
+  `seq` è il `lastSeq` dello store alla chiusura. **Verifica:** unit — due chiusure
+  consecutive ottengono seq crescenti; `capTombstones` ordina su `at`.
+- [x] 1.2 Le pane portano `openedSeq`, il `lastSeq` all'apertura, con le stesse
+  regole di `openedAt` (inserimento fresco timbra, ri-OPEN conserva, payload
+  esplicito vince). Whitelistato in `sanitizeSnapshot`, innestato attraverso
+  l'applicazione integrale e portato dal `PANE_ID_REMAP`. **Verifica:** unit su
+  tutti e quattro i percorsi — gli ultimi due erano difetti trovati dai test.
+- [x] 1.3 **Cancellato** il confronto `openedAt > tombstones[id]` su **entrambe** le
+  metà dello strip. Al suo posto `openedSeq > mark.seq`, con «manca un seq ⇒ vince
+  il marcatore». **Verifica:** il caso Japan riprodotto — `openedAt` più recente ma
+  `openedSeq` indietro: la pane cade **e il marcatore NON viene ritratto**, quindi
+  la resurrezione non si propaga.
+- [x] 1.4 La **riapertura legittima** sopravvive: un client che ha visto la chiusura
+  (`openedSeq > mark.seq`) riapre davvero. **Verifica:** unit dedicato — NON il test
+  a due dispositivi di `design.md §10`, che resta da scrivere (vedi P.1-P.5).
+- [x] 1.5 `staleTombstoneRetraction.test.ts` riscritto sulla causalità (14 casi
+  portati, 7 nuovi fra caso Japan e formato del filo); `multiClientResurrection` e
+  `panes.test.ts` adeguati alla forma del marcatore. **Verifica:** ogni caso portato
+  asserisce sul seq; nessuno asserisce più su un confronto di orologi.
+- [x] 1.6 **Retrocompatibilità del filo** (non era nel piano, e senza di essa lo
+  stadio 1 è una regressione): `tombstones` esce come mappa di numeri — la forma che
+  il sanitizer precedente sa leggere — e il `seq` viaggia in `tombstoneSeqs`.
+  **Verifica:** tre unit, incluso il giro completo uscita → sanitize → idratazione,
+  e il caso «peer vecchio senza `tombstoneSeqs` ⇒ seq 0 ⇒ vince il marcatore».
 
 ## Stadio 2 — intenti e sostituzione (PANE-AUTH-01, PANE-AUTH-03)
 
