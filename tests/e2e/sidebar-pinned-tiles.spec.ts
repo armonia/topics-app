@@ -772,16 +772,20 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
       return b!;
     };
     const tessera = await box(progetto);
-    const testo = await box(progetto.locator("span").filter({ hasText: "e2e-tile-affordance" }).first());
+    // Il testo, non il contenitore: da quando il chevron gli sta a fianco, il
+    // wrapper contiene ENTRAMBI e parte dal chevron — misurarlo direbbe che il
+    // segno non precede niente.
+    const testo = await box(progetto.getByTestId("pinned-tile-name"));
     const scarto = Math.abs((testo.y + testo.height / 2) - (tessera.y + tessera.height / 2));
     expect(scarto, "il titolo deve stare al centro verticale della tessera").toBeLessThanOrEqual(1);
 
-    // Il segno vive in fondo, sull'asse del contenuto, e non ci finisce sopra:
-    // è assoluto proprio per non chiedere spazio nel flusso.
+    // Il segno sta ACCANTO a ciò che identifica, sulla stessa riga: davanti al
+    // nome (o all'icona, quando c'è) come nell'albero sta davanti alla cartella.
+    // Staccato sotto non apparteneva a niente.
     const marker = await box(segno);
-    expect(marker.y, "il segno sta sotto il titolo").toBeGreaterThanOrEqual(testo.y + testo.height);
-    const asse = Math.abs((marker.x + marker.width / 2) - (tessera.x + tessera.width / 2));
-    expect(asse, "e sull'asse verticale della tessera").toBeLessThanOrEqual(1);
+    expect(marker.x + marker.width, "il segno precede il titolo").toBeLessThanOrEqual(testo.x + 1);
+    const centri = Math.abs((marker.y + marker.height / 2) - (testo.y + testo.height / 2));
+    expect(centri, "e gli sta a fianco, non sopra o sotto").toBeLessThanOrEqual(1);
 
     // Tailwind v4 scrive `rotate: 180deg`, non `transform: matrix(...)`: sono
     // proprietà separate, e leggere `transform` qui torna sempre "none" — cioè
