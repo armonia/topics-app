@@ -847,3 +847,124 @@ test.describe("Sidebar — creare una tab da una tessera", () => {
     await expect(cellaChat.getByTestId("pane-add-menu-trigger")).toHaveCount(0);
   });
 });
+
+test.describe("Sidebar — l'anteprima del drop e' la cosa, alle misure giuste", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-18: spostare una tessera su un'ALTRA riga mostra la tessera, non un rettangolo", async ({ page, request }) => {
+    // Il caso che mostrava il ripiego grigio: `incoming` era popolato solo per i
+    // drag da FUORI, quindi il movimento piu' comune dopo il riordino — portare
+    // una tessera su un'altra riga della stessa griglia — annunciava una cella
+    // vuota al posto della cosa che stava per atterrare.
+    const ids: string[] = [];
+    for (const n of ["E2E-Prev-A", "E2E-Prev-B", "E2E-Prev-C"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    // Due righe: [A, B] e [C]. Trasciniamo C sulla prima.
+    await setPins(page, ids, [[ids[0], ids[1]], [ids[2]]]);
+    await gotoSidebar(page);
+    await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
+
+    const esito = await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const righe = Array.from(document.querySelectorAll('[data-testid="pinned-row"]')) as HTMLElement[];
+      const target = righe[0];
+      const box = (target.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      target.dispatchEvent(new DragEvent("dragover", {
+        dataTransfer: dt, bubbles: true, cancelable: true,
+        clientX: box.left + 2, clientY: box.top + 5,
+      }));
+      await attendi();
+      const anteprima = target.querySelector('[data-testid="pinned-drop-preview"]');
+      const out = {
+        reale: !!anteprima,
+        nome: anteprima?.querySelector("[data-pinned-tile]")?.getAttribute("aria-label") ?? null,
+        ripiego: !!target.querySelector('[data-testid="pinned-drop-ghost"]'),
+      };
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return out;
+    }, ids[2]);
+
+    expect(esito.reale, "l'anteprima deve essere la tessera vera").toBe(true);
+    expect(esito.ripiego, "niente rettangolo di ripiego: la cosa si sa nominare").toBe(false);
+    expect(esito.nome).toContain("E2E-Prev-C");
+  });
+
+  test("TILE-19: l'anteprima di una riga NUOVA sta alle stesse distanze delle righe vere", async ({ page, request }) => {
+    // Diventando riga, quello spazio deve avere il respiro di una riga: senza,
+    // la tessera in arrivo toccava quelle gia' in griglia mentre tutte le altre
+    // stanno a 6px — un'anteprima che mostra una spaziatura che il risultato non
+    // avra'.
+    const ids: string[] = [];
+    for (const n of ["E2E-Gap-A", "E2E-Gap-B"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids, [[ids[0]], [ids[1]]]);
+    await gotoSidebar(page);
+    await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
+
+    const misure = await page.evaluate(async (key) => {
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const zone = Array.from(document.querySelectorAll('[data-testid="pinned-new-row-zone"]')) as HTMLElement[];
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      // La zona FRA le due righe.
+      zone[1].dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+
+      // La zona si apre con una transizione da 100ms: misurare al secondo
+      // frame coglie il padding a 0,1px e fa fallire il test su un numero che
+      // sullo schermo non esiste mai. Si aspetta che si fermi, non un tempo
+      // fisso — cosi' un domani a 200ms il test regge lo stesso.
+      const stabile = async () => {
+        let prec = "";
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => requestAnimationFrame(() => r(null)));
+          const ora = getComputedStyle(zone[1]).paddingTop;
+          if (ora === prec && ora !== "0px") return;
+          prec = ora;
+        }
+      };
+      await stabile();
+
+      const anteprima = zone[1].querySelector('[data-testid="pinned-drop-preview"]') as HTMLElement | null;
+      // La TESSERA della riga sopra, non il contenitore: la riga porta il suo
+      // rientro come padding (bordo a 0, tessere a 6), la zona come margine
+      // (bordo a 6) — confrontare i due contenitori direbbe 6 di scarto che
+      // sullo schermo non c'e'.
+      const tessellaSopra = document.querySelectorAll('[data-pinned-tile]')[0] as HTMLElement;
+      const rigaSopra = document.querySelectorAll('[data-testid="pinned-row"]')[0] as HTMLElement;
+      const out = anteprima
+        ? {
+            trovata: true,
+            sopra: Math.round(anteprima.getBoundingClientRect().top - rigaSopra.getBoundingClientRect().bottom),
+            sinistra: Math.round(anteprima.getBoundingClientRect().left - tessellaSopra.getBoundingClientRect().left),
+          }
+        : { trovata: false, sopra: -1, sinistra: -1 };
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      return out;
+    }, ids[1]);
+
+    expect(misure.trovata, "la riga nuova deve mostrare la tessera").toBe(true);
+    // Lo stesso passo del blocco: 6px, come fra due righe vere.
+    expect(misure.sopra, "il respiro sopra e' quello di sempre").toBe(6);
+    // E la stessa colonna: le tessere di una riga cominciano dove cominciano
+    // quelle di ogni altra riga.
+    expect(misure.sinistra, "e comincia sulla stessa colonna").toBe(0);
+  });
+});
