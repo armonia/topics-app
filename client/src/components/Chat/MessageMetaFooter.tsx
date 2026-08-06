@@ -41,6 +41,21 @@ interface Props {
    * Assente sui messaggi anteriori alla 076.
    */
   model?: string | null;
+  /**
+   * Dove sta la striscia.
+   *
+   * `block` (default) — piede a sé, con l'aria sopra e il permesso di andare a
+   * capo. È la forma che serve al turno FERMO su una domanda (MessageParts):
+   * lì questa striscia è l'unica cosa che dice cosa è costato finora, e deve
+   * restare in chiaro.
+   *
+   * `inline` — un pezzo della riga che <MessageBubble> apre sotto il messaggio
+   * finito, dove sta già l'ora e che compare solo passandoci sopra. Lì il capo
+   * è vietato (una striscia di servizio che si sdoppia in due righe era metà
+   * del fastidio) e ogni voce si porta il proprio `·` davanti, perché non è mai
+   * la prima cosa sulla riga: l'ora la precede sempre.
+   */
+  variant?: 'block' | 'inline';
 }
 
 /**
@@ -51,7 +66,7 @@ interface Props {
  *
  * The format mirrors the reference screenshot: `<duration>s · <tokens> tokens · $<cost>`.
  */
-export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model }: Props) {
+export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, promptTokens, completionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model, variant = 'block' }: Props) {
   const prompt = safeNum(promptTokens);
   const completion = safeNum(completionTokens);
   const total = prompt + completion;
@@ -154,11 +169,20 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
 
   if (parts.length === 0) return null;
 
+  const inline = variant === 'inline';
   return (
-    <div data-testid="message-meta-footer" className="mt-2 text-[11px] text-app-text-muted flex items-center gap-1.5 flex-wrap">
+    <div
+      data-testid="message-meta-footer"
+      data-variant={variant}
+      className={
+        inline
+          ? 'text-[11px] text-app-text-muted flex items-center gap-1.5 whitespace-nowrap'
+          : 'mt-2 text-[11px] text-app-text-muted flex items-center gap-1.5 flex-wrap'
+      }
+    >
       {parts.map((p, i) => (
-        <span key={i} className="flex items-center gap-1.5">
-          {i > 0 && <span className="text-app-text-muted/60">·</span>}
+        <span key={i} className={`flex items-center gap-1.5${inline ? ' flex-shrink-0' : ''}`}>
+          {(inline || i > 0) && <span className="text-app-text-muted/60">·</span>}
           <span {...(p.title ? { title: p.title } : {})} {...(p.testId ? { 'data-testid': p.testId } : {})}>{p.text}</span>
         </span>
       ))}

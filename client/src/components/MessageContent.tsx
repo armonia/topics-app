@@ -14,7 +14,6 @@ import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
-import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
@@ -985,14 +984,13 @@ interface MessageContentProps {
    * `partial`; undefined/NaN degrades gracefully (elapsed from mount).
    */
   turnStartedAt?: number;
-  // Per-message footer (Slice 7) — all optional. Footer hides when none set.
-  latencyMs?: number | null;
+  // Consumo del turno — serve alla striscia VIVA (TurnActivityIndicator). La
+  // striscia di chiusura è salita in <MessageBubble>, che legge `msg` da sé:
+  // per questo `latencyMs` e `model` non passano più di qui.
   usagePromptTokens?: number | null;
   cacheReadTokens?: number | null;
   cacheCreationTokens?: number | null;
   cacheCreation1hTokens?: number | null;
-  /** Il modello del turno — nel tooltip del costo, per renderlo verificabile. */
-  model?: string | null;
   usageCompletionTokens?: number | null;
   costCents?: number | null;
   // Plan mode
@@ -1018,7 +1016,7 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, model, onPlanApprove, onPlanReject, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1188,18 +1186,11 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
           cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
-        {!partial && (
-          <MessageMetaFooter
-            latencyMs={latencyMs}
-            promptTokens={usagePromptTokens}
-            cacheReadTokens={cacheReadTokens}
-            cacheCreationTokens={cacheCreationTokens}
-            cacheCreation1hTokens={cacheCreation1hTokens}
-            model={model}
-            completionTokens={usageCompletionTokens}
-            costCents={costCents}
-          />
-        )}
+        {/* La striscia di chiusura non sta più qui. A messaggio finito vive
+            nella riga che <MessageBubble> apre sotto la bolla, insieme all'ora
+            e rivelata dal passaggio del mouse: erano DUE righe impilate — una
+            fissa coi numeri, che su pane strette andava pure a capo, e una
+            sotto per la sola ora. */}
       </div>
     );
   }
@@ -1278,20 +1269,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
           cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
-      {/* Per-message footer (latency + tokens + cost). Hidden until streaming
-           ends and at least one metric is reported by the provider. */}
-      {!partial && (
-        <MessageMetaFooter
-          latencyMs={latencyMs}
-          promptTokens={usagePromptTokens}
-          cacheReadTokens={cacheReadTokens}
-          cacheCreationTokens={cacheCreationTokens}
-          cacheCreation1hTokens={cacheCreation1hTokens}
-          model={model}
-          completionTokens={usageCompletionTokens}
-          costCents={costCents}
-        />
-      )}
+      {/* Vedi sopra: la striscia di chiusura è salita in <MessageBubble>, sulla
+          riga dell'ora. */}
     </div>
   );
 });

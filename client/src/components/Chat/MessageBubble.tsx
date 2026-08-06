@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
+import { MessageMetaFooter } from './MessageMetaFooter';
 import { MessageContent } from '../MessageContent';
 
 // Detect touch-only devices (no fine pointer / no hover capability)
@@ -290,12 +291,10 @@ export const MessageBubble = memo(function MessageBubble({
                 partial={msg.partial}
                 isLast={isLast}
                 turnStartedAt={Date.parse(msg.timestamp)}
-                latencyMs={msg.latencyMs}
                 usagePromptTokens={msg.usagePromptTokens}
                 cacheReadTokens={msg.cacheReadTokens}
                 cacheCreationTokens={msg.cacheCreationTokens}
                 cacheCreation1hTokens={msg.cacheCreation1hTokens}
-                model={msg.model}
                 usageCompletionTokens={msg.usageCompletionTokens}
                 costCents={msg.costCents}
                 onPlanApprove={onPlanApprove}
@@ -356,7 +355,10 @@ export const MessageBubble = memo(function MessageBubble({
               </button>
             </div>
           )}
-          {/* Timestamp on hover.
+          {/* La riga di servizio del messaggio: l'ora e — sulle risposte finite
+              — durata, token e costo, che prima erano una SECONDA riga sempre
+              accesa sopra questa (e su pane strette andava pure a capo, perché
+              le voci sono fino a sei).
               Su desktop è FUORI FLUSSO, e non è un vezzo: compare solo al
               passaggio del mouse ma stava sempre nel DOM, quindi si prendeva la
               sua riga — ~18px INVISIBILI sotto ogni messaggio. Con una chat
@@ -365,16 +367,36 @@ export const MessageBubble = memo(function MessageBubble({
               nemmeno causare uno spostamento al passaggio del mouse, che
               sarebbe il rimedio peggiore del male (una rimisura sotto il
               cursore, per giunta proprio quella che i pin dello scroll
-              inseguono). Su touch resta in flusso: lì è sempre visibile. */}
+              inseguono). Su touch resta in flusso: lì è sempre visibile.
+              I clic passano attraverso finché la riga è trasparente, e tornano
+              suoi mentre è visibile: senza, i `title` delle voci — che sono la
+              contabilità per esteso di token e costo — non si aprirebbero mai.
+              Mai a capo: se un giorno non ci sta, scorre. */}
           {msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
-              className={`text-[11px] text-app-placeholder transition-opacity ${msg.role === 'user' ? 'text-right' : 'text-left'} ${
+              data-testid="message-meta-row"
+              className={`text-[11px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
+                msg.role === 'user' ? 'justify-end' : 'justify-start'
+              } ${
                 isTouchDevice
                   ? 'mt-0.5 opacity-60'
-                  : 'absolute top-full left-0 right-0 opacity-0 group-hover:opacity-100 pointer-events-none z-10'
+                  : 'absolute top-full left-0 right-0 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10'
               }`}
             >
-              {formatTimestamp(msg.timestamp)}
+              <span className="text-app-placeholder flex-shrink-0">{formatTimestamp(msg.timestamp)}</span>
+              {msg.role === 'assistant' && !msg.partial && (
+                <MessageMetaFooter
+                  variant="inline"
+                  latencyMs={msg.latencyMs}
+                  promptTokens={msg.usagePromptTokens}
+                  cacheReadTokens={msg.cacheReadTokens}
+                  cacheCreationTokens={msg.cacheCreationTokens}
+                  cacheCreation1hTokens={msg.cacheCreation1hTokens}
+                  model={msg.model}
+                  completionTokens={msg.usageCompletionTokens}
+                  costCents={msg.costCents}
+                />
+              )}
             </div>
           )}
         </div>
