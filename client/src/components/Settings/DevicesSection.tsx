@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Smartphone, Trash2, Check, X as XIcon, Pencil } from 'lucide-react';
+import { Smartphone, Trash2, Check, X as XIcon, Pencil, Monitor } from 'lucide-react';
 
 /**
  * I dispositivi autorizzati, e il gesto per toglierne uno.
@@ -22,6 +22,12 @@ interface Device {
   lastSeenAt: number | null;
   firstIp: string | null;
   revokedAt: number | null;
+  /** Ha una socket viva ADESSO. Non è «autorizzato»: un dispositivo può essere
+   *  autorizzato da settimane e spento da ieri. */
+  connected: boolean;
+  /** Quello da cui stai guardando. Senza, con tre iPhone in elenco non sai
+   *  quale stai per revocare — e ti tagli fuori da solo. */
+  current: boolean;
 }
 
 function quando(ms: number | null): string {
@@ -39,6 +45,7 @@ function quando(ms: number | null): string {
 
 export function DevicesSection() {
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [computer, setComputer] = useState<{ name: string; current: boolean } | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const [conferma, setConferma] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState<string | null>(null);
@@ -48,8 +55,9 @@ export function DevicesSection() {
     try {
       const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
-      const b = await r.json() as { devices: Device[] };
+      const b = await r.json() as { devices: Device[]; thisComputer?: { name: string; current: boolean } };
       setDevices(b.devices);
+      setComputer(b.thisComputer ?? null);
       setErrore(null);
     } catch {
       setErrore('Non riesco a leggere l’elenco dei dispositivi.');
@@ -112,7 +120,7 @@ export function DevicesSection() {
         <h3 className="text-[13px] font-semibold text-app-text">Dispositivi autorizzati</h3>
         <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
           Ogni dispositivo diverso da questo computer deve essere autorizzato una volta.
-          Questo computer non compare: da qui sei dentro per il fatto di esserci seduto.
+          Il pallino verde segna chi è connesso adesso.
         </p>
       </div>
 
@@ -127,11 +135,40 @@ export function DevicesSection() {
         </p>
       )}
 
-      {attivi.length > 0 && (
-        <ul className="space-y-1.5" data-testid="devices-active">
-          {attivi.map((d) => (
+      <ul className="space-y-1.5" data-testid="devices-active">
+        {computer && (
+          // Il computer È un dispositivo, e chiedere «i miei dispositivi» per
+          // vedere solo gli altri è una lista che mente per omissione. Non è
+          // revocabile: revocare la macchina da cui gira il server non vuol dire
+          // niente, e offrire il gesto inviterebbe a un errore senza rimedio.
+          <li className="flex items-center gap-2.5 rounded-lg border border-app-border bg-app-hover/30 px-3 py-2">
+            <Monitor size={14} className="flex-shrink-0 text-app-text-secondary" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-[12.5px] text-app-text">{computer.name}</span>
+                {computer.current && (
+                  <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
+                    stai qui
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-app-text-muted">
+                l’accesso non passa da una sessione
+              </div>
+            </div>
+          </li>
+        )}
+        {attivi.map((d) => (
             <li key={d.id} className="flex items-center gap-2.5 rounded-lg border border-app-border px-3 py-2">
-              <Smartphone size={14} className="flex-shrink-0 text-app-text-secondary" />
+              <span className="relative flex-shrink-0">
+                <Smartphone size={14} className="text-app-text-secondary" />
+                {d.connected && (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-green-500"
+                    aria-label="connesso adesso"
+                  />
+                )}
+              </span>
               <div className="min-w-0 flex-1">
                 {rinomina?.id === d.id ? (
                   <input
@@ -154,11 +191,16 @@ export function DevicesSection() {
                     title="Rinomina"
                   >
                     <span className="truncate text-[12.5px] text-app-text">{d.name}</span>
+                    {d.current && (
+                      <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
+                        stai qui
+                      </span>
+                    )}
                     <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
                   </button>
                 )}
                 <div className="text-[11px] text-app-text-muted">
-                  visto {quando(d.lastSeenAt)}
+                  {d.connected ? 'connesso adesso' : `visto ${quando(d.lastSeenAt)}`}
                   {d.firstIp && ` · da ${d.firstIp.replace(/^::ffff:/, '')}`}
                 </div>
               </div>
@@ -194,8 +236,7 @@ export function DevicesSection() {
               )}
             </li>
           ))}
-        </ul>
-      )}
+      </ul>
 
       {revocati.length > 0 && (
         <div>
