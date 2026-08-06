@@ -174,6 +174,17 @@ export interface ProviderSnapshotEntry {
    * has no such concept or the override is disabled.
    */
   effortTier?: string;
+  /**
+   * Lo stato della fast mode COME LO DICE la CLI (`fast_mode_state` +
+   * `fast_mode_disabled_reason`, che arrivano in ogni `system/init` e in ogni
+   * `result`), non come lo deduciamo noi. Assente = nessuna sessione ne ha
+   * ancora parlato — e «non lo so» non è «non si può»: il bottone resta vivo.
+   *
+   * `reason` presente = qualcosa la blocca adesso, ed è quello che il tooltip
+   * deve dire invece di far finta di niente (oggi, nelle chat, è sempre
+   * `sdk_opt_in_required`: la fast mode non esiste nella via Agent SDK).
+   */
+  fastMode?: { state: 'off' | 'on' | 'cooldown'; reason: string | null };
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }
