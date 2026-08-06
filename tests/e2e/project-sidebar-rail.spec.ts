@@ -133,4 +133,43 @@ test.describe("sidebar progetto — la rail collassata", () => {
       clip: { x: railBox.x, y: railBox.y, width: 340, height: 150 },
     });
   });
+
+  test("la riga «File» chiusa ha il suo bordo, e Processi si apre su qualcosa", async ({ page, request }) => {
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+
+    // ── «File» chiusa deve leggersi come una riga, non come un titolo
+    // sospeso sopra il vuoto. Il suo contenitore resta `flex-1` anche da
+    // chiusa (serve a spingere Git e Processi in fondo), quindi il divisore da
+    // 1px finisce in fondo alla colonna: senza un bordo PROPRIO, la riga non
+    // ha nessuna linea sotto di sé.
+    const filesRow = win.locator("div").filter({ hasText: /^File$/ }).last();
+    await expect(filesRow).toBeVisible({ timeout: 10000 });
+    await filesRow.click();
+    await expect
+      .poll(async () => filesRow.evaluate(el => parseFloat(getComputedStyle(el).borderBottomWidth) || 0), { timeout: 5000 })
+      .toBeGreaterThan(0);
+
+    // ── Aprire «Processi» deve mostrare qualcosa. L'altezza è in pixel e
+    // salvata: strizzata all'altezza dell'intestazione, la sezione «si apriva»
+    // su zero pixel di contenuto — il chevron ruotava e non compariva niente.
+    await page.evaluate((p) => {
+      sessionStorage.setItem(`project-sidebar-bottom-heights:${p}`, JSON.stringify({ git: 200, processes: 32 }));
+    }, PROJ);
+    await page.reload();
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+    const procRow = win.locator("button").filter({ hasText: /^Processi$/ }).last();
+    await expect(procRow).toBeVisible({ timeout: 10000 });
+    const section = procRow.locator("..");
+    await procRow.click();
+    await expect
+      .poll(async () => (await section.boundingBox())?.height ?? 0, { timeout: 5000 })
+      .toBeGreaterThan(60);
+  });
 });

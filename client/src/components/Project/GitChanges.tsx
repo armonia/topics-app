@@ -689,10 +689,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {expanded && hasData && (
           <>
             {gitStatus!.files.length === 0 ? (
+              gitStatus!.folderUntracked ? (
+                // Non è «pulito»: è che questa cartella, per il repo che la
+                // contiene, non esiste ancora. Dirlo è l'unica cosa vera.
+                <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
+                  <AlertCircle size={14} className="mx-auto mb-1 opacity-40" />
+                  {tr('git.folderUntracked')}
+                </div>
+              ) : (
               <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                 <CheckCircle size={14} className="mx-auto mb-1 opacity-40" />
                 {tr('git.cleanTree')}
               </div>
+              )
             ) : (() => {
               // Split files into staged and unstaged groups
               const stagedFiles = gitStatus!.files.filter(f => isFileStaged(f.status));
@@ -1101,7 +1110,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]">
               <div className="text-center">
                 <CheckCircle size={24} className="mx-auto mb-2 opacity-30" />
-                <p>{tr('git.cleanTree')}</p>
+                <p>{gitStatus.folderUntracked ? tr('git.folderUntracked') : tr('git.cleanTree')}</p>
                 <p className="text-[11px] mt-1 opacity-60">{tr('git.nothingToCommit')}</p>
               </div>
             </div>
