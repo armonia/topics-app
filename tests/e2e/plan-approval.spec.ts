@@ -103,7 +103,22 @@ test.describe.serial("Approvazione del piano", () => {
     // E il cartello del turno a vuoto non c'è: qui qualcosa è stato prodotto.
     await expect(page.locator('[data-testid="chat-message"]', { hasText: "senza produrre niente" })).toHaveCount(0);
 
+    // …e soprattutto la scelta sta SOPRA IL COMPOSER, dove finisce l'occhio di
+    // chi sta per scrivere: dentro la trascrizione la trovi solo se stai già
+    // guardando quel punto.
+    const bar = page.locator('[data-testid="plan-approval-bar"]');
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText("aspetta la tua approvazione");
+    await expect(bar.getByTestId("plan-approve")).toBeVisible();
+    await expect(bar.getByTestId("plan-reject")).toBeVisible();
+    // Sta davvero sopra l'input, non in mezzo ai messaggi.
+    const barBox = (await bar.boundingBox())!;
+    const inputBox = (await page.getByTestId("chat-message-input").boundingBox())!;
+    expect(barBox.y).toBeLessThan(inputBox.y);
+    expect(inputBox.y - (barBox.y + barBox.height)).toBeLessThan(80);
+
     await row.screenshot({ path: "test-results/plan-approval-panel.png" });
+    await bar.screenshot({ path: "test-results/plan-approval-bar.png" });
   });
 
   test("approvare alza l'autonomia, o il turno ripartirebbe nella stessa trappola", async ({ page, request }) => {
@@ -113,8 +128,7 @@ test.describe.serial("Approvazione del piano", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
-    await expect(form).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="plan-approval-bar"]')).toBeVisible({ timeout: 15_000 });
 
     // `GET /api/topics/:id` non esiste, e `topics` è una MAPPA per id.
     const autonomia = async () => {
@@ -125,9 +139,8 @@ test.describe.serial("Approvazione del piano", () => {
     // Prima: la chat è in «ask», cioè in plan mode.
     expect(await autonomia()).toBe("ask");
 
-    await form.getByText(PLAN_APPROVE_LABEL, { exact: false }).first().click();
-    const submit = form.locator('button[type="submit"]');
-    if (await submit.count()) await submit.first().click();
+    // Si approva dalla barra sopra il composer.
+    await page.getByTestId("plan-approve").click();
 
     // Dopo: auto-apply. Senza questo passaggio il turno che esegue ripartirebbe
     // in plan mode — cioè di nuovo bloccato, e l'approvazione non varrebbe niente.

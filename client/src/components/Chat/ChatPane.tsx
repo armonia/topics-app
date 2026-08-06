@@ -4,7 +4,9 @@ import { adoptLegacyQueue, clearQueue, removeTurn, updateTurn, useChatQueue } fr
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi } from '../../lib/api';
+import { findPendingAsk } from '../../state/pendingAsk';
+import { isPlanApprovalSchema, PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
@@ -15,6 +17,7 @@ import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { TodoStrip } from './TodoStrip';
 import { GoalBar } from './GoalBar';
+import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { selectLatestTodo } from './selectLatestTodo';
@@ -773,6 +776,15 @@ function ChatPaneComponent({
    * selettore, e reversibile quando vuoi. L'opzione lo dice a chiare lettere
    * prima che tu la scelga.
    */
+  // Il piano che aspetta una risposta, se c'è: alimenta la barra sopra il
+  // composer. Stessa lettura del pannello inline (`findPendingAsk`), così le
+  // due superfici non possono dire cose diverse.
+  const pendingPlan = useMemo(() => {
+    const ask = findPendingAsk(currentMessages);
+    return ask && isPlanApprovalSchema(ask.schema) ? ask : null;
+  }, [currentMessages]);
+  const [planBusy, setPlanBusy] = useState(false);
+
   const handlePlanDecision = useCallback(async (approved: boolean) => {
     if (!approved) {
       sendMessage(topic.sessionKey, 'Piano rifiutato. Proponi un\'altra strada, sempre senza toccare niente.');
@@ -788,6 +800,26 @@ function ChatPaneComponent({
     }
     sendMessage(topic.sessionKey, 'Piano approvato. Eseguilo.');
   }, [sendMessage, topic.sessionKey, topic.id]);
+
+  /** La scelta presa dalla barra sopra il composer: registra la risposta —
+   *  così il pannello inline si chiude e la riga smette di aspettare — e poi
+   *  fa quello che fa il pannello. Una strada sola per due superfici. */
+  const handlePlanChoiceFromBar = useCallback(async (approved: boolean) => {
+    if (!pendingPlan || planBusy) return;
+    setPlanBusy(true);
+    try {
+      await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
+        kind: 'questions',
+        answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
+        submittedAt: new Date().toISOString(),
+      });
+      await handlePlanDecision(approved);
+    } catch {
+      toast.error('Non sono riuscito a registrare la scelta. Riprova.');
+    } finally {
+      setPlanBusy(false);
+    }
+  }, [pendingPlan, planBusy, topic.sessionKey, handlePlanDecision, toast]);
 
   const handleRetry = useCallback(() => {
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
@@ -1036,6 +1068,13 @@ function ChatPaneComponent({
           misurare giusto: il ResizeObserver legge `contentRect.height`, che è
           l'altezza, non la larghezza. */}
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0 chat-measure">
+        {pendingPlan && (
+          <PlanApprovalBar
+            busy={planBusy}
+            onApprove={() => handlePlanChoiceFromBar(true)}
+            onReject={() => handlePlanChoiceFromBar(false)}
+          />
+        )}
         {goal ? (
           <GoalBar
             goal={goal}

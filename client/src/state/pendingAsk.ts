@@ -22,6 +22,7 @@
  * riempire senza indovinare. Lì il messaggio torna a comportarsi come sempre.
  */
 import type { ChatMessage, ToolCall, ToolUserResponse, UserInputSchema } from '../types';
+import { isPlanApprovalSchema } from '../../../shared/plan-decision';
 
 export interface PendingAsk {
   toolCallId: string;
@@ -71,6 +72,11 @@ export function answerFromText(ask: PendingAsk, text: string): ToolUserResponse 
   const submittedAt = new Date().toISOString();
   if (ask.schema.kind === 'raw') return { kind: 'raw', text: trimmed, submittedAt };
   if (ask.schema.kind === 'questions') {
+    // La scelta su un piano si prende premendo, non scrivendo: le due opzioni
+    // sono esatte e qui non c'è nessun modello che legga la prosa — la
+    // interpreteremmo noi, e fra «vai» e «no direi» un indovinello sbagliato
+    // esegue un piano che volevi rifiutare. Vedi shared/plan-decision.ts.
+    if (isPlanApprovalSchema(ask.schema)) return null;
     const questions = ask.schema.questions ?? [];
     // Più di una domanda ⇒ il pannello. Mettere lo stesso testo su tutte
     // risponderebbe a caso a quelle che non hai nemmeno letto.
