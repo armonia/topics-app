@@ -14,7 +14,7 @@
  */
 import {
   MessageSquare, TerminalSquare, Globe, GitBranch, Activity, BookOpen, Cpu, Kanban,
-  BarChart3, LayoutGrid, FolderOpen, FolderPlus, FolderTree, FileCode, Eye, Terminal,
+  BarChart3, LayoutGrid, FolderOpen, FolderTree, FileCode, Eye, Terminal,
   Brain, type LucideIcon,
 } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -108,7 +108,10 @@ export function buildAddMenuItems({
   if (onNewChat) {
     items.push({
       id: 'new-chat',
-      label: 'New Chat',
+      // Sostantivo secco come ogni altra riga: il verbo lo dice il menu (il suo
+      // trigger si chiama «New»). «New Chat» era l'unica voce con un verbo, e
+      // si leggeva come una svista invece che come una distinzione.
+      label: 'Chat',
       mnemonic: ADD_MENU_MNEMONICS['new-chat'],
       testId: 'pane-add-menu-new-chat',
       run: onNewChat,
@@ -158,22 +161,21 @@ export function buildAddMenuItems({
   }
 
   if (onProjectPicker) {
+    // UNA riga, non due. «Apri Progetto» e «Crea Progetto» chiamavano la STESSA
+    // funzione — e non per una svista di cablaggio: non esiste una API «crea»
+    // separata da chiamare. Il pannello di sistema (`selectDirectory`, titolato
+    // «Apri / Crea progetto») fa entrambe le cose col suo bottone «Nuova
+    // cartella», e `POST /api/projects` rifiuta un path inesistente. Due voci
+    // indistinguibili sono una promessa che il prodotto non mantiene.
+    // L'ellissi e' la convenzione macOS per «apre un dialogo».
     items.push({
       id: 'open-project',
-      label: 'Apri Progetto',
+      label: 'Progetto…',
       mnemonic: ADD_MENU_MNEMONICS['open-project'],
       testId: 'pane-add-menu-open-project',
       run: onProjectPicker,
       dividerBefore: true,
       icon: { kind: 'lucide', Component: FolderOpen },
-    });
-    items.push({
-      id: 'create-project',
-      label: 'Crea Progetto',
-      mnemonic: ADD_MENU_MNEMONICS['create-project'],
-      testId: 'pane-add-menu-create-project',
-      run: onProjectPicker,
-      icon: { kind: 'lucide', Component: FolderPlus },
     });
   }
 
@@ -198,5 +200,5 @@ export function AddMenuIcon({ item, size }: { item: AddMenuItem; size: number })
 /** Le voci che la barra pill di ⌘K rende: le stesse del menu standalone, meno
  *  quelle che lì non hanno senso. Esportata perché la lista NON si riscrive. */
 export const COMMAND_PALETTE_PILL_IDS: readonly AddMenuItemId[] = [
-  'new-chat', 'claude-code', 'codex', 'opencode', 'shell', 'browser', 'open-project', 'create-project',
+  'new-chat', 'claude-code', 'codex', 'opencode', 'shell', 'browser', 'open-project',
 ];

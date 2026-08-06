@@ -181,7 +181,9 @@ test.describe("Command Palette", () => {
     await commandPalettePage.open();
     await expect(commandPalettePage.overlay).toBeVisible();
 
-    const newChatPill = commandPalettePage.overlay.getByRole("button", { name: "New Chat" });
+    // «Chat», non «New Chat»: dal 2026-08-06 ogni voce di creazione è un
+    // sostantivo secco — il verbo lo dice la superficie che la ospita.
+    const newChatPill = commandPalettePage.overlay.getByRole("button", { name: "Chat", exact: true });
     await expect(newChatPill).toBeVisible();
     await newChatPill.click();
 
