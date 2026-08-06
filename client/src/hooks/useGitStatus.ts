@@ -73,10 +73,17 @@ type Store = {
   fetching: boolean;
   /** Una richiesta arrivata mentre un'altra era in volo, da rieseguire dopo. */
   refetchQueued: boolean;
+  /** Quella in coda veniva da un'azione, non dal timer: non va declassata. */
+  queuedExplicit: boolean;
   /** Quanti consumer hanno fornito un canale WS: >0 ⇒ poll rilassato. */
   wsChannels: number;
   /** Errori consecutivi, per il backoff. Azzerato al primo successo. */
   errorStreak: number;
+  /**
+   * Quanti push WS sono arrivati. Serve a NON far vincere una risposta di poll
+   * partita PRIMA di un push: vedi `load`.
+   */
+  pushSeq: number;
   currentInterval: number;
   /** Timer dell'autofetch, separato dal poll: passi diversi. */
   fetchTimer: ReturnType<typeof setInterval> | null;
@@ -103,8 +110,10 @@ function getStore(path: string): Store {
       subscribers: 0,
       fetching: false,
       refetchQueued: false,
+      queuedExplicit: false,
       wsChannels: 0,
       errorStreak: 0,
+      pushSeq: 0,
       currentInterval: POLL_VISIBLE,
       fetchTimer: null,
       fetchingRemote: false,
@@ -166,15 +175,27 @@ function retime(path: string, store: Store) {
   store.timer = setInterval(() => { void load(path); }, want);
 }
 
-async function load(path: string) {
+/**
+ * @param esplicita  chiesta da un'AZIONE (commit, stage, il bottone Aggiorna) e
+ *                   non dal timer. Una richiesta esplicita vince sempre: vedi
+ *                   la guardia sul push piu sotto.
+ */
+async function load(path: string, esplicita = false) {
   const store = getStore(path);
   if (store.snapshot.notGit) return;
   // Una fetch già in volo non fa perdere la richiesta: la accoda. Scartarla
   // sarebbe una regressione silenziosa per chi chiama `reload()` subito dopo
   // uno stage o un commit — il pannello resterebbe sul vecchio stato.
-  if (store.fetching) { store.refetchQueued = true; return; }
+  if (store.fetching) {
+    store.refetchQueued = true;
+    if (esplicita) store.queuedExplicit = true;
+    return;
+  }
   store.fetching = true;
   if (!store.snapshot.gitStatus) patch(store, { loading: true });
+  // Da quale stato partiamo. Se nel frattempo arriva un push, questa risposta
+  // descrive un momento PRECEDENTE e non deve vincere.
+  const pushAllaPartenza = store.pushSeq;
   try {
     const status = await gitApi.status(path);
     // Il server risponde 200 con `{ notGit: true }` per una cartella non-repo.
@@ -184,6 +205,21 @@ async function load(path: string) {
       return;
     }
     store.errorStreak = 0;
+    // Il push ha gia detto una cosa piu recente: questa risposta e vecchia.
+    //
+    // Succedeva dopo un commit: il client committa, chiede subito lo stato, e
+    // quella richiesta parte quando il server ha ancora in cache la lista di
+    // PRIMA (la cache dello stato dura 5s e la invalida il watcher, che sente
+    // il filesystem con un suo ritardo). Nel frattempo il push del watcher
+    // arriva con l'albero pulito, il pannello si aggiorna, e un istante dopo la
+    // risposta stantia lo riportava indietro. Da li restava sbagliato fino al
+    // poll successivo: quindici secondi in cui «ho committato e vedo ancora le
+    // modifiche».
+    // …ma una richiesta ESPLICITA vince comunque. Chi committa e poi ricarica
+    // sta chiedendo lo stato di ADESSO, e la sua risposta e' piu recente di
+    // qualunque push partito prima: scartarla lascerebbe il pannello indietro
+    // proprio nel momento in cui l'utente guarda per vedere l'effetto.
+    if (!esplicita && store.pushSeq !== pushAllaPartenza) { retime(path, store); return; }
     publish(path, store, status);
     retime(path, store);
   } catch (err: unknown) {
@@ -203,7 +239,9 @@ async function load(path: string) {
     store.fetching = false;
     if (store.refetchQueued) {
       store.refetchQueued = false;
-      void load(path);
+      const eraEsplicita = store.queuedExplicit;
+      store.queuedExplicit = false;
+      void load(path, eraEsplicita);
     }
   }
 }
@@ -249,6 +287,7 @@ function applyWSMessage(msg: WSMessage) {
   const store = stores.get(path);
   if (!store) return;
   store.errorStreak = 0;
+  store.pushSeq++;
   publish(path, store, msg.status as GitStatus);
   retime(path, store);
 }
@@ -299,7 +338,7 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
     };
   }, [onMessage, projectPath]);
 
-  const reload = useCallback(() => load(projectPath), [projectPath]);
+  const reload = useCallback(() => load(projectPath, true), [projectPath]);
   /** Fetch su richiesta (bottone), che riabilita anche l'autofetch spento. */
   const fetchRemote = useCallback(async () => {
     const store = getStore(projectPath);

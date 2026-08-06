@@ -20,6 +20,8 @@ import { attachNumstats, readNumstats, type Numstat } from "./lib/git-numstat";
 const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
 const watchers = new Map<string, { close: () => void }>();
+/** L'id del worktree per path, così `refreshGitStatus` può ricostruire la busta. */
+const worktreeIds = new Map<string, string>();
 
 // Shape of the computed git status. Named so the broadcast envelope below
 // is typed instead of leaking `any` (matches the typed ws-outbound discipline).
@@ -126,6 +128,34 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
 }
 
 /**
+ * Ricalcola lo stato git e lo trasmette. Invalida anche la cache della rotta.
+ *
+ * Esportata perché il watcher di `.git` NON è l'unica cosa che cambia lo stato:
+ * guarda `index`, `HEAD` e `refs`, cioè le operazioni GIT. Salvare un file nel
+ * worktree non tocca niente di tutto ciò, quindi una modifica fatta da un
+ * editor esterno, da un agente o da un terminale non faceva scattare nessun
+ * push — e con un canale WS attivo il poll del client è a 60 secondi. Misurato:
+ * un file modificato fuori dall'app poteva restare invisibile al pannello per
+ * un minuto.
+ *
+ * Il chiamante è il watcher dei FILE (`file-watcher.ts`), che ha già il suo
+ * debounce e il suo filtro sui path rumorosi.
+ */
+export async function refreshGitStatus(projectPath: string, ctx: AppContext): Promise<void> {
+  invalidateGitCache(projectPath);
+  const status = await computeGitStatus(projectPath);
+  if (!status) return;
+  const envelope: { type: "git:status"; projectPath: string; status: GitStatus; worktreeId?: string } = {
+    type: "git:status",
+    projectPath,
+    status,
+  };
+  const wt = worktreeIds.get(projectPath);
+  if (wt !== undefined) envelope.worktreeId = wt;
+  ctx.broadcastToAll(envelope);
+}
+
+/**
  * Start watching a working-tree directory.
  *
  * @param projectPath  Absolute path to the working tree (project root or
@@ -148,6 +178,7 @@ export function watchGitDir(
 
   const gitDir = resolveGitDir(projectPath);
   if (!gitDir) return;
+  if (worktreeId !== undefined) worktreeIds.set(projectPath, worktreeId);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -156,18 +187,7 @@ export function watchGitDir(
     // Invalidate server-side cache immediately. The cache is keyed by
     // `projectPath`, so each worktree gets its own slot.
     invalidateGitCache(projectPath);
-    debounceTimer = setTimeout(async () => {
-      const status = await computeGitStatus(projectPath);
-      if (status) {
-        const envelope: { type: "git:status"; projectPath: string; status: GitStatus; worktreeId?: string } = {
-          type: "git:status",
-          projectPath,
-          status,
-        };
-        if (worktreeId !== undefined) envelope.worktreeId = worktreeId;
-        ctx.broadcastToAll(envelope);
-      }
-    }, DEBOUNCE_MS);
+    debounceTimer = setTimeout(() => { void refreshGitStatus(projectPath, ctx); }, DEBOUNCE_MS);
   };
 
   try {
@@ -201,6 +221,7 @@ export function watchGitDir(
 }
 
 export function unwatchGitDir(projectPath: string) {
+  worktreeIds.delete(projectPath);
   const w = watchers.get(projectPath);
   if (w) {
     w.close();
