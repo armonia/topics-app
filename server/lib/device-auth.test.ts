@@ -3,7 +3,7 @@ import {
   SESSION_COOKIE, SESSION_TTL_MS,
   hashToken, mintSessionToken, mintPairingCode, tokensMatch,
   readSessionCookie, buildSessionCookie, buildClearedSessionCookie,
-  evaluateIdentity, isIdentityExemptPath, isGuestAllowedPath,
+  evaluateIdentity, isIdentityExemptPath,
   type DeviceRecord, type IdentityInput,
 } from "./device-auth";
 
@@ -178,46 +178,8 @@ describe("device-auth · percorsi esenti", () => {
   });
 });
 
-describe("device-auth · la superficie di un OSPITE", () => {
-  it("apre SOLO le schede condivise, la sessione e gli aggiornamenti dal vivo", () => {
-    for (const p of [
-      "/api/all-boards/tasks",
-      "/api/tasks/abc",
-      "/api/tasks/abc/comments",
-      "/api/auth/session",
-      "/api/auth/logout",
-      "/media/anteprima.png",
-    ]) {
-      expect(isGuestAllowedPath(p)).toBe(true);
-    }
-  });
-
-  it("nega tutto il resto — un ospite non è un utente con meno voci di menu", () => {
-    // Regression di un buco REALE: col filtro messo nel solo router dei task, un
-    // ospite leggeva `/api/topics` per intero. Il posto giusto era il gate, e
-    // questa lista è ciò che impedisce di dimenticarsene di nuovo.
-    for (const p of [
-      "/api/topics",
-      "/api/terminal/sessions",
-      "/api/projects",
-      "/api/files/read",
-      "/api/browser/navigate",
-      "/api/auth/devices",
-      "/api/auth/shares",
-      "/api/all-boards/settings",
-      "/preview/etc/hosts",
-      "/uploads/qualcosa.png",
-      "/ws/terminal/abc",
-      // `/ws` NON è concesso: broadcastToAll spinge a OGNI socket connessa senza
-      // guardare chi ascolta, quindi un ospite col socket aperto riceverebbe
-      // tutto. Il gate controlla le richieste, non cio' che il server spinge.
-      "/ws",
-    ]) {
-      expect(isGuestAllowedPath(p)).toBe(false);
-    }
-  });
-
-  it("evaluateIdentity porta il ruolo, così il gate può confinare", () => {
+describe("device-auth · il ruolo viaggia con l'identità", () => {
+  it("evaluateIdentity porta ruolo e id, così il gate può confinare", () => {
     const ospite = evaluateIdentity(input({ sessionToken: "t", device: device({ role: "guest" }) }));
     expect(ospite.ok).toBe(true);
     if (ospite.ok) { expect(ospite.role).toBe("guest"); expect(ospite.deviceId).toBe("dev-1"); }
@@ -226,5 +188,7 @@ describe("device-auth · la superficie di un OSPITE", () => {
     // macchina su cui gira il server.
     const locale = evaluateIdentity(input({ transport: "loopback" }));
     if (locale.ok) expect(locale.role).toBe("owner");
+    const daemon = evaluateIdentity(input({ bearerToken: "d".repeat(64) }));
+    if (daemon.ok) expect(daemon.role).toBe("owner");
   });
 });

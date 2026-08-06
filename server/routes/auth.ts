@@ -6,6 +6,7 @@ import {
   type DeviceRecord,
 } from "../lib/device-auth";
 import { isLoopbackAddress } from "../lib/auth-gate";
+import { isResourceType } from "../lib/grants";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -264,35 +265,81 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true });
     }
 
+    // ── Cosa ho, se sono un ospite.
+    //
+    // Esiste perché un ospite non può usare gli elenchi normali: `/api/topics` e
+    // `/api/all-boards/tasks` restituiscono un INSIEME, e un gate che vede il
+    // percorso non può filtrarne il corpo. Aggiungerli all'allowlist significava
+    // consegnarli interi — provato, rispondeva 200 con tutte le chat.
+    //
+    // Questa rotta è l'opposto: parte dalle CONCESSIONI e va a prendere solo
+    // quelle. Non può perdere niente perché non ha niente da filtrare.
+    if (method === "GET" && pathname === "/api/auth/shared") {
+      const ident = ctx.requestIdentity?.(req) ?? null;
+      const subj = ident?.deviceId;
+      if (!subj) return json({ tasks: [], topics: [] });
+      const righe = db.query(
+        "SELECT resource_type, resource_id FROM grants WHERE subject_type='device' AND subject_id = ?",
+      ).all(subj) as Array<{ resource_type: string; resource_id: string }>;
+      const idTask = righe.filter((r) => r.resource_type === "task").map((r) => r.resource_id);
+      const idTopic = righe.filter((r) => r.resource_type === "topic").map((r) => r.resource_id);
+      const segna = (n: number) => Array(n).fill("?").join(",");
+      const tasks = idTask.length
+        ? db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask)
+        : [];
+      const topics = idTopic.length
+        ? db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic)
+        : [];
+      return json({ tasks, topics });
+    }
+
     // ── Condivisione di un task con un ospite.
     // Vive qui e non in `routes/tasks.ts` perché è una decisione sui DISPOSITIVI:
     // chi può vedere cosa. Il filtro che la fa valere sta invece nel router dei
     // task, in un punto solo prima dello smistamento.
     if (pathname === "/api/auth/shares") {
+      // Generico sul TIPO di risorsa: `task` e `topic` oggi, e domani ciò che
+      // avrà una riga vera. Una rotta per tipo sarebbe la stessa divergenza che
+      // il modello unico serve a evitare.
       if (method === "GET") {
-        const taskId = url.searchParams.get("taskId") ?? "";
+        const tipo = url.searchParams.get("resourceType") ?? "task";
+        const id = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
+        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
         const rows = db.query(
-          "SELECT s.device_id, s.shared_at, d.name FROM task_shares s JOIN devices d ON d.id = s.device_id WHERE s.task_id = ? AND d.revoked_at IS NULL",
-        ).all(taskId) as Array<{ device_id: string; shared_at: number; name: string }>;
-        return json({ shares: rows.map((r) => ({ deviceId: r.device_id, name: r.name, sharedAt: r.shared_at })) });
+          "SELECT g.subject_id, g.granted_at, g.via_type, g.via_id, d.name FROM grants g JOIN devices d ON d.id = g.subject_id WHERE g.resource_type = ? AND g.resource_id = ? AND d.revoked_at IS NULL",
+        ).all(tipo, id) as Array<{ subject_id: string; granted_at: number; via_type: string | null; via_id: string | null; name: string }>;
+        return json({
+          shares: rows.map((r) => ({
+            deviceId: r.subject_id, name: r.name, sharedAt: r.granted_at,
+            // La PROVENIENZA risponde a «perché costui vede questa cosa?».
+            via: r.via_type ? { type: r.via_type, id: r.via_id } : null,
+          })),
+        });
       }
       if (method === "POST") {
-        const body = await readJSON(req) as { taskId?: string; deviceId?: string } | null;
-        if (!body?.taskId || !body?.deviceId) return json({ error: "taskId e deviceId richiesti" }, 400);
+        const body = await readJSON(req) as { taskId?: string; resourceType?: string; resourceId?: string; deviceId?: string } | null;
+        const tipo = body?.resourceType ?? "task";
+        const risorsa = body?.resourceId ?? body?.taskId;
+        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        if (!risorsa || !body?.deviceId) return json({ error: "resourceId e deviceId richiesti" }, 400);
         // Solo un OSPITE si può invitare: condividere con un proprietario non
         // vuol dire niente — vede già tutto — e lasciarlo fare darebbe l'idea
         // che quella riga stia limitando qualcosa.
         const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(body.deviceId) as { role?: string } | undefined;
         if (!d) return json({ error: "dispositivo sconosciuto o revocato" }, 404);
         if (d.role !== "guest") return json({ error: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite" }, 400);
-        db.query("INSERT OR IGNORE INTO task_shares (task_id, device_id, shared_at) VALUES (?, ?, ?)")
-          .run(body.taskId, body.deviceId, now);
+        db.query(
+          "INSERT OR IGNORE INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, via_type, via_id, granted_at) VALUES (?, 'device', ?, ?, ?, 'read', NULL, NULL, ?)",
+        ).run(crypto.randomUUID(), body.deviceId, tipo, risorsa, now);
         return json({ ok: true });
       }
       if (method === "DELETE") {
-        const taskId = url.searchParams.get("taskId") ?? "";
+        const tipo = url.searchParams.get("resourceType") ?? "task";
+        const risorsa = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         const deviceId = url.searchParams.get("deviceId") ?? "";
-        db.query("DELETE FROM task_shares WHERE task_id = ? AND device_id = ?").run(taskId, deviceId);
+        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        db.query("DELETE FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?")
+          .run(deviceId, tipo, risorsa);
         return json({ ok: true });
       }
     }

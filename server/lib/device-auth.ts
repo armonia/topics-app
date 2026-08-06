@@ -202,46 +202,8 @@ export function evaluateIdentity(i: IdentityInput): IdentityResult {
  * Restano soggetti al check d'ORIGINE: esente dall'identità non vuol dire che un
  * sito web possa avviare un appaiamento dalla scheda accanto.
  */
-/**
- * La superficie che un OSPITE può toccare. Tutto il resto è negato dal gate.
- *
- * È un'allowlist e non una lista di divieti, e la differenza non è di stile: un
- * elenco di cose vietate sopra un default permissivo è la forma in cui i buchi si
- * nascondono — se ne dimentica una e nessuno se ne accorge. Misurato mentre
- * costruivo questo: col filtro messo solo nel router dei task, un ospite leggeva
- * `/api/topics` per intero. Il router giusto non era uno: era il gate.
- *
- * Cosa NON c'è dentro, di proposito: i progetti, i terminali, i file, il browser,
- * le impostazioni, il dispatch. Un ospite non è un utente con meno voci di menu,
- * è qualcuno che può vedere alcune schede di lavoro e nient'altro.
- */
-export function isGuestAllowedPath(pathname: string): boolean {
-  return (
-    pathname === "/api/all-boards/tasks" ||
-    pathname.startsWith("/api/tasks/") ||
-    pathname === "/api/auth/session" ||
-    pathname === "/api/auth/logout" ||
-    // Le anteprime dei task condivisi. Il gate le lascia passare solo dopo aver
-    // verificato che QUEL file sia l'anteprima di un task condiviso con QUESTO
-    // ospite: l'allowlist apre il percorso, non il contenuto.
-    pathname.startsWith("/media/")
-  );
-}
-
-// `/ws` NON è qui, ed è una rinuncia deliberata.
-//
-// Misurato subito dopo averlo scritto: `broadcastToAll` (server/utils.ts:560)
-// manda a OGNI socket connessa senza guardare chi c'è dall'altra parte. Un
-// ospite con `/ws` aperto riceverebbe quindi tutto — aggiornamenti di task che
-// non gli sono stati condivisi, stato dei progetti, git, presenza — e il gate,
-// che controlla le RICHIESTE, non ha voce su cosa il server SPINGE.
-//
-// Chiudere il socket costa: la scheda condivisa diventa una fotografia, e per
-// vedere un aggiornamento va ricaricata. È il prezzo giusto rispetto
-// all'alternativa, che sarebbe un filtro per-frame — e un filtro per-frame
-// dimenticato su UN tipo di messaggio è indistinguibile dall'assenza di filtro.
-// Riaprirlo richiede prima di attribuire ogni frame a un'entità: è lavoro di
-// progettazione, non una riga.
+// La superficie di un OSPITE vive in `lib/grants.ts`, accanto al modello dei
+// permessi: due allowlist in due file sono due verita' che divergono.
 
 export function isIdentityExemptPath(pathname: string): boolean {
   return (

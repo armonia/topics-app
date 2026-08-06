@@ -69,9 +69,10 @@ import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import {
-  evaluateIdentity, isIdentityExemptPath, isGuestAllowedPath, readSessionCookie, hashToken,
+  evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
   type DeviceRecord,
 } from "./server/lib/device-auth";
+import { isGuestAllowedPath, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -467,6 +468,29 @@ const authRouter = createAuthRouter(ctx);
  */
 const identityByRequest = new WeakMap<Request, { role: 'owner' | 'guest'; deviceId: string | null }>();
 ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
+
+/**
+ * Il filtro dei broadcast verso un OSPITE: prima il TIPO, poi l'ENTITÀ.
+ *
+ * Ripara ciò che era stato chiuso a forza. Per confinare un ospite avevo tolto
+ * `/ws`, e il prezzo era che tutto ciò che gli condividi diventava una
+ * fotografia da ricaricare a mano. Il socket torna, ma ciò che ci passa dentro è
+ * nominato: i cinque frame delle schede e i cinque delle chat, e solo per le
+ * risorse che quell'ospite ha davvero.
+ *
+ * Il verso in cui si sbaglia è deliberato: un frame nuovo non raggiunge gli
+ * ospiti finché qualcuno non lo aggiunge all'allowlist. Un aggiornamento che
+ * manca si nota e si corregge; una fuga no.
+ */
+ctx.setGuestBroadcastFilter((deviceId, message) => {
+  const tipo = (message as { type?: unknown }).type;
+  if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
+  const risorsa = frameResource(message);
+  if (!risorsa) return false;
+  return !!ctx.db.query(
+    "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
+  ).get(deviceId, risorsa.type, risorsa.id);
+});
 const processesRouter = createProcessesRouter(ctx);
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
 // The dispatcher is the ONLY place that starts a headless agent turn from a
@@ -1614,15 +1638,33 @@ const server = Bun.serve<WSData>({
                 if (!isGuestAllowedPath(pathname)) {
                   return { ok: false as const, status: 403, reason: "non disponibile per un ospite", code: "guest_forbidden" };
                 }
-                // `/media/` è aperto come PERCORSO, non come contenuto: passa solo
-                // il file che è l'anteprima di un task condiviso con questo ospite.
-                if (pathname.startsWith("/media/") && r.deviceId) {
-                  const richiesto = decodeURIComponent(pathname.slice("/media".length));
-                  const ok = ctx.db.query(
-                    "SELECT 1 FROM task_shares s JOIN tasks t ON t.id = s.task_id WHERE s.device_id = ? AND t.preview_image LIKE ?",
-                  ).get(r.deviceId, `%${richiesto}`) as unknown;
-                  if (!ok) {
-                    return { ok: false as const, status: 403, reason: "anteprima non condivisa", code: "guest_forbidden" };
+                // L'allowlist apre la STRADA; qui si controlla la STANZA. Un
+                // percorso concesso con dentro l'id di una risorsa NON concessa
+                // è il modo in cui un'allowlist di percorsi diventa inutile.
+                if (r.deviceId) {
+                  const concessa = (tipo: string, id: string): boolean =>
+                    !!ctx.db.query(
+                      "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
+                    ).get(r.deviceId, tipo, id);
+
+                  const idTask = pathname.match(/^\/api\/tasks\/([^/]+)/)?.[1];
+                  if (idTask && !concessa("task", decodeURIComponent(idTask))) {
+                    return { ok: false as const, status: 403, reason: "non condiviso", code: "not_shared" };
+                  }
+                  const idTopic = pathname.match(/^\/api\/(?:topics|messages)\/([^/]+)/)?.[1];
+                  if (idTopic && !concessa("topic", decodeURIComponent(idTopic))) {
+                    return { ok: false as const, status: 403, reason: "non condiviso", code: "not_shared" };
+                  }
+                  // `/media/` è aperto come percorso, non come contenuto: passa
+                  // solo il file che è l'anteprima di un task concesso.
+                  if (pathname.startsWith("/media/")) {
+                    const richiesto = decodeURIComponent(pathname.slice("/media".length));
+                    const ok = ctx.db.query(
+                      "SELECT 1 FROM grants g JOIN tasks t ON t.id = g.resource_id WHERE g.subject_type='device' AND g.subject_id=? AND g.resource_type='task' AND t.preview_image LIKE ?",
+                    ).get(r.deviceId, `%${richiesto}`) as unknown;
+                    if (!ok) {
+                      return { ok: false as const, status: 403, reason: "anteprima non condivisa", code: "guest_forbidden" };
+                    }
                   }
                 }
               }
