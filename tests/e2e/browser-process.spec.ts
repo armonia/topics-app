@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { test, MOCK_RUNNING_SCRIPTS, MOCK_BROWSER_CONTEXTS } from "./fixtures/browser.fixture";
+import { test, MOCK_PACKAGE_SCRIPTS, MOCK_RUNNING_SCRIPTS, MOCK_BROWSER_CONTEXTS } from "./fixtures/browser.fixture";
 import { goToApp } from "./helpers";
 import {
   createTopic,
@@ -117,17 +117,18 @@ test.describe("ScriptRunner", () => {
 
     // Set projectPath in running scripts to match our test project
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
-    await browserProcessPage.mockScriptRunner(
-      { dev: "vite", build: "vite build", test: "vitest", lint: "eslint ." },
-      running,
-    );
+    await browserProcessPage.mockScriptRunner(MOCK_PACKAGE_SCRIPTS, running);
     await goToApp(page);
     await browserProcessPage.openProjectAndProcesses(PROJECT_NAME_PATTERN);
 
     const runner = browserProcessPage.scriptRunner;
 
     // Running script "dev" should have green text
-    const devRow = runner.locator("div.flex.items-center").filter({ hasText: "dev" }).first();
+    // `[data-script-id]`, non `filter({hasText})`: la riga mostra il nome PIÙ il
+    // manifest quando i manifest sono più d'uno, e `hasText` legge il
+    // textContent concatenato — cercare «test» pescherebbe anche «testMakefile».
+    // L'aggancio è quello che il prodotto espone apposta (ScriptRunner.tsx).
+    const devRow = runner.locator('[data-script-id="package.json#dev"]');
     await expect(devRow).toBeVisible();
     const devName = devRow.locator("span.text-green-500");
     await expect(devName).toBeVisible();
@@ -156,12 +157,18 @@ test.describe("ScriptRunner", () => {
     );
 
     // Click on idle "build" script to run it
-    const buildRow = runner.locator("div.flex.items-center").filter({ hasText: "build" }).first();
+    const buildRow = runner.locator('[data-script-id="package.json#build"]');
     await buildRow.click();
 
     const runReq = await runPromise;
     const body = runReq.postDataJSON();
-    expect(body.scriptName).toBe("build");
+    // L'ID, non il nome nudo: da 33944fa5 gli script arrivano da più manifest e
+    // `test` può essere sia uno script di package.json sia un target del
+    // Makefile, quindi si lancia per `<manifest>#<nome>` (ScriptRunner.tsx →
+    // scriptsApi.run). Ciò che il test garantisce non cambia: il click manda
+    // una POST /scripts/run per LO SCRIPT GIUSTO — cambia la chiave con cui lo
+    // si nomina.
+    expect(body.scriptName).toBe("package.json#build");
   });
 
   // PROCESS-04: PASS — ScriptRunner unchanged by phase 30.
@@ -172,10 +179,7 @@ test.describe("ScriptRunner", () => {
     test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
-    await browserProcessPage.mockScriptRunner(
-      { dev: "vite", build: "vite build", test: "vitest", lint: "eslint ." },
-      running,
-    );
+    await browserProcessPage.mockScriptRunner(MOCK_PACKAGE_SCRIPTS, running);
     await goToApp(page);
     await browserProcessPage.openProjectAndProcesses(PROJECT_NAME_PATTERN);
 
@@ -187,7 +191,7 @@ test.describe("ScriptRunner", () => {
     );
 
     // Click the Stop button on running "dev" script
-    const devRow = runner.locator("div.flex.items-center").filter({ hasText: "dev" }).first();
+    const devRow = runner.locator('[data-script-id="package.json#dev"]');
     const stopBtn = devRow.locator('button[title="Stop"]');
     await stopBtn.click();
 
@@ -203,10 +207,7 @@ test.describe("ScriptRunner", () => {
     test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
-    await browserProcessPage.mockScriptRunner(
-      { dev: "vite", build: "vite build", test: "vitest", lint: "eslint ." },
-      running,
-    );
+    await browserProcessPage.mockScriptRunner(MOCK_PACKAGE_SCRIPTS, running);
     await goToApp(page);
     await browserProcessPage.openProjectAndProcesses(PROJECT_NAME_PATTERN);
 
