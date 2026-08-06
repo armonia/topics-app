@@ -249,6 +249,10 @@ export function TopicTree({
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
+  /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
+   *  hanno un menu di riga proprio, e senza questo una volta fissati non si
+   *  potrebbero più togliere dai Fissati da nessuna parte. */
+  const [pinOnlyMenu, setPinOnlyMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
@@ -987,18 +991,35 @@ export function TopicTree({
       onLayoutChange={next => onPinnedLayoutChange?.(next)}
       metaFor={pinnedMetaFor}
       onToggleItem={activatePinned}
+      // Il menu contestuale della tessera è quello della RIGA, per ogni tipo.
+      // Dimenticarne uno vuol dire che quella cosa, una volta fissata, non si
+      // può più togliere dai Fissati: la riga con «Rimuovi dai Fissati» non
+      // esiste più, e la tessera sarebbe l'unico posto da cui farlo.
       onContextMenu={(item, e) => {
-        if (item.type !== 'project' || !item.projectPath) return;
-        e.preventDefault();
-        const pp = item.projectPath;
-        const unreadTopicIds = (item.children ?? [])
-          .filter(c => c.type === 'chat' && (unreadData[c.id]?.unreadCount || 0) > 0)
-          .map(c => c.id);
-        const muted = (loadSettings().mutedProjects ?? []).includes(pp);
-        setProjectContextMenu({
-          x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name,
-          allArchived: item.archived, unreadTopicIds, pinned: true, muted,
-        });
+        if (item.type === 'project' && item.projectPath) {
+          e.preventDefault();
+          const pp = item.projectPath;
+          const unreadTopicIds = (item.children ?? [])
+            .filter(c => c.type === 'chat' && (unreadData[c.id]?.unreadCount || 0) > 0)
+            .map(c => c.id);
+          const muted = (loadSettings().mutedProjects ?? []).includes(pp);
+          setProjectContextMenu({
+            x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name,
+            allArchived: item.archived, unreadTopicIds, pinned: true, muted,
+          });
+          return;
+        }
+        if (item.type === 'chat' && item.topic) {
+          onTopicContextMenu(e, item.topic);
+          return;
+        }
+        if (item.type === 'terminal' || item.type === 'browser') {
+          // Terminali e browser non hanno un menu di riga proprio: il loro
+          // «Rimuovi dai Fissati» sta qui, ed è l'unica voce che serve perché
+          // una tessera fissata torni una riga come le altre.
+          e.preventDefault();
+          setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: item.id, name: item.name });
+        }
       }}
       // La fascia porta le TAB del progetto — chat, terminali, browser — con lo
       // stesso `renderItem` delle righe dell'albero: nessun renderer nuovo,
@@ -1167,6 +1188,31 @@ export function TopicTree({
           </div>
         )}
       </div>
+
+      {/* Tessera fissata di un terminale/browser: una voce sola, quella che
+          serve per uscire dai Fissati. */}
+      {pinOnlyMenu && (
+        <ContextMenuPortal
+          open
+          x={pinOnlyMenu.x}
+          y={pinOnlyMenu.y}
+          onClose={() => setPinOnlyMenu(null)}
+          minWidth={160}
+        >
+          {onTogglePin && (
+            <button
+              onClick={() => {
+                onTogglePin(pinOnlyMenu.id);
+                setPinOnlyMenu(null);
+              }}
+              className={POPOVER_ITEM}
+            >
+              <PinOff size={14} />
+              <span>Rimuovi dai Fissati</span>
+            </button>
+          )}
+        </ContextMenuPortal>
+      )}
 
       {/* Project context menu */}
       {projectContextMenu && (
