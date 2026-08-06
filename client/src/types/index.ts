@@ -1153,10 +1153,33 @@ export interface GitBranch {
 
 export interface GitLogEntry {
   hash: string;
+  shortHash?: string;
   message: string;
   author: string;
   date: string;
   ago: string;
+}
+
+/** Un file dentro un commit: cosa gli è successo e quanto è cambiato. */
+export interface GitCommitFile {
+  path: string;
+  /** Una lettera: A, M, D, R, C, T. */
+  status: string;
+  origPath?: string;
+  added: number;
+  removed: number;
+  binary?: boolean;
+}
+
+/** Un commit aperto: i suoi metadati più i file che ha toccato. */
+export interface GitCommitDetail {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  ago: string;
+  date: string;
+  files: GitCommitFile[];
 }
 
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';

@@ -14,6 +14,7 @@ import type {
   GitStatus,
   GitBranch,
   GitLogEntry,
+  GitCommitDetail,
   ProvidersSnapshot,
   ProviderSnapshotEntry,
   Project,
@@ -559,15 +560,25 @@ export const gitApi = {
     });
   },
 
-  async show(path: string, file: string): Promise<string> {
+  /**
+   * Il contenuto di un file a una certa revisione. `rev` serve per la
+   * cronologia: il diff di un commit passato e `<hash>^` contro `<hash>`.
+   */
+  async show(path: string, file: string, rev?: string): Promise<string> {
+    const q = rev ? `&rev=${encodeURIComponent(rev)}` : '';
     const response = await fetch(
-      `${API_BASE}/git/show?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`
+      `${API_BASE}/git/show?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}${q}`
     );
     if (!response.ok) {
       const text = await response.text();
       throw new ApiError(response.status, text || response.statusText);
     }
     return response.text();
+  },
+
+  /** I file toccati da un commit, con quante righe ciascuno. */
+  async commitFiles(path: string, hash: string): Promise<GitCommitDetail> {
+    return request<GitCommitDetail>(`/git/commit-files?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}`);
   },
 
   async lineChanges(path: string, file: string): Promise<{ changes: { from: number; to: number; type: 'added' | 'modified' | 'deleted' }[] }> {

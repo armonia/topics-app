@@ -9,6 +9,7 @@ import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
 import { attachNumstats, readNumstats } from "../lib/git-numstat";
 import { moveToTrash } from "../lib/trash";
+import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -634,6 +635,45 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) { return json({ error: "Git log error: " + err.message }, 500); }
     }
 
+    // --- Git commit: i file di UN commit ---
+    //
+    // Chiude il buco fra `/api/git/log` (che c'era da sempre e non chiamava
+    // nessuno) e il diff: la lista dei commit senza il loro contenuto è un
+    // elenco di titoli.
+    if (method === "GET" && pathname === "/api/git/commit-files") {
+      const dirPath = url.searchParams.get("path");
+      const hash = url.searchParams.get("hash") || "";
+      if (!dirPath || !hash) return json({ error: "path and hash required" }, 400);
+      // Un hash, non una revisione qualunque: qui non serve `HEAD~3` e più
+      // stretto è il filtro, meno c'è da ragionare su cosa ci finisce dentro.
+      if (!/^[0-9a-fA-F]{4,64}$/.test(hash)) return json({ error: "hash non valido" }, 400);
+      const resolvedDir = resolveProjectPath(dirPath);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        let prefix = "";
+        try {
+          const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
+          prefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
+        } catch {}
+        const leggi = async (args: string[]) => {
+          const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          const text = await new Response(proc.stdout).text();
+          await proc.exited;
+          return proc.exitCode === 0 ? text : "";
+        };
+        const [nameStatus, numstat, meta] = await Promise.all([
+          leggi(NAME_STATUS_ARGS(hash)),
+          leggi(SHOW_NUMSTAT_ARGS(hash)),
+          leggi(COMMIT_META_ARGS(hash)),
+        ]);
+        if (!meta.trim()) return json({ error: "Commit non trovato" }, 404);
+        const [fullHash = "", shortHash = "", message = "", author = "", ago = "", date = ""] = meta.trim().split("|");
+        const files = scopeCommitFiles(mergeCommitFiles(nameStatus, numstat), prefix);
+        return json({ hash: fullHash, shortHash, message, author, ago, date, files });
+      } catch (err: any) { return json({ error: "Git commit-files error: " + err.message }, 500); }
+    }
+
     // --- Git stage (single file or batch) ---
     if (method === "POST" && pathname === "/api/git/stage") {
       const body = await readJSON(req);
@@ -923,6 +963,17 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/git/show") {
       const dirPath = url.searchParams.get("path");
       const filePath = url.searchParams.get("file");
+      // La revisione da guardare. Senza, era `HEAD` cablato e il contenuto di
+      // un file a un commit qualsiasi non era chiedibile: è il lato sinistro
+      // del diff di un commit passato («com'era prima» = `<hash>^`).
+      //
+      // Il valore va nella stessa stringa di `git show <rev>:<file>`, quindi si
+      // accettano solo le forme che una revisione può avere: niente spazi,
+      // niente `:` (che spezzerebbe l'argomento in due), niente `..`.
+      const rev = url.searchParams.get("rev") || "HEAD";
+      if (!/^[A-Za-z0-9_./^~@{}-]{1,200}$/.test(rev) || rev.includes("..")) {
+        return json({ error: "rev non valida" }, 400);
+      }
       if (!dirPath || !filePath) return json({ error: "path and file required" }, 400);
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
@@ -934,7 +985,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
           if (prefix) gitRelativePath = prefix + filePath;
         } catch {}
-        const proc = Bun.spawn(["git", "show", `HEAD:${gitRelativePath}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = Bun.spawn(["git", "show", `${rev}:${gitRelativePath}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const content = await new Response(proc.stdout).text();
         await proc.exited;
         if (proc.exitCode !== 0) return new Response("", { headers: { "Content-Type": "text/plain; charset=utf-8" } });

@@ -37,7 +37,7 @@ test.describe("cancellare = cestinare", () => {
     writeFileSync(file, "contenuto\n");
     expect(existsSync(file)).toBe(true);
 
-    const res = await request.post("/api/files/delete", { data: { path: file } });
+    const res = await request.delete("/api/files/delete", { data: { path: file } });
     expect(res.status()).toBe(200);
     // `trashed: true` e' il contratto: distingue «spostato» da «cancellato», ed
     // e' quello su cui la UI puo' promettere all'utente di poterlo rimettere a
@@ -53,7 +53,7 @@ test.describe("cancellare = cestinare", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(`${dir}/dentro.txt`, "x\n");
 
-    const res = await request.post("/api/files/delete", { data: { path: dir } });
+    const res = await request.delete("/api/files/delete", { data: { path: dir } });
     expect(res.status()).toBe(200);
     expect(existsSync(dir)).toBe(false);
   });
