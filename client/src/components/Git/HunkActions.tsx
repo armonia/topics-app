@@ -1,0 +1,181 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Minus, Undo2 } from 'lucide-react';
+import { gitApi } from '../../lib/api';
+import { Spinner } from '../Shared/Spinner';
+import { ConfirmDialog } from '../Shared/ConfirmDialog';
+import { createPortal } from 'react-dom';
+import type { GitHunkSummary } from '../../types';
+
+/**
+ * I blocchi di un file, uno alla volta.
+ *
+ * Si poteva solo `git add <file>`: tutto o niente. Un fix e un rimaneggiamento
+ * fatti nella stessa sessione finivano nello stesso commit per il solo motivo
+ * di stare nello stesso file.
+ *
+ * La lista NON ridisegna il diff: quello sta già nel visualizzatore accanto, e
+ * un secondo modo di leggere le stesse righe sarebbe solo un altro posto in cui
+ * sbagliare. Qui c'è quel che serve a SCEGLIERE: dove comincia il blocco, che
+ * funzione tocca, quante righe muove.
+ *
+ * Un lato alla volta, quello su cui si può agire adesso: se il file ha
+ * modifiche non staged si mostrano quelle (Stage / Scarta), altrimenti quelle
+ * nell'indice (Unstage). Mostrare entrambe le liste insieme vorrebbe dire due
+ * numerazioni sullo schermo, e gli indici dei blocchi sono relativi al loro
+ * diff: sbagliare lista vuol dire mettere in stage il blocco sbagliato.
+ */
+
+export interface HunkActionsProps {
+  projectPath: string;
+  file: string;
+  /** Da rialzare quando lo stato git cambia, così la lista si rilegge. */
+  reloadKey?: unknown;
+  onApplied?: () => void;
+}
+
+export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkActionsProps) {
+  const [hunks, setHunks] = useState<GitHunkSummary[]>([]);
+  const [side, setSide] = useState<'staged' | 'unstaged'>('unstaged');
+  const [loading, setLoading] = useState(false);
+  const [inCorso, setInCorso] = useState<number | null>(null);
+  const [errore, setErrore] = useState<string | null>(null);
+  const [daScartare, setDaScartare] = useState<number | null>(null);
+
+  // Il lato lo decide questo componente, non chi lo monta: la tab del diff non
+  // conosce lo stato git del file, e chiederglielo vorrebbe dire portare lo
+  // stato git in un posto che non ne ha bisogno per nient'altro. Prima si
+  // guarda fuori dall'indice, che è il caso comune; se lì non c'è niente si
+  // guarda dentro, così un file completamente staged mostra comunque i suoi
+  // blocchi da togliere invece di sparire.
+  useEffect(() => {
+    let vivo = true;
+    setLoading(true);
+    setErrore(null);
+    (async () => {
+      try {
+        const fuori = await gitApi.hunks(projectPath, file, 'unstaged');
+        if (!vivo) return;
+        if (fuori.hunks.length > 0) { setSide('unstaged'); setHunks(fuori.hunks); return; }
+        const dentro = await gitApi.hunks(projectPath, file, 'staged');
+        if (!vivo) return;
+        setSide('staged');
+        setHunks(dentro.hunks);
+      } catch {
+        if (vivo) setHunks([]);
+      } finally {
+        if (vivo) setLoading(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [projectPath, file, reloadKey]);
+
+  const applica = useCallback(async (index: number, action: 'stage' | 'unstage' | 'discard') => {
+    setInCorso(index);
+    setErrore(null);
+    try {
+      await gitApi.applyHunks(projectPath, file, [index], action);
+      onApplied?.();
+    } catch (err) {
+      // Il 409 del server vuol dire «il file è cambiato sotto, gli indici che
+      // hai in mano non descrivono più niente»: è un messaggio da leggere, non
+      // un errore da inghiottire.
+      setErrore(err instanceof Error ? err.message : 'Non è riuscito');
+    } finally {
+      setInCorso(null);
+    }
+  }, [projectPath, file, onApplied]);
+
+  if (loading && hunks.length === 0) {
+    return (
+      <div className="px-2 py-1 border-b border-app-border flex items-center gap-2 text-[11px] text-app-text-muted">
+        <Spinner size="xs" /> Cerco i blocchi…
+      </div>
+    );
+  }
+  // Un blocco solo è il file intero: i bottoni per file ci sono già sulla riga
+  // della lista, e ripeterli qui sarebbe una seconda strada per la stessa cosa.
+  if (hunks.length < 2) return null;
+
+  return (
+    <div className="border-b border-app-border" data-testid="hunk-actions">
+      <div className="px-2 py-1 flex items-center gap-1.5">
+        <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
+          {hunks.length} blocchi
+        </span>
+        <span className="text-[10px] text-app-text-muted">
+          {side === 'unstaged' ? 'fuori dall’indice' : 'nell’indice'}
+        </span>
+        {inCorso !== null && <Spinner size="xs" />}
+      </div>
+
+      {errore && <div className="px-2 pb-1 text-[11px] text-red-500">{errore}</div>}
+
+      <div className="max-h-[140px] overflow-y-auto">
+        {hunks.map(h => (
+          <div
+            key={h.index}
+            data-testid="hunk-row"
+            className="flex items-center gap-1.5 px-2 py-[3px] group/hunk hover:bg-app-hover transition-colors"
+          >
+            <span className="text-[10px] font-mono text-app-text-muted flex-shrink-0 tabular-nums">
+              :{h.oldStart}
+            </span>
+            <span className="truncate text-[11px] text-app-text-body min-w-0" title={h.context}>
+              {h.context || '—'}
+            </span>
+            <span className="ml-auto text-[10px] tabular-nums flex-shrink-0 leading-none">
+              {h.added > 0 && <span className="text-green-500">+{h.added}</span>}
+              {h.added > 0 && h.removed > 0 && ' '}
+              {h.removed > 0 && <span className="text-red-500">-{h.removed}</span>}
+            </span>
+            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/hunk:opacity-100 focus-within:opacity-100 transition-opacity">
+              {side === 'unstaged' ? (
+                <>
+                  <button
+                    onClick={() => setDaScartare(h.index)}
+                    disabled={inCorso !== null}
+                    className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
+                    title="Scarta questo blocco"
+                  >
+                    <Undo2 size={11} className="text-app-text-muted" />
+                  </button>
+                  <button
+                    onClick={() => applica(h.index, 'stage')}
+                    disabled={inCorso !== null}
+                    className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
+                    title="Metti in stage questo blocco"
+                  >
+                    <Plus size={11} className="text-green-500" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => applica(h.index, 'unstage')}
+                  disabled={inCorso !== null}
+                  className="p-0.5 rounded hover:bg-app-hover disabled:opacity-40"
+                  title="Togli dall’indice questo blocco"
+                >
+                  <Minus size={11} className="text-red-500" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Scartare un blocco riscrive il FILE e git non ne ha copia: è l'unica
+          delle tre azioni da cui non si torna indietro, quindi si chiede. */}
+      {daScartare !== null && createPortal(
+        <ConfirmDialog
+          title="Scarta il blocco"
+          confirmLabel="Scarta"
+          onConfirm={() => { const i = daScartare; setDaScartare(null); applica(i, 'discard'); }}
+          onCancel={() => setDaScartare(null)}
+        >
+          Le righe di questo blocco tornano com’erano nell’indice. Non è recuperabile.
+        </ConfirmDialog>,
+        document.body,
+      )}
+    </div>
+  );
+}

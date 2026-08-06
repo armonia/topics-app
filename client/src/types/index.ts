@@ -1171,6 +1171,21 @@ export interface GitCommitFile {
   binary?: boolean;
 }
 
+/**
+ * Un blocco di modifiche dentro un file, per la lista che permette di metterne
+ * in stage uno alla volta. Non porta le righe: il diff sta nel visualizzatore
+ * accanto, qui serve solo scegliere.
+ */
+export interface GitHunkSummary {
+  index: number;
+  /** Il testo dopo `@@`: di solito la funzione che contiene il blocco. */
+  context: string;
+  added: number;
+  removed: number;
+  /** La riga in cui comincia nel file com'è nell'indice. */
+  oldStart: number;
+}
+
 /** Un commit aperto: i suoi metadati più i file che ha toccato. */
 export interface GitCommitDetail {
   hash: string;
