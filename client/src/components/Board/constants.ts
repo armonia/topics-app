@@ -137,3 +137,16 @@ export type OpenTask = (id: string, focusPaneId?: string) => void;
 /** Pane id dell'allegato `path` dentro il gruppo di tab del task. Unica fonte:
  *  la costruisce `useTaskBrowserGroupLayout`, la consumano card e drawer. */
 export const mediaPaneIdFor = (path: string): string => `media:${path}`;
+
+/**
+ * L'etichetta testuale di un chip nelle barre strette della board (riga di
+ * controlli del composer, filtri inline della kanban): sparisce quando il
+ * CONTENITORE `@container` scende sotto i 448px, lasciando il chip con la sola
+ * icona più il suo `title`.
+ *
+ * Perché sul contenitore e non sul viewport: queste barre vivono dentro una
+ * pane, e una pane può essere molto più stretta di qualunque breakpoint `sm:`
+ * — che guarda la finestra e quindi non scatta mai. Stesso schema del composer
+ * della chat (`ChatInput.tsx` + `ProviderModelPicker.tsx`).
+ */
+export const CHIP_LABEL = 'truncate @max-[28rem]:hidden';

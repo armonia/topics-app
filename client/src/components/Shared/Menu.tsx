@@ -136,6 +136,14 @@ export function Menu({
         tabIndex={-1}
         onKeyDown={onKeyDown}
         data-testid={testId}
+        // Marchio STABILE «questo è un menu fluttuante», per chi deve
+        // distinguere il fuoco dentro un popover dal fuoco su un campo della
+        // pagina. Il pannello è portalato su <body>, quindi un `closest()`
+        // sull'ospite React non lo trova mai: senza questo marchio la board
+        // scambiava la casella di ricerca del picker progetto per «l'utente sta
+        // scrivendo altrove» e SMONTAVA il composer che ospitava il menu — il
+        // popover spariva sotto il primo carattere digitato.
+        data-popover=""
         aria-label={ariaLabel}
         className={
           isMobile
