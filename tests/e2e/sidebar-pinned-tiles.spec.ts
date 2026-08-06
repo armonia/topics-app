@@ -776,18 +776,27 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     const scarto = Math.abs((testo.y + testo.height / 2) - (tessera.y + tessera.height / 2));
     expect(scarto, "il titolo deve stare al centro verticale della tessera").toBeLessThanOrEqual(1);
 
+    // Il segno vive in fondo, sull'asse del contenuto, e non ci finisce sopra:
+    // è assoluto proprio per non chiedere spazio nel flusso.
+    const marker = await box(segno);
+    expect(marker.y, "il segno sta sotto il titolo").toBeGreaterThanOrEqual(testo.y + testo.height);
+    const asse = Math.abs((marker.x + marker.width / 2) - (tessera.x + tessera.width / 2));
+    expect(asse, "e sull'asse verticale della tessera").toBeLessThanOrEqual(1);
+
     // Tailwind v4 scrive `rotate: 180deg`, non `transform: matrix(...)`: sono
     // proprietà separate, e leggere `transform` qui torna sempre "none" — cioè
     // un'asserzione che non può fallire.
     const giro = () => segno.evaluate(el => getComputedStyle(el).rotate);
-    expect(await giro(), "a riposo guarda in giù: la fascia si apre SOTTO la riga").toBe("none");
+    expect(await giro(), "a riposo punta a destra, come ogni chevron delle righe").toBe("none");
 
     // Aperta: il segno si gira, e la fascia RISPONDE invece di non esserci.
     await progetto.click();
     const fascia = page.getByTestId("pinned-expansion");
     await expect(fascia).toBeVisible({ timeout: 15000 });
     await expect(fascia).toHaveText(/Nessuna tab aperta/);
-    await expect.poll(giro, { timeout: 5000 }).toBe("180deg");
+    // 90°, non 180: è lo STESSO chevron delle righe (progetti, gruppi,
+    // sotto-agenti), quindi ruota come loro.
+    await expect.poll(giro, { timeout: 5000 }).toBe("90deg");
 
     // Una chat fissata non ha niente da aprire: niente segno, e nessuna
     // promessa che il click non mantiene.
