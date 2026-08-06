@@ -529,6 +529,14 @@ export const gitApi = {
     });
   },
 
+  /** Aggiorna le ref remote-tracking: senza, `behind` resta 0 per sempre. */
+  async fetch(path: string): Promise<{ ok: boolean; output: string }> {
+    return request<{ ok: boolean; output: string }>('/git/fetch', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
   async push(path: string): Promise<{ ok: boolean; output: string }> {
     return request<{ ok: boolean; output: string }>('/git/push', {
       method: 'POST',
