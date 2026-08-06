@@ -14,7 +14,8 @@ import { watch, existsSync, statSync, readFileSync } from "fs";
 import { join, isAbsolute, dirname } from "path";
 import type { AppContext } from "./types";
 import { invalidateGitCache } from "./routes/files";
-import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "./lib/git-porcelain";
+import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, repoPrefixOf } from "./lib/git-porcelain";
+import { attachNumstats, readNumstats, type Numstat } from "./lib/git-numstat";
 
 const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
@@ -25,8 +26,13 @@ const watchers = new Map<string, { close: () => void }>();
 type GitStatus = {
   branch: string;
   lastCommit: { hash: string; message: string; author: string; ago: string };
-  /** `origPath` solo per rename/copie: il path di provenienza. */
-  files: { path: string; status: string; origPath?: string }[];
+  /**
+   * `origPath` solo per rename/copie: il path di provenienza.
+   * `staged`/`unstaged`: quante righe, per lato. Assenti quando non c'è un
+   * numero da dare (un non tracciato non sta in nessun diff), che è diverso da
+   * zero — vedi `lib/git-numstat.ts`.
+   */
+  files: { path: string; status: string; origPath?: string; staged?: Numstat; unstaged?: Numstat }[];
   ahead: number;
   behind: number;
 };
@@ -93,10 +99,13 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
       const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
       const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
       await toplevelProc.exited;
-      if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) {
-        relativePrefix = resolvedDir.slice(gitRoot.length + 1);
-        if (relativePrefix && !relativePrefix.endsWith("/")) relativePrefix += "/";
-      }
+      // Stessa funzione della rotta, e deve restarlo. Qui c'era un `startsWith`
+      // fra path grezzi: `--show-toplevel` risponde col path REALE, quindi una
+      // cartella raggiunta via symlink (su macOS `/tmp` → `/private/tmp`) non
+      // combaciava e il prefisso restava vuoto. Risultato: il push del watcher
+      // elencava i file di TUTTO il repo mentre il poll ne elencava un pezzo,
+      // e la lista cambiava a seconda di chi dei due era arrivato per ultimo.
+      relativePrefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
     } catch {}
 
     // Stesso parse della rotta `/api/git/status` (`lib/git-porcelain.ts`), e
@@ -104,7 +113,11 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
     // e due parse diversi vorrebbero dire due verità diverse a seconda che
     // l'aggiornamento sia arrivato dal watcher o dal poll. Il codice XY resta
     // grezzo a due caratteri — il client lo legge per posizione.
-    const files = scopeToPrefix(parsePorcelainZ(statusText), relativePrefix);
+    const files = attachNumstats(
+      scopeToPrefix(parsePorcelainZ(statusText), relativePrefix),
+      await readNumstats(resolvedDir),
+      relativePrefix,
+    );
 
     return { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
   } catch {
