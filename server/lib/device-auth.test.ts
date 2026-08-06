@@ -187,7 +187,6 @@ describe("device-auth · la superficie di un OSPITE", () => {
       "/api/auth/session",
       "/api/auth/logout",
       "/media/anteprima.png",
-      "/ws",
     ]) {
       expect(isGuestAllowedPath(p)).toBe(true);
     }
@@ -209,6 +208,10 @@ describe("device-auth · la superficie di un OSPITE", () => {
       "/preview/etc/hosts",
       "/uploads/qualcosa.png",
       "/ws/terminal/abc",
+      // `/ws` NON è concesso: broadcastToAll spinge a OGNI socket connessa senza
+      // guardare chi ascolta, quindi un ospite col socket aperto riceverebbe
+      // tutto. Il gate controlla le richieste, non cio' che il server spinge.
+      "/ws",
     ]) {
       expect(isGuestAllowedPath(p)).toBe(false);
     }

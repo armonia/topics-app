@@ -224,11 +224,24 @@ export function isGuestAllowedPath(pathname: string): boolean {
     // Le anteprime dei task condivisi. Il gate le lascia passare solo dopo aver
     // verificato che QUEL file sia l'anteprima di un task condiviso con QUESTO
     // ospite: l'allowlist apre il percorso, non il contenuto.
-    pathname.startsWith("/media/") ||
-    // Gli aggiornamenti dal vivo: senza, la scheda condivisa è una fotografia.
-    pathname === "/ws"
+    pathname.startsWith("/media/")
   );
 }
+
+// `/ws` NON è qui, ed è una rinuncia deliberata.
+//
+// Misurato subito dopo averlo scritto: `broadcastToAll` (server/utils.ts:560)
+// manda a OGNI socket connessa senza guardare chi c'è dall'altra parte. Un
+// ospite con `/ws` aperto riceverebbe quindi tutto — aggiornamenti di task che
+// non gli sono stati condivisi, stato dei progetti, git, presenza — e il gate,
+// che controlla le RICHIESTE, non ha voce su cosa il server SPINGE.
+//
+// Chiudere il socket costa: la scheda condivisa diventa una fotografia, e per
+// vedere un aggiornamento va ricaricata. È il prezzo giusto rispetto
+// all'alternativa, che sarebbe un filtro per-frame — e un filtro per-frame
+// dimenticato su UN tipo di messaggio è indistinguibile dall'assenza di filtro.
+// Riaprirlo richiede prima di attribuire ogni frame a un'entità: è lavoro di
+// progettazione, non una riga.
 
 export function isIdentityExemptPath(pathname: string): boolean {
   return (
