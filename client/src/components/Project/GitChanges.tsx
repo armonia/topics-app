@@ -7,6 +7,7 @@ import type { GitStatus as _GitStatus, GitFile } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
+import { CommitHistory } from '../Git/CommitHistory';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
@@ -294,6 +295,43 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       if (!controller.signal.aborted) setLoadingDiff(false);
     }
   }, [projectPath, compact]);
+
+  /**
+   * Un file come stava in un commit passato: `<hash>^` contro `<hash>`.
+   *
+   * Sul PRIMO commit del repo `<hash>^` non esiste, `git show` esce non-zero e
+   * la rotta risponde vuoto: che è la cosa giusta, un commit iniziale è tutto
+   * aggiunto e il lato sinistro è vuoto davvero.
+   *
+   * Solo in modalità estesa. In compatta il diff si apre come TAB
+   * (`open-file-diff`), e quell'evento non porta una revisione: passarci un
+   * file di un commit vecchio mostrerebbe il diff dell'albero DI ORA, cioè una
+   * cosa diversa da quella su cui si è cliccato. Meglio una riga che non si
+   * apre di una che apre la cosa sbagliata.
+   */
+  const handleHistoryFileClick = useCallback(async (filePath: string, hash: string) => {
+    diffFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    diffFetchAbortRef.current = controller;
+
+    setSelectedFile(filePath);
+    setLoadingDiff(true);
+    try {
+      const [prima, dopo] = await Promise.all([
+        gitApi.show(projectPath, filePath, `${hash}^`).catch(() => ''),
+        gitApi.show(projectPath, filePath, hash).catch(() => ''),
+      ]);
+      if (controller.signal.aborted) return;
+      setOriginalContent(prima);
+      setModifiedContent(dopo);
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      setOriginalContent('');
+      setModifiedContent('Error loading diff: ' + errMessage(err));
+    } finally {
+      if (!controller.signal.aborted) setLoadingDiff(false);
+    }
+  }, [projectPath]);
 
   const handleStage = useCallback(async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -952,6 +990,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 compact
               />
             )}
+
+            {/* La cronologia c'è anche quando l'albero è pulito: è il caso in
+                cui serve di più, perché è l'unica cosa da guardare. In
+                compatta le righe non si aprono — vedi handleHistoryFileClick. */}
+            <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
           </>
         )}
 
@@ -1278,6 +1321,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             onAdd={handleAddRemote}
             onRemove={handleRemoveRemote}
             adding={addingRemote}
+          />
+
+          {/* Qui le righe si aprono: il DiffViewer sta nella colonna accanto,
+              quindi si può mostrare il file com'era a QUEL commit senza
+              passare per una tab, che una revisione non la sa portare. */}
+          <CommitHistory
+            projectPath={projectPath}
+            reloadKey={gitStatus.lastCommit.hash}
+            onOpenFile={handleHistoryFileClick}
           />
         </div>
       </div>
