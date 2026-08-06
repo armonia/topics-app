@@ -629,7 +629,18 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           </div>
           {/* Right: branch + badges + refresh */}
           <div className="flex items-center gap-1 flex-shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
-            {hasData && (
+            {hasData && (gitStatus!.folderUntracked ? (
+              // Il ramo è del repo che ospita la cartella, non di lei. Qui
+              // resta scritto ma non si apre: dal pannello di questa cartella,
+              // un checkout cambierebbe il repo di sopra sotto ai piedi
+              // dell'utente, e non c'e niente qui dentro che glielo fa capire.
+              <span
+                className="truncate max-w-[110px] text-app-text-muted cursor-default"
+                title={gitStatus!.repoName ? `${gitStatus!.repoName} · ${gitStatus!.branch}` : gitStatus!.branch}
+              >
+                {gitStatus!.repoName ? `${gitStatus!.repoName} · ${gitStatus!.branch}` : gitStatus!.branch}
+              </span>
+            ) : (
               <button
                 ref={branchBtnRef}
                 onClick={(e) => { e.stopPropagation(); setShowBranches(!showBranches); }}
@@ -638,7 +649,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 <span className="truncate max-w-[80px]" title={gitStatus!.branch}>{gitStatus!.branch}</span>
                 <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform opacity-0 group-hover/git:opacity-100 ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
               </button>
-            )}
+            ))}
             {hasData && fileCount > 0 && (
               <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full" title={`${fileCount} changed files`}>
                 {fileCount}
@@ -694,9 +705,22 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 // contiene, non esiste ancora. Dirlo è l'unica cosa vera.
                 <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                   <AlertCircle size={14} className="mx-auto mb-1 opacity-40" />
-                  {gitStatus!.repoName
-                    ? tr('git.folderUntrackedIn', { repo: gitStatus!.repoName })
-                    : tr('git.folderUntracked')}
+                  <p>
+                    {gitStatus!.repoName
+                      ? tr('git.folderUntrackedIn', { repo: gitStatus!.repoName })
+                      : tr('git.folderUntracked')}
+                  </p>
+                  {/* L'azione che scioglie la situazione, e va PRIMA di
+                      qualunque cosa sui remote: finche non c'e un repo qui,
+                      aggiungere un remote non ha nessun senso. */}
+                  <button
+                    onClick={handleInit}
+                    disabled={initializing}
+                    className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+                  >
+                    {initializing ? <Spinner size="xs" tone="current" /> : <GitBranch size={10} />}
+                    {tr('git.initHere')}
+                  </button>
                 </div>
               ) : (
               <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
