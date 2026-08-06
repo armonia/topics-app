@@ -118,6 +118,27 @@ export interface Pane {
    * marker wins, exactly as before this field existed.
    */
   openedAt?: number;
+  /**
+   * Il `lastSeq` dello store nell'istante dell'apertura — cioè quanto lontano
+   * questo client aveva visto lo stato condiviso quando ha aperto la pane.
+   * `lastSeq` è tenuto al passo col `server_seq` del server
+   * (`middleware/syncWS.ts`: `lastSeq: Math.max(currentSeq, server_seq)`),
+   * quindi è una grandezza CAUSALE e non un orologio.
+   *
+   * È il sostituto di `openedAt` nel confronto con un marcatore di chiusura, e
+   * la ragione per cui esiste sta in un guasto misurato il 2026-08-06: una pane
+   * chiusa il 23/07 risultava ancora aperta su un telefono, perché il confronto
+   * era fra `openedAt` (timbrato da chi APRE) e `closedAt` (timbrato da chi
+   * CHIUDE), valutati su una TERZA macchina. Due orologi a muro di due
+   * dispositivi diversi non ordinano niente. Peggio: la ritrattazione cancella
+   * il marcatore, quindi la resurrezione si propagava all'indietro fino alla
+   * macchina che aveva chiuso.
+   *
+   * Assente sulle pane precedenti a questo campo → il marcatore vince, che è la
+   * direzione sicura (al massimo si richiude una pane davvero riaperta, e
+   * l'utente la riapre; mai il contrario).
+   */
+  openedSeq?: number;
   // Device-local fields (never serialized to server snapshot):
   scrollOffset?: number;
 }
@@ -168,6 +189,36 @@ export interface ClosedTerminalMeta {
   skipPermissions?: boolean;
 }
 
+/**
+ * Marcatore di chiusura durevole. Due grandezze, e servono a due cose diverse:
+ *
+ *   `at`  — orologio a muro della chiusura. Ordina il cap FIFO della mappa e
+ *           dice all'utente «chiusa il…». **Non decide niente.**
+ *   `seq` — il `lastSeq` dello store al momento della chiusura, cioè il punto
+ *           della storia CONDIVISA in cui è avvenuta. È l'unica grandezza su
+ *           cui si confronta, perché `lastSeq` è tenuto al passo col
+ *           `server_seq` del server e quindi ordina fra dispositivi diversi.
+ *           `0` = sconosciuto (marcatore legacy) → il marcatore vince.
+ */
+export interface TombstoneMark {
+  at: number;
+  seq: number;
+}
+
+/** Normalizza un marcatore letto dal filo o dal disco: la forma legacy è un
+ *  numero nudo (solo l'orologio), e diventa `seq: 0` — cioè «decide il
+ *  marcatore», che è la direzione sicura. */
+export function toTombstoneMark(raw: unknown): TombstoneMark | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return { at: raw, seq: 0 };
+  if (raw && typeof raw === 'object') {
+    const o = raw as { at?: unknown; seq?: unknown };
+    if (typeof o.at === 'number' && Number.isFinite(o.at)) {
+      return { at: o.at, seq: typeof o.seq === 'number' && Number.isFinite(o.seq) ? o.seq : 0 };
+    }
+  }
+  return null;
+}
+
 export interface ClosedPaneRecord {
   id: string;
   closedAt: number;
@@ -205,8 +256,15 @@ export interface PaneState {
    * cleared on reopen (OPEN_PANE / UNDO_CLOSE / CLEAR_CLOSED_* / remap). SYNCED
    * inside the pane snapshot; a fresh id never carries a tombstone, so the wire
    * cost is just the ids the user actually closed.
+   *
+   * Il valore è un {@link TombstoneMark}, non più un numero nudo: `at` è
+   * l'orologio (serve solo a ordinare il cap FIFO e a mostrare «chiusa il…»),
+   * `seq` è la grandezza CAUSALE su cui si decide. Un marcatore letto in forma
+   * legacy (numero) viene normalizzato con `seq: 0`, e `seq: 0` significa
+   * «non so a che punto della storia condivisa è avvenuta questa chiusura» →
+   * il marcatore vince. Vedi `Pane.openedSeq` per il guasto che ha portato qui.
    */
-  tombstones: Record<string, number>;
+  tombstones: Record<string, TombstoneMark>;
   focusedPaneId: string | null; // DEVICE-LOCAL — never in server snapshot
   groupOrder: string[];
   /**
