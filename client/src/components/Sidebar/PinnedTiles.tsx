@@ -14,7 +14,17 @@ import {
   type PinnedRow,
 } from './pinnedLayout';
 
-/** Spazio fra le tessere, in px. Anche il gap che le righe usano fra loro. */
+/**
+ * L'UNICO passo del blocco: fra due tessere della stessa riga, fra due righe, e
+ * sopra la prima riga. Orizzontale e verticale sono lo stesso numero — una
+ * griglia in cui le colonne respirano 6px e le righe 0 non è una griglia, è due
+ * regole diverse messe vicine. È anche `ROW_INSET`, cioè lo stesso passo con cui
+ * la sidebar rientra da ogni bordo.
+ *
+ * Prima: 1px fra la riga della board e le tessere (il solo `my-px` della card),
+ * 0px fra due righe di tessere (si toccavano) e 10px prima del filo. Tre
+ * distanze diverse per tre spazi che l'occhio legge come uno.
+ */
 const TILE_GAP = 6;
 
 /** Quanto della sezione possono prendersi le fasce aperte. Il resto della
@@ -166,7 +176,12 @@ export function PinnedTiles({
    *  tessera per aprire una riga nuova. A riposo è 6px di niente; sotto un drag
    *  compatibile si apre e si illumina, così il bersaglio esiste solo quando
    *  serve colpirlo. */
-  const rowGap = (at: number) => (
+  const rowGap = (at: number) => {
+    // L'ultimo spazio è SOLO un bersaglio, non ritmo: lo spazio sotto il blocco
+    // appartiene a ciò che segue (il filo, che porta il suo margine). Dandogli
+    // anche 6px a riposo i due si sommerebbero e il filo scivolerebbe via.
+    const trailing = at === rows.length;
+    return (
     <div
       key={`gap-${at}`}
       data-testid="pinned-new-row-zone"
@@ -197,10 +212,12 @@ export function PinnedTiles({
           ? 'h-7 bg-primary/10 ring-1 ring-inset ring-primary/40'
           : dragKey || adopting
             ? 'h-2'
-            : 'h-0'
+            : ''
       }`}
+      style={newRowAt === at || dragKey || adopting ? undefined : { height: trailing ? 0 : TILE_GAP }}
     />
-  );
+    );
+  };
 
   return (
     <div
@@ -270,6 +287,7 @@ export function PinnedTiles({
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">
             {rowGap(rowIdx)}
             <div
+              data-testid="pinned-row"
               className="flex items-stretch px-1.5 flex-shrink-0"
               style={{ gap: TILE_GAP }}
               onDragOver={e => {
@@ -356,7 +374,10 @@ export function PinnedTiles({
                   key={`band-${key}`}
                   data-testid="pinned-expansion"
                   data-pinned-expansion={key}
-                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll mx-1.5 mt-1 mb-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.03]"
+                  // Stesso passo di tutto il resto sopra la fascia; sotto ci
+                  // pensa lo spazio della riga seguente (o il filo, se è
+                  // l'ultima): due margini che si sommano sono un ritmo rotto.
+                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll mx-1.5 mt-1.5 mb-0 rounded-lg bg-black/[0.03] dark:bg-white/[0.03]"
                   onKeyDown={e => {
                     if (e.key !== 'Escape') return;
                     e.stopPropagation();
