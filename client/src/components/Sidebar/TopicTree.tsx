@@ -474,16 +474,24 @@ export function TopicTree({
 
   // ── Render: single sidebar item ──────────────────────────────────────────
 
-  const renderItem = (item: SidebarItem) => {
+  /**
+   * `depth` è il LIVELLO di annidamento, e va passato: ogni riga lo traduce in
+   * `ROW_INSET + depth * SIDEBAR_INDENT_STEP`, che è la stessa aritmetica dei
+   * figli di un progetto nell'albero e dei sotto-agenti di un terminale. Chi
+   * disegna righe dentro un contenitore proprio (la fascia di una tessera
+   * fissata) DEVE dichiararlo, o quelle righe escono a filo del bordo mentre le
+   * stesse righe altrove sono rientrate — la tabulazione che salta.
+   */
+  const renderItem = (item: SidebarItem, depth = 0) => {
     switch (item.type) {
       case 'project':
         return renderProjectItem(item);
       case 'chat':
-        return renderChatItem(item);
+        return renderChatItem(item, depth);
       case 'terminal':
-        return renderTerminalItem(item);
+        return renderTerminalItem(item, depth);
       case 'browser':
-        return renderBrowserItem(item);
+        return renderBrowserItem(item, depth);
       case 'utility':
         return renderUtilityItem(item);
     }
@@ -1027,7 +1035,10 @@ export function TopicTree({
       renderExpanded={item => {
         const children = item.type === 'project' ? (item.children ?? []) : [];
         if (children.length === 0) return null;
-        return <div className="py-1">{children.map(child => renderItem(child))}</div>;
+        // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
+        // sue tab stanno un livello dentro — lo stesso passo che hanno
+        // nell'albero e sotto un terminale orchestratore.
+        return <div className="py-1">{children.map(child => renderItem(child, 1))}</div>;
       }}
     />
   );
