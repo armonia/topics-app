@@ -1068,7 +1068,17 @@ export interface FileNode {
 export interface GitStatus {
   branch: string;
   lastCommit: { hash: string; message: string; author: string; ago: string };
-  files: { path: string; status: string }[];
+  /**
+   * `status` è il codice XY GREZZO a due caratteri: `[0]` = indice (staged),
+   * `[1]` = albero di lavoro. Non trimmarlo — `"  M"` trimmato diventa `"M"` e
+   * un file non staged si presenta come staged.
+   *
+   * `origPath` c'è solo per rename e copie ed è il path di PROVENIENZA
+   * (`path` è quello nuovo). Prima non esisteva e i due path arrivavano
+   * incollati in uno solo — `old.md -> new.md` — usato tale e quale come
+   * argomento dei comandi git, che quindi fallivano tutti.
+   */
+  files: { path: string; status: string; origPath?: string }[];
   ahead: number;
   behind: number;
 }

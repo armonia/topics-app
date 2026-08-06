@@ -14,6 +14,7 @@ import { watch, existsSync, statSync, readFileSync } from "fs";
 import { join, isAbsolute, dirname } from "path";
 import type { AppContext } from "./types";
 import { invalidateGitCache } from "./routes/files";
+import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "./lib/git-porcelain";
 
 const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
@@ -24,7 +25,8 @@ const watchers = new Map<string, { close: () => void }>();
 type GitStatus = {
   branch: string;
   lastCommit: { hash: string; message: string; author: string; ago: string };
-  files: { path: string; status: string }[];
+  /** `origPath` solo per rename/copie: il path di provenienza. */
+  files: { path: string; status: string; origPath?: string }[];
   ahead: number;
   behind: number;
 };
@@ -56,7 +58,7 @@ function resolveGitDir(projectPath: string): string | null {
 
 async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> {
   try {
-    const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+    const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
     const statusText = await new Response(statusProc.stdout).text();
     await statusProc.exited;
 
@@ -97,15 +99,12 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
       }
     } catch {}
 
-    const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({
-      path: line.substring(3),
-      // RAW 2-char XY code (no trim) — the client parses it positionally; see
-      // routes/files.ts. Trimming misclassified staged vs unstaged.
-      status: line.substring(0, 2),
-    }));
-    const files = relativePrefix
-      ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) }))
-      : allFiles;
+    // Stesso parse della rotta `/api/git/status` (`lib/git-porcelain.ts`), e
+    // deve restarlo: questo push e quella risposta descrivono lo stesso stato,
+    // e due parse diversi vorrebbero dire due verità diverse a seconda che
+    // l'aggiornamento sia arrivato dal watcher o dal poll. Il codice XY resta
+    // grezzo a due caratteri — il client lo legge per posizione.
+    const files = scopeToPrefix(parsePorcelainZ(statusText), relativePrefix);
 
     return { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
   } catch {

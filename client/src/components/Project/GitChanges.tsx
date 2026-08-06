@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText } from 'lucide-react';
+import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText, AlertCircle } from 'lucide-react';
 import type { GitStatus as _GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
@@ -27,12 +27,53 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Un file in conflitto di merge. Va SEPARATO, non messo in una delle due liste
+ * normali: i suoi codici (`UU`, `AA`, `DD`, `AU`, …) hanno una lettera diversa
+ * da spazio in ENTRAMBE le posizioni, quindi soddisfacevano insieme
+ * `isFileStaged` e `hasUnstagedChanges` e lo stesso file compariva due volte —
+ * una fra le modifiche in stage e una fra quelle da mettere. Con l'etichetta
+ * grigia anonima del ramo `default`, per giunta: nessun segnale che ci fosse un
+ * conflitto da risolvere, e uno Stage lì sopra marca il file come risolto anche
+ * con i marker `<<<<<<<` ancora dentro.
+ */
+function isConflicted(status: string): boolean {
+  return status === 'AA' || status === 'DD' || status[0] === 'U' || status[1] === 'U';
+}
+
 function isFileStaged(status: string): boolean {
+  if (isConflicted(status)) return false;
   return status.length >= 1 && status[0] !== ' ' && status[0] !== '?';
 }
 
 function hasUnstagedChanges(status: string): boolean {
+  if (isConflicted(status)) return false;
   return status === '??' || (status.length >= 2 && status[1] !== ' ');
+}
+
+/** Il file come lo mostra la lista: per un rename, `vecchio → nuovo`. */
+function fileTitle(file: { path: string; origPath?: string }): string {
+  return file.origPath ? `${file.origPath} → ${file.path}` : file.path;
+}
+
+/**
+ * I path da passare a git per agire su questi file.
+ *
+ * Un rename in stage sono DUE voci nell'indice: la cancellazione del vecchio e
+ * l'aggiunta del nuovo. Passare solo `path` a `git reset` lascia in stage metà
+ * dell'operazione, e la lista torna con un `D` orfano che l'utente non ha mai
+ * chiesto.
+ */
+function withOrigPaths(
+  files: { path: string; status: string; origPath?: string }[],
+  paths: string[],
+): string[] {
+  const out = new Set(paths);
+  for (const p of paths) {
+    const f = files.find(x => x.path === p);
+    if (f?.origPath) out.add(f.origPath);
+  }
+  return [...out];
 }
 
 function statusLabel(status: string): { text: string; color: string; bg: string } {
@@ -48,13 +89,21 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
     case '??': return { text: 'U', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-900/30' };
     case 'MM': return { text: 'MM', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
     case 'AM': return { text: 'AM', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
-    default: return { text: s || status, color: 'text-gray-500 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' };
+    case 'C': return { text: 'C', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30' };
+    default:
+      // I conflitti cadevano qui, in grigio, indistinguibili da un codice
+      // sconosciuto: l'unico stato che CHIEDE di fare qualcosa era anche
+      // l'unico senza colore.
+      if (isConflicted(status)) {
+        return { text: s || status, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' };
+      }
+      return { text: s || status, color: 'text-gray-500 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' };
   }
 }
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
   const tr = useT();
-  const { gitStatus, loading, error, notGit, reload: loadStatus } = useGitStatus({ projectPath });
+  const { gitStatus, loading, error, notGit, reload: loadStatus, fetchRemote } = useGitStatus({ projectPath });
   const toast = useToast();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
@@ -225,12 +274,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const handleUnstage = useCallback(async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await gitApi.unstage(projectPath, filePath);
+      const paths = withOrigPaths(gitStatus?.files ?? [], [filePath]);
+      // `git reset` sul solo path nuovo lascia in stage la cancellazione del
+      // vecchio: la riga tornerebbe con un `D` che nessuno ha chiesto.
+      if (paths.length === 1) await gitApi.unstage(projectPath, paths[0]);
+      else await gitApi.unstageFiles(projectPath, paths);
       await loadStatus();
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus, toast]);
+  }, [projectPath, loadStatus, toast, gitStatus]);
 
   const handleStageAll = useCallback(async () => {
     try {
@@ -260,17 +313,20 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
   const executeDiscard = useCallback(async (files: string[]) => {
     try {
-      if (files.length === 1) {
-        await gitApi.discard(projectPath, files[0]);
+      // Un rename scartato a metà lascerebbe in giro la cancellazione del
+      // vecchio path: si passano entrambi.
+      const all = withOrigPaths(gitStatus?.files ?? [], files);
+      if (all.length === 1) {
+        await gitApi.discard(projectPath, all[0]);
       } else {
-        await gitApi.discardFiles(projectPath, files);
+        await gitApi.discardFiles(projectPath, all);
       }
       await loadStatus();
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
     setDiscardConfirm(null);
-  }, [projectPath, loadStatus, toast]);
+  }, [projectPath, loadStatus, toast, gitStatus]);
 
   // --- Multi-select helpers ---
   const getFileList = useCallback((group: 'staged' | 'unstaged') => {
@@ -404,6 +460,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setCommitting(false);
     }
   }, [commitMessage, projectPath, loadStatus, toast]);
+
+  /**
+   * Aggiorna: lo stato locale subito, il remote in sottofondo.
+   *
+   * Il solo `reload()` non poteva far comparire un `behind`: rilegge
+   * `rev-list …@{upstream}`, cioè una ref remote-tracking LOCALE che senza un
+   * fetch non si muove mai. Il fetch non blocca il bottone — può metterci
+   * secondi su un remote lento — e quando arriva ricarica lui.
+   */
+  const handleRefresh = useCallback(() => {
+    void loadStatus();
+    void fetchRemote().catch(() => { /* nessun remote / offline: non è un errore da mostrare */ });
+  }, [loadStatus, fetchRemote]);
 
   const handlePull = useCallback(async () => {
     try {
@@ -566,7 +635,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 onClick={(e) => { e.stopPropagation(); setShowBranches(!showBranches); }}
                 className="flex items-center gap-0.5 min-w-0 hover:text-primary transition-colors text-app-text-muted"
               >
-                <span className="truncate max-w-[80px]">{gitStatus!.branch}</span>
+                <span className="truncate max-w-[80px]" title={gitStatus!.branch}>{gitStatus!.branch}</span>
                 <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform opacity-0 group-hover/git:opacity-100 ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
               </button>
             )}
@@ -585,7 +654,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {pushing ? <Spinner size="xs" tone="current" /> : <>↑{gitStatus!.ahead}</>}
               </button>
             )}
-            <button onClick={loadStatus} className="w-4 h-4 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary" title="Refresh">
+            <button onClick={handleRefresh} className="w-4 h-4 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary" title={tr('git.refreshAndFetch')}>
               <span className="inline-flex items-center justify-center w-[10px] h-[10px]">
                 {loading && !notGit ? <Spinner size="xs" tone="current" /> : <RefreshCw size={10} />}
               </span>
@@ -628,8 +697,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               // Split files into staged and unstaged groups
               const stagedFiles = gitStatus!.files.filter(f => isFileStaged(f.status));
               const unstagedFiles = gitStatus!.files.filter(f => hasUnstagedChanges(f.status));
+              // Terzo gruppo, reso per PRIMO: è l'unico stato che blocca il
+              // lavoro, e i suoi file non compaiono più nelle altre due liste.
+              const conflictedFiles = gitStatus!.files.filter(f => isConflicted(f.status));
 
-              const renderFileRow = (file: { path: string; status: string }, group: 'staged' | 'unstaged') => {
+              const renderFileRow = (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged' | 'conflicted') => {
                 const st = statusLabel(file.status);
                 const basename = pathBasename(file.path) || file.path;
                 const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
@@ -640,14 +712,21 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     className={`flex items-center gap-1.5 px-3 py-[3px] transition-colors group/file cursor-pointer select-none ${
                       isSelected ? SELECTED_SURFACE : 'hover:bg-app-hover'
                     }`}
-                    title={file.path}
-                    onClick={(e) => handleFileSelect(file.path, group, e)}
-                    onContextMenu={(e) => handleContextMenu(e, file.path, group)}
+                    title={fileTitle(file)}
+                    onClick={(e) => handleFileSelect(file.path, group === 'conflicted' ? 'unstaged' : group, e)}
+                    onContextMenu={(e) => handleContextMenu(e, file.path, group === 'conflicted' ? 'unstaged' : group)}
                   >
                     <span className={`${st.color} ${st.bg} text-[8px] font-bold px-0.5 py-[1px] rounded leading-none flex-shrink-0 min-w-[14px] text-center`}>
                       {st.text}
                     </span>
                     <span className="truncate text-app-text-body min-w-0">
+                      {file.origPath && (
+                        // Il vecchio nome, barrato, PRIMA del nuovo: senza, un
+                        // rename si presenta come un file comparso dal nulla.
+                        <span className="text-app-text-muted line-through mr-1">
+                          {pathBasename(file.origPath) || file.origPath}
+                        </span>
+                      )}
                       {basename}
                       {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
                     </span>
@@ -661,13 +740,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                           <Undo2 size={10} className="text-app-text-muted" />
                         </button>
                       )}
-                      <button
-                        onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
-                        className="p-0.5 rounded hover:bg-app-hover"
-                        title={group === 'staged' ? 'Unstage' : 'Stage'}
-                      >
-                        {group === 'staged' ? <Minus size={10} className="text-red-500" /> : <Plus size={10} className="text-green-500" />}
-                      </button>
+                      {group !== 'conflicted' && (
+                        <button
+                          onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
+                          className="p-0.5 rounded hover:bg-app-hover"
+                          title={group === 'staged' ? 'Unstage' : 'Stage'}
+                        >
+                          {group === 'staged' ? <Minus size={10} className="text-red-500" /> : <Plus size={10} className="text-green-500" />}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -722,6 +803,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   <CompactFileList
                     stagedFiles={stagedFiles}
                     unstagedFiles={unstagedFiles}
+                    conflictedFiles={conflictedFiles}
                     stagedExpanded={stagedExpanded}
                     unstagedExpanded={unstagedExpanded}
                     onToggleStaged={() => setStagedExpanded(v => !v)}
@@ -846,8 +928,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   if (!gitStatus) return null;
   const fullStagedFiles = gitStatus.files.filter(f => isFileStaged(f.status));
   const fullUnstagedFiles = gitStatus.files.filter(f => hasUnstagedChanges(f.status));
+  // Come in compatto: i conflitti sono un gruppo a sé, e senza questa riga —
+  // ora che i due predicati li escludono — sparirebbero del tutto.
+  const fullConflictedFiles = gitStatus.files.filter(f => isConflicted(f.status));
 
-  const renderFullModeFileRow = (file: { path: string; status: string }, group: 'staged' | 'unstaged') => {
+  const renderFullModeFileRow = (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged') => {
     const st = statusLabel(file.status);
     const isMultiSelected = selectedFiles.has(file.path);
     const isDiffOpen = selectedFile === file.path;
@@ -1022,6 +1107,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
           ) : (
             <>
+              {/* Conflitti — primi, e senza Stage a un click */}
+              {fullConflictedFiles.length > 0 && (
+                <div className="border-t border-app-border">
+                  <div className="flex items-center gap-1.5 px-2 py-1 select-none">
+                    <AlertCircle size={11} className="text-red-500 flex-shrink-0" />
+                    <span className="text-[11px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">
+                      Conflitti ({fullConflictedFiles.length})
+                    </span>
+                  </div>
+                  {fullConflictedFiles.map(file => renderFullModeFileRow(file, 'unstaged'))}
+                </div>
+              )}
+
               {/* Staged files */}
               {fullStagedFiles.length > 0 && (
                 <div className="border-t border-app-border">
@@ -1208,12 +1306,14 @@ function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[];
 type CompactItem =
   | { type: 'staged-header' }
   | { type: 'unstaged-header' }
-  | { type: 'file'; file: { path: string; status: string }; group: 'staged' | 'unstaged' }
+  | { type: 'conflicted-header' }
+  | { type: 'file'; file: { path: string; status: string; origPath?: string }; group: 'staged' | 'unstaged' | 'conflicted' }
   | { type: 'remotes' };
 
 interface CompactFileListProps {
-  stagedFiles: { path: string; status: string }[];
-  unstagedFiles: { path: string; status: string }[];
+  stagedFiles: { path: string; status: string; origPath?: string }[];
+  unstagedFiles: { path: string; status: string; origPath?: string }[];
+  conflictedFiles: { path: string; status: string; origPath?: string }[];
   stagedExpanded: boolean;
   unstagedExpanded: boolean;
   onToggleStaged: () => void;
@@ -1221,7 +1321,7 @@ interface CompactFileListProps {
   onUnstageAll: () => void;
   onStageAll: () => void;
   stagingAll: boolean;
-  renderFileRow: (file: { path: string; status: string }, group: 'staged' | 'unstaged') => React.ReactNode;
+  renderFileRow: (file: { path: string; status: string; origPath?: string }, group: 'staged' | 'unstaged' | 'conflicted') => React.ReactNode;
   remotes: { name: string; fetchUrl: string; pushUrl: string }[];
   remotesExpanded: boolean;
   onToggleRemotes: () => void;
@@ -1237,7 +1337,7 @@ interface CompactFileListProps {
 }
 
 function CompactFileList({
-  stagedFiles, unstagedFiles,
+  stagedFiles, unstagedFiles, conflictedFiles,
   stagedExpanded, unstagedExpanded,
   onToggleStaged, onToggleUnstaged,
   onUnstageAll, onStageAll, stagingAll,
@@ -1251,6 +1351,11 @@ function CompactFileList({
   // Build flat item list: headers + files + remotes
   const items = useMemo<CompactItem[]>(() => {
     const list: CompactItem[] = [];
+    // I conflitti in cima: non c'è niente da mettere in stage finché ci sono.
+    if (conflictedFiles.length > 0) {
+      list.push({ type: 'conflicted-header' });
+      for (const f of conflictedFiles) list.push({ type: 'file', file: f, group: 'conflicted' });
+    }
     if (stagedFiles.length > 0) {
       list.push({ type: 'staged-header' });
       if (stagedExpanded) {
@@ -1267,7 +1372,7 @@ function CompactFileList({
       list.push({ type: 'remotes' });
     }
     return list;
-  }, [stagedFiles, unstagedFiles, stagedExpanded, unstagedExpanded, remotes.length, showAddRemote]);
+  }, [stagedFiles, unstagedFiles, conflictedFiles, stagedExpanded, unstagedExpanded, remotes.length, showAddRemote]);
 
   // For small lists, use simple overflow scroll — no Virtuoso overhead
   if (items.length <= 200) {
@@ -1295,6 +1400,17 @@ function CompactFileList({
 
   function renderItem(item: CompactItem) {
     switch (item.type) {
+      case 'conflicted-header':
+        return (
+          <div className="border-t border-app-border">
+            <div className="flex items-center gap-1.5 px-3 py-1 select-none">
+              <AlertCircle size={11} className="text-red-500 flex-shrink-0" />
+              <span className="text-[11px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">
+                Conflitti ({conflictedFiles.length})
+              </span>
+            </div>
+          </div>
+        );
       case 'staged-header':
         return (
           <div className="border-t border-app-border">
