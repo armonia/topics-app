@@ -152,6 +152,17 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const hasBody =
     toolCardHasBody(detail) || isWaiting || isError || !!toolCall.error || !!toolCall.userResponse;
 
+  // Una riga che non si apre e non dice perché si legge come una riga ROTTA —
+  // tanto più dopo che si apriva (su un riquadro vuoto, ma si apriva). Il
+  // motivo vero è che non c'è niente da mostrare, e vale la pena dirlo: sulle
+  // `Skill` è quasi sempre perché la chiamata è anteriore alla correzione che
+  // ha insegnato al provider a raccogliere le istruzioni caricate.
+  const emptyReason = hasBody
+    ? undefined
+    : detail.type === 'skill'
+      ? 'Nessuna istruzione registrata per questa skill: la chiamata è anteriore alla correzione che le raccoglie. Dalla prossima si apre.'
+      : 'Niente da mostrare: questa azione non ha né argomenti né risultato.';
+
   // Costo/token dell'azione: preferisci il prezzo (modello noto), altrimenti i
   // token come fallback. Il title esplicita cos'è, così non si confonde con la
   // durata accanto.
@@ -196,7 +207,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               onClick: onToggle,
               className: 'w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors',
             }
-          : { className: 'w-full flex items-center gap-2 py-1 text-left text-app-text-secondary' },
+          : {
+              className: 'w-full flex items-center gap-2 py-1 text-left text-app-text-secondary',
+              title: emptyReason,
+              'data-empty': 'true',
+            },
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
             corpo e quelle senza partirebbero da due colonne diverse. */}
