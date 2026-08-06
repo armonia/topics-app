@@ -4,7 +4,7 @@ import { Copy, Check, ExternalLink, RefreshCw, Power, PowerOff, Link2, Unlink } 
 interface TunnelStatus {
   active: boolean;
   url?: string;
-  type: 'tailscale' | 'cloudflare' | 'localtunnel' | 'ngrok' | 'unknown';
+  type: 'tailscale' | 'cloudflare' | 'ngrok' | 'unknown';
   expiresAt?: string;
   error?: string;
 }
@@ -70,9 +70,10 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
 
   const getTypeLabel = (type: string) => {
     switch (type) {
-      case 'tailscale': return 'Tailscale Funnel';
+      // Non «Funnel»: il pannello espone sul tailnet, non su Internet — vedi
+      // server/routes/remote.ts (LAN-OPEN-03).
+      case 'tailscale': return 'Tailscale (tailnet)';
       case 'cloudflare': return 'Cloudflare Tunnel';
-      case 'localtunnel': return 'LocalTunnel';
       case 'ngrok': return 'ngrok';
       default: return 'Tunnel';
     }
@@ -89,7 +90,11 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
 
   return (
     <div className="pb-3 px-3 space-y-2">
-      {status?.active && status.url ? (
+      {/* Attivo si decide sull'ESPOSIZIONE, non sull'URL: un provider può essere
+          su e non riportare un indirizzo utilizzabile (cloudflared avviato a mano).
+          Legando le due cose, un tunnel vivo si mostrava come «Non esposto» — cioè
+          il pannello negava proprio la cosa che deve segnalare. */}
+      {status?.active ? (
         <>
           {/* Active tunnel info */}
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
@@ -100,28 +105,34 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
               </span>
             </div>
 
-            {/* URL display */}
-            <div className="flex items-center gap-1 bg-surface rounded px-2 py-1.5 border border-green-200 dark:border-green-800">
-              <span className="text-[11px] text-green-700 dark:text-green-300 truncate flex-1 font-mono">
-                {status.url}
-              </span>
-              <button
-                onClick={copyUrl}
-                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/50 rounded transition-colors"
-                title="Copy URL"
-              >
-                {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} className="text-green-500" />}
-              </button>
-              <a
-                href={status.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/50 rounded transition-colors"
-                title="Open in browser"
-              >
-                <ExternalLink size={12} className="text-green-500" />
-              </a>
-            </div>
+            {/* URL display — solo se c'è un indirizzo VERO. Mai prosa in un href. */}
+            {status.url ? (
+              <div className="flex items-center gap-1 bg-surface rounded px-2 py-1.5 border border-green-200 dark:border-green-800">
+                <span className="text-[11px] text-green-700 dark:text-green-300 truncate flex-1 font-mono">
+                  {status.url}
+                </span>
+                <button
+                  onClick={copyUrl}
+                  className="p-1 hover:bg-green-100 dark:hover:bg-green-900/50 rounded transition-colors"
+                  title="Copy URL"
+                >
+                  {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} className="text-green-500" />}
+                </button>
+                <a
+                  href={status.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 hover:bg-green-100 dark:hover:bg-green-900/50 rounded transition-colors"
+                  title="Open in browser"
+                >
+                  <ExternalLink size={12} className="text-green-500" />
+                </a>
+              </div>
+            ) : (
+              <div className="text-[11px] text-green-700 dark:text-green-300">
+                Attivo, nessun indirizzo riportato dal provider
+              </div>
+            )}
 
             {status.expiresAt && (
               <div className="text-[11px] text-green-600 dark:text-green-400 mt-1">
@@ -141,7 +152,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
             ) : (
               <PowerOff size={12} />
             )}
-            Disable Tunnel
+            Disattiva l'esposizione
           </button>
         </>
       ) : (
@@ -149,7 +160,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
           {/* No active tunnel */}
           <div className="text-center py-3 text-[11px] text-app-text-muted">
             <Unlink size={20} className="mx-auto mb-2 opacity-50" />
-            No active tunnel
+            Non esposto
           </div>
 
           {/* Start button */}
@@ -163,7 +174,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
             ) : (
               <Power size={12} />
             )}
-            Enable Tailscale Funnel
+            Esponi sul tailnet
           </button>
 
           {status?.error && (
