@@ -28,11 +28,16 @@ const BASE = E2E_BASE;
  *
  * La pagina che ospita la socket DEVE stare sull'ORIGINE del server. Prima era
  * `about:blank`, che ha un'origine OPACA: il browser manda `Origin: null`
- * nell'handshake e il gate CSRF di `/ws` (`evaluateAuth`, server/lib/auth-gate.ts,
- * hardening 2.2) risponde 403 — `onopen` non arriva mai, la `page.evaluate`
- * resta appesa sulla Promise e il test muore per timeout a 30 s. Verificato a
- * mano sul server di test: `Origin: null` → 403, `Origin: http://localhost:<porta>`
- * → 101.
+ * nell'handshake e il gate d'origine di `/ws` (`evaluateAuth`,
+ * server/lib/auth-gate.ts) risponde 403 — `onopen` non arriva mai, la
+ * `page.evaluate` resta appesa sulla Promise e il test muore per timeout a 30 s.
+ * Verificato a mano sul server di test: `Origin: null` → 403,
+ * `Origin: http://localhost:<porta>` → 101.
+ *
+ * Il verdetto NON è cambiato con `lan-open-same-origin`, che ha tolto l'asse del
+ * token e generalizzato il check a same-site: `null` non è un'origine
+ * analizzabile, quindi non è same-site con nessun host e resta 403. Cambia solo
+ * il nome della regola.
  *
  * Non è un bug del server da "sistemare": un'origine opaca (about:blank, iframe
  * sandboxed, `data:`) è ESATTAMENTE il vettore che quel gate esiste per
