@@ -34,9 +34,11 @@
  *         global `topics:open-add-palette` window event (⌘N).
  *
  * **⌘N apre SEMPRE E SOLO la palette standalone** (una sola istanza in tutta
- * l'app, in App.tsx). Per questo l'hint "⌘N" si dipinge solo lì: sulle tab bar
- * diceva «⌘N crea una chat in QUESTO gruppo», che è falso — apre una seconda
- * superficie standalone sopra quella che stai guardando.
+ * l'app, in App.tsx). Per questo l'hint "⌘N" vive sul TRIGGER e su nessuna riga:
+ * sulle tab bar diceva «⌘N crea una chat in QUESTO gruppo» (falso: apre una
+ * seconda superficie standalone sopra quella che guardi), e sulla riga New Chat
+ * della palette era falso pure lì — a palette aperta ⌘N la CHIUDE. Ogni riga
+ * porta invece la sua lettera nuda, che è vera in tutte e due le presentazioni.
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -101,9 +103,6 @@ export interface PaneAddMenuItemsProps {
    *  hide singletons already present in the target group — never to add
    *  types or change the order, which are owned by the scope. */
   availableTypes?: readonly PaneType[];
-  /** true SOLO nell'ospite che ⌘N apre davvero (la palette standalone): lì
-   *  l'hint "⌘N" sulla riga New Chat è vero. Ovunque altro mentirebbe. */
-  showGlobalNewChatKbd?: boolean;
   /** Called after any item is invoked, so the parent can close the menu. */
   onClose: () => void;
 }
@@ -113,12 +112,10 @@ export function PaneAddMenuItems({
   onNewChat,
   onAddPane,
   availableTypes,
-  showGlobalNewChatKbd,
   onClose,
 }: PaneAddMenuItemsProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const { isMobile } = useMobile();
-  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 
   // Touch targets are bigger on mobile, so the icons need to scale up to
   // stay legible inside the larger row.
@@ -133,7 +130,6 @@ export function PaneAddMenuItems({
     // dentro un progetto non si apre né si crea un progetto) e servono il
     // picker di sistema — quindi solo desktop.
     onProjectPicker: scope === 'standalone' && isDesktop ? openProjectPicker : undefined,
-    showGlobalNewChatKbd,
   });
 
   const choose = (item: AddMenuItem) => () => {
@@ -184,13 +180,11 @@ export function PaneAddMenuItems({
                 <span aria-hidden="true">yolo</span>
               </span>
             )}
-            {item.globalKbd === 'newChat' && isDesktop ? (
-              <kbd className="kbd text-app-text-muted flex-shrink-0" aria-hidden="true">
-                {isMac ? '⌘' : '⌃'}N
-              </kbd>
-            ) : (
-              item.mnemonic && !isMobile && <MnemonicHint>{item.mnemonic}</MnemonicHint>
-            )}
+            {/* La lettera NUDA, anche su New Chat. Ci stava "⌘N": incoerente con
+                ogni altra riga e per giunta falso — a palette aperta ⌘N la
+                CHIUDE (è un toggle), non crea una chat. L'hint ⌘N vive sul
+                trigger, che è il posto dove è vero. */}
+            {item.mnemonic && !isMobile && <MnemonicHint>{item.mnemonic}</MnemonicHint>}
           </button>
         </Fragment>
       ))}
@@ -247,7 +241,6 @@ export function PaneAddMenu({
   onNewChat,
   onAddPane,
   availableTypes,
-  showGlobalNewChatKbd,
   triggerTitle = 'Add pane',
   triggerVariant = 'pill',
   triggerKbd,
@@ -312,7 +305,6 @@ export function PaneAddMenu({
       onNewChat={onNewChat}
       onAddPane={onAddPane}
       availableTypes={availableTypes}
-      showGlobalNewChatKbd={showGlobalNewChatKbd}
       onClose={close}
     />
   );
@@ -371,14 +363,24 @@ export function PaneAddMenu({
             aria-label="New"
             tabIndex={-1}
             onKeyDown={onPaletteKeyDown}
-            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1 outline-none`}
+            /* `text-[12px]`: il pannello e' portato su `document.body`, cioe'
+               FUORI dal wrapper dove App scrive `fontSize` — qualunque testo
+               senza classe di dimensione ricade sui 16px di default del
+               browser. Ci e' gia' cascato l'header (ESC a 16px accanto a
+               lettere da 12px, misurato). Una base esplicita chiude la CLASSE
+               di bug, non solo l'istanza. */
+            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1 text-[12px] outline-none`}
             onClick={(e) => e.stopPropagation()}
             data-testid="pane-add-menu"
           >
-            <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
-              <span className="text-[10px] font-semibold text-app-text-muted uppercase tracking-wider">New</span>
-              <kbd className="kbd" aria-hidden="true">ESC</kbd>
-            </div>
+            {/* Nessuna intestazione. C'era «NEW» + un chip ESC: un titolo che
+                ripete cosa sia una lista di cose da creare, e il promemoria di
+                un tasto che sanno tutti — 38px di cromatura, piu' alti di una
+                riga, con un 10px accostato a un 16px in due grigi diversi.
+                Questa non e' una palette di RICERCA (⌘K ha il footer di hint
+                perche' li' l'interazione non e' ovvia): e' una lista d'azione
+                fissa, cioe' un menu che si apre al centro. I menu non si
+                presentano. Cosi' palette e dropdown rendono identici. */}
             {menuItems}
           </div>
         </div>,

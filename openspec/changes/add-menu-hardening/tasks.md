@@ -58,10 +58,19 @@
       + `aria-keyshortcuts` per gli screen reader
 - [x] 6.3 Attivazione col tasto nudo in `useMenuKeyboard`
 - [x] 6.4 Unit test: unicità per scope, lettera ∈ etichetta, una lettera sola
+- [x] 6.5 La riga New Chat mostrava «⌘N» invece della sua lettera: incoerente con
+      ogni altra riga e per giunta FALSO — a palette aperta ⌘N la chiude (toggle).
+      L'hint ⌘N resta sul solo trigger. Via anche la prop `showGlobalNewChatKbd`.
+- [x] 6.6 Via l'intestazione della palette («NEW» + chip ESC): 38px di cromatura
+      più alti di una riga, con un 10px accostato a un **16px** in due grigi
+      diversi. Il 16 non era una svista di classe: il pannello è portato su
+      `document.body`, FUORI dal wrapper dove App scrive `fontSize`, quindi ogni
+      testo senza classe di dimensione ricade sul default del browser. Base
+      esplicita sul pannello + gate ADD-08 che misura la classe di bug.
 
 ## 7. Verifica
 
-- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 7 test, il menu come sistema: 7/7 verdi
+- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 8 test, il menu come sistema: 8/8 verdi
       (incluso ADD-07: la geometria del chip MISURATA sul DOM — uno per riga, a
       destra dell'etichetta, ≤14px dal bordo, nessuno sfora il pannello)
 - [x] 7.2 Regressione: browser-add-empty, command-palette, panels, project-tabs,
