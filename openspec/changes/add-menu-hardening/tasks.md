@@ -61,7 +61,9 @@
 
 ## 7. Verifica
 
-- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 6 test, il menu come sistema: 6/6 verdi
+- [x] 7.1 `tests/e2e/add-menu.spec.ts` — 7 test, il menu come sistema: 7/7 verdi
+      (incluso ADD-07: la geometria del chip MISURATA sul DOM — uno per riga, a
+      destra dell'etichetta, ≤14px dal bordo, nessuno sfora il pannello)
 - [x] 7.2 Regressione: browser-add-empty, command-palette, panels, project-tabs,
       grid-split, layout-navigation — 63/63 verdi
 - [x] 7.3 Regressione: topic-management, terminal-tab-reload, sidebar,
