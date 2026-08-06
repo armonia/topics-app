@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
@@ -627,26 +627,35 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
 }
 
 /**
- * L'identita' di questo dispositivo, sopra la barra di stato.
+ * L'identita' della sessione, sopra la barra di stato.
  *
- * Muta sul computer (`as === 'loopback'`): li' l'identita' non e' un'informazione,
- * e' il presupposto. La riga esiste per il telefono, dove sapere COME sei entrato
- * — e poter uscire — e' la differenza fra un accesso e un mistero.
+ * Mostrata SEMPRE, anche sul computer. Il primo taglio la rendeva muta in
+ * loopback col ragionamento «li' l'identita' e' il presupposto, non
+ * un'informazione» — sbagliato in pratica: chi ha appena appaiato un telefono
+ * apre l'app sul Mac per controllare che sia andata, e non trova niente. Una
+ * riga che compare solo altrove non e' minimalismo, e' un buco dove ci si
+ * aspetta una conferma. Sul computer dice «Questo computer», che e' anche il
+ * modo di dire che qui dentro si e' per trasporto e non per sessione.
  */
 function DeviceIdentityRow() {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   useEffect(() => subscribeSession(setSession), []);
 
-  if (session.status !== 'paired' || session.as !== 'device') return null;
+  if (session.status !== 'paired') return null;
+  const locale = session.as === 'loopback';
 
   return (
     <div
       data-testid="device-identity"
       className="flex items-center gap-1.5 border-t border-app-border bg-app-bg text-[11px] text-app-text-secondary min-h-6"
       style={{ paddingInline: ROW_INSET }}
-      title="Dispositivo autorizzato. Puoi revocarlo da qualunque altro dispositivo gia' autorizzato."
+      title={locale
+        ? 'Sei su questo computer: l\'accesso non passa da una sessione.'
+        : 'Dispositivo autorizzato. Puoi revocarlo da Impostazioni → Dispositivi.'}
     >
-      <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
+      {locale
+        ? <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />
+        : <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />}
       <span className="truncate">{session.name}</span>
     </div>
   );

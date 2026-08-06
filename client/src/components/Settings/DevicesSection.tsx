@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Smartphone, Trash2, Check, X as XIcon } from 'lucide-react';
+import { Smartphone, Trash2, Check, X as XIcon, Pencil } from 'lucide-react';
 
 /**
  * I dispositivi autorizzati, e il gesto per toglierne uno.
@@ -42,6 +42,7 @@ export function DevicesSection() {
   const [errore, setErrore] = useState<string | null>(null);
   const [conferma, setConferma] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState<string | null>(null);
+  const [rinomina, setRinomina] = useState<{ id: string; valore: string } | null>(null);
 
   const carica = useCallback(async () => {
     try {
@@ -69,6 +70,25 @@ export function DevicesSection() {
       window.removeEventListener('topics:auth-device-revoked', onChange);
     };
   }, [carica]);
+
+  const salvaNome = async () => {
+    if (!rinomina) return;
+    const nome = rinomina.valore.trim();
+    if (!nome) { setRinomina(null); return; }
+    setInCorso(rinomina.id);
+    try {
+      await fetch(`/api/auth/devices/${encodeURIComponent(rinomina.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ name: nome }),
+      });
+      await carica();
+    } finally {
+      setInCorso(null);
+      setRinomina(null);
+    }
+  };
 
   const revoca = async (id: string) => {
     setInCorso(id);
@@ -113,7 +133,30 @@ export function DevicesSection() {
             <li key={d.id} className="flex items-center gap-2.5 rounded-lg border border-app-border px-3 py-2">
               <Smartphone size={14} className="flex-shrink-0 text-app-text-secondary" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] text-app-text">{d.name}</div>
+                {rinomina?.id === d.id ? (
+                  <input
+                    autoFocus
+                    value={rinomina.valore}
+                    maxLength={60}
+                    onChange={(e) => setRinomina({ id: d.id, valore: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void salvaNome();
+                      if (e.key === 'Escape') setRinomina(null);
+                    }}
+                    onBlur={() => void salvaNome()}
+                    aria-label={`Nuovo nome per ${d.name}`}
+                    className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-[12.5px] text-app-text outline-none focus:border-primary"
+                  />
+                ) : (
+                  <button
+                    onClick={() => setRinomina({ id: d.id, valore: d.name })}
+                    className="group flex max-w-full items-center gap-1 text-left"
+                    title="Rinomina"
+                  >
+                    <span className="truncate text-[12.5px] text-app-text">{d.name}</span>
+                    <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
+                  </button>
+                )}
                 <div className="text-[11px] text-app-text-muted">
                   visto {quando(d.lastSeenAt)}
                   {d.firstIp && ` · da ${d.firstIp.replace(/^::ffff:/, '')}`}
