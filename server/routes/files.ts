@@ -6,7 +6,7 @@ import { watchGitDir } from "../git-watcher";
 import { watchProjectFiles } from "../file-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
-import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "../lib/git-porcelain";
+import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix } from "../lib/git-porcelain";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -448,8 +448,13 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Trimming "  M" → "M" misclassified unstaged files as staged.
         // Il parse sta in `lib/git-porcelain.ts`: `-z`, path grezzi, e il
         // secondo path dei rename in un campo suo (`origPath`).
-        const files = scopeToPrefix(parsePorcelainZ(statusText), relativePrefix);
-        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
+        const parsed = parsePorcelainZ(statusText);
+        const files = scopeToPrefix(parsed, relativePrefix);
+        // La cartella aperta è a sua volta non tracciata dal repo che la
+        // contiene: git la collassa in un record solo e non elenca ciò che c'è
+        // dentro. Va DETTO, non elencato — vedi `statusOfPrefix`.
+        const folderUntracked = statusOfPrefix(parsed, relativePrefix) === "??";
+        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind, folderUntracked };
         // Bound the cache: the key is the caller-supplied ?path= (resolved, no
         // allowlist), so it grows with every distinct git repo ever queried and
         // is only ever invalidated for paths a watcher fires on. Evict the

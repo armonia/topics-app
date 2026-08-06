@@ -1094,6 +1094,13 @@ export interface GitStatus {
   files: { path: string; status: string; origPath?: string }[];
   ahead: number;
   behind: number;
+  /**
+   * La cartella APERTA non è tracciata dal repo che la contiene. Succede
+   * aprendo come progetto una sottocartella di un repo più grande: git non
+   * elenca i file dentro, la collassa in un record solo. Senza questo campo il
+   * pannello direbbe «nessuna modifica», che è falso.
+   */
+  folderUntracked?: boolean;
 }
 
 export interface GitBranch {

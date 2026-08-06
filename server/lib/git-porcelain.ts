@@ -95,7 +95,17 @@ export function scopeToPrefix(entries: PorcelainEntry[], prefix: string): Porcel
   const out: PorcelainEntry[] = [];
   for (const e of entries) {
     if (!e.path.startsWith(prefix)) continue;
-    const next: PorcelainEntry = { path: e.path.slice(prefix.length), status: e.status };
+    // La cartella APERTA, non un file dentro di essa.
+    //
+    // Quando l'intera cartella non è tracciata, git la collassa in un record
+    // solo — `?? match-compass/` — e togliendo il prefisso resta la stringa
+    // VUOTA. Quel record finiva nella lista come una riga senza nome, con la
+    // sola pastiglia `U`: il pannello diceva «1 modifica» e non mostrava
+    // niente. Non è un file: è una cosa da dire, non da elencare (vedi
+    // `statusOfPrefix`).
+    const scoped = e.path.slice(prefix.length);
+    if (!scoped) continue;
+    const next: PorcelainEntry = { path: scoped, status: e.status };
     // Un rename può venire da FUORI dalla sottocartella: in quel caso il path
     // di provenienza non si accorcia, si lascia intero — troncarlo produrrebbe
     // un path che non esiste da nessuna parte.
@@ -103,4 +113,25 @@ export function scopeToPrefix(entries: PorcelainEntry[], prefix: string): Porcel
     out.push(next);
   }
   return out;
+}
+
+/**
+ * Lo stato della cartella APERTA, quando git parla di lei e non di ciò che
+ * contiene.
+ *
+ * Succede aprendo come progetto una sottocartella non tracciata di un repo più
+ * grande: git non elenca gli undicimila file dentro, collassa tutto in
+ * `?? <cartella>/`. Quel record va tolto dalla lista (vedi `scopeToPrefix`) ma
+ * NON buttato: è l'unica cosa vera da dire su quel progetto — «questa cartella
+ * non è tracciata» — e senza, il pannello mostrerebbe «nessuna modifica», che è
+ * una bugia diversa ma sempre una bugia.
+ */
+export function statusOfPrefix(entries: PorcelainEntry[], prefix: string): string | null {
+  if (!prefix) return null;
+  const dir = prefix.replace(/\/+$/, "");
+  for (const e of entries) {
+    const p = e.path.replace(/\/+$/, "");
+    if (p === dir) return e.status;
+  }
+  return null;
 }

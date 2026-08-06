@@ -5,7 +5,7 @@
  * dopo, in due campi — è esattamente ciò che il vecchio parse sbagliava.
  */
 import { test, expect } from "bun:test";
-import { parsePorcelainZ, isConflicted, scopeToPrefix } from "./git-porcelain";
+import { parsePorcelainZ, isConflicted, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 
 // " M città.md" · "R  new.md" + "old.md" · "?? untracked.txt"
 const REAL = " M città.md\0R  new.md\0old.md\0?? untracked.txt\0";
@@ -75,4 +75,33 @@ test("scoping a una sottocartella: taglia il prefisso e non inventa path", () =>
 test("senza prefisso non si tocca niente", () => {
   const e = parsePorcelainZ(REAL);
   expect(scopeToPrefix(e, "")).toEqual(e);
+});
+
+// ── La cartella aperta è essa stessa non tracciata ─────────────────────────
+//
+// Caso reale: `match-compass` aperta come progetto, ma è una sottocartella non
+// tracciata di `.openclaw/workspace`, che è il repo. Git non elenca gli
+// undicimila file dentro: collassa tutto in un record solo.
+const CONTAINER = "?? match-compass/\0 M altro/x.ts\0";
+
+test("la cartella aperta non diventa una riga senza nome", () => {
+  const e = parsePorcelainZ(CONTAINER);
+  const s = scopeToPrefix(e, "match-compass/");
+  // Prima restava dentro con path "" — il pannello diceva «1 modifica» e
+  // mostrava una riga vuota con la sola pastiglia `U`.
+  expect(s).toEqual([]);
+  expect(s.every(x => x.path.length > 0)).toBe(true);
+});
+
+test("ma il fatto che non sia tracciata NON si perde", () => {
+  const e = parsePorcelainZ(CONTAINER);
+  expect(statusOfPrefix(e, "match-compass/")).toBe("??");
+  // Senza prefisso non c'è nessuna cartella contenitore di cui parlare.
+  expect(statusOfPrefix(e, "")).toBeNull();
+});
+
+test("una cartella tracciata non viene scambiata per non tracciata", () => {
+  const e = parsePorcelainZ(" M pkg/a.ts\0");
+  expect(statusOfPrefix(e, "pkg/")).toBeNull();
+  expect(scopeToPrefix(e, "pkg/").map(x => x.path)).toEqual(["a.ts"]);
 });

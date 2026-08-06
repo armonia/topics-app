@@ -29,6 +29,10 @@ interface ProjectSidebarProps {
 
 type SectionId = 'files' | 'git' | 'processes';
 
+/** Sotto questa altezza una sezione aperta non mostra nulla: è solo intestazione. */
+const MIN_USEFUL_H = 96;
+const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
+
 /**
  * Un'icona della rail collassata, con la sua pastiglia.
  *
@@ -114,9 +118,15 @@ export function ProjectSidebar({
 
   // On mobile, start collapsed but allow toggling (renders as overlay)
   const effectiveCollapsed = collapsed;
+  // Le chiavi portano il PROGETTO. Erano globali — `sidebar-sections` e
+  // `project-sidebar-bottom-heights` secche — quindi due progetti affiancati si
+  // scambiavano apertura e altezze, e ciò che avevi stretto su uno arrivava
+  // stretto sull'altro senza averlo mai toccato lì.
+  const SECTIONS_KEY = `sidebar-sections:${projectPath}`;
+  const HEIGHTS_KEY = `project-sidebar-bottom-heights:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
-      const saved = sessionStorage.getItem('sidebar-sections');
+      const saved = sessionStorage.getItem(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
       if (saved) return JSON.parse(saved);
     } catch {}
     return { files: true, git: false, processes: false };
@@ -124,8 +134,8 @@ export function ProjectSidebar({
 
   // Persist expanded sections across page refreshes
   useEffect(() => {
-    try { sessionStorage.setItem('sidebar-sections', JSON.stringify(expandedSections)); } catch {}
-  }, [expandedSections]);
+    try { sessionStorage.setItem(SECTIONS_KEY, JSON.stringify(expandedSections)); } catch {}
+  }, [SECTIONS_KEY, expandedSections]);
 
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
@@ -149,26 +159,34 @@ export function ProjectSidebar({
     : null;
 
   const toggleSection = (section: SectionId) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
+    setExpandedSections(prev => {
+      const opening = !prev[section];
+      // Aprire una sezione deve SEMPRE mostrare qualcosa. Git e Processi hanno
+      // un'altezza in pixel salvata, e il minimo di trascinamento era 32px —
+      // cioè esattamente l'altezza dell'intestazione: una sezione stretta fin
+      // laggiù si «apriva» su zero pixel di contenuto e sembrava rotta (il
+      // chevron ruotava e non compariva niente). Se l'altezza salvata non
+      // lascia spazio, si riapre alla misura di partenza.
+      if (opening && (section === 'git' || section === 'processes')) {
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+      }
+      return { ...prev, [section]: opening };
+    });
   };
 
   // ── Bottom sections (Git, Processes) — anchored at bottom with pixel heights ──
   // Files fills remaining space (flex-1). Git/Processes pinned at bottom.
-  const HEIGHTS_KEY = 'project-sidebar-bottom-heights';
   const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number>>(() => {
     try {
       const saved = sessionStorage.getItem(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { git: 200, processes: 150 };
+    return { ...DEFAULT_HEIGHTS };
   });
 
   useEffect(() => {
     try { sessionStorage.setItem(HEIGHTS_KEY, JSON.stringify(bottomHeights)); } catch {}
-  }, [bottomHeights]);
+  }, [HEIGHTS_KEY, bottomHeights]);
 
   const dragRef = useRef<{
     section: 'git' | 'processes';
@@ -185,7 +203,10 @@ export function ProjectSidebar({
   const dragOverlay = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const MIN_H = 32;
+    // 32px era l'altezza dell'INTESTAZIONE: si poteva trascinare una sezione
+    // fino a farla sparire del tutto e poi non c'era modo di capire perché
+    // «non si apriva». Il minimo lascia sempre una riga di contenuto.
+    const MIN_H = MIN_USEFUL_H;
     const dropChrome = () => {
       if (dragOverlay.current) {
         dragOverlay.current.remove();
@@ -251,6 +272,11 @@ export function ProjectSidebar({
   if (effectiveCollapsed) {
     const open = (section: SectionId) => () => {
       onToggleCollapse();
+      // Stesso cancello del toggle: una sezione stretta a zero deve tornare
+      // utile anche quando la si apre dalla rail, non solo dall'intestazione.
+      if (section === 'git' || section === 'processes') {
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+      }
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
     // Tooltip: è QUI che sta l'informazione lunga. Nella rail ci sono 40px, e
@@ -425,7 +451,15 @@ export function ProjectSidebar({
         <div className="flex flex-col flex-1 min-h-0">
           <div
             onClick={() => toggleSection('files')}
-            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
+            // Il bordo sotto SOLO da chiusa. Il contenitore di «File» resta
+            // `flex-1` anche quando è chiusa — serve a spingere Git e Processi
+            // in fondo — quindi il divisore da 1px finisce in fondo alla
+            // colonna, lontanissimo dall'intestazione: la riga chiusa restava
+            // senza linea, sospesa sopra il vuoto. Da aperta non serve, perché
+            // sotto ci sono i file.
+            className={`w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files ${
+              expandedSections.files ? '' : 'border-b border-app-border'
+            }`}
           >
             <FolderTree size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.files')}</span>
