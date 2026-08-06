@@ -227,6 +227,10 @@ export interface AppContext {
   // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
   // un broadcast con un tipo che nessuno ha modellato non compila.
   broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
+  /** Innesta il filtro che decide se un frame può raggiungere un OSPITE. Vive in
+   *  `server.ts` perché serve il DB delle concessioni; `utils.ts` resta senza
+   *  quella dipendenza. */
+  setGuestBroadcastFilter: (fn: ((deviceId: string, message: OutboundMessage) => boolean) | null) => void;
   /**
    * L'indirizzo del peer di una richiesta. Assegnato in `server.ts` DOPO
    * `Bun.serve`, perche' `requestIP` vive sull'istanza del server e il contesto
