@@ -12,6 +12,7 @@
 
 import type { ToolCall, ToolCallDetail } from '../../types';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
+import { isPlanFile } from '../../../../shared/plan-file';
 
 function canon(name: string): string {
   return (name || '').toLowerCase().trim();
@@ -88,10 +89,16 @@ export function deriveToolDetail(
   }
 
   if (WRITE_NAMES.has(c)) {
+    const filePath = s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? '';
+    const content = s(a.content);
+    // Vedi il gemello lato server: una scrittura in `.claude/plans/` è il
+    // PIANO, non una scrittura — è l'unico canale rimasto al modello da quando
+    // la CLI non espone più `ExitPlanMode` in plan mode.
+    if (content && isPlanFile(filePath)) return { type: 'plan', text: content };
     return {
       type: 'write',
-      filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? '',
-      ...(s(a.content) ? { content: s(a.content)! } : {}),
+      filePath,
+      ...(content ? { content } : {}),
     };
   }
 

@@ -138,3 +138,29 @@ describe('percorsi lunghi: si accorciano in MEZZO, non in coda', () => {
     expect(buildToolDisplayLabel(d).summary).toBe('a'.repeat(80) + '.ts');
   });
 });
+
+describe('il piano scritto su file È un piano, non una scrittura', () => {
+  // Da quando la CLI non espone più ExitPlanMode in plan mode (2.1.223,
+  // verificato sul wire), il modello consegna il piano scrivendolo in
+  // ~/.claude/plans/<slug>.md — e lì dentro spariva, come riga `Write` verso
+  // una cartella che nessuno apre.
+  test('una Write in .claude/plans/ diventa detail plan col testo del piano', () => {
+    const d = deriveToolDetail('Write', {
+      file_path: '/Users/zorahrel/.claude/plans/context-you-are-working-deep-locket.md',
+      content: '# Piano\n\n1. Prima cosa\n2. Seconda cosa',
+    });
+    expect(d.type).toBe('plan');
+    if (d.type === 'plan') expect(d.text).toContain('1. Prima cosa');
+    expect(buildToolDisplayLabel(d).name).toBe('Plan');
+  });
+
+  test('una Write normale resta una Write', () => {
+    const d = deriveToolDetail('Write', { file_path: '/Users/x/Projects/app/README.md', content: '# Ciao' });
+    expect(d.type).toBe('write');
+  });
+
+  test('senza contenuto non si inventa un piano vuoto', () => {
+    const d = deriveToolDetail('Write', { file_path: '/Users/x/.claude/plans/p.md' });
+    expect(d.type).toBe('write');
+  });
+});
