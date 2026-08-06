@@ -223,4 +223,31 @@ test.describe("Sidebar — tessere fissate", () => {
     await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
     expect(errors, "nessun errore di pagina").toEqual([]);
   });
+  test("TILE-6: la tessera porta ancora la chiave che apre il pane nella griglia", async ({ page, request }) => {
+    // È il rischio numero uno di questa change. La tessera scrive DUE tipi sullo
+    // stesso dataTransfer: `PINNED_TILE` per il riordino dentro la griglia dei
+    // fissati, e `PANEL_ID` per la griglia dei pane, che è il drag «apri qui»
+    // che esisteva prima. Se il secondo si perdesse, quel gesto morirebbe senza
+    // che niente lo dica — nessun errore, solo un drag che non fa nulla.
+    const t = await createTopic(request, `E2E-TileToGrid-${Date.now()}`);
+    created.push(t.id);
+    await setPins(page, [t.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page).first()).toBeVisible({ timeout: 15000 });
+
+    // Si legge dal `dataTransfer` vero prodotto dal `dragstart` della tessera,
+    // non dal sorgente: un `setData` rimosso passerebbe qualunque lettura del
+    // codice, non questa.
+    const types = await page.evaluate(() => {
+      const el = document.querySelector("[data-pinned-tile]") as HTMLElement | null;
+      if (!el) return [];
+      const dt = new DataTransfer();
+      el.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      const seen = Array.from(dt.types);
+      el.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      return seen;
+    });
+    expect(types).toContain("application/x-pinned-tile");
+    expect(types).toContain("application/x-panel-id");
+  });
 });
