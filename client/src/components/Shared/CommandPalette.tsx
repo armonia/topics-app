@@ -20,6 +20,7 @@ import { describeTabTarget } from '../../../../shared/tab-link';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
+import { rankPaths } from '../../lib/fuzzyScore';
 import { buildAddMenuItems, AddMenuIcon } from './addMenuItems';
 import type { PaneType } from '../../types';
 
@@ -44,13 +45,6 @@ export interface CommandAction {
   testId?: string;
 }
 
-function fuzzyMatch(query: string, target: string): boolean {
-  let qi = 0;
-  for (let i = 0; i < target.length && qi < query.length; i++) {
-    if (target[i] === query[qi]) qi++;
-  }
-  return qi === query.length;
-}
 
 function getProjectDescription(projectPath: string): string {
   const parts = projectPath.split('/').filter(Boolean);
@@ -400,14 +394,13 @@ export function CommandPalette({
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {
     if (!projectPath || !query.trim() || !onOpenFile) return [];
-    const q = query.toLowerCase();
-    return fileList
-      .filter(f => {
-        const name = basename(f).toLowerCase();
-        const path = f.toLowerCase();
-        return name.includes(q) || path.includes(q) || fuzzyMatch(q, path);
-      })
-      .slice(0, 20)
+    // Ordina PRIMA, taglia DOPO. Era il contrario, e il difetto si misura:
+    // cercando `store.ts` gli 11 file veri esistevano nella lista e NESSUNO
+    // entrava nelle 20 righe mostrate, perché il taglio prendeva i primi venti
+    // che il filesystem aveva incontrato. `rankPaths` premia i caratteri
+    // consecutivi e il nome del file sul path (lib/fuzzyScore) — lo stesso
+    // matcher che usa la ricerca per nome di ⌘P: uno solo, non tre.
+    return rankPaths(fileList, query, 20)
       .map(f => {
         const name = basename(f) || f;
         return {
