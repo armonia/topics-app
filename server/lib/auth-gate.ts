@@ -1,46 +1,62 @@
 /**
- * auth-gate — the ONE decision point that guards `/api`, `/ws`, and the
- * file-serving paths (`/preview`, `/api/media`) on the :3333 server.
+ * auth-gate — la UNICA decisione di autorizzazione su `/api`, `/ws` e le radici
+ * che servono file (`/preview`, `/media`, `/uploads`) del server :3333.
  *
- * Threat model (local-first desktop app that ALSO exposes a mobile/PWA mode by
- * binding the LAN): before this, the whole surface was unauthenticated, so any
- * device on the same network could read/write arbitrary files and drive
- * terminals, and any website the user visited could CSRF the loopback server.
+ * Modello (change `lan-open-same-origin`, 2026-08-06). Ci sono due assi, e il
+ * server ne decide UNO SOLO:
  *
- * Model — deliberately friction-free for the local app, closed to everyone else:
- *   1. Kill-switch: `TOPICS_AUTH_OFF=1` bypasses everything (recovery hatch — if
- *      a bug ever locks the owner out, set it and `kickstart` the server).
- *   2. Transport: LOOPBACK is trusted (the Tauri shell reaches :3333 through its
- *      local :13333 proxy, and desktop web/dev are same-machine) → no token. A
- *      NON-loopback request (a phone, another LAN host) MUST carry the pairing
- *      token (the daemon state-file token, reused). Timing-safe compare.
- *   3. CSRF: a malicious *website* the owner visits issues a same-machine
- *      (loopback) `fetch`, so transport alone can't stop it — but its request
- *      carries a foreign `Origin`. Block any MUTATING request or WS upgrade whose
- *      Origin is present and NOT local (localhost/127.0.0.1/[::1]/*.localhost/
- *      tauri.localhost) and not explicitly allowlisted. The app's own origins are
- *      all local, so this is CSRF defense that (by construction) can't block it.
+ *   TRASPORTO — *chi può raggiungere la porta*. Delegato alla rete. Nessun token,
+ *     nessuna proprietà dell'indirizzo del peer: un telefono sulla LAN è un client
+ *     come gli altri. Prima esisteva un pairing token per i peer non-loopback; è
+ *     stato rimosso perché il link che lo trasportava non lo produceva nessuna UI,
+ *     e sarà sostituito da un'autenticazione centralizzata che autentica la
+ *     CONNESSIONE. Il punto d'innesto lato client è `installNetShim`.
  *
- * Pure + injected inputs so the whole matrix is unit-tested without a server.
+ *   ORIGINE (CSRF) — *quale pagina sta guidando il browser*. Questo resta, e non
+ *     lo sostituisce nessuna autenticazione di rete: un sito ostile aperto in una
+ *     scheda qualunque raggiunge questo server DALLA MACCHINA dell'utente, e con
+ *     quello guiderebbe i terminali, scriverebbe file, lancerebbe script.
+ *
+ * La regola, in ordine:
+ *   1. `authOff`                      → allow  (botola di recupero)
+ *   2. non mutante e non WS           → allow  (le GET le protegge il CORS, sotto)
+ *   3. `Origin` assente               → allow  (non è un browser: CLI, MCP, hook, sendBeacon)
+ *   4. same-site(origin, host)        → allow
+ *   5. origin ∈ allowedOrigins        → allow
+ *   6. altrimenti                     → 403
+ *
+ * Il confronto same-site è sull'HOSTNAME canonicalizzato, non sull'autorità, e
+ * `localhost`/`127.*`/`::1`/`*.localhost` collassano in una classe sola. Serve a
+ * due proxy reali che riscrivono un lato e non l'altro: quello del guscio Tauri
+ * (splice L4: `Origin: tauri://localhost` con `Host: 127.0.0.1:13333`) e quello di
+ * Vite in dev (`changeOrigin: true` riscrive Host e lascia Origin). È anche già la
+ * semantica di prima, che era cieca a porta e schema — cambia solo che il termine
+ * di paragone non è più un elenco di nomi locali ma il nome del server stesso, così
+ * il telefono passa su qualunque indirizzo senza allowlist di IP che marcisce.
+ *
+ * PERCHÉ LE GET NON PASSANO DI QUI, e perché è portante: un `<img>`/`<script>`
+ * cross-origin non manda `Origin`, quindi estendere il check non li fermerebbe; e
+ * una `fetch` cross-origin non può LEGGERE la risposta perché `corsAllowOrigin`
+ * (server.ts) non emette mai `Access-Control-Allow-Origin` per un'origine
+ * forestiera. Quell'assenza è ciò che protegge le letture. Allargare il CORS «per
+ * far funzionare la PWA» aprirebbe in lettura tutta `/api` senza che niente diventi
+ * rosso: per questo `tests/e2e/lan-same-origin.spec.ts` la pinna.
+ *
+ * Puro + input iniettati, così l'intera matrice è testabile senza un server.
  */
-import { timingSafeEqual } from "crypto";
 
 export interface AuthInput {
-  /** Remote peer address (server.requestIP(req)?.address). null ⇒ treat as non-loopback (fail closed). */
-  ip: string | null;
-  /** Origin header, if any. */
+  /** Header `Origin`, se c'è. `null` ⇒ non è un browser (o è una same-origin GET). */
   origin: string | null;
-  /** HTTP method (WS upgrades arrive as GET). */
+  /** Metodo HTTP (gli upgrade WS arrivano come GET). */
   method: string;
-  /** Request path — used to detect a WS upgrade (`/ws/...`). */
+  /** Path della richiesta — serve a riconoscere un upgrade WS (`/ws`, `/ws/…`). */
   pathname: string;
-  /** Token the caller presented (header X-Topics-Token / Bearer, or ?token= for WS). */
-  token: string | null;
-  /** The server's pairing token (state-file token). null/"" ⇒ no remote access possible. */
-  expectedToken: string | null;
-  /** TOPICS_AUTH_OFF kill-switch. */
+  /** Header `Host` della richiesta. `null` ⇒ nessuna origine può essere same-site. */
+  host: string | null;
+  /** Kill-switch `TOPICS_AUTH_OFF`. */
   authOff: boolean;
-  /** Extra explicitly-allowed origins (beyond the local ones), e.g. a paired PWA host. */
+  /** Origini extra ammesse oltre alla same-site, es. l'host di un tunnel. */
   allowedOrigins?: string[];
 }
 
@@ -48,28 +64,30 @@ export type AuthResult = { allow: true } | { allow: false; status: number; reaso
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** Classe d'equivalenza in cui collassano tutti i nomi che indicano questa macchina. */
+const LOCAL_CLASS = "#local";
+
 /**
- * True for a WebSocket-upgrade path. The PRIMARY client socket is the bare `/ws`
- * (no trailing slash — useWebSocket.ts opens `${base}/ws`); the terminal/browser
- * sockets live under `/ws/…`. Both the gate and the CSRF check MUST agree on
- * this or one endpoint slips through: keying only on `/ws/` (with slash) left
- * the bare `/ws` — the socket that streams ui-state + live chat — ungated. One
- * shared predicate so the two can never drift.
+ * True per un path di upgrade WebSocket. Il socket PRIMARIO è il `/ws` nudo (senza
+ * slash finale — `useWebSocket.ts` apre `${base}/ws`); i socket di terminale e
+ * browser stanno sotto `/ws/…`. Il gate e il check d'origine DEVONO concordare su
+ * questo o un endpoint scivola fuori: chiavare solo su `/ws/` (con lo slash) aveva
+ * lasciato scoperto proprio il `/ws` nudo, cioè il socket che porta ui-state e la
+ * chat dal vivo. Un predicato solo, così i due non possono divergere.
  */
 export function isWebSocketPath(pathname: string): boolean {
   return pathname === "/ws" || pathname.startsWith("/ws/");
 }
 
 /**
- * The paths the gate protects: the API, WS upgrades (`/ws` + `/ws/…`), and the
- * file-serving roots — `/preview/…` (absolute-path reads), `/media/…`
- * (~/.topics/media: agent screenshots, browser downloads, task preview media),
- * and `/uploads/…` (user-uploaded attachments/screenshots). Everything else (the
- * SPA bundle, health checks) is public. Kept here next to `evaluateAuth` so
- * "what is gated" and "how the gate decides" can't drift apart, and so both are
- * unit-testable without booting the server.
+ * I path su cui si decide: l'API, gli upgrade WS (`/ws` + `/ws/…`) e le radici che
+ * servono file — `/preview/…` (letture per path assoluto), `/media/…` (screenshot
+ * degli agenti, download del browser, anteprime dei task) e `/uploads/…` (allegati
+ * caricati dall'utente). Tutto il resto (bundle SPA, health check) è pubblico.
+ * Sta qui accanto a `evaluateAuth` così «su cosa si decide» e «come si decide» non
+ * possono divergere, e sono testabili entrambi senza avviare il server.
  */
-export function isAuthGatedPath(pathname: string): boolean {
+export function isOriginGatedPath(pathname: string): boolean {
   return (
     pathname.startsWith("/api/") ||
     isWebSocketPath(pathname) ||
@@ -79,7 +97,11 @@ export function isAuthGatedPath(pathname: string): boolean {
   );
 }
 
-/** Loopback in both v4 and v6 shapes (incl. the v4-mapped-v6 form Bun can hand back). */
+/**
+ * Loopback nelle due famiglie (inclusa la forma v4-mapped-v6 che Bun può
+ * restituire). Non è più parte della decisione su `/api`: il suo unico chiamante è
+ * il ramo `/__daemon/*` in `server.ts`, che è loopback-only per davvero.
+ */
 export function isLoopbackAddress(ip: string | null): boolean {
   if (!ip) return false;
   const a = ip.toLowerCase();
@@ -87,90 +109,105 @@ export function isLoopbackAddress(ip: string | null): boolean {
     a === "::1" ||
     a === "localhost" ||
     /^127\./.test(a) ||
-    // v4-mapped-v6 loopback (::ffff:127.0.0.1 and the rest of ::ffff:127.0.0.0/8)
     /^::ffff:127\./.test(a)
   );
 }
 
-/** True for an Origin whose host is a local one — the app's own origins
- *  (tauri://localhost, http://localhost:13333, http://127.0.0.1:3333, …). */
-export function isLocalOrigin(origin: string): boolean {
-  let host: string;
-  try {
-    host = new URL(origin).hostname.toLowerCase();
-  } catch {
-    return false;
+/**
+ * Riduce un hostname — o un `Host:` completo di porta — alla forma su cui si
+ * confronta: minuscolo, senza porta, senza le parentesi dell'IPv6, e con ogni nome
+ * che indica questa macchina collassato in `#local`.
+ *
+ * Le parentesi vanno tolte a mano: `new URL("https://[::1]:3333").hostname`
+ * restituisce `"[::1]"`, parentesi incluse.
+ */
+export function canonHost(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let h = raw.trim().toLowerCase();
+  if (!h) return null;
+
+  if (h.startsWith("[")) {
+    // IPv6 fra parentesi, con o senza porta: `[::1]` / `[::1]:3333`.
+    const end = h.indexOf("]");
+    if (end === -1) return null;
+    h = h.slice(1, end);
+  } else {
+    // Un solo `:` è una porta; più di uno è un IPv6 nudo, che non va tagliato.
+    const first = h.indexOf(":");
+    if (first !== -1 && h.indexOf(":", first + 1) === -1) h = h.slice(0, first);
   }
-  // URL() strips the brackets from an IPv6 host, so compare the bare `::1`.
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "tauri.localhost" || // the app's real WKWebView origin on Windows/Linux
-    host.endsWith(".localhost")
-  );
+  if (!h) return null;
+
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h === "::1" ||
+    h === "0:0:0:0:0:0:0:1" ||
+    /^127\./.test(h) ||
+    /^::ffff:127\./.test(h)
+  ) {
+    return LOCAL_CLASS;
+  }
+  return h;
 }
 
 /**
- * Extra operator-configured origins the gate treats as allowed on the loopback
- * CSRF path (beyond the always-local app origins) — e.g. a tunnel host. Sourced
- * from `TOPICS_ALLOWED_ORIGINS` (comma-separated) and cached on first read, so
- * the call site can pass it without re-parsing per request. Empty by default, so
- * an unset env reproduces today's effective behaviour exactly.
+ * L'hostname canonicalizzato di un'origine, o `null` se non è un'origine
+ * analizzabile. Il letterale `Origin: null` — che arriva da `about:blank`, da un
+ * iframe sandboxed o da un documento `data:` — finisce qui e NON è same-site:
+ * un'origine opaca non è la nostra.
  */
-let allowedOriginsCache: string[] | null = null;
+export function originHost(origin: string): string | null {
+  try {
+    return canonHost(new URL(origin).hostname);
+  } catch {
+    return null;
+  }
+}
+
+/** True se l'origine e l'host della richiesta sono lo stesso sito. */
+export function isSameSite(origin: string | null, host: string | null): boolean {
+  if (!origin) return false;
+  const o = originHost(origin);
+  if (o === null) return false;
+  const h = canonHost(host);
+  return h !== null && o === h;
+}
+
+/**
+ * Origini extra ammesse oltre alla same-site — per esempio l'hostname di un
+ * tunnel. Da `TOPICS_ALLOWED_ORIGINS` (separate da virgola), letta a OGNI
+ * valutazione: la vecchia cache al primo uso era una trappola, perché cambiare la
+ * variabile a caldo non aveva effetto e il valore restava quello del boot. Vuota di
+ * default.
+ */
 export function resolveAllowedOrigins(): string[] {
-  if (allowedOriginsCache) return allowedOriginsCache;
-  allowedOriginsCache = (process.env.TOPICS_ALLOWED_ORIGINS ?? "")
+  return (process.env.TOPICS_ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return allowedOriginsCache;
-}
-
-function tokenMatches(presented: string | null, expected: string | null): boolean {
-  if (!presented || !expected) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false; // timingSafeEqual throws on length mismatch
-  return timingSafeEqual(a, b);
 }
 
 /**
- * The single allow/deny decision. Order matters:
- *   kill-switch → (remote? valid token ⇒ allow, else 401) → (loopback CSRF).
- *
- * A valid pairing token from a non-loopback peer is sufficient authorization and
- * bypasses the foreign-origin (CSRF) block: a hostile website can neither learn a
- * 256-bit token nor set the `x-topics-token` header cross-origin (that trips a
- * CORS preflight the server does not green-light), so a token-bearing remote peer
- * has already proven it is not a blind cross-site forgery. The origin/CSRF check
- * is therefore only meaningful on the token-less LOOPBACK surface a website the
- * owner visits can still reach. Returns the HTTP status to send on denial so the
- * caller doesn't re-derive it.
+ * La decisione unica. Restituisce lo status da mandare in caso di rifiuto, così il
+ * chiamante non lo ri-deriva.
  */
 export function evaluateAuth(i: AuthInput): AuthResult {
   if (i.authOff) return { allow: true };
 
-  // Transport: remote peers must present the pairing token; loopback is trusted.
-  if (!isLoopbackAddress(i.ip)) {
-    if (!tokenMatches(i.token, i.expectedToken)) {
-      return { allow: false, status: 401, reason: "pairing token required for remote access" };
-    }
-    // Valid token IS the CSRF proof → allow without the foreign-origin block.
-    return { allow: true };
-  }
+  // Solo le richieste che CAMBIANO qualcosa (o aprono un socket) possono essere
+  // forgiate in modo utile: una lettura cross-origin resta illeggibile perché il
+  // CORS non concede mai l'origine forestiera.
+  if (!MUTATING.has(i.method) && !isWebSocketPath(i.pathname)) return { allow: true };
 
-  // Loopback path only: CSRF — block a mutating request / WS upgrade carrying a
-  // foreign Origin (a website the owner visits can fetch the loopback server
-  // WITHOUT a token, so the origin check stays here).
-  const isWsUpgrade = isWebSocketPath(i.pathname);
-  if ((MUTATING.has(i.method) || isWsUpgrade) && i.origin) {
-    const allowed = isLocalOrigin(i.origin) || (i.allowedOrigins?.includes(i.origin) ?? false);
-    if (!allowed) {
-      return { allow: false, status: 403, reason: "cross-site origin blocked" };
-    }
-  }
+  // Nessun `Origin` ⇒ non è un browser (CLI, tool MCP, hook HTTP, sendBeacon di
+  // teardown). Il CSRF è un attacco da browser: chi può omettere l'header è già
+  // dentro la macchina o dentro la rete, e in entrambi i casi non è questo il
+  // confine che lo ferma.
+  if (!i.origin) return { allow: true };
 
-  return { allow: true };
+  if (isSameSite(i.origin, i.host)) return { allow: true };
+  if (i.allowedOrigins?.includes(i.origin)) return { allow: true };
+
+  return { allow: false, status: 403, reason: "cross-site origin blocked" };
 }
