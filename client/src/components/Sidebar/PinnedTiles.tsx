@@ -70,6 +70,7 @@ export function PinnedTiles({
   onContextMenu,
   onPinItem,
   resolveItem,
+  renderActions,
   renderExpanded,
 }: {
   /** I fissati da mostrare, in ordine di pin. Il layout si riconcilia su questi. */
@@ -91,6 +92,11 @@ export function PinnedTiles({
    *  colorato. `null` quando la chiave non ha una riga qui (drag da un'altra
    *  finestra, o una pane senza presenza in sidebar). */
   resolveItem?: (key: string) => SidebarItem | null;
+  /** I comandi della tessera, sopra di lei e visibili al passaggio del mouse —
+   *  il «+» che sulla riga di un progetto apre una tab dentro quel progetto.
+   *  Vive FUORI dal bottone: un bottone dentro un bottone è HTML non valido, e
+   *  il browser lo srotola spostando l'annidamento a caso. `null` ⇒ niente. */
+  renderActions?: (item: SidebarItem) => ReactNode;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -401,12 +407,23 @@ export function PinnedTiles({
                 const item = byId.get(key);
                 if (!item) return null;
                 const meta = metaFor(item);
+                const actions = renderActions?.(item) ?? null;
                 return (
                   <div
                     key={key}
                     style={flex}
-                    className={reordering && dropAt.movingKey === key ? 'opacity-70 transition-opacity' : undefined}
+                    className={`relative group/cell min-w-0 ${
+                      reordering && dropAt.movingKey === key ? 'opacity-70 transition-opacity' : ''
+                    }`}
                   >
+                    {/* I comandi stanno SOPRA la tessera, non dentro: fratelli
+                        del bottone, non figli. In basso a destra, l'unico
+                        angolo libero — il badge tiene quello in alto. */}
+                    {actions && (
+                      <div className="absolute bottom-0.5 right-0.5 z-10 hidden group-hover/cell:flex">
+                        {actions}
+                      </div>
+                    )}
                     <PinnedTile
                       item={item}
                       expanded={expanded.has(key)}
@@ -441,7 +458,17 @@ export function PinnedTiles({
                   // Stesso passo di tutto il resto sopra la fascia; sotto ci
                   // pensa lo spazio della riga seguente (o il filo, se è
                   // l'ultima): due margini che si sommano sono un ritmo rotto.
-                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll mx-1.5 mt-1.5 mb-0 rounded-lg bg-black/[0.03] dark:bg-white/[0.03]"
+                  //
+                  // IL FONDO È QUELLO DEL «CONTENITORE QUIETO», e adesso è UNO.
+                  // La stessa idea — un riquadro che raccoglie roba senza
+                  // chiedere attenzione — era dipinta con tre alpha diverse in
+                  // tema scuro: 0.03 qui, 0.05 sulla card del gruppo attivo
+                  // (SpaceGroups), 0.06 in SELECTED_SURFACE_SOFT. In tema chiaro
+                  // erano già tutte 0.03, quindi la divergenza si vedeva solo al
+                  // buio e solo affiancando le superfici, cioè nella condizione
+                  // normale della sidebar. Vale 0.06 — l'alpha che le altre due
+                  // avevano già — così i tre riquadri sono lo stesso riquadro.
+                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll mx-1.5 mt-1.5 mb-0 rounded-lg bg-black/[0.03] dark:bg-white/[0.06]"
                   onKeyDown={e => {
                     if (e.key !== 'Escape') return;
                     e.stopPropagation();
