@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { filesApi, gitApi } from '../../lib/api';
+import { HunkActions } from '../Git/HunkActions';
 import { basename } from '../../lib/path-utils';
 import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
@@ -30,6 +31,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const [content, setContent] = useState('');
   const [, setOriginalContent] = useState('');
   const [diffOriginal, setDiffOriginal] = useState('');
+  // Sale quando si mette in stage (o si scarta) un blocco: il diff mostrato
+  // non e' piu' quello vero, e va riletto.
+  const [diffTick, setDiffTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -137,7 +141,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       });
     }
     return () => { cancelled = true; };
-  }, [filePath, diff, diffProjectPath, isMedia, isHtml, htmlPreview]);
+  }, [filePath, diff, diffProjectPath, isMedia, isHtml, htmlPreview, diffTick]);
 
   const pinnedRef = useRef(false);
   const handleChange = useCallback((newContent: string) => {
@@ -203,6 +207,19 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
           <span>|</span>
           <span>Modified (Working)</span>
         </div>
+      )}
+
+      {/* I blocchi, con le loro azioni. Stanno anche QUI e non solo nel
+          pannello Git perche' dalla sidebar il diff si apre proprio come questa
+          tab: se ci fossero solo la', lo staging per blocco sarebbe una cosa
+          che esiste e che non si incontra mai. */}
+      {diff && diffProjectPath && (
+        <HunkActions
+          projectPath={diffProjectPath}
+          file={filePath.replace(diffProjectPath + '/', '')}
+          reloadKey={diffTick}
+          onApplied={() => setDiffTick(t => t + 1)}
+        />
       )}
 
       {/* Content area */}

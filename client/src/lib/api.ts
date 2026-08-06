@@ -15,6 +15,7 @@ import type {
   GitBranch,
   GitLogEntry,
   GitCommitDetail,
+  GitHunkSummary,
   ProvidersSnapshot,
   ProviderSnapshotEntry,
   Project,
@@ -579,6 +580,25 @@ export const gitApi = {
   /** I file toccati da un commit, con quante righe ciascuno. */
   async commitFiles(path: string, hash: string): Promise<GitCommitDetail> {
     return request<GitCommitDetail>(`/git/commit-files?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}`);
+  },
+
+  /**
+   * I blocchi di un file. `side` sceglie il diff: `unstaged` è
+   * albero-contro-indice (cosa si può mettere in stage), `staged` è
+   * indice-contro-HEAD (cosa si può togliere).
+   */
+  async hunks(path: string, file: string, side: 'staged' | 'unstaged' = 'unstaged'): Promise<{ hunks: GitHunkSummary[] }> {
+    return request<{ hunks: GitHunkSummary[] }>(
+      `/git/hunks?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&side=${side}`,
+    );
+  },
+
+  /** Stage, unstage o scarto di SINGOLI blocchi. Gli indici vengono da `hunks`. */
+  async applyHunks(path: string, file: string, hunks: number[], action: 'stage' | 'unstage' | 'discard'): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/apply-hunks', {
+      method: 'POST',
+      body: JSON.stringify({ path, file, hunks, action }),
+    });
   },
 
   async lineChanges(path: string, file: string): Promise<{ changes: { from: number; to: number; type: 'added' | 'modified' | 'deleted' }[] }> {

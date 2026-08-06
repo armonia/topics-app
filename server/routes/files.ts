@@ -10,6 +10,7 @@ import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefix
 import { attachNumstats, readNumstats } from "../lib/git-numstat";
 import { moveToTrash } from "../lib/trash";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
+import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -540,6 +541,80 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
         return new Response(diff, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (err: any) { return json({ error: "Git diff error: " + err.message }, 500); }
+    }
+
+    // --- Git: i blocchi di un file, e come agirci sopra uno alla volta ---
+    //
+    // Fino a qui si poteva solo `git add <file>`, tutto o niente: un fix e un
+    // rimaneggiamento fatti nella stessa sessione finivano nello stesso commit
+    // perché stavano nello stesso file.
+    if (method === "GET" && pathname === "/api/git/hunks") {
+      const dirPath = url.searchParams.get("path");
+      const filePath = url.searchParams.get("file");
+      // Quale diff: albero-contro-indice (i blocchi da mettere in stage) o
+      // indice-contro-HEAD (quelli da togliere).
+      const staged = url.searchParams.get("side") === "staged";
+      if (!dirPath || !filePath) return json({ error: "path and file required" }, 400);
+      const resolvedDir = resolveProjectPath(dirPath);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const args = staged
+          ? ["git", "diff", "--cached", "--", filePath]
+          : ["git", "diff", "--", filePath];
+        const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const diff = await new Response(proc.stdout).text();
+        await proc.exited;
+        return json({ hunks: summarizeHunks(parseUnifiedDiff(diff)) });
+      } catch (err: any) { return json({ error: "Git hunks error: " + err.message }, 500); }
+    }
+
+    if (method === "POST" && pathname === "/api/git/apply-hunks") {
+      const body = await readJSON(req);
+      const filePath: string = body?.file;
+      const indici: number[] = Array.isArray(body?.hunks) ? body.hunks : [];
+      const azione: string = body?.action;
+      if (!body?.path || !filePath || indici.length === 0) return json({ error: "path, file e hunks richiesti" }, 400);
+      if (azione !== "stage" && azione !== "unstage" && azione !== "discard") {
+        return json({ error: "action non valida" }, 400);
+      }
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        // Da dove viene il diff, e come si applica la patch:
+        //   stage    albero→indice, in avanti sull'indice
+        //   unstage  indice→HEAD,   al contrario sull'indice
+        //   discard  albero→indice, al contrario sull'ALBERO (tocca il file)
+        const daIndice = azione === "unstage";
+        const diffArgs = daIndice
+          ? ["git", "diff", "--cached", "--", filePath]
+          : ["git", "diff", "--", filePath];
+        const diffProc = Bun.spawn(diffArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        const diff = await new Response(diffProc.stdout).text();
+        await diffProc.exited;
+
+        const patch = buildPatch(parseUnifiedDiff(diff), indici);
+        // Nessun blocco da applicare: quasi sempre vuol dire che il file è
+        // cambiato sotto (un salvataggio, un altro client) e gli indici che il
+        // browser aveva in mano non descrivono più niente. Dirlo, invece di
+        // rispondere ok su un lavoro non fatto.
+        if (!patch) return json({ error: "I blocchi non ci sono più: ricarica il diff" }, 409);
+
+        const applyArgs = azione === "stage" ? ["git", "apply", "--cached", "-"]
+          : azione === "unstage" ? ["git", "apply", "--cached", "-R", "-"]
+          : ["git", "apply", "-R", "-"];
+        const applyProc = Bun.spawn(applyArgs, { cwd: resolvedDir, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+        applyProc.stdin.write(patch);
+        applyProc.stdin.end();
+        const stderr = await new Response(applyProc.stderr).text();
+        await applyProc.exited;
+        if (applyProc.exitCode !== 0) {
+          // `git apply` fallisce interamente o non fallisce: non lascia mezze
+          // patch applicate, quindi qui non c'è niente da disfare.
+          return json({ error: stderr.trim() || "git apply non è riuscito" }, 409);
+        }
+        invalidateGitCache(resolvedDir);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Apply hunks error: " + err.message }, 500); }
     }
 
     // --- Git branches ---

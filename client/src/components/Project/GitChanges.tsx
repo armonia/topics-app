@@ -8,6 +8,7 @@ import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
 import { CommitHistory } from '../Git/CommitHistory';
+import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
@@ -1346,6 +1347,21 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 <span>{tr('git.modifiedWorking')}</span>
               </div>
             </div>
+            {/* I blocchi, quando il file ne ha più d'uno. Non compare per un
+                file di un COMMIT passato: lì non c'è niente da mettere in
+                stage, e i bottoni sarebbero decorazione. */}
+            {(() => {
+              const voce = gitStatus.files.find(f => f.path === selectedFile);
+              if (!voce) return null;
+              return (
+                <HunkActions
+                  projectPath={projectPath}
+                  file={selectedFile}
+                  reloadKey={`${gitStatus.lastCommit.hash}:${voce.status}:${voce.unstaged?.added ?? 0}-${voce.unstaged?.removed ?? 0}`}
+                  onApplied={() => { loadStatus(); handleFileClick(selectedFile); }}
+                />
+              );
+            })()}
             <div className="flex-1 overflow-hidden">
               {loadingDiff ? (
                 <div className="flex items-center justify-center h-full">
