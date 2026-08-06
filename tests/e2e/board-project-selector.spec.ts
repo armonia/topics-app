@@ -324,6 +324,12 @@ test.describe("Selettore progetto della board", () => {
     await search.fill(fresh);
     await expect(create).toBeEnabled();
     await expect(create).toContainText(`Crea "${fresh}"`);
+    // E DICE dove lo crea: la cartella è dedotta dal server, non configurata.
+    const target = (await (await page.request.get(`${BASE}/api/all-boards/projects`)).json()) as {
+      newProjectDir: string | null;
+    };
+    expect(target.newProjectDir).toBeTruthy();
+    await expect(create).toContainText(`in ${target.newProjectDir!.split("/").pop()}`);
     createdViaUi = fresh;
     await create.click();
 
@@ -331,13 +337,16 @@ test.describe("Selettore progetto della board", () => {
     const chip = page.getByTestId("composer-project-chip");
     await expect(chip).toContainText(fresh, { timeout: 10000 });
     const idx = (await (await page.request.get(`${BASE}/api/all-boards/projects`)).json()) as {
-      projects: Array<{ name: string }>;
+      projects: Array<{ name: string; path: string }>;
     };
-    expect(idx.projects.map((p) => p.name)).toContain(fresh);
+    const made = idx.projects.find((p) => p.name === fresh);
+    expect(made).toBeTruthy();
+    // Nato NELLA cartella annunciata, non sepolto nel workspace dell'agente.
+    expect(made!.path).toBe(`${target.newProjectDir}/${fresh}`);
 
-    // La riga «Apri / Crea progetto…» apre un pannello di SISTEMA: su web non
-    // c'è, e una voce che non fa niente è peggio di una voce assente.
+    // UNA riga sola: «nuovo» e «apri/crea» erano la stessa cosa detta due volte.
     await page.getByTestId("composer-project-chip").click();
+    await expect(menu.getByTestId("project-picker-create")).toHaveCount(1);
     await expect(menu.getByTestId("project-picker-folder")).toHaveCount(0);
   });
 });

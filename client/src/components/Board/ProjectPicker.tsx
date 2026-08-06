@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { Check, FolderOpen, Loader2, Plus, Sparkles } from 'lucide-react';
+import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import type { BoardProjectRef } from '../../lib/board';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -11,14 +11,13 @@ import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
  * (case-insensitive) e che È ANCHE la casella di creazione: il nome digitato,
  * se non esiste, scaffolda il progetto sul posto.
  *
- * In fondo, sempre visibili quando la superficie sa creare, le due strade per
- * un progetto NUOVO — le stesse del menu «+», non un dialetto locale:
- *   - «Nuovo progetto…» → per nome, dentro il workspace (a vuoto porta il
- *     cursore nella casella; col nome digitato È il bottone che crea);
- *   - «Apri / Crea progetto…» → il pannello di sistema, per una cartella già
- *     sul disco (solo desktop: su web un pannello non c'è).
- * Erano invisibili finché non indovinavi il gesto di scrivere un nome — cioè,
- * per chi guardava il menu, non esistevano.
+ * In fondo, sempre visibile quando la superficie sa creare, UNA riga per il
+ * progetto nuovo: «Nuovo progetto…» a vuoto (porta il cursore nella casella),
+ * «Crea "x"… in <cartella>» appena digiti un nome. Era invisibile finché non
+ * indovinavi il gesto di scrivere un nome — cioè, per chi guardava il menu,
+ * non esisteva. UNA, non due: «nuovo» e «apri/crea» sono la stessa cosa detta
+ * in due modi, e due voci indistinguibili sono una promessa che il prodotto
+ * non mantiene (è la stessa regola del menu «+», addMenuItems.tsx).
  *
  * Due modalità di selezione, stesso corpo:
  *   - SINGOLA (`selectedId`) — scegliere il progetto di un task;
@@ -30,7 +29,7 @@ import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
  */
 export function ProjectPickerBody({
   projects, selectedId, selectedIds, isDisabled, onPick, onCreate, busy,
-  listLabel, headerNote, onPickAuto, autoSelected, counts, emptyLabel, onPickFolder,
+  listLabel, headerNote, onPickAuto, autoSelected, counts, emptyLabel, newProjectDir,
 }: {
   projects: BoardProjectRef[] | null;
   /** Selezione singola: l'id scelto. Ignorato se `selectedIds` è presente. */
@@ -52,9 +51,9 @@ export function ProjectPickerBody({
   counts?: Record<string, number>;
   /** Testo quando la lista è vuota e non si sta cercando. */
   emptyLabel?: string;
-  /** Apre il pannello di sistema per scegliere una cartella già sul disco — la
-   *  stessa voce del menu «+». Assente su web, dove un pannello non c'è. */
-  onPickFolder?: () => void;
+  /** La cartella in cui nascerà un progetto creato per nome, mostrata sulla
+   *  riga: è dedotta dal server, e va detta prima di creare. */
+  newProjectDir?: string | null;
 }) {
   const [query, setQuery] = useState('');
   const multi = selectedIds !== undefined;
@@ -143,36 +142,31 @@ export function ProjectPickerBody({
           );
         })}
       </div>
-      {(onCreate || onPickFolder) && <div className={POPOVER_DIVIDER} />}
       {onCreate && (
-        <button
-          role="option" aria-selected={false} disabled={busy || createState === 'exists'}
-          onClick={runCreate}
-          data-testid="project-picker-create"
-          title={createState === 'exists'
-            ? `"${typed}" esiste già: è nella lista qui sopra`
-            : createState === 'ready'
-              ? `Crea il progetto "${typed}" nel workspace`
-              : 'Scrivi il nome nella casella qui sopra: quella è anche la casella di creazione'}
-          className={`${POPOVER_ITEM} disabled:opacity-40`}
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}
-          <span className="min-w-0 flex-1 truncate">
-            {createState === 'ready' ? <>Crea &quot;{typed}&quot;…</> : 'Nuovo progetto…'}
-          </span>
-        </button>
-      )}
-      {onPickFolder && (
-        <button
-          role="option" aria-selected={false} disabled={busy}
-          onClick={onPickFolder}
-          data-testid="project-picker-folder"
-          title="Scegli una cartella già sul disco — la stessa finestra del menu «+» (il suo bottone «Nuova cartella» ne crea una)"
-          className={`${POPOVER_ITEM} disabled:opacity-40`}
-        >
-          <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Apri / Crea progetto…</span>
-        </button>
+        <>
+          <div className={POPOVER_DIVIDER} />
+          <button
+            role="option" aria-selected={false} disabled={busy || createState === 'exists'}
+            onClick={runCreate}
+            data-testid="project-picker-create"
+            title={createState === 'exists'
+              ? `"${typed}" esiste già: è nella lista qui sopra`
+              : createState === 'ready'
+                ? `Crea il progetto "${typed}"${newProjectDir ? ` in ${newProjectDir}` : ''}`
+                : `Scrivi il nome nella casella qui sopra: quella è anche la casella di creazione${newProjectDir ? `, e il progetto nasce in ${newProjectDir}` : ''}`}
+            className={`${POPOVER_ITEM} disabled:opacity-40`}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}
+            <span className="min-w-0 flex-1 truncate">
+              {createState === 'ready' ? <>Crea &quot;{typed}&quot;…</> : 'Nuovo progetto…'}
+            </span>
+            {/* DOVE nascerà: la cartella è dedotta dal server, e una deduzione
+                che crea cartelle sul disco si dichiara PRIMA, non si scopre dopo. */}
+            {newProjectDir && (
+              <span className="shrink-0 text-[10px] text-app-text-muted">in {newProjectDir.split('/').pop()}</span>
+            )}
+          </button>
+        </>
       )}
     </>
   );

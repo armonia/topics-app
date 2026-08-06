@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
 
@@ -154,5 +154,96 @@ describe("isSelectableProjectDir (display filter)", () => {
   it("tolerates a trailing slash", () => {
     expect(ok("/Users/x/Projects/[cliente]/")).toBe(true);
     expect(ok("/Users/x/.openclaw/workspace/generale/")).toBe(false);
+  });
+});
+
+describe("newProjectParentDir", () => {
+  // `exists` iniettato: questi percorsi non stanno su nessun disco, e senza
+  // stub il controllo di esistenza li scarterebbe tutti (che è il suo mestiere,
+  // ed è provato dal caso «cartella immaginaria» più sotto).
+  const deps = { workspaceDir: "/Users/x/.openclaw/workspace", homeDir: "/Users/x", exists: () => true };
+
+  it("picks the folder where the projects ALREADY live, not the workspace", () => {
+    expect(newProjectParentDir(
+      ["/Users/x/Projects/alpha", "/Users/x/Projects/beta", "/Users/x/lab/one"],
+      deps,
+    )).toBe("/Users/x/Projects");
+  });
+
+  it("ignores what lives INSIDE the workspace — il plumbing non vota per sé", () => {
+    expect(newProjectParentDir(
+      [
+        "/Users/x/.openclaw/workspace/a",
+        "/Users/x/.openclaw/workspace/b",
+        "/Users/x/.openclaw/workspace/c",
+        "/Users/x/Projects/alpha",
+        "/Users/x/Projects/beta",
+      ],
+      deps,
+    )).toBe("/Users/x/Projects");
+  });
+
+  it("un solo progetto non fa una consuetudine → workspace", () => {
+    expect(newProjectParentDir(["/Users/x/Projects/alpha"], deps)).toBe(deps.workspaceDir);
+    expect(newProjectParentDir([], deps)).toBe(deps.workspaceDir);
+  });
+
+  it("non punta mai alla home nuda né alla radice", () => {
+    expect(newProjectParentDir(["/Users/x/alpha", "/Users/x/beta"], deps)).toBe(deps.workspaceDir);
+    expect(newProjectParentDir(["/alpha", "/beta"], deps)).toBe(deps.workspaceDir);
+  });
+
+  it("a parità di conteggio è deterministico (più corto, poi alfabetico)", () => {
+    const got = newProjectParentDir(
+      ["/Users/x/zzz/a", "/Users/x/zzz/b", "/Users/x/ab/a", "/Users/x/ab/b"],
+      deps,
+    );
+    expect(got).toBe("/Users/x/ab");
+    expect(newProjectParentDir(
+      ["/Users/x/bb/a", "/Users/x/bb/b", "/Users/x/aa/a", "/Users/x/aa/b"],
+      deps,
+    )).toBe("/Users/x/aa");
+  });
+
+  it("tollera la barra finale e scarta input non assoluti", () => {
+    expect(newProjectParentDir(
+      ["/Users/x/Projects/alpha/", "/Users/x/Projects/beta/", "relative/nope", ""],
+      deps,
+    )).toBe("/Users/x/Projects");
+  });
+
+  it("lo STESSO dir ripetuto non vota due volte", () => {
+    // `listProjectDirs` restituisce duplicati (con e senza barra, da sorgenti
+    // diverse): un progetto solo fingeva una maggioranza che non esiste.
+    expect(newProjectParentDir(
+      ["/Users/x/Projects/alpha", "/Users/x/Projects/alpha/", "/Users/x/Projects/alpha"],
+      deps,
+    )).toBe(deps.workspaceDir);
+  });
+
+  it("i worktree in una dot-dir non vincono la conta", () => {
+    // `~/.topics/worktrees/<repo>` ne ospita decine: senza questa regola, su una
+    // macchina con pochi progetti veri i progetti nuovi nascerebbero lì dentro.
+    expect(newProjectParentDir(
+      [
+        "/Users/x/.topics/worktrees/topics-app/a",
+        "/Users/x/.topics/worktrees/topics-app/b",
+        "/Users/x/.topics/worktrees/topics-app/c",
+        "/Users/x/Projects/alpha",
+        "/Users/x/Projects/beta",
+      ],
+      deps,
+    )).toBe("/Users/x/Projects");
+  });
+
+  it("una cartella IMMAGINARIA non è un bersaglio: si ricade sul workspace", () => {
+    const real = new Set(["/Users/x/lab"]);
+    const withDisk = { ...deps, exists: (p: string) => real.has(p) };
+    // /x/ghost vincerebbe per conteggio, ma non esiste → vince /Users/x/lab.
+    expect(newProjectParentDir(
+      ["/x/ghost/a", "/x/ghost/b", "/x/ghost/c", "/Users/x/lab/a", "/Users/x/lab/b"],
+      withDisk,
+    )).toBe("/Users/x/lab");
+    expect(newProjectParentDir(["/x/ghost/a", "/x/ghost/b"], withDisk)).toBe(deps.workspaceDir);
   });
 });

@@ -142,3 +142,68 @@ export function buildProjectCandidates(deps: {
   }
   return out;
 }
+
+/**
+ * DOVE nasce un progetto nuovo creato per nome — la cartella in cui l'utente
+ * tiene i suoi progetti, non `~/.openclaw/workspace`.
+ *
+ * Il workspace è plumbing dell'agente (il catch-all `generale`, le cwd dei
+ * task). Scaffoldare lì un progetto che l'utente ha appena battuto a mano lo
+ * seppellisce in una dot-dir: esiste, dispaccia, e non lo ritrova più. La
+ * cartella giusta non è configurata da nessuna parte, ma è DEDUCIBILE: è il
+ * genitore che i progetti già noti hanno in comune.
+ *
+ * Regole, tutte per non indovinare a caso:
+ *  - si contano i genitori dei dir già noti, saltando ciò che sta DENTRO il
+ *    workspace (altrimenti il plumbing voterebbe per sé stesso);
+ *  - i percorsi si DEDUPLICANO prima di contare: `listProjectDirs` restituisce
+ *    lo stesso dir più volte (con e senza barra finale, da sorgenti diverse) e
+ *    un progetto solo, contato due volte, fingeva una maggioranza che non c'è;
+ *  - serve una maggioranza vera: almeno DUE progetti sotto lo stesso genitore.
+ *    Con un progetto solo non c'è un «di solito», e si ricade sul workspace;
+ *  - la home nuda e `/` non sono mai un bersaglio: troppo larghi per starci a
+ *    creare cartelle;
+ *  - nessuna cartella NASCOSTA: `~/.topics/worktrees/<repo>` ospita decine di
+ *    worktree, che sono nell'elenco dei dir noti come tutti gli altri, e su una
+ *    macchina con pochi progetti veri vincerebbero la conta. Un progetto che
+ *    crei a mano non nasce in una dot-dir — e la regola copre da sola anche
+ *    `~/.openclaw/workspace`;
+ *  - la cartella scelta deve ESISTERE. Dedotta da righe stantie (topic di un
+ *    disco che non c'è più) puntava a un percorso immaginario, e la creazione
+ *    moriva con un 500 invece di ricadere sul workspace;
+ *  - a parità di conteggio vince il percorso più corto, poi l'ordine
+ *    alfabetico — deve essere deterministico, non «quello che è arrivato prima».
+ *
+ * Resta una DEDUZIONE, quindi chi la usa deve MOSTRARE la cartella scelta
+ * prima di creare: il client la stampa sulla riga «Crea "x"… in <cartella>».
+ */
+export function newProjectParentDir(
+  dirs: readonly string[],
+  deps: { workspaceDir: string; homeDir: string; exists?: (p: string) => boolean },
+): string {
+  const ws = deps.workspaceDir.replace(/\/+$/, "");
+  const home = deps.homeDir.replace(/\/+$/, "");
+  const exists = deps.exists ?? existsSync;
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const raw of dirs) {
+    if (typeof raw !== "string" || !raw.startsWith("/")) continue;
+    const p = raw.replace(/\/+$/, "");
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    if (p === ws || p.startsWith(ws + "/")) continue;
+    const parent = p.slice(0, p.lastIndexOf("/")) || "/";
+    if (parent === "/" || parent === home) continue;
+    if (parent.includes("/.")) continue; // dot-dir: worktree, cache, config
+
+    counts.set(parent, (counts.get(parent) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 1; // «almeno due»: uno solo non fa una consuetudine
+  for (const [parent, n] of counts) {
+    if (n < bestCount || !exists(parent)) continue;
+    if (n > bestCount) { best = parent; bestCount = n; continue; }
+    if (best !== null && (parent.length < best.length || (parent.length === best.length && parent < best))) best = parent;
+  }
+  return best ?? ws;
+}
