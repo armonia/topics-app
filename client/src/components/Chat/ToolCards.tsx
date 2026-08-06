@@ -19,6 +19,7 @@ import type { ReactNode } from 'react';
 import type { ToolCallDetail } from '../../types';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
+import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -359,10 +360,17 @@ export function McpCard({ args, result }: {
  * pathological tool output never lays out megabytes of text inline. Shared by
  * every result-bearing card; preserves the `tool-call-result` test hook.
  */
-function ClampedPre({ text, testId = 'tool-call-result', maxH = 'max-h-72' }: {
+function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' }: {
   text: string; testId?: string; maxH?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // I messaggi VECCHI portano il risultato ancora nella forma grezza del filo —
+  // l'array di blocchi serializzato — perché l'adapter non sapeva leggerlo
+  // (server/providers/claude-code.ts, ora corretto). Erano 4.735 risultati su
+  // 32.492: quasi tutti i tool MCP e ToolSearch, che mostravano `[{"type":
+  // "text","text":"…"}]` al posto del testo. Qui si rileggono per come sono,
+  // senza riscrivere il DB per un difetto di sola resa.
+  const text = useMemo(() => unwrapStoredToolResult(raw), [raw]);
   const { shown, oversized, length } = clampBody(text);
   return (
     <div className="space-y-1">
@@ -450,27 +458,36 @@ export function NotebookEditCard({ notebookPath, cellId, editMode, cellType }: {
 
 // ── Skill ───────────────────────────────────────────────────────────────────
 
-export function SkillCard({ skill, args, result }: { skill: string; args?: string; result?: string }) {
+/**
+ * Il corpo di una `Skill`: le ISTRUZIONI che la skill ha caricato.
+ *
+ * Non c'è più la riga con `/nome`: quel nome sta già nell'intestazione della
+ * riga, e riscriverlo qui sotto era la stessa cosa detta due volte (McpCard
+ * l'aveva già tolto per la stessa ragione). E non c'è più «Launching skill: X»,
+ * che era l'unica cosa che la CLI restituisce e non dice niente che
+ * l'intestazione non dica già: al suo posto ora arriva il corpo vero, che il
+ * provider stacca dall'evento iniettato invece di lasciarlo colare nella
+ * risposta. I messaggi vecchi, che quel corpo non ce l'hanno, restano con la
+ * card vuota — e vuota resta, senza il segnaposto.
+ */
+export function SkillCard({ result }: { result?: string }) {
+  const isPlaceholder = !result || /^Launching skill:/.test(result.trim());
+  if (isPlaceholder) return null;
   return (
     <div className="space-y-1">
-      <div className="text-[12px] font-mono">
-        <span className="text-purple-500">/{skill}</span>
-        {args && <span className="text-app-text-secondary"> {args}</span>}
-      </div>
-      {result && <ResultPre text={result} />}
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Istruzioni caricate</div>
+      <ClampedPre text={result} />
     </div>
   );
 }
 
 // ── SlashCommand ─────────────────────────────────────────────────────────────
 
-export function SlashCommandCard({ command, result }: { command: string; result?: string }) {
-  return (
-    <div className="space-y-1">
-      <div className="text-[12px] font-mono text-app-text">{command.startsWith('/') ? command : `/${command}`}</div>
-      {result && <ResultPre text={result} />}
-    </div>
-  );
+/** Come la SkillCard: il comando è già nell'intestazione della riga, qui sotto
+ *  ci va solo quello che ha prodotto. */
+export function SlashCommandCard({ result }: { command?: string; result?: string }) {
+  if (!result) return null;
+  return <ClampedPre text={result} />;
 }
 
 // ── LSP (code intelligence) ─────────────────────────────────────────────────
@@ -534,9 +551,9 @@ export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallD
     case 'notebook_edit':
       return <NotebookEditCard notebookPath={detail.notebookPath} cellId={detail.cellId} editMode={detail.editMode} cellType={detail.cellType} />;
     case 'skill':
-      return <SkillCard skill={detail.skill} args={detail.args} result={detail.result} />;
+      return <SkillCard result={detail.result} />;
     case 'slash_command':
-      return <SlashCommandCard command={detail.command} result={detail.result} />;
+      return <SlashCommandCard result={detail.result} />;
     case 'lsp':
       return <LspCard operation={detail.operation} filePath={detail.filePath} symbol={detail.symbol} result={detail.result} />;
     case 'unknown':
