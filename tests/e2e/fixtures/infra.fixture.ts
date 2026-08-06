@@ -105,8 +105,11 @@ export class InfraPage {
     // Remote Access is a "Settings & Tools" menu entry that expands an anchored
     // popover (RemoteAccessPanel) — not openclaw-gated.
     await openTopicsMenuItem(this.page, "Remote Access");
+    // I bottoni sono in italiano da `770083ed` («Funnel» → esposizione sul
+    // tailnet): la vecchia alternanza inglese non compariva più e l'attesa
+    // scadeva sempre, in tre test, su un pannello che si apriva benissimo.
     await this.page
-      .locator("text=/No active tunnel|Disable Tunnel|Enable Tailscale/")
+      .locator("text=/Esponi sul tailnet|Disattiva l'esposizione/")
       .first()
       .waitFor({ state: "visible", timeout: 10_000 });
   }

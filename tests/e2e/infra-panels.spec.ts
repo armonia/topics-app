@@ -130,8 +130,9 @@ test.describe("Remote Access Panel", () => {
     // Tunnel URL visible in font-mono span
     await expect(page.locator("span.font-mono").filter({ hasText: "https://test.ts.net" })).toBeVisible();
 
-    // "Disable Tunnel" button visible
-    await expect(page.getByText("Disable Tunnel")).toBeVisible();
+    // Il bottone che spegne. Testo italiano da `770083ed` — «Funnel» era il
+    // nome sbagliato: il pannello espone sul TAILNET, non su Internet.
+    await expect(page.getByText("Disattiva l'esposizione")).toBeVisible();
 
     // Copy URL button
     await expect(page.locator('button[title="Copy URL"]')).toBeVisible();
@@ -149,11 +150,9 @@ test.describe("Remote Access Panel", () => {
     await page.goto("/");
     await infraPage.openRemoteAccessPanel();
 
-    // "No active tunnel" text
-    await expect(page.getByText("No active tunnel")).toBeVisible();
-
-    // "Enable Tailscale Funnel" button
-    await expect(page.getByText("Enable Tailscale Funnel")).toBeVisible();
+    // Lo stato a riposo, e il bottone che accende.
+    await expect(page.getByText("Non esposto")).toBeVisible();
+    await expect(page.getByText("Esponi sul tailnet")).toBeVisible();
   });
 
   test("REMOTE-03: Toggle tunnel from inactive to active", async ({
@@ -182,8 +181,7 @@ test.describe("Remote Access Panel", () => {
     await page.goto("/");
     await infraPage.openRemoteAccessPanel();
 
-    // Click "Enable Tailscale Funnel"
-    await page.getByText("Enable Tailscale Funnel").click();
+    await page.getByText("Esponi sul tailnet").click();
 
     // Verify POST was sent with action:'start'
     expect(tunnelAction).toBe("start");
