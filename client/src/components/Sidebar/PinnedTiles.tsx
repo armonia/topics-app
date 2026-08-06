@@ -4,7 +4,7 @@ import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
-import { PinnedTile, PINNED_TILE_H } from './PinnedTile';
+import { PinnedTile, PINNED_TILE_H, PINNED_TILE_ACTION_INSET } from './PinnedTile';
 import {
   insertPinnedRow,
   movePinnedTile,
@@ -450,9 +450,18 @@ export function PinnedTiles({
                     {/* I comandi stanno SOPRA la tessera, non dentro: fratelli
                         del bottone, non figli. Al centro del lato destro — un
                         angolo in basso sembrava appoggiato lì, e il badge tiene
-                        già quello in alto. */}
+                        già quello in alto. Sopra, a destra e sotto stanno alla
+                        stessa distanza: la tessera è alta quanto il «+» più due
+                        volte il suo rientro. */}
                     {actions && (
-                      <div className="absolute right-0.5 top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex">
+                      <div
+                        className="absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex"
+                        // Il rientro da destra è lo STESSO numero che lo separa
+                        // dal bordo alto e da quello basso — lì ci pensa
+                        // `PINNED_TILE_H`, che è l'altezza del trigger più due
+                        // volte questo. Tre distanze uguali, un numero solo.
+                        style={{ right: PINNED_TILE_ACTION_INSET }}
+                      >
                         {actions}
                       </div>
                     )}

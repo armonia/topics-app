@@ -1,13 +1,16 @@
 /**
  * Shared custom drag-image helper for the tiling surfaces.
  *
- * Both PanelGrid (dragging a topic tile) and GroupLayout (dragging a layout row
- * to reorder) render the SAME transient "pill" as the drag image instead of the
- * browser's default file/ghost: a primary-accent rounded chip drawn OFF-screen,
- * wired via `setDragImage` (centered under the cursor), then removed on the next
- * frame once the browser has snapshotted it. Each host also tracks live ghosts
- * in a `Set` so a component unmounting mid-drag can drain any still-attached
- * node — pass that set as `registry`.
+ * L'immagine trascinata è la COSA STESSA: il browser fotografa l'elemento
+ * sorgente, che è già sullo schermo con la sua icona e i suoi segnali. Una
+ * pillola ricostruita a mano — quella di prima, blu con il solo nome in bianco
+ * — è una didascalia al posto della cosa, e per tutta la durata del gesto è
+ * l'unica anteprima che si vede.
+ *
+ * Resta un ripiego per quando la sorgente non è fotografabile (fuori dal
+ * viewport: WKWebView restituisce un'immagine VUOTA e macOS ripiega sull'icona
+ * generica di documento). I nodi vivi del ripiego sono tracciati in un `Set`
+ * così l'ospite che si smonta a metà drag può drenarli — è il `registry`.
  *
  * NOTE: PaneTabBar deliberately does NOT use this. Its tab chip must render
  * ON-screen at the cursor (WKWebView/Tauri returns an EMPTY image for anything
@@ -34,13 +37,40 @@ export function spawnDragGhost(
   registry: Set<HTMLElement>,
 ): void {
   if (!e.dataTransfer) return;
+
+  // PRIMA STRADA: la cosa stessa.
+  //
+  // L'elemento sorgente è già dipinto sullo schermo con la sua icona, il suo
+  // badge e il suo stato — cioè con tutto ciò che serve a riconoscerlo. Il
+  // browser sa fotografarlo, e il risultato è la riga vera che segue il
+  // cursore invece di una didascalia su fondo blu. L'ancoraggio è il punto in
+  // cui l'hai presa, così non salta sotto il dito.
+  //
+  // Vincolo di WKWebView: l'elemento dev'essere DENTRO il viewport, o la
+  // fotografia esce vuota e macOS ripiega sull'icona generica di documento.
+  // Qui lo è per costruzione (ci hai appena premuto sopra), ma la guardia
+  // resta esplicita perché è la ragione per cui il ripiego qui sotto esiste.
+  const el = e.currentTarget as HTMLElement | null;
+  const r = el?.getBoundingClientRect();
+  const dentro = !!r && r.width > 0 && r.height > 0 &&
+    r.bottom > 0 && r.right > 0 &&
+    r.top < window.innerHeight && r.left < window.innerWidth;
+  if (el && r && dentro) {
+    e.dataTransfer.setDragImage(el, e.clientX - r.left, e.clientY - r.top);
+    return;
+  }
+
+  // RIPIEGO: la pillola. Serve quando la sorgente non è fotografabile (fuori
+  // dal viewport, o un elemento senza box). Meglio una didascalia che l'icona
+  // di documento generica di macOS.
   const md = size === 'md';
   const ghost = document.createElement('div');
   ghost.style.cssText = `
     position:fixed;left:-9999px;top:-9999px;
     ${md ? 'display:flex;align-items:center;gap:6px;' : ''}
     padding:${md ? '6px 14px' : '4px 12px'};border-radius:${md ? 8 : 6}px;
-    background:color-mix(in srgb, var(--primary) ${md ? 90 : 80}%, transparent);color:#fff;
+    background:var(--bg-elevated);color:var(--text);
+    border:1px solid var(--border);
     font:500 ${md ? 13 : 12}px/1 Inter,system-ui,sans-serif;
     box-shadow:0 ${md ? '4px 12px' : '2px 8px'} rgba(0,0,0,0.15);
     white-space:nowrap;pointer-events:none;

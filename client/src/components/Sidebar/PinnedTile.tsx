@@ -46,7 +46,15 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
  * tessera che sta annunciando è proprio il difetto che l'anteprima esiste per
  * non avere.
  */
-export const PINNED_TILE_H = 'h-12';
+export const PINNED_TILE_H = 'h-8';
+
+/** Il rientro del «+» dal bordo destro, e — perché il bottone è centrato in
+ *  verticale — anche lo spazio sopra e sotto di lui. I tre coincidono solo a
+ *  una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
+ *  trigger «pill» di `PaneAddMenu` è 24px (`w-6 h-6`), quindi 24 + 8 = 32 =
+ *  `h-8`. Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio:
+ *  stanno scritti vicini per questo. */
+export const PINNED_TILE_ACTION_INSET = 4;
 
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque. */
@@ -279,7 +287,7 @@ export function PinnedTile({
       onClick={() => { if (press.consumeClick()) return; onToggle(); }}
       onContextMenu={onContextMenu}
       className={[
-        'group/tile relative flex flex-col items-center justify-center gap-1',
+        'group/tile relative flex flex-col items-center justify-center gap-0.5',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera

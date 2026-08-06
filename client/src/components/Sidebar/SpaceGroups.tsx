@@ -44,6 +44,8 @@ import { useSpaceWindows } from '../../state/windowPresence';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow, claimSpaceLocally } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { ROW_INSET, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
@@ -269,6 +271,14 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   const isDefault = card.id === DEFAULT_SPACE_ID;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const [dropping, setDropping] = useState(false);
+  // «Il GRUPPO è l'unità» era un modello inutilizzabile dal telefono: rinominare,
+  // staccare in una finestra, richiamare indietro, sciogliere — tutto e solo
+  // dietro al tasto destro, e in questo file non c'era un solo `isTouch`.
+  // Tenendo premuta l'intestazione si apre ORA lo stesso menu del mouse (evento
+  // `contextmenu` sintetizzato sull'elemento che quel menu già ascolta), non un
+  // secondo menu con metà voci.
+  const { isTouch } = useMobile();
+  const press = useLongPress(openContextMenuAt, { enabled: isTouch });
 
   // ── Trascinare una tab dentro un gruppo ──────────────────────────────────
   // Le sorgenti sono due e le porta già il resto dell'app: una riga della
@@ -318,13 +328,20 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
       // finestra sua. Il simbolo da solo era troppo poco — a colpo d'occhio la
       // card sembrava una card come le altre, e cliccarla sembrava un cambio di
       // gruppo invece che un salto a un'altra finestra.
+      // Il fondo della card attiva è quello del «contenitore quieto», e adesso
+      // è UNO solo: la stessa idea era dipinta con tre alpha diverse in tema
+      // scuro — 0.03 nella fascia di una tessera fissata (PinnedTiles), 0.05
+      // qui, 0.06 in SELECTED_SURFACE_SOFT — mentre in tema chiaro erano già
+      // tutte 0.03. Una divergenza che si vede solo al buio e solo mettendo le
+      // superfici affiancate, cioè come la sidebar si guarda sempre. Vale 0.06,
+      // l'alpha che le altre due avevano già.
       className={`mx-1.5 mb-1 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
         dropping
           ? 'border-primary bg-primary/10'
           : card.detachedLabel
             ? 'border-dashed border-app-border/70'
             : card.active
-              ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.05]'
+              ? 'border-app-border bg-black/[0.03] dark:bg-white/[0.06]'
               : 'border-app-border/50'
       }`}
     >
@@ -334,7 +351,24 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         data-space-id={card.id}
         data-testid={card.active ? 'space-row-active' : 'space-row'}
         onContextMenu={(e) => { e.preventDefault(); setRenameDraft(null); setMenu({ x: e.clientX, y: e.clientY }); }}
-        className={`flex items-center gap-1 py-1 text-[12px] ${
+        {...press.handlers}
+        data-pressing={press.pressed || undefined}
+        // Il clic-eco del long-press si mangia in CATTURA: l'`onClick` non sta
+        // qui ma sui due bottoni dentro (freccia e nome), e fermare l'evento
+        // prima che scenda è l'unico modo di coprirli entrambi senza ripetere
+        // `consumeClick()` in ognuno. Senza, il menu si aprirebbe e un istante
+        // dopo il gruppo cambierebbe sotto di esso.
+        onClickCapture={(e) => { if (press.consumeClick()) { e.stopPropagation(); e.preventDefault(); } }}
+        // ERA LA RIGA PIÙ BASSA DELLA SIDEBAR: nessuna altezza dichiarata, ~28px
+        // di solo `py-1`, e nessuna variante mobile — cioè l'intestazione che
+        // governa un intero gruppo era il bersaglio più piccolo dello schermo,
+        // 16px sotto il minimo di iOS. Ora è l'altezza di riga di tutte le
+        // altre: 44 su mobile (il minimo iOS), 34 su desktop (la misura che
+        // regge la subline). È lo stesso numero di `ROW_H` in TopicTree, scritto
+        // qui perché importarlo da lì chiuderebbe un ciclo — TopicTree importa
+        // già questo file. Il posto suo è `lib/selectionStyles`, accanto a
+        // ROW_PX e ROW_INSET.
+        className={`flex select-none items-center gap-1 h-11 md:h-[34px] text-[12px] ${
           card.active ? 'font-medium text-app-text' : 'text-app-text-secondary'
         }`}
         style={{ paddingLeft: 4, paddingRight: ROW_INSET }}
@@ -343,7 +377,10 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={expanded ? `Chiudi ${card.name}` : `Apri ${card.name}`}
-          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/10 dark:hover:bg-white/10"
+          // `tap-expand`: la freccia resta 20px — allargarne il BOX sfonderebbe
+          // la riga — e cresce solo l'area sensibile, ai 44px di iOS e solo su
+          // `pointer: coarse`.
+          className="tap-expand flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary transition-colors hover:bg-black/10 dark:hover:bg-white/10"
         >
           <Chevron size={12} aria-hidden="true" />
         </button>

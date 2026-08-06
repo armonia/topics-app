@@ -1,27 +1,35 @@
-import { useCallback, useRef, useState, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MoreHorizontal, Cloud, Pin, PinOff, AppWindow } from 'lucide-react';
+import { useCallback, memo } from 'react';
+import { ChevronRight, Archive, ArchiveRestore, MoreHorizontal, Cloud, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
-import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { rememberDraggedPane } from '@/lib/dragPayload';
+import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { SessionActivity } from '@/components/Shared/SessionActivity';
+import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
+import { useMobile } from '@/hooks/useMobile';
+import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 
-const isTouchDevice = typeof window !== 'undefined' && (
-  'ontouchstart' in window || navigator.maxTouchPoints > 0
-);
+/** Altezza della riga: 44px SOTTO i 768px (il minimo di tap target iOS), 34
+ *  sopra (regge il nome più la subline). DEVE restare uguale al `ROW_H` di
+ *  TopicTree: tre altezze diverse fra righe sorelle erano il difetto di prima.
+ *
+ *  Detto senza abbellirlo: la soglia è la LARGHEZZA (`md:`), non il tipo di
+ *  puntatore. Su un iPad in orizzontale — dito, ma 1024px — la riga è 34 e la
+ *  card la ritaglia (`overflow-hidden` in sidebarRowCard), quindi lì i 44px NON
+ *  ci sono e nessun bersaglio dentro la riga può prometterli. */
+const ROW_H = 'h-11 md:h-[34px]';
 
 interface TopicItemProps {
   topic: Topic;
@@ -46,15 +54,23 @@ interface TopicItemProps {
   /** Pinned ("Fissati") — renders the Pin glyph in the trailing rail and the
    *  row survives tab close (see buildSidebarItems pinnedIds gates). */
   pinned?: boolean;
-  /** Pin/unpin this topic ("Fissa" / "Rimuovi dai Fissati") — surfaced in the
-   *  touch overflow menu; desktop uses the App-level context menu. */
-  onTogglePin?: () => void;
+  /* `onTogglePin` non esiste più: il suo unico consumatore era il menu overflow
+     a 2 voci che questa riga montava su touch, e quello è sparito quando il
+     «...» ha iniziato ad aprire lo STESSO menu del tasto destro (dove il
+     «Fissa» c'è già, passato al ContextMenu da App). Restava dichiarata solo
+     perché TopicTree continuava a passarla, e quindi andava anche destrutturata
+     come `_onTogglePin` per non violare noUnusedLocals: una prop morta che si
+     portava dietro due righe di zavorra in due file. */
   /** Set when this topic is open in ANOTHER window (pop-out presence). Renders
    *  the trailing AppWindow glyph; the row click focuses that window. */
   detachedWindowLabel?: string;
   sortable?: boolean;
   hideIcon?: boolean;
 }
+
+/** I nodi del ripiego ancora attaccati, per drenarli se la riga si smonta a
+ *  metà gesto. Vedi `spawnDragGhost`. */
+const DRAG_GHOSTS = new Set<HTMLElement>();
 
 export const TopicItem = memo(function TopicItem({
   topic,
@@ -74,7 +90,6 @@ export const TopicItem = memo(function TopicItem({
   onArchive,
   onStopStreaming,
   pinned,
-  onTogglePin,
   detachedWindowLabel,
   sortable,
   hideIcon,
@@ -84,6 +99,10 @@ export const TopicItem = memo(function TopicItem({
   // inside a full-width card. Base = the card's own inset (ROW_INSET),
   // so depth-0 children line up with the card edge.
   const marginLeft = ROW_INSET + depth * SIDEBAR_INDENT_STEP;
+  // Fonte UNICA di «siamo su touch». Prima era una costante di modulo, valutata
+  // una volta all'import: non reagiva mai — né a un iPad che cambia modalità né
+  // a una finestra spostata su un altro schermo — e diceva la sua a ogni riga.
+  const { isTouch } = useMobile();
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
@@ -119,8 +138,13 @@ export const TopicItem = memo(function TopicItem({
     marginLeft,
   };
 
-  const overflowRef = useRef<HTMLButtonElement>(null);
-  const [overflowOpen, setOverflowOpen] = useState(false);
+  // Tieni premuto = tasto destro. Su touch il menu contestuale non aveva altra
+  // porta, e quella che c'era — il «...» con dentro Fissa e Archivia — era un
+  // SOTTOINSIEME muto delle 6 voci del tasto destro (mancavano Rinomina, Cambia
+  // colore, Copia link, Apri in nuova finestra). `openContextMenuAt` sintetizza
+  // l'evento `contextmenu` che l'`onContextMenu` qui sotto già ascolta: un menu
+  // solo, per costruzione, che non può più divergere.
+  const lp = useLongPress(openContextMenuAt, { enabled: isTouch });
 
   // v3 foundations sidebar↔topbar sync: aggregate the topic-level closing
   // countdown across BOTH surfaces. The sidebar row shows the progress
@@ -146,18 +170,11 @@ export const TopicItem = memo(function TopicItem({
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
     rememberDraggedPane(topic.id);
     e.dataTransfer.effectAllowed = 'move';
-    // Compact drag ghost (matches the pre-regression look).
-    const ghost = document.createElement('div');
-    ghost.style.cssText =
-      'position:fixed;left:-9999px;top:-9999px;display:flex;align-items:center;' +
-      'padding:6px 12px;border-radius:8px;font:500 13px/1 Inter,system-ui,sans-serif;' +
-      'color:#fff;white-space:nowrap;pointer-events:none;' +
-      'background:color-mix(in srgb, var(--primary) 90%, transparent);' +
-      'box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-    ghost.textContent = topic.name;
-    document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => { try { document.body.removeChild(ghost); } catch { /* already gone */ } });
+    // L'immagine trascinata la decide `spawnDragGhost`, che fotografa la RIGA
+    // stessa — con la sua icona e i suoi segnali. Qui c'era la quarta copia
+    // scritta a mano della pillola blu: un rettangolo col solo nome in bianco,
+    // cioè una didascalia al posto della cosa.
+    spawnDragGhost(e, { text: topic.name, size: 'md' }, DRAG_GHOSTS);
   }, [topic.id, topic.name]);
 
   return (
@@ -165,7 +182,15 @@ export const TopicItem = memo(function TopicItem({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      draggable={!isArchived}
+      {
+        // Dopo `listeners` di proposito: se dnd-kit montasse handler di touch,
+        // il gesto della riga deve restare uno solo — questo.
+        ...lp.handlers
+      }
+      data-pressing={lp.pressed || undefined}
+      // Il drag nativo si spegne su touch: il lift di HTML5 contende lo stesso
+      // dito del long-press, e vince lui (è la ricetta che PaneTabBar usa già).
+      draggable={!isTouch && !isArchived}
       onDragStart={handleDragStart}
       role="treeitem"
       aria-selected={isFocused}
@@ -205,7 +230,10 @@ export const TopicItem = memo(function TopicItem({
         // Shared card styling (see sidebarRowCard) — same look for every
         // sidebar row type. No border (hairlines read as dividing lines); a
         // filled inset rounded surface makes each row a tab-like card.
-        `group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
+        // L'altezza è quella di TUTTE le righe d'albero (ROW_H): questa faceva
+        // eccezione con 40/34 mentre le sorelle stavano a 44/32, e su touch 40px
+        // sono sotto il minimo di tap target di iOS.
+        `group flex items-center gap-2 ${ROW_H} ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
         // Preview panels show italic name
         isPreview && 'italic',
@@ -213,7 +241,9 @@ export const TopicItem = memo(function TopicItem({
         isDragging && 'opacity-50'
       )}
       style={sortableStyle}
-      onClick={onClick}
+      // Il clic che il browser sintetizza dopo un long-press andato a segno si
+      // mangia qui: senza, il menu si aprirebbe e la riga si attiverebbe sotto.
+      onClick={(e) => { if (lp.consumeClick()) return; onClick(e); }}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
@@ -250,10 +280,12 @@ export const TopicItem = memo(function TopicItem({
         </span>
       )}
 
-      {/* Name + live "what it's doing" subline. The subline (SessionActivity)
-          self-hides when the session is idle, so idle rows stay single-line; on
-          the mobile full-screen sidebar it's the primary "what is it doing"
-          surface. On an attention fill the name goes white (fixes grey-on-blue). */}
+      {/* Nome + subline. La subline dice SEMPRE qualcosa (vedi TopicSubline):
+          lo stato live mentre la sessione è viva, l'ultimo messaggio quando è
+          ferma — che è il caso di gran lunga più comune, e prima lasciava la
+          riga muta. Sul telefono, dove la sidebar è a tutto schermo, è la
+          superficie principale per capire di cosa parla una chat.
+          On an attention fill the name goes white (fixes grey-on-blue). */}
       <div className="flex-1 min-w-0 flex flex-col justify-center">
         <span className={cn(
           "truncate leading-none",
@@ -262,7 +294,7 @@ export const TopicItem = memo(function TopicItem({
         )}>
           {topic.name}
         </span>
-        <SessionActivity subjectId={topic.id} onFill={onFill} className="mt-[3px]" />
+        <TopicSubline topicId={topic.id} onFill={onFill} className="mt-[3px]" />
       </div>
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
@@ -311,47 +343,13 @@ export const TopicItem = memo(function TopicItem({
           className="flex-shrink-0"
         />
       ) : (
-        isTouchDevice ? (
-          /* Touch: timestamp always visible + ... button always visible */
-          <>
-            <RelativeTime
-              at={topic.updatedAt}
-              className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-            />
-            {onArchive && (
-              <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative">
-                <button
-                  ref={overflowRef}
-                  onClick={(e) => { e.stopPropagation(); setOverflowOpen(o => !o); }}
-                  className="flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
-                  title="More options"
-                  aria-label={`More options for ${topic.name}`}
-                >
-                  <MoreHorizontal size={12} />
-                </button>
-                <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
-                  {/* Pin entry first — touch has no right-click context menu,
-                      so this overflow menu is the only pin affordance <768px. */}
-                  {onTogglePin && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onTogglePin(); setOverflowOpen(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                    >
-                      {pinned ? <PinOff size={14} className="flex-shrink-0" /> : <Pin size={14} className="flex-shrink-0" />}
-                      <span>{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleArchiveClick(e); setOverflowOpen(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    {topic.archived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
-                    <span>{topic.archived ? 'Unarchive' : 'Archive'}</span>
-                  </button>
-                </DropdownPortal>
-              </span>
-            )}
-          </>
+        isTouch ? (
+          /* Touch, a riposo: il timestamp. Il «...» NON sta più qui dentro —
+             vedi sotto. */
+          <RelativeTime
+            at={topic.updatedAt}
+            className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
+          />
         ) : (
           /* Desktop: timestamp at rest, ARCHIVE control on hover.
              For NOT-archived topics the hover control is an explicit Archive
@@ -400,6 +398,71 @@ export const TopicItem = memo(function TopicItem({
             )}
           </span>
         )
+      )}
+
+      {/* Touch: i comandi della riga, SEMPRE presenti — anche mentre la chat
+          lavora. Prima vivevano nel ramo «a riposo» del ternario qui sopra,
+          quindi sparivano esattamente quando servono di più (una chat che
+          macina è quella che vuoi fermare, fissare o archiviare).
+
+          Il «...» non apre più un menu suo: apre LO STESSO menu del tasto
+          destro, quello che il long-press sulla riga apre già. Un menu a 2 voci
+          accanto a uno da 6 non è una scorciatoia, è un secondo prodotto che
+          diverge — ma il bottone resta, VISIBILE, perché un gesto nascosto non
+          si scopre da solo.
+
+          IL BERSAGLIO NON RUBA PIÙ AI VICINI. `tap-expand` proiettava 44×44
+          attorno a un box da 24: su una riga archiviata i due comandi del
+          binario stanno a `gap-2` (8px), quindi con i centri a 32px le due aree
+          si sovrapponevano di 12px — e vinceva l'ultimo nel DOM, cioè il bordo
+          destro del «...» apriva il «Ripristina». I 10px che avanzavano a destra
+          coprivano poi i glifi Pin / finestra / badge, e toccarli apriva il menu
+          invece della chat. `tap-expand-y` cresce SOLO in altezza (larghezza
+          100%): nessun vicino perde un pixel. In larghezza si recupera dal box
+          vero — 36px (`w-9`) dentro una riga da 44 ci sta con 4px di aria per
+          lato. Sopra i 768px il box torna a 24 (`md:w-6`), perché lì la riga è
+          alta 34 e un box da 36 lo taglierebbe l'`overflow-hidden` della card. */}
+      {isTouch && (
+        <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const el = e.currentTarget;
+              const r = el.getBoundingClientRect();
+              openContextMenuAt({ element: el, x: e.clientX || r.left, y: e.clientY || r.bottom });
+            }}
+            className="tap-expand-y flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
+            title="Azioni"
+            aria-label={`Azioni per ${topic.name}`}
+            aria-haspopup="menu"
+          >
+            <MoreHorizontal size={12} />
+          </button>
+        </span>
+      )}
+      {/* Ripristina, per le sole righe archiviate. È l'unica voce che il menu
+          contestuale NON ha (parla solo di «Archivia»), quindi qui serve un
+          bottone suo — il gemello touch del controllo che su desktop compare
+          al passaggio del mouse.
+
+          Stesso box del «...» qui sopra (36 sotto i 768px, 24 sopra) e stessa
+          `tap-expand-y`: sono i DUE bersagli che si sovrapponevano di 12px, e
+          due comandi affiancati nello stesso binario con due misure diverse
+          sarebbero la prossima divergenza.
+
+          Il conto, adesso: due box da 36 separati da `gap-2` hanno i centri a
+          44px e i bordi a 8px l'uno dall'altro; le aree sensibili sono larghe
+          quanto i box (36), quindi la sovrapposizione è ZERO — prima erano due
+          aree da 44 con i centri a 32, cioè 12px in comune. */}
+      {isTouch && onArchive && topic.archived && (
+        <button
+          onClick={handleArchiveClick}
+          className="tap-expand-y flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary"
+          title="Ripristina"
+          aria-label={`Ripristina ${topic.name}`}
+        >
+          <ArchiveRestore size={12} />
+        </button>
       )}
 
       {/* Trailing-glyph RAIL — fixed order: Pin → AppWindow (detached, future

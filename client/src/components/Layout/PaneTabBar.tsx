@@ -18,7 +18,8 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
-import { useMobile, haptic } from '../../hooks/useMobile';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress } from '../../hooks/useLongPress';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
@@ -26,7 +27,8 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
+import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useDismissable } from '@/hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
@@ -319,8 +321,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 
   const { isTouch } = useMobile();
 
-  // Context menu state
-  const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
+  // Context menu state. Si tiene il RETTANGOLO della tab, non un punto: la
+  // posizione va ricalcolata ogni volta che il pannello cambia altezza da sé
+  // (editor di rinomina aperto, sottomenu «Sposta nel gruppo» espanso), e per
+  // farlo serve l'ancora, non l'esito di un conto fatto una volta sola.
+  const [ctxMenu, setCtxMenu] = useState<{ paneId: string; anchor: AnchorRect } | null>(null);
+  // Dove il pannello è finito DOPO essere stato misurato. `null` = non ancora
+  // misurato: il pannello è renderizzato ma invisibile (vedi lo stile in fondo).
+  const [ctxPos, setCtxPos] = useState<{ top: number; left: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   // "Sposta nello Spazio →" inline submenu (expanded space list inside the
   // context menu). Collapses whenever the menu re-opens on another tab.
@@ -420,49 +428,76 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // ctxMenuRef, so one panel ref covers every "inside" target.
   useDismissable({ open: !!ctxMenu, onClose: () => setCtxMenu(null), refs: [ctxMenuRef] });
 
-  // Long-press for context menu on touch devices
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFiredRef = useRef(false);
-
-  // Anchor menu to the tab's bottom-left edge with viewport-aware flipping.
-  const positionMenuForTab = useCallback((tabEl: HTMLElement) => {
-    const menuWidth = 160;
-    // Stima, non misura: serve solo a decidere se il menu ci sta SOTTO la tab o
-    // va ribaltato sopra. Va tenuta al passo con le voci — «Copia link» (e su
-    // una tab browser anche «Copia URL della pagina») ha aggiunto due righe da
-    // ~28px, e senza questo bump il menu usciva dal fondo della viewport.
-    const menuHeight = 296;
-    const rect = tabEl.getBoundingClientRect();
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
-    const fitsBelow = rect.bottom + 4 + menuHeight <= window.innerHeight - 8;
-    const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - menuHeight - 4);
-    return { x: left, y: top };
+  // Apre il menu della tab ANCORANDOLO alla tab. Una sola porta per il tasto
+  // destro e per il dito: il menu è lo stesso, e non può divergere.
+  const openTabMenu = useCallback((paneId: string, tabEl: HTMLElement) => {
+    const r = tabEl.getBoundingClientRect();
+    setCtxMenu({ paneId, anchor: { top: r.top, right: r.right, bottom: r.bottom, left: r.left } });
   }, []);
 
-  const handleLongPressStart = useCallback((paneId: string, tabEl: HTMLElement) => {
-    longPressFiredRef.current = false;
-    longPressTimerRef.current = setTimeout(() => {
-      haptic('medium');
-      longPressFiredRef.current = true;
-      const { x, y } = positionMenuForTab(tabEl);
-      setCtxMenu({ paneId, x, y });
-      longPressTimerRef.current = null;
-    }, 500);
-  }, [positionMenuForTab]);
-
-  const handleLongPressCancel = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+  // IL MENU SI MISURA, NON SI INDOVINA.
+  //
+  // Qui c'era un'altezza stimata a costante (`menuHeight = 296`), e il commento
+  // lo ammetteva: «Stima, non misura». Su una tab chat le voci sono una quindicina
+  // più i divisori, e sotto i 768px una riga di menu è alta 44px: ~730px reali
+  // contro 296 stimati. Con quel numero il conto diceva sempre «ci sta sotto la
+  // tab», e su una viewport da iPhone le ultime voci finivano fuori schermo —
+  // senza scroll con cui raggiungerle.
+  //
+  // Adesso il pannello si rende invisibile, si MISURA quello vero e lo si colloca
+  // con `computeMenuPosition` (la stessa funzione di <Menu>, che clampa ai bordi e
+  // ribalta sopra se sotto non ci sta). La misura da sola però non basterebbe: un
+  // pannello più alto della viewport non sta da nessuna parte. Serve il TETTO —
+  // `max-height` a viewport meno i margini + `overflow-y-auto`, sullo stile del
+  // pannello in fondo al file — ed è quello che rende la misura sempre
+  // risolvibile: comunque vadano le voci, il pannello sta nello schermo e il resto
+  // si scorre.
+  //
+  // Perché (a) e non portare il menu su <Menu>/<DropdownPortal>: il pannello non è
+  // una lista di bottoni e basta, ci vivono dentro l'editor di rinomina e il
+  // sottomenu «Sposta nel gruppo», più l'esclusività popover legata a `ctxMenuRef`
+  // (useDismissable, sopra). <Menu> vuole un `anchorRef` stabile — qui l'ancora è
+  // una tab diversa a ogni apertura — e su mobile diventa un foglio dal basso che
+  // si porta dietro il proprio fuoco e la propria tastiera roving, che
+  // litigherebbe con il campo di rinomina.
+  //
+  // Le dipendenze includono `renameDraft` e `spaceSubmenuOpen` perché sono le due
+  // cose che cambiano l'altezza del pannello DOPO l'apertura.
+  useLayoutEffect(() => {
+    if (!ctxMenu) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset a una costante alla chiusura: converge subito e non può ciclare
+      setCtxPos(null);
+      return;
     }
-  }, []);
+    const el = ctxMenuRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const next = computeMenuPosition(ctxMenu.anchor, { width: r.width, height: r.height }, { margin: POPOVER_MARGIN });
+    setCtxPos({ top: next.top, left: next.left });
+  }, [ctxMenu, renameDraft, spaceSubmenuOpen]);
+
+  // «Tieni premuto» = la primitiva condivisa (hooks/useLongPress). Qui c'era la
+  // copia locale del gesto: timer a 500ms, tolleranza ZERO su `onTouchMove` (un
+  // pixel di tremolio lo uccideva, quindi con un dito vero spesso non partiva) e
+  // nessun `onTouchCancel` (se il sistema si prendeva il tocco il timer restava
+  // armato e il menu si apriva dopo, da solo).
+  //
+  // L'hook è UNO per tutta la barra — gli hook non possono stare dentro
+  // `panes.map` — quindi `pressed` da solo marcherebbe TUTTE le tab: la tab
+  // premuta si ricorda a parte, e il feedback visivo è l'intersezione dei due.
+  const [pressingPaneId, setPressingPaneId] = useState<string | null>(null);
+  const tabLongPress = useLongPress(({ element }) => {
+    // L'ancora è la tab su cui è partito il gesto: la porta il callback, non
+    // serve una closure per riga.
+    const paneId = element.dataset.paneId;
+    if (paneId) openTabMenu(paneId, element);
+  }, { enabled: isTouch });
 
   const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const { x, y } = positionMenuForTab(e.currentTarget as HTMLElement);
-    setCtxMenu({ paneId, x, y });
-  }, [positionMenuForTab]);
+    openTabMenu(paneId, e.currentTarget as HTMLElement);
+  }, [openTabMenu]);
 
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
   // Cleanup ghost element if component unmounts during drag
@@ -1009,13 +1044,25 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // first-responder; yank it back to the chrome on pointer-down so the
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
             onPointerDown={() => releaseNativeFocus()}
-            onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
+            onClick={() => { if (tabLongPress.consumeClick()) return; if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             data-testid={`pane-tab-${pane.id}`}
-            onTouchStart={(e) => handleLongPressStart(pane.id, e.currentTarget)}
-            onTouchEnd={handleLongPressCancel}
-            onTouchMove={handleLongPressCancel}
+            // Il feedback della pressione vale SOLO per la tab premuta: l'hook è
+            // uno per tutta la barra (vedi `pressingPaneId`).
+            data-pressing={(tabLongPress.pressed && pressingPaneId === pane.id) || undefined}
+            {...tabLongPress.handlers}
+            onTouchStart={(e) => { setPressingPaneId(pane.id); tabLongPress.handlers.onTouchStart(e); }}
+            // …e a fine gesto si azzera. `pressingPaneId` restava all'ultima tab
+            // premuta per sempre: innocuo finché l'AND con `tabLongPress.pressed`
+            // regge il feedback, ma è uno stato che sopravvive al gesto che lo ha
+            // creato — cioè la premessa del prossimo «si accende la tab
+            // sbagliata». Si spegne dove si spegne il gesto, in tutti e due i
+            // modi in cui può finire (dito sollevato o tocco preso dal sistema).
+            onTouchEnd={(e) => { tabLongPress.handlers.onTouchEnd(e); setPressingPaneId(null); }}
+            onTouchCancel={(e) => { tabLongPress.handlers.onTouchCancel(e); setPressingPaneId(null); }}
+            // Su touch il drag nativo HTML5 resta spento: il suo lift contende lo
+            // stesso gesto del «tieni premuto».
             draggable={!isTouch && !!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
@@ -1257,8 +1304,24 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         <div
           ref={ctxMenuRef}
           role="menu"
-          className={`fixed ${POPOVER_SURFACE} min-w-[150px]`}
-          style={{ top: ctxMenu.y, left: ctxMenu.x, zIndex: Z_CONTEXT_MENU }}
+          // `overflow-y-auto` + il tetto qui sotto: senza, le voci oltre il bordo
+          // dello schermo non erano raggiungibili in nessun modo. `overscroll-contain`
+          // perché lo scroll del menu non deve travasare nella pagina sotto.
+          className={`fixed ${POPOVER_SURFACE} min-w-[150px] overflow-y-auto overscroll-contain`}
+          style={{
+            // Finché la misura non c'è il pannello sta fuori campo e invisibile:
+            // renderizzato (serve per misurarlo) ma mai mostrato alla posizione
+            // sbagliata, così non lampeggia da un angolo all'altro.
+            top: ctxPos?.top ?? -9999,
+            left: ctxPos?.left ?? -9999,
+            visibility: ctxPos ? 'visible' : 'hidden',
+            // Il tetto è la viewport meno i margini. È anche ciò che rende la
+            // misura sempre risolvibile: `getBoundingClientRect` legge l'altezza
+            // GIÀ tagliata, quindi `computeMenuPosition` non può mai collocare un
+            // pannello più alto dello schermo.
+            maxHeight: Math.max(160, window.innerHeight - POPOVER_MARGIN * 2),
+            zIndex: Z_CONTEXT_MENU,
+          }}
         >
           {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
               Pin key = the sidebar-item id, resolved by the canonical
@@ -1665,6 +1728,42 @@ function PaneCloseButton({
   // the same countdown regardless of which surface kicked it off.
   const pendingStatus = usePanePendingStatus(paneId);
 
+  // IL BERSAGLIO STA SUL BOTTONE, NON SULLO SPAN.
+  //
+  // Il glifo è 14px dentro uno span da 20, in una tab alta 36 su touch: sotto
+  // metà della soglia iOS, e infatti col dito si prende la tab invece della X.
+  // L'area sensibile si allarga con un `::after` (solo su `pointer: coarse`), e
+  // la classe va messa sull'elemento che il clic lo GESTISCE: sullo span esterno
+  // l'area allargata non apparterrebbe al bottone e il tocco cadrebbe sulla tab,
+  // cioè attiverebbe invece di chiudere.
+  //
+  // QUI C'ERA `tap-expand` (44×44), E IL CONTO NON TORNAVA. Rifatto per davvero,
+  // in px, sulla tab larga 150 FISSE con `px-2` e figli separati da `gap-1.5`
+  // (6px) — cioè 134px di contenuto:
+  //
+  //  · Tab chat SENZA widget in coda: icona 14 + etichetta + X 20, due gap → la
+  //    etichetta prende 88 e la X sta a 122→142, centro 132. I 44 centrati vanno
+  //    110→154: a destra sporgono 4px oltre il bordo della tab (150), e lì
+  //    `overflow-hidden` taglia sia il disegno sia l'hit-test — la tab vicina
+  //    resta intoccabile, quella parte del conto era giusta. A sinistra i 12px
+  //    cadono sulla coda dell'ETICHETTA, che è la tab stessa: attiva, non
+  //    chiude. Prezzo accettabile.
+  //  · Tab chat MENTRE STREAMA — ed è il caso che rompe. Dopo la X c'è il
+  //    LoaderSlot, che con `onStop` è un `<button>` vero da 16px. L'etichetta
+  //    scende a 66, la X sta a 100→120 (centro 110), i 44 vanno 88→132: dentro
+  //    la tab, quindi niente clipping, e i 12px di destra si mangiano i 6 di gap
+  //    PIÙ i primi 6 dei 16 dello Stop (il 37% del bottone). Lo span della X ha
+  //    `relative z-10` e lo Stop sta nel flusso normale senza z-index: il
+  //    pseudo-elemento VINCE l'hit-test. Col dito, il terzo sinistro di «Stop»
+  //    chiude la tab invece di fermare il turno.
+  //
+  // Quindi `tap-expand-y`: cresce SOLO in altezza, larghezza 100%, e non toglie
+  // un pixel a nessun vicino. Detto senza abbellirlo: la larghezza resta quella
+  // del bottone (14px, non i 20 dello span — la classe deve stare su chi gestisce
+  // il clic) e i 44px di altezza li taglia comunque l'`overflow-hidden` della tab
+  // a 36. Il bersaglio passa da 14×14 a 14×36, due volte e mezzo l'area: non è la
+  // linea guida Apple, ma è tutto quello che si può prendere senza rubarlo allo
+  // Stop.
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
     return (
@@ -1672,6 +1771,7 @@ function PaneCloseButton({
         <PendingActionRing
           status={pendingStatus}
           size={14}
+          className="tap-expand-y"
           pendingTitle="Annulla chiusura"
           pendingAriaLabel="Annulla chiusura"
         />
@@ -1689,6 +1789,7 @@ function PaneCloseButton({
         <PendingActionRing
           status={null}
           size={14}
+          className="tap-expand-y"
           onIdleClick={() => onClose(paneId)}
           idleTitle="Chiudi tab"
           idleAriaLabel={`Chiudi tab ${paneId}`}

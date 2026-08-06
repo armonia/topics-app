@@ -12,10 +12,10 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId, getTerminalSessionFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
+import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedTileMeta } from './PinnedTiles';
 import type { PinnedRow } from './pinnedLayout';
-import { rememberDraggedPane } from '@/lib/dragPayload';
+import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
@@ -121,9 +121,16 @@ const BOARD_LABEL = 'Board';
 /**
  * L'ALTEZZA DI UNA RIGA D'ALBERO, in un posto solo.
  *
- * 44 su mobile perché è il minimo di bersaglio delle linee guida iOS; 34 su
- * desktop perché è la misura che regge la subline (nome + «cosa sta facendo»),
- * quella che la riga chat ha già. Prima ce n'erano tre: `h-11 md:h-8` (44/32)
+ * 44 SOTTO i 768px perché è il minimo di bersaglio delle linee guida iOS; 34
+ * sopra perché è la misura che regge la subline (nome + «cosa sta facendo»),
+ * quella che la riga chat ha già.
+ *
+ * La soglia è la LARGHEZZA (`md:`), non il puntatore: su un iPad in orizzontale
+ * — dito, ma 1024px — la riga è 34 e la card la ritaglia (`overflow-hidden` in
+ * sidebarRowCard). Lì i 44px non ci sono, e nessun bersaglio dentro la riga può
+ * prometterli: detto qui una volta, invece che promesso in ogni commento.
+ *
+ * Prima ce n'erano tre: `h-11 md:h-8` (44/32)
  * per progetto, sezione, terminale e browser, `h-8` FISSA per utility e board —
  * cioè 32px anche su iPhone, sotto soglia e 12px più basse delle vicine — e la
  * chat per conto suo. Tre numeri per la stessa riga si vedono solo mettendole
@@ -462,6 +469,10 @@ export function TopicTree({
   // project was completely invisible, which defeated the point of pinning.
   // Search still applies: an item filtered out by the query drops from the
   // block too.
+  /** La chiave della tessera trascinata FUORI dai fissati, mentre il cursore è
+   *  sulla lista. È solo l'anteprima: lo sfissaggio avviene al drop. */
+  const [unpinPreview, setUnpinPreview] = useState<string | null>(null);
+
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
     const byId = new Map<string, SidebarItem>();
@@ -676,7 +687,10 @@ export function TopicTree({
         isArchived={item.archived}
         pinned={!!item.pinned}
         detachedWindowLabel={item.detachedWindowLabel}
-        onTogglePin={onTogglePin ? () => onTogglePin(item.id) : undefined}
+        /* Niente `onTogglePin`: la riga chat non ha più un menu suo dove
+           metterlo — il «...» apre il menu del tasto destro, che il «Fissa» ce
+           l'ha già (glielo passa App). Continuare a passarla la teneva viva
+           come prop dichiarata e destrutturata a vuoto in TopicItem. */
         hideIcon={depth > 0}
       />
     );
@@ -1121,6 +1135,30 @@ export function TopicTree({
     }
   };
 
+  /**
+   * La lista, con dentro l'anteprima di ciò che sta per essere sfissato.
+   *
+   * La posizione NON è dove hai lasciato il cursore: la lista è ordinata (prima
+   * chi ti aspetta, poi per attività), quindi il posto è già deciso e mostrarlo
+   * sotto il dito sarebbe una bugia. Lo si calcola con la stessa lista che ci
+   * sarà dopo — `filteredItems` senza i fissati, ma con QUESTO dentro — e la
+   * riga compare esattamente lì.
+   */
+  const withUnpinPreview = (list: SidebarItem[]): React.ReactNode[] => {
+    const out = list.map(item => renderItem(item));
+    if (!unpinPreview) return out;
+    const tessera = pinnedBlock.find(i => i.id === unpinPreview);
+    if (!tessera) return out;
+    const dopo = filteredItems.filter(i => !i.pinned || i.id === unpinPreview);
+    const at = dopo.findIndex(i => i.id === unpinPreview);
+    out.splice(Math.max(0, Math.min(at === -1 ? out.length : at, out.length)), 0, (
+      <div key="unpin-preview" data-testid="unpin-preview" className="opacity-60 pointer-events-none">
+        {renderItem(tessera)}
+      </div>
+    ));
+    return out;
+  };
+
   const renderPinnedTiles = () => (
     <PinnedTiles
       items={pinnedBlock}
@@ -1305,6 +1343,35 @@ export function TopicTree({
       <div
         className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
         style={{ paddingBlock: ROW_INSET - 1 }}
+        // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
+        //
+        // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste
+        // sono tre (lista, per stato, a gruppi) e tre bersagli scritti a mano
+        // divergono al primo che se ne aggiunge una quarta. Chi cade DENTRO il
+        // blocco dei fissati non conta — lì il drop è un riordino, e servirlo
+        // due volte vorrebbe dire riordinare e sfissare nello stesso gesto.
+        onDragOver={e => {
+          if (!onTogglePin || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
+          if ((e.target as Element | null)?.closest?.('[data-testid="sidebar-pinned-section"]')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const key = draggedPaneId();
+          const riga = key ? pinKeyFromPaneId(key) : null;
+          if (riga && riga !== unpinPreview) setUnpinPreview(riga);
+        }}
+        onDragLeave={e => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          setUnpinPreview(null);
+        }}
+        onDrop={e => {
+          const wasPreviewing = unpinPreview;
+          setUnpinPreview(null);
+          if (!onTogglePin || !e.dataTransfer.types.includes(DND_TYPES.PINNED_TILE)) return;
+          if ((e.target as Element | null)?.closest?.('[data-testid="sidebar-pinned-section"]')) return;
+          e.preventDefault();
+          const key = e.dataTransfer.getData(DND_TYPES.PINNED_TILE) || wasPreviewing;
+          if (key && pinnedIds.has(key)) onTogglePin(key);
+        }}
       >
         {/* Board generale — THE single sidebar row for the board, above the
             Fissati block. Shown when there is active (non-done) work across all
@@ -1385,7 +1452,7 @@ export function TopicTree({
                 {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
               </>
             )}
-            {unpinnedItems.map(item => renderItem(item))}
+            {withUnpinPreview(unpinnedItems)}
           </>
         ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
@@ -1416,7 +1483,7 @@ export function TopicTree({
               if (soloIlResto) {
                 return (
                   <div data-testid="sidebar-state-section-rest">
-                    {stateGroups.rest.map(item => renderItem(item))}
+                    {withUnpinPreview(stateGroups.rest)}
                   </div>
                 );
               }
@@ -1439,7 +1506,7 @@ export function TopicTree({
             una la fa entrare nel gruppo attivo, e da lì in poi vive lì. */}
         {spaceScoped && loose.length > 0 && (
           <div data-testid="sidebar-loose" className="mt-1">
-            {loose.map(item => renderItem(item))}
+            {withUnpinPreview(loose)}
           </div>
         )}
 
@@ -1586,11 +1653,15 @@ interface TerminalSidebarItemProps {
 
 function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
   const tr = useT();
-  const overflowRef = useRef<HTMLButtonElement>(null);
-  const [overflowOpen, setOverflowOpen] = useState(false);
-  // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
-  // = closed; positioned at the cursor, viewport-clamped like the project menu.
+  // UN menu solo, da tutte e tre le porte: tasto destro, «tieni premuto», «...».
+  // null = chiuso; posizionato sul cursore, agganciato al viewport come quello
+  // del progetto.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // Il menu esiste se ha almeno una voce. Prima il cancello era il solo
+  // `onTogglePin`, quindi senza quello il tasto destro non apriva NIENTE mentre
+  // il «...» su touch mostrava lo stesso il «Close»: due porte con due
+  // disponibilità diverse per lo stesso menu.
+  const hasMenu = !!onTogglePin || !!onCloseTerminal || (!!onOpenAsProject && !projectName);
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
@@ -1609,17 +1680,25 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   const splitPosition = useSplitPosition(`terminal:${s.id}`);
 
   return (
-    <div
+    // Tieni premuto = tasto destro, come ogni altra riga della sidebar. Era
+    // l'ULTIMA rimasta senza: su touch il suo menu si raggiungeva solo dal
+    // «...», che ne apriva una copia a mano. `LongPressRow` è lo stesso
+    // componente della riga di progetto — mangia anche il clic-eco in cattura,
+    // che qui serve perché l'`onClick` sta sul bottone DENTRO la riga.
+    <LongPressRow
+      isTouch={isTouch && hasMenu}
       // Same three-state model as chat (TopicItem) so selection means the SAME
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
+      // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra il
+      // proprio callout di selezione mentre tieni premuto.
       className={[
-        `group/terminal flex items-center ${ROW_H} ${ROW_PX}`,
+        `group/terminal flex items-center ${ROW_H} ${ROW_PX} select-none`,
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       data-pinned={pinned ? 'true' : undefined}
-      onContextMenu={onTogglePin ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
+      onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
@@ -1685,58 +1764,46 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
 
       {/* Inline "Open as project" icon removed — it competed with the
           close-button slot for hover attention and made the row noisy.
-          The action is still reachable from the touch overflow menu
-          (DropdownPortal below) and from the right-click context menu. */}
+          The action is still reachable from the row's context menu — che su
+          touch si apre tenendo premuto o dal «...» qui accanto, e col mouse col
+          tasto destro: è LO STESSO menu. */}
 
-      {onCloseTerminal && (
+      {(onCloseTerminal || (isTouch && hasMenu)) && (
         // The close affordance only takes layout space on hover (or when a
         // close is pending / on touch). At rest it's `hidden` → zero width, so
         // the spinner + badge inside the flex-1 button above sit FLUSH at the
         // row's trailing edge. Reserving it always (the old behaviour) pushed
         // the loading spinner ~28px in from the edge — the "spinner non in
         // fondo" bug. Same hover-reveal pattern the project row already uses.
-        <span className={`flex-shrink-0 items-center justify-center w-6 h-6 relative mr-1 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
+        <span className={`flex-shrink-0 items-center justify-center relative mr-1 ${isTouch ? 'w-9 h-9 md:w-6 md:h-6' : 'w-6 h-6'} ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
           {isTouch ? (
-            <>
+            hasMenu && (
               <button
-                ref={overflowRef}
-                onClick={(e) => { e.stopPropagation(); setOverflowOpen(o => !o); }}
-                // `tap-expand`: il bottone resta 24px (la riga ne è alta 34 e
-                // portarlo a 44 la sfonderebbe), cresce solo l'AREA SENSIBILE,
-                // e solo su `pointer: coarse`.
-                className="tap-expand flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Nessun menu suo: sintetizza il `contextmenu` che la riga già
+                  // ascolta, quindi apre il ContextMenuPortal qui sotto — lo
+                  // stesso del tasto destro e della pressione lunga. Prima qui
+                  // c'era un DropdownPortal con le stesse tre voci ricopiate a
+                  // mano a `px-3 py-1.5`: righe da ~24px col dito, mentre le
+                  // stesse voci col tasto destro (POPOVER_ITEM) ne fanno 44.
+                  const el = e.currentTarget;
+                  const r = el.getBoundingClientRect();
+                  openContextMenuAt({ element: el, x: e.clientX || r.left, y: e.clientY || r.bottom });
+                }}
+                // `tap-expand-y`: l'area cresce solo in ALTEZZA (44px, larghezza
+                // 100%), così non ruba pixel al glifo del pin e al badge che la
+                // precedono nel binario. In larghezza si recupera dal box vero:
+                // 36px (`w-9`) dentro la riga da 44 ci stanno; sopra i 768px la
+                // riga torna a 34 e il box a 24, o la card lo ritaglia.
+                className="tap-expand-y flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
                 title={tr('sidebar.moreOptions')}
+                aria-haspopup="menu"
+                aria-label={`Azioni per ${s.name}`}
               >
                 <MoreHorizontal size={12} />
               </button>
-              <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
-                {onTogglePin && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTogglePin(); setOverflowOpen(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    {pinned ? <PinOff size={14} className="flex-shrink-0" /> : <Pin size={14} className="flex-shrink-0" />}
-                    <span>{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
-                  </button>
-                )}
-                {onOpenAsProject && !projectName && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onOpenAsProject(s.cwd); setOverflowOpen(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    <FolderOpen size={14} className="flex-shrink-0" />
-                    <span>{tr('sidebar.openAsProject')}</span>
-                  </button>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); onCloseTerminal(s.id); setOverflowOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors"
-                >
-                  <X size={14} className="flex-shrink-0" />
-                  <span>Close</span>
-                </button>
-              </DropdownPortal>
-            </>
+            )
           ) : pendingClose ? (
             <span className="flex items-center justify-center w-full h-full relative z-10">
               <PendingActionRing
@@ -1751,7 +1818,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
               <PendingActionRing
                 status={null}
                 size={14}
-                onIdleClick={() => onCloseTerminal(s.id)}
+                // Su desktop il cancello esterno pretende già `onCloseTerminal`
+                // (il ramo touch è l'unico che apre lo slot senza); il ternario
+                // lo ridice solo perché TS non lo restringe attraverso l'`||`.
+                onIdleClick={onCloseTerminal ? () => onCloseTerminal(s.id) : undefined}
                 idleTitle="Chiudi terminale"
                 idleAriaLabel={`Chiudi terminale ${s.name}`}
               />
@@ -1760,11 +1830,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         </span>
       )}
 
-      {/* Desktop right-click menu — the pin affordance for terminal rows on
-          desktop (touch uses the overflow "…" above). Reuses the shared popover
-          tokens like the project header menu. Rendered inline (not a portal): a
-          fixed-position node clamped to the viewport, same as the project menu. */}
-      {ctxMenu && onTogglePin && (
+      {/* IL MENU DELLA RIGA — uno solo, per tutte e tre le porte: tasto destro,
+          «tieni premuto» (LongPressRow qui sopra) e il «...» su touch, che
+          sintetizza lo stesso `contextmenu`. Usa i token condivisi
+          (POPOVER_ITEM, 44px col dito) come il menu del progetto. */}
+      {ctxMenu && (
           <ContextMenuPortal
             open
             x={ctxMenu.x}
@@ -1772,14 +1842,16 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             onClose={() => setCtxMenu(null)}
             minWidth={200}
           >
-            <button
-              role="menuitem"
-              onClick={() => { onTogglePin(); setCtxMenu(null); }}
-              className={POPOVER_ITEM}
-            >
-              {pinned ? <PinOff size={14} className="text-app-text-tertiary" /> : <Pin size={14} className="text-app-text-tertiary" />}
-              {pinned ? 'Rimuovi dai Fissati' : 'Fissa'}
-            </button>
+            {onTogglePin && (
+              <button
+                role="menuitem"
+                onClick={() => { onTogglePin(); setCtxMenu(null); }}
+                className={POPOVER_ITEM}
+              >
+                {pinned ? <PinOff size={14} className="text-app-text-tertiary" /> : <Pin size={14} className="text-app-text-tertiary" />}
+                {pinned ? 'Rimuovi dai Fissati' : 'Fissa'}
+              </button>
+            )}
             {onOpenAsProject && !projectName && (
               <button
                 role="menuitem"
@@ -1802,7 +1874,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             )}
           </ContextMenuPortal>
       )}
-    </div>
+    </LongPressRow>
   );
 }
 
@@ -1819,8 +1891,15 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
 // dell'altra: il MENU del progetto si apre tenendo premuta la riga ed è lo
 // stesso del tasto destro (`LongPressRow`); QUESTO è il gemello del «+» che sul
 // desktop compare al passaggio del mouse — aggiungere una chat o una pane — più
-// l'archiviazione, che sul desktop sta nel bottone accanto al «+» e su touch non
-// avrebbe altra porta.
+// l'archiviazione, che sul desktop sta nel bottone accanto al «+».
+//
+// L'archiviazione è l'unica voce RIPETUTA: sta anche nel menu della riga
+// («Archive Project»), quindi il vecchio «su touch non avrebbe altra porta» non
+// è più vero da quando la pressione lunga apre quel menu. Resta come
+// scorciatoia, non come unica strada, e resta IDENTICA — stesso token
+// POPOVER_ITEM, stessa etichetta, stessa azione: un doppione che non può
+// divergere non è il difetto che stiamo chiudendo (due menu con altezze e voci
+// diverse lo era).
 
 interface TouchProjectAddMenuProps {
   pp: string;
@@ -1851,9 +1930,15 @@ function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjec
         // sopra la sidebar invece che dentro la riga) e niente
         // `hover:bg-app-hover`, che è un opaco tarato su quella stessa
         // superficie. A riposo trasparente come ogni controllo della sidebar,
-        // in rilievo con SIDEBAR_HOVER. `tap-expand` per i 44px di iOS senza
-        // sfondare la riga.
-        className={`tap-expand flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
+        // in rilievo con SIDEBAR_HOVER.
+        //
+        // `tap-expand-y`, non `tap-expand`: questo bottone chiude il binario in
+        // coda alla riga di progetto, e un'area da 44 di LARGO si prendeva i
+        // ~10px del badge e del timestamp che lo precedono. Cresce solo in
+        // altezza (44, larghezza 100%); in largo si recupera dal box vero, 36px
+        // (`w-9`) dentro la riga da 44. Sopra i 768px la riga torna a 34 e il
+        // box a 24, o l'`overflow-hidden` della card lo taglia.
+        className={`tap-expand-y flex-shrink-0 w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
         title={tr('sidebar.moreOptions')}
       >
         <MoreHorizontal size={14} />
@@ -1869,8 +1954,12 @@ function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjec
         />
         {/* Divider before project-level actions — only when both halves render. */}
         {hasAddItems && hasProjectActions && <div className="h-px bg-app-border mx-2 my-1" />}
+        {/* `POPOVER_ITEM`, non le sue classi ricopiate: erano la stessa stringa
+            scritta a mano (meno il `text-left`), cioè il modo con cui questa
+            voce e il resto dei menu tornano a divergere al primo ritocco del
+            token. */}
         {onArchiveProject && (
-          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); close(); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); close(); }} className={POPOVER_ITEM}>
             {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
             <span className="flex-1 text-left">{allArchived ? 'Restore Project' : 'Archive Project'}</span>
           </button>
@@ -2077,10 +2166,14 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
                 onIdleClick={() => onCloseBrowser(bc.id)}
                 idleTitle="Chiudi browser"
                 idleAriaLabel={`Chiudi browser ${itemName}`}
-                // Il cerchio è 14px: `tap-expand` gli dà i 44px di area
-                // sensibile che iOS pretende, senza toccare il disegno (e solo
-                // su `pointer: coarse`).
-                className="tap-expand"
+                // Il cerchio è 14px e l'area sensibile cresce solo in ALTEZZA
+                // (`tap-expand-y`, 44px): con `tap-expand` i 44 di LARGO
+                // sporgevano ~15px oltre il box e coprivano il glifo del pin
+                // qui accanto, quindi toccare il pin CHIUDEVA il browser invece
+                // di aprirlo. Larghezza: il bottone se la impone da sé via
+                // `style` (size=14), quindi qui il bersaglio resta 14×44 —
+                // stretto, ma suo.
+                className="tap-expand-y"
               />
             </span>
           )}

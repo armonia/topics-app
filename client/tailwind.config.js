@@ -13,6 +13,11 @@ export default {
         surface: 'var(--bg-surface)',
         elevated: 'var(--bg-elevated)',
         'app-bg': 'var(--bg)',
+        // La superficie del CHROME di navigazione (sidebar intera: header,
+        // albero, barra di stato). Un gradino SOTTO `app-bg`; sotto Tauri/mac
+        // lo stesso token porta l'alpha della vibrancy. Vedi --chrome-bg in
+        // index.css: è lì che vive sia la tinta sia il grado di trasparenza.
+        'app-chrome': 'var(--chrome-bg)',
         'app-hover': 'var(--bg-hover)',
         'app-panel': 'var(--bg-panel)',
         'app-input': 'var(--bg-input)',

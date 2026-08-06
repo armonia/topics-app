@@ -118,6 +118,44 @@ export default defineConfig({
     {
       name: "chromium",
       use: { browserName: "chromium" },
+      // La spec touch gira nel SUO progetto (sotto), non qui: se girasse in
+      // entrambi, l'unico progetto senza `hasTouch` la eseguirebbe con
+      // `isTouch === false` e verificherebbe l'esatto contrario di ciò che
+      // afferma, in verde.
+      //
+      // NB — il `testIgnore` di PROGETTO **sostituisce** quello globale (riga 71),
+      // non ci si somma: scrivendo qui la sola spec touch, il gate PR tornava a
+      // eseguire tutte le NIGHTLY_ONLY_SPECS (file-explorer, cross-feature,
+      // cross-window-topic-sync, chat-scroll…) e si riempiva di rossi che il
+      // gate esiste apposta per non guardare. La lista va quindi RIPETUTA qui.
+      testIgnore: [
+        "**/sidebar-touch-audit.spec.ts",
+        ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
+      ],
+    },
+    /**
+     * IL DITO NON ERA MAI STATO PROVATO.
+     *
+     * La suite gira tutta a 1280×800 con un mouse: in ogni test
+     * `useMobile().isTouch` è FALSO, quindi long-press, menu «…», bersagli
+     * allargati e i rami touch di ogni componente non avevano UNA riga di
+     * copertura — mentre l'app è usata da iPhone tutti i giorni. Un progetto
+     * dedicato costa un file di test, non una seconda passata della suite:
+     * `testMatch` lo tiene su quell'unica spec.
+     *
+     * `hasTouch` è ciò che accende `navigator.maxTouchPoints`, cioè il segnale
+     * su cui `useMobile` decide — senza, il progetto sarebbe solo una viewport
+     * stretta e proverebbe metà del problema.
+     */
+    {
+      name: "chromium-touch",
+      testMatch: "**/sidebar-touch-audit.spec.ts",
+      use: {
+        browserName: "chromium",
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 390, height: 844 },
+      },
     },
   ],
 });
