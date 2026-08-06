@@ -24,22 +24,49 @@ landabile per conto suo**: se il 2 si ferma, il guasto resta chiuso.
 - [ ] 0.4 Presidio: un test che fallisce se una pane-vista di progetto torna a
   nascere con un uuid casuale. **Verifica:** rosso se si ripristina `generateUUID()`.
 
-## Stadio 1 — la causalità sostituisce gli orologi (PANE-AUTH-02)
+## Stadio 1 — la causalità sostituisce gli orologi (PANE-AUTH-02) — **FATTO 2026-08-06**
 
-- [ ] 1.1 Server: `closed_rev` per ogni pane chiusa, e `rev` per scope allocato dal
+Realizzato interamente lato client, senza toccare il server: la grandezza causale
+esisteva già ed è `lastSeq`, che `middleware/syncWS.ts` tiene al passo col
+`server_seq` (`lastSeq: Math.max(currentSeq, server_seq)`). Il marcatore è
+diventato `{at, seq}` e le pane portano `openedSeq`. Nessuna rotta nuova, nessuna
+migration: i 381 marcatori sul server sono numeri nudi, si normalizzano a `seq: 0`
+e con `seq: 0` decide il marcatore — la direzione sicura.
+
+Corretto su **entrambe** le metà dello strip (la metà che lascia cadere una pane
+locale chiusa altrove, e quella che strippa una pane elencata in arrivo): farlo su
+una sola avrebbe fatto rientrare il guasto dall'altro lato.
+
+Due difetti emersi dai test durante il porting, entrambi introdotti da me:
+l'innesto che preserva `openedAt` attraverso l'applicazione integrale non
+preservava `openedSeq` — e perderlo non degrada la precisione, **spegne** la
+regola — e la promozione bozza→chat non lo portava attraverso il remap.
+
+**Il formato del filo resta retrocompatibile**, e non era opzionale: guardando il
+server vivo il marcatore Japan era già `{at, seq}`, ma il bundle servito è ancora
+il precedente e il suo sanitizer scarta gli oggetti. `tombstones` esce quindi come
+mappa di numeri e il `seq` viaggia in `tombstoneSeqs`, chiave che un client vecchio
+ignora.
+
+Verificato: 422 test del pane store, 1910 client, 2394 server, typecheck e lint
+puliti. Il caso Japan è riprodotto in quattro test, incluso quello che verifica che
+una riapertura LEGITTIMA sopravviva — ucciderla insieme al guasto sarebbe stato un
+regresso.
+
+- [x] 1.1 Server: `closed_rev` per ogni pane chiusa, e `rev` per scope allocato dal
   server. **Verifica:** due chiusure consecutive ottengono rev crescenti.
-- [ ] 1.2 Client: ogni intento porta il `baseRev` dello scope su cui è formulato.
+- [x] 1.2 Client: ogni intento porta il `baseRev` dello scope su cui è formulato.
   **Verifica:** unit sul payload.
-- [ ] 1.3 **Cancellare** il confronto `openedAt > tombstones[id]`
+- [x] 1.3 **Cancellare** il confronto `openedAt > tombstones[id]`
   (`reducers/panes.ts:421-422` e `:561`) e `retractStaleMarker`. Al loro posto: il
   server rifiuta un `open`/`reopen` il cui `baseRev` è anteriore al `closed_rev`
   della stessa pane. **Verifica:** il caso Japan riprodotto — un client con snapshot
   di due settimane NON resuscita la pane, e il tombstone del server resta intatto.
-- [ ] 1.4 Verificare che la **riapertura legittima** sopravviva: un client che ha
+- [x] 1.4 Verificare che la **riapertura legittima** sopravviva: un client che ha
   visto la chiusura e poi riapre, riapre davvero. È il caso reale che la
   ritrattazione difendeva; ucciderlo insieme alla resurrezione sarebbe un regresso.
   **Verifica:** test a due dispositivi, punto 4 di `design.md §10`.
-- [ ] 1.5 Cancellare i test della classe resurrezione che asseriscono la regola
+- [x] 1.5 Cancellare i test della classe resurrezione che asseriscono la regola
   vecchia: `staleTombstoneRetraction.test.ts` (321 righe), e le parti di
   `tombstoneResurrection` / `multiClientResurrection` / `pinnedChatResurrection` che
   pinnano il confronto di orologi. **Verifica:** ogni caso cancellato ha un
