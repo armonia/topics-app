@@ -67,7 +67,7 @@ import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
-import { createAuthRouter } from "./server/routes/auth";
+import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import {
   evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
   type DeviceRecord,
@@ -1649,7 +1649,19 @@ const server = Bun.serve<WSData>({
 
     // WebSocket upgrade
     if (pathname === "/ws") {
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now() } });
+      // Il dispositivo si timbra QUI: e' l'ultimo momento in cui gli header —
+      // e quindi il cookie di sessione — sono leggibili. Dopo l'upgrade un
+      // WebSocket e' solo un tubo, e chiedersi «di chi e' questa socket»
+      // sarebbe troppo tardi.
+      const wsDeviceId = (() => {
+        if (isLoopbackAddress(server.requestIP(req)?.address ?? null)) return null;
+        const t = readSessionCookie(req.headers.get("cookie"));
+        if (!t) return null;
+        const row = ctx.db.query("SELECT id FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
+          .get(hashToken(t)) as { id?: string } | undefined;
+        return row?.id ?? null;
+      })();
+      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDeviceId } });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -1894,6 +1906,7 @@ const server = Bun.serve<WSData>({
     maxPayloadLength: 1024 * 1024,
     open(ws) {
       ws.data.lastPong = Date.now();
+      if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       // Started BEFORE the terminal branch since both use ws.data fields,
@@ -2398,6 +2411,7 @@ const server = Bun.serve<WSData>({
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws) {
+      if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {
         console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);

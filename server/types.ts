@@ -7,6 +7,15 @@ export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
 
 export interface WSData {
   id: string;
+  /**
+   * Il dispositivo a cui appartiene questa socket, quando la connessione arriva
+   * da fuori loopback. Timbrato all'upgrade — l'unico momento in cui gli header
+   * (e quindi il cookie di sessione) sono ancora leggibili: dopo, un WebSocket è
+   * solo un tubo. Serve a dire nell'elenco quali dispositivi sono connessi
+   * ADESSO, che è un fatto diverso da «autorizzato».
+   * `null` = loopback, cioe' il computer stesso.
+   */
+  deviceId?: string | null;
   focusedTopicId: string | null;
   /** P6: topics this connection currently has open; streaming deltas are routed
    *  only to clients that include the streaming topic. `undefined` until the

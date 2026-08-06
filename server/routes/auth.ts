@@ -37,6 +37,34 @@ interface PendingPairing {
 const pending = new Map<string, PendingPairing>();
 
 /**
+ * Quante socket vive ha ciascun dispositivo, adesso. Un conteggio e non un
+ * booleano perche' un dispositivo apre piu' socket (quella primaria, i
+ * terminali, il browser): decrementare a una chiusura non deve spegnere il
+ * pallino se le altre sono ancora su.
+ *
+ * Vive in memoria e non nel DB: e' uno stato di CONNESSIONE, non un fatto da
+ * ricordare. Un riavvio del server azzera tutte le socket davvero, quindi
+ * azzerare la mappa e' la verita', non una perdita.
+ */
+const liveSockets = new Map<string, number>();
+
+export function noteDeviceConnected(deviceId: string): void {
+  liveSockets.set(deviceId, (liveSockets.get(deviceId) ?? 0) + 1);
+}
+
+export function noteDeviceDisconnected(deviceId: string): void {
+  const n = (liveSockets.get(deviceId) ?? 0) - 1;
+  if (n > 0) liveSockets.set(deviceId, n);
+  else liveSockets.delete(deviceId);
+}
+
+/** Test-only: la mappa e' di modulo, e un test che conta le socket deve poter
+ *  ripartire da zero. */
+export function __resetLiveSocketsForTests(): void {
+  liveSockets.clear();
+}
+
+/**
  * Tetto alle richieste in attesa. Il verso dell'approvazione toglie il
  * brute-force del CODICE — non c'è niente da indovinare — ma non impedisce a un
  * peer sulla rete di inondare la coda finché il cartello sul Mac diventa
@@ -186,10 +214,26 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     }
 
     if (method === "GET" && pathname === "/api/auth/devices") {
-      return json({ devices: listDevices().map((d) => ({
-        id: d.id, name: d.name, createdAt: d.createdAt,
-        lastSeenAt: d.lastSeenAt, firstIp: d.firstIp, revokedAt: d.revokedAt,
-      })) });
+      const token = loopback ? null : readSessionCookie(req.headers.get("cookie"));
+      const questoHash = token ? hashToken(token) : null;
+      return json({
+        // Il computer e' un dispositivo come gli altri e deve comparire: chiedere
+        // «i miei dispositivi» e vedere solo gli altri e' una lista che mente per
+        // omissione. Non ha una riga nel DB — qui si e' dentro per trasporto, non
+        // per sessione — quindi la si compone, e non e' revocabile: revocare il
+        // computer da cui gira il server non vuol dire niente.
+        thisComputer: { name: "Questo computer", current: loopback },
+        devices: listDevices().map((d) => ({
+          id: d.id, name: d.name, createdAt: d.createdAt,
+          lastSeenAt: d.lastSeenAt, firstIp: d.firstIp, revokedAt: d.revokedAt,
+          // CONNESSO adesso, che non e' «autorizzato»: un dispositivo puo' essere
+          // autorizzato da settimane e spento da ieri.
+          connected: (liveSockets.get(d.id) ?? 0) > 0,
+          // Quello da cui stai guardando. Senza, con tre iPhone in elenco non si
+          // sa quale si sta per revocare — e ci si taglia fuori da soli.
+          current: questoHash !== null && d.tokenHash === questoHash,
+        })),
+      });
     }
 
     // Rinomina. «iPhone» basta con un telefono; con tre l'elenco smette di
