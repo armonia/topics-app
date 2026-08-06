@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useSessionActivity, useSubjectLastActivity } from '@/state/signals';
 import { useSharedNow } from '@/state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '@/state/workLongevity';
+import { useTopicPreview } from '@/state/topicPreviews';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '@/lib/selectionStyles';
 
 /** Map a Claude Code tool name to a short human verb. Unknown tools fall back to
@@ -114,6 +115,62 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
       title={title}
     >
       {text}
+    </span>
+  );
+}
+
+/**
+ * TopicSubline — la riga sotto il nome di una chat, che deve dire SEMPRE
+ * qualcosa.
+ *
+ * Sotto al nome c'è UNA riga da 11px, e finora la riempiva solo
+ * `SessionActivity` — che rende `null` appena la sessione è ferma
+ * (`starting/completed/error/dormant`, o nessuno `ClaudeSessionState` affatto),
+ * cioè quasi sempre. Una chat a riposo non diceva niente: per sapere di cosa
+ * parlasse bisognava aprirla. Le due voci non convivono, si ALTERNANO — c'è
+ * spazio per una riga sola:
+ *   · sessione viva  → lo stato live, com'era.
+ *   · sessione ferma → l'ultimo messaggio, potato (vedi state/topicPreviews).
+ *
+ * Il gate resta a costo zero per le righe mute, com'era: `useSessionActivity` è
+ * una lettura dello store dei segnali, non un orologio, e l'anteprima si
+ * sottoscrive PER TOPIC — una riga si sveglia solo per il proprio messaggio, mai
+ * per quello di un'altra chat. È la regressione contro cui avverte il commento
+ * in cima a `SessionActivity`, e vale per entrambi i rami.
+ */
+export function TopicSubline({ topicId, onFill, className = '' }: {
+  topicId: string | undefined;
+  onFill?: boolean;
+  className?: string;
+}) {
+  const activity = useSessionActivity(topicId);
+  if (activity) return <SessionActivityText subjectId={topicId} onFill={onFill} className={className} />;
+  return <TopicPreviewLine topicId={topicId} onFill={onFill} className={className} />;
+}
+
+function TopicPreviewLine({ topicId, onFill, className = '' }: {
+  topicId: string | undefined;
+  onFill?: boolean;
+  className?: string;
+}) {
+  const preview = useTopicPreview(topicId);
+  if (!preview) return null;
+  // Il marcatore dei messaggi TUOI. Senza, un «ok, procedi» sotto al nome si
+  // legge come una risposta dell'agente, ed è il contrario: è la convenzione
+  // delle app di messaggistica («Tu: …»), due lettere e i due punti. Non
+  // un'icona — su una riga da 11px un glifo in più è rumore — e non un colore,
+  // perché il colore da solo non dice chi ha parlato.
+  const tone = onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary';
+  return (
+    <span
+      className={`truncate text-[11px] leading-none ${tone} ${className}`}
+      title={preview.text}
+      // Ancora per l'e2e: il testo dell'anteprima è quello dell'ultimo
+      // messaggio, quindi non è cercabile per stringa senza inseguire il seed.
+      data-testid="topic-preview"
+    >
+      {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
+      {preview.text}
     </span>
   );
 }

@@ -8,6 +8,8 @@ import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
 import { openExternalOnce } from '../../lib/openExternal';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress, type LongPressBinding } from '../../hooks/useLongPress';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -146,8 +148,8 @@ export function BrowserToolbar({
   const [navMenu, setNavMenu] = useState<{ side: 'back' | 'forward'; entries: NavHistoryEntry[]; activeIndex: number } | null>(null);
   const backBtnRef = useRef<HTMLButtonElement>(null);
   const forwardBtnRef = useRef<HTMLButtonElement>(null);
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFiredRef = useRef(false);
+  const mousePressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mousePressFiredRef = useRef(false);
   const openNavMenu = useCallback(async (side: 'back' | 'forward') => {
     if (!getNavEntries) return;
     const { entries, activeIndex } = await getNavEntries();
@@ -159,16 +161,53 @@ export function BrowserToolbar({
     // above the native WKWebView pane via Menu's glass-surface occlusion marker.
     setNavMenu({ side, entries, activeIndex });
   }, [getNavEntries]);
-  const navButtonHandlers = (side: 'back' | 'forward', navFn: () => void) => ({
-    onClick: () => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } navFn(); },
-    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side); },
-    onMouseDown: () => {
-      if (!getNavEntries) return;
-      longPressFiredRef.current = false;
-      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side); }, 450);
+
+  // IL «TIENI PREMUTO» COL DITO ORA ESISTE DAVVERO.
+  //
+  // Il gesto era armato su `onMouseDown` e disarmato su `onMouseUp`/`onMouseLeave`:
+  // col mouse funziona, col dito no. Su iOS quei due eventi sono SINTETIZZATI
+  // insieme al `touchend`, quindi il timer nasceva e moriva nello stesso tick e la
+  // cronologia Indietro/Avanti era irraggiungibile — mentre il `title` del bottone
+  // continuava a prometterla («tieni premuto per la cronologia»).
+  // Il ramo touch passa ora dalla primitiva condivisa (slop, `touchcancel`, clic
+  // successivo mangiato, feedback `data-pressing`).
+  //
+  // I DUE RAMI NON SI ESCLUDONO, E SPEGNERE QUELLO MOUSE «SU TOUCH» ERA IL
+  // DIFETTO DI PRIMA SPOSTATO DI POPOLAZIONE. I gestori mouse erano
+  // `isTouch ? undefined : …`: su un portatile con schermo touch — dove `isTouch`
+  // è vero E il mouse c'è — la cronologia Indietro/Avanti tornava raggiungibile
+  // SOLO col tasto destro, cioè esattamente ciò che questo blocco dichiara di
+  // aver chiuso. Ora ogni ramo si arma sulla propria domanda: i gestori MOUSE su
+  // `hasHover` (c'è un puntatore), quelli TOUCH su `isTouch` (si può toccare).
+  // Su un ibrido ci sono entrambi e non litigano: sono eventi diversi, e i due
+  // timer sono separati (`mousePressRef` / quello interno alla primitiva) — un
+  // tocco non sintetizza `mousedown` prima del `touchend`, quindi non si sommano.
+  const { isTouch, hasHover } = useMobile();
+  const canNavMenu = !!getNavEntries;
+  const backLongPress = useLongPress(() => { void openNavMenu('back'); }, { enabled: isTouch && canNavMenu });
+  const forwardLongPress = useLongPress(() => { void openNavMenu('forward'); }, { enabled: isTouch && canNavMenu });
+  // Un timer armato non deve sopravvivere alla toolbar che lo ha armato: una
+  // pane browser chiusa mentre tieni premuto aprirebbe la cronologia di una
+  // webview che non c'è più. (La primitiva lo fa già per il ramo touch.)
+  useEffect(() => () => { if (mousePressRef.current) clearTimeout(mousePressRef.current); }, []);
+
+  const navButtonHandlers = (side: 'back' | 'forward', navFn: () => void, lp: LongPressBinding) => ({
+    ...lp.handlers,
+    onClick: () => {
+      // Il clic che il browser sintetizza DOPO un long-press andato a segno non
+      // deve anche navigare: aprirebbe la cronologia e poi se ne andrebbe.
+      if (lp.consumeClick()) return;
+      if (mousePressFiredRef.current) { mousePressFiredRef.current = false; return; }
+      navFn();
     },
-    onMouseUp: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
-    onMouseLeave: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
+    onContextMenu: (e: React.MouseEvent) => { if (!canNavMenu) return; e.preventDefault(); void openNavMenu(side); },
+    onMouseDown: hasHover ? () => {
+      if (!canNavMenu) return;
+      mousePressFiredRef.current = false;
+      mousePressRef.current = setTimeout(() => { mousePressFiredRef.current = true; void openNavMenu(side); }, 450);
+    } : undefined,
+    onMouseUp: hasHover ? () => { if (mousePressRef.current) { clearTimeout(mousePressRef.current); mousePressRef.current = null; } } : undefined,
+    onMouseLeave: hasHover ? () => { if (mousePressRef.current) { clearTimeout(mousePressRef.current); mousePressRef.current = null; } } : undefined,
   });
 
   // Reset favicon error state when URL changes (new favicon may load).
@@ -235,21 +274,30 @@ export function BrowserToolbar({
           </div>
         </>
       )}
-      {/* Navigation buttons. Right-click / long-press opens the history menu. */}
+      {/* Navigation buttons. Right-click / long-press opens the history menu.
+          `tap-expand`: il box resta 24px (la toolbar è alta quello che è) e
+          cresce solo l'area sensibile, a 44px, e solo su `pointer: coarse` —
+          altrimenti il bersaglio è metà della soglia iOS. Le due aree espanse si
+          sovrappongono nei 4px di `gap-1` fra i bottoni, e lì vince chi viene
+          dopo nel DOM: il confine fra Indietro e Avanti cade qualche pixel dentro
+          al glifo di Indietro. È il prezzo di due bersagli da 44 distanti 28, ed
+          è comunque meglio di due da 24 che un dito manca. */}
       <button
         ref={backBtnRef}
-        {...navButtonHandlers('back', onBack)}
+        {...navButtonHandlers('back', onBack, backLongPress)}
+        data-pressing={backLongPress.pressed || undefined}
         disabled={!canGoBack}
-        className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
+        className="tap-expand w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
         title={getNavEntries ? 'Indietro (tieni premuto per la cronologia)' : 'Indietro'}
       >
         <ArrowLeft size={14} />
       </button>
       <button
         ref={forwardBtnRef}
-        {...navButtonHandlers('forward', onForward)}
+        {...navButtonHandlers('forward', onForward, forwardLongPress)}
+        data-pressing={forwardLongPress.pressed || undefined}
         disabled={!canGoForward}
-        className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
+        className="tap-expand w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
         title={getNavEntries ? 'Avanti (tieni premuto per la cronologia)' : 'Avanti'}
       >
         <ArrowRight size={14} />

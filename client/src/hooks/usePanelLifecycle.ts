@@ -68,6 +68,7 @@ import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors'
 import { isLiveSpaceId } from '../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
+import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
 import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
@@ -1157,6 +1158,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     };
   }, [onWSMessage, openPanelsRef, chatHandlersRef, applyTopicFromWSRef]);
 
+  // Anteprime di sidebar: la fotografia iniziale, una volta al boot.
+  //
+  // Da qui in poi le tiene aggiornate il `message:new` del Cluster 2 qui sotto
+  // (nessun secondo listener: il messaggio è già in mano lì). Senza questa
+  // idratazione una chat ferma da ieri resterebbe muta finché non le arriva un
+  // messaggio nuovo — cioè per sempre, che è esattamente il buco da chiudere.
+  // UNA richiesta per tutte le chat: il server risponde con una query batch.
+  useEffect(() => { void hydrateTopicPreviews(); }, []);
+
   // WS Cluster 2: message sync (notifications, media, clear, agents-spawned)
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -1167,6 +1177,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // Falls back to last-of-role/content match for legacy emissions that
       // pre-date the messageId field (still in flight from older servers).
       if (msg.type === 'message:new') {
+        // L'anteprima della riga di sidebar si aggiorna PRIMA del bail su
+        // `isOwnStream`. Quel bail esiste perché la pane che sta streammando ha
+        // già il messaggio in pagina — ma la riga in sidebar no, e sotto il bail
+        // la chat che stai davvero guardando sarebbe l'unica a restare con
+        // l'anteprima vecchia.
+        applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
         if (chatHandlersRef.current.isOwnStream(msg.sessionKey)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
@@ -1221,6 +1237,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // clear
       if (msg.type === 'clear') {
         chatHandlersRef.current.clearSession(msg.sessionKey);
+        // …e l'anteprima di sidebar con esso. Senza, «Svuota chat» svuotava i
+        // messaggi ma lasciava la riga a mostrare per sempre l'ultimo messaggio
+        // appena cancellato: l'unica cosa che poteva sovrascriverla era un
+        // messaggio NUOVO, e una chat svuotata non ne ha per definizione.
+        // Il frame porta solo la `sessionKey`; il topic si ritrova dalla mappa
+        // che questo cluster ha già in mano (nessuna fetch, nessuna dipendenza
+        // nuova).
+        const cleared = Object.values(topicsRef.current).find(t => t.sessionKey === msg.sessionKey);
+        if (cleared) clearTopicPreview(cleared.id);
       }
     });
   }, [onWSMessage, topicsRef, chatHandlersRef, taskForTopicRef]);
