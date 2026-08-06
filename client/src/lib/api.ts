@@ -22,6 +22,7 @@ import type {
   GoalStepStatus,
 } from '../types';
 import { serverHttpBase } from './shell/net';
+import { markUnpaired } from './auth/session';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -46,6 +47,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
+    // Il cookie di sessione viaggia da solo, ma solo se lo si chiede
+    // esplicitamente su una fetch che potrebbe essere cross-origin (il guscio
+    // Tauri lo è). Su same-origin è già il default; scriverlo qui rende il
+    // percorso identico ovunque invece di dipendere dall'ospite.
+    credentials: 'same-origin',
   });
 
   if (!response.ok) {
@@ -56,6 +62,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       const parsed: unknown = JSON.parse(text);
       if (parsed && typeof parsed === 'object') {
         const obj = parsed as Record<string, unknown>;
+        // Il server rifiuta per IDENTITÀ: questo dispositivo non è appaiato, o
+        // è stato revocato, o la sessione è scaduta. Va detto una volta e a voce
+        // alta — senza, l'unico sintomo sarebbe un «Reconnecting…» eterno,
+        // perché il WebSocket non può leggere lo stato HTTP del proprio upgrade
+        // e nessun altro guarda il 401. È il difetto per cui il pairing
+        // precedente non è mai servito a nessuno.
+        if (response.status === 401 && typeof obj.code === 'string' && obj.code !== 'forbidden') {
+          markUnpaired(obj.code);
+        }
         if (typeof obj.error === 'string') message = obj.error;
         const { error: _, ...rest } = obj;
         if (Object.keys(rest).length) extra = rest;

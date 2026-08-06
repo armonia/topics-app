@@ -63,6 +63,8 @@ import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast';
+import { PairingGateHost } from './components/Auth/PairingGate';
+import { PairingApproval } from './components/Auth/PairingApproval';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
@@ -965,7 +967,9 @@ function App() {
       same context.
     */}
     <PendingActionProvider countdownMs={1500}>
-    <div
+    <PairingGateHost />
+      <PairingApproval />
+      <div
       // NB: the landing demo (client/src/demo/landing-cursor.js, scene
       // "floating") toggles `.floating-splits` on THIS element from outside
       // React, to show the mode on the marketing site. That works only because
