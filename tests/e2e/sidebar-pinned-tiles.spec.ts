@@ -968,3 +968,137 @@ test.describe("Sidebar — l'anteprima del drop e' la cosa, alle misure giuste",
     expect(misure.sinistra, "e comincia sulla stessa colonna").toBe(0);
   });
 });
+
+test.describe("Sidebar — le distanze attorno al «+»", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-20: sopra, a destra e sotto il «+» c'e' la stessa distanza", async ({ page, request }) => {
+    // Non e' una preferenza estetica scritta a mano: e' un'identita' fra due
+    // costanti. La tessera e' alta quanto il trigger piu' DUE volte il suo
+    // rientro, quindi centrandolo in verticale i tre spazi coincidono. Se
+    // qualcuno cambia l'altezza senza il rientro (o viceversa) questo rosso lo
+    // dice subito, invece di lasciare una tessera «troppo alta».
+    const projectPath = "/tmp/e2e-tile-inset";
+    const chat = await createTopic(request, `E2E-Inset-${Date.now()}`, { projectPath });
+    created.push(chat.id);
+
+    await setPins(page, [`project:${projectPath}`]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    const cella = page.getByTestId("sidebar-pinned-section").locator("div.group\\/cell").first();
+    await cella.hover();
+    const piu = cella.getByTestId("pane-add-menu-trigger");
+    await expect(piu).toBeVisible({ timeout: 10000 });
+
+    const t = (await tiles(page).first().boundingBox())!;
+    const p = (await piu.boundingBox())!;
+    const sopra = Math.round(p.y - t.y);
+    const sotto = Math.round((t.y + t.height) - (p.y + p.height));
+    const destra = Math.round((t.x + t.width) - (p.x + p.width));
+
+    expect({ sopra, destra, sotto }).toEqual({ sopra: 4, destra: 4, sotto: 4 });
+  });
+});
+
+test.describe("Sidebar — rimettere una tessera nella lista", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-21: trascinare una tessera sulla lista la sfissa, e mostra dove finira'", async ({ page, request }) => {
+    // Il gesto inverso mancava del tutto: si poteva fissare trascinando, ma per
+    // tornare indietro restava solo il menu contestuale.
+    const fissata = await createTopic(request, `E2E-Unpin-${Date.now()}`);
+    const altra = await createTopic(request, `E2E-Unpin-Altra-${Date.now()}`);
+    created.push(fissata.id, altra.id);
+
+    await setPins(page, [fissata.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    const esito = await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      // Il bersaglio è LA LISTA, non una riga qualunque: certe righe hanno un
+      // `drop` proprio e lo fermano (lasciare qualcosa su un progetto vuol dire
+      // portarcelo dentro, non sfissarlo). Puntare «la prima riga che capita»
+      // rendeva il test dipendente da quale riga stesse in cima.
+      const lista = document.querySelector('.sidebar-scroll') as HTMLElement;
+      const bersaglio = lista;
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      bersaglio.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await attendi();
+      const anteprima = !!document.querySelector('[data-testid="unpin-preview"]');
+
+      bersaglio.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return { anteprima, listaTrovata: !!lista };
+    }, fissata.id);
+
+    expect(esito.anteprima, "durante il drag la riga si vede dove finira'").toBe(true);
+
+    // Sfissata: niente piu' tessera, e il server lo sa.
+    await expect(tiles(page)).toHaveCount(0, { timeout: 15000 });
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        return ((env?.value ?? env)?.pinnedItems ?? []) as string[];
+      }, { timeout: 15000 })
+      .not.toContain(fissata.id);
+  });
+
+  test("TILE-22: dentro il blocco dei fissati il drop resta un RIORDINO, non uno sfissaggio", async ({ page, request }) => {
+    // Il bersaglio dello sfissaggio sta sul contenitore che scorre, cioe' anche
+    // sopra i fissati: senza la guardia, riordinare due tessere le avrebbe
+    // sfissate entrambe nello stesso gesto.
+    const ids: string[] = [];
+    for (const n of ["E2E-NoUnpin-A", "E2E-NoUnpin-B"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids, [[ids[0], ids[1]]]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+
+    await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const riga = document.querySelector('[data-testid="pinned-row"]') as HTMLElement;
+      const box = (riga.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      const punto = { clientX: box.left + 2, clientY: box.top + 5 };
+      const dt = new DataTransfer();
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      riga.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      await attendi();
+      riga.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+    }, ids[1]);
+
+    // Sono ancora due: il riordino non sfissa.
+    await expect(tiles(page)).toHaveCount(2);
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        return ((env?.value ?? env)?.pinnedItems ?? []).length as number;
+      }, { timeout: 15000 })
+      .toBe(2);
+  });
+});
