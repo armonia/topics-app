@@ -144,6 +144,49 @@ test.describe.serial("Add menu — sistema", () => {
     await expect(page.getByTestId("pane-add-palette")).toHaveCount(0);
   });
 
+  test("ADD-07: il chip è disegnato dove è stato deciso — a destra, uno per riga", async ({ page, request }) => {
+    // Misura, non impressione: il repo giudica la geometria dal DOM, non da un
+    // pixel. Quello che va pinnato è che la lettera esista come elemento, sia
+    // UNA sola per riga, e stia nella colonna destra — cioè il disegno scelto
+    // (chip .kbd a fine riga), non uno qualunque che «sembra giusto».
+    await resetPaneStore(request, []);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+
+    await page.keyboard.press("Meta+n");
+    await expect(page.getByTestId("pane-add-palette")).toBeVisible();
+
+    const rows = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="pane-add-menu"]')!;
+      const box = panel.getBoundingClientRect();
+      return Array.from(panel.querySelectorAll<HTMLElement>('[data-testid^="pane-add-menu-"]')).map((row) => {
+        const kbds = row.querySelectorAll("kbd");
+        const label = row.querySelector("span");
+        const r = row.getBoundingClientRect();
+        const k = kbds[0]?.getBoundingClientRect();
+        return {
+          testid: row.getAttribute("data-testid"),
+          kbdCount: kbds.length,
+          // distanza del chip dal bordo destro della riga
+          gapRight: k ? Math.round(r.right - k.right) : null,
+          // il chip sta DOPO l'etichetta, non prima
+          afterLabel: !!(k && label) && k.left >= label!.getBoundingClientRect().right,
+          overflows: Math.round(r.right) > Math.round(box.right) + 1,
+        };
+      });
+    });
+
+    expect(rows.length).toBeGreaterThan(5);
+    for (const r of rows) {
+      expect(r.kbdCount, `${r.testid}: un chip e uno solo`).toBe(1);
+      expect(r.afterLabel, `${r.testid}: il chip sta a destra dell'etichetta`).toBe(true);
+      // Stessa colonna per tutte: il padding di riga è px-3 (12px).
+      expect(r.gapRight, `${r.testid}: chip incollato al bordo destro`).toBeLessThanOrEqual(14);
+      expect(r.overflows, `${r.testid}: la riga non sfora il pannello`).toBe(false);
+    }
+    await page.keyboard.press("Escape");
+  });
+
   test("ADD-06: il chip non entra nel nome accessibile della riga", async ({ page, request }) => {
     // `getByRole('button', { name: 'Shell', exact: true })` esiste in
     // terminal-tab-reload.spec.ts: se il chip finisse nel nome accessibile
