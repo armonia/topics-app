@@ -127,9 +127,28 @@
    * non è la scorciatoia per un fondo chiaro. */
   --bg: #f8f9fa;
   --bg-surface: #ffffff;
+  /* IL CHROME — la superficie della NAVIGAZIONE (sidebar: header, albero,
+   * barra di stato). Un gradino SOTTO la pagina, non sopra: il chrome
+   * arretra, le pane di contenuto (`--bg-surface`) avanzano. È la stessa
+   * gerarchia del Finder — barra laterale grigia, contenuto bianco — ed è
+   * l'unica che regge su iPhone, dove sopra la sidebar c'è la barra di stato
+   * OPACA di iOS (`apple-mobile-web-app-status-bar-style: black`, index.html):
+   * una sidebar più CHIARA della pagina lasciava un gradino verso il nero
+   * della barra, e la fascia sopra cambiava colore aprendo e chiudendo la
+   * sidebar (--bg-surface a sidebar aperta, --bg a sidebar chiusa).
+   * Sotto Tauri/mac lo stesso token diventa translucido (vedi §vibrancy in
+   * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il
+   * materiale nativo. UNA tinta, due gradi di opacità — mai due tinte. */
+  --chrome-bg: hsl(220 16% 93%);
   --bg-elevated: #fafafa;
   --bg-hover: #f5f5f5;
-  --bg-code: #1a1a2e;
+  /* Le superfici del CODICE stanno nella stessa famiglia fredda del resto del
+   * tema — hue 220, saturazione bassa — non in una loro. Misurato: erano a hue
+   * 215/240 con il 28% di saturazione, il DOPPIO della palette dell'app, e in
+   * tema chiaro leggevano come due riquadri blu notte in mezzo al bianco. La
+   * scelta di tenerle SCURE resta (una fence si stacca dal testo), quella di
+   * tenerle BLU no: era solo un residuo. */
+  --bg-code: hsl(220 12% 13%);
   --bg-panel: #1e1e1e;
   --bg-input: #fafafa;
   --bg-inset: #f8f8f8;
@@ -162,7 +181,7 @@
   --resize-handle: #e5e7eb;
   --skeleton-from: #e5e7eb;
   --skeleton-mid: #f3f4f6;
-  --code-bg: #1f2937;
+  --code-bg: hsl(220 12% 17%);
   --code-text: #f9fafb;
   --code-inline-bg: #f3f4f6;
   --code-inline-text: #374151;
@@ -239,9 +258,16 @@
 .dark {
   --bg: hsl(222 16% 8.5%);
   --bg-surface: hsl(222 14% 11%);
+  /* Il chrome in dark è il GEMELLO OPACO del vetro che l'app desktop mostra
+   * già da sempre (`hsl(224 26% 4.5% / .55)` più sotto): stessa tinta, senza
+   * alpha perché sul web e in PWA non c'è nessuna vibrancy dietro cui stare.
+   * #080a0e — sotto la pagina (#121419) e a un soffio dal nero della barra di
+   * stato iOS, così su iPhone status bar e sidebar si leggono come una cosa
+   * sola invece di fare due gradini. */
+  --chrome-bg: hsl(224 26% 4.5%);
   --bg-elevated: hsl(220 13% 14%);
   --bg-hover: hsl(220 12% 17%);
-  --bg-code: hsl(225 22% 9%);
+  --bg-code: hsl(220 12% 9%);
   --bg-panel: hsl(222 14% 11.5%);
   --bg-input: hsl(220 13% 13%);
   --bg-inset: hsl(222 15% 10%);
@@ -268,9 +294,9 @@
   --resize-handle: #374151;
   --skeleton-from: #374151;
   --skeleton-mid: #4b5563;
-  --code-bg: #111827;
+  --code-bg: hsl(220 12% 11%);
   --code-text: #f9fafb;
-  --code-inline-bg: #374151;
+  --code-inline-bg: hsl(220 12% 26%);
   --code-inline-text: #e5e7eb;
   --blockquote-border: #4b5563;
   --blockquote-text: #9ca3af;
@@ -280,6 +306,47 @@
   /* Phase 30 devOverlay accent tokens (dark mode) */
   --color-accent-success: #34d399;
   --color-accent-warning: #fbbf24;
+}
+
+/* IL CHROME SI RITARA I TOKEN CHE GLI STANNO SOPRA.
+ *
+ * `--text-tertiary` e `--border` erano calibrati su `--bg-surface`: il bianco
+ * puro in chiaro, `#181a20` in scuro. Portando la sidebar su `--chrome-bg`
+ * (`#eaecf0` in chiaro) quei due token cadono, e cadono MISURATI:
+ *   · testo terziario #707070 su #eaecf0 = 4,19:1 — sotto il 4,5 di WCAG AA.
+ *     Ed è proprio il tono della funzione nuova: l'anteprima dell'ultimo
+ *     messaggio e il timestamp di ogni riga.
+ *   · bordo #e8e8e8 su #eaecf0 = 1,04:1 — i tre capelli orizzontali della
+ *     colonna (sotto l'header, sopra la barra di stato) spariscono.
+ * In scuro succede il contrario: sul chrome quasi nero il testo GUADAGNA
+ * (16,2 / 9,1 / 7,2:1) e i bordi tengono (1,42:1), quindi lì non si tocca
+ * niente.
+ *
+ * La correzione non è schiarire il chrome — a 96% di lightness il terziario
+ * arriva appena a 4,50:1 e in cambio lo stacco chrome↔pagina crolla a 1,04:1,
+ * cioè il chrome smette di essere un layer. È RITARARE i token DENTRO il
+ * layer, che è esattamente il senso di avere un layer. Vale solo qui: i menu
+ * escono in un portale alla radice del body e restano sui token normali.
+ *
+ * Valori scelti sul numero, non a occhio (script in scratchpad/solve.mjs):
+ *   terziario hsl(220 8% 42%)  = #636874 → 4,72:1   (era 4,19)
+ *   bordo     hsl(220 14% 84%) = #d0d4dc → 1,256:1  (era 1,036)
+ *   sottile   hsl(220 14% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
+ * La tinta è fredda come il chrome: un grigio neutro su un fondo blu-grigio
+ * si legge sporco. */
+[role="navigation"][aria-label="Topics sidebar"] {
+  --text-tertiary: hsl(220 8% 42%);
+  --border: hsl(220 14% 84%);
+  --border-subtle: hsl(220 14% 88%);
+}
+/* Il gemello scuro NON è ridondante: la regola qui sopra ha specificità (0,2,1)
+   e batterebbe il blocco `.dark` (0,1,0), quindi senza questa riga il tema
+   scuro erediterebbe i valori CHIARI dentro la sidebar. I valori sono quelli
+   di `.dark`, ripetuti solo per rivincere. */
+.dark [role="navigation"][aria-label="Topics sidebar"] {
+  --text-tertiary: #969ca6;
+  --border: hsl(220 11% 18%);
+  --border-subtle: hsl(220 12% 15%);
 }
 
 /* Global focus styles for keyboard navigation */
@@ -306,8 +373,14 @@ html, body, #root {
   background-color: var(--bg);
 }
 
-/* Dark mode: force exact match to eliminate safe-area color mismatch on OLED */
-.dark html, .dark body, .dark #root { background-color: var(--bg); }
+/* (Qui stava una riga `.dark html, .dark body, .dark #root { background-color:
+   var(--bg) }` che diceva di «forzare la corrispondenza esatta per la fascia
+   safe-area su OLED». Era morta per un terzo — `.dark` sta su <html>, quindi
+   `.dark html` chiede un <html> DISCENDENTE di sé stesso — e ridondante per gli
+   altri due: la regola sopra assegna già `var(--bg)`, che in tema scuro risolve
+   al valore di `.dark` per ereditarietà. Il colore della fascia non si decide
+   qui: lo decide chi vince lo z-order in cima allo schermo — la sidebar
+   (`--chrome-bg`) o `#main-content` (`--bg`). */
 
 #root > div {
   max-width: 100vw;
@@ -817,6 +890,81 @@ input[type="range"]::-webkit-slider-thumb {
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* IL BERSAGLIO SI ALLARGA, IL GLIFO NO.
+ *
+ * `.touch-target` porta il BOX a 44px, e per questo non si poteva usare quasi
+ * da nessuna parte: i «…» della sidebar sono 24px dentro una riga alta 34,
+ * e portarli a 44 sfonda la riga. Infatti in tutto il client `.touch-target`
+ * era usata da ZERO componenti, mentre i bersagli sotto soglia erano la norma.
+ *
+ * Qui il box resta quello che è e cresce solo l'AREA SENSIBILE, con uno
+ * pseudo-elemento centrato che non partecipa al layout. È il modo standard di
+ * rispettare i 44px delle linee guida iOS senza ridisegnare le righe.
+ * Il genitore deve poter fare da riferimento: `position: relative` è imposto
+ * qui, così chi la usa non se lo deve ricordare.
+ *
+ * Solo su `pointer: coarse` — su desktop un'area invisibile di 44px attorno a
+ * un'icona da 24 ruberebbe i clic ai vicini. */
+.tap-expand { position: relative; }
+@media (pointer: coarse) {
+  .tap-expand::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* La variante che NON ruba ai vicini: cresce solo in ALTEZZA.
+ *
+ * `.tap-expand` proietta 44×44 attorno al glifo, e va bene per un bottone che
+ * ha spazio libero attorno. In una rastrelliera stretta no: nel binario in coda
+ * a una riga di sidebar i bersagli sono 24px separati da 8 (`gap-2`), quindi due
+ * aree da 44 centrate a 32px di distanza si SOVRAPPONGONO di 12 e vince l'ultimo
+ * nel DOM — il bordo destro dei «…» aprirebbe il Ripristina, e l'area sporgente
+ * coprirebbe i glifi Pin / finestra / badge che seguono, aprendo il menu invece
+ * della chat.
+ *
+ * Qui l'area cresce solo dove c'è spazio davvero: in verticale, dove la riga su
+ * mobile è già alta 44 (`h-11`). Larghezza 100%, quindi nessun vicino perde un
+ * pixel. Sotto i 768px il bersaglio arriva così a 24×44 o 36×44 — non i 44×44
+ * pieni delle linee guida Apple, ma tutto quello che si può prendere senza
+ * togliere a un altro comando.
+ *
+ * NB, detto senza abbellirlo: sopra i 768px con puntatore grossolano (un iPad in
+ * orizzontale) la riga è alta 34 e la card la ritaglia (`overflow-hidden` in
+ * sidebarRowCard), quindi lì i 44px NON si raggiungono. */
+.tap-expand-y { position: relative; }
+@media (pointer: coarse) {
+  .tap-expand-y::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: max(100%, 44px);
+    transform: translateY(-50%);
+  }
+}
+
+/* IL LONG-PRESS SI VEDE. Su iPhone `navigator.vibrate` non esiste, quindi
+ * `haptic()` è un no-op e 500ms di pressione sarebbero ciechi: senza un segno,
+ * chi tiene premuto non sa se sta succedendo qualcosa e molla prima. Il segno è
+ * lo stesso movimento che fa iOS quando raccogli un'icona — la superficie si
+ * ritira di un soffio e si smorza — e parte dall'attributo che `useLongPress`
+ * mette sull'elemento mentre il timer è armato. */
+[data-pressing] {
+  transform: scale(0.97);
+  opacity: 0.75;
+  transition: transform 160ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-pressing] { transform: none; }
 }
 
 /* Mobile drawer animation */
@@ -1405,14 +1553,32 @@ html.electron-mac #main-content {
  * same single `.chrome-glass` tint over the shared base frost, so the whole
  * chrome reads as one continuous sheet of glass. (The Topics sidebar is matched
  * by name here rather than carrying the class, but uses the identical tokens.)
- * Content panes (chat / terminal / editor) keep their opaque `bg-surface`. */
-html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
-html.electron-mac.dark .chrome-glass {
-  background-color: hsl(224 26% 4.5% / 0.55) !important;
+ * Content panes (chat / terminal / editor) keep their opaque `bg-surface`.
+ *
+ * IL GRADO DI TRASPARENZA VIVE QUI, E SOLO QUI. `--chrome-bg` è la stessa
+ * tinta del web/PWA (vedi :root / .dark in cima); sotto la shell mac prende
+ * l'alpha 0.55 che lascia salire il materiale nativo. Chi ritocca la tinta del
+ * chrome tocca UN token e i due mondi si muovono insieme; chi tocca l'alpha
+ * tocca solo queste due righe, e il web non se ne accorge. */
+html.electron-mac.dark {
+  --chrome-bg: hsl(224 26% 4.5% / 0.55);
 }
+html.electron-mac:not(.dark) {
+  --chrome-bg: hsl(220 16% 90% / 0.55);
+}
+/* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
+   token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
+   specificità da (0,3,1) a (0,2,1), e a quel punto pareggerebbe con le quattro
+   regole `background-color: transparent !important` più sotto (pane terminale,
+   cella col browser nativo, `.pane-frost`, `[role="region"][aria-label$=" panel"]`),
+   che vincerebbero per ordine di sorgente. Oggi nessun nodo porta insieme
+   `.chrome-glass` e uno di quei selettori, quindi non si vedrebbe — ma è un
+   difetto latente che aspetta il primo che li fa incontrare. */
+html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
+html.electron-mac.dark .chrome-glass,
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: hsl(220 16% 90% / 0.55) !important;
+  background-color: var(--chrome-bg) !important;
 }
 
 /* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
