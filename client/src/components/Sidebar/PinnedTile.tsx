@@ -199,11 +199,13 @@ export function PinnedTile({
         // (apri la cosa dove l'hai lasciata cadere). Chi riceve prende il tipo
         // che capisce, e trascinare un fissato dentro la griglia continua a
         // funzionare come prima che questa griglia esistesse.
+        // `PINNED_TILE` porta la chiave della RIGA (quella del layout), che è
+        // ciò che serve per riordinare dentro la griglia dei fissati.
         e.dataTransfer.setData(DND_TYPES.PINNED_TILE, item.id);
-        e.dataTransfer.setData(DND_TYPES.PANEL_ID, item.id);
-        // …e l'id della PANE, che per un progetto è un'altra stringa: la card
-        // di un gruppo sposta una pane, non una riga.
-        e.dataTransfer.setData(DND_TYPES.PINNED_PANE_ID, sidebarItemPaneId(item));
+        // `PANEL_ID` porta la chiave della PANE, che per un progetto è un'altra
+        // stringa: chi lo riceve apre o sposta una pane, e con l'id della riga
+        // il drop cadrebbe su una pane che non esiste — senza un errore.
+        e.dataTransfer.setData(DND_TYPES.PANEL_ID, sidebarItemPaneId(item));
         e.dataTransfer.effectAllowed = 'move';
         onDragStart?.();
       }}

@@ -249,16 +249,18 @@ test.describe("Sidebar — tessere fissate", () => {
     });
     expect(types).toContain("application/x-pinned-tile");
     expect(types).toContain("application/x-panel-id");
-    expect(types).toContain("application/x-pinned-pane-id");
   });
 
-  test("TILE-7: la tessera di un progetto porta l'id della PANE, non solo quello della riga", async ({ page, request }) => {
-    // I due consumatori vogliono cose diverse dallo stesso drag: la griglia dei
-    // pane vuole l'id apribile, la card di un gruppo vuole la pane da spostare —
-    // e per un progetto sono DUE STRINGHE (path grezzo vs codificato). Senza il
-    // secondo, trascinare un progetto fissato dentro un gruppo non faceva
-    // niente: nessun errore, solo un drop su una pane che non esiste.
-    const projectPath = "/tmp/e2e-tile-project";
+  test("TILE-7: la tessera di un progetto porta l'id della PANE, non quello della riga", async ({ page, request }) => {
+    // Le due chiavi servono a due cose diverse: `PINNED_TILE` e' la chiave della
+    // RIGA (il layout), `PANEL_ID` quella della PANE — e per un progetto sono
+    // due stringhe (path grezzo vs codificato). Chi riceve `PANEL_ID` apre o
+    // sposta una pane: con l'id della riga il drop cadrebbe su una pane che non
+    // esiste, senza un errore.
+    // Path SUO: `/tmp/e2e-tile-project` è già di TILE-2, e `hermetic` riparte
+    // dalla baseline una volta per FILE, non per test — condividerlo significa
+    // ereditare le pane e i gruppi che gli altri hanno lasciato aperti.
+    const projectPath = "/tmp/e2e-tile-paneid";
     const chat = await createTopic(request, `E2E-TilePaneId-${Date.now()}`, { projectPath });
     created.push(chat.id);
     await setPins(page, [`project:${projectPath}`]);
@@ -271,8 +273,8 @@ test.describe("Sidebar — tessere fissate", () => {
       const dt = new DataTransfer();
       el.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
       const out = {
-        row: dt.getData("application/x-panel-id"),
-        pane: dt.getData("application/x-pinned-pane-id"),
+        row: dt.getData("application/x-pinned-tile"),
+        pane: dt.getData("application/x-panel-id"),
       };
       el.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
       return out;
@@ -280,6 +282,74 @@ test.describe("Sidebar — tessere fissate", () => {
     expect(payload).not.toBeNull();
     expect(payload!.row).toBe(`project:${projectPath}`);
     expect(payload!.pane).toBe(`project:${encodeURIComponent(projectPath)}`);
+    expect(payload!.pane).toContain("%2F");
     expect(payload!.pane).not.toBe(payload!.row);
+  });
+
+  test("TILE-8: lasciare una tessera CHIUSA su un gruppo la porta dentro quel gruppo", async ({ page, request }) => {
+    // Il caso che falliva in silenzio. `movePaneToSpace` sposta una pane
+    // ESISTENTE: una tessera fissata con la tab chiusa non ha pane — cioè lo
+    // stato normale di un fissato da quando chiuderlo è permesso — quindi il
+    // drop non aveva niente da spostare e non faceva nulla, senza un errore.
+    const dentro = await createTopic(request, `E2E-TileInGroup-${Date.now()}`);
+    const altra = await createTopic(request, `E2E-TileGroupSeed-${Date.now()}`);
+    created.push(dentro.id, altra.id);
+
+    // `altra` aperta serve solo a far NASCERE un gruppo: un gruppo si crea
+    // portandoci una tab, non da un comando a vuoto.
+    await page.request.put(`${E2E_BASE}/api/ui-state/panels`, { data: { openPanels: [altra.id] } });
+    await setPins(page, [dentro.id]);
+    await gotoSidebar(page);
+    await expect(page.locator(`[data-pane-id="${altra.id}"]`).first()).toBeVisible({ timeout: 15000 });
+
+    await page.locator(`[data-pane-id="${altra.id}"]`).first().click({ button: "right" });
+    await page.getByText("Sposta nel gruppo", { exact: true }).click();
+    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    await expect(page.getByTestId("sidebar-groups")).toBeVisible({ timeout: 10000 });
+
+    const tile = tiles(page).first();
+    await expect(tile).toBeVisible({ timeout: 10000 });
+
+    // Il gruppo BERSAGLIO è quello appena nato, non il predefinito: le card
+    // sono due, e colpire la prima che capita proverebbe la cosa sbagliata.
+    const targetSpaceId = await page.evaluate(() => {
+      const cards = Array.from(
+        document.querySelectorAll('[data-testid="space-card"], [data-testid="space-card-active"]'),
+      ) as HTMLElement[];
+      const target = cards
+        .map(c => c.getAttribute("data-space-id") ?? "")
+        .find(id => id.startsWith("space:") && id !== "space:default");
+      return target ?? null;
+    });
+    expect(targetSpaceId, "dev'esserci un gruppo diverso dal predefinito").not.toBeNull();
+
+    // Drop sintetico: gli stessi eventi che manda il browser, con il
+    // dataTransfer prodotto dalla tessera. Playwright non guida un drag HTML5
+    // nativo in modo affidabile, e qui interessa il CONTRATTO, non il gesto.
+    await page.evaluate((spaceId) => {
+      const el = document.querySelector("[data-pinned-tile]") as HTMLElement | null;
+      const card = document.querySelector(`[data-space-id="${spaceId}"]`) as HTMLElement | null;
+      if (!el || !card) throw new Error("tessera o card mancante");
+      const dt = new DataTransfer();
+      el.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      card.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      card.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+    }, targetSpaceId);
+
+    // La cosa fissata è ora una pane VIVA, e vive in QUEL gruppo.
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`${E2E_BASE}/api/ui-state/pane-store-v2`);
+          const env = await res.json();
+          const store = env?.value ?? env;
+          const pane = store?.panes?.[dentro.id];
+          if (!pane) return "nessuna pane";
+          return pane.spaceId ?? "gruppo predefinito";
+        },
+        { timeout: 15000 },
+      )
+      .toBe(targetSpaceId);
   });
 });
