@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIcon } from '../Shared/projectIconStore';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -36,6 +38,15 @@ const TYPE_ICONS: Partial<Record<SidebarItem['type'], LucideIcon>> = {
 const UTILITY_ICONS: Record<string, LucideIcon> = {
   Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
+
+/**
+ * L'altezza di una tessera, in classe Tailwind. Dichiarata QUI e importata dal
+ * posto vuoto del drop: due numeri scritti a mano si allineano finché qualcuno
+ * non ne cambia uno, e l'anteprima che salta di quattro pixel rispetto alla
+ * tessera che sta annunciando è proprio il difetto che l'anteprima esiste per
+ * non avere.
+ */
+export const PINNED_TILE_H = 'h-12';
 
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque. */
@@ -214,10 +225,24 @@ export function PinnedTile({
     // Precedenza invariata rispetto alle righe: attenzione batte selezione,
     // selezione batte riposo. La tinta d'identità vive SOTTO, come alone, così
     // non compete mai con il segnale di stato.
+    //
+    // Il riposo è `RESTING_SURFACE`, non una copia: qui c'era la stessa scala
+    // riscritta a mano, e aveva GIÀ deviato di 0.01 sull'hover in tema scuro
+    // (0.07 contro 0.08). Una tessera e un bottone della stessa famiglia si
+    // accendevano di un soffio diverso sotto lo stesso dito — invisibile da
+    // soli, visibile affiancati, che è come la sidebar si guarda.
     if (tier) return attentionSurface(tier);
     if (focused) return SELECTED_SURFACE;
-    return 'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]';
+    return RESTING_SURFACE;
   }, [tier, focused]);
+
+  // Tenere premuto apre LO STESSO menu del tasto destro. Senza, una tessera
+  // fissata da telefono non si toglieva più dai Fissati: per terminali, browser
+  // e board «Rimuovi dai Fissati» è l'UNICA voce del loro menu, e quel menu era
+  // solo del mouse. Il `draggable` si spegne su touch, o il lift nativo di HTML5
+  // contende lo stesso gesto.
+  const { isTouch } = useMobile();
+  const press = useLongPress(openContextMenuAt, { enabled: isTouch && !!onContextMenu });
 
   return (
     <button
@@ -230,7 +255,7 @@ export function PinnedTile({
       data-pinned-tile={item.id}
       data-testid="pinned-tile"
       title={item.name}
-      draggable
+      draggable={!isTouch}
       onDragStart={e => {
         // DUE tipi sullo stesso dataTransfer, di proposito: `PINNED_TILE` per la
         // griglia dei fissati (riordino), `PANEL_ID` per la griglia dei pane
@@ -249,11 +274,13 @@ export function PinnedTile({
         onDragStart?.();
       }}
       onDragEnd={() => onDragEnd?.()}
-      onClick={onToggle}
+      {...press.handlers}
+      data-pressing={press.pressed || undefined}
+      onClick={() => { if (press.consumeClick()) return; onToggle(); }}
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex flex-col items-center justify-center gap-1',
-        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none',
+        `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
         // senza icona non deve sembrare spenta, deve sembrare sobria.
