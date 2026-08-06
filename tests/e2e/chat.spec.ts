@@ -128,9 +128,15 @@ test.describe.serial("Chat", () => {
     // The shared "Web Search Test" seed is too short to overflow the redesigned
     // list (footer spacer + increaseViewportBy), so the scroll-to-bottom button
     // never appears. Seed a fresh topic with enough messages to overflow it.
+    //
+    // Quaranta e non venti: la chat si è COMPATTATA (la riga dell'orario non
+    // occupa più il suo spazio da invisibile, e le corse di tool sono un item
+    // solo), quindi venti messaggi corti superano la finestra di MENO dei 150px
+    // che servono a sganciare l'aggancio — e senza sgancio la freccia non
+    // compare mai. Il test cadeva su una precondizione che non aveva creato.
     const sbTopicName = `chat-sb-${Date.now()}`;
     const sbTopic = await createTopic(request, sbTopicName);
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 40; i++) {
       await request.post(`${E2E_BASE}/api/topics/${sbTopic.id}/system-message`, {
         data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
         ignoreHTTPSErrors: true,
@@ -156,7 +162,28 @@ test.describe.serial("Chat", () => {
         .locator(`[aria-label="Messages for ${sbTopicName}"] [data-virtuoso-scroller]`)
         .first();
       await expect(scroller, "this topic's own scroller is mounted").toBeVisible({ timeout: 10_000 });
-      await scroller.evaluate((el) => { el.scrollTop = 0; });
+
+      // Si risale con una ROTELLINA vera, non assegnando `scrollTop`.
+      //
+      // Assegnarlo è un movimento che un utente non può produrre, e l'app lo
+      // classifica — correttamente — come proprio: `scrollTop` calato è
+      // ambiguo (lo abbassa anche Virtuoso quando rimisura dopo un nostro
+      // scroll forzato), e dentro la finestra di guardia che segue l'apertura
+      // non sgancia l'aggancio. Senza sgancio la freccia non compare, e il
+      // test cadeva su una precondizione che non aveva creato: non stava
+      // provando la freccia, stava provando la guardia. La rotellina è un
+      // gesto, l'app non ne produce, quindi sgancia sempre.
+      // PRECONDIZIONE esplicita: senza abbastanza da scorrere non c'è nessuna
+      // freccia da provare, e il rosso accuserebbe il bottone invece della
+      // semina.
+      const eccedenza = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+      expect(eccedenza, "il transcript deve eccedere la finestra di piu' della tolleranza dell'app").toBeGreaterThan(300);
+
+      await scroller.hover();
+      for (let i = 0; i < 8; i++) {
+        await page.mouse.wheel(0, -2000);
+        if (await scroller.evaluate((el) => el.scrollTop === 0)) break;
+      }
 
       // Scroll-to-bottom button should appear
       await expect(chatPage.scrollToBottomButton).toBeVisible({ timeout: 8_000 });
