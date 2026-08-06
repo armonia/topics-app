@@ -43,6 +43,31 @@ export interface TurnClockView {
   title?: string;
 }
 
+/**
+ * Il cronometro di un turno VIVO si scrive a secondi interi.
+ *
+ * `formatDurationMs` (quello dei tool) sotto i dieci secondi stampa un
+ * decimale, ed è giusto lì: fra un'azione da 0,8s e una da 1,2s la differenza
+ * è l'informazione. Su un turno in corso è il contrario — quel decimale si
+ * aggiorna una volta al secondo come tutto il resto, quindi non misura niente
+ * (il valore che mostra dipende solo da quando è partito il battito) e cambia
+ * la cifra più a destra a scatti: il numero SEMBRA rotto, e chi lo guarda dice
+ * che «non scorre».
+ *
+ * A secondi interi scorre visibilmente e non promette una precisione che non
+ * ha. Il tempo FINALE del turno resta quello di `formatDurationMs`: lì il
+ * decimale è una misura vera, non un residuo del battito.
+ */
+export function formatTurnElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const totalS = Math.floor(ms / 1000);
+  if (totalS < 60) return `${totalS}s`;
+  const totalM = Math.floor(totalS / 60);
+  if (totalM < 60) return `${totalM}m ${String(totalS % 60).padStart(2, '0')}s`;
+  const h = Math.floor(totalM / 60);
+  return `${h}h ${String(totalM % 60).padStart(2, '0')}m`;
+}
+
 export function turnClock({ elapsedMs, waitedMs, waitingMs }: TurnClockInput): TurnClockView {
   const total = Math.max(0, elapsedMs);
   const open = waitingMs != null ? Math.max(0, waitingMs) : null;

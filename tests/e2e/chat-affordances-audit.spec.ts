@@ -90,6 +90,50 @@ test.describe("Chat — superfici e affordance, misurate", () => {
     expect(scarto, `la bolla deve essere quasi-neutra, non una tinta (rgb ${r},${g},${b})`).toBeLessThan(20);
   });
 
+  test("sotto l'ultima risposta resta sempre un varco, anche quando l'area input si muove", async ({ page }) => {
+    // Misurato prima di metterlo: il varco era di SEI pixel — il testo stava
+    // appiccicato al composer — e bastava che l'area input si RESTRINGESSE (il
+    // banner di compattazione che si chiude, le righe del composer che si
+    // riassorbono) perché diventassero ZERO, con in più sei pixel di scroll
+    // residuo che nessuno chiudeva. Il varco è il margine che assorbe l'ultimo
+    // assestamento: senza, se lo mangia dal TESTO.
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const scroller = page.locator(`[aria-label="Messages for ${topicName}"] [data-virtuoso-scroller]`).first();
+    await expect(scroller).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight <= 8), { timeout: 15_000 }).toBe(true);
+
+    const varco = async () => page.evaluate((nome) => {
+      const righe = document.querySelectorAll(`[aria-label="Messages for ${nome}"] [data-item-index]`);
+      const ultima = righe[righe.length - 1] as HTMLElement | undefined;
+      const pane = document.querySelector(`[aria-label="Messages for ${nome}"]`)?.parentElement;
+      const input = pane?.querySelector(":scope > .absolute.bottom-0") as HTMLElement | null;
+      if (!ultima || !input) return null;
+      return Math.round(input.getBoundingClientRect().top - ultima.getBoundingClientRect().bottom);
+    }, topicName);
+
+    const MINIMO = 16;
+    expect(await varco(), "a riposo").toBeGreaterThanOrEqual(MINIMO);
+
+    // L'area input CRESCE (è lo stesso percorso del banner di compattazione:
+    // inputAreaHeight → Footer di Virtuoso).
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.click();
+    await textarea.fill("riga1\nriga2\nriga3\nriga4\nriga5\nriga6");
+    await page.waitForTimeout(700);
+    expect(await varco(), "mentre l'area input è cresciuta").toBeGreaterThanOrEqual(MINIMO);
+
+    // …e si RESTRINGE: è il verso che prima lasciava il testo a contatto.
+    await textarea.fill("");
+    await page.waitForTimeout(700);
+    expect(await varco(), "dopo che l'area input si è ristretta").toBeGreaterThanOrEqual(MINIMO);
+    expect(
+      await scroller.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)),
+      "e la vista resta al fondo vero",
+    ).toBeLessThanOrEqual(8);
+  });
+
   test("la freccia «torna in fondo» è centrata sulla colonna, non appesa al bordo", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
