@@ -17,6 +17,8 @@ export default {
         'app-panel': 'var(--bg-panel)',
         'app-input': 'var(--bg-input)',
         'app-inset': 'var(--bg-inset)',
+        // Grigio di sistema della bolla dei propri messaggi — vedi index.css.
+        'app-user-bubble': 'var(--bg-user-bubble)',
         'app-text': 'var(--text)',
         'app-text-secondary': 'var(--text-secondary)',
         'app-text-tertiary': 'var(--text-tertiary)',

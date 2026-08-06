@@ -1108,7 +1108,11 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       return blocks.map((block, i) => {
         if (block.type === 'quote') {
           return (
-            <div key={i} className="border-l-3 border-blue-300 pl-2 mb-1 text-sm opacity-75 italic">
+            // Bordo NEUTRO: era `border-blue-300`, cioè un azzurro scelto per
+            // stare su una bolla blu. Su un grigio di sistema quello stesso
+            // azzurro diventa una barra colorata a caso — la stessa ragione per
+            // cui la selezione in quest'app non si colora.
+            <div key={i} className="border-l-3 border-app-border-light pl-2 mb-1 text-sm opacity-75 italic">
               {block.content}
             </div>
           );
