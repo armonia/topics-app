@@ -1113,7 +1113,7 @@ export function TopicTree({
             {pinnedBlock.length > 0 && (
               <div className="mb-1">
                 {renderPinnedTiles()}
-                <div className="h-px bg-app-border mx-3 my-1" />
+                <div className="h-px bg-app-border mx-3 my-2.5" />
               </div>
             )}
             <div data-testid="sidebar-groups">
@@ -1145,7 +1145,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div className="h-px bg-app-border mx-3 my-1" />}
+                {unpinnedItems.length > 0 && <div className="h-px bg-app-border mx-3 my-2.5" />}
               </>
             )}
             {unpinnedItems.map(item => renderItem(item))}

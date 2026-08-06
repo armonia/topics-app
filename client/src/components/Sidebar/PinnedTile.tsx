@@ -19,9 +19,14 @@ const TYPE_ICONS: Record<SidebarItem['type'], LucideIcon> = {
   utility: Wrench,
 };
 
-/** Quanto della tinta si vede sul fondo. Basso di proposito: la tessera deve
- *  leggersi come una superficie dell'app tinta, non come una macchia di colore. */
-const TINT_SURFACE = 0.22;
+/** Quanto della tinta si vede sul fondo A RIPOSO.
+ *
+ *  Molto basso di proposito. La tessera a riposo deve leggersi come una
+ *  superficie dell'app appena tinta — un accenno di identità, non un alone: con
+ *  otto tessere in griglia otto aloni diventano una macchia sola, e il colore
+ *  smette di distinguere proprio quando servirebbe. L'identità forte sta sul
+ *  bordo, e il bordo si accende solo da selezionata. */
+const TINT_SURFACE = 0.1;
 
 /**
  * Una tessera dei Fissati.
@@ -267,7 +272,7 @@ export function PinnedTile({
           className="pointer-events-none absolute inset-0 rounded-lg"
           style={{
             background:
-              `radial-gradient(120% 100% at 50% 115%, color-mix(in oklab, var(--tile-tint) ${Math.round(TINT_SURFACE * 100)}%, transparent) 0%, transparent 70%)`,
+              `radial-gradient(100% 78% at 50% 118%, color-mix(in oklab, var(--tile-tint) ${Math.round(TINT_SURFACE * 100)}%, transparent) 0%, transparent 70%)`,
           }}
         />
       )}
