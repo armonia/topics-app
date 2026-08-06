@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
-import type { FileNode } from '../../types';
+import type { FileNode, WSMessage } from '../../types';
 import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -25,6 +25,12 @@ interface FileExplorerProps {
   onOpenFile?: (path: string) => void;
   pendingFile?: string | null;
   onPendingFileConsumed?: () => void;
+  /**
+   * Il canale WS. Se c'è, l'albero si aggiorna da solo su `files:changed`;
+   * se manca, resta il comportamento di prima (ricarica a mano). È opzionale
+   * perché non tutte le superfici che montano l'Explorer hanno il canale.
+   */
+  onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export interface FileExplorerHandle {
@@ -376,7 +382,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
   );
 }
 
-export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed }, ref) {
+export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed, onWSMessage }, ref) {
   const toast = useToast();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -396,6 +402,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
+
   const treeRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void; pinTab: (path: string) => void } | null>(null);
@@ -437,6 +444,28 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
+
+  /**
+   * L'albero si aggiorna da solo quando il filesystem cambia.
+   *
+   * Il server ha un watcher ricorsivo su `projectPath` che manda
+   * `files:changed` (debounce 300ms lato server). Qui si ricarica solo la
+   * radice: le cartelle aperte pigramente restano quelle che sono finché non le
+   * si riapre — ricaricarle tutte a ogni salvataggio significherebbe una
+   * richiesta per cartella aperta, a ogni tasto premuto in un editor esterno.
+   */
+  useEffect(() => {
+    if (!onWSMessage) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = onWSMessage((msg) => {
+      if (msg.type !== 'files:changed' || msg.projectPath !== projectPath) return;
+      // Secondo debounce, lato client: il server ne fa uno per progetto, ma i
+      // messaggi di più progetti aperti arrivano sullo stesso canale.
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; void loadFiles(); }, 200);
+    });
+    return () => { unsub(); if (timer) clearTimeout(timer); };
+  }, [onWSMessage, projectPath, loadFiles]);
 
   // Build git lookup maps from shared hook data (no duplicate polling).
   // Keyed on a stable signature of the file statuses so identical poll results

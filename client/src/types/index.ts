@@ -767,6 +767,18 @@ export interface WSGitStatusMessage {
   projectId?: string;
   status?: unknown;
 }
+/**
+ * Qualcosa è cambiato sul filesystem del progetto.
+ *
+ * Senza payload di proposito: chi ascolta ricarica il pezzo che gli serve.
+ * Spedire l'albero vorrebbe dire ricalcolare e trasmettere migliaia di voci a
+ * ogni salvataggio, e chi lo riceve dovrebbe comunque riconciliare le cartelle
+ * che ha caricato pigramente.
+ */
+export interface WSFilesChangedMessage {
+  type: 'files:changed';
+  projectPath: string;
+}
 /** Scripts list (package.json scripts etc.) changed. */
 export interface WSScriptsUpdatedMessage {
   type: 'scripts:updated';
@@ -1020,6 +1032,7 @@ export type WSMessage =
   | WSDashboardUpdatedMessage
   | WSMemoryUpdatedMessage
   | WSGitStatusMessage
+  | WSFilesChangedMessage
   | WSScriptsUpdatedMessage
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage
