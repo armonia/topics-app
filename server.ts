@@ -68,6 +68,11 @@ import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
+import { createAuthRouter } from "./server/routes/auth";
+import {
+  evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
+  type DeviceRecord,
+} from "./server/lib/device-auth";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -449,6 +454,7 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
+const authRouter = createAuthRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
 // The dispatcher is the ONLY place that starts a headless agent turn from a
@@ -1544,6 +1550,50 @@ const server = Bun.serve<WSData>({
     // Il preflight OPTIONS è esente (gli si risponde sotto). Botola di recupero:
     // TOPICS_AUTH_OFF=1 + kickstart.
     if (method !== "OPTIONS" && isOriginGatedPath(pathname)) {
+      // ── Asse IDENTITA', risolto qui perche' serve il DB (il gate resta puro).
+      // Le due sole esenzioni sono i percorsi che SERVONO a ottenere l'identita':
+      // esentarne uno di troppo e' un buco, uno di meno un vicolo cieco in cui
+      // non ci si puo' appaiare.
+      const peerIp = server.requestIP(req)?.address ?? null;
+      const identity = isIdentityExemptPath(pathname)
+        ? undefined
+        : (() => {
+            const loopback = isLoopbackAddress(peerIp);
+            // Il DB si tocca SOLO per un peer remoto con un cookie: il percorso
+            // locale — che e' il 99% del traffico — non paga una query.
+            let device: DeviceRecord | null = null;
+            const sessionToken = loopback ? null : readSessionCookie(req.headers.get("cookie"));
+            if (sessionToken) {
+              const row = ctx.db.query("SELECT * FROM devices WHERE token_hash = ?")
+                .get(hashToken(sessionToken)) as Record<string, unknown> | undefined;
+              if (row) {
+                device = {
+                  id: String(row.id), name: String(row.name), tokenHash: String(row.token_hash),
+                  createdAt: Number(row.created_at),
+                  lastSeenAt: row.last_seen_at === null ? null : Number(row.last_seen_at),
+                  firstIp: row.first_ip === null ? null : String(row.first_ip),
+                  revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
+                };
+              }
+            }
+            const r = evaluateIdentity({
+              transport: loopback ? "loopback" : "remote",
+              sessionToken,
+              device,
+              bearerToken: loopback ? null : req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null,
+              expectedDaemonToken: loopback ? null : readState()?.token ?? null,
+              now: Date.now(),
+            });
+            // `last_seen_at` con parsimonia: sono ~94 chiamate per boot, e una
+            // scrittura per ognuna trasformerebbe l'elenco dispositivi in una
+            // sorgente di I/O. Un'ora di granularita' basta a dire «visto
+            // l'ultima volta…».
+            if (r.ok && r.as === "device" && device && (Date.now() - (device.lastSeenAt ?? 0)) > 3_600_000) {
+              ctx.db.query("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(Date.now(), device.id);
+            }
+            return r.ok ? { ok: true as const } : { ok: false as const, status: r.status, reason: r.reason, code: r.code };
+          })();
+
       const decision = evaluateAuth({
         origin: req.headers.get("origin"),
         method,
@@ -1551,11 +1601,16 @@ const server = Bun.serve<WSData>({
         host: req.headers.get("host"),
         authOff: process.env.TOPICS_AUTH_OFF === "1",
         allowedOrigins: resolveAllowedOrigins(),
+        identity,
       });
       if (!decision.allow) {
-        if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — origin ${decision.status}: ${decision.reason}`);
+        if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — ${decision.status}: ${decision.reason}`);
         const o = corsAllowOrigin(req);
-        return new Response(JSON.stringify({ error: decision.reason, code: "forbidden" }), {
+        // Il `code` distingue «non sei appaiato» da «origine forestiera»: e' su
+        // quello che il client decide se aprire la schermata di appaiamento o
+        // limitarsi a segnalare. Un 401 muto era il difetto per cui il pairing
+        // precedente non e' mai servito a nessuno.
+        return new Response(JSON.stringify({ error: decision.reason, code: decision.code ?? "forbidden" }), {
           status: decision.status,
           headers: { "content-type": "application/json", ...(o ? { "Access-Control-Allow-Origin": o, Vary: "Origin" } : {}) },
         });
@@ -1776,6 +1831,7 @@ const server = Bun.serve<WSData>({
         || await goalsRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
+        || await authRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -3192,6 +3248,11 @@ async function runLandingAudit() {
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.
 const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
 const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
+
+// `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
+// aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
+// (l'appaiamento) non ricevono il server intero.
+ctx.requestIp = (req: Request) => server.requestIP(req)?.address ?? null;
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";

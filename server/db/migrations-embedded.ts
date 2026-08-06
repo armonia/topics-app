@@ -84,6 +84,7 @@ import m075 from "./migrations/076-message-model.sql" with { type: "text" };
 import m076 from "./migrations/077-fix-stale-opus-pricing.sql" with { type: "text" };
 import m077 from "./migrations/078-topic-model-1m-window.sql" with { type: "text" };
 import m078 from "./migrations/079-board-night-mode.sql" with { type: "text" };
+import m079 from "./migrations/080-devices.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -172,4 +173,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 77, name: "077-fix-stale-opus-pricing.sql", sql: m076 },
   { version: 78, name: "078-topic-model-1m-window.sql", sql: m077 },
   { version: 79, name: "079-board-night-mode.sql", sql: m078 },
+  { version: 80, name: "080-devices.sql", sql: m079 },
 ];

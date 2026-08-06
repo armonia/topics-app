@@ -218,6 +218,14 @@ export interface AppContext {
   // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
   // un broadcast con un tipo che nessuno ha modellato non compila.
   broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
+  /**
+   * L'indirizzo del peer di una richiesta. Assegnato in `server.ts` DOPO
+   * `Bun.serve`, perche' `requestIP` vive sull'istanza del server e il contesto
+   * nasce prima. Le rotte che devono distinguere loopback da remoto (l'asse
+   * dell'identita', `lib/device-auth.ts`) passano di qui invece di ricevere il
+   * server intero.
+   */
+  requestIp?: (req: Request) => string | null;
   broadcastToAll: (message: OutboundMessage) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
