@@ -227,7 +227,6 @@ export function PinnedTile({
   const tier = attention ?? topicTier ?? termTier;
 
   const Glyph = (item.type === 'utility' ? UTILITY_ICONS[item.icon] : undefined) ?? TYPE_ICONS[item.type];
-  const showName = !hasRealIcon;
 
   const surface = useMemo(() => {
     // Precedenza invariata rispetto alle righe: attenzione batte selezione,
@@ -287,7 +286,7 @@ export function PinnedTile({
       onClick={() => { if (press.consumeClick()) return; onToggle(); }}
       onContextMenu={onContextMenu}
       className={[
-        'group/tile relative flex flex-col items-center justify-center gap-0.5',
+        'group/tile relative flex items-center gap-1',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
@@ -353,47 +352,44 @@ export function PinnedTile({
         />
       )}
 
-      {/* IL SEGNO CHE SI APRE, ACCANTO A CIÒ CHE IDENTIFICA.
-          Un progetto fissato fa due cose col click — ci si va sopra, e le sue
-          tab compaiono nella fascia qui sotto — ma la seconda non la dichiarava
-          niente: la cartella diceva «sono un progetto», che si sapeva già dal
-          nome.
+      {/* IN RIGA, non impilati.
+          A 32px lo stack verticale NON CI STA: glifo (16) + nome su due righe
+          (25) chiedono 38px, e il browser taglia — misurato, ed era il motivo
+          per cui l'anteprima «non si vedeva» pur essendoci. In orizzontale
+          l'altezza richiesta è quella dell'elemento più alto, cioè l'icona, e
+          il nome si prende tutta la larghezza che resta.
 
-          È LO STESSO chevron delle righe (`ChevronRight` da 12, ruota di 90° da
-          aperto: progetti, sotto-agenti, card dei gruppi) e sta nella STESSA
-          posizione: davanti alla cosa che apre. Nell'albero è davanti alla
-          cartella, qui è davanti all'icona — o al nome, per un progetto che
-          un'icona non ce l'ha. Sotto, staccato, non apparteneva a niente.
+          Il titolo ora c'è SEMPRE, anche con la favicon: «senza ripetere il
+          titolo se non c'entra» voleva dire quello — se non ci sta. In riga ci
+          sta, troncato, e due progetti con la stessa icona tornano
+          distinguibili. */}
+      {expandable && <ExpandChevron expanded={expanded} />}
 
-          Non è mai in due posti: `showName` è `!hasRealIcon`, quindi la riga
-          dell'icona e quella del nome si escludono a vicenda. */}
-      {(hasRealIcon || Glyph) && (
-        <span className="relative flex items-center justify-center gap-0.5">
-          {expandable && <ExpandChevron expanded={expanded} />}
-          {hasRealIcon
-            ? <ProjectFavicon path={projectPath} size={22} />
-            : Glyph && <Glyph size={16} className="text-app-text-secondary" aria-hidden="true" />}
-        </span>
-      )}
+      <span className="relative flex flex-shrink-0 items-center justify-center">
+        {hasRealIcon
+          ? <ProjectFavicon path={projectPath} size={18} />
+          : Glyph
+            ? <Glyph size={14} className="text-app-text-secondary" aria-hidden="true" />
+            : null}
+      </span>
 
-      {showName && (
-        // 11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
-        // scende nemmeno per far entrare una parola in più. Senza icona il nome
-        // può prendersi due righe: è tutto ciò che quella tessera ha per farsi
-        // riconoscere, e troncarlo a metà parola su una riga sola la rende
-        // indistinguibile dalla vicina dello stesso progetto padre.
-        <span className="relative flex w-full items-center justify-center gap-0.5 min-w-0">
-          {expandable && !hasRealIcon && <ExpandChevron expanded={expanded} />}
-          <span data-testid="pinned-tile-name" className={`min-w-0 text-center text-[11px] leading-[1.15] text-app-text-secondary ${
-            hasRealIcon ? 'truncate' : 'line-clamp-2'
-          }`}>
-            {item.name}
-          </span>
-        </span>
-      )}
+      {/* 11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
+          scende nemmeno per far entrare una parola in più. */}
+      <span
+        data-testid="pinned-tile-name"
+        className="relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary"
+      >
+        {item.name}
+      </span>
 
       {item.notificationCount > 0 && (
-        <NotificationBadge count={item.notificationCount} className="absolute top-1 right-1" />
+        // In linea, non appoggiato in un angolo: in una riga il conteggio sta
+        // in fondo. Sparisce al passaggio del mouse perché lì, nello stesso
+        // posto, arriva il «+» — e due cose sovrapposte non si leggono.
+        <NotificationBadge
+          count={item.notificationCount}
+          className="relative flex-shrink-0 group-hover/cell:invisible"
+        />
       )}
     </button>
   );

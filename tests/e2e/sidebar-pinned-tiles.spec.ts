@@ -1102,3 +1102,98 @@ test.describe("Sidebar — rimettere una tessera nella lista", () => {
       .toBe(2);
   });
 });
+
+test.describe("Sidebar — la tessera ci sta dentro", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-23: icona e titolo stanno DENTRO la tessera, anche nell'anteprima", async ({ page, request }) => {
+    // A 32px lo stack verticale non ci sta: glifo (16) + nome su due righe (25)
+    // chiedono ~43px, e quel che avanza viene tagliato. In riga l'altezza
+    // richiesta e' quella dell'elemento piu' alto — l'icona — e ci sta.
+    //
+    // NON si misura con `scrollHeight`: la tessera ha strati decorativi in
+    // `-inset-1.5` (l'alone proiettato dall'icona) che sporgono di 6px per
+    // costruzione, quindi quel numero dice 38 su una tessera perfettamente
+    // sana. Si misurano i RETTANGOLI di icona e titolo contro quello della
+    // tessera, che e' la domanda vera: si vedono per intero?
+    const pin = await createTopic(request, `E2E-Fit-Pin-${Date.now()}`);
+    const chat = await createTopic(request, `E2E-Fit-Chat-${Date.now()}`);
+    created.push(pin.id, chat.id);
+
+    await setPins(page, [pin.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+
+    const dentro = (t: HTMLElement) => {
+      const box = t.getBoundingClientRect();
+      const parti = [
+        t.querySelector('[data-testid="pinned-tile-name"]'),
+        t.querySelector("svg, img"),
+      ].filter(Boolean) as Element[];
+      return {
+        parti: parti.length,
+        nome: t.querySelector('[data-testid="pinned-tile-name"]')?.textContent ?? null,
+        fuori: parti.filter(e => {
+          const r = e.getBoundingClientRect();
+          return r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
+        }).length,
+      };
+    };
+
+    // 1. La tessera POSATA: icona e titolo, tutti e due interi.
+    const posata = await tiles(page).first().evaluate(dentro);
+    expect(posata.parti, "icona e titolo ci sono entrambi").toBe(2);
+    expect(posata.nome).toContain("E2E-Fit-Pin");
+    expect(posata.fuori, "e nessuno dei due esce dalla tessera").toBe(0);
+
+    // 2. L'ANTEPRIMA, trascinando una riga della lista sui fissati, mostra le
+    //    stesse due cose — e nemmeno lei trabocca.
+    const riga = page.getByRole("treeitem", { name: chat.name }).first();
+    await expect(riga).toBeVisible({ timeout: 15000 });
+    const anteprima = await riga.evaluate(async (src) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const row = document.querySelector('[data-testid="pinned-row"]') as HTMLElement;
+      const box = (row.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      const dt = new DataTransfer();
+      src.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      row.dispatchEvent(new DragEvent("dragover", {
+        dataTransfer: dt, bubbles: true, cancelable: true,
+        clientX: box.left + 2, clientY: box.top + 5,
+      }));
+      await attendi();
+      const prev = row.querySelector('[data-testid="pinned-drop-preview"]');
+      const tile = prev?.querySelector("[data-pinned-tile]") as HTMLElement | null;
+      let out: { c: boolean; parti: number; nome: string | null; fuori: number } =
+        { c: false, parti: 0, nome: null, fuori: 0 };
+      if (tile) {
+        const b = tile.getBoundingClientRect();
+        const parti = [
+          tile.querySelector('[data-testid="pinned-tile-name"]'),
+          tile.querySelector("svg, img"),
+        ].filter(Boolean) as Element[];
+        out = {
+          c: true,
+          parti: parti.length,
+          nome: tile.querySelector('[data-testid="pinned-tile-name"]')?.textContent ?? null,
+          fuori: parti.filter(e => {
+            const r = e.getBoundingClientRect();
+            return r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5;
+          }).length,
+        };
+      }
+      src.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      return out;
+    });
+
+    expect(anteprima.c, "l'anteprima esiste").toBe(true);
+    expect(anteprima.parti, "con icona E titolo").toBe(2);
+    expect(anteprima.nome, "il titolo e' quello giusto").toContain("E2E-Fit-Chat");
+    expect(anteprima.fuori, "e si vedono per intero").toBe(0);
+  });
+});
