@@ -162,6 +162,9 @@ describe('outbound registry contract', () => {
     // niente. Non si poteva allargare `stream:context` senza far dire a un
     // evento due cose che si muovono in verso opposto.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
+      'auth:device-revoked',
+      'auth:pair-requested',
+      'auth:pair-resolved',
       'board:dispatch',
       'board:global-cap',
       'board:settings',
@@ -310,8 +313,16 @@ describe('outbound registry contract', () => {
   // stesso — quindi ogni file creato da un agente restava invisibile. E lo era
   // in modo visibilmente asimmetrico, perché nella stessa sidebar i numeri di
   // git si muovevano da soli: un watcher su `.git` c'era da sempre.
-  test('all 86 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(86);
+  // 86 → 89: entrano i tre `auth:*` dell'accoppiamento di un dispositivo —
+  // `pair-requested` (un telefono bussa e mostra un codice), `pair-resolved`
+  // (qualcuno da questa parte ha detto sì o no) e `device-revoked`. Sono
+  // l'unico stato in cui la decisione sta su UNA macchina e l'effetto su
+  // un'altra: senza un fronte, il dispositivo che chiede resta a fissare uno
+  // schermo fermo finché non ricarica. Tutti e tre hanno mittente
+  // (`server/routes/auth.ts`) e ascoltatore (`useWebSocket`) — verificato, non
+  // sono tipi dichiarativi.
+  test('all 89 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(89);
   });
 });
 
