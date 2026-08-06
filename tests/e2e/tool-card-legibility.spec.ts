@@ -120,8 +120,12 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
     const old = page.locator('[data-testid="tool-call-row-tc-skill-old"]');
     await expect(old).toBeVisible();
     await expect(old).not.toContainText("Launching skill");
-    // Non c'è proprio un bottone: la riga non promette un gesto che non ha.
+    // Non c'è proprio un bottone: la riga non promette un gesto che non ha —
+    // ma DICE perché, o si legge come una riga rotta invece che vuota.
     await expect(old.locator("button")).toHaveCount(0);
+    const inerte = old.locator('[data-empty="true"]');
+    await expect(inerte).toHaveCount(1);
+    await expect(inerte).toHaveAttribute("title", /Nessuna istruzione registrata/);
     await old.click();
     await expect(old.locator('[data-testid="tool-call-result"]')).toHaveCount(0);
 
