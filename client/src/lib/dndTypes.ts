@@ -26,6 +26,16 @@ export const DND_TYPES = {
    *  il secondo per aprire. Chi riceve prende il tipo che capisce, e il drag
    *  «trascina un fissato dentro la griglia» continua a funzionare come prima. */
   PINNED_TILE: 'application/x-pinned-tile',
+  /** L'id della PANE di una tessera fissata, che per un progetto NON coincide
+   *  con la sua chiave di riga: la riga è chiavata sul path grezzo
+   *  (`project:/Users/…`), la pane su quello codificato (`project:%2FUsers…`).
+   *
+   *  Serve perché i due consumatori vogliono cose diverse dallo stesso drag: la
+   *  griglia dei pane vuole l'id APRIBILE (`PANEL_ID`), la card di un gruppo
+   *  vuole l'id della pane da spostare. Senza questo, trascinare un progetto
+   *  fissato dentro un gruppo non faceva niente — nessun errore, solo un drop
+   *  che cadeva su una pane inesistente. */
+  PINNED_PANE_ID: 'application/x-pinned-pane-id',
 } as const;
 
 /** The DnD scope of the top-level standalone window (its chat group + solo split

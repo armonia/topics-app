@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, Globe, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
-import type { SidebarItem } from '../../lib/buildSidebarItems';
+import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, SELECTED_SURFACE } from '../../lib/selectionStyles';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -144,6 +144,9 @@ export function PinnedTile({
         // funzionare come prima che questa griglia esistesse.
         e.dataTransfer.setData(DND_TYPES.PINNED_TILE, item.id);
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, item.id);
+        // …e l'id della PANE, che per un progetto è un'altra stringa: la card
+        // di un gruppo sposta una pane, non una riga.
+        e.dataTransfer.setData(DND_TYPES.PINNED_PANE_ID, sidebarItemPaneId(item));
         e.dataTransfer.effectAllowed = 'move';
         onDragStart?.();
       }}

@@ -51,13 +51,15 @@ describe('reconcilePinnedLayout', () => {
     expectWellFormed(l);
   });
 
-  test('pota le chiavi non più fissate e tiene le proporzioni delle superstiti', () => {
+  test('pota le chiavi non più fissate, e le superstiti restano larghe uguali', () => {
+    // Le proporzioni salvate NON si conservano di proposito: nessuno può averle
+    // volute (non c'è un gesto per ridimensionare una tessera), quindi sono
+    // rumore accumulato dall\'append e vanno raddrizzate. Vedi `widthsFor`.
     const before: PinnedRow[] = [{ keys: ['a', 'b', 'c'], widths: [0.2, 0.3, 0.5] }];
     const l = reconcilePinnedLayout(['a', 'c'], before);
     expect(l.map(r => r.keys)).toEqual([['a', 'c']]);
-    // 0.2 : 0.5 conservato come rapporto, non appiattito a 1/2.
-    expect(l[0].widths[0]).toBeCloseTo(0.2 / 0.7, 9);
-    expect(l[0].widths[1]).toBeCloseTo(0.5 / 0.7, 9);
+    expect(l[0].widths[0]).toBeCloseTo(0.5, 9);
+    expect(l[0].widths[1]).toBeCloseTo(0.5, 9);
     expectWellFormed(l);
   });
 
@@ -180,7 +182,7 @@ describe('previewWidths', () => {
   });
 
   test('somma 1 a ogni posizione d\'inserimento', () => {
-    const r: PinnedRow = { keys: ['a', 'b', 'c'], widths: [0.5, 0.3, 0.2] };
+    const r: PinnedRow = { keys: ['a', 'b', 'c'], widths: [1 / 3, 1 / 3, 1 / 3] };
     for (let at = 0; at <= 3; at++) {
       const w = previewWidths(r, at);
       expect(w.length).toBe(4);
@@ -202,5 +204,61 @@ describe('tilesPerVisualRow', () => {
   test('non scende mai sotto una tessera per riga', () => {
     expect(tilesPerVisualRow(10, 6, 5)).toBe(1);
     expect(tilesPerVisualRow(0, 6, 1)).toBe(1);
+  });
+});
+
+/** Tutte uguali entro un epsilon. */
+function expectEven(row: PinnedRow) {
+  const target = 1 / row.widths.length;
+  for (const w of row.widths) expect(Math.abs(w - target)).toBeLessThan(1e-6);
+}
+
+describe('le tessere restano larghe uguali', () => {
+  test('fissarne una terza su una riga da due NON stringe solo la nuova', () => {
+    // Il bug visto sullo schermo: `appendColumnWidths` preserva le proporzioni
+    // (giusto per colonne ridimensionate a mano) e su una riga equa produceva
+    // [0.375, 0.375, 0.25]. Finché non esiste un gesto di resize, ogni riga è
+    // "senza volontà" e va riequilibrata.
+    const l = reconcilePinnedLayout(['a', 'b', 'c'], [row('a', 'b')]);
+    expect(l[0].keys).toEqual(['a', 'b', 'c']);
+    expectEven(l[0]);
+  });
+
+  test('accodando una alla volta si resta equi a ogni passo', () => {
+    let l: PinnedRow[] = [];
+    const pins: string[] = [];
+    for (const k of ['a', 'b', 'c', 'd', 'e']) {
+      pins.push(k);
+      l = reconcilePinnedLayout(pins, l);
+      for (const r of l) expectEven(r);
+    }
+  });
+
+  test('togliere una tessera lascia le altre uguali fra loro', () => {
+    const l3 = reconcilePinnedLayout(['a', 'b', 'c'], [row('a', 'b')]);
+    const l2 = reconcilePinnedLayout(['a', 'c'], l3);
+    expect(l2[0].keys).toEqual(['a', 'c']);
+    expectEven(l2[0]);
+  });
+
+  test('spostare una tessera dentro una riga equa la lascia equa', () => {
+    const l = movePinnedTile([row('a', 'b'), row('c')], 'c', { rowIdx: 0, insertAt: 1 });
+    expect(l[0].keys).toEqual(['a', 'c', 'b']);
+    expectEven(l[0]);
+  });
+
+  test("l'anteprima del drag mostra le stesse larghezze eque del drop", () => {
+    const r = row('a', 'b');
+    const preview = previewWidths(r, 1);
+    const dropped = movePinnedTile([r, row('z')], 'z', { rowIdx: 0, insertAt: 1 });
+    expect(preview.length).toBe(3);
+    preview.forEach((w, i) => expect(w).toBeCloseTo(dropped[0].widths[i], 9));
+    expectEven({ keys: ['a', 'z', 'b'], widths: preview });
+  });
+
+  test('una riga arrivata STORTA da un client vecchio si raddrizza', () => {
+    const storta: PinnedRow[] = [{ keys: ['a', 'b', 'c'], widths: [0.375, 0.375, 0.25] }];
+    const l = reconcilePinnedLayout(['a', 'b', 'c'], storta);
+    expectEven(l[0]);
   });
 });
