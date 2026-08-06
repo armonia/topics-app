@@ -341,7 +341,9 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'notebook_edit':
       return { name: 'NotebookEdit', summary: stripCwd(detail.notebookPath) };
     case 'skill':
-      return { name: 'Skill', summary: detail.args ? `${detail.skill} ${detail.args}` : detail.skill };
+      // Con la barra: è come la si invoca e come la si nomina parlando, e
+      // distingue a colpo d'occhio il nome di una skill da un argomento.
+      return { name: 'Skill', summary: detail.args ? `/${detail.skill} ${detail.args}` : `/${detail.skill}` };
     case 'slash_command':
       return { name: 'SlashCommand', summary: detail.command };
     case 'lsp':
