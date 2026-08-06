@@ -13,6 +13,7 @@ import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
 import { resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
+import { getFastModelFor } from "./fast-models";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
@@ -150,6 +151,12 @@ export class ProviderSnapshotManager extends EventEmitter {
         requirements,
         lastError: diag?.lastError,
         effortTier: effortTierFor(name),
+        // Risolto QUI, sui modelli vivi appena letti: è la stessa chiamata che
+        // farà `/api/chat` al momento del turno (routes/chat.ts), quindi il
+        // numero che il composer mostra e il modello che partirà non possono
+        // divergere. Nei rami degradati (catch, loading) si omette: con
+        // `models: []` la scelta non sarebbe informata.
+        fastModel: getFastModelFor(name, models),
         fetchedAt: new Date().toISOString(),
       };
     } catch (err) {
