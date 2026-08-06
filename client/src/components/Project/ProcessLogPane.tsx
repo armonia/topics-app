@@ -5,6 +5,15 @@ import type { WSMessage } from '../../types';
 
 // Strip ANSI escape sequences (colors, bold, cursor, etc.)
 // Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
+/**
+ * Tetto al log tenuto in memoria dal pannello.
+ *
+ * Il ring buffer da 500KB sta sul SERVER: qui i delta si sommavano per
+ * l'intera vita del pane, senza nessun limite. Un build verboso lasciato
+ * aperto una notte cresceva finché la scheda non moriva.
+ */
+const MAX_CLIENT_LOG_CHARS = 400_000;
+
 const stripAnsi = (text: string) =>
   // Il byte ESC è ciò che questa regex deve riconoscere per poterlo togliere.
   // La regola serve a intercettare i byte di controllo finiti in un pattern per
@@ -37,6 +46,9 @@ function formatDuration(startedAt: string, completedAt?: string): string {
 
 export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogPaneProps) {
   const [output, setOutput] = useState('');
+  /** L'ultima riga non ancora terminata: si MOSTRA ma non si accumula, o la si
+   *  vedrebbe due volte quando arriva completa. */
+  const [pending, setPending] = useState('');
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<string>('running');
   const [exitCode, setExitCode] = useState<number | undefined>();
@@ -105,9 +117,24 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
       try {
         const data = await scriptsApi.output(processId, currentOffset);
         if (!active) return;
-        if (data.output) {
-          setOutput(prev => prev ? prev + '\n' + data.output : data.output);
+        if (data.truncatedLines && data.truncatedLines > 0) {
+          // Il buffer ha buttato righe che questo pannello non vedrà mai:
+          // dirlo è meglio che lasciar credere di aver visto tutto.
+          const notice = `[… ${data.truncatedLines} righe scartate: il buffer del log è pieno]`;
+          setOutput(prev => prev ? prev + '\n' + notice : notice);
         }
+        if (data.output) {
+          // Lo strip degli ANSI si fa QUI, sul delta, non nel JSX: là girava
+          // due regex globali su TUTTA la stringa a ogni render.
+          const clean = stripAnsi(data.output);
+          setOutput(prev => {
+            const next = prev ? prev + '\n' + clean : clean;
+            // Tetto lato client: il ring buffer da 500KB è del server, qui si
+            // sommavano i delta per l'intera vita del pane.
+            return next.length > MAX_CLIENT_LOG_CHARS ? next.slice(next.length - MAX_CLIENT_LOG_CHARS) : next;
+          });
+        }
+        setPending(stripAnsi(data.pending ?? ''));
         currentOffset = data.offset;
         setOffset(data.offset);
         setStatus(data.status);
@@ -204,7 +231,9 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
         onScroll={handleScroll}
         className="flex-1 overflow-auto p-3 text-[12px] leading-relaxed text-app-text font-mono whitespace-pre-wrap break-words select-text"
       >
-        {output ? stripAnsi(output) : (error ? `Error: ${error}` : 'Waiting for output...')}
+        {output || pending
+          ? (pending ? (output ? output + '\n' + pending : pending) : output)
+          : (error ? `Error: ${error}` : 'Waiting for output...')}
       </pre>
 
       {/* Status bar */}
