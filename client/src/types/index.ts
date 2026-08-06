@@ -1076,8 +1076,12 @@ export interface GitStatus {
 export interface GitBranch {
   name: string;
   current: boolean;
+  /** Solo per `isRemote`: il remote di provenienza (`origin`, `upstream`, …). */
   remote?: string;
   isRemote: boolean;
+  /** Solo per `isRemote`: il nome SENZA il prefisso del remote — è questo che
+   *  va passato al checkout. Passare `name` (`origin/foo`) stacca HEAD. */
+  shortName?: string;
   ahead?: number;
   behind?: number;
 }

@@ -28,6 +28,9 @@ interface ProjectSidebarProps {
 
 type SectionId = 'files' | 'git' | 'processes';
 
+/** Quanto a lungo un'uscita fallita resta degna della pastiglia rossa. */
+const FAILURE_BADGE_WINDOW_MS = 10 * 60 * 1000;
+
 /**
  * Un'icona della rail collassata, con la sua pastiglia.
  *
@@ -63,6 +66,10 @@ function RailButton({
       onClick={onClick}
       title={title}
       aria-label={title}
+      // Acceso qui significa «questa sezione è APERTA»: è la stessa cosa che
+      // dice l'evidenziazione, e a barra chiusa è l'unica anteprima di cosa
+      // troverai riaprendola. Per questo restano accese anche tutte e tre.
+      aria-expanded={active}
       className={`relative w-7 h-7 flex items-center justify-center rounded transition-colors ${
         active
           ? 'text-primary bg-primary/10'
@@ -126,7 +133,22 @@ export function ProjectSidebar({
 
   // Running process count for the Processes header badge (shared hook — no duplicate polling)
   const { scripts, runningCount } = useScripts({ projectPath, onMessage: onWSMessage });
-  const failedCount = scripts.filter(s => s.status === 'error').length;
+  // `status === 'error'` da solo NON è un fallimento, ed è la differenza fra un
+  // segnale e un allarme che si impara a ignorare. `-1` è il codice-sentinella
+  // di DUE casi che non chiedono niente a nessuno: lo stop volontario
+  // (`processes.ts:716`) e «il processo è morto mentre il server era giù»
+  // (`processes.ts:184`) — che su questa macchina, con TOPICS_SERVER_WATCH=1,
+  // succede a OGNI salvataggio sotto `server/`: ogni dev server vivo diventa
+  // `error`. Senza questo filtro la pastiglia rossa sarebbe accesa quasi sempre
+  // e non vorrebbe dire niente. Serve un'uscita davvero non-zero, e recente:
+  // `recent` è persistito su disco, quindi un fallimento di ieri resterebbe
+  // rosso per sempre.
+  const failedCount = scripts.filter(s => {
+    if (s.status !== 'error' || (s.exitCode ?? -1) <= 0) return false;
+    if (!s.completedAt) return false;
+    const age = Date.now() - new Date(s.completedAt).getTime();
+    return Number.isFinite(age) && age < FAILURE_BADGE_WINDOW_MS;
+  }).length;
 
   // Stato git — dalla sidebar, non dal pannello. È questa la superficie che
   // sopravvive al collasso: GitChanges è lazy e SMONTATO quando la sezione è
@@ -139,19 +161,6 @@ export function ProjectSidebar({
   const git = gitStatus && !notGit
     ? { branch: gitStatus.branch, fileCount: gitStatus.files?.length ?? 0, ahead: gitStatus.ahead ?? 0, behind: gitStatus.behind ?? 0 }
     : null;
-  // Il fallback di Suspense continua a mostrare qualcosa al primo montaggio,
-  // quando lo store non ha ancora risposto ma la sessione ha una cache.
-  const cachedGit = git ?? (() => {
-    try {
-      const raw = sessionStorage.getItem(`git-status-cache:${projectPath}`);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { status?: { branch?: string; files?: unknown[]; ahead?: number; behind?: number } };
-        const s = parsed?.status;
-        if (s?.branch) return { branch: s.branch, fileCount: s.files?.length ?? 0, ahead: s.ahead ?? 0, behind: s.behind ?? 0 };
-      }
-    } catch {}
-    return null;
-  })();
 
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => ({
@@ -375,7 +384,7 @@ export function ProjectSidebar({
               <Suspense fallback={
                 <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
+                    <GitBranch size={14} className={`flex-shrink-0 ${git ? 'text-primary' : 'text-app-text-muted'}`} />
                     <span>{tr('project.sidebar.gitChanges')}</span>
                     <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                   </div>
@@ -476,27 +485,27 @@ export function ProjectSidebar({
               className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
+                <GitBranch size={14} className={`flex-shrink-0 ${git ? 'text-primary' : 'text-app-text-muted'}`} />
                 <span>{tr('project.sidebar.gitChanges')}</span>
                 <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
-                {cachedGit && (
-                  <span className="text-app-text-muted truncate">{cachedGit.branch}</span>
+                {git && (
+                  <span className="text-app-text-muted truncate">{git.branch}</span>
                 )}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
-                {cachedGit && cachedGit.fileCount > 0 && (
+                {git && git.fileCount > 0 && (
                   <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
-                    {cachedGit.fileCount}
+                    {git.fileCount}
                   </span>
                 )}
-                {cachedGit && cachedGit.behind > 0 && (
+                {git && git.behind > 0 && (
                   <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
-                    ↓{cachedGit.behind}
+                    ↓{git.behind}
                   </span>
                 )}
-                {cachedGit && cachedGit.ahead > 0 && (
+                {git && git.ahead > 0 && (
                   <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
-                    ↑{cachedGit.ahead}
+                    ↑{git.ahead}
                   </span>
                 )}
                 <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
