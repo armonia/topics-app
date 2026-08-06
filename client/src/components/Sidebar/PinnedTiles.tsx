@@ -32,6 +32,32 @@ const TILE_GAP = 6;
  *  sidebar deve restare raggiungibile: una tessera espansa non è una modale. */
 const EXPANDED_MAX_HEIGHT = '62%';
 
+/**
+ * La tessera come apparirà una volta posata: stesso componente, stessi segnali.
+ *
+ * Passa da `metaFor` come le tessere vere — un'anteprima che mostra la cosa
+ * spenta mentre quella cosa sta lampeggiando racconta un risultato che non
+ * arriverà. Inerte per costruzione: nessun handler, nessun drag.
+ */
+function PinnedTilePreview({
+  item,
+  metaFor,
+}: {
+  item: SidebarItem;
+  metaFor: (item: SidebarItem) => PinnedTileMeta;
+}) {
+  const meta = metaFor(item);
+  return (
+    <PinnedTile
+      item={item}
+      expanded={false}
+      focused={meta.focused}
+      attention={meta.attention}
+      onToggle={() => {}}
+    />
+  );
+}
+
 export interface PinnedTileMeta {
   focused: boolean;
   attention: AttentionTier | null;
@@ -239,7 +265,17 @@ export function PinnedTiles({
       className={`mx-1.5 transition-all duration-100 ${
         newRowAt === at ? '' : dragKey || adopting ? 'h-2' : ''
       }`}
-      style={newRowAt === at || dragKey || adopting ? undefined : { height: trailing ? 0 : TILE_GAP }}
+      // Mostrando l'anteprima questo spazio DIVENTA una riga, e una riga ha
+      // il suo respiro sopra e sotto: senza, la tessera in arrivo toccava
+      // quelle già in griglia mentre tutte le altre stanno a 6px — cioè
+      // l'anteprima mostrava una spaziatura che il risultato non avrebbe avuto.
+      style={
+        newRowAt === at
+          ? { paddingTop: TILE_GAP, paddingBottom: TILE_GAP }
+          : dragKey || adopting
+            ? undefined
+            : { height: trailing ? 0 : TILE_GAP }
+      }
     >
       {/* La riga nuova si vede per quello che sarà: la tessera vera, a tutta
           larghezza, al 60%. Prima era una barra azzurra — che dice «qui», ma
@@ -249,14 +285,8 @@ export function PinnedTiles({
           acceso per dire «non lo so». */}
       {newRowAt === at && (
         incomingRow
-          ? <div className="opacity-60 pointer-events-none">
-              <PinnedTile
-                item={incomingRow}
-                expanded={false}
-                focused={false}
-                attention={null}
-                onToggle={() => {}}
-              />
+          ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
+              <PinnedTilePreview item={incomingRow} metaFor={metaFor} />
             </div>
           : <div
               data-testid="pinned-drop-ghost"
@@ -353,9 +383,16 @@ export function PinnedTiles({
                   insertAt: insertIndexAt(e.currentTarget, e.clientX),
                   fromThisRow: moving !== null && row.keys.includes(moving),
                   movingKey: moving,
-                  // Solo per il caso «da fuori»: da dentro la riga si riordina
-                  // con le tessere che ci sono già, e non c'è nessun ospite.
-                  incoming: moving ? null : incomingItem(),
+                  // Chi arriva, chiunque sia. Da fuori lo nomina il ripiano
+                  // del drag; da un'ALTRA riga di questa griglia lo sappiamo
+                  // già — e proprio quel caso mostrava il rettangolo grigio di
+                  // ripiego al posto della tessera, cioè l'anteprima sbagliata
+                  // nel movimento più comune dopo il riordino.
+                  // Dentro la stessa riga resta `null`: lì non entra nessuno,
+                  // le tessere che ci sono si riordinano.
+                  incoming: moving
+                    ? (row.keys.includes(moving) ? null : byId.get(moving) ?? null)
+                    : incomingItem(),
                 });
               }}
               onDragLeave={e => {
@@ -389,13 +426,7 @@ export function PinnedTiles({
                     <div key="ghost" style={flex} className="min-w-0">
                       {dropAt?.incoming
                         ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
-                            <PinnedTile
-                              item={dropAt.incoming}
-                              expanded={false}
-                              focused={false}
-                              attention={null}
-                              onToggle={() => {}}
-                            />
+                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} />
                           </div>
                         : <div
                             data-testid="pinned-drop-ghost"
