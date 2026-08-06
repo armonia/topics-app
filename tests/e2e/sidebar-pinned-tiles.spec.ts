@@ -93,11 +93,12 @@ test.describe("Sidebar — tessere fissate", () => {
     const sectionBox = (await section(page).boundingBox())!;
     expect(sectionBox.height).toBeLessThan(boxes[0].height * 2);
 
-    // Nessuna etichetta, in NESSUNO dei modi di vista. Il modo si imposta dal
+    // Nessuna etichetta, in NESSUNO dei modi di vista rimasti (il modo "per
+    // tipo" è stato rimosso il 06/08). Il modo si imposta dal
     // lato server invece di cercare il bottone che lo cicla: qui si verifica
     // l'assenza dell'intestazione, e un click che non trova il suo bersaglio
     // renderebbe questo controllo un test che non può fallire.
-    for (const viewMode of ["timeline", "grouped", "state"] as const) {
+    for (const viewMode of ["timeline", "state"] as const) {
       await page.request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
         data: { viewMode, showArchived: false, expandedNodes: [], pinnedItems: ids, pinnedLayout: [] },
       });
@@ -393,5 +394,67 @@ test.describe("Sidebar — tessere fissate", () => {
         return (v?.pinnedItems ?? []).includes(t.id);
       }, { timeout: 15000 })
       .toBe(true);
+  });
+
+  test("TILE-10: riordinare dentro una riga mostra l'anteprima, non solo il risultato", async ({ page, request }) => {
+    // Il caso più comune — spostare due tessere vicine — non mostrava niente:
+    // l'anteprima scattava solo quando la riga GUADAGNAVA una cella, e dentro
+    // la stessa riga il conteggio non cambia. Si trascinava alla cieca.
+    const ids: string[] = [];
+    for (const n of ["E2E-Ord-A", "E2E-Ord-B", "E2E-Ord-C"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(3, { timeout: 15000 });
+
+    const ordine = () => tiles(page).evaluateAll(els =>
+      els.map(e => e.getAttribute("data-pinned-tile") ?? ""),
+    );
+    expect(await ordine()).toEqual(ids);
+
+    // Un GESTO solo, in una evaluate sola: dragstart → dragover → drop → dragend
+    // sullo stesso `DataTransfer`. Separarli in piu' evaluate significherebbe
+    // fabbricarne uno nuovo per il drop — senza i tipi che il dragstart ci ha
+    // messo — e il drop verrebbe ignorato, che e' un difetto del test travestito
+    // da difetto del prodotto.
+    const [durante, dopo] = await page.evaluate(async (key) => {
+      const due = (r: HTMLElement) =>
+        Array.from(r.querySelectorAll("[data-pinned-tile]")).map(e => e.getAttribute("data-pinned-tile") ?? "");
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const row = tile.parentElement!.parentElement as HTMLElement;
+      const box = (row.querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      const punto = { clientX: box.left + 2, clientY: box.top + 5 };
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      await attendi();
+      const mentreTrascini = due(row);
+
+      row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return [mentreTrascini, due(row)];
+    }, ids[2]);
+
+    // L'anteprima e' gia' l'ordine finale…
+    expect(durante, "l'anteprima deve mostrare l'ordine finale").toEqual([ids[2], ids[0], ids[1]]);
+    // …e rilasciando resta esattamente cio' che si vedeva.
+    expect(dopo, "il drop deve confermare l'anteprima").toEqual([ids[2], ids[0], ids[1]]);
+
+    // E la disposizione e' arrivata al server, non solo allo schermo.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedLayout ?? []).flatMap((r: { keys: string[] }) => r.keys);
+      }, { timeout: 15000 })
+      .toEqual([ids[2], ids[0], ids[1]]);
   });
 });
