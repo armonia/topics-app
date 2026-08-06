@@ -32,7 +32,7 @@ export function usePaneKey(): string | undefined {
  *    (`server/browser-native-delegate.ts`);
  *  - una chat con immagini o file in attesa di invio, o con un messaggio in
  *    modifica: sono gli unici pezzi di stato della chat che NON sono già
- *    persistiti (bozza, coda, planMode e scroll lo sono).
+ *    persistiti (bozza, coda e scroll lo sono).
  *
  * Fuori da una pane (una superficie che non passa da `PaneKeepAlive`) non fa
  * nulla: nessuna chiave da trattenere, nessun errore.

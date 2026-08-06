@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Settings, Zap, X, RefreshCw } from 'lucide-react';
+import { Search, Settings, X, RefreshCw } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
@@ -168,11 +168,12 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         className="inline-flex flex-shrink-0 items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
         title="Provider & model"
       >
-        {/* `flex-shrink-0` sul bottone e sull'icona: la larghezza qui la cede
-            SOLO l'etichetta del modello, col suo `truncate` e i suoi max-w.
-            Lasciando schiacciare il bottone intero si deformavano icona e
-            badge — cioe' proprio le parti che non hanno modo di accorciarsi. */}
-        <Zap size={11} className="flex-shrink-0" />
+        {/* Qui c'era un lampo, e non diceva niente: accanto c'è già scritto
+            «Opus 5». Stava anche a due bottoni dal lampo del Fast Mode, che di
+            lampi ne fa uno solo con un significato — velocità — e questo lo
+            diluiva. Il bottone resta `flex-shrink-0`: la larghezza la cede SOLO
+            l'etichetta del modello, col suo `truncate`, o si deformerebbe il
+            badge della finestra, che accorciarsi non può. */}
         {/* Shrinks further once the composer's @container (the pane width,
             not the viewport) drops below 380px — keeps the effort badge and
             the rest of the action bar reachable on a narrow tab. */}

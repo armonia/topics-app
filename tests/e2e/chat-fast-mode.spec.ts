@@ -56,14 +56,17 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     const fastBtn = page.getByTestId("chat-input-fast-mode");
     await expect(fastBtn).toBeVisible();
 
-    // Position: Plan (ClipboardList) → Fast (Zap) → Context ring. We assert
-    // ordering via DOM index — the action bar is a tight horizontal flex.
-    const planBtn = page.getByRole("button", { name: /toggle plan mode/i });
+    // Ordine: graffetta → Fast (⚡) → anello del contesto. Il vecchio
+    // interruttore «Plan» stava fra i primi due ed è sparito: il piano è un
+    // LIVELLO di autonomia (il controllo `composer-autonomy`, più a destra),
+    // non un flag di prompt accanto alla graffetta.
+    const attachBtn = page.getByRole("button", { name: /Attach file/i });
     const ringBtn = page.getByTestId("chat-input-context-ring");
-    await expect(planBtn).toBeVisible();
+    await expect(attachBtn).toBeVisible();
     await expect(ringBtn).toBeVisible();
+    await expect(page.getByRole("button", { name: /toggle plan mode/i })).toHaveCount(0);
     const positions = await Promise.all(
-      [planBtn, fastBtn, ringBtn].map(async (loc) => {
+      [attachBtn, fastBtn, ringBtn].map(async (loc) => {
         const box = await loc.boundingBox();
         return box?.x ?? -1;
       }),
@@ -130,8 +133,15 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     expect(captured.planMode).toBeFalsy();
   });
 
-  test("Fast + Plan are compatible — both fields land in the request", async ({ page }) => {
+  test("Fast + piano convivono, ma il piano viaggia sull'autonomia", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "FAST-MODE-03" });
+    // Prima questo test premeva DUE bottoni e si aspettava due flag nello
+    // stesso corpo. Il secondo bottone era il «Plan Mode»: un flag per-turno,
+    // tenuto in localStorage, che iniettava una richiesta nel prompt e che
+    // nessuno faceva rispettare — mentre a quattro bottoni di distanza il
+    // livello di autonomia passava `--permission-mode plan` alla CLI. Il flag
+    // non parte più dal client: il piano lo accende il livello, server-side
+    // (`planModeFor`, provato in server/lib/autonomy-mode.test.ts).
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -156,20 +166,24 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
       });
     });
 
-    // Turn on Fast (currently OFF from previous test — fresh page load)
+    // Il piano si sceglie QUI, e da nessun'altra parte nel composer.
+    const autonomy = page.getByTestId("composer-autonomy");
+    await autonomy.click();
+    await page.getByTestId("composer-autonomy-ask").click();
+    await expect(autonomy).toHaveAttribute("data-level", "ask");
+
+    // Fast ON (potrebbe già esserlo dal test precedente: è una pagina nuova).
     const fastBtn = page.getByTestId("chat-input-fast-mode");
     if ((await fastBtn.getAttribute("aria-pressed")) !== "true") {
       await fastBtn.click();
     }
-    // Turn on Plan
-    const planBtn = page.getByRole("button", { name: /toggle plan mode/i });
-    await planBtn.click();
 
-    await textarea.fill("plan + fast");
+    await textarea.fill("piano + veloce");
     await textarea.press("Enter");
 
-    await expect
-      .poll(() => captured.fastMode && captured.planMode, { timeout: 10_000 })
-      .toBe(true);
+    await expect.poll(() => captured.fastMode, { timeout: 10_000 }).toBe(true);
+    // Il client NON manda più `planMode`: se ricomparisse, vorrebbe dire che è
+    // tornata la seconda leva.
+    expect(captured.planMode).toBeUndefined();
   });
 });

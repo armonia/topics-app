@@ -30,6 +30,7 @@ import { SplitTree } from './SplitTree';
 import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
+import type { SendMessageOptions } from '@/hooks/useChat';
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -210,15 +211,15 @@ interface PanelGridProps {
   isSessionStreaming: (sessionKey: string) => boolean;
   wasSessionStopped: (sessionKey: string) => boolean;
   stopSession: (sessionKey: string) => boolean;
-  sendMessage: (sessionKey: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  sendMessage: (sessionKey: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   editMessage?: (sessionKey: string, messageId: string, newContent: string) => Promise<boolean>;
   regenerateMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: string | null;
-  expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: { planMode?: boolean } }[];
-  retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: { planMode?: boolean } }) => void;
+  expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }[];
+  retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }) => void;
   clearExpired?: () => void;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -258,7 +259,7 @@ interface PanelGridProps {
   // Report open browser context IDs for sidebar highlighting
   onOpenBrowserContextIds?: (ids: string[]) => void;
   // Draft chat support
-  promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
+  promoteDraft?: (draftId: string, firstMessage: string, options?: SendMessageOptions) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
   // Sidebar "Fissati" pin toggle + state for a tab's subject (chat topicId or
   // `terminal:<sessionId>`), forwarded to each StandaloneChatGroup → PaneTabBar.

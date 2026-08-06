@@ -3,7 +3,7 @@ import {
   MessageSquare, Lightbulb, Rocket, Flame, Star, Target,
   Gem, Palette, Wrench, BookOpen, Sparkles, PenLine,
   Music, Home, Heart, Lock, BarChart3, Globe,
-  Zap, Flower2, Code, Terminal, Briefcase, Camera,
+  Flower2, Code, Terminal, Briefcase, Camera,
   Shield, Coffee, Bug, Cpu, Brain, Megaphone,
   Search,
   type LucideIcon,
@@ -30,7 +30,11 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Lock,
   BarChart3,
   Globe,
-  Zap,
+  // Niente `Zap` nella tavolozza: in questa app il lampo vuol dire
+  // VELOCITÀ (il Fast Mode del composer), e un topic marchiato col lampo
+  // starebbe nell'albero accanto a quel significato senza portarlo. Nessuna
+  // riga lo usa (verificato sul DB) e nessun selettore lo espone; un valore
+  // stantìo ricade su MessageSquare come qualunque altro nome sconosciuto.
   Flower2,
   Code,
   Terminal,

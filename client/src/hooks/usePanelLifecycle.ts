@@ -77,6 +77,7 @@ import {
 } from '../lib/terminalAgents';
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
+import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { notifyNative } from '../lib/shell/app';
 import { isTauri } from '../lib/shell';
@@ -302,7 +303,7 @@ export interface UsePanelLifecycleReturn {
     // (app-level, string) so split-cell "+ New Chat" can re-target the pane.
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | string | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
-    promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
+    promoteDraft: (draftId: string, firstMessage: string, options?: SendMessageOptions) => Promise<void>;
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
@@ -1981,7 +1982,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return draftId;
   }, [createTopic, openPanel]);
 
-  const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => {
+  const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
     const topic = await createTopic({
       name: 'New Chat',

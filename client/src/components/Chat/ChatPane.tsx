@@ -159,21 +159,14 @@ function ChatPaneComponent({
   }, [draftKey]);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   // Niente sfratto mentre c'è roba non ancora salvata da nessuna parte. Bozza,
-  // coda, planMode e scroll sono già persistiti e sopravvivono da soli; questi
-  // tre no, e uno smontaggio li perderebbe in silenzio.
+  // coda e scroll sono già persistiti e sopravvivono da soli; questi tre no, e
+  // uno smontaggio li perderebbe in silenzio.
   usePaneHold(pendingImages.length > 0 || pendingFiles.length > 0 || editingMessage !== null);
-  const [planMode, setPlanMode] = useState(() => {
-    try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
-  });
-  // planMode is localStorage-only (no server field). ChatPane is NOT keyed by
-  // topic.id, so on an in-place topic switch (StandaloneChatGroup re-renders this
-  // instance) the useState seed above stays stale — same class as the scroll and
-  // fastMode reconciles below/above. Without this, Plan Mode enabled on topic A
-  // leaks into topic B and its next message silently ships planMode:true.
-  useEffect(() => {
-    try { setPlanMode(localStorage.getItem(`planMode:${topic.id}`) === 'true'); }
-    catch { setPlanMode(false); }
-  }, [topic.id]);
+  // Il «Plan Mode» stava qui: uno stato in localStorage, per-dispositivo, che
+  // spediva un flag per-turno e finiva in un blocco di prompt che nessuno faceva
+  // rispettare. Il piano adesso è UN livello di autonomia (`ask`), persistito
+  // sul topic e passato alla CLI come `--permission-mode plan`; la route inietta
+  // lo stesso blocco quando quel livello è attivo. Vedi `handleAutonomyChange`.
   // Fast Mode toggle (openspec change `chat-fast-mode`). Two sources of truth:
   //   1. `topic.fastMode` (server, persisted, synced cross-window via WS).
   //   2. `localStorage["fastMode:<topic.id>"]` — used purely to avoid a flash
@@ -190,7 +183,7 @@ function ChatPaneComponent({
   // has NO explicit server value (undefined — never toggled there), re-seed
   // from THAT topic's own localStorage: the old boolean-only guard skipped
   // this case, so an in-place switch from a fastMode:true topic carried
-  // `true` into topics that never enabled it (same leak class as planMode).
+  // `true` into topics che non l'avevano mai acceso.
   useEffect(() => {
     if (typeof topic.fastMode === 'boolean') {
       if (topic.fastMode !== fastMode) {
@@ -725,14 +718,6 @@ function ChatPaneComponent({
     return false;
   }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers]);
 
-  const togglePlanMode = useCallback(() => {
-    setPlanMode(prev => {
-      const next = !prev;
-      try { localStorage.setItem(`planMode:${topic.id}`, String(next)); } catch {}
-      return next;
-    });
-  }, [topic.id]);
-
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
   // windows of the same topic sync via the `topic:updated` WS broadcast.
@@ -932,7 +917,6 @@ function ChatPaneComponent({
    */
   const currentSendOptions = (): SendMessageOptions | undefined => {
     const opts: SendMessageOptions = {};
-    if (planMode) opts.planMode = true;
     // Fast Mode is the per-turn signal the server uses to pick the provider's
     // native fast model (see openspec `chat-fast-mode`). We send it whenever the
     // toggle is ON — picker (`opts.model`) and persisted `topic.model` still win,
@@ -1106,7 +1090,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        }} messageQueue={queueContents} onUpdateQueueItem={handleUpdateQueueItem} onRemoveQueueItem={handleRemoveQueueItem} onClearQueue={handleClearQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );

@@ -39,7 +39,7 @@ export function useVoiceRecording(
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // The session the recording STARTED on. ChatPane persists across topic
-  // switches (reconcile-not-remount, see its fastMode/planMode effects), so
+  // switches (reconcile-not-remount, see its fastMode effects), so
   // stopRecording's closure would otherwise read the CURRENT sessionKey — a
   // voice note recorded on topic A but stopped after switching to B was
   // delivered into B's history.
