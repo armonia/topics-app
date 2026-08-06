@@ -238,7 +238,7 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex flex-col items-center justify-center gap-1',
-        'h-14 w-full min-w-0 rounded-lg px-1.5 pb-2.5 select-none',
+        'h-14 w-full min-w-0 rounded-lg px-1.5 select-none',
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
         // senza icona non deve sembrare spenta, deve sembrare sobria.
@@ -330,13 +330,20 @@ export function PinnedTile({
           niente: la cartella diceva «sono un progetto», che si sapeva già dal
           nome. Un chevron rivolto in giù dice l'unica cosa che il nome non dice,
           e nella direzione in cui succede davvero (la fascia si apre SOTTO la
-          riga). Ruota quando è aperta, come ogni altra disclosure dell'app. */}
+          riga). Ruota quando è aperta, come ogni altra disclosure dell'app.
+
+          Sta in un ANGOLO, e non sotto il contenuto: 56px di tessera li
+          prendono già l'icona (22) e un nome che può andare a capo (~25), e
+          riservargli una fascia in fondo scentrava icona e titolo rispetto alla
+          tessera — che è esattamente ciò che si vedeva. In alto a sinistra
+          specchia il badge in alto a destra: i due angoli portano i due dati di
+          servizio, e il centro resta del contenuto. */}
       {expandable && (
         <ChevronDown
           size={10}
           aria-hidden="true"
           data-testid="pinned-expand-hint"
-          className={`pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 text-app-text-faint transition-transform duration-150 ${
+          className={`pointer-events-none absolute top-1 left-1 text-app-text-faint transition-transform duration-150 ${
             expanded ? 'rotate-180' : ''
           }`}
         />
