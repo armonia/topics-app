@@ -6,6 +6,7 @@ import { watchGitDir } from "../git-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "../lib/git-porcelain";
+import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
 const GIT_STATUS_CACHE_TTL = 5000;
@@ -188,28 +189,21 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!existsSync(resolvedPath)) return json({ error: "directory not found" }, 404);
       try { const s = statSync(resolvedPath); if (!s.isDirectory()) return json({ error: "path is not a directory" }, 400); } catch { return json({ error: "cannot stat directory" }, 500); }
 
-      const DEFAULT_EXCLUDES = new Set(["node_modules", ".git", ".next", "dist", "build", ".DS_Store", "__pycache__", ".cache", ".turbo", ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target"]);
-      function parseGitignore(dir: string): Set<string> {
-        const patterns = new Set<string>();
-        const gitignorePath = join(dir, ".gitignore");
+      // Le esclusioni «di sempre», indipendenti dal .gitignore: cartelle che
+      // nessuno vuole vedere nell'albero e che costano care da attraversare.
+      const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
+      const HEAVY_EXCLUDES = new Set(["node_modules", ".next", "dist", "build", "__pycache__", ".cache", ".turbo", ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target"]);
+      // Il .gitignore della radice. Le regole vere — ancoraggio, negazioni,
+      // wildcard, match sul path relativo — stanno in `lib/gitignore.ts`.
+      function readIgnore(dir: string, base: string, parent?: IgnoreSet): IgnoreSet {
+        const set = parent ? parent.clone() : new IgnoreSet();
         try {
-          if (existsSync(gitignorePath)) {
-            const content = readFileSync(gitignorePath, "utf-8");
-            for (const line of content.split("\n")) { const trimmed = line.trim(); if (trimmed && !trimmed.startsWith("#")) { const clean = trimmed.replace(/\/$/, "").replace(/^\//, ""); if (clean) patterns.add(clean); } }
-          }
+          const f = join(dir, ".gitignore");
+          if (existsSync(f)) set.addFile(readFileSync(f, "utf-8"), base);
         } catch {}
-        return patterns;
+        return set;
       }
-      const gitignorePatterns = parseGitignore(resolvedPath);
-      const allExcludes = new Set([...DEFAULT_EXCLUDES, ...gitignorePatterns]);
-      function shouldExclude(name: string): boolean {
-        if (allExcludes.has(name)) return true;
-        for (const pattern of allExcludes) {
-          if (pattern.startsWith("*.") && name.endsWith(pattern.slice(1))) return true;
-          if (pattern.endsWith("*") && name.startsWith(pattern.slice(0, -1))) return true;
-        }
-        return false;
-      }
+      const rootIgnore = readIgnore(resolvedPath, "");
 
       interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
       // Async walk (fs.promises): the old readdirSync + per-entry statSync ran
@@ -217,17 +211,24 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // whole scan — a large directory (monorepo folder) queued every other
       // client's requests and WS traffic behind it. Sequential awaits keep the
       // ordering identical while yielding the loop between syscalls.
-      async function readDirRecursive(dir: string, currentDepth: number): Promise<FileNode[]> {
+      async function readDirRecursive(dir: string, currentDepth: number, relBase: string, ignore: IgnoreSet): Promise<FileNode[]> {
         const result: FileNode[] = [];
         try {
           const entries = await readdirAsync(dir, { withFileTypes: true });
           entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
           for (const entry of entries) {
-            if (shouldExclude(entry.name)) continue;
+            const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
+            if (DEFAULT_EXCLUDES.has(entry.name)) continue;
+            if (entry.isDirectory() && HEAVY_EXCLUDES.has(entry.name)) continue;
+            if (ignore.ignores(rel, entry.isDirectory())) continue;
             const fullPath = join(dir, entry.name);
             if (entry.isDirectory()) {
               const node: FileNode = { name: entry.name, type: "dir", path: fullPath };
-              if (currentDepth < depth) node.children = await readDirRecursive(fullPath, currentDepth + 1);
+              if (currentDepth < depth) {
+                // Il .gitignore di questa cartella si somma a quelli sopra e
+                // vale solo da qui in giù — come in git.
+                node.children = await readDirRecursive(fullPath, currentDepth + 1, rel, readIgnore(fullPath, rel, ignore));
+              }
               result.push(node);
             } else if (entry.isFile()) {
               try { const stats = await statAsync(fullPath); result.push({ name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }); } catch { result.push({ name: entry.name, type: "file", path: fullPath }); }
@@ -236,7 +237,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         } catch {}
         return result;
       }
-      return json(await readDirRecursive(resolvedPath, 1));
+      return json(await readDirRecursive(resolvedPath, 1, "", rootIgnore));
     }
 
     // --- File search (grep) ---

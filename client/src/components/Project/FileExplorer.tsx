@@ -41,6 +41,8 @@ interface TreeNodeProps {
   depth: number;
   selectedPath: string | null;
   expandedDirs: Set<string>;
+  /** Cartelle di cui si stanno leggendo i figli: mostrano uno spinner. */
+  loadingDirs: Set<string>;
   expandedOverflow: Set<string>;
   onToggleDir: (path: string) => void;
   onExpandOverflow: (path: string) => void;
@@ -139,7 +141,7 @@ function getGitStatusLabel(status: string): string {
   return 'M';
 }
 
-function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
+function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
@@ -304,6 +306,13 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
               onCancel={onNewItemCancel}
             />
           )}
+          {node.children === undefined && loadingDirs.has(node.path) && (
+            // Senza questa riga una cartella oltre il terzo livello si apriva e
+            // restava BIANCA: indistinguibile da una cartella vuota.
+            <div className="flex items-center gap-1.5 py-[2px] text-[11px] text-app-text-tertiary" style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}>
+              <Spinner size="xs" tone="current" />
+            </div>
+          )}
           {node.children && (() => {
             const all = node.children;
             const showAll = expandedOverflow.has(node.path);
@@ -318,6 +327,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
                     depth={depth + 1}
                     selectedPath={selectedPath}
                     expandedDirs={expandedDirs}
+                    loadingDirs={loadingDirs}
                     expandedOverflow={expandedOverflow}
                     onToggleDir={onToggleDir}
                     onExpandOverflow={onExpandOverflow}
@@ -372,6 +382,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  /** Cartelle di cui si stanno leggendo i figli (caricamento pigro). */
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -456,14 +468,64 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setExpandedOverflow(prev => { const next = new Set(prev); next.add(path); return next; });
   }, []);
 
+  /**
+   * Innesta i figli appena letti sotto il loro nodo, senza toccare il resto.
+   *
+   * Ricostruisce solo i nodi sul cammino: chi sta fuori dal ramo mantiene la
+   * stessa identità, quindi non si ri-renderizza.
+   */
+  /** Il nodo a quel path, cercato solo lungo il ramo che lo contiene. */
+  const findNode = useCallback((nodes: FileNode[], path: string): FileNode | null => {
+    for (const n of nodes) {
+      if (n.path === path) return n;
+      if (n.type === 'dir' && n.children && path.startsWith(n.path + '/')) {
+        const hit = findNode(n.children, path);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }, []);
+
+  const graftChildren = useCallback((nodes: FileNode[], path: string, children: FileNode[]): FileNode[] => {
+    return nodes.map(n => {
+      if (n.path === path) return { ...n, children };
+      if (n.type === 'dir' && n.children && path.startsWith(n.path + '/')) {
+        return { ...n, children: graftChildren(n.children, path, children) };
+      }
+      return n;
+    });
+  }, []);
+
+  /**
+   * Aprire una cartella la CARICA, se non è già stata letta.
+   *
+   * `/api/files` scende di 3 livelli e basta: una cartella al terzo livello
+   * torna SENZA la chiave `children`, e il render (`{node.children && …}`) non
+   * ha un ramo alternativo. Effetto: su questo stesso repo `client/src/components`
+   * è già al terzo livello — si apriva e sembrava VUOTA, senza spinner, senza
+   * errore. Sotto quel livello l'explorer semplicemente non esisteva.
+   *
+   * `children === undefined` significa «non letta», `[]` significa «vuota»: il
+   * server distingue già i due casi, mancava solo chi ne approfittasse.
+   */
   const handleToggleDir = useCallback((path: string) => {
+    const willExpand = !expandedDirs.has(path);
     setExpandedDirs(prev => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
-  }, []);
+    if (!willExpand) return;
+    const node = findNode(files, path);
+    if (!node || node.type !== 'dir' || node.children !== undefined) return;
+    if (loadingDirs.has(path)) return;
+    setLoadingDirs(prev => new Set(prev).add(path));
+    filesApi.list(path, 2)
+      .then(children => setFiles(prev => graftChildren(prev, path, children)))
+      .catch(err => toast.error(errMessage(err) || 'Impossibile leggere la cartella'))
+      .finally(() => setLoadingDirs(prev => { const n = new Set(prev); n.delete(path); return n; }));
+  }, [expandedDirs, files, loadingDirs, graftChildren, toast]);
 
   // Flatten tree for keyboard navigation and shift-select
   const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
@@ -1345,6 +1407,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               key={node.path}
               node={node}
               depth={0}
+              loadingDirs={loadingDirs}
               selectedPath={selectedFile?.path || null}
               {...treeNodeProps}
             />
@@ -1420,6 +1483,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               key={node.path}
               node={node}
               depth={0}
+              loadingDirs={loadingDirs}
               selectedPath={selectedFile?.path || null}
               {...treeNodeProps}
             />
