@@ -3,7 +3,13 @@
  * Prevents typos and makes the DnD system self-documenting.
  */
 export const DND_TYPES = {
-  /** Panel/topic ID — cross-window panel drag, sidebar-to-grid drops */
+  /** L'id della PANE — drag di un pannello fra finestre, e drop dalla sidebar.
+   *
+   *  È l'id APRIBILE, non la chiave della riga: per un progetto la riga della
+   *  sidebar è chiavata sul path grezzo (`project:/Users/…`) mentre la pane usa
+   *  quello codificato (`project:%2FUsers…`), e chi riceve questo tipo apre o
+   *  sposta una PANE. Chi trascina una riga di progetto deve quindi convertire
+   *  con `sidebarItemPaneId`, non passare l'id della riga. */
   PANEL_ID: 'application/x-panel-id',
   /** Sidebar topic reordering */
   SIDEBAR_REORDER: 'application/x-sidebar-reorder',
@@ -26,16 +32,6 @@ export const DND_TYPES = {
    *  il secondo per aprire. Chi riceve prende il tipo che capisce, e il drag
    *  «trascina un fissato dentro la griglia» continua a funzionare come prima. */
   PINNED_TILE: 'application/x-pinned-tile',
-  /** L'id della PANE di una tessera fissata, che per un progetto NON coincide
-   *  con la sua chiave di riga: la riga è chiavata sul path grezzo
-   *  (`project:/Users/…`), la pane su quello codificato (`project:%2FUsers…`).
-   *
-   *  Serve perché i due consumatori vogliono cose diverse dallo stesso drag: la
-   *  griglia dei pane vuole l'id APRIBILE (`PANEL_ID`), la card di un gruppo
-   *  vuole l'id della pane da spostare. Senza questo, trascinare un progetto
-   *  fissato dentro un gruppo non faceva niente — nessun errore, solo un drop
-   *  che cadeva su una pane inesistente. */
-  PINNED_PANE_ID: 'application/x-pinned-pane-id',
 } as const;
 
 /** The DnD scope of the top-level standalone window (its chat group + solo split

@@ -92,6 +92,38 @@ export { isDetachedWindow } from '../../lib/windowRole';
  * visible (or null) BEFORE the focus-follow effect could yank the window to
  * the target space. No auto-switch: Arc semantics, the tab travels quietly.
  */
+/**
+ * «Porta questa cosa in questo gruppo», qualunque sia il suo stato.
+ *
+ * `movePaneToSpace` sposta una pane ESISTENTE e su una pane assente esce in
+ * silenzio (`if (!pane) return`). Va benissimo per una tab che stai
+ * trascinando — c'è per definizione — ma non per una TESSERA FISSATA: da
+ * quando una tab fissata si può chiudere, il fissato che non è aperto adesso è
+ * il caso normale, non l'eccezione. Il drop diceva «portala qui» e non faceva
+ * niente, senza un errore da nessuna parte.
+ *
+ * Quindi: se la pane c'è, la si sposta; se non c'è, la si APRE lì. Una pane
+ * nuova eredita `activeSpaceId` (vedi il reducer di `OPEN_PANE`), perciò prima
+ * si porta davanti il gruppo di destinazione e poi si apre — che è anche quello
+ * che uno si aspetta guardando: hai lasciato cadere una cosa dentro un gruppo,
+ * quel gruppo viene in primo piano con la cosa dentro.
+ */
+export function bringPaneIntoSpace(paneId: string, targetSpaceId: string): void {
+  const s = usePaneStore.getState();
+  if (s.panes[paneId]) {
+    movePaneToSpace(paneId, targetSpaceId);
+    return;
+  }
+  if (s.activeSpaceId !== targetSpaceId) {
+    s.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: targetSpaceId } });
+  }
+  // Lo stesso imbuto d'apertura che usa il drop sulla griglia: passa da
+  // `openPanel`, quindi disarchivia e rispetta il modello a due stati.
+  window.dispatchEvent(
+    new CustomEvent('topics:open-topic', { detail: { topicId: paneId, mode: 'permanent' } }),
+  );
+}
+
 export function movePaneToSpace(paneId: string, targetSpaceId: string): void {
   const s = usePaneStore.getState();
   const pane = s.panes[paneId];
