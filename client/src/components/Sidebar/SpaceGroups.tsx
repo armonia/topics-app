@@ -48,9 +48,9 @@ import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POP
 import { clearPanelGridStorage } from '../Layout/usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
+  bringPaneIntoSpace,
   firstOtherLiveSpace,
   liveSpacesOrdered,
-  movePaneToSpace,
 } from '../Layout/spaceHelpers';
 import { repinSpaceWindow, spaceWindowId } from '../../lib/windowRole';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
@@ -283,7 +283,6 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   // no: due WKWebView non si passano un drag HTML5, e nessun trucco lo cambia.
   const dragCarriesPane = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
-    e.dataTransfer.types.includes(DND_TYPES.PINNED_PANE_ID) ||
     e.dataTransfer.types.includes(DND_TYPES.PANEL_ID);
 
   return (
@@ -307,12 +306,13 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         if (!dragCarriesPane(e)) return;
         e.preventDefault();
         e.stopPropagation();
-        // `PINNED_PANE_ID` prima di `PANEL_ID`: una tessera fissata porta
-        // entrambi, e per un progetto solo il primo è l'id di una pane vera.
         const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
-          || e.dataTransfer.getData(DND_TYPES.PINNED_PANE_ID)
           || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
-        if (paneId) movePaneToSpace(paneId, card.id);
+        // NON `movePaneToSpace`: quella sposta una pane ESISTENTE, e una
+        // tessera fissata con la tab chiusa non ha pane — cioè lo stato normale
+        // di un fissato. Il drop diceva «porta questa cosa qui» e non faceva
+        // niente, in silenzio.
+        if (paneId) bringPaneIntoSpace(paneId, card.id);
       }}
       // Il TRATTEGGIO dice "questo gruppo non è disegnato qui": è in una
       // finestra sua. Il simbolo da solo era troppo poco — a colpo d'occhio la
