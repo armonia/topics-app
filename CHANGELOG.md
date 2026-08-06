@@ -2,6 +2,58 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.20 — 2026-08-06
+
+### Sotto il cofano
+- Il path dal client entrava senza bussare, e il grep girava per dieci giga
+- L'anteprima del riordino mancava proprio nel caso piu' comune
+- Via la vista per tipo, e il progetto diventa trascinabile
+
+## 2.2.19 — 2026-08-06
+
+### Sotto il cofano
+- La freccia torna tonda: `rounded-full` su un rettangolo fa un ovale
+
+## 2.2.18 — 2026-08-06
+
+### Sotto il cofano
+- Sostituisci gli orologi con la causalità: un dispositivo dormiente non resuscita più le tab chiuse
+- La barra si ridimensiona, e il pannello git smette di contraddirsi
+- Ritira l'affermazione sul hit-test del commutatore di Spazio: non era misurata
+- Il drop su un gruppo non spostava niente: una tessera chiusa non ha pane
+- Tieni il formato del filo retrocompatibile: un client vecchio non deve buttare via i marcatori
+- Segna lo stadio 1 come fatto, con l'evidenza e i due difetti che i test hanno pescato
+- Riscrivi le voci dello stadio 1 su cio' che e' stato fatto, non sul piano
+- Fissare trascinando, e sciogliere un gruppo senza sembrare di distruggerlo
+- Il refresh non ti sposta più, la freccia guarda la geometria, e la bolla smette di essere blu
+
+## 2.2.17 — 2026-08-06
+
+### Sotto il cofano
+- Le tessere tornano larghe uguali, e un progetto fissato entra in un gruppo
+- Tre cose che la sidebar diceva male: una riga senza nome, una sezione che si apriva sul vuoto, una linea assente
+- La tabulazione saltava dentro la fascia di una tessera
+- Il pane-store deve smettere di indovinare chi ha ragione confrontando due orologi
+- La cornice riflette l'icona, con i colori dove stanno
+- La luce si proietta invece di girare, e si accende solo da selezionata
+- Piu' aria sotto il divisore, e l'alone a riposo scende
+- Una riga che non si apre deve dire perché, o si legge come rotta
+
+## 2.2.16 — 2026-08-06
+
+### Sotto il cofano
+- Una callback dell'albero che cambiava identità a ogni render, e una spec senza confine
+- Il rischio numero uno non era coperto: ora TILE-6 lo guarda
+- ⌘K e il menu «+» sono la stessa lista, e ora è un test a dirlo
+- Le voci da creare escono dalla barra ed entrano nella lista, dove la tastiera arriva
+- La spunta verde confermava la norma, e un chevron apriva il vuoto
+
+## 2.2.15 — 2026-08-06
+
+### Sotto il cofano
+- Chiude le task: deadcode, bump, e il video dell'anteprima al suo posto
+- Porta la versione a 2.2.15 e rimetti in piedi il bundle servito
+
 ## 2.2.14 — 2026-08-06
 
 ### Sotto il cofano
@@ -15,6 +67,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Allinea la change a cio' che e' stato consegnato
 - Due voci per un solo comportamento, e l'unica riga col verbo
 - A cedere era sempre la colonna sbagliata, e il chevron del gruppo mentiva
+- v2.2.14 — le tessere fissate
 
 ## 2.2.13 — 2026-08-06
 
