@@ -1,3 +1,21 @@
+> **RITIRATA il 2026-08-06 — sostituita da `lan-open-same-origin`.**
+>
+> Il meccanismo descritto qui è stato costruito e funzionava: verificato dal vivo
+> il 2026-08-06, una richiesta dalla LAN con l'header `x-topics-token` tornava
+> `200` dove senza tornava `401`. Ciò che non è mai esistito è il modo di
+> CONSEGNARE quel token a un telefono: nessuna superficie produceva il link di
+> pairing, e il token vive in `~/.topics/daemon-state.json`, che dal telefono non
+> si legge. L'«Out of scope» qui sotto lo dice senza accorgersene — *«the token is
+> captured from whatever link the user already opens»* — ma quel link non lo
+> apriva nessuno. Le caselle 5.1 e 5.2 (le uniche verifiche su dispositivo) sono
+> rimaste vuote per questo.
+>
+> La direzione presa è opposta: togliere del tutto l'asse del token e lasciare al
+> solo controllo d'origine il compito che nessuna rete può svolgere. Il pairing
+> sarà sostituito da un'autenticazione centralizzata che autentica la connessione.
+>
+> Conservata per la storia. **Non reimplementare quanto descritto qui.**
+
 # Change: lan-pwa-pairing-token
 
 ## Why
