@@ -182,6 +182,22 @@ export function pinKeyForPane(pane: Pane): string | undefined {
 }
 
 /**
+ * La chiave di pin che corrisponde a un id di PANE — l'inverso di
+ * `sidebarItemPaneId`, per chi riceve un drag (che porta pane) e deve fissare
+ * (che vuole righe).
+ *
+ * Le due forme coincidono per terminali e browser; divergono per il progetto
+ * (path codificato → grezzo) e per la chat, che come pane può presentarsi
+ * `chat:<topicId>` dentro una finestra di progetto ma si fissa sempre sul
+ * topicId nudo.
+ */
+export function pinKeyFromPaneId(paneId: string): string {
+  if (isProjectPaneId(paneId)) return normalizePinKey(paneId);
+  if (paneId.startsWith('chat:')) return paneId.slice('chat:'.length);
+  return paneId;
+}
+
+/**
  * Riporta una chiave di pin alla sua forma canonica. Solo i progetti hanno due
  * forme (vedi `pinKeyForPane`): qui la codificata torna grezza, tutto il resto
  * passa intatto. È idempotente — una chiave già canonica esce identica — quindi

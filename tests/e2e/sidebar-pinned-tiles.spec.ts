@@ -352,4 +352,46 @@ test.describe("Sidebar — tessere fissate", () => {
       )
       .toBe(targetSpaceId);
   });
+
+  test("TILE-9: lasciare una tab sui fissati la fissa", async ({ page, request }) => {
+    // Il gesto inverso di trascinarla via. Senza, l'unica strada per fissare era
+    // il menu contestuale — che dentro una card di gruppo non tutte le righe
+    // hanno, quindi da lì una cosa non si poteva proprio fissare.
+    const t = await createTopic(request, `E2E-TileAdopt-${Date.now()}`);
+    const gia = await createTopic(request, `E2E-TileAdoptSeed-${Date.now()}`);
+    created.push(t.id, gia.id);
+
+    // Un fissato serve solo a far esistere la griglia su cui lasciar cadere.
+    await page.request.put(`${E2E_BASE}/api/ui-state/panels`, { data: { openPanels: [t.id] } });
+    await setPins(page, [gia.id]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+    await expect(page.locator(`[data-pane-id="${t.id}"]`).first()).toBeVisible({ timeout: 10000 });
+
+    await page.evaluate((paneId) => {
+      const tab = document.querySelector(`[data-pane-id="${paneId}"]`) as HTMLElement | null;
+      const grid = document.querySelector('[data-testid="sidebar-pinned-section"]') as HTMLElement | null;
+      if (!tab || !grid) throw new Error("tab o griglia mancante");
+      const dt = new DataTransfer();
+      tab.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      grid.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      grid.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tab.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+    }, t.id);
+
+    await expect(tiles(page)).toHaveCount(2, { timeout: 10000 });
+    await expect(
+      section(page).getByTestId("pinned-tile").and(page.getByRole("treeitem", { name: new RegExp("E2E-TileAdopt-") })),
+    ).toBeVisible({ timeout: 10000 });
+
+    // E il pin è arrivato al server, non solo allo schermo.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedItems ?? []).includes(t.id);
+      }, { timeout: 15000 })
+      .toBe(true);
+  });
 });
