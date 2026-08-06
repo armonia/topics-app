@@ -1,7 +1,7 @@
 [
   {
-    "version": "2.2.11",
-    "date": "2026-08-05",
+    "version": "2.2.12",
+    "date": "2026-08-06",
     "sections": {
       "new": [
         {
@@ -26,10 +26,6 @@
         }
       ],
       "fixes": [
-        {
-          "text": "on every launch the app re-announced every chat that had already finished",
-          "scope": "notifications"
-        },
         {
           "text": "prices were stuck on retired models, and the bill came out three times too high",
           "scope": "costs"
@@ -77,6 +73,20 @@
         {
           "text": "don't report open-project/create-project as ok when bind fails",
           "scope": "topics"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.11",
+    "date": "2026-08-02",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "on every launch the app re-announced every chat that had already finished",
+          "scope": "notifications"
         }
       ],
       "perf": []
