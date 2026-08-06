@@ -736,11 +736,34 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [terminalSessions, pruneStaleTerminalPanes]);
 
   // ---- Derived: focusedProjectPath ----
+  //
+  // «Qual è il progetto su cui sto lavorando adesso»: lo leggono ⌘F (cerca nel
+  // progetto), ⌘P (apri un file) e il quick-open, quindi quando resta undefined
+  // quelle scorciatoie non fanno NIENTE e sembrano rotte.
+  //
+  // Le prime due strade riconoscono la tab del progetto e una chat che vi
+  // appartiene. Ne mancava una, ed è quella che si percorre di più: aprendo un
+  // progetto il fuoco si sposta quasi subito su una pane INTERNA — un terminale,
+  // git, i file, un browser — che non è un `project:` pane id e non sta in
+  // `topics`. Da lì `focusedProjectPath` tornava undefined pur essendo dentro un
+  // progetto a schermo intero: si cliccava la tab del progetto e ⌘F non
+  // rispondeva.
+  //
+  // `projectOpenPanes` sa già di chi è ogni pane (ogni finestra di progetto
+  // pubblica le sue). È upsert-only e non viene mai potata alla chiusura di una
+  // tab — un `browser:term-…` di un progetto chiuso resta per sempre — quindi
+  // l'appartenenza vale solo se quel progetto è ANCORA aperto a livello app
+  // (`openPanels`), la stessa condizione che usa `owningRenderedProject`.
   const focusedProjectPath = useMemo(() => {
     if (!focusedPanelId) return undefined;
     if (isProjectPaneId(focusedPanelId)) return getProjectPathFromPaneId(focusedPanelId) || undefined;
-    return topics[focusedPanelId]?.projectPath || undefined;
-  }, [focusedPanelId, topics]);
+    const viaTopic = topics[focusedPanelId]?.projectPath;
+    if (viaTopic) return viaTopic;
+    const owner = Object.entries(projectOpenPanes)
+      .find(([, ids]) => ids.includes(focusedPanelId))?.[0];
+    if (owner && openPanels.includes(createPaneId('project', owner))) return owner;
+    return undefined;
+  }, [focusedPanelId, topics, projectOpenPanes, openPanels]);
 
   // ---- Browser pane management ----
   const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
