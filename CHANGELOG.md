@@ -2,12 +2,30 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.23 — 2026-08-06
+
+### Sotto il cofano
+- Remote Access: i test cercavano bottoni che non esistono da un rename
+- Il drop da fuori dice dove finisce, e la board diventa una tessera
+
+## 2.2.22 — 2026-08-06
+
+### Sotto il cofano
+- Rimetti a posto i quattro tasti della ricerca, e il progetto che spariva sotto di essi
+
+## 2.2.21 — 2026-08-06
+
+### Sotto il cofano
+- Il pannello git di una cartella non tracciata: dire di chi sono le cose, e offrire quella che manca
+- Un varco fisso sotto l'ultima risposta, il cronometro che scorre davvero, e la coda al suo posto
+
 ## 2.2.20 — 2026-08-06
 
 ### Sotto il cofano
 - Il path dal client entrava senza bussare, e il grep girava per dieci giga
 - L'anteprima del riordino mancava proprio nel caso piu' comune
 - Via la vista per tipo, e il progetto diventa trascinabile
+- v2.2.20 — tessere: anteprima del riordino, vista per tipo rimossa
 
 ## 2.2.19 — 2026-08-06
 
@@ -26,6 +44,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Riscrivi le voci dello stadio 1 su cio' che e' stato fatto, non sul piano
 - Fissare trascinando, e sciogliere un gruppo senza sembrare di distruggerlo
 - Il refresh non ti sposta più, la freccia guarda la geometria, e la bolla smette di essere blu
+- Registra la mappa della ricerca in openspec
+- Il piano non è una scrittura: mostralo come piano
 
 ## 2.2.17 — 2026-08-06
 
