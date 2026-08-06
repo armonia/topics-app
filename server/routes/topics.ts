@@ -34,6 +34,7 @@ import { waitForAnswer, deliverAnswer, hasPendingAsk, pendingAskAgeMs, cancelAsk
 // bridge MCP, non dal canale nativo del provider, e dopo un riavvio nessuna
 // mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
 import { waitingAskStartedAt } from "../lib/waiting-ask";
+import { isPlanApprovalAnswer } from "../lib/plan-approval";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2297,6 +2298,29 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           type: 'stream:tool_update',
           sessionKey,
           topicId: topic?.id,
+          toolCallId,
+        });
+        return json({ ok: true, submittedAt });
+      }
+
+      // --- Approvazione di un piano ---
+      // Non c'è nessun tool sospeso da sbloccare: il turno è già finito, e la
+      // domanda l'ha messa Topics a fine turno perché la CLI in plan mode non
+      // ha più `ExitPlanMode` per chiederla (vedi server/lib/plan-approval.ts).
+      // Qui si registra solo la risposta; a far ripartire il lavoro è il client,
+      // che manda un turno nuovo con l'autonomia giusta — la stessa strada di
+      // qualunque altro messaggio, invece di un secondo modo di avviare turni.
+      if (response.kind === 'questions' && isPlanApprovalAnswer(response)) {
+        const submittedAt = new Date().toISOString();
+        const topicForPlan = getTopicBySessionKey(sessionKey);
+        updateToolCallFields(sessionKey, toolCallId, {
+          status: 'success',
+          userResponse: { ...response, submittedAt },
+        });
+        broadcastToAll({
+          type: 'stream:tool_update',
+          sessionKey,
+          topicId: topicForPlan?.id,
           toolCallId,
         });
         return json({ ok: true, submittedAt });

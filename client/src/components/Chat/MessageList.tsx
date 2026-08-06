@@ -84,6 +84,7 @@ interface MessageListProps {
   setMessage: (v: string) => void;
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
+  onPlanDecision?: (approved: boolean) => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   onRegenerate?: (msg: ChatMessage) => void;
@@ -127,6 +128,7 @@ export function MessageList({
   setMessage,
   onPlanApprove,
   onPlanReject,
+  onPlanDecision,
   onRemember,
   onEdit,
   onRegenerate,
@@ -1541,6 +1543,10 @@ export function MessageList({
                   onTogglePin={onTogglePin}
                   onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
                   onPlanReject={isLastAssistant ? onPlanReject : undefined}
+                  // La decisione sul piano NON è gatata sull'ultimo messaggio:
+                  // il pannello sta sulla riga del tool che ha proposto, che può
+                  // essere più su se nel frattempo è arrivato altro.
+                  onPlanDecision={onPlanDecision}
                   onRemember={onRemember}
                   onEdit={onEdit}
                   onRegenerate={onRegenerate}

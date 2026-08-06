@@ -8,6 +8,7 @@ import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
+import { planDecisionFrom } from '../../../../shared/plan-decision';
 
 /**
  * Live elapsed readout for a call that hasn't settled — ticks every second
@@ -63,6 +64,16 @@ interface Props {
    * disables the input form (the row still renders, with a hint).
    */
   sessionKey?: string;
+  /**
+   * La decisione presa su un piano proposto.
+   *
+   * Il pannello è quello di sempre (`ToolInputForm`), e la risposta si registra
+   * come tutte le altre — ma qui non c'è nessun tool sospeso da sbloccare: il
+   * turno è già finito, e a farlo ripartire è un messaggio nuovo con
+   * l'autonomia giusta. Quel messaggio lo manda chi possiede la sessione, non
+   * questa riga: la riga si limita a dire che cosa hai scelto.
+   */
+  onPlanDecision?: (approved: boolean) => void;
 }
 
 /**
@@ -84,7 +95,7 @@ interface Props {
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
-export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey }: Props) {
+export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, onPlanDecision }: Props) {
   const [open, setOpen] = useState(false);
 
   // Resolve the detail (server-provided or fallback derivation) and the
@@ -318,12 +329,16 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
               onSubmit={async (response: ToolUserResponse) => {
+                const decision = planDecisionFrom(response);
                 // The WS broadcast that follows will flip status →
                 // 'running' and persist `userResponse`; we don't need
                 // to update local state here. If the server rejects
                 // (404/502/503) the chatApi throws an ApiError with the
                 // message attached, which `ToolInputForm` surfaces inline.
                 await chatApi.toolResponse(sessionKey, toolCall.id, response);
+                // Registrata la scelta, il lavoro riparte: la route ha solo
+                // preso nota, perché di tool sospesi qui non ce n'è.
+                if (decision !== null) onPlanDecision?.(decision);
               }}
             />
             </>

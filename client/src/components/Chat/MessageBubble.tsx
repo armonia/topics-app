@@ -74,6 +74,8 @@ interface MessageBubbleProps {
   onTogglePin: (msg: ChatMessage) => void;
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
+  /** La decisione presa su un piano proposto — arriva fino a <ToolCallRow>. */
+  onPlanDecision?: (approved: boolean) => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   /** Regenerate this assistant reply as a sibling branch (host gates it off
@@ -106,6 +108,7 @@ export const MessageBubble = memo(function MessageBubble({
   onTogglePin,
   onPlanApprove,
   onPlanReject,
+  onPlanDecision,
   onRemember,
   onEdit,
   onRegenerate,
@@ -305,6 +308,7 @@ export const MessageBubble = memo(function MessageBubble({
                 costCents={msg.costCents}
                 onPlanApprove={onPlanApprove}
                 onPlanReject={onPlanReject}
+                onPlanDecision={onPlanDecision}
                 sessionKey={topic.sessionKey}
                 onMessage={onMessage}
               />
