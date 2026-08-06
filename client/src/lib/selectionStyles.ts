@@ -32,9 +32,48 @@ export const SELECTED_SURFACE_SOFT =
  * than SELECTED_SURFACE_SOFT at rest, raising on hover. Extracted from the
  * tab bar's inline classes (PaneTabBar) so the sidebar header's Search / Add
  * buttons read as the exact same family of controls as the tabs.
+ *
+ * MISURATO, e alzato di una tacca il 2026-08-06. A riposo era 0.03/0.04: sul
+ * chrome nuovo — più scuro in dark, più tinto in light — un rialzo così tenue
+ * cade sotto la soglia di percettibilità (1,1:1) e la tessera fissata a riposo
+ * smette di staccarsi dal fondo: dark 1,073:1, light 1,068:1. A 0.05/0.06
+ * risale a 1,115 e 1,122. Sulla pagina (`--bg`, dove vivono le tab) il rialzo
+ * diventa un filo più netto: è un guadagno, non un effetto collaterale.
  */
 export const RESTING_SURFACE =
-  'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]';
+  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10]';
+
+/**
+ * L'HOVER dentro la sidebar, e perché non è `hover:bg-app-hover`.
+ *
+ * `--bg-hover` è un colore OPACO calibrato su `--bg-surface` (le pane di
+ * contenuto). La sidebar non è più quella superficie: dal 2026-08-06 è
+ * `--chrome-bg`, un gradino SOTTO la pagina. Su un chrome più scuro un opaco
+ * tarato per un fondo più chiaro si muove nel verso sbagliato — in tema chiaro
+ * `#f5f5f5` su `#ebeef2` SCHIARISCE mentre la selezione (`bg-black/[0.06]`)
+ * SCURISCE: due stati della stessa riga che vanno in direzioni opposte.
+ *
+ * Un rialzo in ALPHA non ha questo problema: si compone su qualunque fondo e
+ * segue il tema da sé. La scala della riga è quindi una sola, in tre gradini:
+ * riposo trasparente → hover 0.05/0.08 → selezionata 0.06/0.14
+ * (SELECTED_SURFACE). Vale per ogni superficie che sta SUL chrome; le pane di
+ * contenuto continuano a usare `hover:bg-app-hover`.
+ *
+ * I due numeri sono misurati sul chrome, non scelti: a 0.04/0.07 l'hover dava
+ * 1,091:1 in chiaro — sotto la soglia di percettibilità di 1,1 — cioè una riga
+ * in hover che non si accendeva. A 0.05/0.08 sono 1,115:1 e 1,182:1.
+ */
+export const SIDEBAR_HOVER =
+  'hover:bg-black/[0.05] dark:hover:bg-white/[0.08]';
+
+/**
+ * Lo stesso rialzo di {@link SIDEBAR_HOVER}, ma ACCESO: il bottone di chrome
+ * che tiene aperto il suo menu. È il gemello dell'idioma già in uso
+ * (`aperto ? 'bg-app-hover' : 'hover:bg-app-hover'`) — un controllo aperto si
+ * legge come se ci stessi sopra col mouse — riscritto in alpha per gli stessi
+ * due numeri, così i due stati non possono divergere.
+ */
+export const SIDEBAR_ACTIVE = 'bg-black/[0.05] dark:bg-white/[0.08]';
 
 /**
  * Two "needs you" surfaces, split by TIER so a permission gate never looks the
@@ -164,6 +203,6 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   // l'utente non l'ha guardata); altrimenti valgono selezione e hover come prima.
   if (attention) return `${base} ${attentionSurface(attention)}`;
   if (focused) return `${base} ${SELECTED_SURFACE}`;
-  if (open) return `${base} text-app-text hover:bg-app-hover`;
-  return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;
+  if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
+  return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
