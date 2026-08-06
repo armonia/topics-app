@@ -355,15 +355,43 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
   }
 }
 
+/** Oltre questa lunghezza il percorso si accorcia IN MEZZO. */
+const PATH_MAX = 44;
+
+/**
+ * Il percorso senza la parte che è uguale per tutti, e — se resta ancora
+ * lungo — accorciato nel MEZZO invece che in coda.
+ *
+ * L'ellissi la metteva il CSS (`truncate`), che taglia a destra: su
+ * `client/src/components/Chat/MessageMetaFooter.tsx` restava
+ * `client/src/components/Ch…`, cioè si perdeva l'unica parte che distingue una
+ * riga dall'altra — il nome del file. Meglio sacrificare il mezzo: la cartella
+ * di testa dice dove sei, il nome dice cosa hai toccato.
+ */
 function stripCwd(path: string): string {
   if (!path) return path;
+  let out = path;
   const projectsIdx = path.indexOf('/Projects/');
   if (projectsIdx >= 0) {
     const rest = path.slice(projectsIdx + 10);
     const slash = rest.indexOf('/');
-    return slash >= 0 ? rest.slice(slash + 1) : rest;
+    out = slash >= 0 ? rest.slice(slash + 1) : rest;
+  } else {
+    const m = /^\/Users\/[^/]+\/(.+)$/.exec(path);
+    if (m) out = m[1];
   }
-  const m = /^\/Users\/[^/]+\/(.+)$/.exec(path);
-  if (m) return m[1];
-  return path;
+  return elideMiddle(out);
+}
+
+/** `a/b/c/d/e/file.ts` → `a/…/e/file.ts`: si tolgono i segmenti di mezzo, mai
+ *  il primo e mai gli ultimi due. Se non basta, si lascia com'è: un percorso
+ *  lungo e leggibile batte un moncone. */
+export function elideMiddle(p: string, max: number = PATH_MAX): string {
+  if (p.length <= max) return p;
+  const parts = p.split('/');
+  if (parts.length < 4) return p;
+  const head = parts[0];
+  const tail = parts.slice(-2).join('/');
+  const short = `${head}/…/${tail}`;
+  return short.length < p.length ? short : p;
 }
