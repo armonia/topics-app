@@ -71,7 +71,7 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
           {typeof exitCode === 'number' && exitCode !== 0 && (
             <div className="text-[11px] font-mono text-red-500 mb-0.5">exit {exitCode}</div>
           )}
-          <pre data-testid="tool-call-result" className={`text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
+          <pre data-testid="tool-call-result" className={`tool-card-code text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
             {output}
           </pre>
         </div>
@@ -112,7 +112,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
     <div className="space-y-1">
       <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {unifiedDiff ? (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="tool-card-code text-[11px] font-mono whitespace-pre overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {unifiedDiff.split('\n').map((line, i) => (
             <span key={i} className={
               line.startsWith('+') && !line.startsWith('+++') ? 'block text-green-500' :
@@ -183,7 +183,7 @@ export function SearchCard({ query, content, mode, numFiles, numMatches }: {
 }) {
   return (
     <div className="space-y-1">
-      <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
+      <pre data-testid="tool-call-args" className="tool-card-code text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
         {query}
       </pre>
       {(mode != null || numFiles != null || numMatches != null) && (
@@ -196,7 +196,7 @@ export function SearchCard({ query, content, mode, numFiles, numMatches }: {
         </div>
       )}
       {content && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {content}
         </pre>
       )}
@@ -223,7 +223,7 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
         )}
       </div>
       {prompt && (
-        <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
+        <pre className="tool-card-code text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
           {prompt}
         </pre>
       )}
@@ -325,7 +325,7 @@ export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
-      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
+      <pre className="tool-card-code text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
         {text}
       </pre>
     </div>
@@ -342,7 +342,7 @@ function ArgsPre({ args }: { args: Record<string, unknown> }) {
   const oneLine = JSON.stringify(args);
   const text = oneLine.length <= 100 ? oneLine : JSON.stringify(args, null, 2);
   return (
-    <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
+    <pre data-testid="tool-call-args" className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
       {text}
     </pre>
   );
@@ -382,7 +382,7 @@ function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max-h-72' 
   const { shown, oversized, length } = clampBody(text);
   return (
     <div className="space-y-1">
-      <pre data-testid={testId} className={`text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
+      <pre data-testid={testId} className={`tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
         {expanded ? text : shown}
         {oversized && !expanded && <span className="text-app-text-muted">…</span>}
       </pre>

@@ -540,8 +540,21 @@ html, body {
    (useSidebarFlipPush) — paddingLeft committed in ONE reflow, then a compositor-only
    translateX slide. Terminals settle once, never re-flow mid-slide → nothing to hide. */
 
-/* Code block styles */
-pre {
+/* Code block styles.
+ *
+ * `pre:not(.tool-card-code)` — questa regola è UNLAYERED, e in Tailwind v4 una
+ * regola fuori dai layer batte QUALUNQUE utility, che sta in `@layer utilities`.
+ * Le card dei tool scrivono sui loro `pre` `bg-app-hover/40 px-2 py-1.5
+ * text-[11px]`, e non ne applicavano NESSUNA: vinceva tutto questo blocco. Il
+ * risultato era un riquadro ardesia (#1f2937) anche in tema chiaro, con sopra la
+ * palette di sintassi CHIARA scritta apposta per il fondo dell'app (vedi
+ * `.tool-card-code` più sotto, che si dichiara «follows the app theme») —
+ * quindi né la tinta né la leggibilità erano quelle volute. Più padding e corpo
+ * del testo che nessuno aveva chiesto.
+ * `.tool-card-code` marca i `pre` che stanno DENTRO una card: lì la superficie
+ * la decide la card. Le fence di markdown, che sono ciò per cui questa regola è
+ * nata, restano identiche. */
+pre:not(.tool-card-code) {
   background-color: var(--code-bg);
   color: var(--code-text);
   padding: 0.75rem;
