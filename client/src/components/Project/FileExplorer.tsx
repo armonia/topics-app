@@ -537,24 +537,38 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
    * `children === undefined` significa «non letta», `[]` significa «vuota»: il
    * server distingue già i due casi, mancava solo chi ne approfittasse.
    */
+  //
+  // L'IDENTITÀ DI QUESTA FUNZIONE DEVE RESTARE STABILE. Finisce in
+  // `treeNodeProps`, che è sparso su OGNI `TreeNode`, e `TreeNode` è una
+  // funzione nuda senza memo: se la callback cambia a ogni variazione di
+  // `files`/`expandedDirs`, l'intero albero montato si ri-renderizza a ogni
+  // click e a ogni giro di git. Lo stato si legge dai ref, non dalle closure,
+  // così le dipendenze restano due funzioni a loro volta stabili.
+  const filesRef = useRef<FileNode[]>(files);
+  filesRef.current = files;
+  const loadingDirsRef = useRef<Set<string>>(loadingDirs);
+  loadingDirsRef.current = loadingDirs;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
   const handleToggleDir = useCallback((path: string) => {
-    const willExpand = !expandedDirs.has(path);
+    let willExpand = false;
     setExpandedDirs(prev => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
-      else next.add(path);
+      else { next.add(path); willExpand = true; }
       return next;
     });
     if (!willExpand) return;
-    const node = findNode(files, path);
+    const node = findNode(filesRef.current, path);
     if (!node || node.type !== 'dir' || node.children !== undefined) return;
-    if (loadingDirs.has(path)) return;
+    if (loadingDirsRef.current.has(path)) return;
     setLoadingDirs(prev => new Set(prev).add(path));
     filesApi.list(path, 2)
       .then(children => setFiles(prev => graftChildren(prev, path, children)))
-      .catch(err => toast.error(errMessage(err) || 'Impossibile leggere la cartella'))
+      .catch(err => toastRef.current.error(errMessage(err) || 'Impossibile leggere la cartella'))
       .finally(() => setLoadingDirs(prev => { const n = new Set(prev); n.delete(path); return n; }));
-  }, [expandedDirs, files, loadingDirs, graftChildren, toast]);
+  }, [findNode, graftChildren]);
 
   // Flatten tree for keyboard navigation and shift-select
   const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
