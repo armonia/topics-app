@@ -54,14 +54,27 @@ export class AskWaitError extends Error {
 // timeout and cheap enough to repeat for an hour and a half.
 const DEFAULT_TIMEOUT_MS = 25 * 1000;
 
-// How long the ASK itself stays alive across those legs. The point of this
-// panel is that a HUMAN answers it, and a human walks away: 10 min meant a
-// question asked at 12:55 was dead before anyone came back from lunch, and the
-// model resumed with a "cancelled" error nobody had chosen. Bounded BELOW the
-// provider's MAX_LIFETIME_MS (2 h, claude-code.ts) — past that the CLI child is
-// killed outright, so a longer wait would end on a dead process instead of this
-// clean cancellation.
-const DEFAULT_ASK_TTL_MS = 90 * 60 * 1000;
+// IL TEMPO NON È UN MOTIVO PER CHIUDERE UNA DOMANDA.
+//
+// Questo numero è stato 10 minuti (una domanda fatta alle 12:55 era morta
+// prima che qualcuno tornasse da pranzo) e poi 90 minuti — scelto non perché
+// un'ora e mezza volesse dire qualcosa, ma perché doveva stare SOTTO il tetto
+// di vita del figlio CLI (MAX_LIFETIME_MS, 2 h). Era un limite ereditato da un
+// altro limite, e in mezzo c'è una persona: chi lascia il computer alle sei e
+// risponde la mattina dopo trovava il pannello morto e un turno chiuso da un
+// «cancelled» che non aveva scelto nessuno. Una domanda che scade non ha senso.
+//
+// Adesso il tetto di vita si RIARMA finché un pannello è a schermo
+// (`armTurnDeadline` in claude-code.ts), quindi questo numero non è più
+// costretto da niente. Una domanda finisce per un MOTIVO: qualcuno risponde, il
+// turno viene interrotto, o il figlio sotto il pannello muore — ed è
+// `pendingAskVerdict` (childAlive === false) a vederlo, non un orologio.
+//
+// Resta una cifra sola perché serve un fondo contro le PERDITE: se una voce di
+// `activeAsks` sopravvivesse a tutti i suoi guardiani, senza tetto terrebbe in
+// piedi per sempre le esenzioni che si appoggiano a `hasPendingAsk`. 24 ore
+// sono oltre qualunque attesa umana reale e chiudono comunque il cerchio.
+const DEFAULT_ASK_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The ask TTL, for callers that must reason about the SAME window from
