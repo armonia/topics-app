@@ -1,7 +1,7 @@
 /**
  * useTaskTopicIndex — a live topicId → task index for DISPATCHED tasks (those
  * with an `assignedTopicId`). Sourced from the global board feed once on mount,
- * refreshed on any task:* WebSocket event (same trigger as useGlobalBoardCount).
+ * refreshed on any task:* WebSocket event (same trigger as useGlobalBoard).
  *
  * Returns a STABLE resolver so a completion banner for a dispatched-task topic
  * can carry the taskId — clicking the OS notification then opens that task's

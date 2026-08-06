@@ -5,6 +5,7 @@ import {
   flattenPinnedLayout,
   insertPinnedRow,
   movePinnedTile,
+  placePinnedTile,
   previewWidths,
   reconcilePinnedLayout,
   samePinnedLayout,
@@ -260,5 +261,69 @@ describe('le tessere restano larghe uguali', () => {
     const storta: PinnedRow[] = [{ keys: ['a', 'b', 'c'], widths: [0.375, 0.375, 0.25] }];
     const l = reconcilePinnedLayout(['a', 'b', 'c'], storta);
     expectEven(l[0]);
+  });
+});
+
+/**
+ * `placePinnedTile` — fissare una cosa arrivata da fuori E metterla DOVE è
+ * stata lasciata cadere.
+ *
+ * Il bug che chiude: la tessera si posava sempre in coda, mai sotto il cursore.
+ * La causa non era il calcolo della posizione — era l'ORDINE. `movePinnedTile`
+ * su una chiave che il layout non conosce ancora è un no-op silenzioso, quindi
+ * spostare-e-poi-riconciliare buttava via lo spostamento senza dire niente.
+ */
+describe('placePinnedTile', () => {
+  test('la nuova tessera finisce nella cella indicata, non in fondo', () => {
+    const l = placePinnedTile(['a', 'b', 'c', 'nuovo'], [row('a', 'b', 'c')], 'nuovo', {
+      kind: 'row', rowIdx: 0, insertAt: 1,
+    });
+    expect(l[0].keys).toEqual(['a', 'nuovo', 'b', 'c']);
+    expectWellFormed(l);
+  });
+
+  test('in testa e in coda alla riga, agli estremi', () => {
+    const testa = placePinnedTile(['a', 'b', 'x'], [row('a', 'b')], 'x', { kind: 'row', rowIdx: 0, insertAt: 0 });
+    expect(testa[0].keys).toEqual(['x', 'a', 'b']);
+    const coda = placePinnedTile(['a', 'b', 'x'], [row('a', 'b')], 'x', { kind: 'row', rowIdx: 0, insertAt: 2 });
+    expect(coda[0].keys).toEqual(['a', 'b', 'x']);
+  });
+
+  test('la riga di destinazione è quella indicata, non la prima', () => {
+    const l = placePinnedTile(['a', 'b', 'x'], [row('a'), row('b')], 'x', { kind: 'row', rowIdx: 1, insertAt: 0 });
+    expect(l.map(r => r.keys)).toEqual([['a'], ['x', 'b']]);
+  });
+
+  test('una riga NUOVA si apre esattamente dove è stato lasciato il drop', () => {
+    const l = placePinnedTile(['a', 'b', 'x'], [row('a'), row('b')], 'x', { kind: 'newRow', atRowIdx: 1 });
+    expect(l.map(r => r.keys)).toEqual([['a'], ['x'], ['b']]);
+    expectWellFormed(l);
+  });
+
+  test('senza niente di salvato la prima tessera atterra comunque', () => {
+    const l = placePinnedTile(['x'], [], 'x', { kind: 'row', rowIdx: 0, insertAt: 0 });
+    expect(flattenPinnedLayout(l)).toEqual(['x']);
+    const nuova = placePinnedTile(['x'], undefined, 'x', { kind: 'newRow', atRowIdx: 0 });
+    expect(flattenPinnedLayout(nuova)).toEqual(['x']);
+  });
+
+  test('la riga resta equa: la nuova tessera non nasce più stretta delle altre', () => {
+    const l = placePinnedTile(['a', 'b', 'x'], [row('a', 'b')], 'x', { kind: 'row', rowIdx: 0, insertAt: 1 });
+    const w = l[0].widths;
+    for (const x of w) expect(x).toBeCloseTo(1 / 3, 9);
+  });
+
+  test('un indice di riga oltre il layout non perde la tessera', () => {
+    const l = placePinnedTile(['a', 'x'], [row('a')], 'x', { kind: 'row', rowIdx: 9, insertAt: 5 });
+    expect(flattenPinnedLayout(l).sort()).toEqual(['a', 'x']);
+    expectWellFormed(l);
+  });
+
+  test('è il PIN a decidere chi c\'è: una chiave non fissata non entra', () => {
+    // `pinnedItems` è l'autorità. Se il chiamante dimentica di aggiungerla, la
+    // funzione non se la inventa — meglio nessuna cella che una che non si
+    // risolve in nessuna riga della sidebar.
+    const l = placePinnedTile(['a'], [row('a')], 'fantasma', { kind: 'row', rowIdx: 0, insertAt: 0 });
+    expect(flattenPinnedLayout(l)).toEqual(['a']);
   });
 });
