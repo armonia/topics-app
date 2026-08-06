@@ -7,6 +7,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Remote Access: i test cercavano bottoni che non esistono da un rename
 - Il drop da fuori dice dove finisce, e la board diventa una tessera
+- v2.2.23 — e la versione torna a salire
 
 ## 2.2.22 — 2026-08-06
 
@@ -26,11 +27,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - L'anteprima del riordino mancava proprio nel caso piu' comune
 - Via la vista per tipo, e il progetto diventa trascinabile
 - v2.2.20 — tessere: anteprima del riordino, vista per tipo rimossa
+- Le strisce sopra il composer si allineano, e due code smettono di chiamarsi uguale
 
 ## 2.2.19 — 2026-08-06
 
 ### Sotto il cofano
 - La freccia torna tonda: `rounded-full` su un rettangolo fa un ovale
+- La maniglia della barra non si dipinge, e stavolta c'e un test che lo tiene
+- Le card dei tool non applicavano nessuna delle proprie classi
 
 ## 2.2.18 — 2026-08-06
 
