@@ -20,6 +20,7 @@ import type { AppContext, RouteHandler } from "../types";
 import type { OutboundType } from "../../shared/ws-outbound";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
 import { unwatchGitDir } from "../git-watcher";
+import { unwatchProjectFiles } from "../file-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { extname } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
@@ -284,7 +285,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             const doomed = projectStore.get(idParams.id);
             const ok = projectStore.delete(idParams.id);
             if (!ok) return errorResponse(404, "Project not found");
-            if (doomed) unwatchGitDir(doomed.path);
+            if (doomed) { unwatchGitDir(doomed.path); unwatchProjectFiles(doomed.path); }
             emit("project:deleted", { id: idParams.id });
             return json({ ok: true });
           } catch (err: any) {

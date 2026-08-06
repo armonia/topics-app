@@ -180,6 +180,7 @@ describe('outbound registry contract', () => {
       'drag:start',
       'error',
       'external-sessions',
+      'files:changed',
       'gateway:status',
       'git:status',
       'goal:updated',
@@ -303,8 +304,14 @@ describe('outbound registry contract', () => {
   // del turno intero: nessuno dei due sa dire quale tool call è costata. Ha
   // mittente (`server/routes/chat.ts`) e ascoltatore (`useChat`), quindi non è
   // un tipo dichiarativo — è il contratto di una via che esiste.
-  test('all 85 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(85);
+  // 85 → 86: entra `files:changed`, l'evento del watcher del filesystem di
+  // progetto. Prima l'albero dei file era una FOTOGRAFIA: `loadFiles` girava al
+  // montaggio, sul bottone Aggiorna, e dopo le mutazioni fatte dall'Explorer
+  // stesso — quindi ogni file creato da un agente restava invisibile. E lo era
+  // in modo visibilmente asimmetrico, perché nella stessa sidebar i numeri di
+  // git si muovevano da soli: un watcher su `.git` c'era da sempre.
+  test('all 86 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(86);
   });
 });
 

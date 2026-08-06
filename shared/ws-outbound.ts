@@ -868,6 +868,17 @@ const gitStatusSchema = z.looseObject({
   type: z.literal('git:status'),
 });
 
+// ---- File tree ------------------------------------------------------------
+
+/**
+ * Il filesystem del progetto è cambiato. Nessun payload di proposito: chi
+ * ascolta ricarica il pezzo che gli serve (vedi `server/file-watcher.ts`).
+ */
+const filesChangedSchema = z.looseObject({
+  type: z.literal('files:changed'),
+  projectPath: z.string(),
+});
+
 // ---- Claude session state + events (highest-traffic live path) ------------
 
 /**
@@ -994,6 +1005,8 @@ const OUTBOUND_SCHEMAS = {
   // Provider niche
   // Git status — the live event git-watcher actually emits.
   'git:status': gitStatusSchema,
+  // Filesystem del progetto — l'evento che il file-watcher emette.
+  'files:changed': filesChangedSchema,
   // Claude session state (highest-traffic live path)
   'session:state': sessionStateSchema,
 } as const;
