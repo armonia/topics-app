@@ -199,8 +199,8 @@ export function TopicTree({
   topics,
   workspaceProjects = [],
   searchQuery,
-  expandedNodes: _expandedNodes,
-  onToggleNode: _onToggleNode,
+  expandedNodes,
+  onToggleNode,
   focusedTopicId,
   projectActiveTopics,
   previewPanelId,
@@ -1103,40 +1103,68 @@ export function TopicTree({
   // Fissata, la board NON ha una riga: vive come tessera nella griglia (vedi
   // `pinnedBlock`). La stessa cosa in due posti non è una scorciatoia, è un
   // doppione — la regola che vale già per le righe dentro le card dei gruppi.
+  const boardExpanded = expandedNodes.has(BOARD_ID);
   const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && (boardTaskCount > 0 || boardOpen) ? (
-          <button
-            type="button"
-            onClick={onOpenBoard}
-            data-testid="sidebar-board-generale"
-            aria-selected={boardOpen}
-            // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
-            // pane: è così che la si fissa (lasciandola sui Fissati) e che la si
-            // porta in un gruppo, senza passare da un menu.
-            draggable
-            onDragStart={e => {
-              e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
-              e.dataTransfer.effectAllowed = 'copyMove';
-            }}
-            onContextMenu={e => {
-              e.preventDefault();
-              setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
-            }}
-            // La stessa card di ogni altra riga: 6px di rientro (ROW_INSET) e
-            // angoli tondi. Era l'unica riga a filo dei bordi, con 12px di
-            // padding interno: sembrava di un altro elenco.
-            className={`flex items-center gap-1.5 mx-1.5 my-px px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
-              boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
-            }`}
-            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
-          >
-            <LayoutGrid size={13} className="flex-shrink-0 text-emerald-400" />
-            <span className="text-[12px] font-medium flex-1 text-left">{BOARD_LABEL}</span>
-            {boardTaskCount > 0 && (
-              <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-emerald-500 text-white text-[9px] font-bold rounded-full leading-none px-1">
-                {boardTaskCount}
-              </span>
-            )}
-          </button>
+          <div key="board-row" data-testid="sidebar-board-row">
+            {/* La stessa card di ogni altra riga: 6px di rientro (ROW_INSET),
+                angoli tondi, `mt-px` come tutte. `mb-0` perché lo spazio SOTTO
+                appartiene a ciò che segue — il blocco dei fissati porta il suo,
+                e sommare i due margini rompeva il ritmo verticale. Era l'unica
+                riga a filo dei bordi, con 12px di padding interno: sembrava di
+                un altro elenco. */}
+            <div
+              data-testid="sidebar-board-card"
+              className={`flex items-center gap-1 mx-1.5 mt-px mb-0 pl-1 pr-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
+                boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
+              }`}
+              // Trascinabile come ogni altra riga, e porta il PANEL_ID della sua
+              // pane: è così che la si fissa (lasciandola sui Fissati) e che la
+              // si porta in un gruppo, senza passare da un menu.
+              draggable
+              onDragStart={e => {
+                e.dataTransfer.setData(DND_TYPES.PANEL_ID, BOARD_ID);
+                e.dataTransfer.effectAllowed = 'copyMove';
+              }}
+              onContextMenu={e => {
+                e.preventDefault();
+                setPinOnlyMenu({ x: e.clientX, y: e.clientY, id: BOARD_ID, name: BOARD_LABEL });
+              }}
+            >
+              {/* Il chevron è un bersaglio SUO, come nei progetti: aprire per
+                  vedere cosa c'è dentro non è la stessa cosa che aprire la
+                  board. Senza di lui i task per stato esistevano solo sotto la
+                  tessera fissata — cioè dietro due gesti che nessuno indovina. */}
+              <button
+                type="button"
+                data-testid="sidebar-board-chevron"
+                aria-label={boardExpanded ? 'Chiudi i task' : 'Mostra i task per stato'}
+                aria-expanded={boardExpanded}
+                onClick={e => { e.stopPropagation(); onToggleNode?.(BOARD_ID); }}
+                className="flex-shrink-0 p-0.5 rounded hover:bg-app-hover"
+              >
+                <ChevronRight size={12} className={`transition-transform ${boardExpanded ? 'rotate-90' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={onOpenBoard}
+                data-testid="sidebar-board-generale"
+                aria-selected={boardOpen}
+                className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
+              >
+                {/* Glifo neutro come ogni altra riga: il verde faceva sembrare
+                    la board un tipo a parte, e il colore nella sidebar è
+                    riservato a uno STATO (attenzione, selezione), non a
+                    un'identità. */}
+                <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
+                <span className="text-[12px] font-medium flex-1 truncate">{BOARD_LABEL}</span>
+              </button>
+              {/* Il badge di sempre, non uno verde disegnato a mano: due badge
+                  diversi per la stessa cosa (quanti ti aspettano) sono due
+                  grammatiche in un elenco solo. */}
+              <NotificationBadge count={boardTaskCount} />
+            </div>
+            {boardExpanded && <BoardStateBand byStatus={boardByStatus} depth={1} />}
+          </div>
   ) : null;
 
   return (
@@ -1188,10 +1216,12 @@ export function TopicTree({
                 {/* Il filo rientra come TUTTO il resto della sidebar: 6px
                     (ROW_INSET), gli stessi delle card dei gruppi sotto e delle
                     tessere sopra. A 12px era l'unico elemento su una colonna
-                    sua, e il blocco dei fissati sembrava debordare. Il respiro
-                    sopra e sotto è lo stesso (my-2.5): un `mb-1` in più sul
-                    contenitore lo rendeva asimmetrico di 4px. */}
-                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />
+                    sua, e il blocco dei fissati sembrava debordare.
+                    Anche il respiro è quel numero, sopra e sotto (`my-1.5`): è
+                    lo stesso passo che separa la riga della board dalle tessere
+                    e le righe di tessere fra loro, così i quattro spazi che
+                    l'occhio legge in fila sono davvero uno. */}
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />
               </>
             )}
             <div data-testid="sidebar-groups">
@@ -1223,7 +1253,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
               </>
             )}
             {unpinnedItems.map(item => renderItem(item))}
@@ -1240,7 +1270,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Stesso filo della vista a lista: i fissati si staccano da ciò
                     che c'è sotto allo stesso modo in ogni vista. */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-2.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
               </>
             )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non

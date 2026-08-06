@@ -23,14 +23,20 @@ const created: string[] = [];
 /** Fissa una lista di id scrivendo direttamente lo stato sidebar: il percorso
  *  dal menu contestuale è già coperto da `sidebar.spec.ts` (PIN-1/PIN-2), e
  *  qui interessa la GRIGLIA, non come ci si è arrivati. */
-async function setPins(page: Page, ids: string[]): Promise<void> {
+async function setPins(page: Page, ids: string[], layout?: string[][]): Promise<void> {
   await page.request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
     data: {
       viewMode: "timeline",
       showArchived: false,
       expandedNodes: [],
       pinnedItems: ids,
-      pinnedLayout: [],
+      // Senza disposizione esplicita si finisce su UNA riga sola: `reconcile`
+      // accoda i fissati che il layout non conosce fino a PINNED_ROW_SOFT_MAX
+      // (6), e non passa da `deriveFromPinOrder`. Chi vuole due righe le chiede.
+      pinnedLayout: (layout ?? []).map(keys => ({
+        keys,
+        widths: keys.map(() => 1 / keys.length),
+      })),
     },
   });
 }
@@ -551,7 +557,11 @@ test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
 
     // La board compare quando la sua tab è aperta, anche a zero task.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
-    const boardRow = page.getByTestId("sidebar-board-generale");
+    // La CARD, non il bottone dell'etichetta: da quando la riga ha un chevron
+    // suo, `sidebar-board-generale` è il bersaglio interno e comincia dopo di
+    // lui — misurarlo direbbe 30px e non avrebbe niente a che vedere col
+    // rientro della riga.
+    const boardRow = page.getByTestId("sidebar-board-card");
     await expect(boardRow).toBeVisible({ timeout: 15000 });
 
     const sidebar = page.locator('[aria-label="Topics sidebar"]');
@@ -621,6 +631,101 @@ test.describe("Sidebar — fissare da fuori, e la Board generale", () => {
       for (const id of ids) {
         await request.delete(`${E2E_BASE}/api/boards/_none/tasks/${id}`).catch(() => {});
       }
+    }
+  });
+});
+
+test.describe("Sidebar — il ritmo verticale del blocco fissati", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  test("TILE-14: board, righe di tessere e separatore stanno a UNA sola distanza", async ({ page, request }) => {
+    // Erano tre numeri diversi per tre spazi che l'occhio legge in fila: 1px
+    // fra la riga della board e le tessere (il solo `my-px` della card), 0px
+    // fra due righe di tessere — si TOCCAVANO — e 10px prima del filo.
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const t = await createTopic(request, `E2E-Ritmo-${i}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    // Due righe da tre, chieste esplicitamente, più qualcosa sotto il filo
+    // perché il filo si disegni.
+    const sotto = await createTopic(request, `E2E-Ritmo-Sotto-${Date.now()}`);
+    created.push(sotto.id);
+
+    await setPins(page, ids, [ids.slice(0, 3), ids.slice(3)]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(6, { timeout: 15000 });
+
+    // La board compare quando la sua tab è aperta, anche a zero task.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "board" } })));
+    await expect(page.getByTestId("sidebar-board-card")).toBeVisible({ timeout: 15000 });
+
+    const righe = page.getByTestId("pinned-row");
+    await expect(righe).toHaveCount(2, { timeout: 15000 });
+
+    const box = async (l: Locator) => {
+      const b = await l.boundingBox();
+      expect(b).not.toBeNull();
+      return b!;
+    };
+    const board = await box(page.getByTestId("sidebar-board-card"));
+    const riga0 = await box(righe.nth(0));
+    const riga1 = await box(righe.nth(1));
+    const filo = await box(page.getByTestId("pinned-divider").first());
+
+    const spazi = {
+      boardTessere: Math.round(riga0.y - (board.y + board.height)),
+      fraRighe: Math.round(riga1.y - (riga0.y + riga0.height)),
+      tessereFilo: Math.round(filo.y - (riga1.y + riga1.height)),
+    };
+
+    // Un solo passo, lo stesso che separa due tessere della stessa riga.
+    expect(spazi).toEqual({ boardTessere: 6, fraRighe: 6, tessereFilo: 6 });
+  });
+
+  test("TILE-15: i task per stato si aprono dalla RIGA, non solo dalla tessera", async ({ page, request }) => {
+    // Prima stavano solo sotto la tessera fissata: due gesti (fissa, poi apri)
+    // che nessuno indovina, per una board che di suo non è fissata.
+    const stamp = Date.now();
+    const creati: string[] = [];
+    for (const [text, status] of [[`E2E-Riga-Review-${stamp}`, "review"], [`E2E-Riga-Todo-${stamp}`, "todo"]]) {
+      const res = await request.post(`${E2E_BASE}/api/boards/_none/tasks`, { data: { text, status } });
+      expect(res.ok()).toBe(true);
+      creati.push((await res.json()).id as string);
+    }
+
+    try {
+      await setPins(page, []);
+      await gotoSidebar(page);
+      const chevron = page.getByTestId("sidebar-board-chevron");
+      await expect(chevron).toBeVisible({ timeout: 15000 });
+      await expect(chevron).toHaveAttribute("aria-expanded", "false");
+
+      await chevron.click();
+      const band = page.getByTestId("board-state-band");
+      await expect(band).toBeVisible({ timeout: 15000 });
+      await expect(band.getByTestId("board-state-group-review")).toBeVisible();
+      await expect(band.getByTestId("board-state-group-todo")).toBeVisible();
+      await expect(band.getByText(`E2E-Riga-Review-${stamp}`)).toBeVisible();
+
+      // Il chevron è un bersaglio SUO: aprire per vedere cosa c'è dentro non è
+      // la stessa cosa che aprire la board.
+      await chevron.click();
+      await expect(band).toHaveCount(0);
+
+      // E il glifo non è più verde: nella sidebar il colore dice uno STATO.
+      const colore = await page.getByTestId("sidebar-board-generale").locator("svg").first()
+        .evaluate(el => getComputedStyle(el).color);
+      expect(colore, "il glifo della board deve essere neutro").not.toMatch(/52,\s*211,\s*153/); // emerald-400
+    } finally {
+      for (const id of creati) await request.delete(`${E2E_BASE}/api/boards/_none/tasks/${id}`).catch(() => {});
     }
   });
 });

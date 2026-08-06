@@ -16,6 +16,11 @@
           "it": "Il drop da fuori dice dove finisce, e la board diventa una tessera",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "v2.2.23 — e la versione torna a salire",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -84,6 +89,11 @@
           "it": "v2.2.20 — tessere: anteprima del riordino, vista per tipo rimossa",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Le strisce sopra il composer si allineano, e due code smettono di chiamarsi uguale",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -98,6 +108,16 @@
       "internal": [
         {
           "it": "La freccia torna tonda: `rounded-full` su un rettangolo fa un ovale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La maniglia della barra non si dipinge, e stavolta c'e un test che lo tiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card dei tool non applicavano nessuna delle proprie classi",
           "en": "",
           "scope": null
         }
