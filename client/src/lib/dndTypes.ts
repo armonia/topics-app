@@ -19,6 +19,13 @@ export const DND_TYPES = {
   GRID_ROW: 'application/x-grid-row',
   /** Source scope (window/project) of a tab drag — value carrier, read on drop */
   PANE_TAB_SCOPE: 'application/x-pane-tab-scope',
+  /** Riordino di una tessera dentro la griglia dei Fissati.
+   *
+   *  Una tessera porta QUESTO tipo *e* `PANEL_ID` sullo stesso dataTransfer: la
+   *  griglia dei fissati legge il primo per riordinare, la griglia dei pane legge
+   *  il secondo per aprire. Chi riceve prende il tipo che capisce, e il drag
+   *  «trascina un fissato dentro la griglia» continua a funzionare come prima. */
+  PINNED_TILE: 'application/x-pinned-tile',
 } as const;
 
 /** The DnD scope of the top-level standalone window (its chat group + solo split
