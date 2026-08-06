@@ -19,7 +19,9 @@
  * stesso istante.
  */
 import { useSyncExternalStore } from 'react';
-import { boardApi, type BoardProjectRef } from './board';
+import { boardApi, boardIdForPath, type BoardProjectRef } from './board';
+import { projectsApi } from './api';
+import { selectDirectory } from './shell/app';
 
 let projects: BoardProjectRef[] | null = null;
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
@@ -94,6 +96,38 @@ export function useBoardProjects(enabled = true): BoardProjectRef[] | null {
     enabled ? getBoardProjects : getNull,
     getNull,
   );
+}
+
+/**
+ * «Scegli una cartella già sul disco e fanne un progetto» — lo stesso gesto
+ * della voce «Progetto…» del menu «+», portato dentro il selettore.
+ *
+ * Tre passi, e nessuno è saltabile:
+ *  1. il pannello di sistema (che col suo bottone «Nuova cartella» è anche il
+ *     modo di CREARLA: non esiste una API «crea» separata da chiamare);
+ *  2. la registrazione (`POST /api/projects`) — senza, il server non conosce
+ *     quella dir, quindi il dispatcher non sa risolvere l'id della board in un
+ *     percorso e l'endpoint dell'icona la rifiuta. Un progetto scelto ma non
+ *     registrato darebbe un task che nessuno può eseguire;
+ *  3. la rilettura dell'indice, che è la fonte di verità su nome e id.
+ *
+ * Ritorna `null` se l'utente annulla o se non c'è pannello (web). Se la
+ * registrazione fallisce ma la cartella esiste, si ricade su un ref calcolato
+ * qui: meglio un progetto selezionabile che un menu che non fa niente.
+ */
+export async function pickProjectFolder(): Promise<BoardProjectRef | null> {
+  const path = (await selectDirectory())?.replace(/\/+$/, '') ?? null;
+  if (!path) return null;
+  const name = path.split('/').pop() || path;
+  try {
+    if (!(await projectsApi.byPath(path))) await projectsApi.create({ name, path });
+  } catch { /* già registrato con un altro slug, o store non disponibile */ }
+  const index = await fetchOnce(true);
+  const known = index?.find((p) => p.path === path);
+  if (known) return known;
+  const ref: BoardProjectRef = { projectId: boardIdForPath(path), name, path };
+  addBoardProject(ref);
+  return ref;
 }
 
 /**

@@ -47,6 +47,8 @@ const ID_B = boardIdForPath(PROJ_B);
 
 const topicIds: string[] = [];
 const createdTasks: string[] = [];
+/** Nome del progetto creato dalla UI in PROJSEL-05, da ripulire alla fine. */
+let createdViaUi: string | null = null;
 
 async function apiCreateTask(
   request: import("@playwright/test").APIRequestContext,
@@ -112,6 +114,15 @@ test.describe("Selettore progetto della board", () => {
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
     for (const dir of [PROJ_A, PROJ_B]) rmSync(dir, { recursive: true, force: true });
+    // Il progetto creato DALLA UI vive nel workspace del server di test: si
+    // ritrova per nome nell'indice e si cancella dal suo `path`.
+    if (createdViaUi) {
+      const idx = (await (await request.get(`${BASE}/api/all-boards/projects`)).json()) as {
+        projects: Array<{ name: string; path: string }>;
+      };
+      const made = idx.projects.find((p) => p.name === createdViaUi);
+      if (made) rmSync(made.path, { recursive: true, force: true });
+    }
   });
 
   test.beforeEach(async ({ page }) => {
@@ -283,5 +294,50 @@ test.describe("Selettore progetto della board", () => {
       return !!top && (top === el || el.contains(top));
     });
     expect(hit).toBe(true);
+  });
+
+  test("PROJSEL-05: «Nuovo progetto…» c'è SEMPRE, e crea davvero", async ({ page }) => {
+    await page.goto("/");
+    await openGlobalBoard(page);
+    await expandComposer(page);
+    await page.getByTestId("composer-project-chip").click();
+
+    const menu = page.locator('[role="listbox"]').filter({ hasText: "Progetto del task" });
+    const search = menu.getByPlaceholder("Cerca o crea…");
+    const create = menu.getByTestId("project-picker-create");
+
+    // A casella VUOTA la riga c'è già: prima compariva solo dopo aver digitato
+    // un nome inesistente, cioè per chi guardava il menu non esisteva.
+    await expect(create).toBeVisible();
+    await expect(create).toContainText("Nuovo progetto…");
+    // E porta il cursore dove si scrive il nome (la ricerca È la creazione).
+    await search.blur();
+    await create.click();
+    await expect(search).toBeFocused();
+
+    // Un nome che esiste già non promette una creazione che fallirebbe.
+    await search.fill(PROJ_A.split("/").pop()!);
+    await expect(create).toBeDisabled();
+
+    // Un nome nuovo: la riga diventa il bottone che crea, e crea davvero.
+    const fresh = `projsel${STAMP}`;
+    await search.fill(fresh);
+    await expect(create).toBeEnabled();
+    await expect(create).toContainText(`Crea "${fresh}"`);
+    createdViaUi = fresh;
+    await create.click();
+
+    // Creato → scelto: il chip lo mostra, e l'indice del server lo conosce.
+    const chip = page.getByTestId("composer-project-chip");
+    await expect(chip).toContainText(fresh, { timeout: 10000 });
+    const idx = (await (await page.request.get(`${BASE}/api/all-boards/projects`)).json()) as {
+      projects: Array<{ name: string }>;
+    };
+    expect(idx.projects.map((p) => p.name)).toContain(fresh);
+
+    // La riga «Apri / Crea progetto…» apre un pannello di SISTEMA: su web non
+    // c'è, e una voce che non fa niente è peggio di una voce assente.
+    await page.getByTestId("composer-project-chip").click();
+    await expect(menu.getByTestId("project-picker-folder")).toHaveCount(0);
   });
 });
