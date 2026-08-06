@@ -153,7 +153,18 @@ export function isTaskWorkspacePath(path: string | null | undefined): boolean {
  *   • chat     → the bare topicId (chat sidebar rows are keyed by topicId)
  *   • terminal → the pane id `terminal:<sessionId>`
  *   • browser  → the pane id `browser:<contextId>`
- *   • project  → the pane id `project:<encodedPath>`
+ *   • project  → `project:<rawPath>` — the SIDEBAR-ITEM form, NOT `pane.id`
+ *
+ * ── Perché il progetto non porta `pane.id` ───────────────────────────────────
+ * Il progetto è l'unico tipo con due forme in circolazione: la riga della
+ * sidebar è chiavata sul path GREZZO (`project:/Users/…`, buildSidebarItems)
+ * mentre la pane usa quello CODIFICATO (`project:%2FUsers%2F…`). Finché questa
+ * funzione restituiva `pane.id`, fissare dalla TAB scriveva la forma codificata
+ * e il blocco Fissati — che cerca la grezza — non trovava mai quel progetto: la
+ * riga non compariva, e lo stesso progetto poteva finire DUE VOLTE in
+ * `pinnedItems`, una per superficie. La forma grezza è quella canonica perché è
+ * l'unica delle due che una sidebar può produrre da sé; `normalizePinKey`
+ * riporta a questa forma tutto ciò che è stato salvato prima.
  */
 export function pinKeyForPane(pane: Pane): string | undefined {
   switch (pane.type) {
@@ -164,9 +175,29 @@ export function pinKeyForPane(pane: Pane): string | undefined {
     case 'browser':
       return isBrowserPaneId(pane.id) ? pane.id : undefined;
     case 'project':
-      return isProjectPaneId(pane.id) ? pane.id : undefined;
+      return isProjectPaneId(pane.id) ? normalizePinKey(pane.id) : undefined;
     default:
       return undefined;
+  }
+}
+
+/**
+ * Riporta una chiave di pin alla sua forma canonica. Solo i progetti hanno due
+ * forme (vedi `pinKeyForPane`): qui la codificata torna grezza, tutto il resto
+ * passa intatto. È idempotente — una chiave già canonica esce identica — quindi
+ * si può applicare a ogni caricamento senza tenere il conto di chi l'ha già vista.
+ *
+ * Un path che contiene un `%` letterale non decodificabile farebbe lanciare
+ * `decodeURIComponent`: in quel caso si tiene la chiave com'è, perché una chiave
+ * strana è comunque meglio di un boom al boot.
+ */
+export function normalizePinKey(key: string): string {
+  if (!isProjectPaneId(key)) return key;
+  const raw = key.slice('project:'.length);
+  try {
+    return `project:${decodeURIComponent(raw)}`;
+  } catch {
+    return key;
   }
 }
 

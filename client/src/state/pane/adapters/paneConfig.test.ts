@@ -18,6 +18,7 @@ import {
   getTerminalSessionFromPaneId,
   sessionKeyForPaneId,
   pinKeyForPane,
+  normalizePinKey,
   tabTargetForPane,
 } from "./paneConfig";
 import { utilityPanelId } from "./utilityPanelId";
@@ -205,9 +206,20 @@ describe("pinKeyForPane — one canonical pin key per tab type", () => {
     expect(pinKeyForPane(pane({ id, type: "browser" }))).toBe(id);
   });
 
-  test("project → the project:<encodedPath> pane id verbatim", () => {
+  // Cambiato di proposito: prima questo test asseriva `pane.id` (la forma
+  // CODIFICATA), cioè fissava nel contratto il bug che la sidebar non trovava
+  // mai il progetto fissato da una tab. La chiave canonica è la forma grezza,
+  // l'unica che entrambe le superfici sanno produrre.
+  test("project → project:<rawPath>, NON il pane id codificato", () => {
     const id = createPaneId("project", "/work/x");
-    expect(pinKeyForPane(pane({ id, type: "project" }))).toBe(id);
+    expect(id).toBe("project:%2Fwork%2Fx");
+    expect(pinKeyForPane(pane({ id, type: "project" }))).toBe("project:/work/x");
+  });
+
+  test("le due superfici producono la STESSA chiave per lo stesso progetto", () => {
+    const fromTab = pinKeyForPane(pane({ id: createPaneId("project", "/work/x"), type: "project" }));
+    const fromSidebar = "project:/work/x"; // buildSidebarItems chiave la riga così
+    expect(fromTab).toBe(fromSidebar);
   });
 
   test("chat with no topicId, and non-pinnable ephemeral types, return undefined", () => {
@@ -215,6 +227,29 @@ describe("pinKeyForPane — one canonical pin key per tab type", () => {
     for (const type of ["file", "git", "activity", "journal", "agents", "dashboard"] as Pane["type"][]) {
       expect(pinKeyForPane(pane({ id: `${type}:x`, type }))).toBeUndefined();
     }
+  });
+});
+
+describe("normalizePinKey — una sola forma per progetto", () => {
+  test("la forma codificata torna grezza", () => {
+    expect(normalizePinKey("project:%2FUsers%2Fzorahrel%2FProjects%2Ftopics-app"))
+      .toBe("project:/Users/zorahrel/Projects/topics-app");
+  });
+
+  test("è idempotente: applicarla due volte non cambia nulla", () => {
+    const once = normalizePinKey("project:%2Fwork%2Fx");
+    expect(normalizePinKey(once)).toBe(once);
+    expect(once).toBe("project:/work/x");
+  });
+
+  test("le chiavi non-progetto passano intatte", () => {
+    for (const key of ["topic-9", "terminal:sess-7", "browser:ctx-42", "__board__"]) {
+      expect(normalizePinKey(key)).toBe(key);
+    }
+  });
+
+  test("un path con un % non decodificabile resta com'è invece di far esplodere", () => {
+    expect(normalizePinKey("project:/work/100%sicuro")).toBe("project:/work/100%sicuro");
   });
 });
 
