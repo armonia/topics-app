@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
+import type { DetectedScript } from '../../types';
 import type { ScriptProcessInfo } from '../../lib/api';
 import { useScripts } from '../../hooks/useScripts';
 import { lastFailureByScript } from '../../lib/processFailure';
@@ -23,7 +24,10 @@ function getScriptColor(name: string): string {
 
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const tr = useT();
-  const [scripts, setScripts] = useState<Record<string, string>>({});
+  const [scripts, setScripts] = useState<DetectedScript[]>([]);
+  /** I manifest presenti nel progetto, e quelli che il server guarda. */
+  const [found, setFound] = useState<string[]>([]);
+  const [looked, setLooked] = useState<string[]>([]);
   const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
   const runningScriptsRef = useRef(runningScripts);
   runningScriptsRef.current = runningScripts;
@@ -43,28 +47,43 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const removeKey = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) =>
     setter(prev => { const next = new Set(prev); next.delete(key); return next; });
   const mountedRef = useRef(true);
+  // Il ripiego legge gli script SENZA farli entrare fra le dipendenze del
+  // callback: rifarlo a ogni cambio di lista rimonterebbe le righe.
+  const scriptsRef = useRef<DetectedScript[]>([]);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
-  // Load package.json scripts on mount
+  // Gli script del progetto, da tutti i manifest.
   useEffect(() => {
     let active = true;
-    filesApi.packageScripts(projectPath).catch(() => ({ scripts: {} }))
-      .then((pkgData) => {
+    filesApi.packageScripts(projectPath)
+      .catch(() => ({ scripts: [] as DetectedScript[], found: [] as string[], looked: [] as string[] }))
+      .then((dati) => {
         if (!active) return;
-        setScripts(pkgData.scripts);
+        setScripts(dati.scripts ?? []);
+        scriptsRef.current = dati.scripts ?? [];
+        setFound(dati.found ?? []);
+        setLooked(dati.looked ?? []);
         setReady(true);
       });
     return () => { active = false; };
   }, [projectPath]);
 
-  const handleRunScript = useCallback(async (name: string) => {
+  /**
+   * `id` e cio che si lancia, `name` cio che si mostra: sono diversi perche lo
+   * stesso nome puo stare in due manifest. Lo stato «sto partendo» resta sul
+   * nome, che e la chiave con cui la riga si ritrova nella lista.
+   */
+  const handleRunScript = useCallback(async (id: string, name: string) => {
     addKey(setStartingScripts, name);
     try {
-      await scriptsApi.run(projectPath, name);
+      await scriptsApi.run(projectPath, id);
       refreshScripts();
     } catch {
       if (onRunScript) {
-        onRunScript(`cd ${JSON.stringify(projectPath)} && npm run ${name}`);
+        // Il ripiego passa dalla chat: si scrive il comando VERO dello script,
+        // non `npm run` — che su un target di Makefile non vuol dire niente.
+        const comando = scriptsRef.current.find(x => x.id === id)?.argv.join(' ') ?? name;
+        onRunScript(`cd ${JSON.stringify(projectPath)} && ${comando}`);
       }
     } finally {
       removeKey(setStartingScripts, name);
@@ -96,7 +115,10 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     }
   }, [refreshScripts]);
 
-  const scriptEntries = Object.entries(scripts);
+  const scriptEntries = scripts;
+  // Il manifest si mostra accanto al nome solo se ce n'e piu d'uno: con un
+  // package.json e basta sarebbe la stessa etichetta su ogni riga.
+  const piuManifest = new Set(scripts.map(s => s.from)).size > 1;
 
   // Map script name → running process
   const runningMap = new Map<string, ScriptProcessInfo>();
@@ -111,7 +133,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const failedMap = lastFailureByScript(runningScripts);
 
   const detectedRows = runningScripts.filter(
-    sp => sp.status === 'running' && sp.source === 'detected' && !(sp.scriptName in scripts));
+    sp => sp.status === 'running' && sp.source === 'detected' && !scripts.some(x => x.name === sp.scriptName));
   const shellRows = runningScripts.filter(sp => sp.status === 'running' && sp.source === 'shell');
 
   if (!ready) {
@@ -122,14 +144,33 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     );
   }
 
-  // Niente script nel package.json non vuol dire niente processi: una shell in
+  // Niente script dichiarati non vuol dire niente processi: una shell in
   // background o un server auto-rilevato vivono anche in una cartella senza
-  // package.json, e nasconderli qui li renderebbe di nuovo invisibili.
-  if (scriptEntries.length === 0 && detectedRows.length === 0 && shellRows.length === 0) return null;
+  // manifest, e nasconderli qui li renderebbe di nuovo invisibili.
+  //
+  // Ma quando non c'e DAVVERO niente, la sezione lo DICE. Prima faceva
+  // `return null` e si apriva sul vuoto, senza distinguere «qui non c'e niente»
+  // da «non ho guardato» — che e la differenza che conta quando ti chiedi
+  // perche il pannello e muto.
+  if (scriptEntries.length === 0 && detectedRows.length === 0 && shellRows.length === 0) {
+    return (
+      <div data-testid="script-runner-empty" className="px-3 py-2 text-[11px] text-app-text-tertiary leading-relaxed">
+        {found.length === 0
+          ? <>Nessun manifest di script in questa cartella.</>
+          : <>Nessuno script dichiarato in {found.join(', ')}.</>}
+        {looked.length > 0 && (
+          <div className="mt-1 text-app-text-faint" title={looked.join('\n')}>
+            Guardo: {looked.join(', ')}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div data-testid="script-runner" className="text-[12px] pb-1">
-      {scriptEntries.map(([name, cmd]) => {
+      {scriptEntries.map((script) => {
+        const { id, name, detail: cmd, from } = script;
         const running = runningMap.get(name);
         // Un fallimento conta solo se lo script non è ripartito nel frattempo.
         const failed = running ? undefined : failedMap.get(name);
@@ -138,15 +179,22 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
         const ports = running?.ports ?? [];
 
         return (
-          <div key={name}>
+          <div key={id}>
             <div
+              // L'aggancio e l'ID, non il testo: la riga mostra il nome PIU il
+              // manifest, e `getByText` legge il testo concatenato — cercare
+              // «test» esatto non trova «testCargo.toml».
+              data-script-id={id}
+              data-script-from={from}
               className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
               onClick={() => {
                 if (isStopping) return;
                 if (running) {
                   onOpenProcessLog?.(running.processId, name);
                 } else if (!isStarting) {
-                  handleRunScript(name);
+                  // L'ID, non il nome: `test` puo essere sia uno script di
+                  // package.json sia un target del Makefile.
+                  handleRunScript(id, name);
                 }
               }}
               title={cmd}
@@ -166,6 +214,9 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               )}
               <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : failed ? 'text-red-500' : 'text-app-text-body'}`}>
                 {name}
+                {piuManifest && (
+                  <span className="ml-1.5 text-[10px] text-app-text-faint">{from}</span>
+                )}
               </span>
               {failed && !isStopping && (
                 <button
