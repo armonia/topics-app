@@ -896,6 +896,43 @@ const sessionStateSchema = z.looseObject({
   }),
 });
 
+// ---- Appaiamento dei dispositivi -------------------------------------------
+
+/**
+ * Un dispositivo NUOVO ha chiesto accesso. Va in broadcast perche' la richiesta
+ * deve raggiungere la macchina gia' fidata OVUNQUE l'utente stia guardando: se
+ * comparisse solo dentro un pannello di impostazioni, chi arriva col telefono in
+ * mano resterebbe fermo su una schermata d'attesa senza sapere dove andare — che
+ * e' esattamente il vicolo cieco per cui il pairing precedente non e' mai servito
+ * a nessuno.
+ *
+ * `code` viaggia in chiaro e va bene: NON e' un segreto da indovinare, e' una
+ * etichetta da CONFRONTARE con quella mostrata sul dispositivo che chiede. Chi
+ * riceve questo frame e' gia' dentro.
+ */
+const authPairRequestedSchema = z.object({
+  type: z.literal('auth:pair-requested'),
+  requestId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  ip: z.nullable(z.string()),
+});
+
+/** La richiesta e' stata sciolta: serve a togliere il cartello da OGNI finestra
+ *  aperta, non solo da quella dove qualcuno ha cliccato. */
+const authPairResolvedSchema = z.object({
+  type: z.literal('auth:pair-resolved'),
+  requestId: z.string(),
+  approved: z.boolean(),
+  deviceId: z.optional(z.string()),
+});
+
+/** Un dispositivo e' stato revocato: le altre finestre aggiornano l'elenco. */
+const authDeviceRevokedSchema = z.object({
+  type: z.literal('auth:device-revoked'),
+  deviceId: z.string(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1009,6 +1046,10 @@ const OUTBOUND_SCHEMAS = {
   'files:changed': filesChangedSchema,
   // Claude session state (highest-traffic live path)
   'session:state': sessionStateSchema,
+  // Appaiamento dei dispositivi
+  'auth:pair-requested': authPairRequestedSchema,
+  'auth:pair-resolved': authPairResolvedSchema,
+  'auth:device-revoked': authDeviceRevokedSchema,
 } as const;
 
 /**
