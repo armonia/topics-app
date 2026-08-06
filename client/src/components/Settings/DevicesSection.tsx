@@ -1,0 +1,175 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Smartphone, Trash2, Check, X as XIcon } from 'lucide-react';
+
+/**
+ * I dispositivi autorizzati, e il gesto per toglierne uno.
+ *
+ * Esiste perché senza di lui la frase scritta in SECURITY.md — «authorization is
+ * per device and can be revoked at any time» — sarebbe vera solo per chi sa
+ * usare `curl`. Un'impostazione di sicurezza che non ha una superficie è una
+ * promessa che il prodotto non mantiene.
+ *
+ * Le righe revocate NON spariscono: una riga cancellata non racconta niente,
+ * una revocata dice che quel dispositivo c'è stato e quando gli è stata tolta
+ * la fiducia. È ciò che rende questo elenco una cronologia invece di un
+ * inventario — e l'unico posto in cui accorgersi di un accesso che non
+ * riconosci.
+ */
+interface Device {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  firstIp: string | null;
+  revokedAt: number | null;
+}
+
+function quando(ms: number | null): string {
+  if (!ms) return 'mai';
+  const diff = Date.now() - ms;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'adesso';
+  if (min < 60) return `${min} min fa`;
+  const ore = Math.floor(min / 60);
+  if (ore < 24) return `${ore} h fa`;
+  const giorni = Math.floor(ore / 24);
+  if (giorni < 30) return `${giorni} g fa`;
+  return new Date(ms).toLocaleDateString('it-IT');
+}
+
+export function DevicesSection() {
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [errore, setErrore] = useState<string | null>(null);
+  const [conferma, setConferma] = useState<string | null>(null);
+  const [inCorso, setInCorso] = useState<string | null>(null);
+
+  const carica = useCallback(async () => {
+    try {
+      const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(String(r.status));
+      const b = await r.json() as { devices: Device[] };
+      setDevices(b.devices);
+      setErrore(null);
+    } catch {
+      setErrore('Non riesco a leggere l’elenco dei dispositivi.');
+      setDevices([]);
+    }
+  }, []);
+
+  useEffect(() => { void carica(); }, [carica]);
+
+  // Un dispositivo appaiato o revocato da un'altra finestra deve comparire qui
+  // senza che si debba riaprire il pannello.
+  useEffect(() => {
+    const onChange = () => { void carica(); };
+    window.addEventListener('topics:auth-pair-resolved', onChange);
+    window.addEventListener('topics:auth-device-revoked', onChange);
+    return () => {
+      window.removeEventListener('topics:auth-pair-resolved', onChange);
+      window.removeEventListener('topics:auth-device-revoked', onChange);
+    };
+  }, [carica]);
+
+  const revoca = async (id: string) => {
+    setInCorso(id);
+    try {
+      await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      });
+      await carica();
+    } finally {
+      setInCorso(null);
+      setConferma(null);
+    }
+  };
+
+  const attivi = (devices ?? []).filter((d) => d.revokedAt === null);
+  const revocati = (devices ?? []).filter((d) => d.revokedAt !== null);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-[13px] font-semibold text-app-text">Dispositivi autorizzati</h3>
+        <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+          Ogni dispositivo diverso da questo computer deve essere autorizzato una volta.
+          Questo computer non compare: da qui sei dentro per il fatto di esserci seduto.
+        </p>
+      </div>
+
+      {errore && <p className="text-[12px] text-red-500">{errore}</p>}
+
+      {devices === null && <p className="text-[12px] text-app-text-muted">Carico…</p>}
+
+      {devices !== null && attivi.length === 0 && !errore && (
+        <p className="rounded-lg border border-app-border bg-app-hover/30 px-3 py-2.5 text-[12px] text-app-text-secondary">
+          Nessun altro dispositivo autorizzato. Apri Topics dal telefono sulla stessa rete
+          e comparirà qui una richiesta da approvare.
+        </p>
+      )}
+
+      {attivi.length > 0 && (
+        <ul className="space-y-1.5" data-testid="devices-active">
+          {attivi.map((d) => (
+            <li key={d.id} className="flex items-center gap-2.5 rounded-lg border border-app-border px-3 py-2">
+              <Smartphone size={14} className="flex-shrink-0 text-app-text-secondary" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] text-app-text">{d.name}</div>
+                <div className="text-[11px] text-app-text-muted">
+                  visto {quando(d.lastSeenAt)}
+                  {d.firstIp && ` · da ${d.firstIp.replace(/^::ffff:/, '')}`}
+                </div>
+              </div>
+
+              {conferma === d.id ? (
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <span className="mr-1 text-[11px] text-app-text-secondary">Revocare?</span>
+                  <button
+                    aria-label="Conferma revoca"
+                    disabled={inCorso === d.id}
+                    onClick={() => void revoca(d.id)}
+                    className="rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    aria-label="Annulla"
+                    onClick={() => setConferma(null)}
+                    className="rounded p-1 text-app-text-tertiary hover:bg-app-hover"
+                  >
+                    <XIcon size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  aria-label={`Revoca ${d.name}`}
+                  onClick={() => setConferma(d.id)}
+                  className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-red-500"
+                  title="Revoca l'accesso a questo dispositivo"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {revocati.length > 0 && (
+        <div>
+          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+            Revocati
+          </h4>
+          <ul className="space-y-1" data-testid="devices-revoked">
+            {revocati.map((d) => (
+              <li key={d.id} className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-app-text-muted">
+                <Smartphone size={12} className="flex-shrink-0 opacity-50" />
+                <span className="truncate line-through">{d.name}</span>
+                <span className="ml-auto flex-shrink-0 text-[11px]">revocato {quando(d.revokedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

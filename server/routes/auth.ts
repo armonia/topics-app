@@ -36,6 +36,17 @@ interface PendingPairing {
 
 const pending = new Map<string, PendingPairing>();
 
+/**
+ * Tetto alle richieste in attesa. Il verso dell'approvazione toglie il
+ * brute-force del CODICE — non c'è niente da indovinare — ma non impedisce a un
+ * peer sulla rete di inondare la coda finché il cartello sul Mac diventa
+ * illeggibile. Due limiti, per due abusi diversi: quante ne può avere aperte UNO
+ * stesso indirizzo, e quante in tutto. Sono numeri bassi di proposito: una
+ * persona che appaia un telefono ne apre una.
+ */
+const MAX_PENDING_PER_IP = 3;
+const MAX_PENDING_TOTAL = 20;
+
 function sweep(now: number): void {
   for (const [id, p] of pending) {
     if (now - p.createdAt > PAIRING_CODE_TTL_MS) pending.delete(id);
@@ -102,6 +113,13 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
 
     // ── Il dispositivo nuovo chiede accesso e riceve il codice DA MOSTRARE.
     if (method === "POST" && pathname === "/api/auth/pair/request") {
+      // `sweep` è già passato: ciò che resta è vivo, non residuo.
+      if (pending.size >= MAX_PENDING_TOTAL) {
+        return json({ error: "troppe richieste in attesa, riprova fra poco" }, 429);
+      }
+      if (ip && [...pending.values()].filter((p) => p.ip === ip).length >= MAX_PENDING_PER_IP) {
+        return json({ error: "troppe richieste da questo dispositivo" }, 429);
+      }
       const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
       const id = crypto.randomUUID();
       const entry: PendingPairing = {
