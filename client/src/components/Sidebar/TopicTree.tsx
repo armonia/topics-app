@@ -1111,8 +1111,21 @@ export function TopicTree({
         // due superfici possono dire cose diverse; una sola non può.
         // `null` ⇒ la tessera non si espande e il click porta alla board.
         if (item.id === BOARD_ID) return null;
-        const children = item.type === 'project' ? (item.children ?? []) : [];
-        if (children.length === 0) return null;
+        if (item.type !== 'project') return null;
+        const children = item.children ?? [];
+        // Un progetto si apre SEMPRE, anche a zero tab. Prima la fascia
+        // esisteva solo con dei figli visibili — cioè la tessera portava il
+        // segno «si apre» quando avevi una tab aperta e lo perdeva quando la
+        // chiudevi, sullo stesso progetto. Un'affordance che va e viene da sola
+        // non è un'affordance: è una cosa che a volte c'è. E «nessuna tab
+        // aperta» è una risposta, non un vuoto da nascondere.
+        if (children.length === 0) {
+          return (
+            <div className="py-1 text-[11px] text-app-text-muted" style={{ paddingLeft: ROW_INSET + SIDEBAR_INDENT_STEP }}>
+              Nessuna tab aperta
+            </div>
+          );
+        }
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
         // sue tab stanno un livello dentro — lo stesso passo che hanno
         // nell'albero e sotto un terminale orchestratore.

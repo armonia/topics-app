@@ -737,37 +737,56 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     }).catch(() => {});
   });
 
-  test("TILE-16: un progetto fissato mostra che si APRE, non che è una cartella", async ({ page, request }) => {
+  test("TILE-16: un progetto dice che si apre — anche a tab chiuse — e il contenuto resta centrato", async ({ page, request }) => {
     // La cartella non diceva niente che il nome non dicesse già — un progetto si
     // chiama come la sua cartella — e occupava lo spazio dell'unica cosa che il
-    // nome NON dice: che quella tessera si apre, e sotto ci sono le sue tab.
+    // nome NON dice: che quella tessera si apre.
+    //
+    // Due regressioni viste sull'app vera, entrambe coperte qui:
+    // 1. il segno spariva quando il progetto non aveva tab APERTE, cioè andava e
+    //    veniva da solo sullo stesso progetto;
+    // 2. riservargli una fascia in fondo alla tessera scentrava icona e titolo.
     const projectPath = "/tmp/e2e-tile-affordance";
     const chat = await createTopic(request, `E2E-Afford-${Date.now()}`, { projectPath });
     const solo = await createTopic(request, `E2E-Afford-Solo-${Date.now()}`);
     created.push(chat.id, solo.id);
 
-    // La chat del progetto va fissata anche lei: un figlio con la tab chiusa non
-    // è VISIBILE nell'albero, e un progetto senza figli visibili non ha niente
-    // da aprire — quindi non porterebbe il segno, giustamente.
-    await setPins(page, [`project:${projectPath}`, chat.id, solo.id]);
+    // SOLO il progetto: la sua chat resta non fissata e con la tab chiusa,
+    // quindi non è un figlio visibile — il caso in cui il segno spariva.
+    await setPins(page, [`project:${projectPath}`, solo.id]);
     await gotoSidebar(page);
-    await expect(tiles(page)).toHaveCount(3, { timeout: 15000 });
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
 
     const progetto = tileNamed(page, "e2e-tile-affordance");
-    // Niente cartella: il glifo di tipo per un progetto non esiste più.
-    await expect(progetto.locator("svg")).toHaveCount(1, { timeout: 15000 });
-
     const segno = progetto.getByTestId("pinned-expand-hint");
-    await expect(segno, "la tessera deve dire che si apre").toHaveCount(1);
+    await expect(segno, "il segno c'è anche senza tab aperte").toHaveCount(1, { timeout: 15000 });
+
+    // Niente cartella: al progetto resta il solo segno di apertura.
+    await expect(progetto.locator("svg")).toHaveCount(1);
+
+    // Il contenuto è CENTRATO nella tessera: il segno vive in un angolo e non
+    // ruba spazio verticale.
+    const box = async (l: Locator) => {
+      const b = await l.boundingBox();
+      expect(b).not.toBeNull();
+      return b!;
+    };
+    const tessera = await box(progetto);
+    const testo = await box(progetto.locator("span").filter({ hasText: "e2e-tile-affordance" }).first());
+    const scarto = Math.abs((testo.y + testo.height / 2) - (tessera.y + tessera.height / 2));
+    expect(scarto, "il titolo deve stare al centro verticale della tessera").toBeLessThanOrEqual(1);
+
     // Tailwind v4 scrive `rotate: 180deg`, non `transform: matrix(...)`: sono
     // proprietà separate, e leggere `transform` qui torna sempre "none" — cioè
     // un'asserzione che non può fallire.
     const giro = () => segno.evaluate(el => getComputedStyle(el).rotate);
     expect(await giro(), "a riposo guarda in giù: la fascia si apre SOTTO la riga").toBe("none");
 
-    // Aperta, il segno si gira — come ogni altra disclosure dell'app.
+    // Aperta: il segno si gira, e la fascia RISPONDE invece di non esserci.
     await progetto.click();
-    await expect(page.getByTestId("pinned-expansion")).toBeVisible({ timeout: 15000 });
+    const fascia = page.getByTestId("pinned-expansion");
+    await expect(fascia).toBeVisible({ timeout: 15000 });
+    await expect(fascia).toHaveText(/Nessuna tab aperta/);
     await expect.poll(giro, { timeout: 5000 }).toBe("180deg");
 
     // Una chat fissata non ha niente da aprire: niente segno, e nessuna
