@@ -9,6 +9,7 @@ import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
 import { attachNumstats, readNumstats } from "../lib/git-numstat";
 import { moveToTrash } from "../lib/trash";
+import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { IgnoreSet } from "../lib/gitignore";
@@ -1329,13 +1330,23 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!dirPath) return json({ error: "path parameter required" }, 400);
       const resolvedPath = resolveProjectPath(dirPath);
       if (!resolvedPath) return errorResponse(400, "Invalid path");
-      const pkgPath = join(resolvedPath, "package.json");
-      if (!existsSync(pkgPath)) return json({ scripts: {}, engines: {} });
       try {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        return json({ scripts: pkg.scripts || {}, engines: pkg.engines || {} });
+        // Non piu solo `package.json`: vedi `lib/project-scripts.ts`. Il nome
+        // della rotta resta per non rompere i chiamanti, ma quello che
+        // restituisce e l'elenco COMPLETO, ognuno col manifest da cui viene.
+        //
+        // `found` e la meta che mancava: dice quali manifest sono stati
+        // guardati e trovati, che e l'unica differenza fra «qui non c'e
+        // niente» e «non ho guardato». Senza, la sezione si apriva sul vuoto.
+        const { scripts, found } = detectScripts(resolvedPath);
+        const pkgPath = join(resolvedPath, "package.json");
+        let engines: Record<string, string> = {};
+        if (existsSync(pkgPath)) {
+          try { engines = JSON.parse(readFileSync(pkgPath, "utf-8")).engines || {}; } catch {}
+        }
+        return json({ scripts, found, looked: MANIFESTS, engines });
       } catch (err: any) {
-        return json({ error: "Failed to parse package.json: " + err.message }, 500);
+        return json({ error: "Failed to read scripts: " + err.message }, 500);
       }
     }
 

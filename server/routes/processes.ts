@@ -3,6 +3,7 @@ import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as 
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
+import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
@@ -1173,25 +1174,6 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
   return changed;
 }
 
-/**
- * Read the `scripts` map from a project's package.json. Returns null when the
- * file is absent or unparseable. Used to gate the session-keyed (MCP) run
- * endpoint: a bypass-permission agent may only launch declared scripts, never
- * an arbitrary name. The UI endpoint stays ungated — it already only offers
- * package.json scripts, and `npm run <missing>` fails harmlessly anyway.
- */
-function readPackageScripts(projectPath: string): Record<string, string> | null {
-  try {
-    const pkgPath = join(projectPath, "package.json");
-    if (!existsSync(pkgPath)) return null;
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    const scripts = pkg?.scripts;
-    return scripts && typeof scripts === "object" ? scripts : {};
-  } catch {
-    return null;
-  }
-}
-
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
@@ -1212,10 +1194,16 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     useTty: boolean,
   ): { processId: string; scriptName: string; pid: number | null; startedAt: string } {
     const processId = crypto.randomUUID();
-    const command = `npm run ${scriptName}`;
-    const argv = useTty
-      ? wrapPty(["npm", "run", scriptName])
-      : ["npm", "run", scriptName];
+    // Il comando viene dallo script RILEVATO, non da `npm run` cablato: un
+    // target di Makefile si lancia con `make`, un task di deno con `deno task`,
+    // e uno script di un progetto Bun con `bun run` e non con npm. Chi chiama
+    // passa l'id (`<manifest>#<nome>`), oppure il solo nome per i chiamanti
+    // vecchi — `resolveScript` accetta tutt'e due.
+    const rilevato = resolveScript(detectScripts(projectPath), scriptName);
+    if (!rilevato) throw new Error(`Script "${scriptName}" non trovato in questo progetto`);
+    const command = rilevato.argv.join(" ");
+    const base = rilevato.argv;
+    const argv = useTty ? wrapPty(base) : base;
 
     const proc = Bun.spawn(argv, {
       cwd: projectPath,
@@ -1232,7 +1220,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
     const sp: ScriptProcess = {
       processId,
-      scriptName,
+      // Il NOME, non l'id: e quello che si legge nella lista e nei log.
+      scriptName: rilevato.name,
       command,
       projectPath,
       status: "running",
@@ -1290,7 +1279,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       broadcastScriptsUpdate(ctx);
     });
 
-    return { processId, scriptName, pid: proc.pid, startedAt: sp.startedAt };
+    return { processId, scriptName: rilevato.name, pid: proc.pid, startedAt: sp.startedAt };
   }
 
   // ── Session scoping helpers (shared by MCP-bridge session endpoints) ──────
@@ -1484,15 +1473,18 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if ("error" in r) return r.error;
         const projectPath = r.path;
 
-        const scripts = readPackageScripts(projectPath);
-        if (!scripts) {
-          return json({ error: `No package.json found in ${projectPath}` }, 400);
+        // Il cancello guarda lo STESSO insieme che l'esecutore sa lanciare.
+        // Finche leggeva solo `package.json`, allargare il rilevamento avrebbe
+        // voluto dire o un agente che non puo lanciare quello che vede, o —
+        // peggio — due idee diverse di «script consentito» nello stesso server.
+        const rilevati = detectScripts(projectPath);
+        if (rilevati.found.length === 0) {
+          return json({ error: `Nessun manifest di script in ${projectPath} (guardati: ${MANIFESTS.join(", ")})` }, 400);
         }
-        if (!(scriptName in scripts)) {
-          const available = Object.keys(scripts);
+        if (!resolveScript(rilevati, scriptName)) {
           return json({
-            error: `Script "${scriptName}" is not defined in package.json`,
-            available,
+            error: `Lo script "${scriptName}" non e dichiarato in questo progetto`,
+            available: rilevati.scripts.map(x => x.id),
           }, 400);
         }
 

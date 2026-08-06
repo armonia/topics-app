@@ -16,6 +16,7 @@ import type {
   GitLogEntry,
   GitCommitDetail,
   GitHunkSummary,
+  DetectedScript,
   ProvidersSnapshot,
   ProviderSnapshotEntry,
   Project,
@@ -467,8 +468,16 @@ export const filesApi = {
     });
   },
 
-  async packageScripts(path: string): Promise<{ scripts: Record<string, string>; engines?: Record<string, string> }> {
-    return request<{ scripts: Record<string, string>; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
+  /**
+   * Gli script del progetto, da TUTTI i manifest (`server/lib/project-scripts.ts`).
+   * Il nome della rotta e storico: non e piu solo `package.json`.
+   *
+   * `found` sono i manifest presenti, `looked` quelli che il server guarda: e
+   * la differenza fra «qui non c'e niente» e «non ho guardato», cioe quello che
+   * serve allo stato vuoto per non tacere.
+   */
+  async packageScripts(path: string): Promise<{ scripts: DetectedScript[]; found: string[]; looked: string[]; engines?: Record<string, string> }> {
+    return request<{ scripts: DetectedScript[]; found: string[]; looked: string[]; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
   },
 
   async uploadFiles(targetDir: string, files: File[], relativePaths?: string[], emptyDirs?: string[]): Promise<{ ok: boolean; uploaded: string[] }> {
@@ -740,6 +749,7 @@ export interface ScriptProcessInfo {
 }
 
 export const scriptsApi = {
+  /** `scriptName` accetta l'id (`<manifest>#<nome>`) oppure il solo nome. */
   async run(projectPath: string, scriptName: string): Promise<{ processId: string; scriptName: string; pid: number; startedAt: string }> {
     return request<{ processId: string; scriptName: string; pid: number; startedAt: string }>('/scripts/run', {
       method: 'POST',
