@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.34",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.33",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga sola per il progetto nuovo, e nasce dove stanno gli altri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tessera piu' bassa, il «+» al centro del lato destro, e nessuna riga vuota",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.33",
     "date": "2026-08-06",
     "sections": {

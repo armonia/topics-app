@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.34 — 2026-08-06
+
+### Sotto il cofano
+- Changelog per 2.2.33
+- Una riga sola per il progetto nuovo, e nasce dove stanno gli altri
+- Tessera piu' bassa, il «+» al centro del lato destro, e nessuna riga vuota
+
 ## 2.2.33 — 2026-08-06
 
 ### Sotto il cofano
