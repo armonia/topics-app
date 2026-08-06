@@ -249,5 +249,37 @@ test.describe("Sidebar — tessere fissate", () => {
     });
     expect(types).toContain("application/x-pinned-tile");
     expect(types).toContain("application/x-panel-id");
+    expect(types).toContain("application/x-pinned-pane-id");
+  });
+
+  test("TILE-7: la tessera di un progetto porta l'id della PANE, non solo quello della riga", async ({ page, request }) => {
+    // I due consumatori vogliono cose diverse dallo stesso drag: la griglia dei
+    // pane vuole l'id apribile, la card di un gruppo vuole la pane da spostare —
+    // e per un progetto sono DUE STRINGHE (path grezzo vs codificato). Senza il
+    // secondo, trascinare un progetto fissato dentro un gruppo non faceva
+    // niente: nessun errore, solo un drop su una pane che non esiste.
+    const projectPath = "/tmp/e2e-tile-project";
+    const chat = await createTopic(request, `E2E-TilePaneId-${Date.now()}`, { projectPath });
+    created.push(chat.id);
+    await setPins(page, [`project:${projectPath}`]);
+    await gotoSidebar(page);
+    await expect(tiles(page).first()).toBeVisible({ timeout: 15000 });
+
+    const payload = await page.evaluate(() => {
+      const el = document.querySelector("[data-pinned-tile]") as HTMLElement | null;
+      if (!el) return null;
+      const dt = new DataTransfer();
+      el.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      const out = {
+        row: dt.getData("application/x-panel-id"),
+        pane: dt.getData("application/x-pinned-pane-id"),
+      };
+      el.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      return out;
+    });
+    expect(payload).not.toBeNull();
+    expect(payload!.row).toBe(`project:${projectPath}`);
+    expect(payload!.pane).toBe(`project:${encodeURIComponent(projectPath)}`);
+    expect(payload!.pane).not.toBe(payload!.row);
   });
 });
