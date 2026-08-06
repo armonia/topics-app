@@ -1526,8 +1526,7 @@ function App() {
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
             onAddPane={handleStandaloneAddPane}
-            onCreateProject={handleOpenProjectPicker}
-            onNewProject={handleOpenProjectPicker}
+            onProjectPicker={handleOpenProjectPicker}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
             // "Reimposta pannelli" (collapse to one tabbed cell) + "Disponi

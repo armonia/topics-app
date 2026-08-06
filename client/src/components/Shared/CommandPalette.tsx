@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Fragment, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, Settings, Moon, Sun, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2,
@@ -20,7 +20,7 @@ import { describeTabTarget } from '../../../../shared/tab-link';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
-import { buildAddMenuItems, AddMenuIcon, COMMAND_PALETTE_PILL_IDS } from './addMenuItems';
+import { buildAddMenuItems, AddMenuIcon } from './addMenuItems';
 import type { PaneType } from '../../types';
 
 export interface CommandAction {
@@ -73,8 +73,10 @@ interface CommandPaletteProps {
   onOpenTopic: (id: string) => void;
   onOpenProject?: (projectPath: string) => void;
   onNewTopic: () => void;
-  onNewProject?: () => void;
-  onCreateProject?: () => void;
+  /** Apre il picker di sistema «Apri / Crea progetto». UNA prop: prima erano
+   *  `onNewProject` e `onCreateProject`, due nomi che App cablava alla stessa
+   *  funzione per alimentare due pill identiche. */
+  onProjectPicker?: () => void;
   /** «Crea una pane di questo tipo nel contesto standalone». Sostituisce le
    *  vecchie onNewClaude/onNewCodex/onNewTerminal: le pill escono da
    *  `buildAddMenuItems`, quindi una callback per AGENTE non serve più — e
@@ -105,8 +107,7 @@ export function CommandPalette({
   onOpenTopic,
   onOpenProject,
   onNewTopic,
-  onNewProject,
-  onCreateProject,
+  onProjectPicker,
   onAddPane,
   onToggleTheme,
   onOpenSettings,
@@ -121,21 +122,20 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Le pill di creazione: stesso modello del menu "+" (scope standalone),
-  // ristretto a quello che ha senso in una barra orizzontale — l'elenco degli
-  // id vive accanto al modello, non qui, così non può divergere di nuovo.
-  const addPills = useMemo(() => {
-    const all = buildAddMenuItems({
+  // Le pill di creazione SONO il menu "+" standalone, senza filtri: stesso
+  // modello, stesso ordine, stesso insieme. C'era ancora un sottoinsieme
+  // scritto a mano (`COMMAND_PALETTE_PILL_IDS`) e bastava quello a far ripartire
+  // la deriva — un tipo di pane nuovo sarebbe comparso nel menu e non qui.
+  // Adesso le due superfici non possono divergere: sono la stessa lista.
+  const addPills = useMemo(
+    () => buildAddMenuItems({
       scope: 'standalone',
       onNewChat: onNewTopic,
       onAddPane,
-      onProjectPicker: (onCreateProject || onNewProject) ?? undefined,
-    });
-    const order = new Map(COMMAND_PALETTE_PILL_IDS.map((id, i) => [id, i]));
-    return all
-      .filter((item) => order.has(item.id))
-      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  }, [onNewTopic, onAddPane, onCreateProject, onNewProject]);
+      onProjectPicker,
+    }),
+    [onNewTopic, onAddPane, onProjectPicker],
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -644,14 +644,20 @@ export function CommandPalette({
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
           {addPills.map((item) => (
-            <ActionPill
-              key={item.id}
-              icon={<AddMenuIcon item={item} size={12} />}
-              label={item.label}
-              onClick={() => { item.run(); onClose(); }}
-              shortcut={item.id === 'new-chat' && isDesktop ? '⌘N' : undefined}
-            />
+            <Fragment key={item.id}>
+              {/* Il raggruppamento vive nel MODELLO (`dividerBefore`), quindi
+                  menu e barra pill separano le stesse cose senza accordarsi. */}
+              {item.dividerBefore && <PillDivider />}
+              <ActionPill
+                testId={`cmdk-add-${item.id}`}
+                icon={<AddMenuIcon item={item} size={12} />}
+                label={item.label}
+                onClick={() => { item.run(); onClose(); }}
+                shortcut={item.id === 'new-chat' && isDesktop ? '⌘N' : undefined}
+              />
+            </Fragment>
           ))}
+          <PillDivider />
           <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
             icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
@@ -736,16 +742,24 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
   );
 }
 
-function ActionPill({ icon, label, shortcut, onClick }: {
+/** Filo verticale fra due gruppi di pill. La barra va a capo, quindi il filo
+ *  deve poter andare a capo con lei: niente altezza fissa sulla riga. */
+function PillDivider() {
+  return <span aria-hidden="true" className="self-stretch w-px my-1 bg-app-border flex-shrink-0" />;
+}
+
+function ActionPill({ icon, label, shortcut, onClick, testId }: {
   icon: React.ReactNode;
   label: string;
   shortcut?: string;
   onClick: () => void;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={testId}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap"
       title={shortcut ? `${label} (${shortcut})` : label}
     >

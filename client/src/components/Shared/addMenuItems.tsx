@@ -23,6 +23,7 @@ import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../st
 import { ADD_MENU_MNEMONICS, type AddMenuItemId } from '../../state/pane/adapters/paneMnemonics';
 import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { TERMINAL_AGENT_LABELS } from '../../lib/terminalAgents';
+import { isDesktop } from '../../lib/shell';
 import type { PaneType } from '../../types';
 
 /** Lookup `PaneConfig.icon` → componente lucide. Da tenere allineata ai nomi in
@@ -80,7 +81,13 @@ export interface BuildAddMenuItemsArgs {
   availableTypes?: readonly PaneType[];
   onNewChat?: () => void;
   onAddPane?: (type: PaneType, subType?: string) => void;
-  /** Apri/Crea Progetto — solo standalone e solo su desktop (serve il dialog OS). */
+  /** Il picker di sistema «Apri / Crea progetto». La voce compare solo dove ha
+   *  senso — variante STANDALONE (da dentro un progetto non se ne apre un
+   *  altro) e solo su desktop (serve il dialogo del sistema operativo) — e
+   *  quella regola la applica QUESTO modulo, non chi chiama. Finché stava nel
+   *  chiamante, ⌘K passava la callback senza condizioni e offriva la voce
+   *  anche sul web, dove `selectDirectory` ritorna null: un no-op silenzioso.
+   *  Trovato dal gate di parità ADD-09. */
   onProjectPicker?: () => void;
 }
 
@@ -160,7 +167,7 @@ export function buildAddMenuItems({
     }
   }
 
-  if (onProjectPicker) {
+  if (onProjectPicker && scope === 'standalone' && isDesktop) {
     // UNA riga, non due. «Apri Progetto» e «Crea Progetto» chiamavano la STESSA
     // funzione — e non per una svista di cablaggio: non esiste una API «crea»
     // separata da chiamare. Il pannello di sistema (`selectDirectory`, titolato
@@ -196,9 +203,3 @@ export function AddMenuIcon({ item, size }: { item: AddMenuItem; size: number })
   if (!Component) return null;
   return <Component size={size} className="flex-shrink-0" style={icon.color ? { color: icon.color } : undefined} />;
 }
-
-/** Le voci che la barra pill di ⌘K rende: le stesse del menu standalone, meno
- *  quelle che lì non hanno senso. Esportata perché la lista NON si riscrive. */
-export const COMMAND_PALETTE_PILL_IDS: readonly AddMenuItemId[] = [
-  'new-chat', 'claude-code', 'codex', 'opencode', 'shell', 'browser', 'open-project',
-];
