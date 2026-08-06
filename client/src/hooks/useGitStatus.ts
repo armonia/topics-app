@@ -6,6 +6,17 @@ const POLL_VISIBLE = 15000;
 const POLL_BACKGROUND = 60000;
 /** Backoff massimo dopo errori consecutivi (vedi `bumpError`). */
 const POLL_ERROR_MAX = 120000;
+/**
+ * Ogni quanto si aggiornano le ref remote-tracking.
+ *
+ * `ahead`/`behind` escono da `rev-list …@{upstream}`, che legge una ref LOCALE:
+ * senza un fetch quella ref non si muove, `behind` resta 0 per sempre e il
+ * bottone Pull — gatato su `behind > 0` — non compare mai. Un collega pusha su
+ * main e qui non se ne accorge nessuno. Tre minuti è l'ordine di grandezza di
+ * VS Code (180s) e costa una connessione ogni tre minuti per progetto APERTO,
+ * non per progetto conosciuto: il fetch parte solo se qualcuno è iscritto.
+ */
+const AUTOFETCH_MS = 180000;
 const CACHE_KEY = 'git-status-cache';
 
 type GitCacheEntry = { status: GitStatus; remotes: { name: string; fetchUrl: string; pushUrl: string }[] };
@@ -65,6 +76,11 @@ type Store = {
   /** Errori consecutivi, per il backoff. Azzerato al primo successo. */
   errorStreak: number;
   currentInterval: number;
+  /** Timer dell'autofetch, separato dal poll: passi diversi. */
+  fetchTimer: ReturnType<typeof setInterval> | null;
+  fetchingRemote: boolean;
+  /** Il fetch fallisce di continuo (nessun remote, niente rete): si smette. */
+  fetchDisabled: boolean;
 };
 
 const stores = new Map<string, Store>();
@@ -88,6 +104,9 @@ function getStore(path: string): Store {
       wsChannels: 0,
       errorStreak: 0,
       currentInterval: POLL_VISIBLE,
+      fetchTimer: null,
+      fetchingRemote: false,
+      fetchDisabled: false,
     };
     stores.set(path, s);
   }
@@ -175,6 +194,40 @@ async function load(path: string) {
   }
 }
 
+/**
+ * Aggiorna le ref remote-tracking e ricarica lo stato.
+ *
+ * Fallisce in silenzio ed è giusto così: una cartella senza remote, o senza
+ * rete, non è un errore da mostrare — nessuno l'ha chiesto, è un giro di
+ * manutenzione. Ma dopo il secondo fallimento si smette del tutto, per non
+ * spendere una connessione ogni tre minuti su un repo che non ne ha uno.
+ */
+async function autofetch(path: string) {
+  const store = getStore(path);
+  if (store.snapshot.notGit || store.fetchDisabled || store.fetchingRemote) return;
+  if (store.subscribers === 0) return;
+  store.fetchingRemote = true;
+  try {
+    await gitApi.fetch(path);
+    store.fetchDisabled = false;
+    await load(path);
+  } catch {
+    store.errorStreak++;
+    if (store.errorStreak >= 2) store.fetchDisabled = true;
+  } finally {
+    store.fetchingRemote = false;
+  }
+}
+
+function retimeFetch(path: string, store: Store) {
+  if (store.subscribers === 0 || store.snapshot.notGit || store.fetchDisabled) {
+    if (store.fetchTimer) { clearInterval(store.fetchTimer); store.fetchTimer = null; }
+    return;
+  }
+  if (store.fetchTimer) return;
+  store.fetchTimer = setInterval(() => { void autofetch(path); }, AUTOFETCH_MS);
+}
+
 /** Il push del watcher server-side, instradato allo store del suo progetto. */
 function applyWSMessage(msg: WSMessage) {
   if (msg.type !== 'git:status' || !msg.projectPath || !msg.status) return;
@@ -205,11 +258,12 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
     if (store.subscribers === 1) {
       void load(projectPath);
       retime(projectPath, store);
+      retimeFetch(projectPath, store);
     }
     return () => {
       store.listeners.delete(listener);
       store.subscribers--;
-      if (store.subscribers === 0) retime(projectPath, store);
+      if (store.subscribers === 0) { retime(projectPath, store); retimeFetch(projectPath, store); }
     };
   }, [projectPath]);
   const getSnapshot = useCallback(() => getStore(projectPath).snapshot, [projectPath]);
@@ -232,6 +286,14 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
   }, [onMessage, projectPath]);
 
   const reload = useCallback(() => load(projectPath), [projectPath]);
+  /** Fetch su richiesta (bottone), che riabilita anche l'autofetch spento. */
+  const fetchRemote = useCallback(async () => {
+    const store = getStore(projectPath);
+    store.fetchDisabled = false;
+    await gitApi.fetch(projectPath);
+    await load(projectPath);
+    retimeFetch(projectPath, store);
+  }, [projectPath]);
 
   return {
     gitStatus: snapshot.gitStatus,
@@ -239,6 +301,7 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
     error: snapshot.error,
     notGit: snapshot.notGit,
     reload,
+    fetchRemote,
     gitCache,
   };
 }

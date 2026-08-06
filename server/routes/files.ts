@@ -5,6 +5,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
+import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix } from "../lib/git-porcelain";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
 const GIT_STATUS_CACHE_TTL = 5000;
@@ -127,6 +128,49 @@ async function acquireLock(filePath: string, timeoutMs = 5000): Promise<boolean>
 
 function releaseLock(filePath: string) {
   activeLocks.delete(filePath);
+}
+
+/**
+ * Un comando git che PARLA CON LA RETE, con le due protezioni che gli servono.
+ *
+ * `GIT_TERMINAL_PROMPT=0` + `GIT_SSH_COMMAND` in modalità batch: senza, una
+ * chiave ssh con passphrase o una credenziale scaduta fanno aprire a git un
+ * prompt su un terminale che nessuno guarda. Il processo non finisce mai, lo
+ * spinner nella UI gira all'infinito e — dato che `setPulling(false)` sta solo
+ * nel `finally` — l'unica via d'uscita è ricaricare l'app.
+ *
+ * Il timeout è la rete: un remote irraggiungibile non risponde e basta.
+ * Preferisco un errore leggibile dopo N secondi a un'attesa senza fine.
+ */
+async function runNetworkGit(
+  args: string[],
+  cwd: string,
+  timeoutMs = 60_000,
+): Promise<{ ok: boolean; stdout: string; stderr: string; timedOut: boolean }> {
+  const proc = Bun.spawn(args, {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -oBatchMode=yes",
+      GIT_ASKPASS: "",
+      SSH_ASKPASS: "",
+    },
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch {} }, timeoutMs);
+  try {
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    await proc.exited;
+    return { ok: !timedOut && proc.exitCode === 0, stdout: stdout.trim(), stderr: stderr.trim(), timedOut };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createFilesRouter(ctx: AppContext): RouteHandler {
@@ -367,7 +411,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
         // Start watching .git for changes (idempotent — only sets up once per path)
         watchGitDir(resolvedDir, ctx);
-        const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = await new Response(statusProc.stdout).text();
         const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         let branch = (await new Response(branchProc.stdout).text()).trim();
@@ -397,8 +441,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Emit the RAW 2-char XY porcelain code (do NOT trim): the client parses
         // it positionally — status[0]=staged (index), status[1]=unstaged (worktree).
         // Trimming "  M" → "M" misclassified unstaged files as staged.
-        const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({ path: line.substring(3), status: line.substring(0, 2) }));
-        const files = relativePrefix ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) })) : allFiles;
+        // Il parse sta in `lib/git-porcelain.ts`: `-z`, path grezzi, e il
+        // secondo path dei rename in un campo suo (`origPath`).
+        const files = scopeToPrefix(parsePorcelainZ(statusText), relativePrefix);
         const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
         // Bound the cache: the key is the caller-supplied ?path= (resolved, no
         // allowlist), so it grows with every distinct git repo ever queried and
@@ -554,7 +599,17 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!body?.path) return json({ error: "path required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { const proc = Bun.spawn(["git", "add", "-A"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Stage-all error: " + err.message }, 500); }
+      // L'exit code va LETTO. Prima si rispondeva `ok:true` comunque: con un
+      // `index.lock` addosso — un agente che committa in parallelo, cosa
+      // normale qui — l'utente cliccava, non vedeva errori, e il pannello si
+      // ricaricava identico. `stderr` era già in `pipe`: bastava guardarlo.
+      try {
+        const proc = Bun.spawn(["git", "add", "-A"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const stderr = await new Response(proc.stderr).text();
+        await proc.exited;
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Stage-all failed" }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Stage-all error: " + err.message }, 500); }
     }
 
     // --- Git diff summary (auto commit message) ---
@@ -568,17 +623,15 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const statProc = Bun.spawn(["git", "diff", "--stat", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statText = (await new Response(statProc.stdout).text()).trim();
         // Get status porcelain for changed files (untracked included as "??")
-        const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const statusText = (await new Response(statusProc.stdout).text()).trim();
-        const lines = statusText.split("\n").filter(Boolean);
+        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusText = await new Response(statusProc.stdout).text();
         const added: string[] = [];
         const modified: string[] = [];
         const deleted: string[] = [];
         const untracked: string[] = [];
-        for (const line of lines) {
-          const status = line.substring(0, 2).trim();
-          const file = line.substring(3);
-          const basename = file.split("/").pop() || file;
+        for (const entry of parsePorcelainZ(statusText)) {
+          const status = entry.status.trim();
+          const basename = entry.path.split("/").pop() || entry.path;
           if (status === "??") untracked.push(basename);
           else if (status === "A" || status === "AM") added.push(basename);
           else if (status === "D") deleted.push(basename);
@@ -633,7 +686,18 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!body?.path) return json({ error: "path required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { const proc = Bun.spawn(["git", "reset", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage-all error: " + err.message }, 500); }
+      try {
+        const proc = Bun.spawn(["git", "reset", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const stderr = await new Response(proc.stderr).text();
+        await proc.exited;
+        // `git reset HEAD` esce 1 anche quando ha lavorato, se restano
+        // differenze fra indice e albero: è il caso NORMALE dopo un unstage.
+        // Si considera fallito solo se ha scritto un errore vero.
+        if (proc.exitCode !== 0 && /fatal|error:/i.test(stderr)) {
+          return json({ error: stderr.trim() || "Unstage-all failed" }, 400);
+        }
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Unstage-all error: " + err.message }, 500); }
     }
 
     // --- Git discard file changes (single or batch, restore working tree) ---
@@ -701,13 +765,39 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "pull"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        await proc.exited;
-        const stdout = await new Response(proc.stdout).text();
-        const stderr = await new Response(proc.stderr).text();
-        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Pull failed" }, 400);
-        return json({ ok: true, output: stdout.trim() });
+        const r = await runNetworkGit(["git", "pull"], resolvedDir, 120_000);
+        if (r.timedOut) return json({ error: "Pull: il remote non risponde (timeout)" }, 504);
+        if (!r.ok) return json({ error: r.stderr || "Pull failed" }, 400);
+        invalidateGitCache(resolvedDir);
+        return json({ ok: true, output: r.stdout });
       } catch (err: any) { return json({ error: "Pull error: " + err.message }, 500); }
+    }
+
+    // --- Git fetch ---
+    //
+    // Mancava del tutto, e la sua assenza rendeva DECORATIVI i numeri di
+    // sincronia: `ahead`/`behind` escono da `rev-list …@{upstream}`, che legge
+    // la ref remote-tracking LOCALE. Senza un fetch quella ref non si muove mai,
+    // quindi `behind` resta 0 per sempre — e siccome il bottone Pull è gatato
+    // proprio su `behind > 0`, era irraggiungibile: un collega pusha su main e
+    // qui non se ne accorge nessuno. È il motivo per cui VS Code fa autofetch.
+    if (method === "POST" && pathname === "/api/git/fetch") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        // `--prune`: senza, i rami cancellati sul remote restano nella lista per
+        // sempre e si può fare checkout di qualcosa che non esiste più.
+        const r = await runNetworkGit(["git", "fetch", "--all", "--prune"], resolvedDir, 60_000);
+        if (r.timedOut) return json({ error: "Fetch: il remote non risponde (timeout)" }, 504);
+        if (!r.ok) return json({ error: r.stderr || "Fetch failed" }, 400);
+        // Il fetch muove le ref remote-tracking: lo stato in cache è vecchio di
+        // un istante. Senza questa riga i nuovi `behind` si vedrebbero solo al
+        // prossimo giro di cache (5s) o al prossimo colpo del watcher.
+        invalidateGitCache(resolvedDir);
+        return json({ ok: true, output: r.stdout || r.stderr });
+      } catch (err: any) { return json({ error: "Fetch error: " + err.message }, 500); }
     }
 
     // --- Git push ---
@@ -723,13 +813,22 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const branch = (await new Response(branchProc.stdout).text()).trim();
         const remoteProc = Bun.spawn(["git", "config", `branch.${branch}.remote`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await remoteProc.exited;
-        const remote = (await new Response(remoteProc.stdout).text()).trim() || "origin";
-        const proc = Bun.spawn(["git", "push", remote, branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        await proc.exited;
-        const stdout = await new Response(proc.stdout).text();
-        const stderr = await new Response(proc.stderr).text();
-        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Push failed" }, 400);
-        return json({ ok: true, output: stdout.trim() });
+        const configuredRemote = (await new Response(remoteProc.stdout).text()).trim();
+        const remote = configuredRemote || "origin";
+        // `-u` quando il ramo non ha ancora un upstream. I rami nuovi nascono da
+        // `git checkout -b`, che non ne configura uno, e `push.autoSetupRemote`
+        // non è impostato: senza questa riga il primo push riesce ma il ramo
+        // resta senza tracking, quindi ahead/behind restano 0 per sempre e il
+        // Pull successivo muore con «no tracking information».
+        const args = configuredRemote
+          ? ["git", "push", remote, branch]
+          : ["git", "push", "-u", remote, branch];
+        const r = await runNetworkGit(args, resolvedDir, 120_000);
+        if (r.timedOut) return json({ error: "Push: il remote non risponde (timeout)" }, 504);
+        if (!r.ok) return json({ error: r.stderr || "Push failed" }, 400);
+        invalidateGitCache(resolvedDir);
+        // git scrive l'esito del push su stderr anche quando va bene.
+        return json({ ok: true, output: r.stdout || r.stderr });
       } catch (err: any) { return json({ error: "Push error: " + err.message }, 500); }
     }
 
