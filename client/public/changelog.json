@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.28",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiudi /preview, metti un tetto alle richieste, e dai una superficie alla revoca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna i tre completamenti, e scrivi il vincolo del login Google prima di prometterlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un progetto appena aperto non viene piu negato per cinque secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Si mette in stage un blocco alla volta, non piu il file intero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘T apre una chat, e le scorciatoie rimappabili hanno le loro spec",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.27",
     "date": "2026-08-06",
     "sections": {
@@ -175,6 +211,16 @@
         },
         {
           "it": "Un varco fisso sotto l'ultima risposta, il cronometro che scorre davvero, e la coda al suo posto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.27",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi il separatore NUL come escape, non come byte",
           "en": "",
           "scope": null
         }

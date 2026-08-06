@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.28 — 2026-08-06
+
+### Sotto il cofano
+- Chiudi /preview, metti un tetto alle richieste, e dai una superficie alla revoca
+- Segna i tre completamenti, e scrivi il vincolo del login Google prima di prometterlo
+- Un progetto appena aperto non viene piu negato per cinque secondi
+- Si mette in stage un blocco alla volta, non piu il file intero
+- ⌘T apre una chat, e le scorciatoie rimappabili hanno le loro spec
+
 ## 2.2.27 — 2026-08-06
 
 ### Sotto il cofano
@@ -50,6 +59,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Il pannello git di una cartella non tracciata: dire di chi sono le cose, e offrire quella che manca
 - Un varco fisso sotto l'ultima risposta, il cronometro che scorre davvero, e la coda al suo posto
+- Changelog per 2.2.27
+- Scrivi il separatore NUL come escape, non come byte
 
 ## 2.2.20 — 2026-08-06
 
