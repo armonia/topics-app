@@ -120,8 +120,9 @@
    *     (nero-su-chiaro in light, bianco-su-scuro in dark), oppure i token
    *     opachi `bg-elevated` / `hover:bg-app-hover` / `bg-app-inset`.
    *   • `bg-white/N` BARE solo dove il fondo è scuro GARANTITO in entrambi i
-   *     temi: sopra immagine/video, sopra `bg-[#111]` (toolbar terminale),
-   *     sopra `bg-primary` (bolla utente). Sono eccezioni commentate nel punto.
+   *     temi: sopra immagine/video, sopra `bg-[#111]` (toolbar terminale).
+   *     Sono eccezioni commentate nel punto. NB: la bolla utente NON è più fra
+   *     queste — dal 2026-08-06 è un grigio di sistema, chiaro in tema chiaro.
    * NB: `--bg-panel` NON è chiaro in light (vale #1e1e1e, scuro di proposito):
    * non è la scorciatoia per un fondo chiaro. */
   --bg: #f8f9fa;
@@ -132,6 +133,18 @@
   --bg-panel: #1e1e1e;
   --bg-input: #fafafa;
   --bg-inset: #f8f8f8;
+  /* La bolla dei TUOI messaggi.
+   * Grigio di sistema, non il blu del marchio: in questa app il blu è
+   * l'accento delle AZIONI e del caricamento, e un messaggio non è un'azione.
+   * È la stessa regola per cui la selezione è neutra (lib/selectionStyles.ts):
+   * una tinta usata per dire due cose smette di dirne una.
+   * Deve staccare da `--bg` (#f8f9fa) SENZA diventare un'altra superficie:
+   * un gradino sotto la pagina, come i controlli di sistema.
+   * Misurato: stacco 1,20:1 dalla pagina (#f8f9fa) e testo a 13,8:1. Il primo
+   * valore provato, #e9ebef, dava 1,13:1 — la bolla si intuiva invece di
+   * vedersi, perché questa pagina non è bianca ma già off-white e mangia il
+   * gradino. */
+  --bg-user-bubble: #e2e5ea;
   --text: #1a1a1a;
   --text-secondary: #5a5a5a;
   --text-tertiary: #707070;
@@ -232,6 +245,12 @@
   --bg-panel: hsl(222 14% 11.5%);
   --bg-input: hsl(220 13% 13%);
   --bg-inset: hsl(222 15% 10%);
+  /* In dark il gradino va nell'altro verso: la bolla è più CHIARA della
+   * pagina. Sopra `--bg-hover` (17%) così si distingue anche da una riga in
+   * hover, e sulla stessa tinta fredda del resto del tema.
+   * Misurato: 1,57:1 dalla pagina, 1,23:1 da una riga in hover (a 20% erano
+   * 1,10:1 — indistinguibile), testo a 9,6:1. */
+  --bg-user-bubble: hsl(220 12% 23%);
   --text: #e6e8ec;
   --text-secondary: #aab0ba;
   --text-tertiary: #969ca6;
@@ -547,19 +566,32 @@ code {
 }
 
 /* Inline code inside user message bubbles (blue bg) */
+/* Dentro la bolla dei propri messaggi.
+ * Erano tre regole scritte per un fondo BLU SCURO — testo bianco, codice su un
+ * velo chiaro, `pre` su un velo nero. Sul grigio di sistema diventavano
+ * illeggibili (bianco su grigio chiaro), quindi tornano ai token normali: la
+ * bolla non è più una superficie a sé, è la stessa pagina un gradino sotto.
+ * Restano DUE differenze volute: il codice inline si stacca dal grigio della
+ * bolla con un velo neutro invece del suo token (che è quasi lo stesso
+ * grigio), e il link resta sottolineato. */
 .user-bubble code {
-  background-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
+  background-color: rgba(0, 0, 0, 0.06);
+  color: var(--code-inline-text);
+}
+
+.dark .user-bubble code {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .user-bubble pre {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: var(--code-bg);
 }
 
 .user-bubble a {
-  color: #fff;
+  color: var(--primary);
   text-decoration: underline;
-  text-decoration-color: rgba(255, 255, 255, 0.5);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 pre code {

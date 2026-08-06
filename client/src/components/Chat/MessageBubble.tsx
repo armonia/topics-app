@@ -273,7 +273,13 @@ export const MessageBubble = memo(function MessageBubble({
             // look, and error messages keep the amber alert box.
             className={`text-[13px] leading-relaxed overflow-hidden ${
               msg.role === 'user'
-                ? `px-3 py-2 user-bubble bg-primary text-white shadow-sm ${grouped ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl'}`
+                // Grigio di sistema, non il blu del marchio: in quest'app il
+                // blu è l'accento delle azioni e del caricamento, e un
+                // messaggio non è un'azione. Stessa regola per cui la
+                // selezione è neutra. Niente `shadow-sm`: su un grigio chiaro
+                // l'ombra sporca invece di staccare — basta il gradino di
+                // tinta.
+                ? `px-3 py-2 user-bubble bg-app-user-bubble text-app-text ${grouped ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl'}`
                 : msg.role === 'assistant' && msg.content.startsWith('⚠️')
                   ? `px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-700 ${grouped ? 'rounded-2xl rounded-tl-md' : 'rounded-2xl'}`
                   : 'text-app-text'
