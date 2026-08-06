@@ -11,12 +11,17 @@ If you cannot use GitHub Advisories, email **security@armonia.io** with details 
 
 ## Scope
 
-Topics is a **local-first** application that runs a server with **no built-in authentication** on your own machine. By default that server listens on **every network interface**, not only `localhost`, so any device that can reach its port can use it — including your phone on the same Wi-Fi, which is a deliberate feature.
+Topics is a **local-first** application that runs a server on your own machine. By default that server listens on **every network interface**, not only `localhost`, so your phone on the same Wi-Fi can reach it — which is a deliberate feature.
 
-**The network is the security boundary.** Topics does not try to be safe on a network you do not control. Run it on a trusted network, or restrict it to your own machine by setting `SERVER_HOST=127.0.0.1`.
+**Reaching the port is not the same as getting in.** Every device other than the machine Topics runs on must be **authorized once**, from that machine: the new device shows a six-character code, the computer displays the matching request, and you approve it. Authorization is per device and can be revoked at any time. Requests arriving from the machine itself (the desktop shell, the CLI, local tooling) are trusted by transport — that is also what keeps you from locking yourself out.
 
-- **Out of scope: anything reachable by an attacker who is already on your network.** With access to the port, they can read and write files, drive terminals, and run commands. This is by design, not a defect: there is no authentication layer to bypass. Exposing Topics to an untrusted network — or to the public internet through a tunnel — without putting your own authentication in front of it is your responsibility.
+**Run it on a network you trust anyway.** Authentication controls who can use Topics; it does not make an untrusted network safe. To restrict the server to your own machine, set `SERVER_HOST=127.0.0.1`. Exposing Topics to the public internet through a tunnel remains your responsibility, and is discouraged.
+
+- **Out of scope: what an *authorized* device can do.** An approved device has the owner's powers by design — it can read and write files, drive terminals, and run commands. Approve only devices you control, and revoke the ones you no longer use.
+- **Out of scope: `TOPICS_AUTH_OFF=1`.** It disables the checks on purpose, as a recovery hatch.
 - Issues in third-party services Topics connects to (OpenClaw, Anthropic, ElevenLabs, Moondream) should be reported to those providers.
+
+**In scope: anything that lets an unauthorized device in** — a way to reach a gated path (`/api`, `/ws`, `/preview`, `/media`, `/uploads`) from another machine without an approved session, to obtain a session without the owner approving it, or to keep using one after it was revoked.
 
 **In scope: anything that lets a WEB ORIGIN cross the boundary.** A website you visit runs in your browser, on your machine, and can therefore reach the server without being on your network at all. Topics defends against that with a same-origin check on every mutating request and WebSocket upgrade (`server/lib/auth-gate.ts`). A way to make the server accept a state-changing request driven by a page you did not open is a vulnerability — please report it. So is anything that lets a page **read** an `/api` response cross-origin (that is prevented by never emitting `Access-Control-Allow-Origin` for a foreign origin), and anything that exfiltrates API keys or executes code beyond what a local user already controls.
 
