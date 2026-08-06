@@ -48,8 +48,10 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `SHELL` | Login shell for PTYs | OS |
 | `NODE_ENV` | `production`/`test`/`development` mode switch | runtime |
 | `PORT` / `BUN_PORT` | Local server port | user/shell |
-| `SERVER_HOST` | Bind host | user/shell |
-| `NO_TLS` | Disable TLS (plain HTTP) | user/shell |
+| `SERVER_HOST` | Bind host. Default `::` = **every interface**, so the LAN can reach it (that is how a phone connects). Set `127.0.0.1` to restrict the server to this machine. | user/shell |
+| `TOPICS_ALLOWED_ORIGINS` | Extra origins the same-origin gate accepts, comma-separated (e.g. a tunnel hostname). Empty by default; re-read on every request, so a change takes effect without a restart. | user/shell |
+| `TOPICS_AUTH_OFF` | `1` disables the origin gate entirely — recovery hatch only. It no longer bypasses a token (there is none since `lan-open-same-origin`); what it switches off is the **CSRF defence**, i.e. the check that stops a website you visit from driving this server. | user/shell |
+| `NO_TLS` | Disable TLS (plain HTTP). Off a `localhost` origin this drops the browser's *secure context*: `clipboard`, `crypto.randomUUID`, `crypto.subtle`, `serviceWorker` and `mediaDevices` all become `undefined`, and terminal scrollback travels the LAN in the clear. | user/shell |
 | `GATEWAY_URL` | OpenClaw gateway URL | user |
 | `DATA_DIR` / `TOPICS_DATA_DIR` / `APP_DATA_DIR` | App data root (conversations, DB) | user/shell |
 | `TOPICS_HOME` | Topics home dir (state, backups, watchers) | shell |
