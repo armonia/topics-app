@@ -283,6 +283,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
   // no: due WKWebView non si passano un drag HTML5, e nessun trucco lo cambia.
   const dragCarriesPane = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) ||
+    e.dataTransfer.types.includes(DND_TYPES.PINNED_PANE_ID) ||
     e.dataTransfer.types.includes(DND_TYPES.PANEL_ID);
 
   return (
@@ -306,7 +307,10 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         if (!dragCarriesPane(e)) return;
         e.preventDefault();
         e.stopPropagation();
+        // `PINNED_PANE_ID` prima di `PANEL_ID`: una tessera fissata porta
+        // entrambi, e per un progetto solo il primo è l'id di una pane vera.
         const paneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB)
+          || e.dataTransfer.getData(DND_TYPES.PINNED_PANE_ID)
           || e.dataTransfer.getData(DND_TYPES.PANEL_ID);
         if (paneId) movePaneToSpace(paneId, card.id);
       }}

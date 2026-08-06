@@ -20,11 +20,7 @@
  * layout» preservando le proporzioni delle colonne non toccate.
  */
 
-import {
-  appendColumnWidths,
-  equalizeWidths,
-  keepColumnWidths,
-} from '../Layout/gridWidths';
+import { equalizeWidths } from '../Layout/gridWidths';
 
 /** Una riga di tessere: le chiavi in ordine, e i pesi delle larghezze (somma 1). */
 export interface PinnedRow {
@@ -95,10 +91,7 @@ export function reconcilePinnedLayout(
       keys.push(key);
     });
     if (keys.length === 0) continue;
-    const widths = row.widths.length === row.keys.length
-      ? keepColumnWidths(row.widths, keepIdx)
-      : equalizeWidths(keys.length);
-    rows.push({ keys, widths });
+    rows.push({ keys, widths: widthsFor(keys.length) });
   }
 
   // I fissati che il layout non ha ancora visto (pin appena messo, oppure un
@@ -108,13 +101,33 @@ export function reconcilePinnedLayout(
     const last = rows[rows.length - 1];
     if (last && last.keys.length < PINNED_ROW_SOFT_MAX) {
       last.keys.push(key);
-      last.widths = appendColumnWidths(last.widths, 1);
+      last.widths = widthsFor(last.keys.length);
     } else {
       rows.push({ keys: [key], widths: [1] });
     }
   }
 
   return rows;
+}
+
+
+/**
+ * Le larghezze di una riga di `count` tessere.
+ *
+ * ── Perché sono sempre uguali, oggi ─────────────────────────────────────────
+ * Non esiste (ancora) un gesto per ridimensionare una tessera: nessuno può
+ * VOLERE una riga sbilanciata, quindi una riga sbilanciata è rumore. E ne
+ * arrivava: `appendColumnWidths` è nato per PRESERVARE proporzioni scelte a
+ * mano — dà alla nuova colonna `1/n` e rinormalizza — così fissare la terza
+ * tessera su una riga da due produceva `[0.375, 0.375, 0.25]`: la nuova più
+ * stretta delle altre senza che nessuno l'avesse chiesto. E finiva SALVATO,
+ * quindi non basta smettere di produrlo — va raddrizzato anche in lettura.
+ *
+ * Quando arriverà un gesto di resize, è QUI che andrà insegnata la differenza
+ * fra una larghezza decisa e una accumulata, non nei chiamanti.
+ */
+function widthsFor(count: number): number[] {
+  return equalizeWidths(count);
 }
 
 /** Toglie una chiave dalla sua riga, potando la riga se resta vuota. */
@@ -130,7 +143,7 @@ function pluck(layout: readonly PinnedRow[], key: string): PinnedRow[] {
     if (keepIdx.length === 0) continue; // riga svuotata: sparisce
     out.push({
       keys: keepIdx.map(i => row.keys[i]),
-      widths: keepColumnWidths(row.widths, keepIdx),
+      widths: widthsFor(keepIdx.length),
     });
   }
   return out;
@@ -165,10 +178,7 @@ export function movePinnedTile(
   }
   const insertAt = Math.max(0, Math.min(target.insertAt, row.keys.length));
   row.keys.splice(insertAt, 0, key);
-  row.widths = appendColumnWidths(row.widths, 1);
-  // `appendColumnWidths` mette il nuovo peso in coda: rimettilo dove sta la chiave.
-  const added = row.widths.pop() as number;
-  row.widths.splice(insertAt, 0, added);
+  row.widths = widthsFor(row.keys.length);
   return next;
 }
 
@@ -199,12 +209,8 @@ export function insertPinnedRow(
  * `appendColumnWidths` del drop, quindi l'anteprima non può divergere dal
  * risultato: è il risultato, calcolato in anticipo.
  */
-export function previewWidths(row: PinnedRow, insertAt: number): number[] {
-  const widths = appendColumnWidths(row.widths, 1);
-  const added = widths.pop() as number;
-  const at = Math.max(0, Math.min(insertAt, widths.length));
-  widths.splice(at, 0, added);
-  return widths;
+export function previewWidths(row: PinnedRow, _insertAt: number): number[] {
+  return widthsFor(row.widths.length + 1);
 }
 
 /**
