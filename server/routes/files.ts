@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync, realpathSync } from "fs";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -130,6 +130,29 @@ async function acquireLock(filePath: string, timeoutMs = 5000): Promise<boolean>
 
 function releaseLock(filePath: string) {
   activeLocks.delete(filePath);
+}
+
+/**
+ * Il pezzo di path della cartella aperta relativo alla radice del suo repo, e
+ * il nome di quella radice.
+ *
+ * `git rev-parse --show-toplevel` risponde col path REALE, mentre la cartella
+ * aperta puo arrivare attraverso un link simbolico: su macOS `/tmp` e un link
+ * a `/private/tmp`, quindi un confronto fra stringhe fallisce e lo scoping non
+ * parte. Da li in poi il pannello mostra i file di TUTTO il repo, e non si
+ * accorge che la cartella aperta e a sua volta non tracciata. Si confrontano i
+ * path risolti.
+ */
+function repoPrefixOf(resolvedDir: string, gitRoot: string): { prefix: string; repoName: string } {
+  if (!gitRoot) return { prefix: "", repoName: "" };
+  let real = resolvedDir;
+  try { real = realpathSync(resolvedDir); } catch {}
+  let root = gitRoot;
+  try { root = realpathSync(gitRoot); } catch {}
+  if (real === root || !real.startsWith(root + "/")) return { prefix: "", repoName: "" };
+  let prefix = real.slice(root.length + 1);
+  if (prefix && !prefix.endsWith("/")) prefix += "/";
+  return { prefix, repoName: root.split("/").filter(Boolean).pop() ?? "" };
 }
 
 /**
@@ -482,17 +505,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         let relativePrefix = "";
         // Il nome del repo che OSPITA la cartella aperta. Serve a dire di chi
         // sono le cose che il pannello mostra: aprendo come progetto una
-        // sottocartella, il ramo, i remote e la cronologia sono del repo di
-        // sopra, non di quella cartella — e senza dirlo il pannello si
-        // contraddice da solo («non tracciata» accanto a una lista di branch).
+        // sottocartella, ramo, remote e cronologia sono del repo di sopra, non
+        // di quella cartella, e senza dirlo il pannello si contraddice da solo
+        // («non tracciata» accanto a una lista di branch).
         let repoName = "";
         try {
           const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) {
-            relativePrefix = resolvedDir.slice(gitRoot.length + 1); if (relativePrefix && !relativePrefix.endsWith("/")) relativePrefix += "/";
-            repoName = gitRoot.split("/").filter(Boolean).pop() ?? "";
-          }
+          const scope = repoPrefixOf(resolvedDir, gitRoot);
+          relativePrefix = scope.prefix;
+          repoName = scope.repoName;
         } catch {}
         // Emit the RAW 2-char XY porcelain code (do NOT trim): the client parses
         // it positionally — status[0]=staged (index), status[1]=unstaged (worktree).
@@ -619,7 +641,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         try {
           const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) { logArgs.push("--", resolvedDir.slice(gitRoot.length + 1)); }
+          // Stesso confronto su path RISOLTI di `/api/git/status`: con un link
+          // simbolico di mezzo il log tornava quello di tutto il repo.
+          const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
+          if (prefix) logArgs.push("--", prefix.replace(/\/$/, ""));
         } catch {}
         const proc = Bun.spawn(logArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const logText = (await new Response(proc.stdout).text()).trim();
@@ -915,7 +940,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         try {
           const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) { const relPrefix = resolvedDir.slice(gitRoot.length + 1); gitRelativePath = relPrefix + (relPrefix.endsWith("/") ? "" : "/") + filePath; }
+          const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
+          if (prefix) gitRelativePath = prefix + filePath;
         } catch {}
         const proc = Bun.spawn(["git", "show", `HEAD:${gitRelativePath}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const content = await new Response(proc.stdout).text();
