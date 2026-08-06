@@ -12,7 +12,7 @@ export type SessionState =
   /** Non lo sappiamo ancora: la prima interrogazione non è tornata. */
   | { status: 'loading' }
   /** Dentro. `name` è ciò che si mostra sopra la status bar. */
-  | { status: 'paired'; as: 'loopback' | 'device'; name: string; deviceId?: string }
+  | { status: 'paired'; as: 'loopback' | 'device'; name: string; deviceId?: string; role: 'owner' | 'guest' }
   /** Fuori, e si può rimediare: `reason` decide cosa dice la schermata. */
   | { status: 'unpaired'; reason: 'not_paired' | 'revoked' | 'expired' };
 
@@ -55,10 +55,17 @@ export async function refreshSession(): Promise<SessionState> {
     if (!r.ok) { markUnpaired(undefined); return state; }
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
-      deviceId?: string; code?: string;
+      deviceId?: string; code?: string; role?: 'owner' | 'guest';
     };
     if (body.paired && body.as && body.name) {
-      emit({ status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId });
+      emit({
+        status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId,
+        // Default prudente: se il server non lo dice, si assume il ruolo con
+        // MENO poteri. Il contrario — assumere `owner` — mostrerebbe l'app
+        // intera a chi non deve vederla, e la schermata sbagliata sarebbe l'unico
+        // sintomo di un server vecchio.
+        role: body.role === 'guest' ? 'guest' : body.role === 'owner' ? 'owner' : 'guest',
+      });
     } else {
       markUnpaired(body.code);
     }

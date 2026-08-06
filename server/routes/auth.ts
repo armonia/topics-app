@@ -130,7 +130,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     // ── Chi sono? Esente dall'identità: è la domanda che si fa PRIMA di averla.
     if (method === "GET" && pathname === "/api/auth/session") {
       if (loopback) {
-        return json({ paired: true, as: "loopback", name: "Questo computer" });
+        return json({ paired: true, as: "loopback", name: "Questo computer", role: "owner" });
       }
       const token = readSessionCookie(req.headers.get("cookie"));
       if (!token) return json({ paired: false, as: null, name: null });
@@ -138,7 +138,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (!row) return json({ paired: false, as: null, name: null });
       const d = rowToDevice(row);
       if (d.revokedAt !== null) return json({ paired: false, as: null, name: null, code: "device_revoked" });
-      return json({ paired: true, as: "device", name: d.name, deviceId: d.id });
+      return json({ paired: true, as: "device", name: d.name, deviceId: d.id, role: d.role });
     }
 
     // ── Il dispositivo nuovo chiede accesso e riceve il codice DA MOSTRARE.
