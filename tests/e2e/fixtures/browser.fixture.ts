@@ -4,12 +4,36 @@ import { test as base, type Page } from "@playwright/test";
  * Deterministic mock data for browser/process E2E tests.
  */
 
-const MOCK_PACKAGE_SCRIPTS: Record<string, string> = {
-  dev: "vite",
-  build: "vite build",
-  test: "vitest",
-  lint: "eslint .",
-};
+/**
+ * Gli script rilevati di un progetto, nella forma che il server manda OGGI.
+ *
+ * Era `Record<nome, comando>`. Dal commit 33944fa5 («Gli script di un progetto
+ * vengono da tutti i manifest, non solo da package.json») l'endpoint
+ * `/api/files/package-scripts` risponde `{ scripts: DetectedScript[], found,
+ * looked }` — un ARRAY, perché lo stesso nome può arrivare da due manifest
+ * diversi (`test` di package.json e `test` del Makefile) e serve una chiave che
+ * li distingua: l'`id` è `<manifest>#<nome>`.
+ *
+ * Il mock nella forma vecchia non falliva un'asserzione: faceva ESPLODERE il
+ * componente. `ScriptRunner` fa `scripts.some(...)` e `scriptEntries.map(...)`,
+ * che su un oggetto non esistono — il render moriva e `[data-testid=
+ * "script-runner"]` non compariva mai, quindi tutti e cinque i PROCESS-*
+ * andavano in timeout su un pannello che non c'era.
+ */
+interface MockDetectedScript {
+  id: string;
+  name: string;
+  detail: string;
+  argv: string[];
+  from: string;
+}
+
+const MOCK_PACKAGE_SCRIPTS: MockDetectedScript[] = [
+  { id: "package.json#dev", name: "dev", detail: "vite", argv: ["npm", "run", "dev"], from: "package.json" },
+  { id: "package.json#build", name: "build", detail: "vite build", argv: ["npm", "run", "build"], from: "package.json" },
+  { id: "package.json#test", name: "test", detail: "vitest", argv: ["npm", "run", "test"], from: "package.json" },
+  { id: "package.json#lint", name: "lint", detail: "eslint .", argv: ["npm", "run", "lint"], from: "package.json" },
+];
 
 const MOCK_RUNNING_SCRIPTS = [
   {
@@ -53,14 +77,17 @@ export class BrowserProcessPage {
    * Also mocks file-related APIs used by ProjectSidebar to prevent real requests.
    */
   async mockScriptRunner(
-    scripts: Record<string, string> = MOCK_PACKAGE_SCRIPTS,
+    scripts: MockDetectedScript[] = MOCK_PACKAGE_SCRIPTS,
     running: typeof MOCK_RUNNING_SCRIPTS = [],
   ) {
     await this.page.route("**/files/package-scripts*", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ scripts }),
+        // `found`/`looked` fanno parte della risposta vera (server/routes/files.ts):
+        // dicono quali manifest sono stati trovati e quali sono stati cercati. Il
+        // mock li porta perché la forma sia quella del server, non una sua metà.
+        body: JSON.stringify({ scripts, found: ["package.json"], looked: ["package.json"] }),
       });
     });
 
@@ -218,6 +245,16 @@ export class BrowserProcessPage {
   /**
    * Open a project topic via the sezione Progetti, then expand Processes.
    * Project topics appear in the "Projects" sidebar section, not in Chats treeitems.
+   *
+   * L'intestazione della sezione si cercava per testo — `button:has-text("Processes")`.
+   * Non regge più due cambiamenti del prodotto, entrambi già in HEAD:
+   *  - 9d1991ea («Multilingua: terzo lotto…») ha tradotto l'etichetta
+   *    (`tr('project.sidebar.processes')`); la suite gira con `locale: "it-IT"`
+   *    (playwright.config.ts), quindi a schermo c'è scritto «Processi».
+   *  - a3a2a614 / 3218af47 hanno ridisegnato la barra CHIUSA come una rail di
+   *    sole icone: lì l'intestazione non esiste proprio nel DOM.
+   * L'ancora è ora `data-testid="project-sidebar-processes"`, aggiunto in
+   * ProjectSidebar.tsx su entrambe le varianti (desktop e mobile).
    */
   async openProjectAndProcesses(projectNamePattern: RegExp) {
     // Expand sezione Progetti if collapsed
@@ -240,10 +277,25 @@ export class BrowserProcessPage {
     // Wait for project pane to appear (the ProjectSidebar with Processes section)
     await this.page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
 
-    // Click "Processes" section header to expand it
-    const processesBtn = this.page.locator('button:has-text("Processes")').first();
+    // La barra di progetto può essere CHIUSA: in quel modo (a3a2a614) è una rail
+    // di 40px con sole icone, e l'intestazione «Processi» non è nel DOM. Prima la
+    // si riapre dal suo unico bottone d'header, poi si procede come sopra.
+    const rail = this.page.locator('[data-testid="project-sidebar-rail"]');
+    if (await rail.count() > 0) {
+      await this.page.locator('[data-testid="project-sidebar-rail-header"] button').click();
+    }
+
+    // Apri la sezione Processi. Locator STRICT, senza `.first()`: due
+    // ProjectSidebar montate insieme sono il guaio descritto in
+    // browser-process.spec.ts (pane-store condiviso), e `scriptRunner` qui sotto
+    // è già strict — mascherarlo qui sposterebbe solo il rosso più in là.
+    // `aria-expanded` perché il bottone è un toggle: cliccarlo alla cieca su una
+    // sezione già aperta la RICHIUDEREBBE.
+    const processesBtn = this.page.locator('[data-testid="project-sidebar-processes"]');
     await processesBtn.waitFor({ state: "visible", timeout: 10000 });
-    await processesBtn.click();
+    if ((await processesBtn.getAttribute("aria-expanded")) !== "true") {
+      await processesBtn.click();
+    }
 
     // Wait for script-runner to appear
     await this.page.locator('[data-testid="script-runner"]').waitFor({ state: "visible", timeout: 10000 });
