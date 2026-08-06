@@ -101,10 +101,12 @@ Convenzione: ogni fase chiude con `bun run typecheck:client` + `bun run build:cl
   aperte insieme; drag verso la griglia che apre ancora il pane.
 - [x] 5.4 **Evidenza durevole = video**: `recordVideo` sul context per lo scenario di drag
   (le size in diretta) e per l'espansione — un `.png` non prova un comportamento.
-  Salvare sotto `~/.topics/media/`.
-- [ ] 5.5 `bun run check:deadcode` — verificare che `renderSection` sia ancora usata dai
+  → `~/.topics/media/sidebar-pinned-tiles-2026-08-06.webm` (306 KB, girato con
+  `E2E_EVIDENCE=1`: drag dalla terza riga alla prima con le tessere che si
+  stringono, poi apertura e chiusura della fascia del progetto).
+- [x] 5.5 `bun run check:deadcode` — verificare che `renderSection` sia ancora usata dai
   gruppi per tipo/stato (lo è) e che non resti nient'altro orfano.
-- [ ] 5.6 Bump di versione (root `package.json` + `Cargo.toml` +
+- [x] 5.6 Bump di versione (root `package.json` + `Cargo.toml` +
   `desktop-tauri/src-tauri/tauri.conf.json` in lockstep) e voce di changelog.
 
 ## Fuori piano, arrivato in corsa
