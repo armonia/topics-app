@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.27 — 2026-08-06
+
+### Sotto il cofano
+- Changelog per 2.2.26
+- Dai al server un'identità: dispositivi appaiati, approvati dal Mac
+- Cancellare vuol dire spostare nel cestino, non rm -rf
+- Rendi visibile l'identità: il cancello, la conferma sul Mac, e chi sei sopra la barra
+- Riallinea i documenti: «no built-in authentication» adesso è falso
+- Il primo ritentativo dello stato git arriva dopo 2 secondi, non dopo 30
+- La cronologia dei commit esce dal codice morto ed entra nel pannello
+- Via la cartella dalla tessera: al suo posto il segno che si apre
+
 ## 2.2.26 — 2026-08-06
 
 ### Sotto il cofano
