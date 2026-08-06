@@ -1,0 +1,210 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { ChevronDown, ChevronRight, History, GitCommit } from 'lucide-react';
+import { gitApi } from '../../lib/api';
+import { basename as pathBasename } from '../../lib/path-utils';
+import { Spinner } from '../Shared/Spinner';
+import type { GitLogEntry, GitCommitDetail, GitCommitFile } from '../../types';
+
+/**
+ * La cronologia dei commit.
+ *
+ * `/api/git/log` e `gitApi.log` esistevano da sempre e non li chiamava
+ * NESSUNO: il pannello mostrava l'ultimo commit e basta, e per vedere cosa
+ * conteneva quello prima bisognava uscire dall'app. Rotta e metodo erano codice
+ * morto che sembrava una funzionalità.
+ *
+ * Si carica in tre passi, e ognuno solo quando serve: la lista dei commit
+ * quando apri la sezione, i file di un commit quando apri quel commit, il diff
+ * quando apri quel file. Un `git show` per ogni commit in lista sarebbe stato
+ * il modo più veloce per rendere lento il pannello.
+ */
+
+const PAGINA = 20;
+
+function statoColore(status: string): string {
+  switch (status) {
+    case 'A': return 'text-green-500';
+    case 'D': return 'text-red-500';
+    case 'R': case 'C': return 'text-blue-500';
+    default: return 'text-amber-500';
+  }
+}
+
+function RigaFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) {
+  const nome = pathBasename(file.path) || file.path;
+  const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
+  return (
+    <button
+      onClick={onOpen}
+      title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
+      className="w-full flex items-center gap-1.5 px-3 py-[3px] text-left hover:bg-app-hover transition-colors"
+    >
+      <span className={`${statoColore(file.status)} text-[8px] font-bold w-[14px] text-center flex-shrink-0`}>
+        {file.status}
+      </span>
+      <span className="truncate text-app-text-body min-w-0 text-[12px]">
+        {file.origPath && (
+          <span className="text-app-text-muted line-through mr-1">
+            {pathBasename(file.origPath) || file.origPath}
+          </span>
+        )}
+        {nome}
+        {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
+      </span>
+      <span className="ml-auto text-[10px] tabular-nums flex-shrink-0 leading-none">
+        {file.binary
+          ? <span className="text-app-text-muted">bin</span>
+          : <>
+              {file.added > 0 && <span className="text-green-500">+{file.added}</span>}
+              {file.added > 0 && file.removed > 0 && ' '}
+              {file.removed > 0 && <span className="text-red-500">-{file.removed}</span>}
+            </>}
+      </span>
+    </button>
+  );
+}
+
+export interface CommitHistoryProps {
+  projectPath: string;
+  /** Aperto un file di un commit: `rev` è l'hash, il chiamante mostra il diff. */
+  onOpenFile?: (file: string, rev: string) => void;
+  /** Sale a ogni commit: la lista va riletta perché ce n'è uno nuovo in cima. */
+  reloadKey?: unknown;
+}
+
+export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHistoryProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [commits, setCommits] = useState<GitLogEntry[]>([]);
+  const [limit, setLimit] = useState(PAGINA);
+  const [loading, setLoading] = useState(false);
+  const [errore, setErrore] = useState<string | null>(null);
+  const [apertoHash, setApertoHash] = useState<string | null>(null);
+  const [dettaglio, setDettaglio] = useState<GitCommitDetail | null>(null);
+  const [caricandoDettaglio, setCaricandoDettaglio] = useState(false);
+  // Il dettaglio arriva in ritardo: senza questo, aprire un commit e poi
+  // subito un altro lascia in vista i file del primo se la sua risposta arriva
+  // per seconda.
+  const richiestaRef = useRef(0);
+
+  const carica = useCallback(async (quanti: number) => {
+    setLoading(true);
+    setErrore(null);
+    try {
+      setCommits(await gitApi.log(projectPath, quanti));
+    } catch (err) {
+      setErrore(err instanceof Error ? err.message : 'Non sono riuscito a leggere la cronologia');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectPath]);
+
+  // Solo da aperta: una sezione chiusa che interroga git a ogni commit è
+  // lavoro che nessuno guarda.
+  useEffect(() => {
+    if (!expanded) return;
+    carica(limit);
+  }, [expanded, limit, carica, reloadKey]);
+
+  // Cambiando progetto quello che c'è in vista non è più di questo progetto.
+  useEffect(() => {
+    setCommits([]);
+    setApertoHash(null);
+    setDettaglio(null);
+    setLimit(PAGINA);
+  }, [projectPath]);
+
+  const apriCommit = useCallback(async (hash: string) => {
+    if (apertoHash === hash) { setApertoHash(null); setDettaglio(null); return; }
+    const mio = ++richiestaRef.current;
+    setApertoHash(hash);
+    setDettaglio(null);
+    setCaricandoDettaglio(true);
+    try {
+      const d = await gitApi.commitFiles(projectPath, hash);
+      if (richiestaRef.current === mio) setDettaglio(d);
+    } catch {
+      if (richiestaRef.current === mio) setDettaglio(null);
+    } finally {
+      if (richiestaRef.current === mio) setCaricandoDettaglio(false);
+    }
+  }, [projectPath, apertoHash]);
+
+  return (
+    <div className="border-t border-app-border" data-testid="commit-history">
+      <div className="flex items-center justify-between px-3 py-1">
+        <button
+          onClick={() => setExpanded(v => !v)}
+          aria-expanded={expanded}
+          className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+        >
+          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          <History size={10} />
+          Cronologia
+        </button>
+        {expanded && loading && <Spinner size="sm" />}
+      </div>
+
+      {expanded && (
+        <div className="pb-1">
+          {errore && <div className="px-3 py-1 text-[11px] text-red-500">{errore}</div>}
+          {!errore && !loading && commits.length === 0 && (
+            <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessun commit</div>
+          )}
+
+          {commits.map(c => {
+            const aperto = apertoHash === c.hash;
+            return (
+              <div key={c.hash}>
+                <button
+                  onClick={() => apriCommit(c.hash)}
+                  aria-expanded={aperto}
+                  title={`${c.message}\n${c.author} · ${c.ago}`}
+                  data-testid="commit-row"
+                  className={`w-full flex items-center gap-1.5 px-3 py-[3px] text-left transition-colors ${aperto ? 'bg-app-hover' : 'hover:bg-app-hover'}`}
+                >
+                  <GitCommit size={10} className="flex-shrink-0 text-app-text-tertiary" />
+                  <span className="truncate text-[12px] text-app-text-body min-w-0">{c.message}</span>
+                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-[10px] text-app-text-muted">
+                    <span className="font-mono">{c.shortHash || c.hash.slice(0, 7)}</span>
+                    <span>{c.ago}</span>
+                  </span>
+                </button>
+
+                {aperto && (
+                  <div className="bg-app-hover/40">
+                    {caricandoDettaglio && (
+                      <div className="px-3 py-1 text-[11px] text-app-text-muted">Carico…</div>
+                    )}
+                    {!caricandoDettaglio && dettaglio?.files.length === 0 && (
+                      <div className="px-3 py-1 text-[11px] text-app-text-muted">
+                        Nessun file di questo progetto in questo commit
+                      </div>
+                    )}
+                    {!caricandoDettaglio && dettaglio?.files.map(f => (
+                      <RigaFile
+                        key={f.path}
+                        file={f}
+                        onOpen={() => onOpenFile?.(f.path, c.hash)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Si allunga a richiesta: chiedere mille commit a un repo grosso per
+              mostrarne venti è lavoro buttato. */}
+          {commits.length >= limit && (
+            <button
+              onClick={() => setLimit(l => l + PAGINA)}
+              className="w-full px-3 py-1 text-[11px] text-primary hover:underline text-left"
+            >
+              Mostra altri {PAGINA}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
