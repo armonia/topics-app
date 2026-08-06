@@ -18,8 +18,6 @@ import {
   getProjectPathFromPaneId,
   getBrowserContextFromPaneId,
   isDraftPaneId,
-  useProjectTabStatus,
-  type ProjectTabStatus,
 } from '../../state/pane/adapters';
 import { persistBrowserPaneUrl, getBrowserPaneUrl, persistBrowserPaneTitle, getBrowserPaneTitle, setBrowserPaneUserTitle, tryHostname } from '../../state/pane/browserPaneUrl';
 import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
@@ -444,29 +442,6 @@ export function StandaloneChatGroup({
     }
   }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
-  // Project tab status indicators (git + processes)
-  const projectPaths = useMemo(() => {
-    const paths: string[] = [];
-    for (const id of validatedOrderedIds) {
-      if (isProjectPaneId(id)) {
-        const p = getProjectPathFromPaneId(id);
-        if (p) paths.push(p);
-      }
-    }
-    return paths;
-  }, [validatedOrderedIds]);
-  const projectStatusByPath = useProjectTabStatus(projectPaths);
-  const projectStatus = useMemo(() => {
-    const map: Record<string, ProjectTabStatus> = {};
-    for (const id of validatedOrderedIds) {
-      if (isProjectPaneId(id)) {
-        const p = getProjectPathFromPaneId(id);
-        if (p && projectStatusByPath[p]) map[id] = projectStatusByPath[p];
-      }
-    }
-    return map;
-  }, [validatedOrderedIds, projectStatusByPath]);
-
   // The Context Inspector is a popover owned by the active topic's composer
   // (`ChatInput`), which listens for this event. The header ring just fires it.
   const handleToggleContext = useCallback(() => {
@@ -587,7 +562,6 @@ export function StandaloneChatGroup({
       onPinPane={handlePinPane}
       onToggleFissato={onToggleFissato}
       isFissato={isFissato}
-      projectStatus={projectStatus}
       tabNotifications={tabNotifications}
       hasLeftOverlay={!!onToggleSidebar}
     />

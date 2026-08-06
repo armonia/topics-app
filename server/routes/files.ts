@@ -4,6 +4,7 @@ import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
 import { resolveStateDir } from "../lib/data-dir";
+import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
 const GIT_STATUS_CACHE_TTL = 5000;
@@ -438,20 +439,22 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const branchProc = Bun.spawn(["git", "branch", "-a", "--format=%(refname:short)|%(HEAD)|%(upstream:short)"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // La classificazione delle ref vive in `lib/git-branch-refs.ts`, dove è
+        // coperta da test sull'output vero di un clone con due remote: è la
+        // parte che nascondeva sia il ramo remoto scambiato per locale sia il
+        // checkout che staccava HEAD. Qui resta solo ciò che ha bisogno di git.
+        const branchProc = Bun.spawn(["git", "branch", "-a", `--format=${BRANCH_FORMAT}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const branchText = (await new Response(branchProc.stdout).text()).trim();
-        interface GitBranch { name: string; current: boolean; isRemote: boolean; ahead: number; behind: number; }
+        interface GitBranch { name: string; current: boolean; isRemote: boolean; ahead: number; behind: number; shortName?: string; remote?: string }
         const branches: GitBranch[] = [];
-        for (const line of branchText.split("\n").filter(Boolean)) {
-          const [name, head, upstream] = line.split("|");
-          const isCurrent = head === "*";
-          const isRemote = name.startsWith("origin/");
-          if (name === "origin/HEAD") continue;
+        for (const ref of parseBranchLines(branchText)) {
           let ahead = 0, behind = 0;
-          if (!isRemote && upstream) {
-            try { const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${name}...${upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
+          if (!ref.isRemote && ref.upstream) {
+            try { const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${ref.name}...${ref.upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
           }
-          branches.push({ name, current: isCurrent, isRemote, ahead, behind });
+          const entry: GitBranch = { name: ref.name, current: ref.current, isRemote: ref.isRemote, ahead, behind };
+          if (ref.isRemote) { entry.remote = ref.remote; entry.shortName = ref.shortName; }
+          branches.push(entry);
         }
         // Detached HEAD — no branch is current, add a HEAD entry
         if (branches.length > 0 && !branches.some(b => b.current)) {
@@ -481,7 +484,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "checkout", body.branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // `switch`, non `checkout`. La differenza che conta è cosa fanno con un
+        // ramo REMOTO: `git checkout origin/foo` stacca HEAD, esce 0 e non dice
+        // niente — l'intestazione mostra allora uno short-hash come se fosse un
+        // ramo, e ogni commit fatto da lì è orfano. `git switch origin/foo`
+        // rifiuta («a branch is expected»), e `git switch foo` fa la cosa che
+        // l'utente intende: crea il locale che traccia `origin/foo`. Staccare
+        // HEAD resta possibile, ma solo chiedendolo con `--detach`, che questa
+        // rotta non offre. Unico chiamante: BranchList, che passa sempre un
+        // nome di ramo.
+        const proc = Bun.spawn(["git", "switch", "--", body.branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await proc.exited;
         const stderr = await new Response(proc.stderr).text();
         if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Checkout failed" }, 400);

@@ -6,7 +6,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, isPaneClosable, tabTargetForPane, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, isPaneClosable, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
@@ -177,7 +177,6 @@ interface PaneTabBarProps {
    */
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
-  projectStatus?: Record<string, ProjectTabStatus>;
   /** Notification badge counts per pane ID */
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
@@ -205,7 +204,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -712,7 +711,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // "il chiamante ha passato una className": la barra standalone ne passa una
   // che contiene `app-drag-region`, e legarsi alla presenza della prop lasciava
   // proprio quella scoperta. Beccato da `tests/e2e/drag-regions.spec.ts`.
-  const barClass = className ?? 'flex-initial py-1 pr-0 min-w-0 app-drag-region';
+  //
+  // Il `py-1` sparisce su touch, e non è cosmesi: le tab passano a `h-9` (36px)
+  // sotto, e la riga di chrome che le ospita è alta 40px FISSI con
+  // `overflow-hidden` (GroupLayout, quattro punti). Il conto era 36 + 2 di
+  // padding della strip + 8 di `py-1` = 46 dentro 40: `items-center` centra e
+  // il clipping mangia 3px sopra e 3px sotto, quindi gli angoli arrotondati
+  // della tab attiva spariscono e la pillola tocca i bordi. Senza `py-1` fa 38
+  // e ci sta. Alzare invece la riga a `h-12` romperebbe altro: `TAB_BAR_H = 40`
+  // (GroupLayout.tsx:30) è l'`edgeOffset` dello strip di drop superiore, che
+  // finirebbe 8px fuori posto — e andrebbe rialzato in lockstep anche l'header
+  // della sidebar progetto, o l'allineamento fra rail e tab si spezza di nuovo.
+  const barClass = className ?? `flex-initial ${isTouch ? '' : 'py-1'} pr-0 min-w-0 app-drag-region`;
 
   return (
     // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the
