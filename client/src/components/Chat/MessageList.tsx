@@ -886,15 +886,9 @@ export function MessageList({
       // solo finire un movimento già quasi compiuto e non trascina mai giù chi
       // sta leggendo indietro.
       const r = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Un pixel di banda morta, non di più — e la tentazione di allargarla va
-      // resistita. A riposo si vede un'oscillazione: pinnare cambia
-      // `scrollTop`, la lista virtualizzata smonta/rimonta una riga al bordo,
-      // l'altezza balla di ~6px e il giro riparte (misurato: h fra 1409 e
-      // 1415). Allargare la banda a 8px la spegne, ma lascia la chat FERMA a
-      // sei pixel dal fondo — ed è esattamente il difetto che tre test
-      // pretendono non esista («il fondo vero, non quasi»). Il ballo è
-      // preesistente e costa poco; lo scarto fermo si vede. Fra i due si
-      // sceglie il ballo.
+      // Un pixel di banda morta, non di più: allargarla spegnerebbe
+      // l'oscillazione descritta più sotto, ma lascerebbe la chat FERMA a sei
+      // pixel dal fondo — e quello si vede. Vedi la nota prima di `pinToBottom`.
       if (r <= 1) return;
       // DENTRO L'APERTURA la distanza non è un argomento.
       //
@@ -916,6 +910,25 @@ export function MessageList({
         return;
       }
       if (r > AT_BOTTOM_TOLERANCE_PX) return;
+      // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
+      //
+      // A riposo questo pin si autoalimenta: incollare al fondo fa smontare a
+      // Virtuoso una riga al bordo, l'altezza cala di ~6px, la riga rientra,
+      // l'altezza risale, l'observer riparte. Misurato: `h` che rimbalza fra
+      // 1409 e 1415, un pin per giro. È preesistente e costa poco (un rAF e
+      // due letture di geometria), ma è visibile in traccia e fa gola.
+      //
+      // Le due cure ovvie sono state PROVATE e sono peggio del male, perché
+      // entrambe lasciano la vista ferma a sei pixel dal fondo:
+      //  • allargare la banda morta a 8px;
+      //  • contare i colpi e smettere dopo N.
+      // Sei pixel di scroll residuo si VEDONO, e sono esattamente il difetto
+      // che tre test qui accanto esistono per impedire («il fondo vero, non
+      // quasi» — con una tolleranza di 60px quel difetto era arrivato in
+      // produzione con la suite verde). Fra un ballo che non si vede e uno
+      // scarto fermo che si vede, si sceglie il ballo. Se lo si vuole chiudere
+      // davvero, la leva è la bistabilità della lista (`increaseViewportBy`),
+      // non la soglia di questa regola.
       pinToBottom();
     });
     ro.observe(el);
