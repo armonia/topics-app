@@ -69,7 +69,7 @@ import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import {
-  evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
+  evaluateIdentity, isIdentityExemptPath, isGuestAllowedPath, readSessionCookie, hashToken,
   type DeviceRecord,
 } from "./server/lib/device-auth";
 import { getGatewayWS } from "./server/gateway-ws";
@@ -453,6 +453,20 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const authRouter = createAuthRouter(ctx);
+
+/**
+ * L'identita' risolta per una richiesta, deposta dal gate e letta dalle rotte.
+ *
+ * WeakMap e non un campo sulla Request: la Request non e' estendibile, e passare
+ * l'identita' come argomento vorrebbe dire cambiare la firma di ogni router. La
+ * chiave e' l'oggetto stesso, quindi la voce muore col ciclo di vita della
+ * richiesta senza che nessuno debba ripulirla.
+ *
+ * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
+ * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
+ */
+const identityByRequest = new WeakMap<Request, { role: 'owner' | 'guest'; deviceId: string | null }>();
+ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
 const processesRouter = createProcessesRouter(ctx);
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
 // The dispatcher is the ONLY place that starts a headless agent turn from a
@@ -1571,6 +1585,7 @@ const server = Bun.serve<WSData>({
                   lastSeenAt: row.last_seen_at === null ? null : Number(row.last_seen_at),
                   firstIp: row.first_ip === null ? null : String(row.first_ip),
                   revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
+                  role: row.role === 'guest' ? 'guest' : 'owner',
                 };
               }
             }
@@ -1589,7 +1604,31 @@ const server = Bun.serve<WSData>({
             if (r.ok && r.as === "device" && device && (Date.now() - (device.lastSeenAt ?? 0)) > 3_600_000) {
               ctx.db.query("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(Date.now(), device.id);
             }
-            return r.ok ? { ok: true as const } : { ok: false as const, status: r.status, reason: r.reason, code: r.code };
+            if (r.ok) {
+              identityByRequest.set(req, { role: r.role, deviceId: r.deviceId });
+              // ── L'OSPITE è confinato QUI, non nei singoli router.
+              // Metterlo nei router significa dimenticarne uno: provato sulla
+              // mia pelle mentre costruivo questo — col filtro nel solo router
+              // dei task, un ospite leggeva `/api/topics` per intero.
+              if (r.role === "guest") {
+                if (!isGuestAllowedPath(pathname)) {
+                  return { ok: false as const, status: 403, reason: "non disponibile per un ospite", code: "guest_forbidden" };
+                }
+                // `/media/` è aperto come PERCORSO, non come contenuto: passa solo
+                // il file che è l'anteprima di un task condiviso con questo ospite.
+                if (pathname.startsWith("/media/") && r.deviceId) {
+                  const richiesto = decodeURIComponent(pathname.slice("/media".length));
+                  const ok = ctx.db.query(
+                    "SELECT 1 FROM task_shares s JOIN tasks t ON t.id = s.task_id WHERE s.device_id = ? AND t.preview_image LIKE ?",
+                  ).get(r.deviceId, `%${richiesto}`) as unknown;
+                  if (!ok) {
+                    return { ok: false as const, status: 403, reason: "anteprima non condivisa", code: "guest_forbidden" };
+                  }
+                }
+              }
+              return { ok: true as const };
+            }
+            return { ok: false as const, status: r.status, reason: r.reason, code: r.code };
           })();
 
       const decision = evaluateAuth({

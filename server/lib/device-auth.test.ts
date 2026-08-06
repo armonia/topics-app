@@ -3,7 +3,7 @@ import {
   SESSION_COOKIE, SESSION_TTL_MS,
   hashToken, mintSessionToken, mintPairingCode, tokensMatch,
   readSessionCookie, buildSessionCookie, buildClearedSessionCookie,
-  evaluateIdentity, isIdentityExemptPath,
+  evaluateIdentity, isIdentityExemptPath, isGuestAllowedPath,
   type DeviceRecord, type IdentityInput,
 } from "./device-auth";
 
@@ -18,6 +18,7 @@ function device(over: Partial<DeviceRecord> = {}): DeviceRecord {
     lastSeenAt: NOW - 1000,
     firstIp: "192.168.1.42",
     revokedAt: null,
+    role: 'owner',
     ...over,
   };
 }
@@ -174,5 +175,53 @@ describe("device-auth · percorsi esenti", () => {
     ]) {
       expect(isIdentityExemptPath(p)).toBe(false);
     }
+  });
+});
+
+describe("device-auth · la superficie di un OSPITE", () => {
+  it("apre SOLO le schede condivise, la sessione e gli aggiornamenti dal vivo", () => {
+    for (const p of [
+      "/api/all-boards/tasks",
+      "/api/tasks/abc",
+      "/api/tasks/abc/comments",
+      "/api/auth/session",
+      "/api/auth/logout",
+      "/media/anteprima.png",
+      "/ws",
+    ]) {
+      expect(isGuestAllowedPath(p)).toBe(true);
+    }
+  });
+
+  it("nega tutto il resto — un ospite non è un utente con meno voci di menu", () => {
+    // Regression di un buco REALE: col filtro messo nel solo router dei task, un
+    // ospite leggeva `/api/topics` per intero. Il posto giusto era il gate, e
+    // questa lista è ciò che impedisce di dimenticarsene di nuovo.
+    for (const p of [
+      "/api/topics",
+      "/api/terminal/sessions",
+      "/api/projects",
+      "/api/files/read",
+      "/api/browser/navigate",
+      "/api/auth/devices",
+      "/api/auth/shares",
+      "/api/all-boards/settings",
+      "/preview/etc/hosts",
+      "/uploads/qualcosa.png",
+      "/ws/terminal/abc",
+    ]) {
+      expect(isGuestAllowedPath(p)).toBe(false);
+    }
+  });
+
+  it("evaluateIdentity porta il ruolo, così il gate può confinare", () => {
+    const ospite = evaluateIdentity(input({ sessionToken: "t", device: device({ role: "guest" }) }));
+    expect(ospite.ok).toBe(true);
+    if (ospite.ok) { expect(ospite.role).toBe("guest"); expect(ospite.deviceId).toBe("dev-1"); }
+
+    // Loopback e daemon sono proprietari: non c'è un ruolo più alto della
+    // macchina su cui gira il server.
+    const locale = evaluateIdentity(input({ transport: "loopback" }));
+    if (locale.ok) expect(locale.role).toBe("owner");
   });
 });
