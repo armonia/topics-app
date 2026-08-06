@@ -126,17 +126,33 @@ describe("ask-user-bridge — lifecycle edges", () => {
 });
 
 describe("ask-user-bridge — quanto aspetta", () => {
-  test("il TTL della domanda è tarato su un umano che si alza dalla scrivania", () => {
-    // 90 min di default: sopra la finestra di silenzio del watchdog (30 min, che
-    // ora esenta le domande in volo) e SOTTO il cap di vita del child (2 h) —
-    // oltre quello il processo viene ucciso e l'attesa finirebbe su un morto
-    // invece che su questa cancellazione pulita.
+  test("una domanda non scade nell'arco di una giornata di lavoro", () => {
+    // Il TTL è stato 10 minuti (morta prima che si tornasse da pranzo) e poi 90
+    // — non perché un'ora e mezza volesse dire qualcosa, ma perché doveva stare
+    // sotto il tetto di vita del figlio (2 h). Adesso quel tetto si riarma
+    // finché un pannello è a schermo (`armLifetime`, claude-code.ts), quindi il
+    // TTL non è più costretto: chiude una domanda un MOTIVO — risposta,
+    // interruzione, o il figlio morto sotto il pannello — non l'orologio.
+    // Quello che resta è solo un fondo contro le perdite.
     const k = key();
     const t0 = 5_000_000;
+    const h = 60 * 60 * 1000;
     expect(beginAsk(k, undefined, t0)).toBe(true);
-    expect(beginAsk(k, undefined, t0 + 89 * 60 * 1000)).toBe(true);
-    expect(beginAsk(k, undefined, t0 + 91 * 60 * 1000)).toBe(false);
+    // Le tre ore che uccidevano: chi esce alle 18 e risponde alle 21.
+    expect(beginAsk(k, undefined, t0 + 3 * h)).toBe(true);
+    // La notte intera.
+    expect(beginAsk(k, undefined, t0 + 16 * h)).toBe(true);
+    // Il fondo c'è ancora: una voce persa non tiene in piedi per sempre le
+    // esenzioni che si appoggiano a `hasPendingAsk`.
+    expect(beginAsk(k, undefined, t0 + 25 * h)).toBe(false);
     endAsk(k);
+  });
+
+  test("il figlio morto sotto il pannello chiude la domanda SUBITO, senza aspettare il fondo", () => {
+    // È questa — non il tempo — la regola che impedisce a un `defer` di essere
+    // eterno. Vale a qualunque età della domanda.
+    expect(pendingAskVerdict({ askAgeMs: 5 * 60 * 60 * 1000, childAlive: false })).toBe("close-ask");
+    expect(pendingAskVerdict({ askAgeMs: 5 * 60 * 60 * 1000, childAlive: true })).toBe("defer");
   });
 });
 

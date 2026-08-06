@@ -1287,7 +1287,7 @@ export async function callCommentTask(
  * server choose because it's OUR socket that dies: 25s is comfortably under any
  * default idle timeout, and the server clamps whatever we ask for.
  */
-const ASK_LEG_MS = 25_000;
+export const ASK_LEG_MS = 25_000;
 /**
  * Per quanto si continua a ritentare quando il server non risponde.
  *
@@ -1307,8 +1307,20 @@ const ASK_LEG_MS = 25_000;
 const ASK_TRANSPORT_GRACE_MS = 90_000;
 /** Backoff fra un ritentativo e l'altro (ms). Cresce, poi si stabilizza. */
 const ASK_RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 5000];
-/** Hard cap on poll legs, so a wedged server can't spin here forever. */
-const ASK_MAX_LEGS = 500;
+/**
+ * Tetto ANTI-GIRO A VUOTO, non la vita della domanda.
+ *
+ * Chi decide quando una domanda è finita è il SERVER: risponde `cancelled`, e
+ * quella è l'unica fine legittima. Questo numero esiste solo perché un server
+ * incastrato che risponde `pending` all'infinito non faccia girare qui dentro
+ * un ciclo eterno. Deve quindi stare COMODAMENTE SOPRA
+ * `ASK_TTL_MS / ASK_LEG_MS`, o sarebbe lui — e non il server — a decidere che
+ * una domanda muore, con il messaggio sbagliato per giunta («gave up after N
+ * poll legs»). A 500 gambe erano 3 h 28, sotto il TTL nuovo: adesso 5.000
+ * gambe da 25 s fanno ~34 h contro le 24 h del TTL. L'invariante è provata in
+ * `topics-mcp-server.test.ts`.
+ */
+export const ASK_MAX_LEGS = 5_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
