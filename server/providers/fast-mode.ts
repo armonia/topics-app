@@ -37,11 +37,13 @@
  * numero solo, senza medie da spiegare. È il numero che il composer mostra
  * sotto il ⚡ — «più veloce» da solo non è un'informazione finché non dici
  * quanto costa.
+ *
+ * Il guadagno di velocità (fino a 2,5× token/s in uscita) resta una frase, non
+ * una costante: non entra in nessun calcolo, e a scriverla nel tooltip è il
+ * client. Un numero esportato che nessuno importa è codice morto travestito da
+ * documentazione — la documentazione è questa.
  */
 export const FAST_MODE_PRICING = { input: 10, output: 50 } as const;
-
-/** Quanto va più veloce, con le parole della CLI: fino a 2,5× token/s in uscita. */
-export const FAST_MODE_SPEEDUP = 2.5;
 
 /**
  * Il moltiplicatore di costo della fast mode su `model`, o `null` se su quel

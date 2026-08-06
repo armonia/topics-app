@@ -26,7 +26,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeStatus } from "./fast-mode";
+import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
@@ -1748,7 +1748,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * Porta con sé il PREZZO: «più veloce» da solo non è un'informazione finché
    * non dici quanto costa, ed è la domanda che si fa chi guarda il bottone.
    */
-  fastMode(): (FastModeStatus & { costMultiplier: number | null }) | null {
+  fastMode(): FastModeInfo | null {
     if (!this.fastModeStatus) return null;
     return {
       ...this.fastModeStatus,
