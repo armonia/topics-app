@@ -76,7 +76,14 @@ export function PinnedTiles({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragKey, setDragKey] = useState<string | null>(null);
-  const [dropAt, setDropAt] = useState<{ rowIdx: number; insertAt: number } | null>(null);
+  // `fromThisRow` si decide all'EVENTO, non al render: `dragKey` è stato, e il
+  // primo `dragover` può arrivare prima che React l'abbia applicato — allora la
+  // riga si crede bersaglio di un drag ESTERNO e disegna il fantasma invece di
+  // riordinare. `dragKeyRef` è aggiornato in modo sincrono dal `dragstart`,
+  // quindi la risposta giusta è già disponibile nel momento in cui serve.
+  const [dropAt, setDropAt] = useState<
+    { rowIdx: number; insertAt: number; fromThisRow: boolean; movingKey: string | null } | null
+  >(null);
   const [newRowAt, setNewRowAt] = useState<number | null>(null);
   const [adopting, setAdopting] = useState(false);
   const dragKeyRef = useRef<string | null>(null);
@@ -206,17 +213,31 @@ export function PinnedTiles({
       }}
     >
       {rows.map((row, rowIdx) => {
-        const dragFromThisRow = dragKey !== null && row.keys.includes(dragKey);
-        const targeting = dropAt?.rowIdx === rowIdx && !dragFromThisRow;
-        // Le misure in diretta: se la tessera atterra qui, la riga avrà queste
-        // larghezze — le stesse che il drop poi scrive.
-        const widths = targeting ? previewWidths(row, dropAt.insertAt) : row.widths;
+        const over = dropAt?.rowIdx === rowIdx;
+        const dragFromThisRow = over ? dropAt.fromThisRow : false;
+        // Da FUORI la riga guadagna una cella: si mostra il fantasma e le
+        // larghezze che avrà. Da DENTRO il conteggio non cambia, e prima non si
+        // mostrava niente — cioè proprio nel caso più comune (riordinare due
+        // tessere vicine) trascinavi alla cieca. Ora la riga si RIORDINA in
+        // diretta: quello che vedi mentre tieni premuto è come resterà.
+        const adding = over && !dragFromThisRow;
+        const reordering = over && dragFromThisRow;
+        const widths = adding ? previewWidths(row, dropAt.insertAt) : row.widths;
         const openHere = row.keys.filter(k => expanded.has(k) && byId.has(k));
 
-        // Con il fantasma la riga ha una cella in più: le chiavi vanno
-        // interlacciate con lui per restare allineate alle larghezze.
-        const cells: Array<string | null> = [...row.keys];
-        if (targeting) cells.splice(dropAt.insertAt, 0, null);
+        let cells: Array<string | null> = [...row.keys];
+        if (adding) {
+          // Il fantasma è una cella in più: le chiavi vanno interlacciate con
+          // lui per restare allineate alle larghezze.
+          cells.splice(dropAt.insertAt, 0, null);
+        } else if (reordering && dropAt.movingKey) {
+          const moving = dropAt.movingKey;
+          const from = cells.indexOf(moving);
+          const rest = cells.filter(k => k !== moving);
+          const at = Math.max(0, Math.min(dropAt.insertAt > from ? dropAt.insertAt - 1 : dropAt.insertAt, rest.length));
+          rest.splice(at, 0, moving);
+          cells = rest;
+        }
 
         return (
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">
@@ -229,7 +250,13 @@ export function PinnedTiles({
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
                 setNewRowAt(null);
-                setDropAt({ rowIdx, insertAt: insertIndexAt(e.currentTarget, e.clientX) });
+                const moving = dragKeyRef.current;
+                setDropAt({
+                  rowIdx,
+                  insertAt: insertIndexAt(e.currentTarget, e.clientX),
+                  fromThisRow: moving !== null && row.keys.includes(moving),
+                  movingKey: moving,
+                });
               }}
               onDragLeave={e => {
                 // Solo quando si esce DAVVERO dalla riga: `dragleave` scatta
@@ -260,13 +287,17 @@ export function PinnedTiles({
                 if (!item) return null;
                 const meta = metaFor(item);
                 return (
-                  <div key={key} style={flex}>
+                  <div
+                    key={key}
+                    style={flex}
+                    className={reordering && dropAt.movingKey === key ? 'opacity-70 transition-opacity' : undefined}
+                  >
                     <PinnedTile
                       item={item}
                       expanded={expanded.has(key)}
                       focused={meta.focused}
                       attention={meta.attention}
-                      dragging={dragKey === key}
+                      dragging={dragKey === key && !reordering}
                       onToggle={() => toggle(item)}
                       onContextMenu={e => onContextMenu?.(item, e)}
                       onDragStart={() => { dragKeyRef.current = key; setDragKey(key); }}
