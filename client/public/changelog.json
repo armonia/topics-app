@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.37",
+    "date": "2026-08-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La sidebar e' chrome: si salda alla barra di stato, dice l'ultimo messaggio, e si usa col dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre spazi uguali attorno al «+», la cosa vera sotto il cursore, e il gesto inverso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.36",
     "date": "2026-08-06",
     "sections": {
@@ -323,6 +344,36 @@
           "it": "La board dice quanti e in quale colonna, sulla riga. E si chiama Board",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il piede resta in fondo anche con l'albero pulito, e git smette di essere blu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un modello solo: soggetto → concessione → risorsa, e la vitalità torna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gesto di condividere: accanto allo stato del task, non dentro un menù",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra lo stato della condivisione, e i tre errori che l'hanno insegnata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La vista dell'ospite, e chi entra decide cosa si MONTA — non cosa si vede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetti la riga della skill, e togli il blu ai blocchi di codice",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -337,6 +388,16 @@
       "internal": [
         {
           "it": "Riporta la versione sopra il massimo mai committato: 2.2.24",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.36",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un messaggio che È un comando si legge come un comando",
           "en": "",
           "scope": null
         }

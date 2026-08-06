@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.37 — 2026-08-06
+
+### Sotto il cofano
+- La sidebar e' chrome: si salda alla barra di stato, dice l'ultimo messaggio, e si usa col dito
+- Tre spazi uguali attorno al «+», la cosa vera sotto il cursore, e il gesto inverso
+
 ## 2.2.36 — 2026-08-06
 
 ### Sotto il cofano
@@ -88,11 +94,19 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Un solo passo verticale, e i task per stato si aprono dalla riga
 - Changelog per 2.2.24
 - La board dice quanti e in quale colonna, sulla riga. E si chiama Board
+- Il piede resta in fondo anche con l'albero pulito, e git smette di essere blu
+- Un modello solo: soggetto → concessione → risorsa, e la vitalità torna
+- Il gesto di condividere: accanto allo stato del task, non dentro un menù
+- Registra lo stato della condivisione, e i tre errori che l'hanno insegnata
+- La vista dell'ospite, e chi entra decide cosa si MONTA — non cosa si vede
+- Rimetti la riga della skill, e togli il blu ai blocchi di codice
 
 ## 2.2.24 — 2026-08-06
 
 ### Sotto il cofano
 - Riporta la versione sopra il massimo mai committato: 2.2.24
+- Changelog per 2.2.36
+- Un messaggio che È un comando si legge come un comando
 
 ## 2.2.23 — 2026-08-06
 
