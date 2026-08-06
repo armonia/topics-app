@@ -11,6 +11,9 @@ interface Branch {
   name: string;
   current: boolean;
   isRemote: boolean;
+  /** Solo per i remoti: il nome senza il prefisso del remote, dal server. */
+  shortName?: string;
+  remote?: string;
   ahead?: number;
   behind?: number;
 }
@@ -277,7 +280,15 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             // the spinner compare must use it too (matching against the raw
             // `remotes/origin/…` name never succeeded → zero feedback during a
             // multi-second remote checkout).
-            const localName = branch.name.replace(/^remotes\/origin\//, '');
+            //
+            // Il nome corto ora arriva DAL SERVER (`shortName`), che è l'unico
+            // a sapere come si chiama il remote. Qui si tirava via un prefisso
+            // `remotes/origin/` che il server non produce: `%(refname:short)`
+            // dà `origin/foo`, la regex non matchava mai, e il checkout partiva
+            // su `origin/foo` — cioè HEAD staccato, silenzioso, e ogni commit
+            // fatto da lì orfano. Il ripiego copre i client vecchi e i remote
+            // con un nome qualsiasi, non solo `origin`.
+            const localName = branch.shortName ?? branch.name.replace(/^(?:remotes\/)?[^/]+\//, '');
             return (
               <div
                 key={branch.name}
