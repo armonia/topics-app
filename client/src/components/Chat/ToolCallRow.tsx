@@ -1,8 +1,9 @@
 import { createElement, memo, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
+import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
@@ -143,6 +144,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     setOpen((v) => !v);
   };
 
+  // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
+  // riga scritta prima che il provider imparasse a raccoglierle — apriva un
+  // riquadro vuoto: il chevron prometteva un corpo che non esisteva. Senza
+  // corpo la riga non offre il gesto (e non ne finge nemmeno lo spazio: il
+  // posto del chevron resta, o le righe non si allineerebbero più).
+  const hasBody =
+    toolCardHasBody(detail) || isWaiting || isError || !!toolCall.error || !!toolCall.userResponse;
+
   // Costo/token dell'azione: preferisci il prezzo (modello noto), altrimenti i
   // token come fallback. Il title esplicita cos'è, così non si confonde con la
   // durata accanto.
@@ -158,6 +167,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   return (
     <div
       data-testid={`tool-call-row-${toolCall.id}`}
+      // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
+      // quella colonna portava la spunta: tolta la spunta — che confermava la
+      // norma su ogni riga riuscita — quello span resta vuoto ogni volta che
+      // l'azione non ha nemmeno durata o costo, e un contenitore vuoto non è
+      // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
+      // riga, e adesso è scritto dove vive davvero.
+      data-status={status}
       className={`text-[12px] rounded-md transition-colors ${
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
@@ -168,12 +184,27 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
       }`}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
-      >
-        {effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />}
+      {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
+          disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da
+          tastiera ci si ferma sopra, il lettore di schermo annuncia un comando,
+          e il click non fa niente. Senza corpo la riga è una riga e basta. */}
+      {createElement(
+        hasBody ? 'button' : 'div',
+        hasBody
+          ? {
+              type: 'button' as const,
+              onClick: onToggle,
+              className: 'w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors',
+            }
+          : { className: 'w-full flex items-center gap-2 py-1 text-left text-app-text-secondary' },
+        <>
+        {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
+            corpo e quelle senza partirebbero da due colonne diverse. */}
+        {hasBody ? (
+          effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />
+        ) : (
+          <span className="w-3 flex-shrink-0" aria-hidden="true" />
+        )}
         {/* `Icon` is a stable Lucide component from iconForDetail()'s static
             lookup, not one defined during render; createElement is the
             lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
@@ -188,9 +219,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             Le parentesi stanno FUORI dal troncamento: dentro, quella di
             chiusura spariva su ogni argomento lungo, cioè quasi sempre. */}
         <span className="flex-1 min-w-0 flex items-baseline gap-1">
+          {/* L'esito si dice SOLO quando è cattivo, e si dice qui, accanto al
+              nome. Una spunta verde su ogni riga conclusa confermava la norma —
+              cioè non diceva niente — e teneva occupata una colonna a destra
+              per tutte le righe pur di servirne una su cento. */}
+          {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label="fallita" />}
           <span
             data-testid="tool-call-name"
-            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : 'text-app-text'}`}
+            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
           >
             {label ?? display.name}
           </span>
@@ -202,7 +238,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </span>
           )}
         </span>
-        <span className="flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
+        <span className="flex-shrink-0 inline-flex items-center gap-1.5">
           {/* Cronometro vivo SOLO mentre l'agente è davvero dentro al tool.
               In `waiting_for_input` non gira niente: la palla è dell'umano, e
               un contatore che scorre mentre si legge una domanda mette fretta
@@ -243,11 +279,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               aria-label="In attesa della tua risposta"
             />
           )}
+          {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
+              al tool, il cerchietto ambra mentre la palla è tua. L'esito, buono
+              o cattivo, sta accanto al nome. */}
           {isRunning && <Loader2 size={11} className="animate-spin text-primary" />}
-          {status === 'success' && <Check size={11} className="text-green-500" />}
-          {status === 'error' && <X size={11} className="text-red-500" />}
         </span>
-      </button>
+        </>,
+      )}
       {effectiveOpen && (
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking

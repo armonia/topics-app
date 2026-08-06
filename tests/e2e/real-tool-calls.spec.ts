@@ -177,8 +177,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     const badge = page.locator(`[data-testid="tool-call-row-${TC_ERROR_ID}"]`);
     await expect(badge).toBeVisible({ timeout: 15_000 });
 
-    const status = badge.locator(`[data-testid="tool-call-status-${TC_ERROR_ID}"]`);
-    await expect(status).toHaveAttribute("data-status", "error");
+    await expect(badge).toHaveAttribute("data-status", "error");
 
     await badge.click();
     const error = page.locator('[data-testid="tool-call-error"]').first();
