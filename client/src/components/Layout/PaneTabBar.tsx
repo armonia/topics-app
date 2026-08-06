@@ -14,6 +14,7 @@ import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
+import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
@@ -481,6 +482,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     dropConsumedRef.current = false;
     setDraggedPaneId(paneId);
     e.dataTransfer.setData(DND_TYPES.PANE_TAB, paneId);
+    rememberDraggedPane(paneId);
     if (groupId) {
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
     }
