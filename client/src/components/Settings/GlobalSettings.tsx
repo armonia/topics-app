@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, LayoutGrid } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, LayoutGrid, Smartphone } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
@@ -7,6 +7,7 @@ import { describeNativeNotifications } from '../../lib/notificationStatus';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
+import { DevicesSection } from './DevicesSection';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -28,13 +29,14 @@ interface GlobalSettingsProps {
 // faceva sparire "New Chat" da tutti e sei gli host del menu "+" senza dirlo, e
 // il valore salvato scavalcava per sempre il default acceso. Il gate è stato
 // tolto dal codice, non nascosto: qui resta la scheda vuota da non riaprire.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts';
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts' | 'devices';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
+  { id: 'devices', label: 'Dispositivi', icon: Smartphone },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
@@ -117,6 +119,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             )}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'devices' && <DevicesSection />}
           </div>
         </div>
       </div>
