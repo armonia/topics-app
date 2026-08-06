@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, Terminal } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
@@ -21,6 +21,7 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
 import { isPlanResponse } from './Chat/planDetection';
+import { parseSlashInvocation } from '../../../shared/slash-invocation';
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -1041,6 +1042,13 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return paths;
   }, [extractedMediaPaths, media]);
 
+  // Il messaggio è un comando? Vale solo per il ramo `user`; memoizzato qui
+  // perché gli hook non possono stare dopo un `return` condizionale.
+  const slashInvocation = useMemo(
+    () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
+    [role, cleanText],
+  );
+
   // Plan detection is reused at both legacy-path gates below; cleanText is
   // already memoized so this dependency is stable.
   const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
@@ -1126,7 +1134,26 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return (
       <div data-testid="message-content-user">
         {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage /></div>)}
-        {cleanText && renderUserText(cleanText)}
+        {/* Un messaggio che È un comando si legge come un comando.
+            Quando lanci `/recap`, Topics lo manda verbatim e la CLI lo espande
+            PRIMA del turno: sul filo non torna nessun tool e nessun testo
+            iniettato — verificato. L'unico che sa cosa hai lanciato è questo
+            messaggio, e finché il corpo del comando colava nella risposta il
+            segnale c'era per sbaglio. Qui è al suo posto, e non inventa una
+            chiamata a un tool che non c'è stata. */}
+        {cleanText && slashInvocation ? (
+          <span
+            data-testid="user-slash-command"
+            data-command={slashInvocation.command}
+            className="inline-flex items-center gap-1.5 font-mono text-[0.92em]"
+          >
+            <Terminal size={12} className="flex-shrink-0 opacity-70" />
+            <span className="font-medium">/{slashInvocation.command}</span>
+            {slashInvocation.args && <span className="opacity-80">{slashInvocation.args}</span>}
+          </span>
+        ) : (
+          cleanText && renderUserText(cleanText)
+        )}
       </div>
     );
   }

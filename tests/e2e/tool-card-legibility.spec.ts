@@ -306,4 +306,60 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
 
     await row.screenshot({ path: "test-results/mcp-card-unwrapped.png" });
   });
+
+  test("un messaggio che È un comando si legge come un comando", async ({ page, request }) => {
+    // `/recap` parte verbatim e la CLI lo espande PRIMA del turno: sul filo non
+    // torna nessun tool e nessun testo iniettato (verificato). Finché il corpo
+    // del comando colava nella risposta, il segnale «sto usando una skill»
+    // c'era per sbaglio; tolto quello, la chat non diceva più niente. L'unico
+    // che sa cosa hai lanciato è il tuo messaggio.
+    const fresh = await createTopic(request, "Comando " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "/recap",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u.id,
+        content: "Corretto il ritaglio delle finestre; ridotta la latenza.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      // `.last()`: il primo test di questo file semina anche lui un `/recap`, e
+      // la sua pane resta montata — due chip a schermo, una per topic.
+      const cmd = page.locator('[data-testid="user-slash-command"]').last();
+      await expect(cmd).toBeVisible({ timeout: 15_000 });
+      await expect(cmd).toHaveAttribute("data-command", "recap");
+      await expect(cmd).toContainText("/recap");
+
+      await cmd.screenshot({ path: "test-results/user-slash-command.png" });
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
+  test("un percorso all\'inizio del messaggio NON diventa un comando", async ({ page, request }) => {
+    const fresh = await createTopic(request, "Percorso " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "/Users/zorahrel/Projects/topics-app",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      await expect(page.locator('[data-testid="message-content-user"]').last()).toContainText("Projects/topics-app");
+      await expect(page.locator('[data-testid="user-slash-command"]')).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
 });
