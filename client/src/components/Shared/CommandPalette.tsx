@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, Settings, Moon, Sun, File,
   Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2,
@@ -39,6 +39,9 @@ export interface CommandAction {
    *  carries a long path (cwd, file path) that we want fully revealed on
    *  hover, not just the truncated description. */
   titleOverride?: string;
+  /** `data-testid` sulla riga. Lo usano le voci di CREAZIONE, che devono
+   *  restare confrontabili col menu "+" (gate di parità ADD-09). */
+  testId?: string;
 }
 
 function fuzzyMatch(query: string, target: string): boolean {
@@ -122,19 +125,33 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Le pill di creazione SONO il menu "+" standalone, senza filtri: stesso
-  // modello, stesso ordine, stesso insieme. C'era ancora un sottoinsieme
-  // scritto a mano (`COMMAND_PALETTE_PILL_IDS`) e bastava quello a far ripartire
-  // la deriva — un tipo di pane nuovo sarebbe comparso nel menu e non qui.
-  // Adesso le due superfici non possono divergere: sono la stessa lista.
-  const addPills = useMemo(
-    () => buildAddMenuItems({
+  // Le voci di CREAZIONE sono il menu "+" standalone — stesso modello, stesso
+  // ordine, stesso insieme — rese come RIGHE della lista, non come pill.
+  //
+  // Erano pill in fondo, e da lì la tastiera non le raggiungeva: in ⌘K il fuoco
+  // sta nel campo di ricerca, quindi la lettera nuda che apre una voce nel menu
+  // "+" qui scriverebbe soltanto una lettera nella query. Dipingerla sarebbe
+  // stato lo stesso errore del "⌘N" sulla riga New Chat — un hint falso.
+  // Come righe invece ereditano le scorciatoie che in questa superficie
+  // ESISTONO e che il footer già annuncia: ↑↓ per scorrere, ↵ per aprire. E si
+  // possono cercare: "brow" trova Browser. In più la barra in fondo smette di
+  // andare a capo, perché non porta più otto pill.
+  const createItems = useMemo((): CommandAction[] =>
+    buildAddMenuItems({
       scope: 'standalone',
       onNewChat: onNewTopic,
       onAddPane,
       onProjectPicker,
-    }),
-    [onNewTopic, onAddPane, onProjectPicker],
+    }).map((item) => ({
+      id: `create-${item.id}`,
+      label: item.label,
+      icon: <AddMenuIcon item={item} size={14} />,
+      category: 'action' as const,
+      shortcut: item.id === 'new-chat' && isDesktop ? '⌘N' : undefined,
+      testId: `cmdk-add-${item.id}`,
+      action: () => { item.run(); onClose(); },
+    })),
+    [onNewTopic, onAddPane, onProjectPicker, onClose],
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -420,6 +437,7 @@ export function CommandPalette({
   const filteredRecenti = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
   const filteredActions = useMemo(() => filterByQuery(actionItems), [actionItems, filterByQuery]);
+  const filteredCreate = useMemo(() => filterByQuery(createItems), [createItems, filterByQuery]);
 
   // Flat order for keyboard nav, matching the render order in each mode:
   //  · projects scope:   Projects only (⌘F — jump to a project)
@@ -427,9 +445,13 @@ export function CommandPalette({
   //  · query:            Projects → Actions → Topics → Recently-closed → Files → Messages
   const allItems = useMemo(() => {
     if (scope === 'projects') return filteredProjects;
-    if (!query.trim()) return [...filteredProjects, ...filteredRecenti];
-    return [...filteredProjects, ...filteredActions, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
-  }, [scope, query, filteredProjects, filteredActions, filteredRecenti, filteredMain, searchFileItems, searchResults]);
+    // «Crea» sta in cima anche a query vuota: in una palette vuota la cosa piu'
+    // azionabile e' quella che fa nascere qualcosa, ed e' l'unico modo per cui
+    // le frecce ci arrivino sopra (prima era una barra di pill, fuori dalla
+    // navigazione da tastiera).
+    if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...filteredRecenti];
+    return [...filteredCreate, ...filteredProjects, ...filteredActions, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
+  }, [scope, query, filteredProjects, filteredCreate, filteredActions, filteredRecenti, filteredMain, searchFileItems, searchResults]);
 
   // O(1) id→index lookup, built once per `allItems` change. Rendering each
   // section calls `indexOf` per row; a findIndex there made render O(n²) over
@@ -563,9 +585,15 @@ export function CommandPalette({
                   <EmptyState variant="section" title="Nessun progetto" />
                 )}
               </section>
-              {/* Chiuse di recente */}
+              {/* Crea + Chiuse di recente. «Crea» sta in cima perche' a palette
+                  vuota e' la colonna delle cose che si FANNO, mentre a sinistra
+                  ci sono quelle che si ritrovano. */}
               <section className="flex-1 min-w-0 overflow-y-auto py-1">
                 <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                  Crea
+                </div>
+                {filteredCreate.map(item => renderRow(item, { compact: true }))}
+                <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   Chiuse di recente
                   {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
                 </div>
@@ -596,6 +624,12 @@ export function CommandPalette({
                   <EmptyState variant="panel" title="Nessun risultato" />
                 ) : (
                   <>
+                    {filteredCreate.length > 0 && (
+                      <>
+                        <SectionHeader label="Crea" />
+                        {filteredCreate.map(item => renderRow(item, { highlight: true }))}
+                      </>
+                    )}
                     {filteredActions.length > 0 && (
                       <>
                         <SectionHeader label="Azioni" />
@@ -631,11 +665,13 @@ export function CommandPalette({
           )}
         </div>
 
-        {/* Actions bar — wraps to multiple rows so EVERY action stays visible
-            (no horizontal scroll that could hide e.g. Apri/Crea Progetto).
-            Always at the bottom. Action items are NOT duplicated into the
-            result list (the bar is the canonical surface). */}
-        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap flex-shrink-0">
+        {/* Barra dei COMANDI globali — due voci, una riga, non va piu' a capo.
+            Le voci di creazione se ne sono andate da qui: erano otto pill che
+            mandavano la barra su tre righe e che la tastiera non raggiungeva.
+            Ora sono righe nella sezione «Crea», dove frecce e ↵ funzionano e
+            si possono cercare. La barra resta per cio' che non e' un
+            risultato: preferenze e tema. */}
+        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-shrink-0">
           {/* Le pill di creazione NON sono più una lista scritta a mano: escono
               dallo STESSO modello del menu "+" (`buildAddMenuItems`, scope
               standalone). Prima erano due elenchi paralleli e divergevano —
@@ -643,21 +679,6 @@ export function CommandPalette({
               ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
-          {addPills.map((item) => (
-            <Fragment key={item.id}>
-              {/* Il raggruppamento vive nel MODELLO (`dividerBefore`), quindi
-                  menu e barra pill separano le stesse cose senza accordarsi. */}
-              {item.dividerBefore && <PillDivider />}
-              <ActionPill
-                testId={`cmdk-add-${item.id}`}
-                icon={<AddMenuIcon item={item} size={12} />}
-                label={item.label}
-                onClick={() => { item.run(); onClose(); }}
-                shortcut={item.id === 'new-chat' && isDesktop ? '⌘N' : undefined}
-              />
-            </Fragment>
-          ))}
-          <PillDivider />
           <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
             icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
@@ -708,6 +729,7 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
       role="option"
       aria-selected={selected}
       data-cmd-idx={idx}
+      data-testid={item.testId}
       onClick={item.action}
       onMouseEnter={() => onHover(idx)}
       title={item.titleOverride || item.description}
@@ -740,12 +762,6 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
       )}
     </button>
   );
-}
-
-/** Filo verticale fra due gruppi di pill. La barra va a capo, quindi il filo
- *  deve poter andare a capo con lei: niente altezza fissa sulla riga. */
-function PillDivider() {
-  return <span aria-hidden="true" className="self-stretch w-px my-1 bg-app-border flex-shrink-0" />;
 }
 
 function ActionPill({ icon, label, shortcut, onClick, testId }: {

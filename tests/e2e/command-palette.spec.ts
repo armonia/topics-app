@@ -181,9 +181,11 @@ test.describe("Command Palette", () => {
     await commandPalettePage.open();
     await expect(commandPalettePage.overlay).toBeVisible();
 
-    // «Chat», non «New Chat»: dal 2026-08-06 ogni voce di creazione è un
-    // sostantivo secco — il verbo lo dice la superficie che la ospita.
-    const newChatPill = commandPalettePage.overlay.getByRole("button", { name: "Chat", exact: true });
+    // Le voci di creazione non sono più pill in fondo: sono RIGHE nella sezione
+    // «Crea» (2026-08-06), così frecce e ↵ le raggiungono e si possono cercare
+    // — da una pill la tastiera non ci arrivava. Il testid è il contratto:
+    // l'etichetta è appena cambiata («New Chat» → «Chat») e cambierà ancora.
+    const newChatPill = commandPalettePage.overlay.getByTestId("cmdk-add-new-chat");
     await expect(newChatPill).toBeVisible();
     await newChatPill.click();
 

@@ -59,8 +59,12 @@
       sposta nel MODELLO: era dell'ospite, e infatti ⌘K la offriva anche sul web
       dove `selectDirectory` ritorna null — un no-op silenzioso. **Trovato dal
       gate ADD-09, non a mano**
-- [x] 5.8 `dividerBefore` del modello reso anche nella barra pill: menu e ⌘K
-      separano gli stessi gruppi senza doversi accordare
+- [x] 5.8 Le voci di creazione in ⌘K diventano RIGHE cercabili (sezione «Crea»),
+      non pill in fondo: da una pill la tastiera non ci arrivava — in ⌘K il fuoco
+      è nel campo di ricerca, quindi la lettera nuda del menu «+» lì scriverebbe
+      solo una lettera. Come righe ereditano ↑↓ e ↵, che il footer già annuncia,
+      e si cercano («brow» → Browser). La barra in fondo torna a UNA riga: teneva
+      otto pill e andava a capo su tre
 
 ## 6. Mnemonic
 
@@ -83,7 +87,9 @@
 ## 7. Verifica
 
 - [x] 7.1 `tests/e2e/add-menu.spec.ts` — 9 test, il menu come sistema: 9/9 verdi
-      (ADD-09 confronta gli ID offerti da ⌘K e dal menu «+»: divergere è rosso)
+      (ADD-09 confronta gli ID offerti da ⌘K e dal menu «+» — divergere è rosso —
+      e misura che la barra dei comandi stia su UNA riga: «brutto» è
+      un'impressione, due offsetTop diversi sono un numero)
       (incluso ADD-07: la geometria del chip MISURATA sul DOM — uno per riga, a
       destra dell'etichetta, ≤14px dal bordo, nessuno sfora il pannello)
 - [x] 7.2 Regressione: browser-add-empty, command-palette, panels, project-tabs,
