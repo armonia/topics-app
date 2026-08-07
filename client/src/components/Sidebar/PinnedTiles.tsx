@@ -4,7 +4,8 @@ import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
-import { PinnedTile, PINNED_TILE_H, pinnedTileActionInset, PINNED_TILE_CONTAINER } from './PinnedTile';
+import { PinnedTile } from './PinnedTile';
+import { PINNED_TILE_H, PINNED_TILE_CONTAINER, pinnedTileActionInset } from './pinnedTileMetrics';
 import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,

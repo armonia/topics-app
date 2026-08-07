@@ -817,30 +817,40 @@ function App() {
   // upsert-only, and a stale entry from a closed project must not make the
   // unpin skip the archive.
   const { isPinned: sidebarIsPinned, togglePin: sidebarTogglePin } = sidebar;
+  /**
+   * «Sfissare questa chat la archivia anche?» — la domanda che il menu deve
+   * poter fare PRIMA di scrivere la sua etichetta.
+   *
+   * È la condizione esatta di `handleTogglePin` qui sotto, estratta e non
+   * ricopiata: due copie divergono, e una voce di menu che promette meno di
+   * quello che fa è lo stesso difetto dell'anteprima del drag che prometteva
+   * una riga poi cancellata.
+   */
+  const unpinAlsoArchives = useCallback((id: string): boolean => {
+    if (
+      !sidebarIsPinned(id) ||
+      id.startsWith('project:') ||
+      id.startsWith('terminal:') ||
+      id.startsWith('browser:')
+    ) return false;
+    const topic = topics[id];
+    if (!topic || topic.archived) return false;
+    const chatPaneId = createPaneId('chat', id);
+    const openTopLevel = openPanels.includes(id);
+    const openInLiveProject = Object.entries(projectOpenPanes).some(([pp, ids]) =>
+      (ids.includes(chatPaneId) || ids.includes(id)) &&
+      openPanels.includes(createPaneId('project', pp)),
+    );
+    return !openTopLevel && !openInLiveProject;
+  }, [sidebarIsPinned, topics, openPanels, projectOpenPanes]);
   const handleTogglePin = useCallback((id: string) => {
     // Chat-only unpin-while-closed archive semantics. Projects (`project:<path>`),
     // terminals (`terminal:<id>`) and browsers (`browser:<ctx>`) don't archive on
     // unpin — none is an archivable topic record — so those prefixes skip this
     // branch and just toggle the pin. (A bare topicId has no prefix → chat.)
-    if (
-      sidebarIsPinned(id) &&
-      !id.startsWith('project:') &&
-      !id.startsWith('terminal:') &&
-      !id.startsWith('browser:')
-    ) {
-      const topic = topics[id];
-      if (topic && !topic.archived) {
-        const chatPaneId = createPaneId('chat', id);
-        const openTopLevel = openPanels.includes(id);
-        const openInLiveProject = Object.entries(projectOpenPanes).some(([pp, ids]) =>
-          (ids.includes(chatPaneId) || ids.includes(id)) &&
-          openPanels.includes(createPaneId('project', pp)),
-        );
-        if (!openTopLevel && !openInLiveProject) void archiveTopic(id, true);
-      }
-    }
+    if (unpinAlsoArchives(id)) void archiveTopic(id, true);
     sidebarTogglePin(id);
-  }, [sidebarIsPinned, sidebarTogglePin, topics, openPanels, projectOpenPanes, archiveTopic]);
+  }, [unpinAlsoArchives, sidebarTogglePin, archiveTopic]);
 
   // Sidebar close handlers — same Things3 pattern. The raw close function
   // is server-touching (DELETE on terminal sessions / browser contexts) so
@@ -1478,6 +1488,10 @@ function App() {
           onUpdate={updateTopic}
           onDelete={archiveTopic}
           isPinned={sidebar.pinnedIds.has(contextMenu.topic.id)}
+          // Sfissare una chat che non stai guardando la ARCHIVIA, cioè la
+          // toglie dalla lista: l'etichetta lo dice invece di lasciarlo
+          // scoprire dopo.
+          unpinAlsoArchives={unpinAlsoArchives(contextMenu.topic.id)}
           onTogglePin={() => handleTogglePin(contextMenu.topic.id)}
           onPopOut={() => {
             // Same contract as the pane-menu pop-out: drop the source pane only

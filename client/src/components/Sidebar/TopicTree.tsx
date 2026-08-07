@@ -540,6 +540,35 @@ export function TopicTree({
     [filteredItems]
   );
 
+  /**
+   * Sfissare, con la rete quando serve.
+   *
+   * Per la maggior parte delle tessere togliere il pin è un cambio di posto:
+   * la riga torna in lista. Per quelle il cui unico appiglio ERA il pin
+   * (`pinOnly`, vedi `buildSidebarItems`) è invece una CANCELLAZIONE, e senza
+   * niente che lo dica è il modo in cui è sparita «edm contratto».
+   *
+   * Sta qui, in un posto solo, perché le porte dello sfissaggio sono quattro —
+   * il drop sulla lista, il menu della tessera (terminale/browser/board), il
+   * menu del progetto, il menu della chat — e una dimenticata è di nuovo una
+   * sparizione muta. Il `prima` si legge ADESSO: un istante dopo la tessera non
+   * è più fra i fissati e la sua cella non esiste più, e l'annulla rimette
+   * lista e disposizione INSIEME (altrimenti la tessera torna accodata in
+   * fondo, cioè il gesto resta distruttivo per metà).
+   */
+  const sfissaConRete = useCallback((key: string, sfissa: (id: string) => void) => {
+    const tessera = pinnedBlock.find(i => i.id === key);
+    const prima = tessera?.pinOnly === true ? onSnapshotPinned?.() : undefined;
+    sfissa(key);
+    if (prima && onRestorePinned) {
+      toast.warning(
+        tr('sidebar.unpinnedGone', { nome: tessera?.name ?? '' }),
+        8000,
+        { label: tr('sidebar.undo'), onClick: () => onRestorePinned(prima) },
+      );
+    }
+  }, [pinnedBlock, onSnapshotPinned, onRestorePinned, toast, tr]);
+
   // ── Appartenenza al gruppo ───────────────────────────────────────────────
   // Con i gruppi accesi ogni riga va nella card del SUO gruppo, e chi non è la
   // tab di nessuno resta fuori dalle card (senza etichette: è semplicemente
@@ -759,7 +788,11 @@ export function TopicTree({
         onTerminalClick={onTerminalClick}
         onCloseTerminal={onCloseTerminal}
         onOpenAsProject={onOpenAsProject}
-        onTogglePin={onTogglePin ? () => onTogglePin(paneId) : undefined}
+        // La stessa rete del drop e delle tessere: un terminale chiuso vive in
+        // sidebar solo finché è fissato, e la voce di menu non lo dice.
+        onTogglePin={onTogglePin
+          ? () => (item.pinned ? sfissaConRete(paneId, onTogglePin) : onTogglePin(paneId))
+          : undefined}
       />
     );
     if (subAgents.length === 0) return row;
@@ -794,7 +827,9 @@ export function TopicTree({
         pinned={!!item.pinned}
         onOpenBrowser={onOpenBrowser}
         onCloseBrowser={onCloseBrowser}
-        onTogglePin={onTogglePin ? () => onTogglePin(paneId) : undefined}
+        onTogglePin={onTogglePin
+          ? () => (item.pinned ? sfissaConRete(paneId, onTogglePin) : onTogglePin(paneId))
+          : undefined}
       />
     );
   };
@@ -1442,21 +1477,9 @@ export function TopicTree({
           // riprenderla. Il ripiego resta per chi non passa la prop nuova.
           const sfissa = onUnpinToList ?? onTogglePin;
           if (!key || !sfissa || !pinnedIds.has(key)) return;
-          // Quando in lista non resterà niente, il gesto non SPOSTA: toglie. Il
-          // prima va preso ADESSO — un istante dopo la tessera non è più fra i
-          // fissati e la sua cella non esiste più — e l'annulla rimette lista e
-          // disposizione insieme, cioè la tessera nella cella da cui è uscita.
-          const svanisce = pinnedBlock.find(i => i.id === key)?.pinOnly === true;
-          const nome = pinnedBlock.find(i => i.id === key)?.name ?? '';
-          const prima = svanisce ? onSnapshotPinned?.() : undefined;
-          sfissa(key);
-          if (prima && onRestorePinned) {
-            toast.warning(
-              tr('sidebar.unpinnedGone', { nome }),
-              8000,
-              { label: tr('sidebar.undo'), onClick: () => onRestorePinned(prima) },
-            );
-          }
+          // Quando in lista non resterà niente, il gesto non SPOSTA: toglie —
+          // e la rete è la stessa di ogni altra porta dello sfissaggio.
+          sfissaConRete(key, sfissa);
         }}
       >
         {/* Board generale — THE single sidebar row for the board, above the
@@ -1621,7 +1644,11 @@ export function TopicTree({
             return (
               <button
                 onClick={() => {
-                  onTogglePin(pinOnlyMenu.id);
+                  // Stessa rete del drop: fissare è sempre reversibile, ma
+                  // SFISSARE una tessera il cui unico appiglio era il pin la
+                  // cancella — e la voce di menu, da sola, non lo dice.
+                  if (isPinned) sfissaConRete(pinOnlyMenu.id, onTogglePin);
+                  else onTogglePin(pinOnlyMenu.id);
                   setPinOnlyMenu(null);
                 }}
                 className={POPOVER_ITEM}
@@ -1663,7 +1690,12 @@ export function TopicTree({
               onClick={() => {
                 // Pin key = the sidebar item id form (`project:<rawPath>`),
                 // NOT the encodeURIComponent pane id.
-                onTogglePin(`project:${projectContextMenu.projectPath}`);
+                const key = `project:${projectContextMenu.projectPath}`;
+                // Il caso di «edm contratto»: un progetto con tutte le chat
+                // archiviate e nessuna tab non ha una riga in lista dove
+                // tornare. Sfissarlo lo toglie di scena — con l'annulla.
+                if (projectContextMenu.pinned) sfissaConRete(key, onTogglePin);
+                else onTogglePin(key);
                 setProjectContextMenu(null);
               }}
               className={POPOVER_ITEM}
