@@ -1561,15 +1561,21 @@ test.describe("Sidebar — rimettere una tessera nella lista", () => {
       tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
       bersaglio.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
       await attendi();
-      const anteprima = !!document.querySelector('[data-testid="unpin-preview"]');
+      const nodo = document.querySelector('[data-testid="unpin-preview"]');
+      const anteprima = !!nodo;
+      const avviso = nodo?.getAttribute("data-vanish") === "true";
 
       bersaglio.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
       tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
       await attendi();
-      return { anteprima, listaTrovata: !!lista };
+      return { anteprima, avviso, listaTrovata: !!lista };
     }, fissata.id);
 
     expect(esito.anteprima, "durante il drag la riga si vede dove finira'").toBe(true);
+    // Questa topic ha la tab aperta (`createTopic` la semina), quindi in lista
+    // ci RESTA anche senza pin: l'anteprima dev'essere la riga vera, non
+    // l'avviso di sparizione (che e' l'altro ramo, TILE-31).
+    expect(esito.avviso, "con la tab aperta la riga sopravvive allo sfissaggio").toBe(false);
 
     // Sfissata: niente piu' tessera, e il server lo sa.
     await expect(tiles(page)).toHaveCount(0, { timeout: 15000 });
@@ -1620,6 +1626,95 @@ test.describe("Sidebar — rimettere una tessera nella lista", () => {
         return ((env?.value ?? env)?.pinnedItems ?? []).length as number;
       }, { timeout: 15000 })
       .toBe(2);
+  });
+
+  test("TILE-31: quando il pin e' l'unica ancora l'anteprima lo dice, e l'Annulla la riporta al suo posto", async ({ page, request }) => {
+    // Il difetto che ha fatto sparire «edm contratto»: l'anteprima disegnava la
+    // riga NEL punto esatto in cui la lista ordinata l'avrebbe messa — una
+    // promessa che il filtro di visibilita' poi cancellava, perche' quella roba
+    // stava in sidebar SOLO perche' fissata. Si lasciava, e al posto promesso
+    // non c'era niente: nessun errore, nessun toast, sparita.
+    //
+    // Qui il caso e' una chat ARCHIVIATA e fissata: con `showArchived` spento
+    // la riga in lista non esiste, esattamente come per un progetto le cui chat
+    // sono tutte archiviate. Deterministico, e non dipende dalle tab (che
+    // `createTopic` semina sempre).
+    const svanisce = await createTopic(request, `E2E-Vanish-${Date.now()}`);
+    const resta = await createTopic(request, `E2E-Vanish-Vicina-${Date.now()}`);
+    created.push(svanisce.id, resta.id);
+    // L'archiviazione passa dalla DELETE con `{archived:true}` — la PATCH
+    // ignora il campo (vedi `unarchiveTopic` in api-fixtures).
+    await request.delete(`${E2E_BASE}/api/topics/${svanisce.id}`, { data: { archived: true } });
+
+    // Due tessere sulla STESSA riga, la fragile per prima: cosi' l'Annulla deve
+    // rimettere a posto anche la DISPOSIZIONE, non solo la lista dei fissati.
+    await setPins(page, [svanisce.id, resta.id], [[svanisce.id, resta.id]]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+    const primaX = (await boxOf(page, svanisce.name)).x;
+    expect(primaX, "la fragile parte a sinistra della compagna").toBeLessThan((await boxOf(page, resta.name)).x);
+
+    // Il gesto in due tempi: si trascina, si guarda cosa promette, poi si
+    // lascia. (Dentro una sola `evaluate` l'anteprima si potrebbe leggere solo
+    // com'era in quell'istante; qui la si interroga con i locator veri.)
+    const trascina = async (key: string) => page.evaluate(async (k) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${k}"]`) as HTMLElement;
+      const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
+      const dt = new DataTransfer();
+      (window as unknown as { __dndUnpin?: DataTransfer }).__dndUnpin = dt;
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      lista.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await attendi();
+    }, key);
+    const lascia = async (key: string) => page.evaluate(async (k) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${k}"]`) as HTMLElement;
+      const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
+      const dt = (window as unknown as { __dndUnpin?: DataTransfer }).__dndUnpin ?? new DataTransfer();
+      lista.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tile?.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+    }, key);
+
+    await trascina(svanisce.id);
+    const anteprima = page.getByTestId("unpin-preview");
+    await expect(anteprima).toBeVisible({ timeout: 5000 });
+    // LA COSA CHE CONTA: non e' la riga finta posata dove non nascera'. E' un
+    // avviso, e nomina cio' che sta per uscire di scena.
+    await expect(anteprima, "l'anteprima deve dichiararsi come sparizione").toHaveAttribute("data-vanish", "true");
+    expect(
+      await anteprima.getByRole("treeitem").count(),
+      "niente riga finta dentro l'avviso: quella riga non nascerebbe",
+    ).toBe(0);
+    await expect(anteprima).toContainText(svanisce.name);
+
+    await lascia(svanisce.id);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
+    // Sparita davvero — e' proprio il punto: senza rete, qui finiva la storia.
+    await expect(page.getByRole("treeitem", { name: svanisce.name })).toHaveCount(0);
+
+    // La rete: un Annulla che dura abbastanza da accorgersene.
+    const annulla = page.getByTestId("toast-action");
+    await expect(annulla, "sfissare qualcosa che sparisce deve offrire l'Annulla").toBeVisible({ timeout: 5000 });
+    await annulla.click();
+
+    await expect(tiles(page)).toHaveCount(2, { timeout: 15000 });
+    // Torna DOVE STAVA, non in fondo: il ripristino porta indietro la lista dei
+    // fissati e la disposizione insieme, altrimenti la tessera riappare
+    // accodata all'ultima riga e il gesto e' comunque distruttivo.
+    expect(
+      (await boxOf(page, svanisce.name)).x,
+      "l'Annulla la rimette nella sua cella, a sinistra della compagna",
+    ).toBeLessThan((await boxOf(page, resta.name)).x);
+    // E lo sa anche il server, non solo lo schermo.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        return ((env?.value ?? env)?.pinnedItems ?? []) as string[];
+      }, { timeout: 15000 })
+      .toContain(svanisce.id);
   });
 });
 

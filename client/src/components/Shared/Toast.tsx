@@ -4,19 +4,34 @@ import { generateUUID } from '../../utils/uuid';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+/**
+ * Un bottone dentro il toast — nato per l'«Annulla» dello sfissaggio.
+ *
+ * Un avviso che dice solo «è successo» a una cosa che l'utente non voleva
+ * perdere lo lascia dov'era: sa il danno, non ha il rimedio. Il rimedio deve
+ * stare nello stesso posto e nello stesso momento dell'avviso, perché è lì che
+ * la mano è ancora sul gesto. Cliccandolo il toast si chiude da sé: l'azione è
+ * una sola, e restare aperto suggerirebbe che se ne possa fare un'altra.
+ */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   type: ToastType;
   message: string;
   duration?: number;
+  action?: ToastAction;
 }
 
 interface ToastContextType {
-  toast: (type: ToastType, message: string, duration?: number) => void;
-  success: (message: string, duration?: number) => void;
-  error: (message: string, duration?: number) => void;
-  info: (message: string, duration?: number) => void;
-  warning: (message: string, duration?: number) => void;
+  toast: (type: ToastType, message: string, duration?: number, action?: ToastAction) => void;
+  success: (message: string, duration?: number, action?: ToastAction) => void;
+  error: (message: string, duration?: number, action?: ToastAction) => void;
+  info: (message: string, duration?: number, action?: ToastAction) => void;
+  warning: (message: string, duration?: number, action?: ToastAction) => void;
   toasts: Toast[];
   removeToast: (id: string) => void;
   /** Mounted-outlet bookkeeping. Used by the root-level fallback outlet
@@ -74,6 +89,15 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
     >
       <span className="flex-shrink-0 opacity-90">{icon}</span>
       <span className="flex-1 min-w-0 truncate">{t.message}</span>
+      {t.action && (
+        <button
+          data-testid="toast-action"
+          onClick={() => { t.action!.onClick(); onRemove(t.id); }}
+          className="flex-shrink-0 px-1.5 py-0.5 -my-0.5 rounded font-semibold underline underline-offset-2 decoration-white/40 hover:bg-white/15 transition-colors"
+        >
+          {t.action.label}
+        </button>
+      )}
       <button onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
         <X size={12} />
       </button>
@@ -89,9 +113,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const addToast = useCallback((type: ToastType, message: string, duration = 3000) => {
+  const addToast = useCallback((type: ToastType, message: string, duration = 3000, action?: ToastAction) => {
     const id = generateUUID();
-    setToasts(prev => [...prev.slice(-4), { id, type, message, duration }]);
+    setToasts(prev => [...prev.slice(-4), { id, type, message, duration, action }]);
   }, []);
 
   const registerOutlet = useCallback(() => {
@@ -101,10 +125,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const contextValue: ToastContextType = {
     toast: addToast,
-    success: (msg, dur) => addToast('success', msg, dur),
-    error: (msg, dur) => addToast('error', msg, dur || 5000),
-    info: (msg, dur) => addToast('info', msg, dur),
-    warning: (msg, dur) => addToast('warning', msg, dur || 4000),
+    success: (msg, dur, action) => addToast('success', msg, dur, action),
+    error: (msg, dur, action) => addToast('error', msg, dur || 5000, action),
+    info: (msg, dur, action) => addToast('info', msg, dur, action),
+    warning: (msg, dur, action) => addToast('warning', msg, dur || 4000, action),
     toasts,
     removeToast,
     registerOutlet,

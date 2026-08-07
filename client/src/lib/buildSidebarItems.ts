@@ -32,6 +32,21 @@ export interface SidebarItem {
    *  pinnedIds escape) and renders in the dedicated pinned block. Set when
    *  the item's id ∈ opts.pinnedIds; render-side partitioning keys off it. */
   pinned?: boolean;
+  /**
+   * Il pin è l'UNICA cosa che tiene su questa riga: sfissarla la fa sparire
+   * dalla sidebar nello stesso fotogramma.
+   *
+   * Ogni cancello di visibilità qui sotto è una catena di `||` — tab aperta,
+   * notifica, sotto-agente, finestra staccata, figli visibili — e il pin è
+   * sempre l'ultimo anello. Quando è anche l'unico che regge, toglierlo non
+   * «riporta la riga in lista»: la cancella. È un'informazione che solo questo
+   * modulo ha (è lui a valutare il cancello), e senza dichiararla chi disegna
+   * lo sfissaggio non può che promettere una riga che non nascerà — vedi
+   * `withUnpinPreview` in TopicTree.
+   *
+   * Vale solo sui fissati: su una riga non fissata è sempre assente.
+   */
+  pinOnly?: boolean;
   /** Set when this topic is open in ANOTHER window (pop-out presence). Carries
    *  the Tauri window label so a click can `window_focus_label` it instead of
    *  reopening locally. Renders the trailing AppWindow glyph. */
@@ -215,7 +230,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // Project-internal browser titles, filled from each project's localStorage as
   // the loop visits it (populated before buildBrowserItem runs for that project).
   const projectBrowserTitles = new Map<string, string>();
-  const buildBrowserItem = (paneId: string, projectPath?: string): SidebarItem => {
+  // `tabAperta`: la pane di questo browser è aperta ADESSO? I chiamanti lo
+  // sanno per costruzione (chi arriva da `internalPaneIds` sì, chi arriva dai
+  // fissati a tab chiusa no); il top-level lo chiede a `openPanelSet`. Serve
+  // solo a decidere `pinOnly` — per un browser il pin è quasi sempre l'unica
+  // ancora, perché non esiste nessun record che sopravviva alla pane.
+  const buildBrowserItem = (paneId: string, projectPath?: string, tabAperta?: boolean): SidebarItem => {
     const contextId = paneId.slice('browser:'.length);
     const bc = browserContextById.get(contextId);
     // Durable origin (closedStack ∪ store) for a pinned CLOSED project browser —
@@ -247,6 +267,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // pin glyph and floats into the Fissati block. Was missing, so toggling a
       // browser pin was invisible even where the affordance existed.
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
+      ...(pinnedIds.has(paneId) && !(tabAperta ?? openPanelSet.has(paneId)) ? { pinOnly: true } : {}),
       browser: bc ?? { id: contextId, url: origin?.url || '', title: origin?.title || '', lastActivity: 0 },
     };
   };
@@ -432,6 +453,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // window (detachedTopicIds) is the fifth; a live sub-agent is the sixth —
       // same `||` escape pattern.
       if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
+      // Sfissandola, resta qualcosa a tenerla su? Per una chat ARCHIVIATA no,
+      // qualunque cosa abbia aperta: la taglia il filtro qui sopra (`:413`),
+      // dove il pin è l'unica eccezione a «niente archiviate».
+      const chatPinOnly = pinnedIds.has(t.id) && (t.archived
+        ? !showArchived
+        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0);
       children.push({
         id: t.id,
         type: 'chat',
@@ -443,6 +470,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         projectPath: pp,
         topic: t,
         ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
+        ...(chatPinOnly ? { pinOnly: true } : {}),
         ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
         ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
       });
@@ -479,6 +507,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         projectPath: pp,
         terminal: ts,
         ...(pinnedIds.has(termPaneId) ? { pinned: true } : {}),
+        ...(pinnedIds.has(termPaneId) && !internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged
+          ? { pinOnly: true } : {}),
         ...(projSubAgents.length ? { subAgents: projSubAgents } : {}),
       });
     }
@@ -490,7 +520,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     for (const paneId of internalPaneIds) {
       if (!paneId.startsWith('browser:')) continue;
       projectInternalBrowserIds.add(paneId);
-      children.push(buildBrowserItem(paneId, pp));
+      children.push(buildBrowserItem(paneId, pp, true));
     }
 
     // Pinned project browsers whose tab is CLOSED — nested back under their
@@ -501,7 +531,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       if (origin.projectPath !== pp) continue;
       if (internalPaneIds.has(paneId) || projectInternalBrowserIds.has(paneId)) continue;
       projectInternalBrowserIds.add(paneId);
-      children.push(buildBrowserItem(paneId, pp));
+      children.push(buildBrowserItem(paneId, pp, false));
     }
 
     // Project shows if: has project tab, or has visible children — or is
@@ -542,6 +572,10 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       projectPath: pp,
       children,
       ...(pinnedIds.has(`project:${pp}`) ? { pinned: true } : {}),
+      // Il caso che ha fatto sparire «edm contratto»: un progetto le cui chat
+      // sono tutte archiviate non ha figli visibili e, senza tab, esisteva in
+      // sidebar SOLO perché fissato.
+      ...(pinnedIds.has(`project:${pp}`) && !hasProjectTab && children.length === 0 ? { pinOnly: true } : {}),
     });
   }
 
@@ -558,10 +592,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // Archived items shown when showArchived is on; active items need an open
     // tab, a pending notification (unread / Claude needs-you), a pin, being open
     // in another window (detachedTopicIds), or a live sub-agent — same `||` escape.
+    const hasTab = openPanelSet.has(t.id);
     if (!t.archived) {
-      const hasTab = openPanelSet.has(t.id);
       if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
     }
+    // Stessa lettura del ramo dentro-progetto: archiviata, il pin è l'unica
+    // deroga a «niente archiviate» (riga sopra), tab aperta o no.
+    const chatPinOnly = pinnedIds.has(t.id) && (t.archived
+      ? !showArchived
+      : !hasTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0);
     items.push({
       id: t.id,
       type: 'chat',
@@ -572,6 +611,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       archived: t.archived,
       topic: t,
       ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
+      ...(chatPinOnly ? { pinOnly: true } : {}),
       ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
       ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
     });
@@ -600,6 +640,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       archived: false,
       terminal: ts,
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
+      ...(pinnedIds.has(paneId) && !openPanelSet.has(paneId) && !orchestratorManaged ? { pinOnly: true } : {}),
       ...(subAgents.length ? { subAgents } : {}),
     });
   }
