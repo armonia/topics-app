@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
+import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail } from "./crashedTurnNotice";
 
 describe("shortErrorDetail — l'errore vero, senza il code-frame", () => {
   test("un ReferenceError di Bun arriva col sorgente attaccato: si tiene la riga che conta", () => {
@@ -61,5 +61,54 @@ describe("crashedTurnNotice — quando si scrive, e quando si sta zitti", () => 
 
   test("solo spazi non è contenuto", () => {
     expect(crashedTurnNotice({ content: "   \n ", toolCallsJson: null }, boom)).not.toBeNull();
+  });
+
+  test("content vuoto ma blocks pieni: a schermo è un turno intero, non si tocca", () => {
+    // Il caso che la guardia a due colonne non vedeva. La prosa è persistita in
+    // DUE posti e il client rende `blocks`: giudicare dalla sola `content`
+    // significa cancellare un turno che l'utente sta leggendo.
+    const blocks = JSON.stringify([{ kind: "text", text: "Piano scritto. In sintesi: …" }]);
+    expect(crashedTurnNotice({ content: "", toolCallsJson: null, blocksJson: blocks }, boom)).toBeNull();
+  });
+
+  test("blocks vuoto o illeggibile: array vuoto si può chiudere, JSON rotto no", () => {
+    expect(crashedTurnNotice({ content: "", toolCallsJson: null, blocksJson: "[]" }, boom)).not.toBeNull();
+    expect(crashedTurnNotice({ content: "", toolCallsJson: null, blocksJson: "{rotto" }, boom)).toBeNull();
+  });
+});
+
+describe("sendFailureNotice — il turno che non si è potuto guidare", () => {
+  const giu = new Error("ai-bridge: ack timeout (spawn topic:x, 20s)");
+
+  test("riga vuota: si dice cos'è successo e dov'è finito il messaggio", () => {
+    const n = sendFailureNotice({ content: "", toolCallsJson: null, blocksJson: null }, giu);
+    expect(n).toContain("Non sono riuscito ad avviare il turno");
+    expect(n).toContain("ack timeout");
+    expect(n).toContain("Riprova");
+    expect(n?.startsWith("⚠️")).toBe(true);
+  });
+
+  test("riga che porta lavoro: il cartello NON si scrive, in tutte e tre le colonne", () => {
+    expect(sendFailureNotice({ content: "una risposta", toolCallsJson: null, blocksJson: null }, giu)).toBeNull();
+    expect(sendFailureNotice({ content: "", toolCallsJson: '[{"id":"t1"}]', blocksJson: null }, giu)).toBeNull();
+    expect(sendFailureNotice({ content: "", toolCallsJson: null, blocksJson: '[{"kind":"text","text":"x"}]' }, giu)).toBeNull();
+  });
+
+  test("riga illeggibile: qui il cartello SI scrive", () => {
+    // Differenza voluta rispetto a `crashedTurnNotice`: là il `null` significa
+    // «non c'è una riga da toccare», qui «non so cosa c'è dentro» — e una bolla
+    // vuota senza spiegazione è l'esito peggiore.
+    expect(sendFailureNotice(null, giu)).not.toBeNull();
+  });
+});
+
+describe("rowCarriesWork — la domanda sola, senza testo attorno", () => {
+  test("le tre colonne contano tutte e tre", () => {
+    expect(rowCarriesWork({ content: "", toolCallsJson: null, blocksJson: null })).toBe(false);
+    expect(rowCarriesWork({ content: " ", toolCallsJson: "[]", blocksJson: "[]" })).toBe(false);
+    expect(rowCarriesWork({ content: "x", toolCallsJson: null, blocksJson: null })).toBe(true);
+    expect(rowCarriesWork({ content: "", toolCallsJson: '[{"id":"t"}]', blocksJson: null })).toBe(true);
+    expect(rowCarriesWork({ content: "", toolCallsJson: null, blocksJson: '[{"kind":"text"}]' })).toBe(true);
+    expect(rowCarriesWork(null)).toBe(false);
   });
 });

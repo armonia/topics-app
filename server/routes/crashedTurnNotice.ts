@@ -24,6 +24,15 @@ export interface CrashedTurnRow {
   content: string;
   /** La colonna `tool_calls` grezza: JSON array, o niente. */
   toolCallsJson: string | null;
+  /** La colonna `blocks` grezza: JSON array, o niente.
+   *
+   *  Non è un doppione di `content`. La prosa di un turno viene persistita in
+   *  DUE colonne (`chat.ts`, ogni 10 chunk) e il client, quando `blocks` c'è,
+   *  rende SOLO quelli — `content` non lo stampa nemmeno. Una guardia che
+   *  guardasse il solo `content` giudicherebbe «vuota» una riga che a schermo è
+   *  un turno intero: succede su ogni via che azzera `content` senza azzerare
+   *  `blocks`. */
+  blocksJson?: string | null;
 }
 
 /** Quanto testo dell'errore vero finisce sotto gli occhi di chi legge. */
@@ -54,12 +63,43 @@ export function shortErrorDetail(raw: unknown): string {
  */
 export function crashedTurnNotice(row: CrashedTurnRow | null, error: unknown): string | null {
   if (!row) return null;
-  if (row.content.trim().length > 0) return null;
-  if (hasToolCalls(row.toolCallsJson)) return null;
+  if (rowCarriesWork(row)) return null;
   return `⚠️ Errore interno di Topics: ${shortErrorDetail(error)} — il turno è morto prima di rispondere, non è il servizio AI. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
 }
 
-function hasToolCalls(json: string | null): boolean {
+/**
+ * Il gemello per il turno che non si è potuto GUIDARE: `sendChat` ha rigettato,
+ * o il montaggio del turno è morto prima di partire.
+ *
+ * Stessa guardia, testo diverso — lì la colpa è di un guasto dentro Topics, qui
+ * il turno non è mai arrivato al modello. E una differenza che conta: se la riga
+ * non si è potuta leggere, il cartello si scrive. Là il `null` significa «non
+ * c'è una riga da toccare»; qui significa «non so cosa c'è dentro», e non
+ * dirlo lascerebbe la bolla vuota e senza spiegazione.
+ */
+export function sendFailureNotice(row: CrashedTurnRow | null, error: unknown): string | null {
+  if (row && rowCarriesWork(row)) return null;
+  return `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(error)} — il tuo messaggio è ancora qui: «Riprova» lo rimanda.`;
+}
+
+/**
+ * La riga porta già del lavoro che vale più di qualunque cartello?
+ *
+ * Le tre colonne vanno guardate TUTTE e TRE. Il 6 agosto una via d'errore
+ * guardava solo `content` e ci scriveva sopra: le tool call sopravvivevano per
+ * via del COALESCE e `blocks` pure, così a schermo restava un turno intero
+ * incorniciato di giallo — con dentro zero parole che dicessero perché, perché
+ * il testo del cartello era sepolto in una colonna che il client non stampa.
+ * Sono 45 righe così nel DB di produzione.
+ */
+export function rowCarriesWork(row: CrashedTurnRow | null): boolean {
+  if (!row) return false;
+  if (row.content.trim().length > 0) return true;
+  if (hasJsonEntries(row.toolCallsJson)) return true;
+  return hasJsonEntries(row.blocksJson ?? null);
+}
+
+function hasJsonEntries(json: string | null): boolean {
   if (!json) return false;
   try {
     const parsed = JSON.parse(json);
