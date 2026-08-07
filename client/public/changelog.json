@@ -1,5 +1,76 @@
 [
   {
+    "version": "2.2.41",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.40",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una spia su fetch che non veniva mai ritirata sporcava gli altri file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I miei due test erano instabili, e uno misurava una sidebar in movimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La vista dell'ospite era segnata come da fare, ed era fatta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una rete sotto le rotte di auth, prima di rifarle per le organizzazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte AI non perde più un frame in silenzio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riadozione che non riesce a parlare col ponte non cancella più la riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cambio di RUOLO non arrivava a nessuno: la delibera guardava il nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno fallito non scrive più sopra il lavoro che la riga porta già",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'albero dei file non muore piu' chiudendo la sezione, e un errore non lo cancella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fascia della safe-area e' lo STESSO pixel della sidebar, non un parente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le code delle lettere finivano sotto la forbice di `truncate`",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.40",
     "date": "2026-08-07",
     "sections": {
