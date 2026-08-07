@@ -19,24 +19,37 @@ import { Share2, X, UserPlus } from 'lucide-react';
  */
 type ResourceType = 'task' | 'topic';
 
-interface Guest {
-  id: string;
+/** Un destinatario possibile: un dispositivo ospite, una persona, un team.
+ *  Arriva da `/api/auth/subjects` — che è una RUBRICA, non l'elenco dei
+ *  dispositivi filtrato per ruolo. La differenza si vede su una persona che non
+ *  ha ancora appaiato niente: con l'elenco dei dispositivi era invisibile,
+ *  quindi «invitare qualcuno» voleva dire aspettare il suo telefono. */
+interface Subject {
+  subjectType: 'device' | 'person' | 'org';
+  subjectId: string;
   name: string;
-  role?: string;
-  revokedAt: number | null;
+  /** Quanti dispositivi (persona) o membri (organizzazione) ci stanno dietro. */
+  devices: number;
 }
 
 interface Share {
-  deviceId: string;
+  subjectType: 'device' | 'person' | 'org';
+  subjectId: string;
+  /** Alias legacy: il server lo manda ancora per una release. */
+  deviceId?: string;
   name: string;
   sharedAt: number;
   via: { type: string; id: string | null } | null;
 }
 
+const ETICHETTA: Record<Subject['subjectType'], string> = {
+  device: 'dispositivo', person: 'persona', org: 'team',
+};
+
 export function ShareControl({ resourceType, resourceId }: { resourceType: ResourceType; resourceId: string }) {
   const [aperto, setAperto] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
-  const [ospiti, setOspiti] = useState<Guest[]>([]);
+  const [soggetti, setSoggetti] = useState<Subject[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
@@ -44,10 +57,10 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
     try {
       const [s, d] = await Promise.all([
         fetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`, { credentials: 'same-origin' }).then((r) => r.json()),
-        fetch('/api/auth/devices', { credentials: 'same-origin' }).then((r) => r.json()),
-      ]) as [{ shares: Share[] }, { devices: Guest[] }];
+        fetch('/api/auth/subjects', { credentials: 'same-origin' }).then((r) => r.json()),
+      ]) as [{ shares: Share[] }, { subjects: Subject[] }];
       setShares(s.shares ?? []);
-      setOspiti((d.devices ?? []).filter((x) => x.role === 'guest' && x.revokedAt === null));
+      setSoggetti(d.subjects ?? []);
       setErrore(null);
     } catch {
       setErrore('Non riesco a leggere le condivisioni.');
@@ -56,32 +69,38 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
 
   useEffect(() => { if (aperto) void carica(); }, [aperto, carica]);
 
-  const condividi = async (deviceId: string) => {
+  const condividi = async (sog: Subject) => {
     setInCorso(true);
     try {
       const r = await fetch('/api/auth/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ resourceType, resourceId, deviceId }),
+        body: JSON.stringify({
+          resourceType, resourceId,
+          subjectType: sog.subjectType, subjectId: sog.subjectId,
+        }),
       });
       if (!r.ok) setErrore(((await r.json()) as { error?: string }).error ?? 'Non riuscito.');
       await carica();
     } finally { setInCorso(false); }
   };
 
-  const togli = async (deviceId: string) => {
+  const togli = async (s: Share) => {
     setInCorso(true);
     try {
-      await fetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&deviceId=${encodeURIComponent(deviceId)}`, {
+      await fetch(`/api/auth/shares?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}&subjectType=${s.subjectType}&subjectId=${encodeURIComponent(s.subjectId)}`, {
         method: 'DELETE', credentials: 'same-origin',
       });
       await carica();
     } finally { setInCorso(false); }
   };
 
-  const giaCondiviso = new Set(shares.map((s) => s.deviceId));
-  const disponibili = ospiti.filter((o) => !giaCondiviso.has(o.id));
+  // La chiave è la COPPIA tipo+id: due soggetti di tipo diverso possono avere
+  // lo stesso id senza essere la stessa cosa.
+  const chiave = (t: string, i: string) => `${t}:${i}`;
+  const giaCondiviso = new Set(shares.map((s) => chiave(s.subjectType, s.subjectId)));
+  const disponibili = soggetti.filter((o) => !giaCondiviso.has(chiave(o.subjectType, o.subjectId)));
 
   return (
     <div className="relative">
@@ -102,20 +121,24 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
           {shares.length > 0 && (
             <ul className="mb-2 space-y-1">
               {shares.map((s) => (
-                <li key={s.deviceId} className="flex items-center gap-2 rounded px-1.5 py-1 text-[12px]">
+                <li key={chiave(s.subjectType, s.subjectId)} className="flex items-center gap-2 rounded px-1.5 py-1 text-[12px]">
                   <span className="min-w-0 flex-1">
                     <span className="truncate text-app-text">{s.name}</span>
                     {/* La provenienza: senza, «perché costui vede questa cosa?»
                         non ha risposta, e un permesso a cui non si sa rispondere
-                        è un permesso che non si toglie. */}
+                        è un permesso che non si toglie. E si dice QUALE: «da
+                        progetto» senza dire quale non risponde alla domanda per
+                        cui la colonna esiste. */}
                     {s.via && (
-                      <span className="ml-1 text-[10px] text-app-text-muted">da {s.via.type}</span>
+                      <span className="ml-1 text-[10px] text-app-text-muted">
+                        da {s.via.type}{s.via.id ? ` ${s.via.id}` : ''}
+                      </span>
                     )}
                   </span>
                   <button
                     aria-label={`Togli l'accesso a ${s.name}`}
                     disabled={inCorso}
-                    onClick={() => void togli(s.deviceId)}
+                    onClick={() => void togli(s)}
                     className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
                   >
                     <X size={12} />
@@ -130,14 +153,21 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
               <div className="mb-1 px-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">Aggiungi</div>
               <ul className="space-y-0.5">
                 {disponibili.map((o) => (
-                  <li key={o.id}>
+                  <li key={chiave(o.subjectType, o.subjectId)}>
                     <button
                       disabled={inCorso}
-                      onClick={() => void condividi(o.id)}
+                      onClick={() => void condividi(o)}
                       className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] text-app-text hover:bg-app-hover disabled:opacity-50"
                     >
                       <UserPlus size={11} className="flex-shrink-0 text-app-text-tertiary" />
                       <span className="truncate">{o.name}</span>
+                      {/* Un team dice quante persone tiene: «condiviso con
+                          Armonia» senza un numero non fa capire con quanti. */}
+                      {o.subjectType !== 'device' && (
+                        <span className="ml-auto flex-shrink-0 text-[10px] text-app-text-muted">
+                          {ETICHETTA[o.subjectType]}{o.devices > 1 ? ` · ${o.devices}` : ''}
+                        </span>
+                      )}
                     </button>
                   </li>
                 ))}
@@ -145,9 +175,9 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
             </>
           ) : (
             <p className="px-1.5 py-1 text-[11px] leading-relaxed text-app-text-secondary">
-              {ospiti.length === 0
-                ? 'Nessun ospite. Autorizza un dispositivo come ospite da Impostazioni → Dispositivi, e comparirà qui.'
-                : 'Condiviso con tutti gli ospiti.'}
+              {soggetti.length === 0
+                ? 'Nessuno con cui condividere. Autorizza un dispositivo come ospite da Impostazioni → Dispositivi, e comparirà qui.'
+                : 'Già condiviso con tutti.'}
             </p>
           )}
         </div>
