@@ -96,6 +96,30 @@ export const RESTING_SURFACE =
 export const RAISED_CONTROL = 'raised-control';
 
 /**
+ * LA COMPENSAZIONE OTTICA di un comando «glifo + scorciatoia».
+ *
+ * Attilio, 07/08: «il ⌘N ha la stessa distanza a destra e a sinistra? Mi sembra
+ * che a destra sia un pochino più piccolo». Il box è simmetrico — misurato,
+ * `padding: 0 8px` e i due bordi cadono esatti a 8,0 e 8,0 — ma l'INCHIOSTRO
+ * no, ed è l'inchiostro che l'occhio misura:
+ *
+ *  · a sinistra c'è un'icona lucide, disegnata dentro un riquadro da 24 con il
+ *    tratto che va da 4 a 20: due terzi del box, quindi a `size=14` porta con sé
+ *    ~2,3px di aria per lato che il padding NON vede;
+ *  · a destra c'è del TESTO («⌘N»), che il suo box lo riempie quasi tutto —
+ *    resta meno di un pixel di margine laterale.
+ *
+ * Somma: ~10,3px di vuoto a sinistra contro ~8,8 a destra. Un pixel e mezzo, ed
+ * era visibile. Si toglie dal padding sinistro quello che il glifo regala già:
+ * 6 + 2,3 = 8,3 contro 8 + 0,8 = 8,8, cioè mezzo pixel di scarto invece di uno e
+ * mezzo — sotto la soglia in cui un bordo si legge storto.
+ *
+ * Vale SOLO per il caso «icona a sinistra, testo a destra». Un comando con la
+ * sola icona è centrato dal `justify-center` e non ha niente da compensare.
+ */
+export const GLYPH_KBD_PADDING = { paddingLeft: 6, paddingRight: 8 } as const;
+
+/**
  * L'HOVER dentro la sidebar, e perché non è `hover:bg-app-hover`.
  *
  * `--bg-hover` è un colore OPACO calibrato su `--bg-surface` (le pane di
