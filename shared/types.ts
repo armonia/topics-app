@@ -388,7 +388,25 @@ export interface ToolCall {
 export type ContentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; toolCall: ToolCall };
+  | { kind: 'tool'; toolCall: ToolCall }
+  /**
+   * Perché il turno è finito male.
+   *
+   * NON è un momento della cronologia come gli altri: è il verdetto sul turno,
+   * e infatti si rende in cima alla bolla, non nel punto in cui è capitato.
+   * Vive qui — e non in una colonna nuova — perché `blocks` è già la cosa che
+   * il client rende, che si persiste, che torna dopo un ricaricamento e che
+   * viaggia intera nella cronologia: un campo in più avrebbe voluto una
+   * migration su un DB da 192 MB e cinque punti di impianto, per portare lo
+   * stesso dato nello stesso posto.
+   *
+   * Prima il cartello viveva DENTRO `content` con un ⚠️ davanti, e il client lo
+   * riconosceva da quel prefisso. Bastava a colorare la bolla, non a mostrarlo:
+   * quando `blocks` c'è, `content` non viene stampato — quindi 45 righe in
+   * produzione erano turni interi incorniciati di giallo senza una parola che
+   * dicesse perché.
+   */
+  | { kind: 'error'; text: string };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //
