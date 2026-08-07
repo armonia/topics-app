@@ -821,43 +821,45 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * COL DITO LA BARRA DI STATO SALE, E I COMANDI RESTANO COL TITOLO.
+   * COL DITO LA COLONNA HA UNA RIGA DI TESTA SOLA, E CI STA TUTTO.
    *
-   * Due decisioni di Attilio (07/08), la seconda che corregge la prima:
-   *  · la barra di stato va IN CIMA — numeri da guardare in fondo alla colonna
-   *    vuol dire occupare col colpo d'occhio la fascia dove arriva il pollice;
-   *  · cerca e «+» stanno «a fianco al menu e logo Topics entrambe». Erano
-   *    finiti in una barra tutta loro in fondo: geometria giusta per il
-   *    pollice, prezzo sbagliato — due comandi staccati dalla cosa che
-   *    comandano, in una fascia che contende lo spazio all'home indicator.
+   * Attilio, 07/08, in due passaggi: prima «la status bar mettiamola in alto e
+   * i comandi in fondo», poi — vedendolo — «le connessioni e le stats affianco
+   * a Topics, fra i tasti cerca e + e il logo menu». È la stessa idea arrivata
+   * al suo posto: sul telefono la colonna è alta quanto lo schermo, e sia una
+   * fascia dedicata allo stato sia una barra dedicata ai comandi costano una
+   * riga intera ciascuna per cose che stanno in quella che c'è già.
    *
-   * Si misura l'ORDINE VERTICALE e l'APPARTENENZA, non le classi: «in cima» e
-   * «dentro l'intestazione» sono fatti geometrici, e un test agganciato a un
-   * nome di classe direbbe verde anche a layout rovesciato.
+   * Si misura l'APPARTENENZA e l'ORDINE, non le classi: «nella riga del titolo»
+   * e «in quest'ordine» sono fatti geometrici, e un test agganciato a un nome di
+   * classe direbbe verde anche a layout rovesciato.
    */
-  test("SIDEBAR-TOUCH-06: la barra di stato sta in cima, i comandi restano col titolo", async ({ page }) => {
+  test("SIDEBAR-TOUCH-06: stato e comandi stanno nella riga del titolo, in ordine", async ({ page }) => {
     await openSidebarOnPhone(page);
 
-    const stato = (await page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`).boundingBox())!;
     const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
-    expect(stato.y, "la barra di stato deve stare SOPRA l'albero").toBeLessThan(albero.y);
-
-    // Nessuna barra dei comandi in fondo: i due bottoni non hanno una casa
-    // propria, stanno con il titolo.
-    await expect(page.locator('[data-testid="sidebar-action-bar"]')).toHaveCount(0);
-
-    // Cerca e «+» stanno SOPRA l'albero, cioè nella riga del titolo, e sono
-    // bersagli pieni per il dito.
+    const titolo = (await page.getByTestId("sidebar-topics-menu").boundingBox())!;
+    const stato = (await page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`).boundingBox())!;
     const cerca = (await page.getByRole("button", { name: /^Search/ }).boundingBox())!;
     const piu = (await page.locator(`${SIDEBAR} [data-testid="pane-add-menu-trigger"]`).first().boundingBox())!;
-    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
+
+    // Nessuna fascia tutta loro: né sopra l'albero, né in fondo.
+    await expect(page.locator('[data-testid="sidebar-action-bar"]')).toHaveCount(0);
+    for (const [nome, b] of [["lo stato", stato], ["il cerca", cerca], ["il +", piu]] as const) {
       expect(b.y, `${nome} deve stare nella riga del titolo, sopra l'albero`).toBeLessThan(albero.y);
+      expect(Math.abs(b.y + b.height / 2 - (titolo.y + titolo.height / 2)), `${nome} non è sulla riga del titolo`).toBeLessThan(24);
+    }
+
+    // L'ordine: Topics ▾ · stato · cerca · +
+    expect(titolo.x).toBeLessThan(stato.x);
+    expect(stato.x).toBeLessThan(cerca.x);
+    expect(cerca.x).toBeLessThan(piu.x);
+
+    // I due comandi restano bersagli pieni per il dito.
+    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
-    // E sono vicini: fra i due non ci sta un terzo comando.
-    expect(Math.abs(cerca.y - piu.y), "cerca e + devono stare sulla stessa riga").toBeLessThan(4);
-    expect(Math.abs(piu.x - (cerca.x + cerca.width)), "cerca e + devono essere adiacenti").toBeLessThan(16);
   });
 
   /**

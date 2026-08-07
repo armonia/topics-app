@@ -315,6 +315,44 @@ test.describe("Kanban board", () => {
     ).toHaveCount(0);
   });
 
+  /**
+   * LA RIGA DELLA BOARD DICE ANCHE DI CHI SONO I TASK.
+   *
+   * I conteggi per colonna dicono a che punto è il lavoro; non dicono DOVE. Con
+   * task su più progetti «3 in review» è un numero che non si può agire — prima
+   * di aprire la board si vuole sapere se quei tre sono tutti sullo stesso
+   * progetto o sparsi. Le pastiglie lo dicono, e ci stanno quante ce ne stanno.
+   *
+   * Questo test esiste perché quel raggruppamento è già SPARITO una volta, in
+   * silenzio: portandolo da una seconda riga a IN LINEA, il suo contenitore ha
+   * perso il `flex-1` ed è collassato a larghezza zero — e a zero
+   * `fitProjectChips` risponde «nessuna pastiglia, e niente da annunciare»,
+   * quindi non restava nemmeno il «+N» a dire che mancava qualcosa. Una
+   * funzione intera scomparsa senza un rosso. Adesso il rosso c'è.
+   */
+  test("BOARD-14: la riga della board mostra i progetti dei task aperti", async ({ page }) => {
+    await apiCreateTask(page.request, { text: `Chip probe ${Date.now()}`, status: "todo" });
+    await resetPaneStore(page.request, []);
+    await page.goto("/");
+
+    const row = page.getByTestId("sidebar-board-generale");
+    await expect(row).toBeVisible({ timeout: 15000 });
+
+    // Almeno una pastiglia di progetto, con una larghezza VERA: un contenitore
+    // collassato renderebbe gli elementi «presenti» ma larghi zero, che è
+    // esattamente il modo in cui il difetto era invisibile.
+    const chip = row.locator('[data-testid^="board-project-"]').first();
+    await expect(chip, "nessun progetto sulla riga della board").toBeVisible({ timeout: 10000 });
+    const box = (await chip.boundingBox())!;
+    expect(Math.round(box.width), "la pastiglia esiste ma è larga zero").toBeGreaterThan(20);
+
+    // E sta DENTRO la riga, non le sborda a destra.
+    const rowBox = (await row.boundingBox())!;
+    expect(Math.round(box.x + box.width), "la pastiglia sborda dalla riga").toBeLessThanOrEqual(
+      Math.round(rowBox.x + rowBox.width) + 1,
+    );
+  });
+
   test("BOARD-12: a persisted Board generale pane survives hydrate/render (persistence regression)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     // Regression: `KNOWN_PANE_TYPES` omitted 'board', so `sanitizePane` dropped
