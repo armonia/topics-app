@@ -57,10 +57,14 @@ sapere se il disegno regge prima di aprire un conto.
 
 ## 3. Il lato Cloudflare
 
-- [ ] 3.1 Worker + Durable Object per installazione.
-- [ ] 3.2 **API di ibernazione obbligatoria**, e un test che lo dimostri: con
-  `accept()` lo stesso carico costa 40 volte tanto. Non è
-  un'ottimizzazione, è il budget.
+- [x] 3.1 Worker + Durable Object per installazione — `relay/`, deployato su
+  `topics-relay.topics-app.workers.dev`. Nome DIVERSO da `topics-landing`: un
+  `wrangler deploy` senza `--name` sovrascriverebbe il sito.
+- [x] 3.2 **API di ibernazione**: `state.acceptWebSocket()`, mai `ws.accept()`.
+  Ne discende che i gestori sono metodi e che chi è ogni socket si legge dai
+  TAG — l'unico stato che sopravvive allo sfratto dalla memoria.
+  `new_sqlite_classes` nella migration, che è anche ciò che lo tiene sul piano
+  GRATUITO.
 - [ ] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
 - [ ] 3.4 Il co-browse a pixel NON passa di qui: resta WebRTC. Un test di
   contratto che fallisca se un frame video entra nel DO.
