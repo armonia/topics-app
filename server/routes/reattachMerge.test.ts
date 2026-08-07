@@ -80,4 +80,18 @@ describe("mergeReattachedRow — riattaccarsi non toglie", () => {
     const m = mergeReattachedRow(snap({ thinking: "stavo ragionando" }), { content: "", trackedTools: 0, blocks: [] });
     expect(m.thinking).toBe("stavo ragionando");
   });
+
+  test("il VERDETTO sopravvive anche quando si tengono i blocchi vecchi", () => {
+    // Il verdetto non è mai «vecchio»: dice come è finita ADESSO, e lo snapshot
+    // per definizione non ce l'ha. Tenendo i blocchi di prima e basta, l'unica
+    // cosa che spiega il fallimento della riadozione veniva buttata — e a quel
+    // punto nemmeno `content` la porta, perché il testo rifuso è non vuoto.
+    const m = mergeReattachedRow(
+      snap(),
+      { content: "", trackedTools: 0, blocks: [{ kind: "error", text: "Riadozione non riuscita: ack timeout" }] },
+    );
+    const kinds = (m.blocks as Array<{ kind: string }>).map((b) => b.kind);
+    expect(kinds).toEqual(["text", "tool", "error"]);
+    expect(m.content).toBe("Ecco cosa ho fatto."); // il turno di prima resta intero
+  });
 });
