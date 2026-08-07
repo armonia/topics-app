@@ -1433,17 +1433,16 @@ export function TopicTree({
                 uno STATO (attenzione, selezione), non a un'identità. Qui sotto
                 il colore torna, ma per dire proprio uno stato: la colonna. */}
             <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
-            {/* NOME SOPRA, PROGETTI SOTTO — la stessa struttura a due piani di
-                una riga chat (nome + subline), con lo stesso `gap-[3px]`. I
-                progetti non stanno in linea col nome perché lì avrebbero avuto
-                i ~60px avanzati dai conteggi, cioè una pastiglia sola: sotto,
-                la larghezza è quella dell'intera riga e il raggruppamento
-                diventa leggibile. La riga resta alta uguale (ROW_H): 34px
-                reggono 12 + 3 + 10, come le sorelle reggono 13 + 3 + 11. */}
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-[3px]">
-              <span className="truncate-tight text-left text-[12px] font-medium">{BOARD_LABEL}</span>
-              <BoardProjectChips byStatus={boardByStatus} />
-            </span>
+            {/* TUTTO IN LINEA: nome, progetti, conteggi — una riga sola, alta
+                come le sue vicine («meglio mettere tutto inline», Attilio
+                07/08; il primo taglio le metteva su una subline sotto il nome).
+                Il nome NON è più l'elemento elastico: si prende quello che gli
+                serve e cede il resto alle pastiglie, che sono la parte che
+                cresce e che va misurata. Senza `min-w-0` l'elastico non si
+                stringerebbe mai sotto il suo contenuto e il ritaglio non
+                scatterebbe. */}
+            <span className="flex-shrink-0 text-[12px] font-medium">{BOARD_LABEL}</span>
+            <BoardProjectChips byStatus={boardByStatus} />
             {/* Quanti, e in quale colonna — sulla riga, senza aprire niente.
                 Sostituisce sia il badge col totale (un numero solo non dice se
                 stai aspettando tu o un agente) sia la fascia che si apriva. */}

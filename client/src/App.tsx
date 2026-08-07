@@ -75,7 +75,7 @@ import { resolvePaneSpace } from './state/pane/reducers/spaces';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { RESTING_SURFACE, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
+import { RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -946,15 +946,17 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 flex-1 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto' }}
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
     >
       <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
-      {isMobile
-        ? <span className="text-[13px] font-medium">Cerca</span>
-        : <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
+      {/* Col dito niente etichetta: il bottone sta ACCANTO al titolo, in una
+          riga dove ogni pixel orizzontale è conteso, e la lente da sola si
+          legge. L'etichetta serviva alla barra in fondo, dove i due comandi
+          erano soli in mezzo a una fascia larga. */}
+      {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
     </button>
   );
   const sidebarAddMenu = (
@@ -966,8 +968,6 @@ function App() {
       triggerTitle="New (⌘N)"
       triggerVariant="header"
       triggerKbd="⌘N"
-      triggerLabel={isMobile ? 'Nuovo' : undefined}
-      triggerClassName={isMobile ? 'flex-1 justify-center' : ''}
     />
   );
 
@@ -1136,34 +1136,23 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* Connection + loading status live in the bottom SidebarStatusBar
-                and the tree skeleton — no stray spinner in the header. The
-                middle of the header stays empty (drag region on Electron). */}
+            {/* CERCA E «+» STANNO ACCANTO AL LOGO, tutti e due, su qualunque
+                schermo. «Mettiamole però a fianco al menu e logo Topics
+                entrambe» (Attilio, 07/08).
+
+                Erano finiti in una barra in fondo alla colonna sul telefono —
+                dove arriva il pollice — e la geometria era giusta ma il prezzo
+                no: due comandi staccati dalla cosa che comandano, in una fascia
+                che sul telefono contende lo spazio all'home indicator. Qui
+                formano un gruppo solo col titolo: `Topics ▾ · cerca · +`, che è
+                anche l'ordine in cui si leggono. Restano gli STESSI due bottoni
+                — definiti una volta in App — solo più grandi col dito. */}
+            {sidebarSearchButton}
+            {sidebarAddMenu}
+            {/* Connection + loading status live in the SidebarStatusBar and the
+                tree skeleton — no stray spinner in the header. Lo spazio a
+                destra resta vuoto (zona di trascinamento su Electron). */}
           </div>
-          {/* I DUE COMANDI STANNO DOVE ARRIVA LA MANO.
-              Col mouse è qui, in testa alla colonna, accanto al titolo. Col
-              dito no: sotto i 768px la sidebar è alta quanto lo schermo e
-              questa riga è l'angolo più lontano dal pollice, mentre il fondo è
-              il posto naturale — è dove ogni app del telefono tiene la sua
-              barra. Sotto i 768px questo gruppo è vuoto e i due bottoni
-              rinascono in fondo alla colonna, identici (stesso componente,
-              stesse azioni): vedi `sidebar-action-bar` più sotto. */}
-          {!isMobile && (
-            <div className="flex items-center gap-1 relative z-50 app-no-drag" {...NO_DRAG_REGION} style={{ pointerEvents: 'auto' }}>
-              {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
-                  the header right side is the Search launcher + the canonical
-                  "+" add menu — two icon-only RESTING_SURFACE twins. */}
-              {sidebarSearchButton}
-              {/* The canonical <PaneAddMenu>, STANDALONE variant, rendered as a
-                  centered ⌘K-style palette (presentation="palette") instead of a
-                  local dropdown — ⌘N opens the same surface. The trigger is the
-                  'header' variant: a compact RESTING_SURFACE button with an
-                  inline kbd hint, the visual twin of the Search button next to
-                  it. Items/order/icons are identical to the standalone tab
-                  bar's "+" — one component, one variant per context. */}
-              {sidebarAddMenu}
-            </div>
-          )}
         </div>
 
         {/* LA BARRA DI STATO, IN CIMA — solo col dito.
@@ -1284,28 +1273,13 @@ function App() {
           </ErrorBoundary>
         )}
 
-        {/* LA BARRA DEI COMANDI, IN FONDO — solo col dito.
-            «Il cerca e altre cose utili possiamo metterle direttamente come
-            tasti in fondo alla sidebar, così sono più utili da raggiungere»
-            (Attilio, 07/08). Sono gli STESSI due bottoni dell'header sul
-            computer, non due copie: `sidebarSearchButton` e `sidebarAddMenu`
-            sono definiti una volta sola e montati qui o là. A tutta larghezza
-            e a metà per uno, alti 44, con la fascia dell'home indicator
-            dipinta sotto — che è il motivo per cui la barra di stato, salendo
-            in cima, ha smesso di portarsela dietro. */}
+        {/* LA FASCIA DELL'HOME INDICATOR. Col dito la barra di stato è salita in
+            cima e la barra dei comandi non c'è più (i due comandi sono accanto
+            al logo), quindi in fondo alla colonna non resta nessuno a dipingere
+            quella striscia: senza questa riga il cassetto finirebbe con un
+            taglio netto sopra il bordo dello schermo. */}
         {isMobile && (
-          <div
-            data-testid="sidebar-action-bar"
-            className="flex flex-shrink-0 items-center gap-2 border-t border-app-border"
-            style={{
-              paddingInline: ROW_INSET,
-              paddingBlock: ROW_INSET,
-              paddingBottom: `calc(${ROW_INSET}px + env(safe-area-inset-bottom, 0px))`,
-            }}
-          >
-            {sidebarSearchButton}
-            {sidebarAddMenu}
-          </div>
+          <div className="flex-shrink-0" style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
         )}
       </div>
 
@@ -1338,13 +1312,13 @@ function App() {
           className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
         >
-          {/* `bg-app-elevated` + `edge-lit`, non `bg-surface` + un bordo: sotto
-              i 768px `--bg-surface` COLLASSA sul chrome (index.css), quindi
-              questo bottone — che è l'unico modo di riaprire la sidebar quando
-              non c'è nessuna pane — spariva nel fondo proprio sul telefono.
-              `--bg-elevated` non collassa, e il filo lo porta `edge-lit` come
-              su ogni altra cosa arrotondata che flotta. */}
-          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="edge-lit bg-elevated rounded-lg shadow-sm" />
+          {/* `RAISED_CONTROL` + `edge-lit`: lo STESSO bottone del «+» e del
+              cerca, che è la parità chiesta («a questo punto fare uguale il
+              relativo tasto di apertura sidebar»). Era `bg-surface` + un bordo,
+              e `--bg-surface` sotto i 768px COLLASSA sul chrome (index.css):
+              l'unico modo di riaprire la colonna quando non c'è nessuna pane
+              spariva nel fondo proprio sul telefono. */}
+          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
         </div>
       )}
 

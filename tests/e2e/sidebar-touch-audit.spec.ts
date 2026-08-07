@@ -178,6 +178,72 @@ async function longPress(page: Page, selector: string, ms = 750) {
 }
 
 /**
+ * SOLLEVA E TRASCINA, col dito vero.
+ *
+ * Come `longPress`, ma il gesto non finisce alla pressione: dopo i 500 ms si
+ * muove il tocco fino a `verso` e poi lo si stacca. I `touchmove` sono NATIVI e
+ * costruiti nella pagina per la stessa ragione del cugino qui sopra (React
+ * legge `e.touches[0].clientX`, e serve un vero oggetto `Touch`) — e devono
+ * partire da `document`, perché la fase di trascinamento di `useTouchDrag` si
+ * aggancia lì in CATTURA: un evento lanciato solo sull'elemento non passerebbe
+ * mai dal listener che lo serve.
+ *
+ * Il movimento è a PASSI, non un salto: la griglia risolve il bersaglio a ogni
+ * `touchmove`, e un unico balzo proverebbe una cosa che il dito non fa mai.
+ */
+async function longPressDrag(page: Page, selector: string, dx: number, dy: number, passi = 8, hold = 900) {
+  await page.locator(selector).first().evaluate(async (el, { dx, dy, passi, hold }) => {
+    const r = el.getBoundingClientRect();
+    const x0 = r.x + r.width / 2;
+    const y0 = r.y + r.height / 2;
+    const tocco = (x: number, y: number) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+    const fire = (target: EventTarget, type: string, t: Touch, attivi: Touch[]) =>
+      target.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true, touches: attivi, targetTouches: attivi, changedTouches: [t],
+      }));
+    const attesa = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+    const primo = tocco(x0, y0);
+    fire(el, "touchstart", primo, [primo]);
+    // Oltre LONG_PRESS_MS con margine: sotto carico (quattro shard sulla stessa
+    // macchina) un'attesa di poco superiore ai 500ms arriva a scadere DOPO che
+    // il primo `touchmove` è già partito, e allora il gesto viene letto come
+    // uno scorrimento e annullato — il test diventava flaky per il tempo, non
+    // per il prodotto.
+    await attesa(hold);
+    for (let i = 1; i <= passi; i++) {
+      const t = tocco(x0 + (dx * i) / passi, y0 + (dy * i) / passi);
+      fire(document, "touchmove", t, [t]);
+      await attesa(24);
+    }
+    const ultimo = tocco(x0 + dx, y0 + dy);
+    fire(document, "touchend", ultimo, []);
+  }, { dx, dy, passi, hold });
+}
+
+/**
+ * Aspetta che le tessere siano FERME prima di misurarle.
+ *
+ * La griglia riconcilia il layout salvato con i fissati che arrivano dal
+ * server (`reconcilePinnedLayout`), e per un frame o due le celle si assestano.
+ * Misurare lì dentro dà coordinate che non varranno più — e il trascinamento
+ * parte da quelle. Due letture identiche di fila = layout fermo.
+ */
+async function attendiTessereFerme(page: Page) {
+  const leggi = () => page.getByTestId("pinned-tile").evaluateAll((els) =>
+    els.map((e) => { const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}`; }).join("|"));
+  let prec = await leggi();
+  await expect
+    .poll(async () => {
+      const ora = await leggi();
+      const fermo = ora === prec && ora !== "";
+      prec = ora;
+      return fermo;
+    }, { message: "le tessere fissate non si fermano: misurarle darebbe coordinate stantie", timeout: 10_000, intervals: [100, 150, 200] })
+    .toBe(true);
+}
+
+/**
  * IL BERSAGLIO VERO, NON IL SUO BOX.
  *
  * `getBoundingClientRect()` misura il rettangolo di LAYOUT, e sui comandi di
@@ -748,41 +814,97 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * COL DITO LA COLONNA È CAPOVOLTA — e questa è la prova che regge.
+   * COL DITO LA BARRA DI STATO SALE, E I COMANDI RESTANO COL TITOLO.
    *
-   * «Da PWA si invertisse la status bar: la possiamo mettere in alto, mentre il
-   * cerca e altre cose utili possiamo metterle come tasti in fondo alla sidebar,
-   * così sono più utili da raggiungere» (Attilio, 07/08). È la geometria del
-   * telefono: in fondo arriva il pollice, e lì c'erano numeri da GUARDARE
-   * mentre i due comandi da TOCCARE stavano in cima.
+   * Due decisioni di Attilio (07/08), la seconda che corregge la prima:
+   *  · la barra di stato va IN CIMA — numeri da guardare in fondo alla colonna
+   *    vuol dire occupare col colpo d'occhio la fascia dove arriva il pollice;
+   *  · cerca e «+» stanno «a fianco al menu e logo Topics entrambe». Erano
+   *    finiti in una barra tutta loro in fondo: geometria giusta per il
+   *    pollice, prezzo sbagliato — due comandi staccati dalla cosa che
+   *    comandano, in una fascia che contende lo spazio all'home indicator.
    *
-   * Si misura l'ORDINE VERTICALE, non le classi: «in alto» e «in fondo» sono
-   * fatti geometrici, e un test agganciato a un nome di classe direbbe verde
-   * anche se il layout andasse a rovescio.
+   * Si misura l'ORDINE VERTICALE e l'APPARTENENZA, non le classi: «in cima» e
+   * «dentro l'intestazione» sono fatti geometrici, e un test agganciato a un
+   * nome di classe direbbe verde anche a layout rovesciato.
    */
-  test("SIDEBAR-TOUCH-06: la barra di stato sta in cima, i comandi in fondo, e si toccano", async ({ page }) => {
+  test("SIDEBAR-TOUCH-06: la barra di stato sta in cima, i comandi restano col titolo", async ({ page }) => {
     await openSidebarOnPhone(page);
 
-    const colonna = (await page.locator(SIDEBAR).boundingBox())!;
     const stato = (await page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`).boundingBox())!;
     const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
-    const comandi = (await page.locator(`${SIDEBAR} [data-testid="sidebar-action-bar"]`).boundingBox())!;
-
     expect(stato.y, "la barra di stato deve stare SOPRA l'albero").toBeLessThan(albero.y);
-    expect(comandi.y, "i comandi devono stare SOTTO l'albero").toBeGreaterThan(albero.y);
-    // In fondo davvero: l'ultimo elemento della colonna, non uno a metà.
-    expect(
-      Math.round(comandi.y + comandi.height),
-      "la barra dei comandi non arriva in fondo alla colonna",
-    ).toBeGreaterThanOrEqual(Math.round(colonna.y + colonna.height) - 2);
 
-    // I due bottoni si dividono la larghezza e reggono il pollice.
-    const bottoni = page.locator(`${SIDEBAR} [data-testid="sidebar-action-bar"] button`);
-    await expect(bottoni).toHaveCount(2);
-    for (const b of await bottoni.all()) {
-      const r = (await b.boundingBox())!;
-      expect(Math.round(r.height), "un comando in fondo è sotto la soglia del dito").toBeGreaterThanOrEqual(44);
-      expect(Math.round(r.width), "un comando in fondo è troppo stretto per il pollice").toBeGreaterThanOrEqual(120);
+    // Nessuna barra dei comandi in fondo: i due bottoni non hanno una casa
+    // propria, stanno con il titolo.
+    await expect(page.locator('[data-testid="sidebar-action-bar"]')).toHaveCount(0);
+
+    // Cerca e «+» stanno SOPRA l'albero, cioè nella riga del titolo, e sono
+    // bersagli pieni per il dito.
+    const cerca = (await page.getByRole("button", { name: /^Search/ }).boundingBox())!;
+    const piu = (await page.locator(`${SIDEBAR} [data-testid="pane-add-menu-trigger"]`).first().boundingBox())!;
+    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
+      expect(b.y, `${nome} deve stare nella riga del titolo, sopra l'albero`).toBeLessThan(albero.y);
+      expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
+      expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
+    // E sono vicini: fra i due non ci sta un terzo comando.
+    expect(Math.abs(cerca.y - piu.y), "cerca e + devono stare sulla stessa riga").toBeLessThan(4);
+    expect(Math.abs(piu.x - (cerca.x + cerca.width)), "cerca e + devono essere adiacenti").toBeLessThan(16);
+  });
+
+  /**
+   * IL RIORDINO COL DITO — il gesto che su iOS non esisteva affatto.
+   *
+   * Il drag and drop di HTML5 non viene MAI emesso da un tocco su Safari, quindi
+   * la griglia dei Fissati era, sul telefono, inerte per costruzione: nessun
+   * modo di spostare una tessera. `useTouchDrag` la rimpiazza con «tieni premuto
+   * e trascina» (vedi il blocco in cima all'hook).
+   *
+   * Qui si prova il RISULTATO — l'ordine delle tessere cambia — e la cosa che
+   * lo rende usabile: il FANTASMA che segue il dito. Senza, la tessera di
+   * partenza si smorza e basta, e non si capisce cosa si stia muovendo: è
+   * metà del «non sta funzionando come desktop, va male» (Attilio, 07/08).
+   */
+  test("SIDEBAR-TOUCH-07: tenendo premuto si solleva una tessera, e trascinandola la si riordina", async ({ page, request }) => {
+    const a = await createTopic(request, `E2E-Drag-A-${Date.now()}`);
+    const b = await createTopic(request, `E2E-Drag-B-${Date.now()}`);
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [a.id, b.id], pinnedLayout: [] },
+    });
+
+    await openSidebarOnPhone(page);
+    const tessere = page.getByTestId("pinned-tile");
+    await expect(tessere).toHaveCount(2, { timeout: 15_000 });
+    await attendiTessereFerme(page);
+    const nomiPrima = await tessere.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+
+    const prima = (await tessere.first().boundingBox())!;
+    const seconda = (await tessere.nth(1).boundingBox())!;
+
+    // Il fantasma nasce SOLO al sollevamento, e nel mezzo del gesto.
+    const fantasma = page.getByTestId("pinned-touch-ghost");
+    await expect(fantasma, "a riposo non c'è nessun fantasma").toHaveCount(0);
+
+    // Si trascina la prima oltre il centro della seconda: è la condizione che
+    // `insertIndexAt` conta per decidere il posto.
+    const dx = Math.round(seconda.x + seconda.width * 0.75 - (prima.x + prima.width / 2));
+    await longPressDrag(page, '[data-testid="pinned-tile"]', dx, 0);
+
+    await expect
+      .poll(async () => tessere.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label"))), {
+        message: "il trascinamento col dito non ha riordinato le tessere",
+        timeout: 5_000,
+      })
+      .toEqual([nomiPrima[1], nomiPrima[0]]);
+
+    // E a gesto finito il fantasma se n'è andato con lui.
+    await expect(fantasma, "il fantasma è sopravvissuto al rilascio").toHaveCount(0);
+
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+    await deleteTopic(request, a.id).catch(() => {});
+    await deleteTopic(request, b.id).catch(() => {});
   });
 });
