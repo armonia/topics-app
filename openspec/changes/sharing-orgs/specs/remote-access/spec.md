@@ -187,3 +187,56 @@ the code has one path, not so that the product has two vocabularies.
 - **GIVEN** a user whose only organization has one member
 - **WHEN** they use the interface
 - **THEN** the concept SHALL NOT be named to them
+
+### Requirement: ORG-08 — The account is never a gate
+
+An account SHALL NOT be required to install, to open the application for the
+first time, to use it locally, or to reach it from the same network. Those paths
+SHALL keep working with no account, no network, and no third party aware that
+the installation exists.
+
+An account SHALL be required only for what genuinely needs an authority outside
+the machine: being found from a **different** network, keeping people and
+organizations consistent **across** installations, and licensing.
+
+The distinction is the product, not a preference. A local-first tool that asks
+who you are before it will run has already conceded the thing it is selling —
+and the concession is invisible in a feature list, which is why it must be a
+requirement rather than a habit.
+
+An account SHALL therefore be addable to an installation that already holds
+data, and adding one SHALL NOT create a second identity alongside the local one:
+the existing local person SHALL acquire the remote identity. An installation
+that has been used for a year before signing in is the normal case, not an edge
+one.
+
+Signing in on a second installation SHALL reconcile to the same person rather
+than producing two. Two people who are one person split what has been shared
+with them, and the split is silent.
+
+Loss of contact with the account service SHALL degrade only the things that need
+it. It SHALL NOT reduce local capability, and SHALL NOT be presented as an error
+state on a machine that is working.
+
+#### Scenario: A fresh installation, never signed in
+- **GIVEN** a machine that has never had an account
+- **WHEN** the application is installed and opened
+- **THEN** it SHALL be fully usable locally
+- **AND** it SHALL NOT ask who the user is
+
+#### Scenario: Authorizing a phone on the same network
+- **GIVEN** an installation with no account
+- **WHEN** a phone on the same network asks for access
+- **THEN** the existing device authorization SHALL be sufficient
+
+#### Scenario: Signing in after a year of use
+- **GIVEN** an installation with an established local person and their history
+- **WHEN** an account is connected for the first time
+- **THEN** the existing person SHALL acquire the remote identity
+- **AND** no second person SHALL appear
+
+#### Scenario: The account service is unreachable
+- **GIVEN** a signed-in installation that cannot reach the account service
+- **WHEN** the owner works locally
+- **THEN** every local capability SHALL remain
+- **AND** the interface SHALL NOT present the machine as broken
