@@ -1764,19 +1764,38 @@ function PaneCloseButton({
   //    chiude la tab invece di fermare il turno.
   //
   // Quindi `tap-expand-y`: cresce SOLO in altezza, larghezza 100%, e non toglie
-  // un pixel a nessun vicino. Detto senza abbellirlo: la larghezza resta quella
-  // del bottone (14px, non i 20 dello span — la classe deve stare su chi gestisce
-  // il clic) e i 44px di altezza li taglia comunque l'`overflow-hidden` della tab
-  // a 36. Il bersaglio passa da 14×14 a 14×36, due volte e mezzo l'area: non è la
-  // linea guida Apple, ma è tutto quello che si può prendere senza rubarlo allo
-  // Stop.
+  // un pixel a nessun vicino. Detto senza abbellirlo: i 44px di altezza li taglia
+  // comunque l'`overflow-hidden` della tab a 36.
+  //
+  // MA LA LARGHEZZA RESTAVA 14, ed è l'asse su cui il dito sbaglia di più. Il
+  // motivo è che `tap-expand-y` proietta `left:0; right:0`, cioè il 100% DEL
+  // BOTTONE — e il bottone era largo `size` (14) perché `PendingActionRing` la
+  // metteva in uno `style` inline, che nessuna classe scavalca. Lo span esterno
+  // ne riservava già 20 e 6 andavano sprecati: l'area sensibile non arrivava nemmeno
+  // al bordo dello slot che le era stato messo da parte.
+  //
+  // Adesso il box del bottone lo detta il chiamante (`boxClassName="w-full h-full"`
+  // riempie lo slot) e su touch lo slot passa da 20 a 28. Il conto, sulla tab larga
+  // 150 FISSE con `px-2` e `gap-1.5`, cioè 134px di contenuto:
+  //
+  //  · l'etichetta è l'unico `flex-1`, quindi gli 8px in più li paga solo lei:
+  //    88 → 80 (-9%) su un testo che tronca già di suo;
+  //  · il bersaglio passa da 14×36 a 28×36 — il DOPPIO dell'area, e in largo è
+  //    esattamente lo spazio che lo slot occupava e non usava;
+  //  · a 36 (`w-9`, la misura delle righe di sidebar) l'etichetta scenderebbe a
+  //    72 (-18%), e mentre la chat streama il vicino a destra è il bottone Stop
+  //    da 16px: è il conto che questo commento ha già litigato una volta. Qui i
+  //    44 di Apple non ci sono e non si possono avere senza rubarli allo Stop.
+  const slot = `${isTouch ? 'w-7 h-7' : 'w-5 h-5'} flex items-center justify-center flex-shrink-0 relative z-10`;
+
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
     return (
-      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
+      <span className={slot}>
         <PendingActionRing
           status={pendingStatus}
           size={14}
+          boxClassName="w-full h-full"
           className="tap-expand-y"
           pendingTitle="Annulla chiusura"
           pendingAriaLabel="Annulla chiusura"
@@ -1788,13 +1807,14 @@ function PaneCloseButton({
   // Idle, soft-destructive: empty "todo" circle on hover (always shown on
   // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
   return (
-    <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
+    <span className={slot}>
       <span className={`absolute inset-0 flex items-center justify-center ${
         isTouch ? '' : 'opacity-0 group-hover:opacity-100'
       } transition-opacity`}>
         <PendingActionRing
           status={null}
           size={14}
+          boxClassName="w-full h-full"
           className="tap-expand-y"
           onIdleClick={() => onClose(paneId)}
           idleTitle="Chiudi tab"

@@ -8,6 +8,7 @@ import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
+import { useDismissable } from '../../hooks/useDismissable';
 
 // «Sono su un dispositivo touch?» si chiede a `useMobile`, e basta. Qui c'era
 // una costante di MODULO valutata una volta sola all'import: un valore che non
@@ -180,6 +181,14 @@ export const MessageBubble = memo(function MessageBubble({
   // nessun `touchcancel`, cioè un timer che restava armato quando il sistema si
   // prendeva il tocco. La barra si scopriva da sola qualche istante dopo.
   const longPress = useLongPress(() => setShowActions(true), { enabled: isTouch });
+  // ...e si RICHIUDE. `showActions` non tornava mai false: una volta scoperta,
+  // la barra di quel messaggio restava accesa fino allo smontaggio della riga, e
+  // scorrendo se ne accumulavano quante ne avevi toccate. `useDismissable` la
+  // chiude al primo tocco fuori e la iscrive al registro «un popover alla volta»
+  // (lib/popoverRegistry), quindi tenere premuto un ALTRO messaggio spegne
+  // questo — che e' come si comporta ogni altra superficie dell'app.
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  useDismissable({ open: showActions, onClose: () => setShowActions(false), refs: [bubbleRef], restoreFocus: false });
 
   // Visibilità della barra azioni, in TRE rami e in quest'ordine — perché i due
   // fatti non sono esclusivi e su un ibrido valgono insieme:
@@ -191,11 +200,20 @@ export const MessageBubble = memo(function MessageBubble({
   //     barra non esisterebbe finché non indovini il «tieni premuto».
   // Il ramo (2) era gated su `!isTouch`: su un portatile touch cadeva nel (3) e
   // la barra restava a opacity-40 anche col mouse sopra.
+  // Un messaggio A RIPOSO non mostra niente, e il gesto e' lo stesso di tutta
+  // l'app. Il ramo (3) era `opacity-40`, cioe' la barra azioni restava
+  // semi-visibile su OGNI bolla: su un telefono e' un velo di icone ripetuto
+  // decine di volte in una schermata, e il commento che lo giustificava diceva
+  // «altrimenti la barra non esisterebbe finche' non indovini il tieni-premuto».
+  // Quell'argomento e' caduto: da questa sessione «tieni premuto» e' il gesto
+  // STANDARD dell'app — apre il menu di una riga di sidebar, di una tab, di un
+  // gruppo, di una tessera — quindi si impara una volta e vale ovunque. Un gesto
+  // che si conosce non ha bisogno di un promemoria stampato su ogni messaggio.
   const actionsVisibility = showActions
     ? 'opacity-100'
     : hasHover
       ? 'opacity-0 group-hover:opacity-100'
-      : 'opacity-40';
+      : 'opacity-0 pointer-events-none';
 
   const actionBtnClass = "w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-primary rounded";
 
@@ -225,6 +243,7 @@ export const MessageBubble = memo(function MessageBubble({
       //    «tieni premuto» è l'unica strada per la barra azioni — e per copiare
       //    il testo c'è il bottone Copia lì dentro. Su un ibrido (touch + mouse)
       //    la selezione resta: lì il gesto convive col puntatore.
+      ref={bubbleRef}
       className={`${emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : 'mb-1.5'} ${isTouch && !hasHover ? 'select-none' : ''}`}
       style={{ WebkitTouchCallout: 'none' }}
       // Il segno che la pressione è stata registrata: su iPhone `haptic()` è un
@@ -464,7 +483,17 @@ export const MessageBubble = memo(function MessageBubble({
               data-testid="message-meta-row"
               className={`text-[11px] mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
-              } ${hasHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-60'}`}
+              } ${
+                // La riga di servizio (ora, durata, costo) e' una delle cose che
+                // sul desktop si vedono AL PASSAGGIO DEL MOUSE: su touch stava
+                // sempre accesa a opacity-60 sotto ogni bolla. Segue lo stesso
+                // gesto della barra azioni — tieni premuto e compare tutto cio'
+                // che il mouse rivelerebbe, invece di due meta-informazioni
+                // stampate addosso a ogni messaggio.
+                hasHover
+                  ? 'opacity-0 group-hover:opacity-100'
+                  : showActions ? 'opacity-100' : 'opacity-0'
+              }`}
             >
               <span className="text-app-placeholder flex-shrink-0">{formatTimestamp(msg.timestamp)}</span>
               {msg.role === 'assistant' && !msg.partial && (

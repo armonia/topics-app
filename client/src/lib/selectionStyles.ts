@@ -41,7 +41,27 @@ export const SELECTED_SURFACE_SOFT =
  * diventa un filo più netto: è un guadagno, non un effetto collaterale.
  */
 export const RESTING_SURFACE =
-  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10]';
+  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
+  // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
+  //
+  // Attilio ha chiesto «una linea separatrice per ogni tab principale, se ha
+  // senso». Non ce l'ha: una tab è già una CARD — fondo suo, `gap-0.5` fra una
+  // e l'altra, angoli arrotondati — e questo file vieta esplicitamente le
+  // hairline fra card impilate («fra righe adiacenti i due capelli di un bordo
+  // si leggono come LINEE DIVISORIE, esattamente ciò che stiamo togliendo»).
+  // Una linea sarebbe una terza cosa che ripete quello che fill e gap dicono
+  // già.
+  //
+  // Il problema vero era un altro, ed è MISURATO: da quando su mobile le tre
+  // superfici collassano in una, il fondo di una tab a riposo stacca di
+  // 1,10:1 in scuro e 1,12:1 in chiaro — cioè è appoggiato sulla soglia di
+  // percettibilità, e i confini fra tab si perdono. Non manca un separatore:
+  // manca il contrasto della card che il separatore avrebbe mascherato.
+  // A 0.08/0.10 sale a 1,18:1 e 1,25:1, e i bordi si leggono senza aggiungere
+  // un tratto. Solo sotto i 768px: sul desktop il fondo è più chiaro e il
+  // rialzo attuale si vede già.
+  'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10] ' +
+  'max-md:hover:bg-black/[0.12] max-md:dark:hover:bg-white/[0.14]';
 
 /**
  * L'HOVER dentro la sidebar, e perché non è `hover:bg-app-hover`.

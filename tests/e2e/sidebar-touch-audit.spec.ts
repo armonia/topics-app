@@ -25,6 +25,34 @@ const SIDEBAR = SIDEBAR_SELECTOR;
 /** Il testo che il seed manda: deve ricomparire sotto al nome della riga. */
 const LAST_MESSAGE = "Questa frase deve comparire sotto al nome nella sidebar.";
 
+/**
+ * La spunta-cerchio che chiude la tab della chat, in cima. Sta FUORI dalla
+ * sidebar ed è l'unica di questa famiglia che il test può misurare senza
+ * seminare un terminale o un browser — le altre (`Chiudi terminale`,
+ * `Chiudi browser`, `Archivia <topic>`) sono lo stesso componente con lo stesso
+ * `boxClassName`, quindi qui si misura il rappresentante, non il caso isolato.
+ */
+const TAB_CLOSE = '[aria-label^="Chiudi tab"]';
+
+/**
+ * LE SEI VOCI del menu della riga chat (`client/src/components/Modals/ContextMenu.tsx`,
+ * ramo `subMenu === 'none'`). Scritte per esteso e non contate, perché «sei voci»
+ * resterebbe vero anche se una fosse sostituita da un'altra.
+ *
+ * Le ultime due sono quelle che pesano: FISSA e ARCHIVIA erano il contenuto del
+ * «…» che è stato rimosso da touch. Se il gesto le apre, togliere il bottone non
+ * ha tolto un comando a nessuno — ed è esattamente ciò che SIDEBAR-TOUCH-02 deve
+ * poter dimostrare, invece di limitarsi a constatare un'assenza.
+ */
+const MENU_VOICES = [
+  "Rinomina",
+  "Cambia colore",
+  "Copia link",
+  "Apri in nuova finestra",
+  "Fissa",
+  "Archivia",
+] as const;
+
 /** Alias locale: le chiamate qui sotto misurano tutte lo stesso `background-color`. */
 const bg = surfaceBg;
 
@@ -71,6 +99,38 @@ async function openSidebarOnPhone(page: Page) {
 }
 
 /**
+ * E POI LA RICHIUDE — perché su un telefono la colonna è un CASSETTO che copre
+ * tutto, e finché è aperta la barra delle tab non è raggiungibile da nessun dito.
+ *
+ * Non è un dettaglio di comodo, è la ragione per cui SIDEBAR-TOUCH-03 è nato
+ * rosso: misurava la spunta di chiusura della tab con la colonna ancora aperta e
+ * si sentiva rispondere che il suo centro apparteneva a qualcun altro. Verissimo
+ * — apparteneva al cassetto. La misura era presa in uno stato in cui quel
+ * bersaglio non esiste per l'utente, e avrebbe accusato il componente sbagliato.
+ *
+ * Perciò i bersagli della sidebar si misurano col cassetto APERTO e quelli della
+ * barra in cima col cassetto CHIUSO: sono due stati che non si sovrappongono mai
+ * davvero, e misurarli insieme proverebbe una schermata che non esiste.
+ */
+async function closeSidebarOnPhone(page: Page) {
+  await page.keyboard.press("ControlOrMeta+b");
+  // Come all'apertura: «invisibile» arriva PRIMA che la scivolata sia finita, e
+  // qui si sta per misurare ciò che stava sotto. Si aspetta che la colonna sia
+  // uscita per intero dal viewport (bordo destro a sinistra dello zero), non che
+  // abbia cominciato ad andarsene.
+  await expect
+    .poll(async () => {
+      const box = await page.locator(SIDEBAR).boundingBox();
+      return !box || Math.round(box.x + box.width) <= 0;
+    }, {
+      message: "il cassetto deve uscire del tutto prima di misurare ciò che copriva",
+      timeout: 5_000,
+      intervals: [50, 100, 200],
+    })
+    .toBe(true);
+}
+
+/**
  * Tiene premuto DAVVERO: Playwright non ha una primitiva «touch and hold», e
  * `dispatchEvent` con oggetti letterali non basta — React legge
  * `e.touches[0].clientX`, e la lista dei tocchi vuole veri oggetti `Touch`
@@ -98,6 +158,72 @@ async function longPress(page: Page, selector: string, ms = 750) {
       setTimeout(() => { fire("touchend", []); resolve(); }, hold);
     });
   }, ms);
+}
+
+/**
+ * IL BERSAGLIO VERO, NON IL SUO BOX.
+ *
+ * `getBoundingClientRect()` misura il rettangolo di LAYOUT, e sui comandi di
+ * questa app quel numero mente in tutte e due le direzioni:
+ *
+ *  · per DIFETTO, perché `.tap-expand-y` allarga l'area sensibile con un
+ *    `::after` che nel rect del bottone non compare: la X di una tab misura
+ *    28×28 di box e se ne prende 36 di altezza;
+ *  · per ECCESSO, perché un box grande di cui un vicino copre il centro non è
+ *    un bersaglio — è la trappola che `.tap-expand` aveva già pagato (44 di
+ *    largo sopra il glifo del pin: toccare il pin chiudeva il browser).
+ *
+ * Quindi si misura come misura un dito: si parte dal centro e si cresce in
+ * croce finché `elementFromPoint` risponde ancora «sono io» (o un mio
+ * discendente — l'`svg` dentro il bottone). Quello che torna è la larghezza e
+ * l'altezza REALI del bersaglio, `::after` compreso e occlusioni comprese.
+ *
+ * `hit.contains(el)` NON va messo, mai: se a rispondere è un ANTENATO (la riga)
+ * il tocco finisce sulla riga invece che sul comando, ed è esattamente il
+ * difetto che si sta cercando. Con quel ramo il test sarebbe verde per
+ * costruzione.
+ */
+async function misuraBersagli(page: Page, selettori: string[]) {
+  return page.evaluate((sels) => {
+    const els = sels.flatMap((s) => [...document.querySelectorAll<HTMLElement>(s)]);
+    return els.map((el) => {
+      const r = el.getBoundingClientRect();
+      const etichetta = el.getAttribute("aria-label") ?? el.getAttribute("title") ?? el.className.slice(0, 30);
+      const box = { w: Math.round(r.width), h: Math.round(r.height) };
+      // Un comando rivelato dall'hover (desktop) a schermo stretto non esiste:
+      // zero per zero non è un bersaglio piccolo, è un bersaglio assente, e
+      // pretendere 44px da lui vorrebbe dire misurare il nulla.
+      if (box.w === 0 || box.h === 0) {
+        return { etichetta, box, tap: { w: 0, h: 0 }, suoCentro: false, assente: true };
+      }
+      const cx = Math.round(r.x + r.width / 2);
+      const cy = Math.round(r.y + r.height / 2);
+      const suo = (x: number, y: number) => {
+        const h = document.elementFromPoint(x, y);
+        return !!h && (el === h || el.contains(h));
+      };
+      if (!suo(cx, cy)) {
+        return { etichetta, box, tap: { w: 0, h: 0 }, suoCentro: false, assente: false };
+      }
+      // Il tetto tiene a bada un bersaglio a tutto schermo (e un ciclo infinito
+      // se `elementFromPoint` rispondesse sempre): 60px sono oltre i 44 di soglia,
+      // quindi non può nascondere un bersaglio troppo piccolo — solo accorciare
+      // il racconto di uno enorme.
+      const TETTO = 60;
+      let sx = cx, dx = cx, su = cy, giu = cy;
+      while (cx - sx < TETTO && suo(sx - 1, cy)) sx--;
+      while (dx - cx < TETTO && suo(dx + 1, cy)) dx++;
+      while (cy - su < TETTO && suo(cx, su - 1)) su--;
+      while (giu - cy < TETTO && suo(cx, giu + 1)) giu++;
+      return {
+        etichetta,
+        box,
+        tap: { w: dx - sx + 1, h: giu - su + 1 },
+        suoCentro: true,
+        assente: false,
+      };
+    });
+  }, selettori);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -279,18 +405,51 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * IL «…» APRE LO STESSO MENU. Il bottone resta perché un gesto nascosto non si
-   * scopre, ma non deve essere una seconda strada con meno voci: le due porte
-   * danno sulla stessa stanza.
+   * IL «…» NON C'È PIÙ, E IL GESTO NON HA PERSO NIENTE.
+   *
+   * Questo test diceva l'OPPOSTO fino a ieri («il bottone resta perché un gesto
+   * nascosto non si scopre») ed è stato girato per una decisione di Attilio:
+   * «da mobile non c'è bisogno di mettere il menu a 3 puntini visto che c'è il
+   * long press». Il gesto è ormai lo standard di tutta l'app — righe, tab,
+   * gruppi, tessere, messaggi — e si impara una volta sola; un promemoria
+   * stampato su ogni riga è rumore.
+   *
+   * Le due metà vanno INSIEME, e separate non varrebbero niente:
+   *
+   *  · l'ASSENZA da sola passerebbe anche se il menu l'avessimo rotto — anzi,
+   *    passerebbe pure su una riga che non risponde più a niente. È l'asserzione
+   *    che non può fallire per il motivo giusto;
+   *  · la PRESENZA del menu da sola è già SIDEBAR-TOUCH-01.
+   *
+   * Perciò qui si pretende che sparisca la porta ridondante E che dietro il
+   * gesto ci sia ancora la stanza intera: le due voci che il «…» non aveva mai
+   * avuto (Rinomina, Copia link) e — soprattutto — quelle che invece OFFRIVA
+   * (Fissa, Archivia), che sono la prova che togliendolo non si è perso nulla.
    */
-  test("SIDEBAR-TOUCH-02: il «…» apre lo stesso menu del gesto", async ({ page }) => {
+  test("SIDEBAR-TOUCH-02: col dito il «…» non c'è, e il gesto apre comunque il menu intero", async ({ page }) => {
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
 
-    await row.getByRole("button", { name: `Azioni per ${topicName}` }).tap();
-    await expect(page.getByText("Rinomina", { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("Copia link", { exact: true })).toBeVisible();
+    // METÀ UNO — la porta ridondante non c'è, né col suo nome né sotto mentite
+    // spoglie: qualunque apri-menu nella riga conterebbe come «il «…» è tornato».
+    await expect(
+      row.getByRole("button", { name: `Azioni per ${topicName}` }),
+      "il «…» è tornato nel binario: col dito la porta è il gesto, non un bottone",
+    ).toHaveCount(0);
+    await expect(
+      row.locator('[aria-haspopup="menu"]'),
+      "c'è un apri-menu nella riga sotto un altro nome",
+    ).toHaveCount(0);
+
+    // METÀ DUE — e dietro il gesto c'è ancora tutto.
+    await longPress(page, `[role="treeitem"][aria-label="${topicName}"]`);
+    for (const voce of MENU_VOICES) {
+      await expect(
+        page.getByText(voce, { exact: true }),
+        `«${voce}» non è nel menu del gesto: togliendo il «…» si è perso un comando`,
+      ).toBeVisible({ timeout: 5_000 });
+    }
   });
 
   /**
@@ -299,15 +458,43 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * 32px, si sovrappongono di 12 e vince l'ultimo nel DOM — il bordo del «…»
    * attivava il vicino. La correzione è `.tap-expand-y` (cresce solo in altezza)
    * più un box reale più grande. Qui si misura il punto centrale di ogni
-   * bersaglio del binario e si pretende che colpisca SE STESSO.
+   * bersaglio e si pretende che colpisca SE STESSO.
+   *
+   * IL CAMPIONE SI È ALLARGATO, e non per completezza: era diventato VUOTO.
+   * Questo test guardava i `<button>` DENTRO la riga della chat, e l'unico che
+   * ci fosse era il «…» — tolto quello (SIDEBAR-TOUCH-02), su una chat non
+   * archiviata e senza figli restano zero bottoni, e la rete «almeno uno,
+   * altrimenti è verde per vuoto» sarebbe scattata su un fatto sano invece che
+   * su una regressione. Abbassarla a `>= 0` sarebbe stato il modo peggiore di
+   * farlo passare: avrebbe spento l'unica asserzione che teneva in piedi il
+   * test.
+   *
+   * Quindi si misura ciò che col dito è DAVVERO toccabile: tutti i bottoni di
+   * tutte le righe dell'albero (progetti, sezioni, chat archiviate: quelle un
+   * binario ce l'hanno ancora) più la spunta-cerchio che chiude la tab in cima.
+   * Le due famiglie stanno nello stesso test perché è la stessa domanda — «il
+   * centro di questo bersaglio appartiene a lui?» — e perché la seconda è
+   * proprio quella che il brief chiama in causa.
    */
-  test("SIDEBAR-TOUCH-03: ogni bersaglio del binario colpisce sé stesso", async ({ page }) => {
+  test("SIDEBAR-TOUCH-03: ogni bersaglio col dito colpisce sé stesso", async ({ page }) => {
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
+    // La tab della chat è l'altra metà del campione (vedi il blocco sopra) e va
+    // aspettata: `resetPaneStore` l'ha aperta lato server, ma qui si misurano
+    // rettangoli e un elemento non ancora montato non ne ha uno.
+    await expect(page.locator(TAB_CLOSE)).toHaveCount(1, { timeout: 10_000 });
 
-    const verdict = await row.evaluate((rowEl) => {
-      const targets = [...rowEl.querySelectorAll("button")];
+    // LE DUE FAMIGLIE NON SI POSSONO MISURARE NELLO STESSO ISTANTE, e non è una
+    // pignoleria di test: sotto i 768px la colonna è un DRAWER a tutto schermo e
+    // la barra delle tab ci finisce SOTTO. Misurate insieme, la X della tab
+    // risulterebbe sempre «rubata» — dalla sidebar aperta sopra di lei — con un
+    // box perfettamente regolare: 28×28 e centro alla sidebar. (Misurato: è il
+    // rosso che questo test dava appena il campione si è allargato alle tab, e
+    // non era un difetto del prodotto.) Ognuna si misura nello stato in cui la
+    // si usa: la colonna aperta, le tab con la colonna chiusa.
+    const misura = (selettori: string[]) => page.evaluate((sels) => {
+      const targets = sels.flatMap((s) => [...document.querySelectorAll(s)]) as HTMLElement[];
       return targets.map((el) => {
         const r = el.getBoundingClientRect();
         const cx = r.x + r.width / 2;
@@ -326,16 +513,198 @@ test.describe("Sidebar col dito — audit misurato", () => {
           // se a colpirlo e' lui o un suo discendente (l'svg dentro il bottone).
           ownsItsCentre: !!hit && (el === hit || el.contains(hit)),
         };
+      })
+      // Un bersaglio che non è dipinto non è un bersaglio: i box a zero (le
+      // azioni che su desktop compaiono all'hover e qui restano non montate) non
+      // hanno un centro da possedere e falserebbero il conto in entrambi i versi.
+      .filter((t) => t.w > 0 && t.h > 0);
+    }, selettori);
+
+    const nellaColonna = await misura([`${SIDEBAR} [role="treeitem"] button`]);
+    await closeSidebarOnPhone(page);
+    const nelleTab = await misura([TAB_CLOSE]);
+    const verdict = [...nellaColonna, ...nelleTab];
+
+    expect(verdict.length, "nessun bersaglio misurato: il test sarebbe verde per vuoto").toBeGreaterThan(0);
+    const stolen = verdict.filter((v) => !v.ownsItsCentre);
+    expect(stolen, `bersagli il cui centro è rubato da un altro: ${JSON.stringify(verdict)}`).toEqual([]);
+
+    // LA SPUNTA-CERCHIO HA UN BOX VERO. È la parte che il «…» non copre più:
+    // il glifo è un cerchio da 14px e la misura arrivava da uno `style` inline
+    // SUL BOTTONE, quindi nessuna classe poteva allargarlo — il bersaglio era
+    // 14px in largo ovunque, meno di un terzo della soglia iOS, sull'asse in cui
+    // il pollice sbaglia di più. `boxClassName` in `PendingActionRing` è ciò che
+    // ha rotto quel vincolo; qui si pretende il risultato, non l'attributo.
+    //
+    // Il numero è 28 e non 44 di proposito, e vale solo per la X della TAB: la
+    // tab è larga 150 FISSE e l'etichetta è l'unico `flex-1`, quindi ogni pixel
+    // dato alla X lo paga lei (88 → 80). A 36 scenderebbe a 72 e, mentre la chat
+    // streama, il vicino di destra è il bottone Stop da 16px. I 44 lì non ci
+    // sono senza rubarli allo Stop — vedi il conto in `PaneTabBar.tsx`.
+    const rings = verdict.filter((v) => /^(Chiudi tab|Annulla chiusura)/.test(v.label));
+    expect(rings.length, `nessuna spunta-cerchio misurata fra ${JSON.stringify(verdict)}`).toBeGreaterThan(0);
+    for (const ring of rings) {
+      expect(
+        Math.min(ring.w, ring.h),
+        `la spunta «${ring.label}» è ${ring.w}×${ring.h}: il lato corto sta sotto i 28px`,
+      ).toBeGreaterThanOrEqual(28);
+    }
+  });
+
+  /**
+   * IL GESTO CHIEDE UNA MICRO-VIBRAZIONE — e non lascia clandestini nel DOM.
+   *
+   * Due affermazioni in un test solo, perché sono le due metà della stessa
+   * questione (vedi il blocco in cima a `client/src/lib/haptics.ts`):
+   *
+   *  1. DOVE IL DISPOSITIVO SA VIBRARE, LA PULSAZIONE PARTE. Chromium headless
+   *     non ha un motore aptico, quindi qui la Vibration API viene INSTALLATA
+   *     dal test: non si prova che il telefono vibri — impossibile in una suite
+   *     — si prova che il «tieni premuto» arrivi fino a `navigator.vibrate` con
+   *     la durata giusta, che è il solo pezzo che dipende da noi. Il ramo
+   *     opposto (iPhone: la funzione non esiste, `haptic()` torna `false` in
+   *     silenzio senza rompere il gesto) è coperto dai test unitari in
+   *     `client/src/lib/haptics.test.ts`.
+   *
+   *  2. NESSUN ELEMENTO DI SERVIZIO. Il ripiego che si trova cercando «haptic
+   *     feedback iOS web» è uno `<input type="checkbox" switch>` nascosto,
+   *     sovrapposto al bersaglio e toccato al posto suo. Qui NON esiste — è
+   *     morto in iOS 26.5 e comunque ruberebbe il tocco alla riga e metterebbe
+   *     una checkbox nell'albero di accessibilità di ogni superficie che si può
+   *     tenere premuta. Questa metà del test è ciò che impedisce che rientri di
+   *     soppiatto: nessun `input[switch]` nel documento, e nessuna checkbox
+   *     invisibile o fuori schermo.
+   */
+  test("SIDEBAR-TOUCH-04: il gesto chiede la micro-vibrazione, senza elementi di servizio nascosti", async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __vibrate: number[]; __hadVibrate: boolean };
+      w.__vibrate = [];
+      // Si annota se l'API c'era GIÀ: se un domani Chromium smettesse di averla,
+      // questo test resterebbe verde comunque (la installa lui) e la nota nel
+      // messaggio d'errore dice da dove viene.
+      w.__hadVibrate = typeof navigator.vibrate === "function";
+      Object.defineProperty(Navigator.prototype, "vibrate", {
+        configurable: true,
+        value(pattern: number | number[]) {
+          w.__vibrate.push(...(Array.isArray(pattern) ? pattern : [pattern]));
+          return true;
+        },
       });
     });
 
-    expect(verdict.length, "nessun bottone nel binario: il test sarebbe verde per vuoto").toBeGreaterThan(0);
-    const stolen = verdict.filter((v) => !v.ownsItsCentre);
-    expect(stolen, `bersagli il cui centro è rubato da un altro: ${JSON.stringify(verdict)}`).toEqual([]);
-    // Il bottone dei tre puntini è l'unica porta touch verso tutti i comandi
-    // della riga: su schermo stretto deve essere un box vero, non 24px.
-    const menu = verdict.find((v) => v.label.startsWith("Azioni per"));
-    expect(menu, `«Azioni per» non trovato fra ${JSON.stringify(verdict)}`).toBeTruthy();
-    expect(menu!.w, `il «…» è largo ${menu!.w}px`).toBeGreaterThanOrEqual(36);
+    await openSidebarOnPhone(page);
+    const row = page.getByRole("treeitem", { name: topicName });
+    await expect(row).toBeVisible({ timeout: 10_000 });
+
+    await longPress(page, `[role="treeitem"][aria-label="${topicName}"]`);
+
+    // Il menu aperto è la PRECONDIZIONE, non un extra: senza, un `__vibrate`
+    // vuoto non distinguerebbe «non ha vibrato» da «il long-press non è nemmeno
+    // partito», e il test fallirebbe (o passerebbe) parlando della cosa sbagliata.
+    await expect(page.getByText("Rinomina", { exact: true })).toBeVisible({ timeout: 5_000 });
+
+    const probe = await page.evaluate(() => {
+      const w = window as unknown as { __vibrate: number[]; __hadVibrate: boolean };
+      return { pulses: w.__vibrate, hadVibrate: w.__hadVibrate };
+    });
+    // 20ms = `haptic('medium')`, il livello che `useLongPress` chiede quando il
+    // gesto scatta. Un array vuoto vuol dire che la chiamata si è persa per
+    // strada; un numero diverso, che i livelli sono cambiati sotto ai piedi.
+    expect(
+      probe.pulses,
+      `il «tieni premuto» deve chiedere una pulsazione da 20ms (Vibration API nativa presente: ${probe.hadVibrate})`,
+    ).toEqual([20]);
+
+    const stowaways = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLInputElement>('input[switch], input[type="checkbox"]')]
+        .filter((el) => {
+          // Uno `<input switch>` non ha nessuna ragione di esistere in questa app:
+          // qualunque occorrenza è il trucco iOS rientrato dalla finestra.
+          if (el.hasAttribute("switch")) return true;
+          // Una checkbox VERA e visibile (le impostazioni della board) è
+          // legittima; una invisibile o parcheggiata fuori schermo è la firma di
+          // un controllo di servizio.
+          const r = el.getBoundingClientRect();
+          return r.width === 0 || r.height === 0 ||
+            r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight;
+        })
+        .map((el) => ({ type: el.type, isSwitch: el.hasAttribute("switch"), cls: el.className.slice(0, 40) })),
+    );
+    expect(
+      stowaways,
+      "un input di servizio è comparso nel DOM: vedi «cosa NON funziona» in client/src/lib/haptics.ts",
+    ).toEqual([]);
+  });
+
+  /**
+   * LA SPUNTA-CERCHIO SI TOCCA, E SI ANNULLA — col dito, non col mouse.
+   *
+   * SIDEBAR-TOUCH-03 misura il rettangolo di LAYOUT, e su questi bersagli quel
+   * numero è metà della storia: `.tap-expand-y` allarga l'area sensibile con un
+   * `::after`, che in `getBoundingClientRect()` non compare. Il box dice 28×28
+   * mentre il dito ne trova 28×36 — e se domani qualcuno togliesse la classe dal
+   * componente, il box resterebbe identico e TOUCH-03 resterebbe verde mentre
+   * l'altezza utile crolla a 28. Qui si misura l'area VERA (vedi
+   * `misuraBersagli`: si cresce dal centro finché `elementFromPoint` risponde
+   * ancora «sono io»), che è l'unico numero che il pollice conosce.
+   *
+   * E poi si fa la cosa che nessuna misura può sostituire: SI TOCCA. Un
+   * bersaglio può essere largo, alto, possedere il suo centro — e non funzionare
+   * lo stesso, perché il tocco viene mangiato da un antenato, o perché lo
+   * `stopPropagation` manca e sotto al comando si attiva anche la tab. Il giro
+   * completo è la prova: si tocca la spunta vuota (parte la chiusura differita,
+   * il cerchio diventa la spunta piena), si misura ANCHE quella — è un secondo
+   * ramo del componente, con un secondo `style` inline, e nasceva col difetto
+   * identico — e poi si annulla toccandola. Se alla fine la spunta vuota è
+   * tornata, i due tocchi sono finiti dove dovevano; se fosse finito sulla tab,
+   * la chiusura sarebbe andata fino in fondo e la tab non ci sarebbe più.
+   *
+   * I 3 secondi del countdown sono il tempo che c'è per fare tutto: le misure
+   * stanno in una `evaluate` sola apposta.
+   */
+  test("SIDEBAR-TOUCH-05: la spunta-cerchio ha l'area di un dito, e col dito si chiude e si annulla", async ({ page }) => {
+    await openSidebarOnPhone(page);
+    const chiudi = page.locator(TAB_CLOSE);
+    await expect(chiudi, "la tab della chat non è montata: non c'è spunta da misurare").toHaveCount(1, { timeout: 10_000 });
+    // La colonna se ne va PRIMA di ogni misura e di ogni tocco: sul telefono è
+    // un drawer che copre la barra delle tab, e un `tap()` mandato lì sotto
+    // finirebbe sulla sidebar (vedi `closeSidebarOnPhone`).
+    await closeSidebarOnPhone(page);
+
+    const [vuota] = await misuraBersagli(page, [TAB_CLOSE]);
+    expect(vuota, "la spunta di chiusura non è sullo schermo").toBeTruthy();
+    expect(vuota.suoCentro, `il centro della spunta è coperto da un vicino: ${JSON.stringify(vuota)}`).toBe(true);
+    // 28 in largo: è il box che lo slot della tab riservava da sempre e che il
+    // bottone non usava (14 inline). 36 in alto: sono i `tap-expand-y` tagliati
+    // dall'`overflow-hidden` della tab, cioè tutta la tab. Sotto questi due
+    // numeri il bersaglio è tornato a essere il glifo.
+    expect(vuota.tap.w, `la spunta vuota è larga ${vuota.tap.w}px di area toccabile`).toBeGreaterThanOrEqual(28);
+    expect(vuota.tap.h, `la spunta vuota è alta ${vuota.tap.h}px di area toccabile — senza tap-expand-y sarebbero 28`).toBeGreaterThanOrEqual(36);
+
+    // IL DISEGNO NON CRESCE COL BERSAGLIO. È metà del contratto di
+    // `boxClassName`: `size` resta il diametro del cerchio, il box è un'altra
+    // cosa. Senza questa riga, «bersaglio più grande» si potrebbe soddisfare
+    // gonfiando il glifo, che è proprio ciò che non si vuole.
+    const cerchio = await chiudi.locator("span").first().boundingBox();
+    expect(Math.round(cerchio?.width ?? 0), "il cerchio DISEGNATO deve restare 14px").toBe(14);
+
+    // ── e adesso lo si tocca davvero ────────────────────────────────────────
+    await chiudi.tap();
+    const annulla = page.locator('[aria-label="Annulla chiusura"]');
+    await expect(
+      annulla,
+      "toccare la spunta non ha avviato la chiusura differita: il tocco è finito altrove",
+    ).toBeVisible({ timeout: 5_000 });
+
+    const [piena] = await misuraBersagli(page, ['[aria-label="Annulla chiusura"]']);
+    expect(piena.suoCentro, `il centro dell'annullo è coperto da un vicino: ${JSON.stringify(piena)}`).toBe(true);
+    expect(piena.tap.w, `l'annullo è largo ${piena.tap.w}px di area toccabile`).toBeGreaterThanOrEqual(28);
+    expect(piena.tap.h, `l'annullo è alto ${piena.tap.h}px di area toccabile`).toBeGreaterThanOrEqual(36);
+
+    await annulla.tap();
+    await expect(
+      chiudi,
+      "l'annullo non ha ripreso: o il tocco è finito sulla tab, o la chiusura è andata fino in fondo",
+    ).toBeVisible({ timeout: 5_000 });
   });
 });

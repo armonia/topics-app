@@ -93,7 +93,16 @@ export function isSelectableProjectDir(
   return true;
 }
 
-function scanWorkspace(workspaceDir: string): string[] {
+/**
+ * I progetti che il server ENUMERA dentro il workspace di OpenClaw: figli
+ * diretti con un marcatore di progetto. Esportata perché è una SORGENTE, non un
+ * dettaglio del resolver: da qui escono i dir che l'indice della board
+ * (`/api/all-boards/projects`) mostra, e quindi anche quelli che l'allowlist di
+ * `known-project-dirs.ts` deve conoscere. Finché era privata, l'indice mostrava
+ * `workspace/dashboard` e `workspace/dancerooms` e l'icona di quegli stessi due
+ * progetti prendeva 403 — visti nella lista, negati sulla favicon.
+ */
+export function scanWorkspaceProjects(workspaceDir: string): string[] {
   try {
     if (!existsSync(workspaceDir)) return [];
     return readdirSync(workspaceDir, { withFileTypes: true })
@@ -131,7 +140,7 @@ export function buildProjectCandidates(deps: {
     seen.add(path);
     out.push({ path, projectStoreId: null });
   };
-  for (const path of scanWorkspace(deps.workspaceDir)) pathOnly(path);
+  for (const path of scanWorkspaceProjects(deps.workspaceDir)) pathOnly(path);
   if (deps.extraPaths) {
     let extras: string[] = [];
     try { extras = deps.extraPaths(); } catch { /* best-effort source */ }
