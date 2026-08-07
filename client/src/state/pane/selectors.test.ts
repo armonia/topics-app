@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds } from "./selectors";
+import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds, resolveBootFocus, hasVisiblePane } from "./selectors";
 import type { PaneState, Pane, ClosedPaneRecord, SpaceMeta } from "./types";
 import { DEFAULT_SPACE_ID } from "./types";
 
@@ -218,5 +218,48 @@ describe("filterVisiblePaneIds — stabilità sotto scroll (perf di App/PanelGri
     );
     expect(before).toEqual(["chat:a", "chat:b"]);
     expect(after).toEqual(["chat:a"]);
+  });
+});
+
+describe("resolveBootFocus / hasVisiblePane — su cosa si riapre l'app", () => {
+  // «Appena apro Topics, dovrei aprire l'ultima tab che ho lasciato aperta. Se
+  // no, di default dovrei trovarmi sulla sidebar» (Attilio, 07/08). Il fuoco
+  // era già scritto in localStorage a ogni cambio; mancava il ripristino
+  // ROBUSTO — `FOCUS_PANE` non controlla che la pane esista, quindi un id
+  // salvato ma ormai morto riapriva l'app puntando a un fantasma. Sul telefono,
+  // dove si vede una tab per volta, quel fantasma è una schermata vuota.
+  const stateWith = (order: string[], activeSpaceId = DEFAULT_SPACE_ID): PaneState => {
+    const state = blankState();
+    for (const id of order) state.panes[id] = { id, type: "chat" };
+    state.groups["group:default"] = { id: "group:default", paneIds: order, splitRatio: 0.5, splitAxis: "horizontal" };
+    state.activeSpaceId = activeSpaceId;
+    return state;
+  };
+
+  test("l'id salvato vince, se quella tab è ancora aperta", () => {
+    expect(resolveBootFocus(stateWith(["a", "b", "c"]), "b")).toBe("b");
+  });
+
+  test("id morto → l'ULTIMA della fila, che è la più recente", () => {
+    expect(resolveBootFocus(stateWith(["a", "b", "c"]), "sparita")).toBe("c");
+  });
+
+  test("nessun id salvato → sempre l'ultima", () => {
+    expect(resolveBootFocus(stateWith(["a", "b"]), null)).toBe("b");
+  });
+
+  test("una tab APERTA MA IN UN ALTRO SPAZIO non vale: si ricade sulla fila visibile", () => {
+    // Focalizzarla porterebbe la finestra su tutt'altro gruppo (il focus-follow
+    // di usePanelLifecycle), cioè in un posto che l'utente non ha lasciato.
+    const state = stateWith(["a", "b"], "space:altro");
+    state.spaces = spaceRegistry("space:altro", "Altro");
+    state.panes["altrove"] = { id: "altrove", type: "chat" };
+    expect(resolveBootFocus(state, "altrove")).toBe(null);
+  });
+
+  test("nessuna tab → nessun fuoco, ed è il segnale con cui la sidebar parte aperta", () => {
+    expect(resolveBootFocus(stateWith([]), "a")).toBe(null);
+    expect(hasVisiblePane(stateWith([]))).toBe(false);
+    expect(hasVisiblePane(stateWith(["a"]))).toBe(true);
   });
 });

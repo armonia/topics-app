@@ -110,6 +110,39 @@ export function selectVisiblePaneIds(s: PaneState): string[] {
 }
 
 /**
+ * SU QUALE TAB SI RIAPRE L'APP.
+ *
+ * «Appena apro Topics dovrei trovarmi sull'ultima tab che ho lasciato aperta»
+ * (Attilio, 07/08). Il pezzo che mancava non era il salvataggio — il fuoco è
+ * scritto in `pane-store-focused-id` a ogni cambio, in modo sincrono — era il
+ * RIPRISTINO quando quell'id non vale più: `FOCUS_PANE` non controlla che la
+ * pane esista, quindi con una tab chiusa dall'altro dispositivo (o da una
+ * sessione precedente) l'app ripartiva puntando a un fantasma, cioè su niente.
+ *
+ * Due passaggi, in ordine:
+ *  1. l'id salvato, se quella pane è ancora aperta E sta nello Spazio su cui la
+ *     finestra riparte (il gruppo attivo è già stato ripristinato quando questa
+ *     funzione viene chiamata: focalizzare una pane di un altro Spazio
+ *     porterebbe l'app da tutt'altra parte);
+ *  2. altrimenti l'ULTIMA della fila di tab, che è la più recente — la stessa
+ *     risposta che darebbe uno a cui chiedi «dove eri rimasto».
+ *
+ * `null` = non c'è proprio niente da riaprire, ed è il segnale su cui la sidebar
+ * decide di partire APERTA sul telefono (vedi `useSidebarAndLayout`): meglio la
+ * lista delle tab che una schermata vuota.
+ */
+export function resolveBootFocus(s: PaneState, savedId: string | null): string | null {
+  const visible = selectVisiblePaneIds(s);
+  if (savedId && visible.includes(savedId)) return savedId;
+  return visible.length > 0 ? visible[visible.length - 1] : null;
+}
+
+/** C'è almeno una tab da riaprire nello Spazio attivo. Vedi `resolveBootFocus`. */
+export function hasVisiblePane(s: PaneState): boolean {
+  return selectVisiblePaneIds(s).length > 0;
+}
+
+/**
  * Server-syncable snapshot.
  *
  * Excludes device-local fields that MUST NOT cross devices (per CONTEXT.md decisions):

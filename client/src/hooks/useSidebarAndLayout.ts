@@ -28,6 +28,8 @@ import { generateUUID } from '../utils/uuid';
 import { DRAG_SLOP_PX } from './useGridResize';
 import { isDesktop } from '../lib/shell';
 import { showTrafficLights, hideTrafficLights } from '../lib/shell/window';
+import { usePaneStore } from '../state/pane/store';
+import { hasVisiblePane } from '../state/pane/selectors';
 
 const getWindowId = (): string => {
   let id = sessionStorage.getItem('topics-window-id');
@@ -166,7 +168,19 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   // Sidebar width / collapsed — collapsed by default in detached + mobile
   const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    return isDetached || isMobile ? true : (appSettings.sidebarCollapsed || false);
+    if (isDetached) return true;
+    // SUL TELEFONO SI PARTE DOVE C'È QUALCOSA.
+    //
+    // «Appena apro Topics dovrei aprire l'ultima tab che ho lasciato aperta. Se
+    // no, di default dovrei trovarmi sulla sidebar» (Attilio, 07/08). Prima il
+    // cassetto partiva SEMPRE chiuso: con almeno una tab la regola era già
+    // giusta per caso, ma a zero tab l'app si apriva su una schermata vuota con
+    // l'unica lista di cose nascosta dietro uno swipe. Lo stato della griglia è
+    // già idratato da localStorage quando questo initializer gira (bootstrap
+    // chiama `hydrateFromLocalSnapshot` prima del primo render), quindi la
+    // risposta è disponibile subito e senza un lampo di layout.
+    if (isMobile) return hasVisiblePane(usePaneStore.getState());
+    return appSettings.sidebarCollapsed || false;
   });
 
   // Remove pre-render sidebar-collapsed class now that React owns the state
@@ -174,13 +188,20 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     document.documentElement.classList.remove('sidebar-pre-collapsed');
   }, []);
 
-  // Auto-collapse sidebar on mobile
-  useEffect(() => {
-    if (isMobile && !sidebarCollapsed) {
-      setSidebarCollapsed(true);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mirror original deps
-  }, [isMobile]);
+  // Il cassetto si chiude quando la finestra SCENDE sotto il breakpoint, non a
+  // ogni montaggio: com'era scritto prima (un effetto su `[isMobile]`) scattava
+  // anche al primo giro e richiudeva subito la sidebar che l'initializer qui
+  // sopra aveva appena deciso di lasciare aperta.
+  //
+  // È un aggiustamento IN RESA, non un effetto: React lo prescrive proprio per
+  // «uno stato che deve cambiare quando ne cambia un altro» — riparte subito,
+  // senza dipingere il fotogramma intermedio, e senza la cascata che un
+  // `setState` dentro un effetto produce (regola `set-state-in-effect`).
+  const [wasMobile, setWasMobile] = useState(isMobile);
+  if (isMobile !== wasMobile) {
+    setWasMobile(isMobile);
+    if (isMobile) setSidebarCollapsed(true);
+  }
 
   const sidebarResizing = useRef(false);
   const sidebarStartX = useRef(0);

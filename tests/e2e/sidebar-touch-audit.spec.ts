@@ -57,13 +57,26 @@ const MENU_VOICES = [
 const bg = surfaceBg;
 
 /**
- * Su mobile la sidebar NASCE CHIUSA (`useSidebarAndLayout`: `isDetached ||
- * isMobile ? true : …`), quindi l'helper condiviso `goToApp` — che aspetta la
- * colonna VISIBILE — non serve qui: andrebbe in timeout su una sidebar che c'è
- * ma è tradotta fuori schermo. Si apre come la aprirebbe un dito, toccando il
- * bottone del pannello. L'auto-collapse è agganciato al CAMBIO di `isMobile`,
- * non allo stato, quindi una volta aperta resta aperta.
+ * SU MOBILE IL CASSETTO NASCE APERTO O CHIUSO A SECONDA DI COSA C'È DA RIAPRIRE
+ * (`useSidebarAndLayout`: `isMobile ? hasVisiblePane(…) : …`, dal 07/08 —
+ * «appena apro Topics dovrei aprire l'ultima tab che ho lasciato aperta; se no
+ * di default dovrei trovarmi sulla sidebar»). Quindi l'helper condiviso
+ * `goToApp` non serve — aspetta la colonna VISIBILE e andrebbe in timeout su un
+ * cassetto tradotto fuori schermo — e nemmeno una ⌘B secca serve: era corretta
+ * finché lo stato iniziale era UNO SOLO, e questi helper premevano
+ * l'interruttore alla cieca. Adesso guardano prima dove sono.
+ *
+ * L'auto-collapse è agganciato al CAMBIO di `isMobile`, non allo stato, quindi
+ * una volta aperta resta aperta.
  */
+/** Il cassetto è dentro lo schermo? Chiuso ha larghezza 0 (`width: 0` +
+ *  `translateX(-100%)`), quindi non ha un box che Playwright consideri visibile
+ *  — la larghezza è la domanda, non l'ascissa. */
+async function sidebarIsOpen(page: Page): Promise<boolean> {
+  const box = await page.locator(SIDEBAR).boundingBox();
+  return !!box && box.width > 0 && box.x + box.width > 0;
+}
+
 async function openSidebarOnPhone(page: Page) {
   await page.request
     .put(`${BASE}/api/ui-state/panel-order`, { data: { order: [], pinned: [] } })
@@ -76,7 +89,11 @@ async function openSidebarOnPhone(page: Page) {
   // all'elemento giusto; il gesto col dito è ciò che i test SOTTO verificano,
   // qui si sta solo apparecchiando.
   await page.locator(SIDEBAR).waitFor({ state: "attached", timeout: 20_000 });
-  await page.keyboard.press("ControlOrMeta+b");
+  // L'interruttore si preme SOLO se serve: con zero tab da riaprire il cassetto
+  // è già aperto, e una ⌘B alla cieca lo richiuderebbe — poi il resto
+  // dell'helper aspetterebbe per venti secondi che diventi visibile qualcosa
+  // che si è appena chiuso per colpa sua.
+  if (!(await sidebarIsOpen(page))) await page.keyboard.press("ControlOrMeta+b");
   await page.waitForSelector(SIDEBAR, { state: "visible", timeout: 20_000 });
   // E POI SI ASPETTA CHE SIA FERMA. «Visible» per Playwright vuol dire «ha un
   // box e non è display:none» — e la sidebar mobile entra con una `translateX`
@@ -113,7 +130,7 @@ async function openSidebarOnPhone(page: Page) {
  * davvero, e misurarli insieme proverebbe una schermata che non esiste.
  */
 async function closeSidebarOnPhone(page: Page) {
-  await page.keyboard.press("ControlOrMeta+b");
+  if (await sidebarIsOpen(page)) await page.keyboard.press("ControlOrMeta+b");
   // Come all'apertura: «invisibile» arriva PRIMA che la scivolata sia finita, e
   // qui si sta per misurare ciò che stava sotto. Si aspetta che la colonna sia
   // uscita per intero dal viewport (bordo destro a sinistra dello zero), non che

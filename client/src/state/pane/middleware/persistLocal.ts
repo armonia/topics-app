@@ -37,7 +37,7 @@
  * `lastAppliedServerSeq` guard.
  */
 import { usePaneStore, type PaneStore } from '../store';
-import { selectLocalSnapshot } from '../selectors';
+import { resolveBootFocus, selectLocalSnapshot } from '../selectors';
 import { DEFAULT_SPACE_ID } from '../types';
 import { getTabId } from './syncCrossTab';
 import { spaceWindowId } from '../../../lib/windowRole';
@@ -143,12 +143,16 @@ export function hydrateFromLocalSnapshot(): void {
       usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: activeSpace } });
     }
     // Focus lives in its own key (sanitizeSnapshot strips it from the main
-    // snapshot). Apply it after the panes hydrate — FOCUS_PANE has no
-    // existence check, so ordering only matters for consumers reading
-    // focusedPaneId + panes together right after boot.
-    const focused = localStorage.getItem(LOCAL_FOCUS_KEY);
-    if (focused) {
-      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: focused } });
+    // snapshot). Applicato DOPO l'idratazione delle pane e DOPO lo Spazio,
+    // perché `resolveBootFocus` ha bisogno di entrambi: `FOCUS_PANE` non
+    // controlla che la pane esista, quindi un id salvato ma ormai morto
+    // riapriva l'app puntando a un fantasma — e sul telefono, dove si vede una
+    // tab per volta, quel fantasma è una schermata vuota. Se l'id non regge si
+    // ricade sull'ULTIMA tab della fila; se non c'è nessuna tab non si
+    // focalizza niente e la sidebar parte aperta (vedi `useSidebarAndLayout`).
+    const boot = resolveBootFocus(usePaneStore.getState(), localStorage.getItem(LOCAL_FOCUS_KEY));
+    if (boot) {
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: boot } });
     }
   } catch {
     /* corrupt snapshot — fall through to server hydrate */
