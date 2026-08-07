@@ -128,7 +128,3 @@ export function useDetectedScripts(projectPath: string) {
   return { ...snapshot, reload };
 }
 
-/** Per i test: azzera gli store fra un caso e l'altro. */
-export function __resetDetectedScriptsStores() {
-  stores.clear();
-}

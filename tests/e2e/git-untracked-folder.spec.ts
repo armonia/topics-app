@@ -54,6 +54,10 @@ test.describe("git: cartella non tracciata dal repo che la contiene", () => {
     await expect(git.getByRole("button", { name: /Crea un repository qui/ })).toBeVisible();
     // La lista dei file non si monta, quindi con lei non si monta nemmeno la
     // sezione dei remote del repo ospite.
+    // I remotes non stanno piu' nel pannello in nessun caso: li elenca
+    // `BranchList` dentro il popover del ramo. Qui resta il punto vero — dal
+    // pannello di una cartella non tracciata non si presta NIENTE del repo che
+    // la ospita — e lo dice l'assenza del selettore di ramo qui sotto.
     await expect(git.locator("button").filter({ hasText: /^Remotes/ })).toHaveCount(0);
     await expect(git.locator("button").filter({ hasText: /^(Staged|Changes)/ })).toHaveCount(0);
 
