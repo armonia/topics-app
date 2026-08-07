@@ -35,12 +35,12 @@ sapere se il disegno regge prima di aprire un conto.
 
 ## 1. Il protocollo, prima del trasporto
 
-- [ ] 1.1 `shared/relay-protocol.ts`: registrazione, apertura di una sessione
+- [x] 1.1 `shared/relay-protocol.ts`: registrazione, apertura di una sessione
   ospite, inoltro, chiusura. Puro, con un test — così il trasporto diventa
   sostituibile e la scelta di Cloudflare resta reversibile davvero.
 - [ ] 1.2 Il **contratto di cifratura**: chiave nel frammento, formato del
   payload, rotazione, scadenza. Deciso qui, non quando serve.
-- [ ] 1.3 Un relay **finto in-process** per i test: due estremi, nessuna rete.
+- [x] 1.3 Un relay **finto in-process** per i test: due estremi, nessuna rete.
   È ciò che permette di provare RELAY-04 (arrivare non è essere autorizzati)
   senza dipendere da un servizio esterno.
 
