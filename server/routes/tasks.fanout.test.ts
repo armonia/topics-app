@@ -270,4 +270,67 @@ describe("route del fan-out", () => {
     expect(c.status).toBe(201);
     expect(svc.get("T")!.comments.map((x) => x.content)).toContain("fatto");
   });
+
+  /**
+   * Fermare (o archiviare) un fan-out taglia TUTTI i turni, non solo quello del
+   * tentativo legato al task. `assigned_topic_id` ne punta uno; gli altri N-1
+   * restavano a girare dopo che l'umano aveva già detto basta.
+   */
+  describe("fermare un fan-out", () => {
+    let aborted: string[];
+    let r: any;
+    beforeEach(() => {
+      aborted = [];
+      r = createTasksRouter(makeCtx(db, topics, broadcasts, deleted), undefined, {
+        abortTurn: async (sk: string) => { aborted.push(sk); },
+      });
+    });
+
+    test("stop aborta la sessione di OGNI tentativo vivo e ne chiude le righe", async () => {
+      seedFanOut({ closed: false }); // due tentativi ancora `running`
+      db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = 'T'");
+
+      const resp = (await call(r, "POST", `/api/boards/${PID}/tasks/T/stop`, {}))!;
+      expect(resp.status).toBe(200);
+      expect(aborted.sort()).toEqual(["topic:topic-1", "topic:topic-2"]);
+      // Nessun tentativo resta `running`: altrimenti il gate del fan-out
+      // sbarrerebbe il task per sempre e `reconcile` crederebbe di dover
+      // recuperare un giro che non c'è più.
+      expect(attempts.runningCount("T")).toBe(0);
+      expect(attempts.list("T").map((a) => a.state)).toEqual(["failed", "failed"]);
+    });
+
+    test("archiviare un fan-out fa la stessa cosa, e archivia", async () => {
+      seedFanOut({ closed: false });
+      db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = 'T'");
+
+      expect((await call(r, "DELETE", `/api/boards/${PID}/tasks/T`))!.status).toBe(200);
+      expect(aborted.sort()).toEqual(["topic:topic-1", "topic:topic-2"]);
+      expect(attempts.runningCount("T")).toBe(0);
+      expect((db.prepare("SELECT archived FROM tasks WHERE id = 'T'").get() as any).archived).toBe(1);
+    });
+
+    test("il topic legato al task non viene abortito due volte", async () => {
+      // Un fan-out da UNO: `assigned_topic_id` e il topic del tentativo 1 sono
+      // lo stesso, e la chiave di sessione va emessa una volta sola.
+      const now = new Date().toISOString();
+      db.run(
+        `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id, dispatch_state)
+         VALUES ('S', ?, 'da solo', 'in_progress', ?, ?, 'topic-1', 'working')`,
+        [PID, now, now],
+      );
+      const only = attempts.create({ taskId: "S", idx: 1 });
+      attempts.bind(only.id, { topicId: "topic-1", worktreeId: "wt-1" });
+
+      expect((await call(r, "POST", `/api/boards/${PID}/tasks/S/stop`, {}))!.status).toBe(200);
+      expect(aborted).toEqual(["topic:topic-1"]);
+    });
+
+    test("senza agent e senza tentativi vivi resta un 409", async () => {
+      seedFanOut(); // tutti i tentativi già chiusi
+      db.run("UPDATE tasks SET assigned_topic_id = NULL, dispatch_state = NULL WHERE id = 'T'");
+      expect((await call(r, "POST", `/api/boards/${PID}/tasks/T/stop`, {}))!.status).toBe(409);
+      expect(aborted).toEqual([]);
+    });
+  });
 });
