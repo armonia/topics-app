@@ -15,7 +15,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useMobile } from '@/hooks/useMobile';
@@ -366,11 +366,11 @@ export const TopicItem = memo(function TopicItem({
              ripensamento raggiungibile solo col mouse. Il box è quello del
              binario (36px sotto i 768px), non i 14 del glifo. */
           pendingArchiveStatus ? (
-            <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 relative z-10">
+            <span className={`flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} relative z-10`}>
               <PendingActionRing
                 status={pendingArchiveStatus}
-                size={14}
-                boxClassName="w-9 h-9 md:w-6 md:h-6"
+                size={ROW_ACTION_GLYPH}
+                boxClassName={ROW_ACTION_BOX}
                 pendingTitle="Annulla archiviazione"
                 pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
               />
@@ -391,11 +391,12 @@ export const TopicItem = memo(function TopicItem({
              never archives. Clicking this still triggers the 3s soft-archive
              countdown (the PendingActionRing in the `pendingArchiveStatus`
              branch above). For archived topics the action is restorative. */
-          <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 relative z-10">
+          <span className={`flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} relative z-10`}>
             {pendingArchiveStatus ? (
               <PendingActionRing
                 status={pendingArchiveStatus}
-                size={14}
+                size={ROW_ACTION_GLYPH}
+                boxClassName={ROW_ACTION_BOX}
                 pendingTitle="Annulla archiviazione"
                 pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
               />
@@ -479,7 +480,7 @@ export const TopicItem = memo(function TopicItem({
       {isTouch && onArchive && topic.archived && (
         <button
           onClick={handleArchiveClick}
-          className="tap-expand-y flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary"
+          className={`tap-expand-y flex-shrink-0 flex items-center justify-center ${ROW_ACTION_BOX} rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary`}
           title="Ripristina"
           aria-label={`Ripristina ${topic.name}`}
         >

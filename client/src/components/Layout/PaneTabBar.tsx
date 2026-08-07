@@ -1028,7 +1028,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // che l'utente non ha ancora guardato questa tab — e va dipinto anche
             // se la tab è attiva. Era l'inverso, ed è per questo che selezionarla
             // per un istante bastava a spegnerla.
-            className={`group flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
+            // `edge-lit` — il bordo riflesso della famiglia card (index.css):
+            // due capelli, uno chiaro in cima e uno scuro in fondo, che fanno
+            // leggere la tab come una superficie rialzata anche quando NON è
+            // selezionata. È lo stesso trattamento del «+», del cerca e delle
+            // tessere fissate: un elemento arrotondato che flotta lo porta.
+            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive

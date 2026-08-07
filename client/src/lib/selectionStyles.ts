@@ -187,6 +187,37 @@ export const ROW_INSET = 6;
 export const SIDEBAR_INDENT_STEP = 16;
 
 /**
+ * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
+ *
+ * Attilio, 07/08: «il tasto per poter spuntare una tab e chiuderla è troppo
+ * piccolo e, fra l'altro, non è neanche allineato ai più che ci sono sui
+ * progetti». Erano quattro misure diverse nello stesso binario, e si vedono
+ * solo mettendo le righe una sopra l'altra — cioè come la sidebar si guarda:
+ *   · chat, comando d'archivio su desktop          28px (`w-7 h-7`)
+ *   · progetto, cerchio d'archivio e «+»           24px (`w-6 h-6`)
+ *   · terminale e browser, cerchio di chiusura     24px, più `mr-1`
+ *   · «+» della barra delle tab                    24px
+ * Quattro colonne diverse a destra, e la più piccola era proprio quella del
+ * gesto che CHIUDE una cosa.
+ *
+ * 28px sopra i 768px: quanto una tab della barra (`h-7`) e quanto la riga alta
+ * 34 può contenere senza che l'`overflow-hidden` della card lo tagli. 36px
+ * sotto, dentro la riga da 44 — non i 44 pieni delle linee guida iOS, ma
+ * `tap-expand-y` porta l'AREA a 44 in altezza senza rubare larghezza ai vicini
+ * (vedi index.css). Il glifo dentro resta piccolo: cresce il bersaglio, non il
+ * disegno.
+ */
+export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
+
+/**
+ * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
+ * Era 14 dentro un box da 24: un pallino. A 16 dentro {@link ROW_ACTION_BOX}
+ * resta un anello sottile con la sua aria attorno, e si vede cosa si sta per
+ * toccare.
+ */
+export const ROW_ACTION_GLYPH = 16;
+
+/**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
  * project folders) so the sidebar reads as a column of tab-like cards — the
  * same visual language as the tab bar — instead of a flat list separated by
@@ -221,8 +252,13 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   //
   // Quindi: se arriva un tier, va dipinto (il chiamante ha già stabilito che
   // l'utente non l'ha guardata); altrimenti valgono selezione e hover come prima.
-  if (attention) return `${base} ${attentionSurface(attention)}`;
-  if (focused) return `${base} ${SELECTED_SURFACE}`;
+  // `edge-lit` SOLO quando la card ha un fondo. Il bordo riflesso (index.css)
+  // disegna la forma della superficie: su una riga a riposo — che è
+  // trasparente — disegnerebbe un rettangolo attorno a ogni riga dell'albero,
+  // cioè esattamente le linee divisorie che questo file esiste per togliere.
+  // Con un fill sotto, invece, è la stessa card della tab selezionata.
+  if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
+  if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
   if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
   return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
