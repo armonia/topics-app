@@ -34,6 +34,11 @@ async function setPins(page: Page, ids: string[], layout?: string[][]): Promise<
       // Senza disposizione esplicita si finisce su UNA riga sola: `reconcile`
       // accoda i fissati che il layout non conosce all'ultima riga finché c'è
       // posto (`PINNED_ROW_MAX`, 6). Chi vuole due righe le chiede.
+      //
+      // Le larghezze qui sono una formalità: `reconcilePinnedLayout` le
+      // PAREGGIA in lettura, di proposito — non esiste un gesto per
+      // ridimensionare una tessera, quindi una riga sbilanciata è rumore. La
+      // sola leva sulla larghezza è QUANTE ne stanno in riga.
       pinnedLayout: (layout ?? []).map(keys => ({
         keys,
         widths: keys.map(() => 1 / keys.length),
@@ -1900,6 +1905,124 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       larga.getByTestId("pinned-tile-name"),
       "e allora il titolo torna, accanto all'icona",
     ).toBeVisible();
+  });
+
+  test("TILE-32: da quadrata centra l'ICONA, non il gruppo — il chevron non pesa", async ({ page, request }) => {
+    // CENTRATA VUOL DIRE L'ICONA AL CENTRO, non il gruppo al centro.
+    // Quando il titolo se ne va resta la sola icona, ma `justify-center` centra
+    // quello che sta NEL FLUSSO: col chevron accanto, il centro era quello dei
+    // due messi insieme, e l'icona finiva fuori asse di mezzo chevron piu'
+    // mezzo spazio — misurati 8px su una tessera larga 56,5. Qui si misura la
+    // sola cosa che conta: il centro dell'icona contro il centro della tessera.
+    const conIcona = "/tmp/e2e-tile-centro";
+    mkdirWithIcon(conIcona);
+    const chat = await createTopic(request, `E2E-Centro-Chat-${Date.now()}`, { projectPath: conIcona });
+    created.push(chat.id);
+    const chiaveProj = `project:${conIcona}`;
+    const riempitivi: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const t = await createTopic(request, `E2E-Centro-${i}-${Date.now()}`);
+      created.push(t.id);
+      riempitivi.push(t.id);
+    }
+
+    // ── C'E' SPAZIO: il chevron esce dal flusso ────────────────────────────
+    // La sola leva sulla larghezza e' QUANTE ne stanno in riga: le larghezze
+    // scritte a mano non servono a niente, `reconcilePinnedLayout` le pareggia
+    // in lettura. Sui 244px di riga: tre fanno ~77 (sopra la fascia), QUATTRO
+    // fanno ~56 — dentro la fascia 54–72 in cui il chevron si sfila — cinque
+    // ~44 e sei ~36, cioe' sotto. Quattro e' anche il caso vero piu' comune.
+    const inFascia = [chiaveProj, chat.id, riempitivi[0], riempitivi[1]];
+    await setPins(page, inFascia, [inFascia]);
+    await gotoSidebar(page);
+    const tessera = tileNamed(page, "e2e-tile-centro");
+    await expect(tessera).toBeVisible({ timeout: 15000 });
+    await expect(tessera.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
+    await expect(tessera.getByTestId("pinned-expand-hint"), "e c'e' da aprire").toHaveCount(1);
+
+    const misura = await tessera.evaluate((t: HTMLElement) => {
+      const b = t.getBoundingClientRect();
+      const img = t.querySelector("img")!.getBoundingClientRect();
+      const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]')!;
+      const c = chev.getBoundingClientRect();
+      return {
+        larghezza: b.width,
+        scarto: (img.left + img.right) / 2 - (b.left + b.right) / 2,
+        posizioneChevron: getComputedStyle(chev).position,
+        chevronPrecede: c.right - img.left,
+        chevronDentro: c.left - b.left,
+      };
+    });
+    // La fascia E' il soggetto del test: se la griglia cambiasse e la tessera
+    // ne uscisse, questo test misurerebbe un altro caso senza dirlo.
+    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeGreaterThanOrEqual(54);
+    expect(misura.larghezza, `larghezza fuori fascia: ${JSON.stringify(misura)}`).toBeLessThan(72);
+
+    await expect(tessera.getByTestId("pinned-tile-name"), "quadrata: niente titolo").toBeHidden();
+    // Prima l'esito, poi il meccanismo: se un giorno si centra in un altro
+    // modo, la riga che deve restare rossa e' quella dell'icona fuori asse.
+    expect(
+      Math.abs(misura.scarto),
+      `l'icona sta al centro della tessera: ${JSON.stringify(misura)}`,
+    ).toBeLessThanOrEqual(1);
+    expect(misura.posizioneChevron, "il chevron esce dal flusso").toBe("absolute");
+    // Fuori dal flusso, ma non addosso all'icona ne' fuori dalla tessera: e'
+    // esattamente la condizione che regge la soglia dei 54px.
+    expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);
+    expect(misura.chevronDentro, "e resta dentro la tessera").toBeGreaterThanOrEqual(-0.5);
+
+    // ── Il CONTEGGIO non pesa mai: va nell'angolo ──────────────────────────
+    // Non si semina un non-letto vero — servirebbe una chat aperta e non
+    // guardata, cioe' una corsa col fuoco — si mette la CLASSE del conteggio
+    // dentro la tessera VERA: il contenitore misurato, la larghezza e la
+    // regola sono quelli veri, e quel che si guarda e' dove lo mandano e se
+    // sposta l'icona di un pixel.
+    const conConteggio = await tessera.evaluate((t: HTMLElement) => {
+      const img = t.querySelector("img")!;
+      const prima = img.getBoundingClientRect();
+      const finto = document.createElement("span");
+      finto.className = "pinned-tile-count flex-shrink-0 min-w-[16px] h-4";
+      finto.textContent = "3";
+      t.appendChild(finto);
+      const b = t.getBoundingClientRect();
+      const f = finto.getBoundingClientRect();
+      const dopo = img.getBoundingClientRect();
+      // Letta PRIMA di staccarlo: su un nodo fuori dal documento
+      // `getComputedStyle` torna vuoto, e l'asserzione non potrebbe fallire.
+      const posizione = getComputedStyle(finto).position;
+      finto.remove();
+      return {
+        posizione,
+        spostaIcona: Math.abs((dopo.left + dopo.right) / 2 - (prima.left + prima.right) / 2),
+        inAlto: f.top - b.top,
+        aDestra: b.right - f.right,
+        dentro: f.right <= b.right + 0.5 && f.top >= b.top - 0.5 && f.bottom <= b.bottom + 0.5,
+      };
+    });
+    expect(conConteggio.posizione, "il conteggio esce dal flusso").toBe("absolute");
+    expect(conConteggio.spostaIcona, "e non sposta l'icona di un pixel").toBeLessThanOrEqual(0.5);
+    expect(conConteggio.inAlto, "sta in alto").toBeLessThanOrEqual(4);
+    expect(conConteggio.aDestra, "e a destra").toBeLessThanOrEqual(4);
+    expect(conConteggio.dentro, "dentro la tessera, come tutto il resto").toBe(true);
+
+    // ── NON C'E' SPAZIO: il chevron torna a pesare ─────────────────────────
+    // Sotto i 54px un chevron appoggiato al bordo finirebbe SOPRA l'icona, e
+    // fra un'icona fuori asse e due cose stampate una sull'altra la prima e'
+    // la meno peggio: la deroga e' dichiarata, e questa la difende.
+    const strette = [chiaveProj, chat.id, ...riempitivi];
+    await setPins(page, strette, [strette]);
+    await gotoSidebar(page);
+    const minuscola = tileNamed(page, "e2e-tile-centro");
+    await expect(minuscola).toBeVisible({ timeout: 15000 });
+    const senzaSpazio = await minuscola.evaluate((t: HTMLElement) => {
+      const chev = t.querySelector<HTMLElement>('[data-testid="pinned-expand-hint"]');
+      return {
+        larghezza: t.getBoundingClientRect().width,
+        posizioneChevron: chev ? getComputedStyle(chev).position : null,
+      };
+    });
+    expect(senzaSpazio.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(senzaSpazio)}`).toBeLessThan(54);
+    expect(senzaSpazio.posizioneChevron, "senza spazio il chevron torna nel flusso").toBe("static");
   });
 
   test("TILE-27: al ricarico il titolo non lampeggia prima dell'icona", async ({ page, request }) => {
