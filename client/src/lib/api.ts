@@ -376,8 +376,15 @@ export function getMediaUrl(path: string): string {
 
 // Files API
 export const filesApi = {
-  async list(path: string, depth = 3): Promise<FileNode[]> {
-    return request<FileNode[]>(`/files?path=${encodeURIComponent(path)}&depth=${depth}`);
+  /**
+   * `signal` c'è perché senza, aprire e chiudere rapidamente il pannello
+   * lasciava una camminata dell'albero in volo per ogni giro — tutte sullo
+   * stesso event loop del server. Misurato: 8 richieste concorrenti passano da
+   * 0,20s a 8,31s ciascuna, cioè la raffica allunga di ~40× la finestra in cui
+   * un riavvio del server può colpirne una.
+   */
+  async list(path: string, depth = 3, signal?: AbortSignal): Promise<FileNode[]> {
+    return request<FileNode[]>(`/files?path=${encodeURIComponent(path)}&depth=${depth}`, { signal });
   },
 
   async content(path: string): Promise<string> {

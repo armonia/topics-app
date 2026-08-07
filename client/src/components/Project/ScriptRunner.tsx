@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Square } from 'lucide-react';
-import { filesApi, scriptsApi } from '../../lib/api';
+import { scriptsApi } from '../../lib/api';
+import { useDetectedScripts } from '../../hooks/useDetectedScripts';
 import type { DetectedScript } from '../../types';
 import type { ScriptProcessInfo } from '../../lib/api';
 import { useScripts } from '../../hooks/useScripts';
@@ -24,14 +25,17 @@ function getScriptColor(name: string): string {
 
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const tr = useT();
-  const [scripts, setScripts] = useState<DetectedScript[]>([]);
-  /** I manifest presenti nel progetto, e quelli che il server guarda. */
-  const [found, setFound] = useState<string[]>([]);
-  const [looked, setLooked] = useState<string[]>([]);
+  /**
+   * Script e manifest vivono in uno STORE per `projectPath`, non qui: stando
+   * qui morivano alla chiusura della sezione — che e' cio' che `ProjectSidebar`
+   * fa, montando questo componente dentro `{expandedSections.processes && …}` —
+   * e riaprendo il pannello si vedeva di nuovo lo spinner. Stesso difetto del
+   * FileExplorer, stesso gesto. Vedi `hooks/useDetectedScripts.ts`.
+   */
+  const { scripts, found, looked, ready } = useDetectedScripts(projectPath);
   const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
   const runningScriptsRef = useRef(runningScripts);
   runningScriptsRef.current = runningScripts;
-  const [ready, setReady] = useState(false);
   // PER-KEY pending sets, not shared scalars: two concurrent actions (e.g. a
   // slow "Run build" overlapping a fast "Run lint") used to clobber each
   // other's spinner — the fast one's `finally` nulled the scalar and the slow
@@ -52,21 +56,9 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const scriptsRef = useRef<DetectedScript[]>([]);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
-  // Gli script del progetto, da tutti i manifest.
-  useEffect(() => {
-    let active = true;
-    filesApi.packageScripts(projectPath)
-      .catch(() => ({ scripts: [] as DetectedScript[], found: [] as string[], looked: [] as string[] }))
-      .then((dati) => {
-        if (!active) return;
-        setScripts(dati.scripts ?? []);
-        scriptsRef.current = dati.scripts ?? [];
-        setFound(dati.found ?? []);
-        setLooked(dati.looked ?? []);
-        setReady(true);
-      });
-    return () => { active = false; };
-  }, [projectPath]);
+  // Lo specchio per le callback stabili: leggere `scripts` direttamente le
+  // rifarebbe a ogni cambio di lista, rimontando le righe.
+  scriptsRef.current = scripts;
 
   /**
    * `id` e cio che si lancia, `name` cio che si mostra: sono diversi perche lo
