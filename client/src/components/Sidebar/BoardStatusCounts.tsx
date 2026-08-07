@@ -61,7 +61,7 @@ export function BoardStatusCounts({ byStatus }: { byStatus: Record<TaskStatus, B
 }
 
 /**
- * DI CHI SONO QUEI TASK — la seconda riga della board, sotto il nome.
+ * DI CHI SONO QUEI TASK — in linea, sulla riga della board.
  *
  * I numeri per colonna dicono a che punto è il lavoro; non dicono DOVE. Con
  * task su cinque progetti «3 in review» è un numero che non si può agire: prima
@@ -76,6 +76,17 @@ export function BoardStatusCounts({ byStatus }: { byStatus: Record<TaskStatus, B
  * larghezza col trascinamento del bordo, e sotto i 768px è larga tutto lo
  * schermo. Il ritaglio è dichiarato — «+2» — invece di lasciar sparire in
  * silenzio dei progetti dietro un `overflow: hidden`.
+ *
+ * ── IN LINEA, non sotto ─────────────────────────────────────────────────────
+ * Il primo taglio le metteva su una seconda riga, come la subline di una chat.
+ * «Figo, ma meglio mettere tutto inline» (Attilio, 07/08), ed è la scelta
+ * giusta: la board è UNA riga della sidebar, non un blocco, e una riga alta il
+ * doppio delle sue vicine si legge come una sezione. In linea la larghezza è
+ * contesa — il nome «Board» ne prende una fetta e i conteggi un'altra — ma è
+ * esattamente ciò che `fitProjectChips` esiste per gestire: si misura lo spazio
+ * RIMASTO e si mostra quello che ci sta — che a colonna stretta vuol dire una o
+ * due pastiglie più il «+N», ed è la risposta onesta a «quelli che ci entrano
+ * effettivamente nello spazio».
  */
 export function BoardProjectChips({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
   const index = useBoardProjects();
@@ -116,6 +127,13 @@ export function BoardProjectChips({ byStatus }: { byStatus: Record<TaskStatus, B
           className="flex min-w-0 items-center gap-1 text-[10px] leading-none text-app-text-tertiary"
           style={{ width: 68, flexShrink: 0 }}
         >
+          {/* Icona E nome, sempre. `ProjectFavicon` non occupa niente se il
+              progetto non ne ha una — quando arriva, il nome si stringe di
+              quei 12px e nient'altro si muove, perché la pastiglia ha una
+              larghezza FISSA. È l'unico modo di non far dipendere il layout
+              (quante pastiglie ci stanno) dall'esito di una richiesta di rete.
+              Solo icona non basterebbe: chi non ne ha resterebbe un numero
+              anonimo, e un monogramma inventato è già stato escluso. */}
           <ProjectFavicon path={chip.path} size={12} />
           <span className="min-w-0 flex-1 truncate">{chip.name}</span>
           <span className="tabular-nums">{chip.n}</span>

@@ -64,6 +64,30 @@ export const RESTING_SURFACE =
   'max-md:hover:bg-black/[0.12] max-md:dark:hover:bg-white/[0.14]';
 
 /**
+ * UN COMANDO, non una superficie: il «+», il cerca, il tasto che riapre la
+ * colonna. Fondo OPACO, non un'alpha.
+ *
+ * Attilio, 07/08: «non dovrebbe essere trasparente il +, e a questo punto fare
+ * uguale il relativo tasto di apertura sidebar». Aveva ragione due volte.
+ *
+ * · {@link RESTING_SURFACE} è un rialzo in ALPHA, e va benissimo per ciò che è
+ *   una SUPERFICIE — una tab a riposo, una tessera fissata: cose che stanno sul
+ *   piano e si distinguono appena. Un comando no: un comando deve leggersi come
+ *   un oggetto separato da premere, e a 0,05 di nero su un chrome grigio è una
+ *   sfumatura, non un bottone.
+ * · E i due erano diversi fra loro senza motivo: il «+» in alpha, il tasto che
+ *   riapre la colonna opaco (`bg-elevated`) — due controlli gemelli, due
+ *   trattamenti.
+ *
+ * `--bg-elevated` e non `--bg-surface`: quest'ultimo COLLASSA sul chrome sotto
+ * i 768px (vedi index.css), quindi un comando dipinto con quello sparirebbe nel
+ * fondo proprio sul telefono. Va accompagnato da `edge-lit`, che gli dà il
+ * bordo: senza, su un fondo vicino, resta una macchia senza contorno.
+ */
+export const RAISED_CONTROL =
+  'bg-elevated hover:bg-app-hover';
+
+/**
  * L'HOVER dentro la sidebar, e perché non è `hover:bg-app-hover`.
  *
  * `--bg-hover` è un colore OPACO calibrato su `--bg-surface` (le pane di

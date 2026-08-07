@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -174,6 +175,21 @@ export function PinnedTiles({
   const [dragEsterno, setDragEsterno] = useState(false);
   const dragKeyRef = useRef<string | null>(null);
   const radice = useRef<HTMLDivElement>(null);
+  /**
+   * IL FANTASMA DEL DITO — la tessera che segue il tocco mentre la trascini.
+   *
+   * Col mouse non serve: il browser disegna da sé l'immagine di trascinamento
+   * al `dragstart`. Col dito non c'è nessun `dragstart` e quindi nessuna
+   * immagine, e senza non si capisce COSA si sta muovendo: la tessera di
+   * partenza si smorza e basta, e l'unico segnale che resta è l'anteprima che
+   * si apre a dieci centimetri di distanza. È metà del «non sta funzionando
+   * come desktop, va male».
+   *
+   * Porta anche la MISURA della cella di partenza, letta al sollevamento: il
+   * fantasma deve essere largo quanto la tessera che rappresenta, non quanto
+   * il suo contenuto.
+   */
+  const [ghost, setGhost] = useState<{ key: string; w: number; h: number; x: number; y: number } | null>(null);
 
   const byId = new Map(items.map(i => [i.id, i]));
   const rows = reconcilePinnedLayout(items.map(i => i.id), layout);
@@ -207,6 +223,7 @@ export function PinnedTiles({
     setIncomingRow(null);
     setAdopting(false);
     setDragEsterno(false);
+    setGhost(null);
   }, []);
 
   // Il gesto è finito, comunque sia finito.
@@ -355,7 +372,19 @@ export function PinnedTiles({
     return null;
   };
 
+  /** Il dito ha sollevato una tessera: si alza lo stesso stato del `dragstart`
+   *  nativo (così anteprime, spazi fra le righe e tessera smorzata funzionano
+   *  senza un secondo percorso) e si crea il fantasma, misurando la cella. */
+  const onTouchDragLift = (key: string) => () => {
+    dragKeyRef.current = key;
+    setDragKey(key);
+    const cella = radice.current?.querySelector<HTMLElement>(`[data-pinned-cell="${CSS.escape(key)}"]`);
+    const r = cella?.getBoundingClientRect();
+    if (r) setGhost({ key, w: r.width, h: r.height, x: r.x + r.width / 2, y: r.y + r.height / 2 });
+  };
+
   const onTouchDragMove = (key: string) => (x: number, y: number) => {
+    setGhost(g => (g && g.key === key ? { ...g, x, y } : g));
     const target = touchTargetAt(x, y);
     // Fuori dalla griglia l'anteprima si spegne, ma il gesto resta vivo: il
     // dito può rientrare. Spegnerlo qui vorrebbe dire che sbordare di un pixel
@@ -377,9 +406,13 @@ export function PinnedTiles({
       insertAt: target.insertAt,
       fromThisRow: !!rows[target.rowIdx]?.keys.includes(key),
       movingKey: key,
-      // Dentro la griglia chi si muove è sempre una tessera che c'è già: non
-      // entra nessuno, quindi nessuna cella fantasma da nominare.
-      incoming: null,
+      // CHI ARRIVA, quando arriva da un'ALTRA riga — ed era il bug: qui c'era
+      // `null` fisso, quindi la riga di destinazione apriva la sua cella e ci
+      // disegnava dentro il rettangolo tratteggiato di ripiego invece della
+      // tessera vera. Col mouse quello stesso caso mostra la tessera al 60%.
+      // Dentro la stessa riga resta `null`: lì non entra nessuno, le tessere
+      // che ci sono si riordinano e basta.
+      incoming: rows[target.rowIdx]?.keys.includes(key) ? null : byId.get(key) ?? null,
     });
   };
 
@@ -413,6 +446,17 @@ export function PinnedTiles({
       else next.delete(item.id);
       return next;
     });
+    // SOTTO I 768px IL PRIMO TOCCO NON PORTA VIA — la stessa regola della riga
+    // di progetto nell'albero, e per lo stesso motivo. «Vale anche per quelli
+    // pinnati, dovrebbe essere lo stesso il sistema» (Attilio, 07/08).
+    //
+    // Lì aprire un progetto CHIUDE il cassetto: se il tocco che apre la fascia
+    // è anche quello che ti porta dentro, la fascia non la vedi mai — si apre e
+    // sparisce nello stesso istante, insieme a tutta la colonna. Quindi il primo
+    // tocco apre e basta; il secondo (sulla tessera già aperta, cioè quando
+    // `willExpand` è falso) entra. Col mouse resta com'era: lì aprire non porta
+    // via niente, e un secondo clic per entrare sarebbe un ostacolo inventato.
+    if (isMobile && willExpand) return;
     onToggleItem?.(item, willExpand);
   };
 
@@ -559,8 +603,10 @@ export function PinnedTiles({
         onPinItem?.(key, target, placePinnedTile([...flattenPinnedLayout(rows), key], rows, key, target));
         clearDrag();
       }}
+      // Col dito la zona attiva è più alta: 8px sono un bersaglio da cursore, e
+      // qui ci si infila un polpastrello per aprire una riga nuova.
       className={`mx-1.5 transition-all duration-100 ${
-        newRowAt === at ? '' : attiva ? 'h-2' : ''
+        newRowAt === at ? '' : attiva ? (isMobile ? 'h-5' : 'h-2') : ''
       }`}
       // Mostrando l'anteprima questo spazio DIVENTA una riga, e una riga ha
       // il suo respiro sopra e sotto: senza, la tessera in arrivo toccava
@@ -818,6 +864,7 @@ export function PinnedTiles({
                       onContextMenu={e => onContextMenu?.(item, e)}
                       onDragStart={() => { dragKeyRef.current = key; setDragKey(key); }}
                       onDragEnd={clearDrag}
+                      onTouchDragStart={onTouchDragLift(key)}
                       onTouchDragMove={onTouchDragMove(key)}
                       onTouchDragDrop={onTouchDragDrop(key)}
                     />
@@ -869,6 +916,26 @@ export function PinnedTiles({
         );
       })}
       {rowGap(rows.length)}
+      {/* Il fantasma, sopra tutto e fuori dal flusso. `pointer-events: none` o
+          si mangerebbe il tocco che lo sta muovendo; leggermente ingrandito e
+          con un'ombra, come fa iOS quando raccogli un'icona — «l'ho in mano» va
+          detto, non lasciato intuire. */}
+      {ghost && byId.has(ghost.key) && createPortal(
+        <div
+          data-testid="pinned-touch-ghost"
+          className={`pointer-events-none fixed z-50 opacity-90 drop-shadow-lg ${PINNED_TILE_CONTAINER}`}
+          style={{
+            width: ghost.w,
+            height: ghost.h,
+            left: ghost.x,
+            top: ghost.y,
+            transform: 'translate(-50%, -50%) scale(1.06)',
+          }}
+        >
+          <PinnedTilePreview item={byId.get(ghost.key)!} metaFor={metaFor} />
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
