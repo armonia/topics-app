@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.47",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il comando prende il colore dalla piattaforma, e in tutta l'app resta una curva sola",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.46",
     "date": "2026-08-07",
     "sections": {
@@ -24,6 +40,11 @@
         },
         {
           "it": "Un link condiviso si apre davvero: pagina, cablaggio, revoca immediata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.46 — lo stato in fondo, i progetti leggibili, i bordi che non rubano il gesto",
           "en": "",
           "scope": null
         }
