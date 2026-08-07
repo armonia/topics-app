@@ -60,13 +60,22 @@ export function boardProjectChips(
  * non si decide su uno stato asincrono: lo slot è fisso e l'icona ci entra
  * dentro, presente o assente che sia.
  *
- * 52 = icona 12 + 4 di gap + ~24 di nome troncato + 4 + due cifre a 10px. Era
- * 68 quando le pastiglie stavano su una riga tutta loro, sotto il nome; IN
- * LINEA lo spazio è quello che avanza dopo «Board» e i conteggi — misurato su
- * una colonna da 256px sono ~107px — e a 68 ce ne entrava UNA. A 52 ce ne
- * entrano due, che è la differenza fra un raggruppamento e un esempio.
+ * 74 = icona 12 + 4 di gap + ~44 di nome + 4 + due cifre a 10px, dove i 44 sono
+ * la misura che rende il nome LEGGIBILE (6-7 caratteri più i puntini) invece di
+ * un moncone.
+ *
+ * È il numero uscito da una scelta esplicita, non un compromesso. Misurato
+ * sulla riga vera (colonna 256px): la riga è larga 244, «Board» ne prende 34, i
+ * conteggi 22, e alle pastiglie restano 140. Lì dentro:
+ *   · a 52 ce ne entrano DUE più il «+N» — ma il nome scende a ~22px, cioè tre
+ *     caratteri e i puntini: due pastiglie che non dicono chi sono;
+ *   · a 74 ce ne entra UNA più il «+N», e quella si legge.
+ * «Mostra bene i progetti, quelli che non entrano mettili in +» (Attilio,
+ * 07/08): fra il numero e la leggibilità vince la leggibilità, e il «+N» è
+ * esattamente il posto in cui il resto deve finire. Su una colonna più larga —
+ * il bordo si trascina — ne compaiono di più da sé.
  */
-export const CHIP_W = 52;
+export const CHIP_W = 74;
 /** Lo spazio fra due pastiglie (`gap-1.5`, lo stesso passo della riga). */
 export const CHIP_GAP = 6;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
