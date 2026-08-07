@@ -117,6 +117,16 @@ export class AiBridgeClient {
   // --- connection ---
 
   async ensureConnected(): Promise<void> {
+    // Un client CHIUSO non riapre niente. La guardia stava solo dentro
+    // l'handler `close` — cioè al momento della chiusura, non al momento
+    // dell'uso — e da quando `request` riprova su un guasto di connessione
+    // quella distinzione conta: un `dispose()` mentre una richiesta è in volo
+    // le faceva catturare `BridgeConnectionLost`, riconnettere, e — se il
+    // socket del daemon era già sparito — SPAWNARE UN DAEMON NUOVO, detached,
+    // vivo per mezz'ora e su un socket a cui nessuno si riconnetterà mai. È la
+    // classe di daemon randagi che `ai-bridge.mjs` racconta di aver già trovato
+    // 28 volte, e contraddiceva il contratto scritto su `dispose()` stesso.
+    if (this.disposed) throw new Error("ai-bridge: client chiuso");
     if (this.ready && this.socket && !this.socket.destroyed) return;
     if (this.connecting) return new Promise<void>((r) => this.readyResolvers.push(r));
     this.connecting = true;
@@ -373,10 +383,39 @@ export class AiBridgeClient {
     return { ...(await this.attach(id, fromOffset)), fromOffset };
   }
 
-  write(id: string, data: string): void { this.send({ type: "write", id, data }); }
+  /**
+   * I frame SENZA ack. Non aspettano risposta, quindi non passano da `request` —
+   * ma «non aspetta risposta» non vuol dire «non importa se parte».
+   *
+   * `send()` torna `false` quando il socket è caduto, e scartare quel `false`
+   * qui costava caro in due modi:
+   *  · `signal("SIGINT")` è l'abort dell'utente. Il chiamante ha un catch
+   *    dichiarato «load-bearing» (`claude-code.ts`, «a failed SIGINT means the
+   *    turn is NOT actually cancelled») che non scattava MAI, perché `signal`
+   *    non lanciava: chi premeva Stop non fermava niente e nessuno lo diceva.
+   *  · `kill` cancellava l'handler anche a frame mai partito: il figlio `claude`
+   *    restava vivo nel daemon, senza padrone né dal lato client né dal lato
+   *    provider, per tutta la vita del server.
+   *
+   * Ora tornano un booleano onesto e `throwOnDrop` lo trasforma in eccezione per
+   * chi ha una rete pronta a riceverla.
+   */
+  write(id: string, data: string): void { this.throwOnDrop(this.send({ type: "write", id, data }), `write ${id}`); }
   detach(id: string): void { this.send({ type: "detach", id }); }
-  signal(id: string, sig: string): void { this.send({ type: "signal", id, signal: sig }); }
-  kill(id: string): void { this.send({ type: "kill", id }); this.handlers.delete(id); }
+  signal(id: string, sig: string): void { this.throwOnDrop(this.send({ type: "signal", id, signal: sig }), `signal ${sig} ${id}`); }
+
+  kill(id: string): void {
+    if (this.send({ type: "kill", id })) { this.handlers.delete(id); return; }
+    // Il frame non è uscito: l'handler NON si cancella ancora, o il figlio
+    // resterebbe vivo e irraggiungibile. Si riaggancia e si rimanda una volta.
+    void this.ensureConnected()
+      .then(() => { if (this.send({ type: "kill", id })) this.handlers.delete(id); })
+      .catch(() => { /* client chiuso o daemon irraggiungibile: lo raccoglie il monitor orfani */ });
+  }
+
+  private throwOnDrop(uscito: boolean, cosa: string): void {
+    if (!uscito) throw new BridgeConnectionLost(`ai-bridge: ${cosa} non è partito (socket caduto)`);
+  }
 
   async list(): Promise<SessionInfo[]> {
     const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list");

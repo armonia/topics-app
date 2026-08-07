@@ -102,6 +102,10 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     await expect(page.locator('[data-testid="message-content-assistant"]').last())
       .toContainText("Un turno di lavoro sopravvissuto");
     expect(await classiContenitore(page)).not.toContain("amber");
+
+    // E NIENTE bottone «Riprova»: il turno ha prodotto. Rimandarlo non
+    // ripara niente — ne farebbe un secondo, a pagamento, sopra uno già lì.
+    await expect(page.locator('[data-testid="message-retry"]')).toHaveCount(0);
   });
 
   test("una riga di solo errore si legge una volta sola, e porta il suo Riprova", async ({ page, request }) => {
