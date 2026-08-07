@@ -51,10 +51,19 @@ export function GuestView({ deviceName }: { deviceName: string }) {
   // Il socket è aperto e filtrato lato server: un aggiornamento su una risorsa
   // concessa arriva, tutto il resto non parte proprio. Qui basta riprendere
   // l'elenco quando qualcosa si muove.
+  //
+  // `auth-shares-changed` è quello che conta, e prima mancava: l'unico segnale
+  // era un evento di PAIRING, quindi una cosa appena condivisa — o appena tolta
+  // — restava invisibile finché non si premeva Ricarica. Sembrava latenza, era
+  // un canale che non esisteva.
   useEffect(() => {
     const onChange = () => { void carica(); };
+    window.addEventListener('topics:auth-shares-changed', onChange);
     window.addEventListener('topics:auth-pair-resolved', onChange);
-    return () => window.removeEventListener('topics:auth-pair-resolved', onChange);
+    return () => {
+      window.removeEventListener('topics:auth-shares-changed', onChange);
+      window.removeEventListener('topics:auth-pair-resolved', onChange);
+    };
   }, [carica]);
 
   const vuoto = stato === 'pronto' && tasks.length === 0 && chats.length === 0;

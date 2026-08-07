@@ -599,6 +599,26 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /**
+   * A UN dispositivo soltanto, tutte le sue socket.
+   *
+   * Non è un broadcast con un filtro: è l'opposto. Serve per dire a un ospite
+   * che le sue concessioni sono cambiate — e su una REVOCA la concessione non
+   * esiste più, quindi qualunque filtro per entità scarterebbe esattamente il
+   * frame che conta. Mirare al destinatario risolve il problema invece di
+   * aggirarlo, e fa arrivare il frame solo a chi ha motivo di riceverlo.
+   */
+  function sendToDevice(deviceId: string, message: OutboundMessage): void {
+    devValidateOutbound(message);
+    const payload = JSON.stringify(message);
+    for (const ws of wsClients) {
+      if (ws.readyState !== 1 || ws.data.deviceId !== deviceId) continue;
+      try { ws.send(payload); } catch (err) {
+        console.error(`[WS] Send error to ${ws.data.id}:`, err);
+      }
+    }
+  }
+
   function broadcastToTopic(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
@@ -1852,7 +1872,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, setGuestBroadcastFilter,
+    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,

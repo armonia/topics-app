@@ -165,6 +165,7 @@ describe('outbound registry contract', () => {
       'auth:device-revoked',
       'auth:pair-requested',
       'auth:pair-resolved',
+      'auth:shares-changed',
       'board:dispatch',
       'board:global-cap',
       'board:settings',
@@ -321,8 +322,21 @@ describe('outbound registry contract', () => {
   // schermo fermo finché non ricarica. Tutti e tre hanno mittente
   // (`server/routes/auth.ts`) e ascoltatore (`useWebSocket`) — verificato, non
   // sono tipi dichiarativi.
-  test('all 89 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(89);
+  // 89 → 90: entra `auth:shares-changed`, che chiude il buco lasciato dai tre
+  // qui sopra. Quelli coprono l'ACCESSO (chi entra); questo copre le
+  // CONCESSIONI (cosa vedi una volta dentro): finché non c'era, condividere una
+  // scheda con un ospite non gli si vedeva arrivare — l'unico segnale che
+  // `GuestView` ascoltava era un evento di pairing, quindi restava a guardare
+  // un elenco vecchio finché non premeva Ricarica. Sembrava latenza, era un
+  // canale mancante.
+  //
+  // Non porta la risorsa, ed è deliberato: sulla REVOCA la concessione non
+  // esiste più, quindi un filtro per entità scarterebbe proprio il frame che
+  // serve di più. Per lo stesso motivo viaggia MIRATO (`ctx.sendToDevice`) e
+  // non in broadcast. Mittente `server/routes/auth.ts`, ascoltatore
+  // `useWebSocket` → `GuestView`.
+  test('all 90 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(90);
   });
 });
 
