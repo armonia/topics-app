@@ -32,9 +32,20 @@ export function SessionRoot({ children }: { children: React.ReactNode }) {
   // risposta è sempre «sei dentro», e trattenere il primo paint per aspettarla
   // farebbe pagare a tutti un ritardo che serve a un caso raro. Il cancello
   // subentra se la risposta smentisce.
+  if (session.status === 'loading') return <>{children}</>;
   if (session.status === 'unpaired') return <PairingGate session={session} />;
-  if (session.status === 'paired' && session.role === 'guest') {
-    return <GuestView deviceName={session.name} />;
-  }
-  return <>{children}</>;
+
+  // Il DEFAULT è invertito rispetto a prima, ed è una differenza di sicurezza.
+  //
+  // Il codice di partenza diceva «se è `guest` mostra la vista ospite,
+  // ALTRIMENTI monta l'app»: cioè qualunque ruolo non previsto — un valore
+  // nuovo, un server più avanti del client, un campo che un giorno arriva
+  // vuoto — cadeva dalla parte PERMISSIVA per omissione. Il verso giusto è
+  // l'opposto: si monta l'app solo a chi è riconosciuto proprietario, e tutto
+  // il resto è confinato.
+  //
+  // Sbagliare da questa parte si vede e si corregge (qualcuno vede meno di
+  // quanto dovrebbe, e lo dice); sbagliare dall'altra non si vede affatto.
+  if (session.role === 'owner') return <>{children}</>;
+  return <GuestView deviceName={session.name} />;
 }
