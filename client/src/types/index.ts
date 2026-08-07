@@ -1171,22 +1171,11 @@ export interface GitCommitFile {
 }
 
 /**
- * Uno script del progetto, da qualunque manifest.
- *
- * `id` e `<manifest>#<nome>` ed e la chiave con cui si lancia: lo stesso nome
- * puo stare in due manifest (`test` in package.json e `test` nel Makefile sono
- * due comandi diversi), quindi il nome da solo non basta a identificarlo.
+ * Uno script del progetto, da qualunque manifest. La dichiarazione sta in
+ * `shared/project-scripts.ts` — la produce il server e la consuma questa UI,
+ * quindi è un tipo che attraversa il filo e ne esiste UNA copia sola.
  */
-export interface DetectedScript {
-  id: string;
-  name: string;
-  /** Il comando dichiarato nel manifest, per il tooltip. */
-  detail: string;
-  /** Cosa viene eseguito davvero. */
-  argv: string[];
-  /** Da quale file viene: `package.json`, `Makefile`, `Cargo.toml`… */
-  from: string;
-}
+export type { DetectedScript } from "../../../shared/project-scripts";
 
 /**
  * Un blocco di modifiche dentro un file, per la lista che permette di metterne
