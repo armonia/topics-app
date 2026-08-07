@@ -71,6 +71,13 @@ export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 16
         left: pos?.left ?? x,
         top: pos?.top ?? y,
         minWidth,
+        // Un tetto e lo scroll: senza, un menu più alto della finestra si
+        // incolla a `top: MARGIN` e il resto esce sotto, irraggiungibile — il
+        // clamp da solo sposta il problema, non lo toglie. Con nove voci a
+        // bersaglio touch (45px l'una) bastano 380px di finestra.
+        maxHeight: `calc(100vh - ${MARGIN * 2}px)`,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
         zIndex: Z_CONTEXT_MENU,
         // Hidden for the one pre-measure pass so it never flashes unclamped.
         visibility: pos ? 'visible' : 'hidden',
