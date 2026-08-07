@@ -2,11 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.50 — 2026-08-07
+
+### Sotto il cofano
+- Un pannello di permesso non sopravvive al turno che l'ha aperto
+- La safe-area la scavalca il composer, non tutta l'app
+- Il relay ha un dominio tuo, e la tua identità ha un nome
+
 ## 2.2.49 — 2026-08-07
 
 ### Sotto il cofano
 - Un permesso non è una domanda: gli do il suo stato
 - Non era il raggio, era la distanza: il «+» smette di abbracciare l'angolo
+- 2.2.49 — la distanza, non il raggio
 
 ## 2.2.48 — 2026-08-07
 
