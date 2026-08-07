@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -45,7 +45,7 @@ import { useMobile } from '@/hooks/useMobile';
 import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/useSidebarState';
 import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
-import { BoardStatusCounts } from './BoardStatusCounts';
+import { BoardProjectChips, BoardStatusCounts } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { SpaceGroupCard } from './SpaceGroups';
@@ -335,7 +335,7 @@ export function TopicTree({
    *  potrebbero più togliere dai Fissati da nessuna parte. */
   const [pinOnlyMenu, setPinOnlyMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
-  const { isTouch } = useMobile();
+  const { isTouch, isMobile } = useMobile();
   // La riga della board: una sola in tutta la sidebar, quindi il gesto può
   // stare qui invece che dentro un componente suo. Il suo menu ha UNA voce —
   // «Aggiungi/Rimuovi dai Fissati» — e col solo tasto destro da telefono la
@@ -928,9 +928,31 @@ export function TopicTree({
               - not selected → FOCUS the project + EXPAND it (show children).
               - already selected → a repeat click TOGGLES the accordion, so
                 clicking the current project again closes it (and re-opens it).
-              The chevron always toggles regardless of selection. */}
+              The chevron always toggles regardless of selection.
+
+              SOTTO I 768px IL PRIMO TOCCO NON PORTA VIA. Lì aprire un progetto
+              CHIUDE la sidebar (`handleProjectClick`: `setOpenPanels([paneId])`
+              + `setSidebarCollapsed(true)`), quindi il gesto per «vedere cosa
+              c'è dentro» e quello per «portami dentro» erano lo stesso tocco, e
+              vinceva sempre il secondo: la lista spariva prima che si potesse
+              leggerla. Attilio, 07/08: «con il primo click aprire l'accordion e
+              con il secondo eventualmente aprire il progetto». Il chevron resta
+              la scorciatoia per chi vuole solo aprire e chiudere. */}
           <button
             onClick={() => {
+              if (isMobile) {
+                // Primo tocco su un progetto chiuso: si apre e basta.
+                if (!isExpanded) { toggleProject(item.id); return; }
+                // Secondo tocco: si entra. «Se c'è almeno una tab, seleziono la
+                // prima» — `onTopicClick` su una chat di progetto apre la pane
+                // del progetto E ci atterra sopra (`setPendingProjectFocus`),
+                // che è esattamente la richiesta; senza chat si apre il
+                // progetto e basta, che è tutto ciò che c'è da aprire.
+                const firstChat = allChats[0];
+                if (firstChat) onTopicClick(firstChat.id);
+                else onProjectClick?.(pp);
+                return;
+              }
               if (isProjectFocused) {
                 // Already the focused project — repeat click collapses/expands.
                 toggleProject(item.id);
@@ -1411,7 +1433,17 @@ export function TopicTree({
                 uno STATO (attenzione, selezione), non a un'identità. Qui sotto
                 il colore torna, ma per dire proprio uno stato: la colonna. */}
             <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
-            <span className="text-[12px] font-medium flex-1 min-w-0 text-left truncate">{BOARD_LABEL}</span>
+            {/* NOME SOPRA, PROGETTI SOTTO — la stessa struttura a due piani di
+                una riga chat (nome + subline), con lo stesso `gap-[3px]`. I
+                progetti non stanno in linea col nome perché lì avrebbero avuto
+                i ~60px avanzati dai conteggi, cioè una pastiglia sola: sotto,
+                la larghezza è quella dell'intera riga e il raggruppamento
+                diventa leggibile. La riga resta alta uguale (ROW_H): 34px
+                reggono 12 + 3 + 10, come le sorelle reggono 13 + 3 + 11. */}
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-[3px]">
+              <span className="truncate-tight text-left text-[12px] font-medium">{BOARD_LABEL}</span>
+              <BoardProjectChips byStatus={boardByStatus} />
+            </span>
             {/* Quanti, e in quale colonna — sulla riga, senza aprire niente.
                 Sostituisce sia il badge col totale (un numero solo non dice se
                 stai aspettando tu o un agente) sia la fascia che si apriva. */}
@@ -1896,7 +1928,12 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         // row's trailing edge. Reserving it always (the old behaviour) pushed
         // the loading spinner ~28px in from the edge — the "spinner non in
         // fondo" bug. Same hover-reveal pattern the project row already uses.
-        <span className={`flex-shrink-0 items-center justify-center relative mr-1 ${isTouch ? 'w-9 h-9 md:w-6 md:h-6' : 'w-6 h-6'} ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
+        // NIENTE `mr-1`, e il box e' quello CONDIVISO. Erano i due motivi per cui
+        // «la spunta non e' allineata ai piu' che ci sono sui progetti»: 4px di
+        // margine destro qui e nessuno sulla riga di progetto mettevano i due
+        // comandi su due colonne, e 24px contro 28 li rendevano anche di due
+        // misure. Vedi ROW_ACTION_BOX.
+        <span className={`flex-shrink-0 items-center justify-center relative ${ROW_ACTION_BOX} ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
           {/* IL «...» NON C'È PIÙ (decisione di Attilio, 07/08: col long-press non
               serve). Ma toglierlo e basta lasciava la riga terminale SENZA
               nessun comando di chiusura visibile: il suo slot su touch conteneva
@@ -1908,8 +1945,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             <span className="flex items-center justify-center w-full h-full">
               <PendingActionRing
                 status={null}
-                size={14}
-                boxClassName="w-9 h-9 md:w-6 md:h-6"
+                size={ROW_ACTION_GLYPH}
+                boxClassName={ROW_ACTION_BOX}
                 onIdleClick={onCloseTerminal ? () => onCloseTerminal(s.id) : undefined}
                 idleTitle="Chiudi terminale"
                 idleAriaLabel={`Chiudi terminale ${s.name}`}
@@ -1919,7 +1956,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             <span className="flex items-center justify-center w-full h-full relative z-10">
               <PendingActionRing
                 status={pendingClose}
-                size={14}
+                size={ROW_ACTION_GLYPH}
+                boxClassName={ROW_ACTION_BOX}
                 pendingTitle="Annulla chiusura"
                 pendingAriaLabel={`Annulla chiusura ${s.name}`}
               />
@@ -1928,7 +1966,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             <span className="hidden group-hover/terminal:flex items-center justify-center w-full h-full">
               <PendingActionRing
                 status={null}
-                size={14}
+                size={ROW_ACTION_GLYPH}
+                boxClassName={ROW_ACTION_BOX}
                 // Su desktop il cancello esterno pretende già `onCloseTerminal`
                 // (il ramo touch è l'unico che apre lo slot senza); il ternario
                 // lo ridice solo perché TS non lo restringe attraverso l'`||`.
@@ -2049,7 +2088,7 @@ function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjec
         // altezza (44, larghezza 100%); in largo si recupera dal box vero, 36px
         // (`w-9`) dentro la riga da 44. Sopra i 768px la riga torna a 34 e il
         // box a 24, o l'`overflow-hidden` della card lo taglia.
-        className={`tap-expand-y flex-shrink-0 w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
+        className={`tap-expand-y flex-shrink-0 ${ROW_ACTION_BOX} flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
         title={tr('sidebar.newInProject')}
       >
         <Plus size={14} />
@@ -2101,10 +2140,11 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
   // Pending: filled check (cancels on click).
   if (status) {
     return (
-      <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center relative z-10">
+      <span className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10`}>
         <PendingActionRing
           status={status}
-          size={14}
+          size={ROW_ACTION_GLYPH}
+          boxClassName={ROW_ACTION_BOX}
           pendingTitle="Annulla archiviazione"
           pendingAriaLabel={`Annulla archiviazione progetto ${projectPath}`}
         />
@@ -2117,7 +2157,7 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onArchive(projectPath, false); }}
-        className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+        className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors`}
         title={tr('sidebar.restoreProject')}
       >
         <ArchiveRestore size={12} />
@@ -2127,10 +2167,11 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
 
   // Idle, not archived → empty "todo" circle. Click queues the soft-archive.
   return (
-    <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center relative z-10">
+    <span className={`hidden group-hover/proj:flex flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10`}>
       <PendingActionRing
         status={null}
-        size={14}
+        size={ROW_ACTION_GLYPH}
+        boxClassName={ROW_ACTION_BOX}
         onIdleClick={() => onArchive(projectPath, true)}
         idleTitle="Archivia progetto"
         idleAriaLabel={`Archivia progetto ${projectPath}`}
@@ -2261,12 +2302,14 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         // accanto (`isTouch || pendingClose ? 'flex' : …`): senza hover la X
         // restava `hidden` per sempre e un browser aperto dalla sidebar non si
         // chiudeva più.
-        <span className={`flex-shrink-0 ${isTouch ? 'w-9 h-9 md:w-6 md:h-6' : 'w-6 h-6'} items-center justify-center mr-1 relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
+        // Box condiviso e nessun `mr-1`: vedi la riga del terminale qui sopra —
+        // le due sorelle stavano 4px piu' a sinistra di ogni altro comando.
+        <span className={`flex-shrink-0 ${ROW_ACTION_BOX} items-center justify-center relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
           {pendingClose ? (
             <PendingActionRing
               status={pendingClose}
-              size={14}
-              boxClassName="w-9 h-9 md:w-6 md:h-6"
+              size={ROW_ACTION_GLYPH}
+              boxClassName={ROW_ACTION_BOX}
               pendingTitle="Annulla chiusura"
               pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
             />
@@ -2274,10 +2317,11 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
             <span className={`items-center justify-center w-full h-full ${isTouch ? 'flex' : 'hidden group-hover:flex'}`}>
               <PendingActionRing
                 status={null}
-                size={14}
-                // Il BOX del bottone viene dalle classi (36px sotto i 768px), il
-                // GLIFO resta 14: il bersaglio cresce, il disegno no.
-                boxClassName="w-9 h-9 md:w-6 md:h-6"
+                size={ROW_ACTION_GLYPH}
+                // Il BOX del bottone viene dalle classi (36px col dito, 28 col
+                // mouse); il GLIFO resta piccolo: il bersaglio cresce, il
+                // disegno no.
+                boxClassName={ROW_ACTION_BOX}
                 onIdleClick={() => onCloseBrowser(bc.id)}
                 idleTitle="Chiudi browser"
                 idleAriaLabel={`Chiudi browser ${itemName}`}

@@ -101,14 +101,33 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, placement = 'bottom' }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
   /** Apre Impostazioni → Dispositivi. La riga dell'identità è il punto da cui si
    *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
   onOpenDevices?: () => void;
+  /**
+   * DOVE STA LA BARRA NELLA COLONNA — e sotto i 768px sta in CIMA.
+   *
+   * Attilio, 07/08: «da PWA si invertisse la status bar: la possiamo mettere in
+   * alto, mentre il cerca e altre cose utili possiamo metterle come tasti in
+   * fondo alla sidebar, così sono più utili da raggiungere». È la geometria del
+   * telefono: il fondo dello schermo è dove arriva il pollice, e lì c'erano
+   * numeri da GUARDARE (memoria, CPU, fps, versione) mentre i due comandi da
+   * TOCCARE stavano in cima, all'altezza in cui bisogna cambiare presa. I due
+   * si scambiano di posto.
+   *
+   * Cambia tre cose e nient'altro: il filo passa da sopra a sotto, la
+   * safe-area dell'home indicator non serve più (quella fascia adesso la
+   * dipinge la barra dei comandi in fondo) e la riga dell'identità segue la
+   * barra invece di precederla — sotto l'header il suo `border-t` avrebbe
+   * raddoppiato il filo che l'header porta già.
+   */
+  placement?: 'top' | 'bottom';
 } = {}) {
+  const onTop = placement === 'top';
   // Subscribed HERE, in the leaf that shows the number, not up in App.
   // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
   // while App held it a single `terminal:activity` frame — several a second
@@ -358,7 +377,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           nessuno — dal telefono l'unico segnale era «Reconnecting…» per sempre.
           Sul computer non compare: li' l'identita' e' il fatto di essere seduti
           davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
-      <DeviceIdentityRow onOpenDevices={onOpenDevices} />
+      {!onTop && <DeviceIdentityRow onOpenDevices={onOpenDevices} />}
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -386,7 +405,18 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           bersagli fra 24 e 28px di altezza, ed è il punto della sidebar dove il
           pollice arriva peggio. Sul desktop restano 28, dove il mouse è preciso
           e lo spazio verticale vale. */}
-      <div data-testid="sidebar-status-bar" className="flex items-center gap-2 min-h-7 max-md:min-h-11 border-t border-app-border flex-shrink-0" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <div
+        data-testid="sidebar-status-bar"
+        data-placement={placement}
+        className={`flex items-center gap-2 min-h-7 max-md:min-h-11 flex-shrink-0 ${
+          onTop ? 'border-b border-app-border' : 'border-t border-app-border'
+        }`}
+        style={{
+          paddingInline: ROW_INSET,
+          // La fascia dell'home indicator la dipinge chi sta DAVVERO in fondo.
+          paddingBottom: onTop ? undefined : 'env(safe-area-inset-bottom, 0px)',
+        }}
+      >
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -603,6 +633,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           </button>
         </span>
       </div>
+      {onTop && <DeviceIdentityRow onOpenDevices={onOpenDevices} placement="top" />}
 
       {/* eslint-disable-next-line react-hooks/refs -- portal is positioned against the status button's live geometry; the rect must be read at render time and re-renders alongside this component so the placement stays in sync */}
       {showStatusDropdown && statusBtnRef.current && createPortal(
@@ -667,7 +698,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
  * aspetta una conferma. Sul computer dice «Questo computer», che e' anche il
  * modo di dire che qui dentro si e' per trasporto e non per sessione.
  */
-function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
+function DeviceIdentityRow({ onOpenDevices, placement = 'bottom' }: { onOpenDevices?: () => void; placement?: 'top' | 'bottom' }) {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
   const [altri, setAltri] = useState<{ connessi: number; totali: number } | null>(null);
   useEffect(() => subscribeSession(setSession), []);
@@ -715,7 +746,10 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       data-testid="device-identity"
       onClick={onOpenDevices}
       disabled={!onOpenDevices}
-      className="flex w-full items-center gap-1.5 border-t border-app-border bg-app-bg text-left text-[11px] text-app-text-secondary min-h-6 hover:bg-app-hover disabled:hover:bg-transparent"
+      // Il filo sta dalla parte da cui la riga si stacca dal resto: sotto la
+      // barra quando la barra è in cima (o si sommerebbe a quello dell'header),
+      // sopra quando la barra è in fondo.
+      className={`flex w-full items-center gap-1.5 ${placement === 'top' ? 'border-b' : 'border-t'} border-app-border bg-app-bg text-left text-[11px] text-app-text-secondary min-h-6 max-md:min-h-9 hover:bg-app-hover disabled:hover:bg-transparent`}
       style={{ paddingInline: ROW_INSET }}
       title="Apri l\u2019elenco dei dispositivi autorizzati"
     >

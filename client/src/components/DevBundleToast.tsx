@@ -1,25 +1,26 @@
 /**
- * DevBundleToast — "a newer build is available" prompt.
+ * DevBundleToast — «il bundle servito è cambiato».
  *
- * The manual-reload replacement for devBundleReload's old silent auto-reload
- * (see lib/devBundleReload.ts, "gestiamo meglio l'hot-reload" 2026-07-20). It
- * listens for a single window event, `BUNDLE_STALE_EVENT`, fired by BOTH the
- * dev rev-mismatch check AND the chunk-load error guard, and renders a small
- * actionable card. The window is NEVER reloaded without the user clicking.
+ * Il rimpiazzo MANUALE del vecchio auto-reload silenzioso di devBundleReload
+ * (vedi lib/devBundleReload.ts, «gestiamo meglio l'hot-reload» 2026-07-20).
+ * Ascolta un evento solo, `BUNDLE_STALE_EVENT`, emesso SIA dal controllo di
+ * revisione in sviluppo SIA dalla guardia sugli errori di chunk, e mostra un
+ * avviso azionabile. La finestra non si ricarica MAI senza un clic.
  *
- * Placement mirrors UpdaterToast: anchored just above the sidebar version chip
- * ([data-version-anchor]) when present, bottom-right corner otherwise. Kept a
- * separate component from UpdaterToast on purpose — that one drives the NATIVE
- * app updater (download/restart a signed release); this one is the in-page
- * bundle refresh. Different lifecycles, same visual language.
+ * Resta un componente separato da UpdaterToast di proposito: quello guida
+ * l'aggiornamento NATIVO (scarica e riavvia una release firmata), questo è il
+ * ricarico in pagina di un bundle ricostruito. Cicli di vita diversi, stesso
+ * linguaggio visivo — che adesso è letteralmente lo stesso componente,
+ * `SidebarUpdateBanner`, e sono i suoi due `kind` a dire quale dei due mondi
+ * sta parlando: qui «Aggiornamento automatico», là «Nuova versione».
+ *
+ * La collocazione (dentro la sidebar, a tutta larghezza) e il perché del
+ * cambio stanno in `SidebarUpdateBanner`.
  */
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { RefreshCw } from 'lucide-react';
 import { BUNDLE_STALE_EVENT, reloadForNewBundle } from '@/lib/devBundleReload';
-import { Z_POPOVER } from '@/lib/popoverStyles';
-
-const VERSION_ANCHOR_SELECTOR = '[data-version-anchor]';
+import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
 export function DevBundleToast() {
   const [stale, setStale] = useState(false);
@@ -36,76 +37,27 @@ export function DevBundleToast() {
     return () => window.removeEventListener(BUNDLE_STALE_EVENT, onStale);
   }, []);
 
-  // Re-anchor on resize while visible (the anchor rect is read at render).
-  const [, forceReposition] = useState(0);
-  useEffect(() => {
-    if (!stale || dismissed) return;
-    const onResize = () => forceReposition((n) => n + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [stale, dismissed]);
-
   if (!stale || dismissed) return null;
 
-  const card = (
-    <div
-      className="rounded-lg border shadow-lg p-3 flex items-start gap-2 bg-app-hover border-app-border-light text-app-text"
-      data-testid="bundle-stale-toast"
-    >
-      <RefreshCw size={14} className="mt-0.5 text-primary" />
-      <div className="flex-1 text-[12px]">
-        <div className="font-medium">Nuova versione disponibile</div>
-        <button
-          onClick={() => reloadForNewBundle()}
-          className="mt-1 text-primary underline underline-offset-2 hover:no-underline"
-          data-testid="bundle-stale-reload"
-        >
-          Ricarica
-        </button>
-      </div>
-      <button
-        onClick={() => setDismissed(true)}
-        className="text-app-text-muted hover:text-app-text leading-none"
-        aria-label="Ignora"
-      >
-        ×
-      </button>
-    </div>
-  );
-
-  // Anchor above the version chip when present; clamp so the card never lands
-  // off-screen for a collapsed sidebar (narrow anchor → corner fallback), same
-  // guards as UpdaterToast (BRW-REL-03).
-  const anchor = document.querySelector<HTMLElement>(VERSION_ANCHOR_SELECTOR);
-  const anchorRect = anchor?.getBoundingClientRect();
-  const usableAnchor = anchorRect && anchorRect.width >= 40 ? anchorRect : null;
-  if (usableAnchor) {
-    const TOAST_MAX_WIDTH = 320;
-    const right = Math.max(
-      8,
-      Math.min(window.innerWidth - usableAnchor.right, window.innerWidth - TOAST_MAX_WIDTH - 8),
-    );
-    return createPortal(
-      <div
-        role="status"
-        aria-live="polite"
-        className="max-w-xs"
-        style={{
-          position: 'fixed',
-          bottom: window.innerHeight - usableAnchor.top + 6,
-          right,
-          zIndex: Z_POPOVER,
-        }}
-      >
-        {card}
-      </div>,
-      document.body,
-    );
-  }
-
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-xs" role="status" aria-live="polite">
-      {card}
-    </div>
+    <SidebarUpdateBanner
+      kind="build"
+      testId="bundle-stale-toast"
+      icon={<RefreshCw size={14} className="text-primary" />}
+      // Il titolo dice il FATTO, l'occhiello dice il genere. Prima entrambi i
+      // banner scrivevano «Nuova versione disponibile», quindi la frase non
+      // distingueva una build di lavoro da una release firmata — che è la
+      // differenza fra «ricarica quando ti va» e «riavvia l'app».
+      title="Build più recente pronta"
+      onDismiss={() => setDismissed(true)}
+    >
+      <button
+        onClick={() => reloadForNewBundle()}
+        className="mt-1 text-primary underline underline-offset-2 hover:no-underline"
+        data-testid="bundle-stale-reload"
+      >
+        Ricarica
+      </button>
+    </SidebarUpdateBanner>
   );
 }

@@ -19,18 +19,18 @@
  * The toast is rendered at the App root and consumes the host updater via
  * `getUpdaterApi()` (lib/updater.ts) — no React state plumbing needed beyond
  * the listener.
+ *
+ * DOVE ATTERRA: nello slot dentro la sidebar, a tutta la sua larghezza — vedi
+ * `SidebarUpdateBanner`, che spiega anche perché non è più un cartellino
+ * ancorato al numero di versione. Ed è lo stesso componente che usa
+ * `DevBundleToast`: i due avvisi si distinguono per l'OCCHIELLO («Nuova
+ * versione» qui, «Aggiornamento automatico» là) invece di ripetere la stessa
+ * frase con due lifecycle diversi dietro.
  */
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
-import { Z_POPOVER } from '@/lib/popoverStyles';
-
-// The version chip in the sidebar status bar tags itself with this attribute so
-// the toast can sit directly ABOVE it ("sopra la versione") instead of a
-// bottom-right corner that hides behind the panes. Falls back to the corner when
-// the chip isn't in the DOM (collapsed sidebar / web without a status bar).
-const VERSION_ANCHOR_SELECTOR = '[data-version-anchor]';
+import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
 export function UpdaterToast() {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
@@ -89,127 +89,71 @@ export function UpdaterToast() {
     };
   }, []);
 
-  // Re-anchor the toast when the window resizes while it's visible — the
-  // anchor's live geometry (read at render, below) would otherwise drift.
-  const [, forceReposition] = useState(0);
-  useEffect(() => {
-    if (status.state === 'idle') return;
-    const onResize = () => forceReposition((n) => n + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [status.state]);
+  // (Qui stava un listener di `resize` che ri-renderizzava il toast per
+  // ricalcolare la sua posizione ancorata. Il banner adesso sta NEL FLUSSO
+  // della sidebar: la larghezza gliela dà il layout, e non c'è nessuna
+  // geometria da rileggere a mano.)
 
   if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen })) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
 
-  const card = (
-      <div className={`rounded-lg border shadow-lg p-3 flex items-start gap-2 ${
-        isReady ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300' :
-        isError ? 'bg-red-500/10 border-red-500/40 text-red-700 dark:text-red-300' :
-        'bg-app-hover border-app-border-light text-app-text'
-      }`}>
-        {status.state === 'checking' && <RefreshCw size={14} className="mt-0.5 animate-spin" />}
-        {(status.state === 'update-available' || status.state === 'downloading') && <Download size={14} className="mt-0.5" />}
-        {isReady && <Check size={14} className="mt-0.5" />}
-        {isError && <AlertCircle size={14} className="mt-0.5" />}
-        <div className="flex-1 text-[12px]">
-          {status.state === 'checking' && 'Checking for updates…'}
-          {status.state === 'update-available' && (
-            <>
-              <div className="font-medium">An update is available</div>
-              <button
-                onClick={async () => {
-                  const api = getUpdaterApi();
-                  if (api?.downloadUpdate) {
-                    await api.downloadUpdate();
-                  } else {
-                    // Fallback for older preloads that don't expose downloadUpdate:
-                    // re-running checkForUpdates with the legacy autoDownload=true
-                    // would have triggered a fetch. With opt-in flow this is just
-                    // a no-op safety net.
-                    await api?.checkForUpdates();
-                  }
-                }}
-                className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
-              >
-                Download update
-              </button>
-            </>
-          )}
-          {status.state === 'downloading' && (
-            <>Downloading update{status.progress !== undefined ? `… ${Math.round(status.progress)}%` : '…'}</>
-          )}
-          {isReady && (
-            <>
-              <div className="font-medium">A new version of Topics is ready</div>
-              <button
-                onClick={async () => {
-                  const api = getUpdaterApi();
-                  if (api) await api.quitAndInstall();
-                }}
-                className="mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"
-              >
-                Restart to Update
-              </button>
-            </>
-          )}
-          {isError && <span>{status.error || 'Update failed'}</span>}
-        </div>
-        {/* Sticky on ready: no close button. Otherwise allow dismiss. */}
-        {!isReady && (
-          <button
-            onClick={() => setDismissed(true)}
-            className="text-app-text-muted hover:text-app-text leading-none"
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        )}
-      </div>
-  );
-
-  // Anchor above the version chip when it's in the DOM ("sopra la versione");
-  // otherwise fall back to the bottom-right corner. Reading the anchor's rect at
-  // render mirrors the status dropdown in SidebarStatusBar.
-  //
-  // Two viewport guards (BRW-REL-03 — the anchored math once put the toast at
-  // x=−80, an invisible error): a COLLAPSED sidebar keeps the chip in the DOM
-  // as a narrow icon in the left rail, where right-anchoring pushes the toast
-  // off the LEFT edge → treat a narrow anchor as "no anchor" (corner fallback);
-  // and clamp `right` so the toast's worst-case width (max-w-xs = 320px) stays
-  // inside the viewport even for anchors near the left edge.
-  const anchor = document.querySelector<HTMLElement>(VERSION_ANCHOR_SELECTOR);
-  const anchorRect = anchor?.getBoundingClientRect();
-  const usableAnchor = anchorRect && anchorRect.width >= 40 ? anchorRect : null;
-  if (usableAnchor) {
-    const TOAST_MAX_WIDTH = 320; // Tailwind max-w-xs
-    const right = Math.max(
-      8,
-      Math.min(window.innerWidth - usableAnchor.right, window.innerWidth - TOAST_MAX_WIDTH - 8),
-    );
-    return createPortal(
-      <div
-        role="status"
-        aria-live="polite"
-        className="max-w-xs"
-        style={{
-          position: 'fixed',
-          bottom: window.innerHeight - usableAnchor.top + 6,
-          right,
-          zIndex: Z_POPOVER,
-        }}
-      >
-        {card}
-      </div>,
-      document.body,
-    );
-  }
+  // Il TITOLO in una riga, e il numero di versione dentro quando c'è: è
+  // l'informazione che distingue questo avviso dall'altro («Aggiornamento
+  // automatico», il bundle ricostruito) e prima non compariva da nessuna parte.
+  const title =
+    status.state === 'checking' ? 'Controllo in corso…'
+    : status.state === 'update-available' ? (status.version ? `v${status.version} disponibile` : 'Disponibile')
+    : status.state === 'downloading' ? `Scarico${status.progress !== undefined ? ` ${Math.round(status.progress)}%` : '…'}`
+    : isReady ? 'Pronta da installare'
+    : (status.error || 'Aggiornamento fallito');
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-xs" role="status" aria-live="polite">
-      {card}
-    </div>
+    <SidebarUpdateBanner
+      kind="release"
+      testId="updater-toast"
+      tone={isReady ? 'ready' : isError ? 'error' : 'neutral'}
+      icon={
+        status.state === 'checking' ? <RefreshCw size={14} className="animate-spin" />
+        : (status.state === 'update-available' || status.state === 'downloading') ? <Download size={14} />
+        : isReady ? <Check size={14} />
+        : isError ? <AlertCircle size={14} /> : null
+      }
+      title={title}
+      // Sticky on ready: no close button. Otherwise allow dismiss.
+      onDismiss={isReady ? undefined : () => setDismissed(true)}
+    >
+      {status.state === 'update-available' && (
+        <button
+          onClick={async () => {
+            const api = getUpdaterApi();
+            if (api?.downloadUpdate) {
+              await api.downloadUpdate();
+            } else {
+              // Fallback for older preloads that don't expose downloadUpdate:
+              // re-running checkForUpdates with the legacy autoDownload=true
+              // would have triggered a fetch. With opt-in flow this is just
+              // a no-op safety net.
+              await api?.checkForUpdates();
+            }
+          }}
+          className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
+        >
+          Scarica
+        </button>
+      )}
+      {isReady && (
+        <button
+          onClick={async () => {
+            const api = getUpdaterApi();
+            if (api) await api.quitAndInstall();
+          }}
+          className="mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"
+        >
+          Riavvia e installa
+        </button>
+      )}
+    </SidebarUpdateBanner>
   );
 }
