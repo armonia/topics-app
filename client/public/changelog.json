@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.44",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche la spunta della tab entra nella famiglia, e la colonna capovolta ha la sua prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay è vivo su Cloudflare, e non può leggere quello che inoltra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sei correzioni sul giro di ieri: il cassetto si ricorda dov'era, il fantasma segue il dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fantasma del trascinamento non è una tessera della griglia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cronologia e remotes escono dal pannello: il piede non esiste piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stato e comandi in UNA riga di testa, e i progetti sulla board tornano a vedersi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.43",
     "date": "2026-08-07",
     "sections": {
@@ -230,6 +271,11 @@
         },
         {
           "it": "Una riga di progetto si trova per ruolo, non per il testo che ci passa sopra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.43 — la sidebar per il pollice",
           "en": "",
           "scope": null
         }
