@@ -160,11 +160,9 @@ test.describe("cronologia dei commit", () => {
     // E ogni pezzo comincia dove finisce quello prima, senza strisce vuote.
     expect(chiuse.remotes!.top).toBeCloseTo(chiuse.scroller!.bot, 0);
     expect(chiuse.cronologia!.top).toBeCloseTo(chiuse.remotes!.bot, 0);
-    // L'ultimo pezzo NON si appoggia al bordo: 4px di rientro sotto il piede.
-    // Prima era a filo, e l'intestazione della cronologia aveva 4px fra il suo
-    // testo e il fondo del pannello contro gli 8px di ogni altra riga —
-    // si leggeva come una riga schiacciata sul fondo.
-    expect(chiuse.pannello!.bot - chiuse.cronologia!.bot).toBeCloseTo(4, 0);
+    // L'ultima sezione arriva a filo del pannello: l'aria sotto il suo testo
+    // sta DENTRO la riga (`py-2`), non in un rientro del contenitore.
+    expect(chiuse.cronologia!.bot).toBeCloseTo(chiuse.pannello!.bot, 0);
 
     // ── Cronologia APERTA: scorre dentro di se', non sfonda il pannello ──────
     await storia.getByRole("button", { name: /Cronologia/ }).click();
@@ -212,17 +210,36 @@ test.describe("cronologia dei commit", () => {
       const b = (el: Element | null) => el ? { top: +el.getBoundingClientRect().top.toFixed(1), bot: +el.getBoundingClientRect().bottom.toFixed(1) } : null;
       return { pannello: b(root), cronologia: b(root.querySelector('[data-testid="commit-history"]')) };
     });
-    expect(g.pannello!.bot - g.cronologia!.bot).toBeCloseTo(4, 0);
+    expect(g.cronologia!.bot).toBeCloseTo(g.pannello!.bot, 0);
 
-    // E il TESTO della cronologia respira come le sue sorelle: 8px sotto, non
-    // 4. Misurato prima del fix: bottone a 763, pannello a 767.
-    const aria = await pannello.evaluate((root: HTMLElement) => {
+    // Il RITMO del piede: la cronologia respira come la riga sopra, e in modo
+    // SIMMETRICO. E' l'invariante che serviva: la prima correzione aggiunse
+    // aria solo SOTTO il testo (8px) e lascio' 4px sopra — mezzo problema
+    // risolto, e la riga restava piu' bassa di 9px della sua vicina.
+    const ritmo = await pannello.evaluate((root: HTMLElement) => {
+      const misura = (riga: Element | null, testo: Element | null) => {
+        if (!riga || !testo) return null;
+        const r = riga.getBoundingClientRect(), t = testo.getBoundingClientRect();
+        return { sopra: +(t.top - r.top).toFixed(1), sotto: +(r.bottom - t.bottom).toFixed(1) };
+      };
       const cron = root.querySelector('[data-testid="commit-history"]');
-      const bottone = cron?.querySelector("button");
-      if (!bottone) return null;
-      return +(root.getBoundingClientRect().bottom - bottone.getBoundingClientRect().bottom).toFixed(1);
+      const addRemote = [...root.querySelectorAll("button")]
+        .find(b => /^Add remote|^Remotes/.test(b.textContent || "")) ?? null;
+      return {
+        cron: misura(cron?.firstElementChild ?? null, cron?.querySelector("button") ?? null),
+        vicina: misura(addRemote?.closest("div") ?? null, addRemote),
+        fondo: cron?.querySelector("button")
+          ? +(root.getBoundingClientRect().bottom
+              - cron.querySelector("button")!.getBoundingClientRect().bottom).toFixed(1)
+          : null,
+      };
     });
-    expect(aria).toBeCloseTo(8, 0);
+    // Simmetrica: tanta aria sopra quanta sotto.
+    expect(ritmo.cron!.sopra).toBeCloseTo(ritmo.cron!.sotto, 0);
+    // E lo stesso passo della riga che le sta sopra (±1px per il bordo).
+    expect(Math.abs(ritmo.cron!.sopra - ritmo.vicina!.sopra)).toBeLessThanOrEqual(1.5);
+    // Che e' anche l'aria fino al fondo del pannello.
+    expect(ritmo.fondo).toBeCloseTo(8, 0);
 
     // E l'icona di git non e' colorata: sta accanto alla pastiglia del
     // conteggio e alle frecce ahead/behind, che il colore ce l'hanno per dire

@@ -1183,13 +1183,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 appoggiava a quel messaggio e tutto lo spazio restante finiva
                 SOTTO la cronologia — cioè lo stesso difetto di prima, ma nello
                 stato opposto. Col `flex-1` presente `mt-auto` non fa nulla. */}
-            {/* `pb-1` perche' questo e' l'ULTIMO pezzo del pannello: senza,
-                l'intestazione della cronologia aveva 4px fra il testo e il
-                bordo inferiore (misurato: bottone a 763, pannello a 767) contro
-                gli 8px di ogni altra riga del piede, e si leggeva come una riga
-                schiacciata sul fondo. Con 4px di rientro l'ultima riga respira
-                come le sue sorelle, e come il bordo superiore del pannello. */}
-            <div className="flex flex-col min-h-0 mt-auto pb-1">
+            {/* Nessun rientro qui: l'aria sotto l'ultima riga viene dal `py-2`
+                della riga stessa, come l'aria SOPRA. Il rientro sul
+                contenitore dava 8px sotto e 4px sopra — sistemava meta'
+                problema e lasciava la riga asimmetrica. */}
+            <div className="flex flex-col min-h-0 mt-auto">
               {remotes.length === 0 && !showAddRemote ? (
                 <div className="px-3 py-2 border-t border-app-border">
                   <button
@@ -1990,7 +1988,9 @@ function RemotesSection({
 
   return (
     <div className="border-t border-app-border">
-      <div className="flex items-center justify-between px-3 py-1 group/hdr">
+      {/* Stesso ritmo della cronologia e del segnaposto «Add remote»: un piede
+          con tre righe a due passi diversi si legge come un errore. */}
+      <div className="flex items-center justify-between px-3 py-2 group/hdr">
         <button
           onClick={onToggle}
           className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
