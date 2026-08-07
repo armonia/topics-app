@@ -649,6 +649,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         }
         return wire;
       };
+      // Dichiarato FUORI dal try apposta: anche il `catch` in fondo deve poterlo
+      // chiudere. Chiuso non era, e il conto lo pagava un turno già finito —
+      // un guasto sincrono nel montaggio finalizzava la riga, ma i timer del
+      // watchdog restavano armati e due minuti dopo `handleGraceExpiry` la
+      // riscriveva sopra con «Response timed out», cancellando il vero motivo.
+      let streamState: "streaming" | "soft-timed-out" | "finalized" = "streaming";
       if (useWS) {
         // === WS-based chat: sends via chat.send, receives tool + text events ===
         try {
@@ -892,7 +898,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const STREAM_TIMEOUT_MS = 60_000;        // 1 min soft
           const STREAM_GRACE_MS = 60_000;          // 1 min grace
           const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
-          let streamState: "streaming" | "soft-timed-out" | "finalized" = "streaming";
           let softTimer: ReturnType<typeof setTimeout> | null = null;
           let graceTimer: ReturnType<typeof setTimeout> | null = null;
           let hardTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1237,11 +1242,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             if (reason === "error" && errorMsg) {
               // Il verdetto entra nei BLOCCHI, che sono ciò che il client rende.
-              // Il testo in `fullContent` resta solo per la riga altrimenti
-              // vuota: è l'unica colonna che la ricerca ⌘K interroga, e i client
-              // vecchi (senza il blocco `error`) leggono ancora da lì.
+              // Il testo in `fullContent` NON si decide qui: su una riadozione
+              // `fullContent` è ancora vuoto (il replay è muto) e lo diventa solo
+              // dopo la rifusione dello snapshot, più in basso. Deciderlo adesso
+              // vorrebbe dire scrivere il cartello su un turno che c'è.
               blocks.push({ kind: "error", text: errorMsg });
-              if (!fullContent.trim()) fullContent = `⚠️ ${errorMsg}`;
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               }
@@ -1392,6 +1397,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (merged.nothingNew) {
                 console.log(`[chat-reattach] ${sessionKey}: il riattacco non ha aggiunto niente — la riga resta com'era`);
               }
+            }
+
+            // Il cartello nel TESTO si decide qui, non prima: su una riadozione
+            // `fullContent` diventa vero solo dopo la rifusione appena sopra, e
+            // deciderlo a monte significava scriverlo su un turno che c'era.
+            // Serve solo alla riga altrimenti vuota — `content` è l'unica colonna
+            // che la ricerca ⌘K interroga, e i client vecchi (senza il blocco
+            // `error`) leggono ancora da lì. Chi ha del testo se lo tiene: il
+            // verdetto lo porta già il blocco.
+            if (reason === "error" && errorMsg && !fullContent.trim()) {
+              fullContent = `⚠️ ${errorMsg}`;
             }
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
@@ -2360,6 +2376,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             endStream(sessionKey);
+            // Come il gemello asincrono: il turno è chiuso, e i timer del
+            // watchdog sono ancora armati.
+            streamState = "finalized";
             const errorMsg = closeTurnWithFailure(err, partialMsg.id);
             await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
             await writeSSE("[DONE]");
