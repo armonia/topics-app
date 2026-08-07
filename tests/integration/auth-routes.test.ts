@@ -337,3 +337,73 @@ describe("rotte auth · condivisione", () => {
     expect(await r!.json()).toEqual({ tasks: [], topics: [] });
   });
 });
+
+describe("rotte auth · la rubrica dei destinatari", () => {
+  test("un ospite compare fra i soggetti; un proprietario no", async () => {
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    for (const role of ["owner", "guest"] as const) {
+      const r = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+      await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: r.requestId, role } });
+    }
+    const b = await (await chiama(router, "/api/auth/subjects"))!.json() as {
+      subjects: Array<{ subjectType: string; name: string }>;
+    };
+    // Condividere con chi vede già tutto non vuol dire niente, quindi il
+    // proprietario non è un destinatario possibile.
+    expect(b.subjects).toHaveLength(1);
+    expect(b.subjects[0].subjectType).toBe("device");
+  });
+
+  test("su uno schema senza la 084 la rubrica non esplode: resta ai dispositivi", async () => {
+    // Il server deve degradare su un database più vecchio, non cadere.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const r = await chiama(router, "/api/auth/subjects");
+    expect(r?.status).toBe(200);
+    expect((await r!.json() as { subjects: unknown[] }).subjects).toEqual([]);
+  });
+});
+
+describe("rotte auth · condividere con un soggetto che non è un dispositivo", () => {
+  test("`deviceId` resta accettato come alias legacy", async () => {
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
+    // La forma vecchia continua a funzionare: un client non aggiornato non
+    // deve rompersi il giorno del rilascio.
+    const r = await chiama(router, "/api/auth/shares", "POST", {
+      body: { resourceType: "task", resourceId: "t1", deviceId: id },
+    });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT subject_type FROM grants").get()).toEqual({ subject_type: "device" });
+  });
+
+  test("un tipo di soggetto inventato è rifiutato", async () => {
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    const r = await chiama(router, "/api/auth/shares", "POST", {
+      body: { resourceType: "task", resourceId: "t1", subjectType: "team", subjectId: "x" },
+    });
+    expect(r?.status).toBe(400);
+  });
+
+  test("una persona su uno schema senza la 084 è rifiutata con una ragione", async () => {
+    // Il caso peggiore sarebbe il silenzio: `INSERT OR IGNORE` inghiottirebbe
+    // la violazione di CHECK e chi condivide resterebbe convinto di aver
+    // condiviso.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    const r = await chiama(router, "/api/auth/shares", "POST", {
+      body: { resourceType: "task", resourceId: "t1", subjectType: "person", subjectId: "p1" },
+    });
+    expect(r?.status).toBe(400);
+    expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 0 });
+  });
+});

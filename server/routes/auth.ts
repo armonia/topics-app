@@ -7,7 +7,9 @@ import {
 } from "../lib/device-auth";
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isResourceType } from "../lib/grants";
-import { grantedByType, subjectsOf, putGrant, dropGrant, deviceP } from "../lib/grants-query";
+import {
+  grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
+} from "../lib/grants-query";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -114,6 +116,75 @@ export function deviceNameFromUserAgent(ua: string | null): string {
   ];
   for (const [re, label] of m) if (re.test(ua)) return label;
   return "Dispositivo sconosciuto";
+}
+
+function isSubjectKind(v: string): v is SubjectKind {
+  return v === "device" || v === "person" || v === "org";
+}
+
+/**
+ * I DISPOSITIVI da avvisare quando cambia una concessione verso un soggetto.
+ *
+ * Non è lo stesso del soggetto: condividere con una PERSONA deve svegliare
+ * tutti i suoi dispositivi, e condividere con un'organizzazione tutti quelli
+ * dei suoi membri. Mandare al solo soggetto funzionerebbe unicamente nel caso
+ * degenere in cui il soggetto È un dispositivo — cioè quello che stiamo
+ * smettendo di dare per scontato.
+ */
+function dispositiviDelSoggetto(
+  db: { query: (sql: string) => { all: (...a: unknown[]) => unknown[] } },
+  kind: SubjectKind,
+  id: string,
+): string[] {
+  try {
+    if (kind === "device") return [id];
+    if (kind === "person") {
+      return (db.query("SELECT id FROM devices WHERE person_id = ? AND revoked_at IS NULL").all(id) as Array<{ id: string }>)
+        .map((r) => r.id);
+    }
+    return (db.query(`
+      SELECT d.id FROM devices d
+        JOIN org_members om ON om.person_id = d.person_id
+       WHERE om.org_id = ? AND om.revoked_at IS NULL AND om.local_blocked_at IS NULL
+         AND d.revoked_at IS NULL`).all(id) as Array<{ id: string }>).map((r) => r.id);
+  } catch {
+    // Schema più vecchio della 084: resta il solo caso che esisteva.
+    return kind === "device" ? [id] : [];
+  }
+}
+
+/** Perché questo soggetto NON può ricevere una condivisione, se non può. */
+function motivoRifiutoSoggetto(
+  db: { query: (sql: string) => { get: (...a: unknown[]) => unknown } },
+  kind: SubjectKind,
+  id: string,
+): { msg: string; status: number } | null {
+  if (kind === "device") {
+    const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(id) as { role?: string } | undefined;
+    if (!d) return { msg: "dispositivo sconosciuto o revocato", status: 404 };
+    if (d.role !== "guest") return { msg: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite", status: 400 };
+    return null;
+  }
+  if (kind === "person") {
+    try {
+      const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
+      if (!p) return { msg: "persona sconosciuta", status: 404 };
+      if (p.revoked_at !== null) return { msg: "quella persona è stata revocata", status: 400 };
+      const owner = db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(id);
+      if (owner) return { msg: "quella persona vede già tutto: è una proprietaria, non un'ospite", status: 400 };
+      return null;
+    } catch {
+      return { msg: "le persone non sono ancora disponibili su questo database", status: 400 };
+    }
+  }
+  try {
+    const o = db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
+    if (!o) return { msg: "organizzazione sconosciuta", status: 404 };
+    if (o.revoked_at !== null) return { msg: "quell'organizzazione è stata revocata", status: 400 };
+    return null;
+  } catch {
+    return { msg: "le organizzazioni non sono ancora disponibili su questo database", status: 400 };
+  }
 }
 
 export function createAuthRouter(ctx: AppContext): RouteHandler {
@@ -312,6 +383,67 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     // Vive qui e non in `routes/tasks.ts` perché è una decisione sui DISPOSITIVI:
     // chi può vedere cosa. Il filtro che la fa valere sta invece nel router dei
     // task, in un punto solo prima dello smistamento.
+    // ── La RUBRICA dei destinatari.
+    //
+    // Esiste perché finora non esisteva: al suo posto si usava l'elenco dei
+    // dispositivi filtrato per ruolo, il che rendeva letteralmente impossibile
+    // condividere con qualcuno che non avesse ancora appaiato un telefono.
+    // «Invitare» significava aspettare che il suo dispositivo comparisse, cioè
+    // l'ordine rovesciato rispetto a come lo si racconta.
+    if (method === "GET" && pathname === "/api/auth/subjects") {
+      const soggetti: Array<{ subjectType: SubjectKind; subjectId: string; name: string; devices: number }> = [];
+
+      // Quali dispositivi ospiti hanno già una PERSONA. Quelli non si offrono
+      // come destinatari: la persona è il bersaglio migliore perché copre tutti
+      // i suoi dispositivi, e offrirli entrambi mostrerebbe lo stesso umano due
+      // volte con due significati diversi — «al suo portatile» e «a lui».
+      let conPersona = new Set<string>();
+      try {
+        conPersona = new Set(
+          (db.query("SELECT id FROM devices WHERE person_id IS NOT NULL").all() as Array<{ id: string }>)
+            .map((r) => r.id),
+        );
+      } catch { /* schema più vecchio della 084 */ }
+
+      for (const d of listDevices()) {
+        if (d.revokedAt !== null || d.role !== "guest") continue;
+        if (conPersona.has(d.id)) continue;
+        soggetti.push({ subjectType: "device", subjectId: d.id, name: d.name, devices: 1 });
+      }
+
+      try {
+        // Le persone che NON sono proprietarie: condividere con chi vede già
+        // tutto non vuol dire niente.
+        const persone = db.query(`
+          SELECT p.id, p.display_name,
+                 (SELECT COUNT(*) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS n
+            FROM people p
+           WHERE p.revoked_at IS NULL
+             AND p.id NOT IN (SELECT person_id FROM installation_owners)
+           ORDER BY p.display_name`).all() as Array<{ id: string; display_name: string; n: number }>;
+        for (const p of persone) {
+          soggetti.push({ subjectType: "person", subjectId: p.id, name: p.display_name, devices: Number(p.n) });
+        }
+
+        const orgs = db.query(`
+          SELECT o.id, o.name,
+                 (SELECT COUNT(*) FROM org_members om WHERE om.org_id = o.id
+                    AND om.revoked_at IS NULL AND om.local_blocked_at IS NULL) AS n
+            FROM orgs o WHERE o.revoked_at IS NULL ORDER BY o.name`).all() as Array<{ id: string; name: string; n: number }>;
+        for (const o of orgs) {
+          // Un'organizzazione da UNA persona non si nomina: il singolo è
+          // un'organizzazione di uno perché il codice abbia una strada sola,
+          // non perché il prodotto abbia due vocabolari.
+          if (Number(o.n) <= 1) continue;
+          soggetti.push({ subjectType: "org", subjectId: o.id, name: o.name, devices: Number(o.n) });
+        }
+      } catch {
+        // Schema più vecchio della 084: restano i soli dispositivi ospiti.
+      }
+
+      return json({ subjects: soggetti });
+    }
+
     if (pathname === "/api/auth/shares") {
       // Generico sul TIPO di risorsa: `task` e `topic` oggi, e domani ciò che
       // avrà una riga vera. Una rotta per tipo sarebbe la stessa divergenza che
@@ -330,6 +462,18 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           (db.query("SELECT id, name FROM devices WHERE revoked_at IS NULL").all() as Array<{ id: string; name: string }>)
             .map((d) => [d.id, d.name]),
         );
+        // I nomi degli altri soggetti. Senza, una riga verso una persona
+        // mostrava il suo UUID — «Condiviso con a8e3c1e4…», che non risponde a
+        // nessuna delle domande per cui si apre questo pannello.
+        const nomeSoggetto = new Map<string, string>();
+        try {
+          for (const p of db.query("SELECT id, display_name FROM people").all() as Array<{ id: string; display_name: string }>) {
+            nomeSoggetto.set(`person:${p.id}`, p.display_name);
+          }
+          for (const o of db.query("SELECT id, name FROM orgs").all() as Array<{ id: string; name: string }>) {
+            nomeSoggetto.set(`org:${o.id}`, o.name);
+          }
+        } catch { /* schema più vecchio della 084 */ }
         return json({
           shares: righe
             // Un dispositivo revocato non compare: la sua riga di concessione
@@ -342,7 +486,9 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
               // vecchio continua a leggerlo mentre quello nuovo passa a
               // `subjectId`. La rotta ha gia' questo idioma con `taskId`.
               deviceId: r.subjectType === "device" ? r.subjectId : undefined,
-              name: r.subjectType === "device" ? nomeDispositivo.get(r.subjectId) ?? r.subjectId : r.subjectId,
+              name: r.subjectType === "device"
+                ? nomeDispositivo.get(r.subjectId) ?? r.subjectId
+                : nomeSoggetto.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
               // La PROVENIENZA risponde a «perché costui vede questa cosa?».
               via: r.viaType ? { type: r.viaType, id: r.viaId } : null,
@@ -350,35 +496,53 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         });
       }
       if (method === "POST") {
-        const body = await readJSON(req) as { taskId?: string; resourceType?: string; resourceId?: string; deviceId?: string } | null;
+        const body = await readJSON(req) as {
+          taskId?: string; resourceType?: string; resourceId?: string;
+          deviceId?: string; subjectType?: string; subjectId?: string;
+        } | null;
         const tipo = body?.resourceType ?? "task";
         const risorsa = body?.resourceId ?? body?.taskId;
         if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        if (!risorsa || !body?.deviceId) return json({ error: "resourceId e deviceId richiesti" }, 400);
-        // Solo un OSPITE si può invitare: condividere con un proprietario non
-        // vuol dire niente — vede già tutto — e lasciarlo fare darebbe l'idea
-        // che quella riga stia limitando qualcosa.
-        const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(body.deviceId) as { role?: string } | undefined;
-        if (!d) return json({ error: "dispositivo sconosciuto o revocato" }, 404);
-        if (d.role !== "guest") return json({ error: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite" }, 400);
-        putGrant(db as never, { kind: "device", id: body.deviceId }, tipo, risorsa, { grantedAt: now });
+
+        // `deviceId` resta accettato come alias legacy per una release: il
+        // client vecchio continua a funzionare mentre quello nuovo passa a
+        // `subjectType`/`subjectId`. La rotta ha già esattamente questo idioma
+        // con `taskId` → `resourceId`.
+        const sogTipo = body?.subjectType ?? (body?.deviceId ? "device" : undefined);
+        const sogId = body?.subjectId ?? body?.deviceId;
+        if (!risorsa || !sogId || !sogTipo) return json({ error: "resourceId e subjectId richiesti" }, 400);
+        if (!isSubjectKind(sogTipo)) return json({ error: "tipo di soggetto sconosciuto" }, 400);
+
+        // Condividere con chi vede GIÀ tutto non vuol dire niente, e lasciarlo
+        // fare darebbe l'idea che quella riga stia limitando qualcosa. La
+        // domanda però non è più «che ruolo ha questo dispositivo?» ma «questo
+        // soggetto è confinato?», che è la stessa cosa detta nel modello nuovo.
+        const rifiuto = motivoRifiutoSoggetto(db, sogTipo, sogId);
+        if (rifiuto) return json({ error: rifiuto.msg }, rifiuto.status);
+
+        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
         // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
         // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.
-        ctx.sendToDevice?.(body.deviceId, { type: "auth:shares-changed" });
+        for (const d of dispositiviDelSoggetto(db, sogTipo, sogId)) {
+          ctx.sendToDevice?.(d, { type: "auth:shares-changed" });
+        }
         return json({ ok: true });
       }
       if (method === "DELETE") {
         const tipo = url.searchParams.get("resourceType") ?? "task";
         const risorsa = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
-        const deviceId = url.searchParams.get("deviceId") ?? "";
+        const sogTipoRaw = url.searchParams.get("subjectType") ?? (url.searchParams.get("deviceId") ? "device" : "");
+        const sogId = url.searchParams.get("subjectId") ?? url.searchParams.get("deviceId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        dropGrant(db as never, { kind: "device", id: deviceId }, tipo, risorsa);
-        // Soprattutto qui: la concessione ora NON esiste, quindi nessun frame
-        // filtrato per entita' potrebbe piu' raggiungere quell'ospite. Se non
-        // glielo si dice mirando a lui, resta a guardare una cosa che non ha
-        // piu'.
-        if (deviceId) ctx.sendToDevice?.(deviceId, { type: "auth:shares-changed" });
+        if (!isSubjectKind(sogTipoRaw)) return json({ error: "tipo di soggetto sconosciuto" }, 400);
+        // I dispositivi si prendono PRIMA di togliere la riga: dopo, se il
+        // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
+        // dirlo. Il frame va mandato comunque — proprio perché la concessione
+        // non esiste più, nessun broadcast filtrato per entità arriverebbe.
+        const daAvvisare = dispositiviDelSoggetto(db, sogTipoRaw, sogId);
+        dropGrant(db as never, { kind: sogTipoRaw, id: sogId }, tipo, risorsa);
+        for (const d of daAvvisare) ctx.sendToDevice?.(d, { type: "auth:shares-changed" });
         return json({ ok: true });
       }
     }
