@@ -646,3 +646,136 @@ describe("rotte auth · i link di condivisione", () => {
     expect(await e!.json()).toEqual({ links: [] });
   });
 });
+
+describe("rotte auth · i membri dell'organizzazione", () => {
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    return db;
+  }
+  const orgDi = (db: Database) => (db.query("SELECT id FROM orgs LIMIT 1").get() as { id: string }).id;
+
+  test("si invita per NOME, prima che esista un suo dispositivo", async () => {
+    // È ORG-04 vista dal davanti: l'ordine naturale è invitare e poi collegarsi,
+    // non aspettare che qualcuno compaia per poterlo nominare.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+
+    const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: "Mircea" } });
+    expect(r?.status).toBe(200);
+    const { personId } = await r!.json() as { personId: string };
+
+    const m = await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json() as {
+      members: Array<{ id: string; name: string; role: string; devices: number; owner: boolean }>
+    };
+    const nuovo = m.members.find((x) => x.id === personId)!;
+    expect(nuovo.name).toBe("Mircea");
+    // Chi entra NON amministra, e non possiede la macchina: due proprietà
+    // diverse che un'unica riga sbagliata confonderebbe.
+    expect(nuovo.role).toBe("member");
+    expect(nuovo.owner).toBe(false);
+    expect(nuovo.devices).toBe(0);
+  });
+
+  test("il proprietario compare per primo, e non si può togliere", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const io = (db.query("SELECT person_id AS id FROM installation_owners").get() as { id: string }).id;
+
+    const m = await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json() as {
+      members: Array<{ id: string; owner: boolean }>
+    };
+    expect(m.members[0]!.id).toBe(io);
+    expect(m.members[0]!.owner).toBe(true);
+
+    // Togliersi dalla propria organizzazione è l'unico gesto che lascerebbe la
+    // macchina senza nessuno che la possiede.
+    const r = await chiama(router, `/api/auth/orgs/${org}/members?personId=${io}`, "DELETE");
+    expect(r?.status).toBe(400);
+    expect(db.query("SELECT local_blocked_at FROM org_members WHERE person_id = ?").get(io))
+      .toEqual({ local_blocked_at: null });
+  });
+
+  test("togliere qualcuno scrive il blocco LOCALE, non la revoca remota", async () => {
+    // La differenza è tutta qui: `revoked_at` è del piano di controllo e il
+    // primo aggiornamento lo riscrive, `local_blocked_at` è tuo e nessuna
+    // sincronizzazione lo tocca. Scrivere nella colonna sbagliata vorrebbe dire
+    // vedere la propria revoca annullarsi da sola lunedì mattina.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", {
+      body: { name: "Chi se ne va" },
+    }))!.json() as { personId: string };
+
+    expect((await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE"))?.status).toBe(200);
+
+    const riga = db.query("SELECT revoked_at, local_blocked_at FROM org_members WHERE person_id = ?")
+      .get(personId) as { revoked_at: number | null; local_blocked_at: number | null };
+    expect(riga.revoked_at).toBeNull();
+    expect(riga.local_blocked_at).not.toBeNull();
+
+    // E la sincronizzazione che ripristina la riga remota non lo scioglie.
+    db.run("UPDATE org_members SET revoked_at = NULL, rev = rev + 1 WHERE person_id = ?", [personId]);
+    expect((db.query("SELECT local_blocked_at FROM org_members WHERE person_id = ?")
+      .get(personId) as { local_blocked_at: number | null }).local_blocked_at).not.toBeNull();
+  });
+
+  test("riaggiungere qualcuno gli toglie il blocco: altrimenti «è dentro e non vede niente»", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", {
+      body: { name: "Torna" },
+    }))!.json() as { personId: string };
+    await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE");
+
+    await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId } });
+
+    const m = await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json() as {
+      members: Array<{ id: string; blocked: boolean }>
+    };
+    expect(m.members.find((x) => x.id === personId)!.blocked).toBe(false);
+  });
+
+  test("una persona già nota si riusa invece di duplicarla", async () => {
+    // Due persone che sono una persona sola dividono in due ciò che è stato
+    // condiviso con loro, e la divisione è silenziosa.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p9','Nota',1,'local',1,1)");
+
+    await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId: "p9" } });
+    await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId: "p9" } });
+
+    expect((db.query("SELECT COUNT(*) AS n FROM org_members WHERE person_id = 'p9'").get() as { n: number }).n).toBe(1);
+    expect((db.query("SELECT COUNT(*) AS n FROM people").get() as { n: number }).n).toBe(2);
+  });
+
+  test("senza nome e senza persona non si inventa un membro vuoto", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: "   " } }))?.status).toBe(400);
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId: "boh" } }))?.status).toBe(404);
+    expect((await chiama(router, `/api/auth/orgs/nonesiste/members`, "POST", { body: { name: "X" } }))?.status).toBe(404);
+    expect((db.query("SELECT COUNT(*) AS n FROM people").get() as { n: number }).n).toBe(1);
+  });
+
+  test("su uno schema senza la 084 la rotta tace invece di esplodere", async () => {
+    // Una installazione che non ha ancora fatto la migration non deve vedere un
+    // 500: deve vedere che qui non c'è niente.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const r = await chiama(router, "/api/auth/orgs/x/members");
+    expect(r?.status).toBe(200);
+    expect(await r!.json()).toEqual({ members: [] });
+  });
+});
