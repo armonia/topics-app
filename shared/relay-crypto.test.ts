@@ -108,7 +108,7 @@ describe("cripto · un rifiuto non racconta niente", () => {
 describe("cripto · il link tiene la chiave dove il server non la vede", () => {
   it("la chiave sta nel FRAMMENTO, mai nella query né nel percorso", () => {
     const k = nuovaChiave();
-    const link = componiLink("https://topics.esempio.io", "ref-1", k);
+    const link = componiLink("https://topics.esempio.io", "inst-1", "ref-1", k);
     const u = new URL(link);
     // È l'unica parte di un URL che il browser non manda al server: non nella
     // riga di richiesta, non nei log, non nel Referer.
@@ -121,20 +121,20 @@ describe("cripto · il link tiene la chiave dove il server non la vede", () => {
 
   it("e si rilegge", () => {
     const k = nuovaChiave();
-    const letto = leggiLink(componiLink("https://topics.esempio.io", "ref con spazi", k));
-    expect(letto).toEqual({ shareRef: "ref con spazi", chiave: k });
+    const letto = leggiLink(componiLink("https://topics.esempio.io", "inst-1", "ref con spazi", k));
+    expect(letto).toEqual({ installationId: "inst-1", shareRef: "ref con spazi", chiave: k });
   });
 
   it("un link senza frammento non è un link valido", () => {
     // Senza chiave non c'è niente da aprire: meglio dirlo subito che mostrare
     // una pagina che non decifrerà mai.
-    expect(leggiLink("https://topics.esempio.io/s/ref-1")).toBeNull();
+    expect(leggiLink("https://topics.esempio.io/g/inst-1/ref-1")).toBeNull();
     expect(leggiLink("non-un-url")).toBeNull();
   });
 
   it("il giro completo: link → chiave → busta aperta", async () => {
     const k = nuovaChiave();
-    const link = componiLink("https://topics.esempio.io", "r1", k);
+    const link = componiLink("https://topics.esempio.io", "inst-1", "r1", k);
     const busta = await sigilla(k, "il contenuto condiviso");
     const letto = leggiLink(link)!;
     expect(await apri(letto.chiave, busta)).toBe("il contenuto condiviso");

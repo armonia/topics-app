@@ -579,6 +579,20 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({ subjects: soggetti });
     }
 
+    // Dove vive il relay e come si chiama questa installazione. Serve al client
+    // per COMPORRE il link: il segreto ce l'ha già (glielo consegna la POST),
+    // qui prende le due parti pubbliche. `enabled:false` è una risposta piena,
+    // non un errore: senza relay il gesto semplicemente non si offre.
+    if (method === "GET" && pathname === "/api/auth/relay") {
+      const c = ctx.relayConfig?.();
+      return json({
+        enabled: !!c?.baseUrl,
+        baseUrl: c?.baseUrl ?? null,
+        installationId: c?.installationId ?? null,
+        connected: ctx.relayConnected?.() ?? false,
+      });
+    }
+
     // ── I LINK: condividere con chi NON è sulla tua rete.
     //
     // Un link è una CAPACITÀ su una cosa sola, non un accesso: fuori dalla rete
