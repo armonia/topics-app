@@ -936,6 +936,41 @@ function App() {
     stopSession,
   });
 
+  // I DUE COMANDI DELLA COLONNA, definiti UNA volta e montati dove serve.
+  //
+  // Col mouse stanno in testa alla sidebar, accanto al titolo; col dito in
+  // fondo, dove arriva il pollice (Attilio, 07/08). Due copie del JSX sarebbero
+  // due bottoni che aprono la stessa cosa e divergono al primo ritocco — è
+  // esattamente come sono nati i menu doppi che questa passata ha tolto.
+  // Cambia solo la MISURA: 44px col dito, 28 col mouse.
+  const sidebarSearchButton = (
+    <button
+      onClick={() => { setSearchScope('all'); setShowSearch(true); }}
+      className={`edge-lit ${isMobile ? 'h-11 flex-1 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      style={{ pointerEvents: 'auto' }}
+      title="Search (⌘K)"
+      aria-label="Search — open the command palette"
+    >
+      <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
+      {isMobile
+        ? <span className="text-[13px] font-medium">Cerca</span>
+        : <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
+    </button>
+  );
+  const sidebarAddMenu = (
+    <PaneAddMenu
+      scope="standalone"
+      presentation="palette"
+      onNewChat={() => handleQuickCreateTopic()}
+      onAddPane={handleStandaloneAddPane}
+      triggerTitle="New (⌘N)"
+      triggerVariant="header"
+      triggerKbd="⌘N"
+      triggerLabel={isMobile ? 'Nuovo' : undefined}
+      triggerClassName={isMobile ? 'flex-1 justify-center' : ''}
+    />
+  );
+
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
@@ -1105,42 +1140,47 @@ function App() {
                 and the tree skeleton — no stray spinner in the header. The
                 middle of the header stays empty (drag region on Electron). */}
           </div>
-          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} {...NO_DRAG_REGION} style={{ pointerEvents: 'auto' }}>
-            {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
-                the header right side is the Search launcher + the canonical
-                "+" add menu — two icon-only RESTING_SURFACE twins. */}
-            {/* Search launcher — icon-only (the magnifier + kbd hint say it
-                all; a "Search…" label was redundant). Opens the ⌘K command
-                palette in 'all' scope. No inline tree filtering; ⌘K is the
-                canonical search. */}
-            <button
-              onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-              className={`${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
-              style={{ pointerEvents: 'auto' }}
-              title="Search (⌘K)"
-              aria-label="Search — open the command palette"
-            >
-              <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
-              {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
-            </button>
-            {/* The canonical <PaneAddMenu>, STANDALONE variant, rendered as a
-                centered ⌘K-style palette (presentation="palette") instead of a
-                local dropdown — ⌘N opens the same surface. The trigger is the
-                'header' variant: a compact RESTING_SURFACE button with an
-                inline kbd hint, the visual twin of the Search button next to
-                it. Items/order/icons are identical to the standalone tab
-                bar's "+" — one component, one variant per context. */}
-            <PaneAddMenu
-              scope="standalone"
-              presentation="palette"
-              onNewChat={() => handleQuickCreateTopic()}
-              onAddPane={handleStandaloneAddPane}
-              triggerTitle="New (⌘N)"
-              triggerVariant="header"
-              triggerKbd="⌘N"
-            />
-          </div>
+          {/* I DUE COMANDI STANNO DOVE ARRIVA LA MANO.
+              Col mouse è qui, in testa alla colonna, accanto al titolo. Col
+              dito no: sotto i 768px la sidebar è alta quanto lo schermo e
+              questa riga è l'angolo più lontano dal pollice, mentre il fondo è
+              il posto naturale — è dove ogni app del telefono tiene la sua
+              barra. Sotto i 768px questo gruppo è vuoto e i due bottoni
+              rinascono in fondo alla colonna, identici (stesso componente,
+              stesse azioni): vedi `sidebar-action-bar` più sotto. */}
+          {!isMobile && (
+            <div className="flex items-center gap-1 relative z-50 app-no-drag" {...NO_DRAG_REGION} style={{ pointerEvents: 'auto' }}>
+              {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
+                  the header right side is the Search launcher + the canonical
+                  "+" add menu — two icon-only RESTING_SURFACE twins. */}
+              {sidebarSearchButton}
+              {/* The canonical <PaneAddMenu>, STANDALONE variant, rendered as a
+                  centered ⌘K-style palette (presentation="palette") instead of a
+                  local dropdown — ⌘N opens the same surface. The trigger is the
+                  'header' variant: a compact RESTING_SURFACE button with an
+                  inline kbd hint, the visual twin of the Search button next to
+                  it. Items/order/icons are identical to the standalone tab
+                  bar's "+" — one component, one variant per context. */}
+              {sidebarAddMenu}
+            </div>
+          )}
         </div>
+
+        {/* LA BARRA DI STATO, IN CIMA — solo col dito.
+            Numeri da GUARDARE (memoria, CPU, fps, versione) in fondo alla
+            colonna vuol dire occupare col colpo d'occhio la fascia dove arriva
+            il pollice, e mandare i comandi da toccare in cima. Sotto i 768px i
+            due si scambiano: vedi il commento della prop `placement`. */}
+        {isMobile && (
+          <ErrorBoundary fallbackMessage="Status bar error">
+            <SidebarStatusBar
+              placement="top"
+              wsStatus={wsStatus}
+              dataNotice={topicsError}
+              onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+            />
+          </ErrorBoundary>
+        )}
 
         {/* SidebarControls removed: search is now the inline header input,
             view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
@@ -1226,14 +1266,47 @@ function App() {
           </ErrorBoundary>
         </div>
 
-        {/* Status bar */}
-        <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar
-          wsStatus={wsStatus}
-          dataNotice={topicsError}
-          onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
-        />
-        </ErrorBoundary>
+        {/* IL BANNER DELLA VERSIONE ATTERRA QUI, dentro la colonna e a tutta la
+            sua larghezza — non più come cartellino flottante ancorato al
+            numeretto in fondo. Vedi DevBundleToast / UpdaterToast: cercano
+            questo slot e ci si portalano dentro. */}
+        <div data-update-slot className="flex-shrink-0 empty:hidden" style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }} />
+
+        {/* Status bar — in fondo col mouse. Col dito è già in cima (vedi sopra)
+            e qui al suo posto c'è la barra dei comandi. */}
+        {!isMobile && (
+          <ErrorBoundary fallbackMessage="Status bar error">
+          <SidebarStatusBar
+            wsStatus={wsStatus}
+            dataNotice={topicsError}
+            onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+          />
+          </ErrorBoundary>
+        )}
+
+        {/* LA BARRA DEI COMANDI, IN FONDO — solo col dito.
+            «Il cerca e altre cose utili possiamo metterle direttamente come
+            tasti in fondo alla sidebar, così sono più utili da raggiungere»
+            (Attilio, 07/08). Sono gli STESSI due bottoni dell'header sul
+            computer, non due copie: `sidebarSearchButton` e `sidebarAddMenu`
+            sono definiti una volta sola e montati qui o là. A tutta larghezza
+            e a metà per uno, alti 44, con la fascia dell'home indicator
+            dipinta sotto — che è il motivo per cui la barra di stato, salendo
+            in cima, ha smesso di portarsela dietro. */}
+        {isMobile && (
+          <div
+            data-testid="sidebar-action-bar"
+            className="flex flex-shrink-0 items-center gap-2 border-t border-app-border"
+            style={{
+              paddingInline: ROW_INSET,
+              paddingBlock: ROW_INSET,
+              paddingBottom: `calc(${ROW_INSET}px + env(safe-area-inset-bottom, 0px))`,
+            }}
+          >
+            {sidebarSearchButton}
+            {sidebarAddMenu}
+          </div>
+        )}
       </div>
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
@@ -1265,7 +1338,13 @@ function App() {
           className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
         >
-          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="bg-surface border border-app-border-light rounded-lg shadow-sm" />
+          {/* `bg-app-elevated` + `edge-lit`, non `bg-surface` + un bordo: sotto
+              i 768px `--bg-surface` COLLASSA sul chrome (index.css), quindi
+              questo bottone — che è l'unico modo di riaprire la sidebar quando
+              non c'è nessuna pane — spariva nel fondo proprio sul telefono.
+              `--bg-elevated` non collassa, e il filo lo porta `edge-lit` come
+              su ogni altra cosa arrotondata che flotta. */}
+          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="edge-lit bg-elevated rounded-lg shadow-sm" />
         </div>
       )}
 
