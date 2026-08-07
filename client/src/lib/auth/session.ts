@@ -19,11 +19,33 @@ export type SessionState =
 let state: SessionState = { status: 'loading' };
 const listeners = new Set<(s: SessionState) => void>();
 
+/**
+ * Uguali vuol dire uguali in TUTTO ciò che qualcuno guarda, non solo nel nome.
+ *
+ * La versione di prima confrontava `status` e, per `paired`, il solo `name`. Un
+ * cambio di RUOLO a parità di nome non raggiungeva nessuno — e il ruolo è ciò
+ * su cui `SessionRoot` decide se montare l'app o la vista dell'ospite. Finché il
+ * ruolo si fissava all'approvazione e non cambiava più, il difetto restava
+ * dormiente; con persone e organizzazioni un cambio di appartenenza È un cambio
+ * di ruolo, quindi diventa la norma. Stessa storia per `reason`: passare da
+ * «mai entrato» a «revocato» lascia `status` fermo su `unpaired`, e il cartello
+ * avrebbe continuato a dire la frase sbagliata.
+ *
+ * Il confronto resta esplicito campo per campo invece di serializzare: una
+ * uguaglianza che dipende dall'ordine delle chiavi è una uguaglianza che prima o
+ * poi mente.
+ */
+function stessoStato(a: SessionState, b: SessionState): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status === 'paired' && b.status === 'paired') {
+    return a.name === b.name && a.role === b.role && a.as === b.as && a.deviceId === b.deviceId;
+  }
+  if (a.status === 'unpaired' && b.status === 'unpaired') return a.reason === b.reason;
+  return true;
+}
+
 function emit(next: SessionState): void {
-  const same =
-    next.status === state.status &&
-    (next.status !== 'paired' || (state.status === 'paired' && next.name === state.name));
-  if (same) return;
+  if (stessoStato(next, state)) return;
   state = next;
   for (const fn of listeners) fn(state);
 }
