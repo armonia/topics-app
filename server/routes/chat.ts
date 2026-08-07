@@ -608,20 +608,40 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
-        // Il verdetto va nei blocchi in OGNI caso — anche, e soprattutto, quando
-        // la riga porta già lavoro e il cartello non può toccare `content`. È lì
-        // che sta la differenza fra «un turno giallo senza spiegazione» e un
-        // errore che si legge.
-        const conVerdetto = appendErrorBlock(row, `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`);
-        if (notice) {
-          updateLastMessage(sessionKey, { content: notice, blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+        const verdetto = `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
+        // `updateLastMessage` scrive sull'ULTIMA riga della sessione, mentre qui
+        // la riga si legge per ID. Di norma sono la stessa — il cancello a 409
+        // impedisce un secondo turno mentre uno è in volo — ma "di norma" non è
+        // "sempre": se nel frattempo ne fosse nata una più recente, scriverci
+        // sopra il nostro esito metterebbe i blocchi del NOSTRO turno dentro
+        // quello di un altro. Meglio saperlo che scoprirlo da una riga sbagliata.
+        const ultima = (() => {
+          try {
+            return (db.prepare("SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+              .get(sessionKey) as { id?: string } | undefined)?.id;
+          } catch { return undefined; }
+        })();
+        if (ultima === rowId) {
+          // Il verdetto va nei blocchi in OGNI caso — anche, e soprattutto,
+          // quando la riga porta già lavoro e il cartello non può toccare
+          // `content`. È lì che sta la differenza fra «un turno giallo senza
+          // spiegazione» e un errore che si legge.
+          const conVerdetto = appendErrorBlock(row, verdetto);
+          if (notice) {
+            updateLastMessage(sessionKey, { content: notice, blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+          } else {
+            // La riga si tiene il suo contenuto; cade solo il flag che la
+            // dichiara ancora in volo, o il setaccio di boot la crederebbe viva.
+            updateLastMessage(sessionKey, { blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+            console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
+          }
         } else {
-          // La riga si tiene il suo contenuto; cade solo il flag che la dichiara
-          // ancora in volo, o il setaccio di boot la crederebbe viva.
-          updateLastMessage(sessionKey, { blocks: conVerdetto, partial: undefined, streamedAt: undefined });
-          console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
+          // Non è più l'ultima: si chiude solo la NOSTRA, per id, e non si tocca
+          // il turno che è subentrato.
+          try { db.run("UPDATE messages SET partial = 0 WHERE id = ?", [rowId]); } catch { /* best effort */ }
+          console.warn(`[StreamWS] ${sessionKey}: la riga ${rowId} non è più l'ultima (${ultima ?? "nessuna"}) — chiusa per id, esito non riscritto`);
         }
-        const wire = notice ?? `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
+        const wire = notice ?? `⚠️ ${verdetto}`;
         if (matchedTopic) {
           broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: wire });
           broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: rowId });
