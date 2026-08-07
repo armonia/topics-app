@@ -313,6 +313,83 @@ export function PinnedTiles({
     clearDrag();
   };
 
+  /* ── IL DITO ──────────────────────────────────────────────────────────────
+   *
+   * Su iOS il drag and drop di HTML5 non esiste (vedi `useTouchDrag`), quindi
+   * tutto ciò che sta qui sopra — `dragover`, `dropEffect`, `dataTransfer` — è
+   * inerte su un telefono. Queste tre funzioni sono il ponte: il dito porta
+   * solo due numeri, e da quei due numeri si ricava lo STESSO bersaglio che il
+   * mouse ricava dagli eventi di trascinamento.
+   *
+   * Da lì in poi non c'è un secondo percorso: si accendono gli stessi stati
+   * (`dropAt` / `newRowAt`), quindi la stessa anteprima — la riga che si
+   * stringe, la cella fantasma, la tessera vera al 60% — e si applicano le
+   * stesse funzioni pure del modello (`movePinnedTile`, `insertPinnedRow`).
+   * Un solo modo di spostare una tessera, due modi di dire dove.
+   */
+
+  /** Il bersaglio sotto il punto, o `null` se il dito è fuori dalla griglia.
+   *
+   *  Si misura per RETTANGOLI e non con `elementFromPoint`: sotto il dito c'è
+   *  quasi sempre la tessera trascinata o una sua anteprima, cioè un elemento
+   *  che non è né una riga né uno spazio, e risalire i genitori per capirlo
+   *  sarebbe la stessa cosa detta peggio. Gli spazi fra le righe vincono sulle
+   *  righe perché sono più stretti: a parità di punto, chi ha mirato una
+   *  striscia da 6px l'ha mirata apposta. */
+  const touchTargetAt = (x: number, y: number): PinnedDropTarget | null => {
+    const root = radice.current;
+    if (!root) return null;
+    for (const gap of root.querySelectorAll<HTMLElement>('[data-pinned-gap-at]')) {
+      const r = gap.getBoundingClientRect();
+      if (r.height <= 0) continue;
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return { kind: 'newRow', atRowIdx: Number(gap.dataset.pinnedGapAt) };
+      }
+    }
+    for (const rowEl of root.querySelectorAll<HTMLElement>('[data-pinned-row-idx]')) {
+      const r = rowEl.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return { kind: 'row', rowIdx: Number(rowEl.dataset.pinnedRowIdx), insertAt: insertIndexAt(rowEl, x) };
+      }
+    }
+    return null;
+  };
+
+  const onTouchDragMove = (key: string) => (x: number, y: number) => {
+    const target = touchTargetAt(x, y);
+    // Fuori dalla griglia l'anteprima si spegne, ma il gesto resta vivo: il
+    // dito può rientrare. Spegnerlo qui vorrebbe dire che sbordare di un pixel
+    // annulla lo spostamento.
+    if (!target || !pinnedDropAllowed(rows, key, target)) {
+      setDropAt(null);
+      setNewRowAt(null);
+      return;
+    }
+    if (target.kind === 'newRow') {
+      setDropAt(null);
+      setNewRowAt(target.atRowIdx);
+      setIncomingRow(byId.get(key) ?? null);
+      return;
+    }
+    setNewRowAt(null);
+    setDropAt({
+      rowIdx: target.rowIdx,
+      insertAt: target.insertAt,
+      fromThisRow: !!rows[target.rowIdx]?.keys.includes(key),
+      movingKey: key,
+      // Dentro la griglia chi si muove è sempre una tessera che c'è già: non
+      // entra nessuno, quindi nessuna cella fantasma da nominare.
+      incoming: null,
+    });
+  };
+
+  const onTouchDragDrop = (key: string) => (x: number, y: number) => {
+    const target = touchTargetAt(x, y);
+    if (!target || !pinnedDropAllowed(rows, key, target)) { clearDrag(); return; }
+    if (target.kind === 'newRow') commit(insertPinnedRow(rows, key, target.atRowIdx));
+    else commit(movePinnedTile(rows, key, { rowIdx: target.rowIdx, insertAt: target.insertAt }));
+  };
+
   const toggle = (item: SidebarItem) => {
     const willExpand = !aperta(item.id);
     if (!apribili.has(item.id)) {
@@ -432,11 +509,16 @@ export function PinnedTiles({
     // un bersaglio, quindi il cursore lo dice — «qui no» — invece di dire «qui
     // sì» e poi non fare niente.
     const utile = pinnedDropAllowed(rows, movingRender, { kind: 'newRow', atRowIdx: at });
+    // `dragKey` copre entrambi i trasporti: il drag nativo lo alza al
+    // `dragstart`, il dito al sollevamento (`onLift`). Una condizione sola.
     const attiva = utile && (dragKey !== null || adopting);
     return (
     <div
       key={`gap-${at}`}
       data-testid="pinned-new-row-zone"
+      // Il bersaglio del DITO si trova per rettangolo, non per `dragover`: su
+      // iOS quell'evento non esiste. Vedi `touchTargetAt`.
+      data-pinned-gap-at={at}
       data-drop-allowed={utile ? 'si' : 'no'}
       onDragOver={e => {
         const ours = isOurs(e);
@@ -601,6 +683,7 @@ export function PinnedTiles({
             {rowGap(rowIdx)}
             <div
               data-testid="pinned-row"
+              data-pinned-row-idx={rowIdx}
               className="flex items-stretch px-1.5 flex-shrink-0"
               style={{ gap: TILE_GAP }}
               onDragOver={e => {
@@ -735,6 +818,8 @@ export function PinnedTiles({
                       onContextMenu={e => onContextMenu?.(item, e)}
                       onDragStart={() => { dragKeyRef.current = key; setDragKey(key); }}
                       onDragEnd={clearDrag}
+                      onTouchDragMove={onTouchDragMove(key)}
+                      onTouchDragDrop={onTouchDragDrop(key)}
                     />
                   </div>
                 );

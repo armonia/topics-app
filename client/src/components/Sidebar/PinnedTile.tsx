@@ -4,7 +4,8 @@ import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems
 import type { AttentionTier } from '../../types';
 import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
-import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { openContextMenuAt } from '../../hooks/useLongPress';
+import { useTouchDrag } from '../../hooks/useTouchDrag';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIcon } from '../Shared/projectIconStore';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -109,6 +110,8 @@ export function PinnedTile({
   onContextMenu,
   onDragStart,
   onDragEnd,
+  onTouchDragMove,
+  onTouchDragDrop,
   dragging,
   expandable,
 }: {
@@ -124,6 +127,12 @@ export function PinnedTile({
   onContextMenu?: (e: React.MouseEvent) => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  /** Il dito si muove mentre trascina questa tessera, in coordinate viewport.
+   *  È il gemello di `dragover` per iOS, dove `dragover` non esiste: la griglia
+   *  ci risolve la cella sotto il dito e accende la stessa anteprima. */
+  onTouchDragMove?: (x: number, y: number) => void;
+  /** Il dito si stacca: la griglia applica lo spostamento. */
+  onTouchDragDrop?: (x: number, y: number) => void;
   dragging?: boolean;
   /** C'è qualcosa da aprire qui sotto (le tab di un progetto). Solo allora la
    *  tessera porta il segno che si apre: metterlo su una che non si apre
@@ -243,13 +252,22 @@ export function PinnedTile({
     return RESTING_SURFACE;
   }, [tier, focused]);
 
-  // Tenere premuto apre LO STESSO menu del tasto destro. Senza, una tessera
-  // fissata da telefono non si toglieva più dai Fissati: per terminali, browser
-  // e board «Rimuovi dai Fissati» è l'UNICA voce del loro menu, e quel menu era
-  // solo del mouse. Il `draggable` si spegne su touch, o il lift nativo di HTML5
-  // contende lo stesso gesto.
+  // COL DITO IL GESTO È UNO SOLO, e fa due cose: tieni premuto e RILASCI → il
+  // menu (lo stesso del tasto destro); tieni premuto e MUOVI → la trascini.
+  //
+  // Il secondo mezzo non c'era, e non per dimenticanza: su iOS il drag and drop
+  // di HTML5 non esiste, quindi `draggable` + `dragstart` — la sola strada che
+  // questa griglia aveva per riordinare — è inerte su un telefono. Vedi
+  // `useTouchDrag`, che porta anche il perché dei listener nativi.
   const { isTouch } = useMobile();
-  const press = useLongPress(openContextMenuAt, { enabled: isTouch && !!onContextMenu });
+  const press = useTouchDrag({
+    enabled: isTouch && (!!onContextMenu || !!onTouchDragMove),
+    onPress: onContextMenu ? openContextMenuAt : undefined,
+    onLift: onDragStart,
+    onMove: onTouchDragMove,
+    onDrop: onTouchDragDrop,
+    onCancel: onDragEnd,
+  });
 
   return (
     <button
@@ -283,6 +301,7 @@ export function PinnedTile({
       onDragEnd={() => onDragEnd?.()}
       {...press.handlers}
       data-pressing={press.pressed || undefined}
+      data-touch-dragging={press.dragging || undefined}
       onClick={() => { if (press.consumeClick()) return; onToggle(); }}
       onContextMenu={onContextMenu}
       className={[
@@ -297,11 +316,16 @@ export function PinnedTile({
         'justify-center @min-[72px]/tile:justify-start',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
-        // Senza colori da riflettere resta il filo neutro di prima: una tessera
-        // senza icona non deve sembrare spenta, deve sembrare sobria.
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
-        'ring-1 ring-inset ring-black/5 dark:ring-white/5',
+        //
+        // Era `ring-1 ring-inset ring-black/5` — un filo PIATTO, uguale sui
+        // quattro lati. `edge-lit` (index.css) è lo stesso filo più il riflesso
+        // sullo spigolo alto: la tessera smette di essere un rettangolo colorato
+        // e diventa una superficie che sta un gradino sopra il fondo. È lo
+        // stesso trattamento delle tab e del «+», quindi le tre famiglie di
+        // card della sidebar si leggono come una sola.
+        'edge-lit',
         surface,
         dragging ? 'opacity-40' : '',
       ].join(' ')}
@@ -338,6 +362,10 @@ export function PinnedTile({
         aria-hidden="true"
         data-testid="pinned-tile-rim"
         data-rim={projection ? 'tinta' : 'neutro'}
+        // Sta sopra il riflesso di `edge-lit` senza doverlo dichiarare: un
+        // `::before` è il PRIMO figlio dell'albero di scatole, quindi fra due
+        // elementi posizionati senza z-index vince questo, che viene dopo. La
+        // cornice accesa copre il filo neutro, che è l'ordine giusto.
         className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${
           lit ? 'opacity-100' : 'opacity-0'
         } ${projection ? '' : 'bg-black/[0.18] dark:bg-white/[0.22]'}`}
