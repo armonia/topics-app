@@ -27,18 +27,11 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-export interface DetectedScript {
-  /** Unico: `<manifest>#<nome>`. È la chiave con cui si lancia. */
-  id: string;
-  /** Come si legge nella lista. */
-  name: string;
-  /** Cosa fa, per il tooltip: il comando dichiarato nel manifest. */
-  detail: string;
-  /** Cosa si esegue davvero. */
-  argv: string[];
-  /** Da quale file viene. */
-  from: string;
-}
+// La dichiarazione sta in `shared/`: la produce questo modulo e la consuma il
+// client, quindi è un tipo che attraversa il filo, e riscriverlo di là sarebbe
+// lo specchio che `tests/unit/no-type-mirrors.test.ts` vieta.
+export type { DetectedScript } from "../../shared/project-scripts";
+import type { DetectedScript } from "../../shared/project-scripts";
 
 /** Tutti i file che guardiamo, in ordine. Serve anche allo stato vuoto. */
 export const MANIFESTS = [

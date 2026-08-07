@@ -58,7 +58,12 @@ describe("POST /api/sessions/:sessionKey/scripts/run — gate", () => {
     expect((await resp.json()).error).toMatch(/no project directory/i);
   });
 
-  test("400 + available list when script not in package.json", async () => {
+  // Da 33944fa5 il cancello guarda TUTTI i manifest, non solo `package.json`, e
+  // la chiave con cui si lancia e l'id `<manifest>#<nome>` — serve perche `test`
+  // di package.json e `test` del Makefile sono due comandi diversi. Cio che
+  // questi due test tengono fermo non cambia: chiedere uno script che non
+  // esiste da 400, e la risposta dice PERCHE.
+  test("400 + elenco dei lanciabili quando lo script non e dichiarato", async () => {
     const dir = mkdtempSync(join(tmpdir(), "topics-run-gate-"));
     try {
       writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { dev: "vite", test: "playwright" } }));
@@ -66,20 +71,27 @@ describe("POST /api/sessions/:sessionKey/scripts/run — gate", () => {
       const resp = await runReq(router, "s", { scriptName: "nope" });
       expect(resp.status).toBe(400);
       const body = await resp.json();
-      expect(body.error).toMatch(/not defined in package\.json/i);
-      expect(body.available).toEqual(["dev", "test"]);
+      expect(body.error).toContain('"nope"');
+      // Gli id, non i nomi nudi: e con quelli che si rilancia.
+      expect(body.available).toEqual(["package.json#dev", "package.json#test"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("400 when no package.json at the resolved path", async () => {
+  test("400 quando nella cartella non c'e NESSUN manifest, e dice quali ha guardato", async () => {
     const dir = mkdtempSync(join(tmpdir(), "topics-run-nopkg-"));
     try {
       const router = createProcessesRouter(makeCtx({ topic: { id: "t", sessionKey: "s" }, cwd: dir }));
       const resp = await runReq(router, "s", { scriptName: "test" });
       expect(resp.status).toBe(400);
-      expect((await resp.json()).error).toMatch(/no package\.json/i);
+      const error: string = (await resp.json()).error;
+      // L'elenco di cosa ha cercato e la parte che rende leggibile l'assenza:
+      // distingue «qui non c'e niente» da «non ho guardato».
+      expect(error).toMatch(/nessun manifest/i);
+      expect(error).toContain("package.json");
+      expect(error).toContain("Makefile");
+      expect(error).toContain("Cargo.toml");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
