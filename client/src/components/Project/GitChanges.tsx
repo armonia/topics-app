@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText, AlertCircle } from 'lucide-react';
+import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, FileText, AlertCircle, History } from 'lucide-react';
 import type { GitStatus as _GitStatus, GitFile } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
@@ -231,6 +231,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [modifiedContent, setModifiedContent] = useState<string>('');
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [showBranches, setShowBranches] = useState(false);
+  /** La cronologia, ora un popover ancorato al suo bottone nella riga. */
+  const [showStoria, setShowStoria] = useState(false);
+  const storiaBtnRef = useRef<HTMLButtonElement>(null);
+  const storiaPopRef = useRef<HTMLDivElement>(null);
   const [pulling, setPulling] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
@@ -243,11 +247,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [unstagedExpanded, setUnstagedExpanded] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [remotes, setRemotes] = useState<{ name: string; fetchUrl: string; pushUrl: string }[]>(() => gitCache.get(projectPath)?.remotes ?? []);
-  const [remotesExpanded, setRemotesExpanded] = useState(false);
-  const [showAddRemote, setShowAddRemote] = useState(false);
-  const [newRemoteName, setNewRemoteName] = useState('origin');
-  const [newRemoteUrl, setNewRemoteUrl] = useState('');
-  const [addingRemote, setAddingRemote] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [discardConfirm, setDiscardConfirm] = useState<{ files: string[]; group: 'staged' | 'unstaged' } | null>(null);
   /**
@@ -336,33 +335,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setInitializing(false);
     }
   }, [projectPath, loadStatus, loadRemotes]);
-
-  const handleAddRemote = useCallback(async () => {
-    const name = newRemoteName.trim();
-    const url = newRemoteUrl.trim();
-    if (!name || !url) return;
-    try {
-      setAddingRemote(true);
-      await gitApi.addRemote(projectPath, name, url);
-      setNewRemoteName('origin');
-      setNewRemoteUrl('');
-      setShowAddRemote(false);
-      await loadRemotes();
-    } catch (err: unknown) {
-      toast.error(errMessage(err));
-    } finally {
-      setAddingRemote(false);
-    }
-  }, [projectPath, newRemoteName, newRemoteUrl, loadRemotes, toast]);
-
-  const handleRemoveRemote = useCallback(async (name: string) => {
-    try {
-      await gitApi.removeRemote(projectPath, name);
-      await loadRemotes();
-    } catch (err: unknown) {
-      toast.error(errMessage(err));
-    }
-  }, [projectPath, loadRemotes, toast]);
 
   // Load remotes ONCE when the repo first becomes valid (per projectPath) —
   // not on every poll. useGitStatus hands back a fresh gitStatus object each
@@ -643,6 +615,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  // Stesso trattamento del popover dei rami: click fuori, Escape, e il fuoco
+  // che torna al bottone che l'ha aperto.
+  useDismissable({
+    open: showStoria,
+    onClose: () => setShowStoria(false),
+    refs: [storiaPopRef, storiaBtnRef],
+  });
+
   // Dismissal for the file context menu (right-click, positioned at the cursor).
   useDismissable({
     open: !!contextMenu,
@@ -907,8 +887,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           aria-expanded={expanded}
           className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/git"
         >
-          {/* Left: icon + label + chevron */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Left: icon + label + chevron.
+              `min-w-0` e non `flex-shrink-0`: con tutt'e due i gruppi
+              incomprimibili la riga sforava di 58,6px a barra stretta
+              (misurato a 160px, il minimo trascinabile) — il testo usciva
+              semplicemente dal pannello. Ora l'etichetta tronca, e le icone
+              restano perche' sono loro `flex-shrink-0`. */}
+          <div className="flex items-center gap-2 min-w-0">
             {/* Nessun colore addosso: l'icona sta accanto a DUE cose che il colore ce
                 l'hanno per dire qualcosa (la pastiglia col numero di modifiche, le
                 frecce ahead/behind). Un blu sempre acceso non e uno stato, e
@@ -916,11 +901,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 Processi, non sono colorate. Muto resta solo il caso «non e un
                 repo», che e un'informazione vera. */}
             <GitBranch size={14} className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`} />
-            <span className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
+            <span className={`truncate ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
             <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
           </div>
           {/* Right: branch + badges + refresh */}
-          <div className="flex items-center gap-1 flex-shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-1 min-w-0 ml-auto" onClick={e => e.stopPropagation()}>
             {hasData && (gitStatus!.folderUntracked ? (
               // Il ramo è del repo che ospita la cartella, non di lei. Qui
               // resta scritto ma non si apre: dal pannello di questa cartella,
@@ -957,7 +942,24 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {pushing ? <Spinner size="xs" tone="current" /> : <>↑{gitStatus!.ahead}</>}
               </button>
             )}
-            <button onClick={handleRefresh} className="w-4 h-4 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary" title={tr('git.refreshAndFetch')}>
+            {/* La cronologia: un popover, non una fascia nel pannello. Compare
+                solo se c'e' una storia da mostrare — `lastCommit.hash` e' vuoto
+                quando `git log -1` esce non-zero, cioe' su un repo senza
+                commit, e un bottone che apre «Nessun commit» e' un bottone che
+                promette e non da'. */}
+            {hasData && gitStatus!.lastCommit.hash && (
+              <button
+                ref={storiaBtnRef}
+                onClick={() => setShowStoria(v => !v)}
+                aria-expanded={showStoria}
+                data-testid="git-history-button"
+                className={`w-5 h-5 inline-flex items-center justify-center rounded hover:bg-app-hover transition-colors flex-shrink-0 ${showStoria ? 'text-primary bg-primary/10' : 'text-app-text-tertiary'}`}
+                title="Cronologia dei commit"
+              >
+                <History size={12} />
+              </button>
+            )}
+            <button onClick={handleRefresh} className="w-5 h-5 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary flex-shrink-0" title={tr('git.refreshAndFetch')}>
               <span className="inline-flex items-center justify-center w-[10px] h-[10px]">
                 {loading && !notGit ? <Spinner size="xs" tone="current" /> : <RefreshCw size={10} />}
               </span>
@@ -1169,79 +1171,56 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               );
             })()}
 
-            {/* PIÈ DI PAGINA: remotes e cronologia, sotto la lista e attaccati fra
-                loro. Stavano a due quote diverse — i remotes DENTRO lo scroller
-                (che è `flex-1`, quindi restava una striscia vuota sotto di loro
-                anche da chiusi) e la cronologia sotto lo scroller, incollata al
-                fondo. Due piè di pagina a livelli diversi con un vuoto in mezzo.
-                Fuori dallo scroller stanno fermi, e lo spazio che avanza è
-                SOPRA di loro, dove la lista può scorrere.
+            {/* Il piede se n'e' andato, ed e' la correzione che chiude una
+                serie: Remotes e Cronologia competevano con la lista dei file
+                per l'altezza di un pannello che di suo puo' scendere a 160px,
+                e a perdere era sempre la cronologia — tagliata, schiacciata,
+                senza aria. Ora stanno in due popover, che si clampano allo
+                SCHERMO e non al pannello: non c'e' piu' niente da spartire.
 
-                `mt-auto` perché con l'albero PULITO non c'è nessuno scroller:
-                al posto della lista c'è un messaggio corto, che non è `flex-1`
-                e quindi non spinge niente. Senza, il piè di pagina si
-                appoggiava a quel messaggio e tutto lo spazio restante finiva
-                SOTTO la cronologia — cioè lo stesso difetto di prima, ma nello
-                stato opposto. Col `flex-1` presente `mt-auto` non fa nulla. */}
-            {/* `flex-shrink-0`, ed e' la riga che impedisce al piede di venire
-                TAGLIATO. Senza, il contenitore era `min-h-0` e quindi
-                comprimibile: quando lo spazio finiva — pannello git stretto,
-                finestra bassa — a cedere era il piede invece della lista dei
-                file. Misurato a 96px di pannello: la sezione Cronologia
-                schiacciata a 1px sui suoi 33 naturali, cioe' annientata, con
-                l'intestazione tagliata dall'`overflow-hidden` dell'antenato.
-                L'ordine giusto e' l'opposto: cede la lista, che SCORRE ed e'
-                fatta per questo; il piede e' chrome a misura fissa e resta.
-
-                Comprimibile SI', ma senza `min-h-0`: e' quello a permettere a un
-                elemento flex di scendere sotto il suo min-content. Senza,
-                flexbox si ferma alle intestazioni — che e' esattamente il
-                limite giusto. Bloccarlo del tutto (`flex-shrink-0`) era la cura
-                sbagliata: con la cronologia APERTA il piede diventava 173px
-                dentro un pannello da 96, cioe' il taglio si spostava piu' in su
-                invece di sparire.
-
-                Nessun rientro sotto: l'aria dell'ultima riga viene dal suo
-                `py-2`, come quella sopra. */}
-            <div className="flex flex-col min-h-0 mt-auto">
-              {remotes.length === 0 && !showAddRemote ? (
-                <div className="px-3 py-2 border-t border-app-border">
-                  <button
-                    onClick={() => { setShowAddRemote(true); setRemotesExpanded(true); }}
-                    className="flex items-center gap-1 text-[11px] text-app-text-muted hover:text-primary transition-colors"
-                  >
-                    <Link size={10} />
-                    Add remote
-                  </button>
-                </div>
-              ) : (
-                <RemotesSection
-                  remotes={remotes}
-                  expanded={remotesExpanded}
-                  onToggle={() => setRemotesExpanded(v => !v)}
-                  showAddRemote={showAddRemote}
-                  onToggleAdd={() => { setShowAddRemote(v => !v); setRemotesExpanded(true); }}
-                  newRemoteName={newRemoteName}
-                  newRemoteUrl={newRemoteUrl}
-                  onNameChange={setNewRemoteName}
-                  onUrlChange={setNewRemoteUrl}
-                  onAdd={handleAddRemote}
-                  onRemove={handleRemoveRemote}
-                  adding={addingRemote}
-                  compact
-                />
-              )}
-              {/* Niente commit, niente sezione. Un repo appena inizializzato
-                  mostrava un accordion «Cronologia» che, aperto, poteva solo
-                  dire «Nessun commit»: un controllo che promette qualcosa e non
-                  ha niente da dare. `lastCommit.hash` e' vuoto quando `git log
-                  -1` esce non-zero, cioe' esattamente quando non c'e' storia —
-                  si sa PRIMA di chiedere la lista. */}
-              {gitStatus!.lastCommit.hash && (
-                <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
-              )}
-            </div>
+                I remotes non hanno nemmeno bisogno di un posto nuovo: erano
+                gia' dentro il popover del ramo (`BranchList`, che li elenca,
+                li aggiunge e li toglie). Il piede ne era una SECONDA copia —
+                due superfici per la stessa cosa, che e' peggio di ognuna delle
+                due. La cronologia va sotto il bottone «⋯» accanto al ramo. */}
           </>
+        )}
+
+        {/* La cronologia, in un portale come il popover dei rami: dentro il
+            pannello sarebbe tagliata dall'`overflow-hidden` dell'antenato, ed
+            e' proprio la competizione per l'altezza del pannello che l'ha
+            portata qui. Il tetto e' lo spazio sotto il bottone, non una misura
+            fissa: vicino al bordo inferiore scorre invece di sfondare. */}
+        {showStoria && storiaBtnRef.current && createPortal(
+          <div
+            ref={storiaPopRef}
+            role="dialog"
+            aria-label="Cronologia dei commit"
+            data-testid="git-history-popover"
+            className={`fixed w-64 overflow-hidden flex flex-col ${POPOVER_PANEL}`}
+            style={{
+              top: storiaBtnRef.current.getBoundingClientRect().bottom + 4,
+              left: Math.max(
+                POPOVER_MARGIN,
+                Math.min(
+                  storiaBtnRef.current.getBoundingClientRect().right - 256,
+                  window.innerWidth - 256 - POPOVER_MARGIN,
+                ),
+              ),
+              maxHeight: `min(320px, calc(100vh - ${storiaBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
+              zIndex: Z_POPOVER,
+            }}
+          >
+            <div className="px-3 py-2 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider flex-shrink-0">
+              Cronologia
+            </div>
+            <CommitHistory
+              projectPath={projectPath}
+              reloadKey={gitStatus?.lastCommit.hash}
+              variant="popover"
+            />
+          </div>,
+          document.body,
         )}
 
         {/* Branch dropdown — portal to escape overflow-hidden */}
@@ -1570,21 +1549,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </>
           )}
 
-          {/* Remotes section (full mode) */}
-          <RemotesSection
-            remotes={remotes}
-            expanded={remotesExpanded}
-            onToggle={() => setRemotesExpanded(v => !v)}
-            showAddRemote={showAddRemote}
-            onToggleAdd={() => setShowAddRemote(v => !v)}
-            newRemoteName={newRemoteName}
-            newRemoteUrl={newRemoteUrl}
-            onNameChange={setNewRemoteName}
-            onUrlChange={setNewRemoteUrl}
-            onAdd={handleAddRemote}
-            onRemove={handleRemoveRemote}
-            adding={addingRemote}
-          />
+          {/* Niente sezione Remotes: li elenca, aggiunge e toglie gia'
+              `BranchList` dentro il popover del ramo, in tutt'e due le viste.
+              Averne due copie non era piu' comodo — era un posto in piu' in cui
+              guardare, e uno in cui dimenticarsi di aggiornare l'altro. */}
 
           {/* Qui le righe si aprono: il DiffViewer sta nella colonna accanto,
               quindi si può mostrare il file com'era a QUEL commit senza
@@ -1933,130 +1901,3 @@ function CompactFileList({
 }
 
 // ── Helper components ──────────────────────────────────────────────────
-
-interface AddRemoteFormProps {
-  name: string;
-  url: string;
-  onNameChange: (v: string) => void;
-  onUrlChange: (v: string) => void;
-  onAdd: () => void;
-  onCancel: () => void;
-  adding: boolean;
-}
-
-function AddRemoteForm({ name, url, onNameChange, onUrlChange, onAdd, onCancel, adding }: AddRemoteFormProps) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
-        <input
-          type="text"
-          value={name}
-          onChange={e => onNameChange(e.target.value)}
-          placeholder="name"
-          className="w-[60px] h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
-        />
-        <input
-          type="text"
-          value={url}
-          onChange={e => onUrlChange(e.target.value)}
-          placeholder="https://github.com/..."
-          className="flex-1 min-w-0 h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.preventDefault(); onAdd(); }
-            if (e.key === 'Escape') onCancel();
-          }}
-          autoFocus
-        />
-        <button
-          onClick={onAdd}
-          disabled={adding || !name.trim() || !url.trim()}
-          className="px-1.5 h-[20px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
-        >
-          {adding ? <Spinner size="xs" tone="current" /> : 'Add'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface RemotesSectionProps {
-  remotes: { name: string; fetchUrl: string; pushUrl: string }[];
-  expanded: boolean;
-  onToggle: () => void;
-  showAddRemote: boolean;
-  onToggleAdd: () => void;
-  newRemoteName: string;
-  newRemoteUrl: string;
-  onNameChange: (v: string) => void;
-  onUrlChange: (v: string) => void;
-  onAdd: () => void;
-  onRemove: (name: string) => void;
-  adding: boolean;
-  compact?: boolean;
-}
-
-function RemotesSection({
-  remotes, expanded, onToggle, showAddRemote, onToggleAdd,
-  newRemoteName, newRemoteUrl, onNameChange, onUrlChange,
-  onAdd, onRemove, adding,
-}: RemotesSectionProps) {
-  if (remotes.length === 0 && !showAddRemote) return null;
-
-  return (
-    <div className="border-t border-app-border">
-      {/* Stesso ritmo della cronologia e del segnaposto «Add remote»: un piede
-          con tre righe a due passi diversi si legge come un errore. */}
-      <div className="flex items-center justify-between px-3 py-2 group/hdr">
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
-        >
-          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          <Globe size={10} />
-          Remotes ({remotes.length})
-        </button>
-        <button
-          onClick={onToggleAdd}
-          className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors opacity-0 group-hover/hdr:opacity-100"
-          title="Add remote"
-        >
-          <Plus size={10} />
-        </button>
-      </div>
-      {expanded && (
-        <>
-          {showAddRemote && (
-            <div className="px-3 py-1">
-              <AddRemoteForm
-                name={newRemoteName}
-                url={newRemoteUrl}
-                onNameChange={onNameChange}
-                onUrlChange={onUrlChange}
-                onAdd={onAdd}
-                onCancel={onToggleAdd}
-                adding={adding}
-              />
-            </div>
-          )}
-          {remotes.map(r => (
-            <div
-              key={r.name}
-              className="flex items-center gap-1.5 px-3 py-[3px] text-[11px] group/remote hover:bg-app-hover transition-colors"
-            >
-              <Globe size={10} className="text-app-text-muted flex-shrink-0" />
-              <span className="font-medium text-app-text-heading">{r.name}</span>
-              <span className="truncate text-app-text-muted text-[11px] min-w-0">{r.fetchUrl}</span>
-              <button
-                onClick={() => onRemove(r.name)}
-                className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover/remote:opacity-100 flex-shrink-0"
-                title={`Remove ${r.name}`}
-              >
-                <Trash2 size={10} />
-              </button>
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  );
-}

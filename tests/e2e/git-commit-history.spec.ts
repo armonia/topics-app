@@ -24,23 +24,28 @@ const PROJ = `/tmp/e2e-storia-${Date.now()}`;
 function git(args: string[]) {
   execFileSync("git", args, { cwd: PROJ, stdio: "pipe" });
 }
-
 /**
- * Il pannello Git aperto, cliccando l'intestazione SOLO se serve.
+ * Il popover della cronologia, aperto dal suo bottone nella riga d'intestazione.
  *
- * Lo stato aperto/chiuso delle sezioni e' ricordato per progetto, quindi un
- * click al buio a volte apre e a volte chiude: il secondo test di questo file
- * partiva gia' aperto e il click lo richiudeva.
+ * Era una fascia nel PIEDE del pannello, e da li' e' stata tolta: competeva con
+ * la lista dei file per l'altezza di un pannello che puo' scendere a 160px, e a
+ * perdere era sempre lei — tagliata, schiacciata, senza aria. Il popover si
+ * clampa allo SCHERMO, quindi quella competizione non esiste piu'.
+ *
+ * Il popover vive in un PORTALE su document.body: si cerca dalla pagina, non
+ * dentro `[data-testid="git-changes"]`.
  */
 async function apriStoria(win: Locator): Promise<Locator> {
   const git = win.locator('[data-testid="git-changes"]');
   await expect(git).toBeVisible({ timeout: 10000 });
-  const storia = git.locator('[data-testid="commit-history"]');
-  if (!(await storia.isVisible().catch(() => false))) {
-    await git.locator("div").filter({ hasText: /^Git$/ }).first().click();
-  }
-  await expect(storia).toBeVisible({ timeout: 10000 });
-  return storia;
+  const head = git.locator('[data-testid="project-sidebar-git"]');
+  if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+  const bottone = git.locator('[data-testid="git-history-button"]');
+  await expect(bottone).toBeVisible({ timeout: 10000 });
+  if ((await bottone.getAttribute("aria-expanded")) !== "true") await bottone.click();
+  const pop = win.page().locator('[data-testid="git-history-popover"]');
+  await expect(pop).toBeVisible({ timeout: 10000 });
+  return pop;
 }
 
 test.describe("cronologia dei commit", () => {
@@ -75,12 +80,11 @@ test.describe("cronologia dei commit", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
+    // Prima di aprire, git non e' stato interrogato: il popover non esiste
+    // nemmeno nel DOM, e con lui la lista dei commit.
+    await expect(page.locator('[data-testid="git-history-popover"]')).toHaveCount(0);
+
     const storia = await apriStoria(win);
-
-    // Da chiusa non chiede niente a git: e' una sezione che nessuno guarda.
-    await expect(storia.locator('[data-testid="commit-row"]')).toHaveCount(0);
-
-    await storia.getByRole("button", { name: /Cronologia/ }).click();
 
     const righe = storia.locator('[data-testid="commit-row"]');
     await expect(righe).toHaveCount(3, { timeout: 10000 });
@@ -109,89 +113,71 @@ test.describe("cronologia dei commit", () => {
     await expect(storia.locator('[data-testid="commit-row"]').nth(1)).toHaveAttribute("aria-expanded", "false");
   });
 
-  test("cronologia e remotes stanno in fondo, attaccati, e le righe sulla stessa griglia", async ({ page, request }) => {
-    // Due difetti misurati, non visti a occhio:
-    //  1. I remotes stavano DENTRO lo scroller, che e' `flex-1`: da CHIUSI
-    //     restava una striscia vuota di 9,5px sotto di loro, e la cronologia
-    //     stava piu' giu' ancora, incollata al fondo. Due pie' di pagina a
-    //     quote diverse con un vuoto in mezzo.
-    //  2. Le righe della cronologia erano alte 24px contro i 25,5 di quelle
-    //     delle modifiche (`text-[12px]` contro la misura ereditata): due liste
-    //     nella stessa colonna fuori griglia, e l'evidenziazione al passaggio
-    //     del mouse lo mostrava riga per riga.
-    // Serve un albero SPORCO: con zero modifiche la lista dei file non si monta
-    // e con lei non c'e' lo scroller su cui il pie' di pagina deve appoggiarsi.
-    writeFileSync(`${PROJ}/README.md`, "riga uno\nriga due\nriga tre\nriga quattro\n");
-
+  test("la cronologia sta in un POPOVER, che si clampa allo schermo", async ({ page, request }) => {
+    // Il difetto che questo chiude: la cronologia era una fascia nel piede del
+    // pannello e competeva con la lista dei file per l'altezza. Tre correzioni
+    // di fila l'hanno mancata (padding, ritmo, comprimibilita'), perche' il
+    // problema non era una misura ma il POSTO. In un popover non c'e' piu'
+    // niente da spartire: il tetto e' lo spazio sotto il bottone.
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
-
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    const storia = await apriStoria(win);
-    const pannello = win.locator('[data-testid="git-changes"]');
-    // Il file e' stato scritto FUORI dall'app: che arrivi al pannello dipende
-    // dal watcher dei file, che ora ricalcola anche lo stato git (senza, non
-    // toccando `.git`, non lo notava nessuno fino al poll — 60s col WS attivo).
-    await expect(pannello.locator('[title="README.md"]').first()).toBeVisible({ timeout: 10000 });
+    const pop = await apriStoria(win);
+    await expect(pop.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
 
-    const geometria = () => pannello.evaluate((root: HTMLElement) => {
-      const bordi = (el: Element | null) => {
-        if (!el) return null;
-        const b = el.getBoundingClientRect();
-        return { top: +b.top.toFixed(1), bot: +b.bottom.toFixed(1), h: +b.height.toFixed(1) };
-      };
-      const remotes = [...root.querySelectorAll("button")]
-        .find(b => /^Remotes|^Add remote/.test(b.textContent || ""))?.closest("div.border-t") ?? null;
+    const g = await pop.evaluate((el: HTMLElement) => {
+      const b = el.getBoundingClientRect();
       return {
-        pannello: bordi(root),
-        scroller: bordi(root.querySelector(".overflow-y-auto")),
-        remotes: bordi(remotes),
-        cronologia: bordi(root.querySelector('[data-testid="commit-history"]')),
+        top: +b.top.toFixed(1), bot: +b.bottom.toFixed(1),
+        left: +b.left.toFixed(1), right: +b.right.toFixed(1),
+        vw: window.innerWidth, vh: window.innerHeight,
       };
     });
+    // Dentro lo schermo su tutt'e quattro i lati, col margine del sistema.
+    expect(g.top).toBeGreaterThanOrEqual(0);
+    expect(g.left).toBeGreaterThanOrEqual(0);
+    expect(g.right).toBeLessThanOrEqual(g.vw);
+    expect(g.bot).toBeLessThanOrEqual(g.vh);
 
-    // ── Sezioni CHIUSE: e' lo stato di cui l'utente si e' lamentato ──────────
-    const chiuse = await geometria();
-    // La lista dei file ha spazio vero: lo scroller non e' schiacciato.
-    expect(chiuse.scroller!.h).toBeGreaterThan(20);
-    // E ogni pezzo comincia dove finisce quello prima, senza strisce vuote.
-    expect(chiuse.remotes!.top).toBeCloseTo(chiuse.scroller!.bot, 0);
-    expect(chiuse.cronologia!.top).toBeCloseTo(chiuse.remotes!.bot, 0);
-    // L'ultima sezione arriva a filo del pannello: l'aria sotto il suo testo
-    // sta DENTRO la riga (`py-2`), non in un rientro del contenitore.
-    expect(chiuse.cronologia!.bot).toBeCloseTo(chiuse.pannello!.bot, 0);
-
-    // ── Cronologia APERTA: scorre dentro di se', non sfonda il pannello ──────
-    await storia.getByRole("button", { name: /Cronologia/ }).click();
-    await expect(storia.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
-    const aperta = await geometria();
-    expect(aperta.cronologia!.bot).toBeLessThanOrEqual(aperta.pannello!.bot + 0.5);
-
-    // ── Stessa griglia: una riga di commit e una riga di modifica ────────────
-    const misura = (loc: import("@playwright/test").Locator) =>
-      loc.evaluate((el: HTMLElement) => {
-        const b = el.getBoundingClientRect();
-        return { h: +b.height.toFixed(1), x: +b.x.toFixed(1), padL: getComputedStyle(el).paddingLeft };
-      });
-    const rigaCommit = await misura(storia.locator('[data-testid="commit-row"]').first());
-    const rigaFile = await misura(pannello.locator('[title="README.md"]').first());
-    expect(rigaCommit.h).toBe(rigaFile.h);
-    expect(rigaCommit.x).toBe(rigaFile.x);
-    expect(rigaCommit.padL).toBe(rigaFile.padL);
-
-    git(["checkout", "--", "README.md"]);
+    // E il pannello non ha piu' un piede: ne' cronologia ne' remotes dentro.
+    const pannello = win.locator('[data-testid="git-changes"]');
+    await expect(pannello.locator('[data-testid="commit-history"]')).toHaveCount(0);
+    await expect(pannello.locator("button").filter({ hasText: /^Remotes|^Add remote/ })).toHaveCount(0);
   });
 
-  test("con l'albero PULITO il piede resta in fondo, e l'icona git non e' accesa", async ({ page, request }) => {
-    // Il caso che il test qui sopra NON copre, perche' quello sporca l'albero
-    // apposta per avere lo scroller. Con zero modifiche al posto della lista
-    // c'e' un messaggio corto, che non e' `flex-1` e quindi non spinge niente:
-    // il pie' di pagina si appoggiava a quel messaggio e tutto lo spazio
-    // restante finiva SOTTO la cronologia. Stesso difetto di prima, stato
-    // opposto.
+  test("la riga d'intestazione non trabocca a barra STRETTA", async ({ page, request }) => {
+    // Misurato prima: a 160px (il minimo trascinabile) la riga sforava di
+    // 58,6px — i due gruppi erano entrambi `flex-shrink-0`, quindi il testo
+    // usciva dal pannello invece di troncare.
+    await resetPaneStore(request, []);
+    await seedProjectPane(request, PROJ);
+    await waitForPaneStoreQuiet(request);
+    await page.addInitScript(([path]) => {
+      try {
+        sessionStorage.setItem(`project-sidebar-width:${path}`, "160");
+        sessionStorage.setItem(`sidebar-sections:${path}`, JSON.stringify({ files: true, git: true, processes: false }));
+      } catch { /* niente sessionStorage */ }
+    }, [PROJ] as [string]);
+    await goToApp(page);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    const riga = win.locator('[data-testid="project-sidebar-git"]');
+    await expect(riga).toBeVisible({ timeout: 15000 });
+
+    const sforo = await riga.evaluate((el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      const dentro = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const usato = [...el.children].reduce((s, c) => s + c.getBoundingClientRect().width, 0);
+      return +(usato - dentro).toFixed(1);
+    });
+    expect(sforo).toBeLessThanOrEqual(0.5);
+  });
+
+
+  test("con l'albero PULITO la cronologia resta raggiungibile, e l'icona git non e' accesa", async ({ page, request }) => {
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -199,47 +185,20 @@ test.describe("cronologia dei commit", () => {
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    const storia = await apriStoria(win);
     const pannello = win.locator('[data-testid="git-changes"]');
+    await expect(pannello).toBeVisible({ timeout: 15000 });
+    const head = pannello.locator('[data-testid="project-sidebar-git"]');
+    if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
 
-    // Albero pulito: il messaggio c'e', la lista no.
+    // Albero pulito: il messaggio c'e', la lista no. Ed e' proprio lo stato in
+    // cui il vecchio piede si comportava peggio — al posto della lista c'era un
+    // messaggio corto che non spinge, e tutto lo spazio finiva sotto la
+    // cronologia. Ora la cronologia non e' nel pannello: il caso non esiste.
     await expect(pannello.getByText(/Albero di lavoro pulito|Clean working tree/)).toBeVisible({ timeout: 10000 });
-    expect(storia).toBeTruthy();
-
-    const g = await pannello.evaluate((root: HTMLElement) => {
-      const b = (el: Element | null) => el ? { top: +el.getBoundingClientRect().top.toFixed(1), bot: +el.getBoundingClientRect().bottom.toFixed(1) } : null;
-      return { pannello: b(root), cronologia: b(root.querySelector('[data-testid="commit-history"]')) };
-    });
-    expect(g.cronologia!.bot).toBeCloseTo(g.pannello!.bot, 0);
-
-    // Il RITMO del piede: la cronologia respira come la riga sopra, e in modo
-    // SIMMETRICO. E' l'invariante che serviva: la prima correzione aggiunse
-    // aria solo SOTTO il testo (8px) e lascio' 4px sopra — mezzo problema
-    // risolto, e la riga restava piu' bassa di 9px della sua vicina.
-    const ritmo = await pannello.evaluate((root: HTMLElement) => {
-      const misura = (riga: Element | null, testo: Element | null) => {
-        if (!riga || !testo) return null;
-        const r = riga.getBoundingClientRect(), t = testo.getBoundingClientRect();
-        return { sopra: +(t.top - r.top).toFixed(1), sotto: +(r.bottom - t.bottom).toFixed(1) };
-      };
-      const cron = root.querySelector('[data-testid="commit-history"]');
-      const addRemote = [...root.querySelectorAll("button")]
-        .find(b => /^Add remote|^Remotes/.test(b.textContent || "")) ?? null;
-      return {
-        cron: misura(cron?.firstElementChild ?? null, cron?.querySelector("button") ?? null),
-        vicina: misura(addRemote?.closest("div") ?? null, addRemote),
-        fondo: cron?.querySelector("button")
-          ? +(root.getBoundingClientRect().bottom
-              - cron.querySelector("button")!.getBoundingClientRect().bottom).toFixed(1)
-          : null,
-      };
-    });
-    // Simmetrica: tanta aria sopra quanta sotto.
-    expect(ritmo.cron!.sopra).toBeCloseTo(ritmo.cron!.sotto, 0);
-    // E lo stesso passo della riga che le sta sopra (±1px per il bordo).
-    expect(Math.abs(ritmo.cron!.sopra - ritmo.vicina!.sopra)).toBeLessThanOrEqual(1.5);
-    // Che e' anche l'aria fino al fondo del pannello.
-    expect(ritmo.fondo).toBeCloseTo(8, 0);
+    // Ma resta raggiungibile: il bottone c'e' anche ad albero pulito, perche'
+    // dei commit ce ne sono.
+    const pop = await apriStoria(win);
+    await expect(pop.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
 
     // E l'icona di git non e' colorata: sta accanto alla pastiglia del
     // conteggio e alle frecce ahead/behind, che il colore ce l'hanno per dire
@@ -258,7 +217,6 @@ test.describe("cronologia dei commit", () => {
     expect(colori.git).not.toBeNull();
     expect(colori.git).toBe(colori.file ?? colori.processi);
   });
-
   test("il PRIMO commit si apre senza padre e mostra tutto come aggiunto", async ({ page, request }) => {
     // `<hash>^` non esiste sul commit iniziale: git esce non-zero e la rotta
     // risponde vuoto. E' la cosa giusta (un commit iniziale e' tutto aggiunto),
@@ -271,7 +229,6 @@ test.describe("cronologia dei commit", () => {
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     const storia = await apriStoria(win);
-    await storia.getByRole("button", { name: /Cronologia/ }).click();
     const righe = storia.locator('[data-testid="commit-row"]');
     await expect(righe).toHaveCount(3, { timeout: 10000 });
 
@@ -328,63 +285,4 @@ test.describe("cronologia dei commit", () => {
    *
    * Qui le tre misure si guardano INSIEME, a due altezze e in due stati.
    */
-  for (const altezza of [160, 260]) {
-    test(`il piede regge a ${altezza}px senza tagliarsi ne sforare`, async ({ page, request }) => {
-      await resetPaneStore(request, []);
-      await seedProjectPane(request, PROJ);
-      await waitForPaneStoreQuiet(request);
-      // L'altezza del pannello git e' per progetto e sta in sessionStorage: e'
-      // l'unica leva per provare lo spazio stretto senza trascinare a mano.
-      await page.addInitScript(([path, h]) => {
-        try {
-          sessionStorage.setItem(`project-sidebar-bottom-heights:${path}`, JSON.stringify({ git: h, processes: 150 }));
-          sessionStorage.setItem(`sidebar-sections:${path}`, JSON.stringify({ files: true, git: true, processes: false }));
-        } catch { /* niente sessionStorage: si gira coi valori di serie */ }
-      }, [PROJ, altezza] as [string, number]);
-
-      await goToApp(page);
-      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-      const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-      const storia = await apriStoria(win);
-      const pannello = win.locator('[data-testid="git-changes"]');
-
-      const misura = () => pannello.evaluate((root: HTMLElement) => {
-        const cron = root.querySelector('[data-testid="commit-history"]');
-        const piede = cron?.parentElement ?? null;
-        const testo = cron?.querySelector("button") ?? null;
-        if (!cron || !piede || !testo) return null;
-        const R = root.getBoundingClientRect(), C = cron.getBoundingClientRect();
-        const P = piede.getBoundingClientRect(), T = testo.getBoundingClientRect();
-        // L'invariante e' che l'INTESTAZIONE ci stia: e' lei a sparire quando
-        // la sezione si accartoccia. Non `scrollHeight - height`, che su un
-        // contenitore che scorre balla di un pixel per arrotondamento e
-        // direbbe «schiacciata» anche quando non lo e'.
-        const riga = cron.firstElementChild?.getBoundingClientRect();
-        return {
-          sforo: +(P.bottom - R.bottom).toFixed(1),
-          altezzaSezione: +C.height.toFixed(1),
-          altezzaIntestazione: +(riga?.height ?? 0).toFixed(1),
-          testoDentro: T.bottom <= R.bottom + 0.5 && T.top >= R.top - 0.5,
-        };
-      });
-
-      for (const stato of ["chiusa", "aperta"] as const) {
-        if (stato === "aperta") {
-          await storia.getByRole("button", { name: /Cronologia/ }).click();
-          await page.waitForTimeout(800);
-        }
-        const m = await misura();
-        expect(m, `misura mancante (${stato})`).not.toBeNull();
-        expect(m!.sforo, `il piede sfora il fondo (${stato})`).toBeLessThanOrEqual(0.5);
-        // La sezione non scende MAI sotto la sua intestazione: e' quello che
-        // succedeva a pannello stretto (1px sui 33 naturali).
-        expect(m!.altezzaIntestazione, `intestazione sparita (${stato})`).toBeGreaterThan(20);
-        expect(
-          m!.altezzaSezione,
-          `sezione sotto la sua intestazione (${stato})`,
-        ).toBeGreaterThanOrEqual(m!.altezzaIntestazione - 0.5);
-        expect(m!.testoDentro, `testo fuori dal pannello (${stato})`).toBe(true);
-      }
-    });
-  }
 });

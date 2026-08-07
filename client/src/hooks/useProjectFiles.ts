@@ -331,13 +331,5 @@ export function useProjectFiles({ projectPath, onMessage }: UseProjectFilesOptio
   return { ...snapshot, reload, setExpanded, replaceExpanded, graft };
 }
 
-/** Per i test: azzera gli store fra un caso e l'altro. */
-export function __resetProjectFilesStores() {
-  for (const s of stores.values()) {
-    if (s.timer) clearInterval(s.timer);
-    s.abort?.abort();
-  }
-  stores.clear();
-}
 
 export { filesCache, graftChildren };
