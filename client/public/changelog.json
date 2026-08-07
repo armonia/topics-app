@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.49",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un permesso non è una domanda: gli do il suo stato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non era il raggio, era la distanza: il «+» smette di abbracciare l'angolo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.48",
     "date": "2026-08-07",
     "sections": {
@@ -14,6 +35,11 @@
         },
         {
           "it": "Il vuoto attorno al ⌘N si misura sull'inchiostro, e i comandi smettono di gareggiare con la finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.48 — l'inchiostro, non il box",
           "en": "",
           "scope": null
         }

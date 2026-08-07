@@ -2,11 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.49 — 2026-08-07
+
+### Sotto il cofano
+- Un permesso non è una domanda: gli do il suo stato
+- Non era il raggio, era la distanza: il «+» smette di abbracciare l'angolo
+
 ## 2.2.48 — 2026-08-07
 
 ### Sotto il cofano
 - «Crea un link per chi è fuori rete», e la parola tunnel non si legge
 - Il vuoto attorno al ⌘N si misura sull'inchiostro, e i comandi smettono di gareggiare con la finestra
+- 2.2.48 — l'inchiostro, non il box
 
 ## 2.2.47 — 2026-08-07
 
