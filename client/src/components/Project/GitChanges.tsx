@@ -1183,10 +1183,26 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 appoggiava a quel messaggio e tutto lo spazio restante finiva
                 SOTTO la cronologia — cioè lo stesso difetto di prima, ma nello
                 stato opposto. Col `flex-1` presente `mt-auto` non fa nulla. */}
-            {/* Nessun rientro qui: l'aria sotto l'ultima riga viene dal `py-2`
-                della riga stessa, come l'aria SOPRA. Il rientro sul
-                contenitore dava 8px sotto e 4px sopra — sistemava meta'
-                problema e lasciava la riga asimmetrica. */}
+            {/* `flex-shrink-0`, ed e' la riga che impedisce al piede di venire
+                TAGLIATO. Senza, il contenitore era `min-h-0` e quindi
+                comprimibile: quando lo spazio finiva — pannello git stretto,
+                finestra bassa — a cedere era il piede invece della lista dei
+                file. Misurato a 96px di pannello: la sezione Cronologia
+                schiacciata a 1px sui suoi 33 naturali, cioe' annientata, con
+                l'intestazione tagliata dall'`overflow-hidden` dell'antenato.
+                L'ordine giusto e' l'opposto: cede la lista, che SCORRE ed e'
+                fatta per questo; il piede e' chrome a misura fissa e resta.
+
+                Comprimibile SI', ma senza `min-h-0`: e' quello a permettere a un
+                elemento flex di scendere sotto il suo min-content. Senza,
+                flexbox si ferma alle intestazioni — che e' esattamente il
+                limite giusto. Bloccarlo del tutto (`flex-shrink-0`) era la cura
+                sbagliata: con la cronologia APERTA il piede diventava 173px
+                dentro un pannello da 96, cioe' il taglio si spostava piu' in su
+                invece di sparire.
+
+                Nessun rientro sotto: l'aria dell'ultima riga viene dal suo
+                `py-2`, come quella sopra. */}
             <div className="flex flex-col min-h-0 mt-auto">
               {remotes.length === 0 && !showAddRemote ? (
                 <div className="px-3 py-2 border-t border-app-border">
