@@ -882,6 +882,12 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // cui comincia il gruppo — e deve essere lo stesso da cui comincia una card
     // della lista, o il titolo risulterebbe rientrato rispetto alle righe.
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
+    // …e i tre spazi della riga sono LO STESSO: fra i due bottoni, dal bordo
+    // destro, sopra e sotto. Era l'ultima distanza che non tornava (8 contro 6),
+    // e due pixel di scarto in mezzo a tutto il resto allineato non si leggono
+    // come una scelta.
+    expect(Math.round(piu.x - (cerca.x + cerca.width)), "fra il cerca e il + non c'è il passo della colonna").toBe(6);
+    expect(Math.round(colonna.x + colonna.width - (piu.x + piu.width)), "il + non è a 6px dal bordo destro").toBe(6);
   });
 
   /**

@@ -79,13 +79,21 @@ export const RESTING_SURFACE =
  *   riapre la colonna opaco (`bg-elevated`) — due controlli gemelli, due
  *   trattamenti.
  *
- * `--bg-elevated` e non `--bg-surface`: quest'ultimo COLLASSA sul chrome sotto
- * i 768px (vedi index.css), quindi un comando dipinto con quello sparirebbe nel
- * fondo proprio sul telefono. Va accompagnato da `edge-lit`, che gli dà il
- * bordo: senza, su un fondo vicino, resta una macchia senza contorno.
+ * È una CLASSE (index.css) e non una coppia di utility Tailwind, e il motivo è
+ * la shell mac: lì tutto il chrome è una lastra translucida, e un fondo opaco
+ * appoggiato sopra non partecipa al vetro — «da app mi sembrano di uno schema
+ * di colore diverso rispetto al grigio blur». Il colore lo deve decidere la
+ * PIATTAFORMA (opaco sul web, alpha sotto vibrancy), e una decisione che dipende
+ * dall'ambiente vive nel CSS, non in una stringa di classi che il chiamante
+ * incolla. Il dettaglio, coi numeri, sta accanto alla regola.
+ *
+ * Fuori dalla shell il token è `--bg-elevated` e non `--bg-surface`:
+ * quest'ultimo COLLASSA sul chrome sotto i 768px, quindi un comando dipinto con
+ * quello sparirebbe nel fondo proprio sul telefono. Va accompagnato da
+ * `edge-lit`, che gli dà il bordo: senza, su un fondo vicino, resta una macchia
+ * senza contorno.
  */
-export const RAISED_CONTROL =
-  'bg-elevated hover:bg-app-hover';
+export const RAISED_CONTROL = 'raised-control';
 
 /**
  * L'HOVER dentro la sidebar, e perché non è `hover:bg-app-hover`.
