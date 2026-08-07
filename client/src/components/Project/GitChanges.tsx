@@ -15,8 +15,9 @@ import { isBinaryForDiff, looksBinary, isTooLarge, type DiffBlock } from './diff
 import { diffEndpoints, endLabel, type DiffEnd, type DiffSource } from './diffEndpoints';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
-import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
@@ -275,7 +276,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
    */
   const gitStatusRef = useRef(gitStatus);
   gitStatusRef.current = gitStatus;
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   /**
    * La casella del messaggio cresce col testo.
    *
@@ -623,13 +623,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     refs: [storiaPopRef, storiaBtnRef],
   });
 
-  // Dismissal for the file context menu (right-click, positioned at the cursor).
-  useDismissable({
-    open: !!contextMenu,
-    onClose: closeContextMenu,
-    refs: [contextMenuRef],
-    restoreFocus: false,
-  });
+  // La chiusura del menu dei file NON sta piu' qui: la porta
+  // `ContextMenuPortal`, che monta il suo `useDismissable` sul menu VERO.
+  // Tenerne una copia qui, agganciata a un ref che nessuno assegna piu',
+  // sarebbe un gancio che ascolta il vuoto.
 
   // Clear selection when the set of changed files changes
   const fileKeys = useMemo(() => gitStatus?.files.map(f => f.path).sort().join('\n') ?? '', [gitStatus]);
@@ -761,68 +758,68 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   }, [projectPath, loadStatus, toast]);
 
   // --- Context menu portal ---
+  /**
+   * Il menu dei file, attraverso la primitiva invece che a mano.
+   *
+   * Prima stimava `menuWidth = 200` e clampava su quella stima. Ma
+   * l'intestazione porta il basename con `truncate`, che è `white-space:
+   * nowrap`: `overflow: hidden` non limita la dimensione INTRINSECA, quindi il
+   * min-content del pannello è il nome INTERO e l'ellissi non scatta mai.
+   * Misurato con un nome vero del repo
+   * (`migration-074-messages-timestamp-index.test.ts`): pannello 288px, cioè
+   * 80px oltre il bordo destro dello schermo. `ContextMenuPortal` misura il
+   * menu VERO e clampa su quello — piu' il tetto e lo scroll che ha appena
+   * guadagnato. Il `max-w` sull'intestazione è cio' che rende il `truncate`
+   * qualcosa di piu' di una decorazione.
+   *
+   * Le righe passano a `POPOVER_ITEM` / `POPOVER_ITEM_DANGER`: erano scritte a
+   * mano, quindi restavano a 30px anche col dito, e il «Discard» era un
+   * `text-red-500` = 3,37:1 sul fondo popover chiaro.
+   */
   const renderContextMenu = () => {
     if (!contextMenu) return null;
     const count = contextMenu.targets.length;
     const label = count > 1 ? `${count} files` : pathBasename(contextMenu.targets[0] || '');
     const isUnstaged = contextMenu.group === 'unstaged';
 
-    // Clamp menu to viewport
-    const menuWidth = 200;
-    const menuHeight = 160;
-    const x = Math.min(contextMenu.x, window.innerWidth - menuWidth - 8);
-    const y = Math.min(contextMenu.y, window.innerHeight - menuHeight - 8);
-
-    return createPortal(
-      <div
-        ref={contextMenuRef}
-        role="menu"
-        className={`fixed ${POPOVER_SURFACE} min-w-[180px] text-[12px]`}
-        style={{ left: x, top: y, zIndex: Z_CONTEXT_MENU }}
+    return (
+      <ContextMenuPortal
+        open
+        x={contextMenu.x}
+        y={contextMenu.y}
+        onClose={closeContextMenu}
+        minWidth={180}
       >
-        <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
+        <div className="px-3 py-1 text-[11px] text-app-text-muted truncate max-w-[280px] border-b border-app-border mb-0.5">
           {label}
         </div>
         {count === 1 && (
-          <button
-            onClick={handleBatchOpen}
-            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
-          >
+          <button onClick={handleBatchOpen} className={POPOVER_ITEM}>
             <FileText size={13} className="text-app-text-muted flex-shrink-0" />
             Open Diff
           </button>
         )}
         {isUnstaged ? (
-          <button
-            onClick={handleBatchStage}
-            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
-          >
+          <button onClick={handleBatchStage} className={POPOVER_ITEM}>
             <Plus size={13} className="text-green-500 flex-shrink-0" />
             Stage {count > 1 ? `${count} Files` : 'File'}
           </button>
         ) : (
-          <button
-            onClick={handleBatchUnstage}
-            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
-          >
+          <button onClick={handleBatchUnstage} className={POPOVER_ITEM}>
             <Minus size={13} className="text-red-500 flex-shrink-0" />
             Unstage {count > 1 ? `${count} Files` : 'File'}
           </button>
         )}
         {isUnstaged && (
           <>
-            <div className="border-t border-app-border my-0.5" />
-            <button
-              onClick={handleBatchDiscard}
-              className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-red-500"
-            >
+            <div className={POPOVER_DIVIDER} />
+            <button onClick={handleBatchDiscard} className={POPOVER_ITEM_DANGER}>
               <Undo2 size={13} className="flex-shrink-0" />
               Discard {count > 1 ? `${count} Changes` : 'Changes'}
             </button>
           </>
         )}
-      </div>,
-      document.body
+      </ContextMenuPortal>
     );
   };
 
@@ -905,7 +902,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
           </div>
           {/* Right: branch + badges + refresh */}
-          <div className="flex items-center gap-1 min-w-0 ml-auto" onClick={e => e.stopPropagation()}>
+          {/* La propagazione si ferma solo sui CONTROLLI, non su tutto il
+              gruppo. Fermarla sul contenitore rendeva morta anche l'aria fra un
+              bottone e l'altro — e con essa il centro della riga, che e'
+              esattamente dove un click atterra: la riga si dichiara cliccabile
+              per tutta la sua larghezza (`cursor-pointer`) e per meta' non lo
+              era. Misurato: a 224px il gruppo destro occupa da 64px a 199px su
+              199, quindi il centro ci cade dentro. */}
+          <div
+            className="flex items-center gap-1 min-w-0 ml-auto"
+            onClick={e => { if ((e.target as HTMLElement).closest('button')) e.stopPropagation(); }}
+          >
             {hasData && (gitStatus!.folderUntracked ? (
               // Il ramo è del repo che ospita la cartella, non di lei. Qui
               // resta scritto ma non si apre: dal pannello di questa cartella,

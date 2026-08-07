@@ -39,7 +39,11 @@ async function apriStoria(win: Locator): Promise<Locator> {
   const git = win.locator('[data-testid="git-changes"]');
   await expect(git).toBeVisible({ timeout: 10000 });
   const head = git.locator('[data-testid="project-sidebar-git"]');
-  if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+  // L'ETICHETTA, non il centro della riga: al centro c'e' il nome del ramo, che
+  // e' un controllo e apre la sua tendina invece di espandere la sezione.
+  if ((await head.getAttribute("aria-expanded")) !== "true") {
+    await head.getByText("Git", { exact: true }).click();
+  }
   const bottone = git.locator('[data-testid="git-history-button"]');
   await expect(bottone).toBeVisible({ timeout: 10000 });
   if ((await bottone.getAttribute("aria-expanded")) !== "true") await bottone.click();
@@ -262,7 +266,13 @@ test.describe("cronologia dei commit", () => {
       const pannello = win.locator('[data-testid="git-changes"]');
       await expect(pannello).toBeVisible({ timeout: 15000 });
       const header = pannello.locator('[data-testid="project-sidebar-git"]');
-      if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+      // Si clicca l'ETICHETTA, non il centro della riga: al centro c'e' il nome
+  // del ramo, che e' un CONTROLLO — cliccarlo apre la tendina dei rami e la
+  // sezione resta chiusa (misurato: `elementFromPoint` al centro restituisce
+  // lo span del branch).
+  if ((await header.getAttribute("aria-expanded")) !== "true") {
+    await header.getByText("Git", { exact: true }).click();
+  }
 
       // Il pannello c'e' e funziona: il file non tracciato si vede.
       await expect(pannello.locator('[data-git-file="nuovo.txt"]').first()).toBeVisible({ timeout: 10000 });
