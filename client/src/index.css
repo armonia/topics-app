@@ -53,6 +53,30 @@
   margin-inline: auto;
 }
 
+/* Un percorso che, quando lo spazio finisce, si accorcia da SINISTRA.
+ *
+ * `truncate` taglia in coda, e in coda c'è la parte che identifica il file:
+ * `client/src/components/Project/Gi…` non dice quale file è. Tagliando in testa
+ * si perde la radice — che è la stessa per tutti — e restano le cartelle
+ * vicine: `…/components/Project`. È quello che fa la vista SCM di VS Code.
+ *
+ * Il trucco è un contenitore `rtl` in cui il testo resta scritto da sinistra:
+ * il browser mette i puntini dal lato "iniziale", che in rtl è quello destro,
+ * cioè l'inizio visivo della stringa.
+ *
+ * Chi lo usa DEVE anteporre al testo un U+200E (LEFT-TO-RIGHT MARK). Senza, un
+ * carattere neutro in testa — il punto di `.github/workflows`, una barra — non
+ * ha una direzione propria e prende quella del paragrafo: salta in fondo, e a
+ * schermo si legge `github/workflows.`. Il marcatore gli mette accanto un
+ * carattere forte da cui ereditare. */
+@utility path-elide-left {
+  direction: rtl;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Topbar tabs — fully hidden by default, ghost 3px thumb only on direct hover */
 @utility scrollbar-topbar {
   scrollbar-width: none;
