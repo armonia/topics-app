@@ -134,3 +134,65 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
     await page.unroute("**/api/files?**");
   });
 });
+
+/**
+ * Il bordo sotto l'intestazione File non lampeggia chiudendo la sezione.
+ *
+ * Chiudendo, la riga guadagna `border-b` — e con essa guadagnava anche il
+ * COLORE, perche' la classe era `border-b border-app-border` dentro il ramo.
+ * `transition-colors` anima `border-color` ma non la larghezza: il bordo
+ * compariva istantaneo a 1px e poi il colore ci metteva 150ms ad arrivare a
+ * destinazione, partendo da `currentColor` — il preflight di Tailwind v4 mette
+ * `border: 0 solid` SENZA colore. Qui `currentColor` e' `--text-secondary`
+ * (#5a5a5a) contro un `--border` di #e8e8e8: una linea quasi nera che
+ * sbiadiva. Cioe' il lampo.
+ *
+ * La prova non e' un video: e' che il colore del bordo sia LO STESSO nei due
+ * stati. Se non cambia, non c'e' niente da animare.
+ */
+test.describe("il bordo dell'accordion File non lampeggia", () => {
+  let project: FileProject | undefined;
+  let topicId = "";
+  let tmpDir = "";
+  let topicName = "";
+
+  test.beforeAll(async ({ request }) => {
+    project = await seedFileProject(request, "fe-bordo");
+    ({ topicId, tmpDir, topicName } = project);
+  });
+  test.beforeEach(async ({ request }) => {
+    if (topicId) await resetPaneStore(request, [topicId]);
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupFileProject(request, project);
+  });
+
+  test("il colore del bordo non cambia fra aperta e chiusa: solo la larghezza", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+    const header = page.locator('[data-testid="project-sidebar-files"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+    if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+
+    const bordo = () => header.evaluate((el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      return { colore: cs.borderBottomColor, larghezza: cs.borderBottomWidth };
+    });
+
+    const aperta = await bordo();
+    await header.click();
+    await expect(header).toHaveAttribute("aria-expanded", "false");
+    const chiusa = await bordo();
+
+    // La larghezza cambia — e' il bordo che deve comparire.
+    expect(aperta.larghezza).toBe("0px");
+    expect(chiusa.larghezza).toBe("1px");
+    // Il COLORE no: e' l'unica cosa che `transition-colors` animerebbe.
+    expect(chiusa.colore).toBe(aperta.colore);
+    // E non e' il colore del testo, che era il valore di partenza sbagliato.
+    const testo = await header.evaluate((el: HTMLElement) => getComputedStyle(el).color);
+    expect(chiusa.colore).not.toBe(testo);
+  });
+});
