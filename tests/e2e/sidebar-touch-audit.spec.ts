@@ -61,6 +61,24 @@ async function openSidebarOnPhone(page: Page) {
   await page.locator(SIDEBAR).waitFor({ state: "attached", timeout: 20_000 });
   await page.keyboard.press("ControlOrMeta+b");
   await page.waitForSelector(SIDEBAR, { state: "visible", timeout: 20_000 });
+  // E POI SI ASPETTA CHE SIA FERMA. «Visible» per Playwright vuol dire «ha un
+  // box e non è display:none» — e la sidebar mobile entra con una `translateX`
+  // (`sidebar-transition`), quindi è "visibile" per tutta la scivolata mentre il
+  // suo bordo sinistro è ancora fuori schermo.
+  //
+  // Misurato: SIDEBAR-TOUCH-03 falliva 2 volte su 10 con `sidebarX=-71` e
+  // `-84`, e il centro del bersaglio a `cx=-1` — fuori dal viewport, dove
+  // `elementFromPoint` restituisce `null`. Non era un difetto del prodotto e non
+  // era «lentezza»: era una misura geometrica presa su un layout in movimento.
+  // Ogni test di questo file misura rettangoli, quindi la condizione sta qui,
+  // una volta sola, e vale per tutti.
+  await expect
+    .poll(async () => Math.round((await page.locator(SIDEBAR).boundingBox())?.x ?? -999), {
+      message: "la sidebar deve finire di entrare prima di misurare qualsiasi cosa",
+      timeout: 5_000,
+      intervals: [50, 100, 200],
+    })
+    .toBe(0);
 }
 
 /**
@@ -115,6 +133,29 @@ test.describe("Sidebar col dito — audit misurato", () => {
 
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);
+    // L'anteprima arriva da `GET /api/topics/previews`, che il client chiama UNA
+    // volta al boot. Se il messaggio seminato non è ancora visibile a
+    // quell'endpoint quando la pagina si carica, la riga nasce muta e nessun
+    // re-render la riempie: la fetch è già passata.
+    //
+    // Non è un'attesa di comodo — è la PRECONDIZIONE del test, e si aspetta la
+    // condizione vera invece di sperare in un timeout più lungo. (Misurato:
+    // SUBLINE-01 falliva ~2 volte su 8 con l'endpoint che rispondeva 200 ma
+    // senza questa chiave. L'endpoint ha una cache a 5s validata su
+    // `max(rowid)+count(*)` di `messages`: subito dopo il seed la finestra in
+    // cui può ancora servire la fotografia precedente esiste.)
+    await expect
+      .poll(async () => {
+        const r = await request.get(`${BASE}/api/topics/previews`, { ignoreHTTPSErrors: true });
+        if (!r.ok()) return false;
+        const body = (await r.json()) as { previews?: Record<string, { text?: string }> };
+        return !!body.previews?.[topicId]?.text;
+      }, {
+        message: "il server deve poter servire l'anteprima del topic prima che la pagina la chieda",
+        timeout: 10_000,
+        intervals: [100, 200, 400, 800],
+      })
+      .toBe(true);
   });
 
   /**
