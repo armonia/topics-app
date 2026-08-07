@@ -50,7 +50,7 @@ import { useMenuKeyboard } from '../../hooks/useMenuKeyboard';
 import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
-import { POPOVER_ITEM_TOUCH, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
@@ -146,7 +146,7 @@ export function PaneAddMenuItems({
             type="button"
             role="menuitem"
             onClick={choose(item)}
-            className={POPOVER_ITEM_TOUCH}
+            className={POPOVER_ITEM}
             data-testid={item.testId}
             data-mnemonic={item.mnemonic || undefined}
             aria-keyshortcuts={item.mnemonic || undefined}

@@ -1444,14 +1444,14 @@ function App() {
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
           <button
             onClick={() => { sidebar.toggleShowArchived(); }}
-            className={`w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
           >
             <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
             <span className="flex-1 text-left">Mostra archiviati</span>
           </button>
           <button
             onClick={() => { sidebar.toggleViewMode(); }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
           >
             {/* Icona ed etichetta descrivono il modo SUCCESSIVO — cosa fa il
                 click — e lo chiedono a `nextSidebarViewMode`, la stessa funzione
@@ -1477,7 +1477,7 @@ function App() {
               window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
               setShowTopicsMenu(false);
             }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
             title="Riunisce tutti i pannelli in uno solo (le schede restano aperte)"
           >
             <RotateCcw size={isMobile ? 18 : 14} />
@@ -1492,7 +1492,7 @@ function App() {
               window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
               setShowTopicsMenu(false);
             }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
             title="Dispone tutte le schede aperte affiancate in una griglia bilanciata"
           >
             <Grid2x2 size={isMobile ? 18 : 14} />
@@ -1504,7 +1504,7 @@ function App() {
               <button
                 key={id}
                 onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <Icon size={isMobile ? 18 : 14} />
                 <span className="flex-1 text-left">{label}</span>
@@ -1512,7 +1512,7 @@ function App() {
             ))}
           <button
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
           >
             <SettingsIcon size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Settings</span>

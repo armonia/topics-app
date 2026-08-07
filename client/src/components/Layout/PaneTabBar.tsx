@@ -1350,7 +1350,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             return (
               <button
                 onClick={() => { onToggleFissato(pinKey); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               >
                 {pinned ? <PinOff size={14} /> : <Pin size={14} />}
                 <span className="flex-1 text-left">{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
@@ -1375,7 +1375,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 }
                 setCtxMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               title="Riavvia la sessione (Claude/codex riprendono via --resume)"
             >
               <RotateCw size={14} />
@@ -1397,7 +1397,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             return renameDraft === null ? (
               <button
                 onClick={() => setRenameDraft(ctxPane?.title ?? '')}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 title="Rinomina questa scheda"
               >
                 <Edit3 size={14} />
@@ -1458,7 +1458,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 {target && (
                   <button
                     onClick={() => { void copyTabLink(target); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                     title="Copia l'indirizzo di questa scheda (si riapre qui dentro)"
                   >
                     <Link2 size={14} />
@@ -1468,7 +1468,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 {pageUrl && (
                   <button
                     onClick={() => { void copyUrl(pageUrl); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                     title={pageUrl}
                   >
                     <Globe size={14} />
@@ -1490,14 +1490,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   (onCloseImmediate ?? onClose)(ctxMenu.paneId);
                   setCtxMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <X size={14} />
                 <span className="flex-1 text-left">{tr('tab.menu.closeNow')}</span>
               </button>
               <button
                 onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 title="Chiude dopo un conto alla rovescia di 3 secondi (annullabile)"
               >
                 <X size={14} />
@@ -1516,7 +1516,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 }
                 setCtxMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
             >
               <X size={14} />
               <span>{tr('tab.menu.closeOthers')}</span>
@@ -1528,7 +1528,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               {onSplitRight && (
                 <button
                   onClick={() => { onSplitRight(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Columns2 size={14} />
                   <span>{tr('tab.menu.splitRight')}</span>
@@ -1537,7 +1537,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               {onSplitDown && (
                 <button
                   onClick={() => { onSplitDown(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Rows2 size={14} />
                   <span>{tr('tab.menu.splitDown')}</span>
@@ -1558,7 +1558,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               {onResetLayout && (
                 <button
                   onClick={() => { onResetLayout(); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                   title="Appiattisce gli split su un solo livello (le schede restano aperte)"
                 >
                   <LayoutGrid size={14} />
@@ -1582,7 +1582,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <>
                     <button
                       onClick={() => setSpaceSubmenuOpen(open => !open)}
-                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                       title="Sposta la scheda in un altro gruppo"
                       aria-expanded={spaceSubmenuOpen}
                     >
@@ -1602,7 +1602,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                                 movePaneToSpace(ctxMenu.paneId, target.id);
                                 setCtxMenu(null);
                               }}
-                              className={`w-full flex items-center gap-2 pl-8 pr-3 py-3 md:py-1.5 text-[14px] md:text-[12px] transition-colors ${
+                              className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] transition-colors ${
                                 isCurrent
                                   ? 'text-app-text-muted cursor-default'
                                   : 'text-app-text hover:bg-app-hover'
@@ -1624,7 +1624,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                               movePaneToSpace(ctxMenu.paneId, id);
                               setCtxMenu(null);
                             }}
-                            className="w-full flex items-center gap-2 pl-8 pr-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                            className="w-full flex items-center gap-2 pl-8 pr-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                           >
                             <Plus size={12} />
                             <span className="flex-1 text-left">Nuovo gruppo</span>
@@ -1641,7 +1641,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 return (
                   <button
                     onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                     title="Apre la scheda in una finestra separata"
                   >
                     <ExternalLink size={14} />
@@ -1652,7 +1652,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               {onPopOutGroup && panes.length > 1 && (
                 <button
                   onClick={() => { onPopOutGroup!(); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                   title="Stacca l'intero gruppo (tutte le schede) in una finestra separata"
                 >
                   <ExternalLink size={14} />
@@ -1666,7 +1666,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <div className="h-px bg-app-border my-1" />
               <button
                 onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 title="Estrae la scheda in una cella affiancata (resta in questa finestra)"
               >
                 <Columns2 size={14} />
@@ -1682,7 +1682,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <div className="h-px bg-app-border my-1" />
               <button
                 onClick={() => { onReattach(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 title="Chiude lo split e riporta la scheda nel pannello principale"
               >
                 <Combine size={14} />
@@ -1703,7 +1703,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <div className="h-px bg-app-border my-1" />
                 <button
                   onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Settings size={14} />
                   <span>Impostazioni</span>

@@ -3,6 +3,23 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* `coarse:` — «questo device si può TOCCARE», non «lo schermo è stretto».
+ *
+ * I bersagli da dito erano gatati su `md:`, cioè su una LARGHEZZA (768px), usata
+ * come sostituto della domanda vera. Le due cose non coincidono: un iPhone in
+ * orizzontale è 844px e prende righe da mouse; un iPad è 820px e pure. Misurato
+ * con le classi vere sul CSS vero: 390x844 → 45px, 844x390 → 30px, 820x1180 →
+ * 30px. Cioè col dito, sul dispositivo che il codice riconosce come mobile per
+ * il LAYOUT, si toccavano righe da 30px.
+ *
+ * `any-pointer` e non `pointer`: `pointer` descrive il puntatore PRIMARIO,
+ * quindi un portatile con schermo touch e mouse resterebbe fuori — ed è
+ * esattamente la popolazione che `useMobile.ts` nomina nel suo commento. `any-`
+ * chiede «ne esiste almeno uno grosso?», che è la stessa domanda di `isTouch`
+ * (`ontouchstart` / `maxTouchPoints`). La regola del modulo è scritta lì:
+ * affordance touch → isTouch. */
+@custom-variant coarse (@media (any-pointer: coarse));
+
 @utility scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
