@@ -5,6 +5,24 @@ import type { OutboundMessage } from "../shared/ws-outbound";
 // Re-export so existing imports `from "./types"` keep resolving.
 export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
 
+/**
+ * Cosa può raggiungere un ospite. DUE domande, perché le fan-out sono di due
+ * forme diverse e una sola risposta non le copre entrambe.
+ *
+ * `mayReceiveFrame` serve a `broadcastToAll`, che manda a tutti un frame che
+ * porta con sé (a volte) l'entità di cui parla: lì si guarda prima il TIPO e poi
+ * l'entità dichiarata dentro il frame.
+ *
+ * `mayReadTopic` serve alle fan-out per topic, dove l'entità NON sta nel frame
+ * ma è l'argomento della chiamata. Chiederlo al frame lì sarebbe sbagliato due
+ * volte: molti di quei frame non nominano il topic, e quello vero lo conosce
+ * solo chi chiama.
+ */
+export interface GuestBroadcastFilter {
+  mayReceiveFrame: (deviceId: string, message: OutboundMessage) => boolean;
+  mayReadTopic: (deviceId: string, topicId: string) => boolean;
+}
+
 export interface WSData {
   id: string;
   /**
@@ -16,6 +34,18 @@ export interface WSData {
    * `null` = loopback, cioe' il computer stesso.
    */
   deviceId?: string | null;
+  /**
+   * Il RUOLO di quel dispositivo, timbrato insieme all'id e per lo stesso
+   * motivo: dopo l'upgrade il cookie non è più leggibile.
+   *
+   * Esiste perché senza di esso «ha un deviceId» finiva per voler dire «è un
+   * ospite», e non è vero: l'upgrade timbra l'id di QUALUNQUE dispositivo
+   * appaiato, proprietari compresi. Il filtro degli ospiti si applicava quindi
+   * anche al telefono del proprietario — che non ha concessioni, perché non gli
+   * servono — e gli faceva cadere ogni frame. Solo il loopback ne usciva, per
+   * il motivo sbagliato: `deviceId` nullo, non ruolo.
+   */
+  deviceRole?: 'owner' | 'guest' | null;
   focusedTopicId: string | null;
   /** P6: topics this connection currently has open; streaming deltas are routed
    *  only to clients that include the streaming topic. `undefined` until the
@@ -227,10 +257,10 @@ export interface AppContext {
   // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
   // un broadcast con un tipo che nessuno ha modellato non compila.
   broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
-  /** Innesta il filtro che decide se un frame può raggiungere un OSPITE. Vive in
+  /** Innesta il filtro che decide cosa può raggiungere un OSPITE. Vive in
    *  `server.ts` perché serve il DB delle concessioni; `utils.ts` resta senza
    *  quella dipendenza. */
-  setGuestBroadcastFilter: (fn: ((deviceId: string, message: OutboundMessage) => boolean) | null) => void;
+  setGuestBroadcastFilter: (f: GuestBroadcastFilter | null) => void;
   /**
    * L'indirizzo del peer di una richiesta. Assegnato in `server.ts` DOPO
    * `Bun.serve`, perche' `requestIP` vive sull'istanza del server e il contesto

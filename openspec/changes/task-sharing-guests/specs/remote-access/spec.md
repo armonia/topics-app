@@ -77,6 +77,18 @@ an allowlist, and then by the **entity** the frame refers to. Filtering by entit
 alone SHALL NOT be relied upon: frames that carry no entity reference would pass
 such a filter unexamined.
 
+The filter SHALL apply to **every** fan-out that can reach a restricted
+recipient, not only the one that sends to all connections. Where a fan-out is
+already scoped to an entity, the permission SHALL be checked against **that**
+entity — the one being delivered to — rather than against whatever the frame
+happens to declare, because such frames commonly do not name it at all.
+
+The filter SHALL be applied on the basis of the recipient's **role**, not on the
+basis of it having an identity at all. Every authorized device carries an
+identity, including the owner's own; treating the presence of one as evidence of
+restriction withholds everything from the owner's other machines, which hold no
+grants because they need none.
+
 The allowlist SHALL be verified against the emitted frame registry, so that a name
 that does not exist cannot be added. A frame type absent from the allowlist SHALL
 simply not be sent, and adding a new one SHALL be a deliberate act.
@@ -100,6 +112,17 @@ simply not be sent, and adding a new one SHALL be a deliberate act.
 - **GIVEN** the frame-type allowlist
 - **WHEN** it is checked against the registry of emitted frames
 - **THEN** every entry SHALL correspond to a registered type
+
+#### Scenario: The owner's other machines are not restricted
+- **GIVEN** an authorized device belonging to the owner, connected from elsewhere
+- **WHEN** any frame is broadcast
+- **THEN** it SHALL be delivered
+- **AND** the absence of grants for that device SHALL NOT withhold anything
+
+#### Scenario: An entity-scoped fan-out confines too
+- **GIVEN** a restricted recipient connected and not granted a given resource
+- **WHEN** an update for that resource is sent through a fan-out scoped to it
+- **THEN** it SHALL NOT be delivered to that recipient
 
 ### Requirement: SHARE-04 — A guest gets its own application, not the owner's with things removed
 

@@ -124,6 +124,29 @@ export function isGuestSafeFrameType(type: string): boolean {
 }
 
 /**
+ * Questa socket va confinata? Si guarda il RUOLO, non la presenza di un id.
+ *
+ * La distinzione ha prodotto un guasto vero, ed è il motivo per cui la regola
+ * vive qui invece che scritta a mano dentro il ciclo di ogni fan-out.
+ * L'upgrade timbra `deviceId` su OGNI dispositivo appaiato — proprietari
+ * compresi — quindi «ha un id» era diventato sinonimo di «è un ospite». Il
+ * telefono del proprietario è `owner` e non ha nessuna concessione, perché non
+ * gliene serve nessuna: il filtro gli faceva quindi cadere ogni frame. A
+ * scamparla era solo il loopback, e per il motivo sbagliato — id nullo, non
+ * ruolo.
+ *
+ * Un ruolo che non riconosciamo vale OSPITE: il verso prudente è quello che
+ * consegna meno, perché l'altro consegna tutto.
+ */
+export function isGuestSocketData(data: {
+  deviceId?: string | null;
+  deviceRole?: 'owner' | 'guest' | null;
+}): boolean {
+  if (!data.deviceId) return false;
+  return data.deviceRole !== 'owner';
+}
+
+/**
  * L'entità a cui un frame appartiene, se dichiarata. `null` = il frame non parla
  * di una risorsa condivisibile, e per un ospite quindi non parte affatto.
  *
