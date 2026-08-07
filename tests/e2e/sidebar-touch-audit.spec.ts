@@ -182,7 +182,21 @@ test.describe("Sidebar col dito — audit misurato", () => {
       `la fascia di stato dipinge ${statusBg}, la colonna ${chrome}`,
     ).toContain(statusBg);
 
-    const page_ = await bg(page, "#main-content");
+    // LA FASCIA DELLA SAFE-AREA È LO STESSO PIXEL DELLA SIDEBAR.
+    // È il difetto che ha riaperto la questione: la striscia sotto la tacca è il
+    // `paddingTop` di `#main-content`, dipinto dal background di QUELL'elemento —
+    // che era il colore della PAGINA, mentre la sidebar dipinge il CHROME. A
+    // drawer chiuso la striscia era chiara, ad aperto scura: due tinte per la
+    // stessa striscia. Ora il colore della pagina sta sul FIGLIO e la fascia è
+    // chrome; qui si pretende che i due valori coincidano esattamente.
+    const fascia = await bg(page, "#main-content");
+    expect(fascia, `la fascia della safe-area (${fascia}) deve essere lo stesso pixel della sidebar (${chrome})`).toBe(chrome);
+    // E il fondo di ultima istanza — quello che si vede al bordo dell'app —
+    // dice la stessa cosa.
+    const backdrop = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(backdrop, `il fondo dell'app (${backdrop}) deve essere il chrome (${chrome})`).toBe(chrome);
+
+    const page_ = await bg(page, ".content-flip-layer");
     const lChrome = luminance(chrome);
     const lPage = luminance(page_);
     expect(
