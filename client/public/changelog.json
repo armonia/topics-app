@@ -1,5 +1,82 @@
 [
   {
+    "version": "2.2.46",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo stato torna in fondo con gli account, i progetti si leggono, lo swipe non naviga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello del permesso viveva in una colonna che nessuno legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ignora `installation-id`, e registra dove è finito il lavoro sul relay",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un link condiviso si apre davvero: pagina, cablaggio, revoca immediata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.45",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Tre difetti dei popover che si vedono a occhio: nero su nero, voci irraggiungibili, e un popover che non stacca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La macchina chiama fuori, e un link è una capacità su UNA cosa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un guardiano sui due vincoli che decidono se il conto è $10 o $416",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le rotte dei link: la chiave esce una volta sola, e la scadenza non è opzionale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I rossi sotto soglia, il menu 80px fuori schermo, e mezza riga d'intestazione che non era cliccabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bersaglio del dito lo decideva la LARGHEZZA dello schermo, non il dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un permesso che nessuno poteva concedere adesso si preme",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.44",
     "date": "2026-08-07",
     "sections": {
@@ -34,6 +111,11 @@
         },
         {
           "it": "Stato e comandi in UNA riga di testa, e i progetti sulla board tornano a vedersi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.44 — la riga di testa, e i progetti tornati sulla board",
           "en": "",
           "scope": null
         }
