@@ -60,13 +60,17 @@ export function boardProjectChips(
  * non si decide su uno stato asincrono: lo slot è fisso e l'icona ci entra
  * dentro, presente o assente che sia.
  *
- * 68 = icona 12 + 4 di gap + ~40 di nome troncato + 4 + due cifre a 10px.
+ * 52 = icona 12 + 4 di gap + ~24 di nome troncato + 4 + due cifre a 10px. Era
+ * 68 quando le pastiglie stavano su una riga tutta loro, sotto il nome; IN
+ * LINEA lo spazio è quello che avanza dopo «Board» e i conteggi — misurato su
+ * una colonna da 256px sono ~107px — e a 68 ce ne entrava UNA. A 52 ce ne
+ * entrano due, che è la differenza fra un raggruppamento e un esempio.
  */
-const CHIP_W = 68;
+export const CHIP_W = 52;
 /** Lo spazio fra due pastiglie (`gap-1.5`, lo stesso passo della riga). */
-const CHIP_GAP = 6;
+export const CHIP_GAP = 6;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
-const MORE_W = 22;
+export const MORE_W = 22;
 
 export interface FittedChips<T> {
   shown: T[];

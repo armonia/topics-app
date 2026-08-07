@@ -3,7 +3,7 @@ import { StatusIcon } from '../Board/atoms';
 import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardProjectChips, fitProjectChips } from './boardProjectChips';
+import { boardProjectChips, fitProjectChips, CHIP_W } from './boardProjectChips';
 
 /**
  * Gli stati riassunti sulla riga, nell'ordine in cui contano per chi guarda:
@@ -117,7 +117,13 @@ export function BoardProjectChips({ byStatus }: { byStatus: Record<TaskStatus, B
     <div
       ref={ref}
       data-testid="board-project-chips"
-      className="flex min-w-0 items-center gap-1.5 overflow-hidden"
+      // `flex-1 min-w-0`: è LUI l'elemento elastico della riga, e senza il
+      // `flex-1` collassava a zero — `fitProjectChips(0)` risponde «nessuna, e
+      // niente da annunciare», quindi le pastiglie SPARIVANO del tutto («non
+      // dovevi togliere i progetti dalla riga board», Attilio). Il difetto è
+      // nato passando da due piani a uno: sulla subline la larghezza gliela
+      // dava il genitore a tutta riga, in linea se la deve prendere.
+      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
     >
       {shown.map(chip => (
         <span
@@ -125,7 +131,7 @@ export function BoardProjectChips({ byStatus }: { byStatus: Record<TaskStatus, B
           data-testid={`board-project-${chip.projectId}`}
           title={`${chip.name}: ${chip.n} task aperti`}
           className="flex min-w-0 items-center gap-1 text-[10px] leading-none text-app-text-tertiary"
-          style={{ width: 68, flexShrink: 0 }}
+          style={{ width: CHIP_W, flexShrink: 0 }}
         >
           {/* Icona E nome, sempre. `ProjectFavicon` non occupa niente se il
               progetto non ne ha una — quando arriva, il nome si stringe di

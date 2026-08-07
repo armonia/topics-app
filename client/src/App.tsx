@@ -1131,45 +1131,46 @@ function App() {
                 }`}
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
+                // Un appiglio stabile per il bottone del titolo: il suo NOME
+                // accessibile è «Topics» (il testo), non il `title`, quindi
+                // cercarlo per ruolo+nome vuol dire cercarlo per una parola che
+                // compare in mezza colonna. È lo stesso motivo per cui le righe
+                // di progetto hanno `project-toggle-*`.
+                data-testid="sidebar-topics-menu"
               >
                 <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* CERCA E «+» STANNO ACCANTO AL LOGO, tutti e due, su qualunque
-                schermo. «Mettiamole però a fianco al menu e logo Topics
-                entrambe» (Attilio, 07/08).
-
+            {/* CONNESSIONI E NUMERI, IN MEZZO. «Le connessioni e le stats
+                affianco a Topics, fra i tasti cerca e + e il logo menu»
+                (Attilio, 07/08). Sul telefono la colonna è alta quanto lo
+                schermo, e una fascia dedicata a quattro numeri costa una riga
+                intera per una cosa che si guarda di sfuggita: qui non costa
+                niente, perché la riga c'è già ed è mezza vuota. Si prende lo
+                spazio che avanza e tronca (è già com'è costruita: l'unico
+                elemento elastico è il testo di stato). */}
+            {isMobile && (
+              <ErrorBoundary fallbackMessage="Stato">
+                <SidebarStatusBar
+                  placement="inline"
+                  wsStatus={wsStatus}
+                  dataNotice={topicsError}
+                  onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+                />
+              </ErrorBoundary>
+            )}
+            {/* CERCA E «+», tutti e due accanto al logo su qualunque schermo.
                 Erano finiti in una barra in fondo alla colonna sul telefono —
                 dove arriva il pollice — e la geometria era giusta ma il prezzo
-                no: due comandi staccati dalla cosa che comandano, in una fascia
-                che sul telefono contende lo spazio all'home indicator. Qui
-                formano un gruppo solo col titolo: `Topics ▾ · cerca · +`, che è
-                anche l'ordine in cui si leggono. Restano gli STESSI due bottoni
-                — definiti una volta in App — solo più grandi col dito. */}
+                no: due comandi staccati dalla cosa che comandano. Restano gli
+                STESSI due bottoni, definiti una volta in App, solo più grandi
+                col dito. */}
             {sidebarSearchButton}
             {sidebarAddMenu}
-            {/* Connection + loading status live in the SidebarStatusBar and the
-                tree skeleton — no stray spinner in the header. Lo spazio a
-                destra resta vuoto (zona di trascinamento su Electron). */}
           </div>
         </div>
 
-        {/* LA BARRA DI STATO, IN CIMA — solo col dito.
-            Numeri da GUARDARE (memoria, CPU, fps, versione) in fondo alla
-            colonna vuol dire occupare col colpo d'occhio la fascia dove arriva
-            il pollice, e mandare i comandi da toccare in cima. Sotto i 768px i
-            due si scambiano: vedi il commento della prop `placement`. */}
-        {isMobile && (
-          <ErrorBoundary fallbackMessage="Status bar error">
-            <SidebarStatusBar
-              placement="top"
-              wsStatus={wsStatus}
-              dataNotice={topicsError}
-              onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
-            />
-          </ErrorBoundary>
-        )}
 
         {/* SidebarControls removed: search is now the inline header input,
             view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
