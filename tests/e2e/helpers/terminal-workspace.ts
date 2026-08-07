@@ -133,8 +133,15 @@ export async function openShellViaSidebar(page: Page, terminalPage: TerminalPage
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 
-  // `exact: true`: senza, "Shell" pesca anche le voci omonime della sidebar.
-  const shellBtn = page.getByRole("button", { name: "Shell", exact: true });
+  // Testid e non `getByRole("button", { name: "Shell" })`: da baff80a5
+  // (2026-08-06) PaneAddMenu passa dalla primitiva `Menu`, e le sue righe
+  // dichiarano `role="menuitem"` dentro un `role="menu"` — il ruolo IMPLICITO di
+  // bottone non esiste più, quindi quel locator non trova più nulla e i tre test
+  // del terminale morivano qui, prima ancora di aprire una shell. Il messaggio di
+  // quel commit dice «l'unico locator che ne dipendeva è passato al testid»: gli
+  // erano sfuggiti questo helper e `fixtures/terminal.fixture.ts`. Il testid è il
+  // contratto stabile (stessa scelta in terminal-tab-reload.spec.ts:243).
+  const shellBtn = page.getByTestId("pane-add-menu-shell");
   await shellBtn.waitFor({ state: "visible", timeout: 5000 });
   await shellBtn.click();
 

@@ -1,6 +1,5 @@
 import { test } from "./fixtures/infra.fixture";
 import { expect } from "@playwright/test";
-import { MOCK_TUNNEL_ACTIVE, MOCK_TUNNEL_INACTIVE } from "./fixtures/infra.fixture";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -117,76 +116,19 @@ test.describe("Cron Jobs Panel", () => {
   });
 });
 
-test.describe("Remote Access Panel", () => {
-  test("REMOTE-01: Active tunnel shows URL and controls", async ({
-    page,
-    infraPage,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
-    await infraPage.mockRemoteStatus(MOCK_TUNNEL_ACTIVE);
-    await page.goto("/");
-    await infraPage.openRemoteAccessPanel();
-
-    // Tunnel URL visible in font-mono span
-    await expect(page.locator("span.font-mono").filter({ hasText: "https://test.ts.net" })).toBeVisible();
-
-    // Il bottone che spegne. Testo italiano da `770083ed` — «Funnel» era il
-    // nome sbagliato: il pannello espone sul TAILNET, non su Internet.
-    await expect(page.getByText("Disattiva l'esposizione")).toBeVisible();
-
-    // Copy URL button
-    await expect(page.locator('button[title="Copy URL"]')).toBeVisible();
-
-    // Open in browser link
-    await expect(page.locator('a[title="Open in browser"]')).toBeVisible();
-  });
-
-  test("REMOTE-02: Inactive tunnel shows enable button", async ({
-    page,
-    infraPage,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
-    await infraPage.mockRemoteStatus(MOCK_TUNNEL_INACTIVE);
-    await page.goto("/");
-    await infraPage.openRemoteAccessPanel();
-
-    // Lo stato a riposo, e il bottone che accende.
-    await expect(page.getByText("Non esposto")).toBeVisible();
-    await expect(page.getByText("Esponi sul tailnet")).toBeVisible();
-  });
-
-  test("REMOTE-03: Toggle tunnel from inactive to active", async ({
-    page,
-    infraPage,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
-    await infraPage.mockRemoteStatus(MOCK_TUNNEL_INACTIVE);
-
-    // Track the tunnel POST request
-    let tunnelAction: string | null = null;
-    await page.route("**/api/remote/tunnel", async (route) => {
-      if (route.request().method() === "POST") {
-        const body = route.request().postDataJSON();
-        tunnelAction = body.action;
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-
-    await page.goto("/");
-    await infraPage.openRemoteAccessPanel();
-
-    await page.getByText("Esponi sul tailnet").click();
-
-    // Verify POST was sent with action:'start'
-    expect(tunnelAction).toBe("start");
-  });
-});
+// Il pannello «Accesso remoto» NON esiste più, e non è una svista.
+// Il prodotto è stato cancellato in `005c93e5` (RemoteAccessPanel.tsx,
+// server/routes/remote.ts, lib/tailscale-bin.ts, la voce nel menu Topics ▾) e il
+// requisito è stato RITIRATO formalmente in `ce456581`:
+// `openspec/changes/device-auth/specs/remote-access/spec-removal.md` elenca
+// REMOTE-01 e LAN-OPEN-03 sotto «## REMOVED Requirements». Motivo registrato lì:
+// il tunnel terminava sulla macchina e inoltrava a loopback, quindi ogni
+// richiesta si presentava al server come LOCALE — la classe più fidata, quella
+// che apre gli endpoint del daemon. Rovesciava il confine di fiducia invece di
+// estenderlo, dietro un click in un menu.
+// I tre test REMOTE-01/02/03 che stavano qui coprivano quel pannello e sono stati
+// tolti con esso. Quello che li sostituisce è AUTH-01..04: si raggiunge il server
+// sulla rete locale e si autorizza il dispositivo una volta.
 
 test.describe("System Status Panel", () => {
   test("STATUS-01: Panel renders all status rows", async ({

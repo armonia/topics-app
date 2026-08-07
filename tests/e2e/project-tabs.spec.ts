@@ -459,11 +459,18 @@ test.describe("Project Tabs", () => {
     await projectAdd.last().click();
     const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
     await expect(addMenu).toBeVisible({ timeout: 5000 });
-    // Loose contains-match (the button also carries an icon and a ⌘N hint, so an
-    // anchored ^Files$ never matched — it silently skipped the whole test).
+    // Si punta al `data-testid`, non al testo della riga.
+    //
+    // Il filtro era `hasText: /\b(Files|Git)\b/`, e da quando ogni voce del menu
+    // porta la sua LETTERA attaccata al nome — il `mnemonic` di
+    // `paneMnemonics.ts`, reso senza spazio dentro il bottone — il testo del
+    // bottone è «FilesF» e «GitG»: dopo `Files` c'è un carattere di parola,
+    // quindi `\b` non chiude più e il locator non trova NIENTE. Il testo di una
+    // riga di menu è chrome e cambia col disegno; `pane-add-menu-<tipo>` è il
+    // contratto dichiarato per le spec E2E in `addMenuItems.tsx` («da non
+    // cambiare»), ed è quello che va usato.
     const previewBtn = addMenu
-      .locator("button")
-      .filter({ hasText: /\b(Files|Git)\b/ })
+      .locator('[data-testid="pane-add-menu-files"], [data-testid="pane-add-menu-git"]')
       .first();
     await expect(previewBtn).toBeVisible({ timeout: 5000 });
     await previewBtn.click();

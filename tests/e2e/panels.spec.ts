@@ -8,7 +8,6 @@ import {
   deleteTerminalSession,
   resetPaneStore,
 } from "./helpers/api-fixtures";
-import { openTopicsMenuItem } from "./helpers/openclaw";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -162,41 +161,12 @@ test.describe("Panels & Views", () => {
     }
   });
 
-  test("remote access panel opens", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    await goToApp(page);
-    // "Remote Access" NON e' piu' un bottone dell'header: e' una riga del menu
-    // "Settings & Tools" (Topics ▾) — App.tsx:1238-1244, vedi la nota a
-    // App.tsx:931 "Activity / Agents / Remote Access moved into the Topics ▾
-    // menu". Il vecchio corpo lo cercava a MENU CHIUSO: `count()` era 0, il
-    // blocco non veniva mai eseguito e il test restava verde senza aprire
-    // niente. Si apre con l'helper condiviso, come Activity e Agents.
-    //
-    // A differenza di Activity/Agents la riga NON e' dietro
-    // `openclawAvailable` (quelle sono avvolte in `{openclawAvailable && …}`,
-    // App.tsx:1245 e 1254; questa no) e non ha rami isMobile: e' sempre
-    // presente, quindi nessuno skip condizionale — se manca, deve fallire.
-    await openTopicsMenuItem(page, /Remote Access/i);
-
-    // Il pannello e' portalato su document.body (App.tsx:1297-1319), NON
-    // dentro [role="main"]: la vecchia asserzione sul testo di main non lo
-    // avrebbe visto nemmeno cliccando.
-    //
-    // Si asserisce sul toggle del tunnel, l'unico elemento che RemoteAccessPanel
-    // rende in ENTRAMBI i rami di stato e che appartiene solo a lui:
-    // "Disable Tunnel" se /api/remote/status riporta un tunnel attivo
-    // (RemoteAccessPanel.tsx:144), "Enable Tailscale Funnel" altrimenti — e
-    // "altrimenti" include fetch fallita/errore, perche' `status` resta null e
-    // il componente cade comunque nel ramo inattivo (RemoteAccessPanel.tsx:92
-    // e 166). Nessuna dipendenza dall'esito della chiamata, quindi.
-    const tunnelToggle = page.getByRole("button", {
-      // Rinominati in `770083ed` ("Il bottone diceva «Funnel» e intendeva
-      // Internet"): il commit non aggiornò questo locator, e il test cercava da
-      // allora due etichette che non esistono più.
-      name: /Esponi sul tailnet|Disattiva l'esposizione/,
-    });
-    await expect(tunnelToggle).toBeVisible({ timeout: 10000 });
-  });
+  // Il test «remote access panel opens» stava qui e se n'è andato col pannello.
+  // Il prodotto è stato cancellato in `005c93e5` e il requisito RITIRATO in
+  // `ce456581` (`openspec/changes/device-auth/specs/remote-access/spec-removal.md`,
+  // sezione «REMOVED Requirements»): non c'è più una riga «Remote Access» nel menu
+  // Topics ▾ da aprire. Il commento che il test portava — «se manca, deve
+  // fallire» — ha fatto esattamente il suo lavoro: è mancata, e ha fallito.
 
   test("opening a project shows its file explorer", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });

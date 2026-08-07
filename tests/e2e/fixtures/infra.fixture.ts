@@ -36,17 +36,12 @@ export const MOCK_CRON_JOBS = [
   },
 ];
 
-export const MOCK_TUNNEL_ACTIVE = {
-  active: true,
-  url: "https://test.ts.net",
-  type: "tailscale" as const,
-  expiresAt: new Date(Date.now() + 3600000).toISOString(),
-};
-
-export const MOCK_TUNNEL_INACTIVE = {
-  active: false,
-  type: "tailscale" as const,
-};
+// Qui vivevano MOCK_TUNNEL_ACTIVE/INACTIVE, `openRemoteAccessPanel` e
+// `mockRemoteStatus`: l'impalcatura del pannello «Accesso remoto», cancellato in
+// `005c93e5` e con il requisito ritirato in `ce456581`
+// (`openspec/changes/device-auth/specs/remote-access/spec-removal.md`). Senza
+// chiamanti erano finti appigli: il prossimo che ne avesse trovato uno avrebbe
+// scritto un test su una superficie che non esiste.
 
 export const MOCK_SYSTEM_STATUS = {
   timestamp: new Date().toISOString(),
@@ -97,19 +92,6 @@ export class InfraPage {
     await openTopicsMenuItem(this.page, "Cron Jobs");
     await this.page
       .getByRole("button", { name: "Refresh" })
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 });
-  }
-
-  async openRemoteAccessPanel() {
-    // Remote Access is a "Settings & Tools" menu entry that expands an anchored
-    // popover (RemoteAccessPanel) — not openclaw-gated.
-    await openTopicsMenuItem(this.page, "Remote Access");
-    // I bottoni sono in italiano da `770083ed` («Funnel» → esposizione sul
-    // tailnet): la vecchia alternanza inglese non compariva più e l'attesa
-    // scadeva sempre, in tre test, su un pannello che si apriva benissimo.
-    await this.page
-      .locator("text=/Esponi sul tailnet|Disattiva l'esposizione/")
       .first()
       .waitFor({ state: "visible", timeout: 10_000 });
   }
@@ -181,36 +163,6 @@ export class InfraPage {
       } else if (method === "DELETE") {
         const id = url.split("/").pop();
         currentJobs = currentJobs.filter((j) => j.id !== id);
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-  }
-
-  async mockRemoteStatus(status = MOCK_TUNNEL_INACTIVE) {
-    let currentStatus = { ...status };
-
-    await this.page.route("**/api/remote/status", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(currentStatus),
-      });
-    });
-
-    await this.page.route("**/api/remote/tunnel", async (route) => {
-      if (route.request().method() === "POST") {
-        const body = route.request().postDataJSON();
-        if (body.action === "start") {
-          currentStatus = { ...MOCK_TUNNEL_ACTIVE };
-        } else {
-          currentStatus = { ...MOCK_TUNNEL_INACTIVE };
-        }
         await route.fulfill({
           status: 200,
           contentType: "application/json",
