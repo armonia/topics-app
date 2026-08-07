@@ -96,6 +96,7 @@ import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -1493,7 +1494,20 @@ function timingSafeEqualStr(presented: string, expected: string | null | undefin
   return timingSafeEqual(a, b);
 }
 
-const server = Bun.serve<WSData>({
+/**
+ * Le opzioni del server, estratte perché servono a DUE ascoltatori.
+ *
+ * Il secondo è quello del tunnel, e non è una copia del primo con un numero
+ * diverso: è la stessa identica macchina raggiunta da un'altra porta. Deve
+ * esserlo, o le due strade divergerebbero — e quella che diverge in silenzio è
+ * sempre la meno usata, cioè proprio il tunnel.
+ *
+ * Delegare invece di condividere non funziona, ed è stato misurato: passando le
+ * richieste al primo server con `server.fetch(req)`, il gestore riceve
+ * `undefined` al posto dell'istanza e `server.upgrade` esplode. In un'app che
+ * vive sul WebSocket sarebbe stato metà prodotto.
+ */
+const opzioniServer = {
   port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
   // default) it owns BOTH the IPv6 and the IPv4-mapped families on PORT, so
@@ -1546,7 +1560,9 @@ const server = Bun.serve<WSData>({
     // costante. Costo zero per chi lo usa davvero: `cli/topics.ts`, la sonda del
     // guscio Tauri e la procedura di reload chiamano tutte da 127.0.0.1.
     if (pathname.startsWith("/__daemon/")) {
-      if (!isLoopbackAddress(server.requestIP(req)?.address ?? null)) {
+      // Attraverso il tunnel il peer e' 127.0.0.1: senza questa domanda,
+      // gli endpoint del daemon sarebbero aperti a Internet.
+      if (!isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress)) {
         return new Response(JSON.stringify({ error: "unauthorized" }), {
           status: 401, headers: { "content-type": "application/json" },
         });
@@ -1624,7 +1640,7 @@ const server = Bun.serve<WSData>({
       const identity = isIdentityExemptPath(pathname)
         ? undefined
         : (() => {
-            const loopback = isLoopbackAddress(peerIp);
+            const loopback = isLocalTransport(req, peerIp, isLoopbackAddress);
             // Il DB si tocca SOLO per un peer remoto con un cookie: il percorso
             // locale — che e' il 99% del traffico — non paga una query.
             let device: DeviceRecord | null = null;
@@ -1796,7 +1812,7 @@ const server = Bun.serve<WSData>({
       // confondere le due cose faceva cadere ogni frame sul telefono del
       // proprietario — che non ha concessioni perché non gliene servono.
       const wsDevice = (() => {
-        if (isLoopbackAddress(server.requestIP(req)?.address ?? null)) return { id: null, role: null };
+        if (isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress)) return { id: null, role: null };
         const t = readSessionCookie(req.headers.get("cookie"));
         if (!t) return { id: null, role: null };
         const row = ctx.db.query("SELECT id, role FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
@@ -2604,7 +2620,42 @@ const server = Bun.serve<WSData>({
       if (ws.data.windowId) broadcastPresence();
     },
   },
-});
+  // `satisfies` e non un'annotazione: tiene la tipizzazione contestuale dei
+  // gestori (che senza il generico di `Bun.serve` si perde, e `req`, `ws`,
+  // `message` tornano `any`) SENZA allargare il tipo del valore, che serve
+  // intatto per lo spread nell'ascoltatore del tunnel.
+} satisfies Parameters<typeof Bun.serve<WSData>>[0];
+
+const server = Bun.serve<WSData>(opzioniServer);
+
+/**
+ * L'ascoltatore del TUNNEL, se configurato.
+ *
+ * Legato a `127.0.0.1` perché il tunnel gira su questa macchina: non aggiunge
+ * superficie di rete, aggiunge una PORTA con meno fiducia. Ciò che arriva qui
+ * non è locale per definizione — anche se il peer è loopback — e questo chiude
+ * il rovesciamento per cui un tunnel farebbe entrare Internet come proprietario.
+ *
+ * Il gestore è lo stesso: si marca la richiesta e si passa la palla, senza un
+ * secondo percorso da tenere allineato.
+ */
+const portaTunnel = tunnelPort(process.env);
+const serverTunnel = portaTunnel
+  ? Bun.serve<WSData>({
+      ...opzioniServer,
+      port: portaTunnel,
+      hostname: "127.0.0.1",
+      fetch(req: Request, srv: typeof server) {
+        markViaTunnel(req);
+        // `.call(srv, …)`: il gestore dichiara `this: Server`, e chiamarlo come
+        // metodo dell'oggetto opzioni glielo legherebbe all'oggetto sbagliato.
+        return opzioniServer.fetch.call(srv, req, srv);
+      },
+    })
+  : null;
+if (serverTunnel) {
+  console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
+}
 
 // Boot cleanup: a FINALIZED message (partial=0) must never carry a tool still
 // marked 'running' — the client renders it as a spinner whose timer ticks
@@ -3435,7 +3486,11 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 // `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
 // aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
 // (l'appaiamento) non ricevono il server intero.
-ctx.requestIp = (req: Request) => server.requestIP(req)?.address ?? null;
+// L'indirizzo VERO di chi chiede. Attraverso il tunnel il peer e' sempre
+// loopback, quindi il tetto per-indirizzo sull'appaiamento diventerebbe un
+// tetto per l'intero Internet: tre richieste in tutto.
+ctx.requestIp = (req: Request) =>
+  clientIpOf(req, (serverTunnel?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
