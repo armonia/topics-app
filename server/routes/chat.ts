@@ -78,6 +78,7 @@ import {
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
 import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
+import { attribuisciMedia, type TurnToolTrace } from "../lib/media-ownership";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
@@ -1502,13 +1503,29 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // which switches the UI mid-turn; the old marker path's message
             // migration to the target topic was removed with the markers.)
 
-            // Media detection
+            // I media prodotti da QUESTO turno.
+            //
+            // `findNewMediaFiles` sa solo QUANDO un file è cambiato, e la
+            // cartella è condivisa per contratto (il dispatcher dice a ogni
+            // agente di depositare lì). Da sola, quella lista è «tutto ciò che
+            // chiunque ha scritto mentre lavoravo» — e più il turno è lungo,
+            // più larga è la rete. Il 7 agosto un turno da 11 minuti si è
+            // portato in fondo due screenshot di una spec E2E che girava in
+            // un'altra sessione. Qui passa dal cancello dell'attribuzione: è
+            // suo solo ciò che ha nominato in una sua chiamata.
+            const toolsDelTurno: TurnToolTrace[] = blocks
+              .filter((b): b is Extract<ContentBlock, { kind: "tool" }> => b.kind === "tool")
+              .map((b) => ({ name: b.toolCall.name, args: b.toolCall.args, result: b.toolCall.result }));
             setTimeout(async () => {
               try {
-                const newMedia = await findNewMediaFiles(requestStartMs);
-                if (newMedia.length > 0 && sessionKey) {
-                  updateLastMessageWithMedia(sessionKey, newMedia);
-                  broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: newMedia });
+                const candidati = await findNewMediaFiles(requestStartMs);
+                const { propri, altrui } = attribuisciMedia(candidati, toolsDelTurno);
+                if (altrui.length > 0) {
+                  console.log(`[Media] ${sessionKey}: ${altrui.length} file scartati, non nominati da questo turno — ${altrui.map((p) => p.split("/").pop()).join(", ")}`);
+                }
+                if (propri.length > 0 && sessionKey) {
+                  updateLastMessageWithMedia(sessionKey, propri);
+                  broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: propri });
                 }
               } catch {}
             }, 1000);
