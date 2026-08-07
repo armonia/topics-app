@@ -5,7 +5,23 @@
  * modalità che in `--print` resta appesa).
  */
 import { describe, test, expect } from "bun:test";
-import { permissionModeForAutonomy, describeAutonomy, DEFAULT_PERMISSION_MODE, planModeFor } from "./autonomy-mode";
+import {
+  permissionModeForAutonomy,
+  describeAutonomy,
+  DEFAULT_PERMISSION_MODE,
+  planModeFor,
+  permissionModeAsks,
+  permissionPromptArgs,
+  PERMISSION_PROMPT_TOOL,
+} from "./autonomy-mode";
+
+/**
+ * Le sei modalità che la CLI accetta (`--permission-mode <mode>` in `--help`,
+ * 2.1.224). Scritte qui perché il cancello sotto valga su TUTTE, non solo su
+ * quelle che oggi la mappatura usa: il difetto da fermare è una modalità nuova
+ * che entra e resta fuori dal canale.
+ */
+const CLI_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
 
 describe("permissionModeForAutonomy", () => {
   test("i tre livelli mappano sulle modalità provate sul campo", () => {
@@ -75,5 +91,61 @@ describe("planModeFor — il piano ha una leva sola", () => {
     expect(planModeFor({ turnFlag: true })).toBe(true);
     expect(planModeFor({ turnFlag: true, autonomy: "yolo" })).toBe(true);
     expect(planModeFor({})).toBe(false);
+  });
+});
+
+/**
+ * L'INVARIANTE di questo lavoro, e la ragione per cui `permissionPromptArgs`
+ * è una funzione invece di uno spread in mezzo all'argv.
+ *
+ * Il guasto del 7 agosto: `auto-apply` → `acceptEdits`, che in headless CHIEDE
+ * il permesso per ogni tool MCP e per ogni scrittura fuori dalla cwd. Nessuno
+ * poteva rispondere, quindi ogni richiesta diventava un no muto — e 515 topic
+ * su 518 stavano lì. Non era una regressione della CLI (identico su 2.1.221):
+ * era una mappatura provata con l'unico strumento che non poteva fallire.
+ *
+ * Da qui in poi vale una regola sola: se una modalità può chiedere, lo spawn
+ * DEVE portare il canale.
+ */
+describe("nessuna modalità che chiede può partire senza il canale", () => {
+  test("chiedono tutte tranne bypassPermissions", () => {
+    for (const mode of CLI_MODES) {
+      expect(permissionModeAsks(mode)).toBe(mode !== "bypassPermissions");
+    }
+  });
+
+  test("ogni modalità che chiede riceve --permission-prompt-tool", () => {
+    for (const mode of CLI_MODES) {
+      const args = permissionPromptArgs(mode);
+      if (mode === "bypassPermissions") {
+        // Inutile: non chiede mai. Passarlo comunque non romperebbe niente, ma
+        // metterebbe in argv un flag che non descrive quello che succede.
+        expect(args).toEqual([]);
+      } else {
+        expect(args).toEqual(["--permission-prompt-tool", PERMISSION_PROMPT_TOOL]);
+      }
+    }
+  });
+
+  test("e vale attraverso la mappatura, che è la strada vera", () => {
+    for (const level of ["ask", "auto-apply", "yolo", "livello-inventato", null, undefined]) {
+      const mode = permissionModeForAutonomy(level as string | null | undefined);
+      const args = permissionPromptArgs(mode);
+      expect(permissionModeAsks(mode) ? args.length : 0).toBe(permissionModeAsks(mode) ? 2 : 0);
+    }
+  });
+
+  test("il canale è il bridge che Topics attacca già a ogni sessione", () => {
+    // Se questo nome cambiasse senza cambiare il tool nel bridge, la CLI
+    // chiederebbe a uno strumento che non esiste — e negherebbe tutto, in
+    // silenzio, esattamente come prima.
+    expect(PERMISSION_PROMPT_TOOL).toBe("mcp__topics__approval_prompt");
+  });
+
+  test("un valore mancante non porta il canale (non c'è nessuno spawn da coprire)", () => {
+    expect(permissionModeAsks(null)).toBe(false);
+    expect(permissionModeAsks(undefined)).toBe(false);
+    expect(permissionModeAsks("")).toBe(false);
+    expect(permissionPromptArgs(null)).toEqual([]);
   });
 });

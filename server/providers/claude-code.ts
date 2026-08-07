@@ -6,7 +6,7 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
-import { permissionModeForAutonomy } from "../lib/autonomy-mode";
+import { permissionModeForAutonomy, permissionPromptArgs, permissionModeAsks } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
@@ -33,7 +33,10 @@ import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
-import { hasPendingAsk, endAsk, cancelAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
+// «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
+// permesso) e sei posti che devono saperlo. Porta unica: lib/human-hold.ts.
+import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
@@ -418,7 +421,11 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
  * sessionKey + base URL + gateway token as argv to call back into topics-app.
  */
-export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
+export function topicsMcpBridgeSpec(
+  sessionKey: string,
+  profile?: string,
+  opts?: { permissionChannel?: boolean },
+): { command: string; args: string[] } {
   return {
     command: process.execPath, // bun
     args: [
@@ -426,6 +433,11 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
       MCP_SERVER_SCRIPT,
       `--base-url=${topicsAppBaseUrl()}`,
       `--session-key=${sessionKey}`,
+      // Il canale di permesso si pubblica solo dove serve: senza questo flag il
+      // bridge non elenca `approval_prompt`, così in `bypassPermissions` — dove
+      // la CLI non lo designa e quindi non lo nasconderebbe — il modello non se
+      // lo ritrova fra gli strumenti.
+      ...(opts?.permissionChannel ? ["--permission-channel=1"] : []),
       // Tool profile: "dispatch" trims the bridge to what a board agent needs
       // (task tools + browser verification + processes) — fewer tool schemas
       // in the agent's per-call context. Absent = full toolset (interactive).
@@ -437,7 +449,7 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
 
 export function writeMcpConfigForSession(
   sessionKey: string,
-  opts?: { mcpPolicy?: string | null },
+  opts?: { mcpPolicy?: string | null; permissionChannel?: boolean },
 ): { path: string; strict: boolean } {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
@@ -449,13 +461,13 @@ export function writeMcpConfigForSession(
   // that works one task. Web research stays available via the CLI's built-in
   // WebSearch/WebFetch (not MCP). Per-board escape hatch: dispatch_mcp='inherit'.
   if (opts?.mcpPolicy === "bridge-only") {
-    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch") } };
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch", { permissionChannel: opts?.permissionChannel }) } };
     const path = mcpConfigPathForSession(sessionKey);
     writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
     try { chmodSync(path, 0o600); } catch { /* best-effort */ }
     return { path, strict: true };
   }
-  const topicsBridge = topicsMcpBridgeSpec(sessionKey);
+  const topicsBridge = topicsMcpBridgeSpec(sessionKey, undefined, { permissionChannel: opts?.permissionChannel });
   const inherited = resolveInheritedMcpServers();
   // strict ONLY when we scoped: the config then holds the full set the session
   // should see, so the CLI can safely ignore everything else. When scoping is
@@ -1314,7 +1326,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const timeoutPromise = new Promise<never>((_, reject) => {
       const arm = () => {
         const d = turnWatchdogDecision({
-          pendingAsk: hasPendingAsk(sessionKey),
+          pendingAsk: isHumanHold(sessionKey),
           idleMs: Date.now() - pp.lastEventAt,
           windowMs: MESSAGE_TIMEOUT_MS,
         });
@@ -1598,7 +1610,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // che una domanda fosse a schermo su una sessione dove non c'era più niente
     // — disarmando, per il turno DOPO, sia il watchdog del turno sia il tetto di
     // vita, che su quella promessa si fermano.
-    cancelAsk(sessionKey, "sessione azzerata con /clear");
+    releaseHumanHold(sessionKey, "sessione azzerata con /clear");
     forgetClaudeSessionId(sessionKey);
     console.log(`[claude-code] resetSession: ${sessionKey} riparte con una sessione nuova al prossimo turno`);
   }
@@ -1800,7 +1812,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // file path goes into argv as `--mcp-config`; the file lifetime is
     // bounded by `killProcess` below. Dispatched board agents carry
     // topics.mcp_policy='bridge-only' → topics bridge only, dispatch profile.
-    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, { mcpPolicy: overrides.mcpPolicy });
+    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, {
+      mcpPolicy: overrides.mcpPolicy,
+      permissionChannel: permissionModeAsks(permissionMode),
+    });
 
     const args = [
       "--print",
@@ -1817,6 +1832,23 @@ export class ClaudeCodeProvider implements AIProvider {
       // When we scoped the global fleet into the config above, tell the CLI to
       // use ONLY that set (drops the per-session chrome-devtools Chrome etc.).
       ...(mcpStrict ? ["--strict-mcp-config"] : []),
+      // IL CANALE DI PERMESSO.
+      //
+      // Ogni modalità che non sia `bypassPermissions` si ferma a chiedere prima
+      // di eseguire ciò che non copre — e in `--print` non c'è nessun prompt
+      // interattivo a cui chiedere. Senza questo flag la richiesta diventava un
+      // NO MUTO: «Claude requested permissions to use X, but you haven't
+      // granted it yet», cioè un permesso che invita a concederlo e che nessuno
+      // può chiedere. Con `auto-apply` (515 topic su 518, il default) morivano
+      // così TUTTI i tool MCP e ogni scrittura fuori dalla cwd.
+      //
+      // Il flag non è più in `--help` dalla 2.1.224 ma è accettato e funziona:
+      // verificato sul filo, con il canale la CLI chiede SOLO le due cose che
+      // la modalità non copre, e un «nega» torna indietro col nostro messaggio.
+      // Il tool è quello del bridge che Topics attacca già a ogni sessione, e la
+      // CLI lo toglie dall'elenco che il modello vede — quindi non costa
+      // contesto e il modello non può chiamarlo per auto-concedersi qualcosa.
+      ...permissionPromptArgs(permissionMode),
       // Nudge the agent to launch dev servers via mcp__topics__run_script so they
       // appear in the Processes panel instead of leaking into the bare shell.
       "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,
@@ -2383,7 +2415,7 @@ export class ClaudeCodeProvider implements AIProvider {
       armTurnDeadline({
         ms: RATE_LIMIT_GRACE_MS,
         rearmMs: RATE_LIMIT_GRACE_MS,
-        isWaitingForHuman: () => hasPendingAsk(sessionKey),
+        isWaitingForHuman: () => isHumanHold(sessionKey),
         onExpired: () => {
           if (pp.pendingReject === reject) {
             pp.pendingResolve = null;
@@ -3059,7 +3091,7 @@ export class ClaudeCodeProvider implements AIProvider {
     return armTurnDeadline({
       ms: opts.ms ?? MAX_LIFETIME_MS,
       rearmMs: opts.rearmMs ?? LIFETIME_REARM_MS,
-      isWaitingForHuman: () => hasPendingAsk(sessionKey),
+      isWaitingForHuman: () => isHumanHold(sessionKey),
       onExpired: () => {
         console.log("[claude-code] Max lifetime reached, killing process");
         this.killProcess(pp);
@@ -3215,7 +3247,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // proprio così: nessun evento in arrivo, perché il figlio è bloccato sulla
       // risposta JSON-RPC del bridge. Era l'unico dei quattro orologi sul
       // percorso di una domanda senza l'esenzione che gli altri tre hanno già.
-      if (hasPendingAsk(key)) { this.resetInactivityTimer(key, pp, opts); return; }
+      if (isHumanHold(key)) { this.resetInactivityTimer(key, pp, opts); return; }
       console.log(`[claude-code] Inactivity timeout for ${key}`);
       this.killProcess(pp);
       this.processes.delete(key);

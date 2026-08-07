@@ -119,6 +119,17 @@ export interface DetachedTopicOptions {
   /** Model override for the topic's spawns (`--model`); absent = provider default. */
   model?: string;
   /**
+   * Livello di autonomia della chat, cioè il `--permission-mode` dello spawn.
+   *
+   * ESPLICITO e non lasciato al default della colonna, per una ragione che vale
+   * solo qui: un agente dispacciato dalla board non ha NESSUNO a cui chiedere.
+   * Da quando il canale di permesso esiste (`server/lib/permission-bridge.ts`)
+   * una modalità che chiede apre un pannello in chat e aspetta — e per una chat
+   * che l'umano non ha aperto quel pannello è un task fermo in silenzio.
+   * Vedi il chiamante in `server.ts` per la scelta e il perché.
+   */
+  autonomyLevel?: string;
+  /**
    * Born CLOSED (archived: true). In the 2-state topic model an open (non-
    * archived) topic IS a tab on every client — a dispatcher-spawned agent
    * session must not pop tabs; it lives in the sidebar until the human opens
@@ -175,6 +186,7 @@ export function createDetachedTopic(
   if (opts.model) newTopic.model = opts.model;
   if (opts.standalone) newTopic.standalone = true;
   if (opts.mcpPolicy) newTopic.mcpPolicy = opts.mcpPolicy;
+  if (opts.autonomyLevel) newTopic.autonomyLevel = opts.autonomyLevel as Topic['autonomyLevel'];
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };
