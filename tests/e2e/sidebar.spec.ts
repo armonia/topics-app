@@ -817,3 +817,84 @@ test.describe("Sidebar — le superfici, sul desktop", () => {
     expect(fascia, `la cornice di #main-content (${fascia}) deve essere il chrome (${chrome})`).toBe(chrome);
   });
 });
+
+test.describe("Sidebar — i due comandi in testa alla colonna", () => {
+  /**
+   * IL BOX SIMMETRICO NON BASTA: L'OCCHIO MISURA L'INCHIOSTRO.
+   *
+   * Attilio, 07/08: «il ⌘N ha la stessa distanza a destra e a sinistra? Mi
+   * sembra che a destra sia un pochino più piccolo». Il box lo era — misurato,
+   * `padding: 0 8px`, i due bordi esatti a 8,0 e 8,0 — ma a sinistra c'è
+   * un'ICONA e a destra del TESTO, e le due cose riempiono il loro box in modo
+   * diverso: un glifo lucide è disegnato dentro un riquadro da 24 col tratto da
+   * 4 a 20, cioè si porta dietro ~2,3px di aria per lato a `size=14`, mentre
+   * «⌘N» il suo box lo riempie quasi tutto. Somma: ~10,3 a sinistra contro
+   * ~8,8 a destra. Un pixel e mezzo, e si vedeva.
+   *
+   * Il test misura quello che l'occhio misura — il vuoto fino all'INCHIOSTRO,
+   * non fino al box — così una futura «pulizia» che rimette `px-2` simmetrico
+   * torna rossa invece di tornare storta.
+   */
+  test("SIDEBAR-CMD-01: il vuoto a sinistra e a destra della scorciatoia è lo stesso", async ({ page }) => {
+    await goToApp(page);
+    const misure = await page.evaluate(() => {
+      // Due terzi del box: è la proporzione di inchiostro di un glifo lucide
+      // (tratto da 4 a 20 dentro un viewBox da 24).
+      const INK = 16 / 24;
+      const leggi = (btn: Element | null) => {
+        if (!btn) return null;
+        const b = btn.getBoundingClientRect();
+        const svg = btn.querySelector("svg")?.getBoundingClientRect();
+        const kbd = btn.querySelector("kbd")?.getBoundingClientRect();
+        if (!svg || !kbd) return null;
+        const ariaGlifo = (svg.width * (1 - INK)) / 2;
+        return {
+          sinistra: svg.x - b.x + ariaGlifo,
+          destra: b.x + b.width - (kbd.x + kbd.width),
+        };
+      };
+      const side = document.querySelector('[aria-label="Topics sidebar"]')!;
+      return {
+        piu: leggi(side.querySelector('[data-testid="pane-add-menu-trigger"]')),
+        cerca: leggi(side.querySelector('button[aria-label^="Search"]')),
+      };
+    });
+
+    for (const [nome, m] of Object.entries(misure)) {
+      expect(m, `${nome}: bottone non trovato, o senza glifo/scorciatoia`).not.toBeNull();
+      expect(
+        Math.abs(m!.sinistra - m!.destra),
+        `${nome}: ${m!.sinistra.toFixed(2)}px di vuoto a sinistra contro ${m!.destra.toFixed(2)} a destra`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  /**
+   * I COMANDI SONO TONDI, LE SUPERFICI NO.
+   *
+   * «Il tasto di aggiunta ancora non si trova col border radius della finestra
+   * del Mac» — dopo che li avevo già portati tutti a 8. Il punto è che 8 contro
+   * i 12 della finestra resta un QUASI-uguale, e due curve quasi uguali a un
+   * centimetro di distanza si leggono come un errore di misura. Non serviva
+   * avvicinare il raggio, serviva smettere di gareggiare: i comandi diventano
+   * TONDI, le superfici restano a 8, la finestra a 12 non ha più vicini che le
+   * somigliano. Vedi il blocco in index.css.
+   */
+  test("SIDEBAR-CMD-02: i comandi sono tondi, le righe della lista no", async ({ page }) => {
+    await goToApp(page);
+    const raggi = await page.evaluate(() => {
+      const side = document.querySelector('[aria-label="Topics sidebar"]')!;
+      const r = (el: Element | null) => (el ? parseFloat(getComputedStyle(el).borderTopLeftRadius) : -1);
+      return {
+        piu: r(side.querySelector('[data-testid="pane-add-menu-trigger"]')),
+        cerca: r(side.querySelector('button[aria-label^="Search"]')),
+        altezzaPiu: (side.querySelector('[data-testid="pane-add-menu-trigger"]') as HTMLElement)?.getBoundingClientRect().height ?? 0,
+      };
+    });
+    // «Tondo» = il raggio è almeno metà dell'altezza: qualunque valore sopra
+    // quella soglia produce lo stesso arco, quindi si asserisce la FORMA e non
+    // il numero con cui Tailwind la ottiene.
+    expect(raggi.piu, `il «+» ha raggio ${raggi.piu} su un'altezza di ${raggi.altezzaPiu}`).toBeGreaterThanOrEqual(raggi.altezzaPiu / 2);
+    expect(raggi.cerca).toBeGreaterThanOrEqual(raggi.altezzaPiu / 2);
+  });
+});
