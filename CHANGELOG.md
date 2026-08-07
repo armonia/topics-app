@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.44 — 2026-08-07
+
+### Sotto il cofano
+- Anche la spunta della tab entra nella famiglia, e la colonna capovolta ha la sua prova
+- Il relay è vivo su Cloudflare, e non può leggere quello che inoltra
+- Sei correzioni sul giro di ieri: il cassetto si ricorda dov'era, il fantasma segue il dito
+- Il fantasma del trascinamento non è una tessera della griglia
+- Cronologia e remotes escono dal pannello: il piede non esiste piu'
+- Stato e comandi in UNA riga di testa, e i progetti sulla board tornano a vedersi
+
 ## 2.2.43 — 2026-08-07
 
 ### Sotto il cofano
@@ -50,6 +60,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Tieni premuto e trascina: i fissati si riordinano anche col dito
 - Il piede del pannello git non si taglia piu': la lista cede, le intestazioni no
 - Una riga di progetto si trova per ruolo, non per il testo che ci passa sopra
+- 2.2.43 — la sidebar per il pollice
 
 ## 2.2.42 — 2026-08-07
 
