@@ -95,7 +95,14 @@ export function cleanPreviewText(raw: string): string {
   s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
   // Segni di struttura a inizio riga (titoli, citazioni, elenchi): quando le
   // righe vengono compresse in una sola non delimitano più niente.
-  s = s.replace(/^[ \t]{0,3}(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm, '');
+  // `(?:…)+`, non `(?:…)`: i marcatori si IMPILANO — «> > citato», «## # x»,
+  // «1. 2. x» — e togliendone uno solo per passata questa potatura smetteva
+  // di essere IDEMPOTENTE, che e' la proprieta' su cui si regge il patto con
+  // la gemella lato server. Il testo che arriva dal WS fa UNA passata, quello
+  // dell'idratazione ne fa DUE (il server ha gia' pulito): la stessa chat
+  // mostrava due testi diversi prima e dopo un ricarico. Consumandoli tutti in
+  // una volta, la seconda passata non trova piu' niente da togliere.
+  s = s.replace(/^[ \t]{0,3}(?:(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+)+/gm, '');
   // Righe orizzontali: una riga di soli `---` compressa in una riga sola
   // diventa il primo "carattere a caso" che si legge.
   s = s.replace(/^[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$/gm, ' ');

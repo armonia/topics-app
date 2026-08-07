@@ -249,7 +249,14 @@ test.describe("Sidebar col dito — audit misurato", () => {
           label: el.getAttribute("aria-label") ?? el.className.slice(0, 30),
           w: Math.round(r.width),
           h: Math.round(r.height),
-          ownsItsCentre: !!hit && (el === hit || el.contains(hit) || hit.contains(el)),
+          // `hit.contains(el)` NON va messo: farebbe passare il caso peggiore.
+          // Se `elementFromPoint` restituisce un ANTENATO (la riga stessa), vuol
+          // dire che il centro del bersaglio e' coperto da qualcos'altro e il tocco
+          // finisce sulla riga invece che sul comando — cioe' proprio «il bordo del
+          // bersaglio attiva la chat invece del suo comando». Con quel ramo il test
+          // sarebbe verde per costruzione: il bersaglio possiede il suo centro solo
+          // se a colpirlo e' lui o un suo discendente (l'svg dentro il bottone).
+          ownsItsCentre: !!hit && (el === hit || el.contains(hit)),
         };
       });
     });
