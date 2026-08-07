@@ -4,7 +4,7 @@ import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
-import { PinnedTile, PINNED_TILE_H, PINNED_TILE_ACTION_INSET } from './PinnedTile';
+import { PinnedTile, PINNED_TILE_H, PINNED_TILE_ACTION_INSET, PINNED_TILE_CONTAINER } from './PinnedTile';
 import {
   insertPinnedRow,
   movePinnedTile,
@@ -299,7 +299,7 @@ export function PinnedTiles({
           acceso per dire «non lo so». */}
       {newRowAt === at && (
         incomingRow
-          ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
+          ? <div data-testid="pinned-drop-preview" className={`${PINNED_TILE_CONTAINER} opacity-60 pointer-events-none`}>
               <PinnedTilePreview item={incomingRow} metaFor={metaFor} />
             </div>
           : <div
@@ -437,7 +437,7 @@ export function PinnedTiles({
                   // c'è una riga da nominare — e allora è grigio, non azzurro:
                   // un colore acceso per dire «non lo so» è rumore.
                   return (
-                    <div key="ghost" style={flex} className="min-w-0">
+                    <div key="ghost" style={flex} className={`${PINNED_TILE_CONTAINER} min-w-0`}>
                       {dropAt?.incoming
                         ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
                             <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} />
@@ -457,7 +457,7 @@ export function PinnedTiles({
                   <div
                     key={key}
                     style={flex}
-                    className={`relative group/cell min-w-0 ${
+                    className={`${PINNED_TILE_CONTAINER} relative group/cell min-w-0 ${
                       reordering && dropAt.movingKey === key ? 'opacity-70 transition-opacity' : ''
                     }`}
                   >
