@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
-import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, deriveWatchingTopics } from './signals';
+import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -73,7 +73,6 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
 
   // Claude "watching" phases (Monitor armed) → muted aura by topic.
   useEffect(() => {
-    signalsActions.setWatchingTopics(deriveWatchingTopics(topics, claudeSessions));
   }, [topics, claudeSessions]);
 
   // "What is each session doing" → the activity map (keyed by topicId/terminalId).
@@ -217,8 +216,8 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
-    const { active, resting, awaiting, awaitingInput, watching } = derivePhaseTerminals(terminalSessions, byCsid);
-    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput, watching);
+    const { active, resting, awaiting, awaitingInput } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput);
   }, [terminalSessions, claudeSessions]);
 
   // Reconcile busy/finished against the authoritative session roster. The

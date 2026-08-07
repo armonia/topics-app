@@ -115,11 +115,10 @@ describe('setClaudePhaseTerminals — un terminale che rifinisce torna da guarda
     claudePhaseRestingTermIds: new Set(),
     claudePhaseAwaitingTermIds: new Set(),
     claudePhaseAwaitingInputTermIds: new Set(),
-    claudePhaseWatchingTermIds: new Set(),
   });
   // Un terminale in attesa è anche "resting": qui conta solo l'insieme awaiting.
   const awaitingTerms = (ids: Set<string>) =>
-    useSignalsStore.getState().setClaudePhaseTerminals(new Set(), new Set(ids), new Set(ids), new Set(), new Set());
+    useSignalsStore.getState().setClaudePhaseTerminals(new Set(), new Set(ids), new Set(ids), new Set());
   const seen = () => useSignalsStore.getState().seenSubjects;
 
   test('finito → guardato → finito di nuovo ⇒ il visto cade', () => {

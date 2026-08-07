@@ -12,11 +12,8 @@ import { useConfirm } from '../../hooks/useConfirm';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
-import { AuraWave } from '../AuraWave';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
-import { useTopicLoading, useTopicAwaitingInput, useTopicWatching } from '@/state/signals';
-import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
 import type { SendMessageOptions } from '@/hooks/useChat';
@@ -124,39 +121,9 @@ export function ChatPanel({
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
-  // "Working" glow — the SAME condition the sidebar green row uses
-  // (useTopicLoading = live stream OR hydrated mid-reply OR active agent), so
-  // the ring and the sidebar dot can never disagree about whether a chat is
-  // working. Gated behind the `workingGlow` app setting (default ON); read via
-  // the settings-change event so a toggle applies live without a prop drill.
-  // …meno l'attesa: un turno fermo su una domanda è aperto ma non macina, e
-  // l'alone che pulsa direbbe il contrario proprio mentre la palla è dell'umano.
-  const isLoading = useTopicLoading(topic.id);
-  const isAwaitingInput = useTopicAwaitingInput(topic.id);
-  const isWorking = isLoading && !isAwaitingInput;
-  const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
-  useEffect(() => {
-    const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);
-    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
-    window.addEventListener('storage', reload);
-    return () => {
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
-      window.removeEventListener('storage', reload);
-    };
-  }, []);
-  // The ring element exists in the DOM ONLY while working (conditional render,
-  // not display:none) — zero cost when idle, per the perf rationale in index.css.
-  const showWorkingRing = isWorking && workingGlowEnabled;
-  const isWatching = useTopicWatching(topic.id);
-
   return (
     <>
       <div data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
-        {/* Apple-Intelligence "working" glow — a thin rotating ring hugging the
-            pane edge while the session streams. Rendered only when working so
-            it costs nothing at rest; transform-only animation (see index.css).
-            aria-hidden: purely decorative. Muted when watching (Monitor armed). */}
-        {showWorkingRing && <AuraWave activityId={topic.sessionKey} muted={isWatching} />}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

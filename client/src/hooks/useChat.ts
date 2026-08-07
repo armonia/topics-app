@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
-import { bumpAura } from '../lib/auraActivity';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 // "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
 // applica il server prima di cancellare la riga. Due definizioni di "vuoto"
@@ -860,13 +859,6 @@ export function useChat() {
   };
 
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
-    // Feed the working aura: every streamed delta (SSE foreground + WS cross-
-    // window both funnel through here) drives the wave's speed. Weight by the
-    // delta LENGTH (≈ token count) so the energy tracks real token THROUGHPUT —
-    // a fast stream keeps it high, a lull lets it decay — not just chunk arrival
-    // rate. Keyed by sessionKey, exactly what the aura reads (topic.sessionKey).
-    const deltaLen = (contentDelta ? contentDelta.length : 0) + (thinkingDelta ? thinkingDelta.length : 0);
-    if (deltaLen > 0) bumpAura(sessionKey, 0.06 + Math.min(0.5, deltaLen / 55));
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = sessionMessages.length - 1;

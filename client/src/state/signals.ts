@@ -195,20 +195,6 @@ export function deriveAwaitingInputTopics(
   return ids;
 }
 
-/** Pure: topic ids whose bound Claude session is in 'watching' phase
- *  (Monitor/background-task armed). Used to mute the aura ring. */
-export function deriveWatchingTopics(
-  topics: Record<string, Topic>,
-  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const t of Object.values(topics)) {
-    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
-    if (st && st.phase === 'watching') ids.add(t.id);
-  }
-  return ids;
-}
-
 /** Phases that mean "Claude is actively working".
  *
  *  The loading rule is a UNION, so it stays correct even where Claude Code
@@ -278,9 +264,6 @@ interface SignalsState {
   // a strict subset of claudePhaseAwaitingTermIds. Amber fill (act now); the
   // rest of the awaiting set is calm blue (done-unseen). By terminal session id.
   claudePhaseAwaitingInputTermIds: Set<string>;
-  // claude-code terminals in 'watching' phase (Monitor armed). Drives muted aura.
-  // By terminal session id.
-  claudePhaseWatchingTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
   // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
@@ -290,9 +273,6 @@ interface SignalsState {
   // chat topics in the LOUD 'input' tier (awaiting-approval) — subset of
   // awaitingFeedbackTopics. Amber fill; the rest is calm blue done-unseen.
   awaitingInputTopics: Set<string>;
-  // chat topics whose Claude session is in 'watching' phase (Monitor armed).
-  // Drives muted aura mode (softer ring vs full-bright loading).
-  watchingTopics: Set<string>;
   // Soggetti (topicId o terminalSessionId) che l'utente ha DAVVERO guardato: sono
   // stati davanti, con la finestra sveglia, per SEEN_DWELL_MS continui. È il gate
   // di FOCUS WINS — vedi `attentionFillFor` — e sostituisce "è selezionata", che
@@ -328,7 +308,7 @@ interface SignalsState {
   markTerminalReloading: (id: string) => void;
   clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>, watching: Set<string>) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => void;
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => void;
   setSessionLastActivity: (activity: Map<string, number>) => void;
 }
@@ -371,7 +351,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics' | 'watchingTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
 
 export function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
@@ -476,11 +456,9 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudePhaseRestingTermIds: new Set(),
   claudePhaseAwaitingTermIds: new Set(),
   claudePhaseAwaitingInputTermIds: new Set(),
-  claudePhaseWatchingTermIds: new Set(),
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
   awaitingInputTopics: new Set(),
-  watchingTopics: new Set(),
   seenSubjects: new Set(),
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
@@ -546,14 +524,13 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       return { terminalBusyIds: busy, terminalFinishedIds: finished };
     }),
 
-  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput, watching) =>
+  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput) =>
     set((s) => {
       const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
       const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
       const awaitingChanged = !setsEqual(awaiting, s.claudePhaseAwaitingTermIds);
       const awaitingInputChanged = !setsEqual(awaitingInput, s.claudePhaseAwaitingInputTermIds);
-      const watchingChanged = !setsEqual(watching, s.claudePhaseWatchingTermIds);
-      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged && !watchingChanged) return s;
+      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged) return s;
       // Il "visto" dei TERMINALI si annulla qui, sul fronte di salita, esattamente
       // come quello delle chat in `applyNewAttention`. Per le chat è una chiamata
       // separata da fare PRIMA della sostituzione (col suo avvertimento
@@ -572,7 +549,6 @@ export const useSignalsStore = create<SignalsState>((set) => ({
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
         ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
         ...(awaitingInputChanged ? { claudePhaseAwaitingInputTermIds: awaitingInput } : {}),
-        ...(watchingChanged ? { claudePhaseWatchingTermIds: watching } : {}),
         ...(seenSubjects === s.seenSubjects ? {} : { seenSubjects }),
       };
     }),
@@ -615,7 +591,6 @@ export const signalsActions = {
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
-  setWatchingTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('watchingTopics', ids),
   applyNewAttention: (nextAwaiting: ReadonlySet<string>) => useSignalsStore.getState().applyNewAttention(nextAwaiting),
   markSubjectSeen: (id: string) => useSignalsStore.getState().markSubjectSeen(id),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
@@ -627,7 +602,7 @@ export const signalsActions = {
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>, watching: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput, watching),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput),
 };
 
 /**
@@ -658,42 +633,6 @@ export function terminalLoadingFrom(
   return ptyBusy.has(sid);
 }
 
-/**
- * The prominent "working" AURA (the Apple-Intelligence ring hugging the pane) is
- * a STRICTER signal than {@link terminalLoadingFrom}: it lights ONLY when Claude
- * is CONFIDENTLY processing, never on the mere pty-busy fallback.
- *
- * Why stricter than the sidebar spinner: for a claude-code session the pty-busy
- * fallback fires on the STARTUP BANNER — a freshly-opened session paints the
- * Claude Code splash + empty prompt, which is real visible text (not a cosmetic
- * repaint), so `ptyBusy` goes true while the phase is still `starting` (NOT in
- * RESTING, by design, so hook-less work isn't hidden). That lit the aura "appena
- * creo la sessione" even though Claude is idle at an empty prompt. The same
- * fallback also flickers the aura on random idle pty blips. The subtle sidebar
- * dot can absorb that over-showing (better a stray dot than a hidden hook-less
- * session); the big glowing ring cannot — it reads as "Claude is working now".
- *
- * So for a claude-code session the ring requires phase-active (running /
- * tool-running) — which the first real prompt reaches instantly via
- * UserPromptSubmit→running or PreToolUse→tool-running. A PLAIN SHELL has no phase
- * machine at all, so it legitimately falls back to pty-busy (a long build/test
- * SHOULD glow). `isClaudeCode` selects between the two.
- */
-export function terminalRingFrom(
-  sid: string,
-  isClaudeCode: boolean,
-  phaseActive: Set<string>,
-  ptyBusy: Set<string>,
-  phaseResting?: Set<string>,
-): boolean {
-  if (phaseActive.has(sid)) return true;
-  // Claude sessions: ONLY phase-active drives the ring — no pty fallback, so the
-  // startup banner / idle pty blips can't light it. Shells: pty is all there is.
-  if (isClaudeCode) return false;
-  if (phaseResting?.has(sid)) return false;
-  return ptyBusy.has(sid);
-}
-
 /** Minimal phase view the terminal-loading derivation needs. */
 export interface TerminalPhaseLite {
   phase: ClaudeSessionPhase;
@@ -710,7 +649,6 @@ export interface TerminalRosterTypeEntry {
  *   - active:  phase ∈ {running, tool-running, watching} → drives the spinner/ring.
  *   - resting: phase ∈ RESTING_CLAUDE_PHASES (confidently idle) → suppresses the
  *              pty heuristic (the session isn't working; pty is idle paint).
- *   - watching: phase === 'watching' (Monitor armed) — subset of active.
  * A claude-code session with no phase entry yet — OR one still at `starting` —
  * appears in NEITHER set, so pty drives it (union fallback). That keeps the
  * spinner honest for sessions that work while pinned at `starting` (hooks never
@@ -719,7 +657,7 @@ export interface TerminalRosterTypeEntry {
 export function derivePhaseTerminals(
   roster: TerminalRosterTypeEntry[],
   byCsid: Map<string, TerminalPhaseLite>,
-): { active: Set<string>; resting: Set<string>; awaiting: Set<string>; awaitingInput: Set<string>; watching: Set<string> } {
+): { active: Set<string>; resting: Set<string>; awaiting: Set<string>; awaitingInput: Set<string> } {
   const active = new Set<string>();
   const resting = new Set<string>();
   // `awaiting` is a SUBSET of `resting` (AWAITING_FEEDBACK_PHASES ⊂
@@ -728,17 +666,12 @@ export function derivePhaseTerminals(
   const awaiting = new Set<string>();
   // `awaitingInput` ⊂ `awaiting`: the LOUD amber tier (awaiting-approval only).
   const awaitingInput = new Set<string>();
-  // `watching` ⊂ `active`: phase === 'watching' (Monitor armed).
-  const watching = new Set<string>();
   for (const ts of roster) {
     if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
     if (!ts.claudeSessionId) continue;
     const st = byCsid.get(ts.claudeSessionId);
     if (!st) continue;
-    if (ACTIVE_CLAUDE_PHASES.has(st.phase)) {
-      active.add(ts.id);
-      if (st.phase === 'watching') watching.add(ts.id);
-    }
+    if (ACTIVE_CLAUDE_PHASES.has(st.phase)) active.add(ts.id);
     else if (RESTING_CLAUDE_PHASES.has(st.phase)) {
       resting.add(ts.id);
       if (AWAITING_FEEDBACK_PHASES.has(st.phase)) awaiting.add(ts.id);
@@ -746,7 +679,7 @@ export function derivePhaseTerminals(
     }
     // `starting` / unknown → neither set → pty heuristic decides.
   }
-  return { active, resting, awaiting, awaitingInput, watching };
+  return { active, resting, awaiting, awaitingInput };
 }
 
 /**
@@ -1014,13 +947,6 @@ export function useTopicAwaitingInput(topicId: string | undefined): boolean {
   return useSignalsStore((s) => !!topicId && s.awaitingInputTopics.has(topicId));
 }
 
-/** A topic's Claude session is in 'watching' phase (Monitor/background-task armed,
- *  awaiting an event). The aura should be muted (softer) when watching vs full-bright
- *  when actively working. */
-export function useTopicWatching(topicId: string | undefined): boolean {
-  return useSignalsStore((s) => !!topicId && s.watchingTopics?.has(topicId));
-}
-
 /** The attention TIER of a chat topic's Claude session, or null. 'input' (amber,
  *  act now) when awaiting a permission; 'done' (blue, look when ready) when the
  *  turn finished/paused. The surface colour is chosen from this — see
@@ -1150,30 +1076,12 @@ export function useSubjectLastActivity(subjectId: string | undefined): number | 
   return useSignalsStore((s) => (subjectId ? s.sessionLastActivity.get(subjectId) : undefined));
 }
 
-/** A terminal session's Claude session is in 'watching' phase (Monitor armed).
- *  The ring should be muted when watching. By terminal session id. */
-export function useTerminalWatching(sessionId: string | undefined): boolean {
-  return useSignalsStore((s) => !!sessionId && s.claudePhaseWatchingTermIds.has(sessionId));
-}
-
 /** A terminal session is loading when its claude phase is active, or (for
  *  shells / not-yet-known phases) its pty is busy. A claude-code session at a
  *  resting phase never shows loading from pty alone — see terminalLoadingFrom. */
 export function useTerminalLoading(sessionId: string | undefined): boolean {
   return useSignalsStore((s) =>
     !!sessionId && terminalLoadingFrom(sessionId, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
-  );
-}
-
-/** Should the prominent "working" AURA light for this terminal? Stricter than
- *  useTerminalLoading: a claude-code session lights the ring ONLY on a
- *  confidently-active phase (running/tool-running), never on the pty-busy
- *  fallback — so the startup banner and idle pty blips can't flash it. A plain
- *  shell still glows on pty activity. Pass whether this session is claude-code
- *  (the pane knows its own type). See terminalRingFrom. */
-export function useTerminalWorkingRing(sessionId: string | undefined, isClaudeCode: boolean): boolean {
-  return useSignalsStore((s) =>
-    !!sessionId && terminalRingFrom(sessionId, isClaudeCode, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
   );
 }
 
