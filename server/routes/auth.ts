@@ -66,6 +66,20 @@ export function __resetLiveSocketsForTests(): void {
 }
 
 /**
+ * Test-only: azzera le richieste di appaiamento in attesa.
+ *
+ * Serve per la stessa ragione per cui `pending` vive in memoria e non nel DB —
+ * e' stato di sessione, non un fatto da ricordare — ma in un file di test tutti
+ * i casi condividono il modulo, quindi le richieste di un caso restano appese
+ * al successivo finche' non scadono (tre minuti: un'eternita' per una suite).
+ * Senza questo, il tetto complessivo scatta a meta' suite e i casi dopo
+ * falliscono per un motivo che non e' il loro.
+ */
+export function __resetPendingForTests(): void {
+  pending.clear();
+}
+
+/**
  * Tetto alle richieste in attesa. Il verso dell'approvazione toglie il
  * brute-force del CODICE — non c'è niente da indovinare — ma non impedisce a un
  * peer sulla rete di inondare la coda finché il cartello sul Mac diventa
