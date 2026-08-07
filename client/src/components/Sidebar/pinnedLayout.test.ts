@@ -1,15 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  PINNED_ROW_SOFT_MAX,
-  deriveFromPinOrder,
+  PINNED_ROW_MAX,
   flattenPinnedLayout,
   insertPinnedRow,
+  mergePinnedLayout,
   movePinnedTile,
+  pinnedDropAllowed,
+  pinnedRowWidths,
   placePinnedTile,
-  previewWidths,
   reconcilePinnedLayout,
+  reorderWithinRow,
   samePinnedLayout,
-  tilesPerVisualRow,
   type PinnedRow,
 } from './pinnedLayout';
 
@@ -26,23 +27,6 @@ function expectWellFormed(layout: readonly PinnedRow[]) {
 const row = (...keys: string[]): PinnedRow => ({
   keys,
   widths: keys.map(() => 1 / keys.length),
-});
-
-describe('deriveFromPinOrder', () => {
-  test('spezza in righe da perRow, nell\'ordine di pin', () => {
-    const l = deriveFromPinOrder(['a', 'b', 'c', 'd', 'e'], 2);
-    expect(l.map(r => r.keys)).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
-    expectWellFormed(l);
-  });
-
-  test('nessun fissato → nessuna riga', () => {
-    expect(deriveFromPinOrder([], 4)).toEqual([]);
-  });
-
-  test('perRow degenere non manda in loop né perde chiavi', () => {
-    expect(flattenPinnedLayout(deriveFromPinOrder(['a', 'b'], 0))).toEqual(['a', 'b']);
-    expect(flattenPinnedLayout(deriveFromPinOrder(['a', 'b'], -3))).toEqual(['a', 'b']);
-  });
 });
 
 describe('reconcilePinnedLayout', () => {
@@ -82,7 +66,7 @@ describe('reconcilePinnedLayout', () => {
   });
 
   test('oltre il tetto per riga il fissato nuovo apre una riga', () => {
-    const full = Array.from({ length: PINNED_ROW_SOFT_MAX }, (_, i) => `k${i}`);
+    const full = Array.from({ length: PINNED_ROW_MAX }, (_, i) => `k${i}`);
     const l = reconcilePinnedLayout([...full, 'nuovo'], [row(...full)]);
     expect(l.length).toBe(2);
     expect(l[1].keys).toEqual(['nuovo']);
@@ -93,6 +77,17 @@ describe('reconcilePinnedLayout', () => {
     const once = reconcilePinnedLayout(['a', 'b', 'c'], [row('a'), row('b', 'c')]);
     const twice = reconcilePinnedLayout(['a', 'b', 'c'], once);
     expect(samePinnedLayout(once, twice)).toBe(true);
+  });
+
+  test('è idempotente ANCHE se i fissati arrivano con un doppione', () => {
+    // Il merge fra due device (o un payload vecchio) può portare 'b' due volte:
+    // il ramo dei mancanti lo accodava DUE volte, e solo il giro dopo lo
+    // raddrizzava — cioè la funzione dichiarata idempotente non lo era.
+    const once = reconcilePinnedLayout(['a', 'b', 'b'], [row('a')]);
+    expect(flattenPinnedLayout(once)).toEqual(['a', 'b']);
+    const twice = reconcilePinnedLayout(['a', 'b', 'b'], once);
+    expect(samePinnedLayout(once, twice)).toBe(true);
+    expectWellFormed(once);
   });
 
   test('regge righe malformate senza perdere i fissati', () => {
@@ -113,6 +108,32 @@ describe('movePinnedTile', () => {
     const l = movePinnedTile([row('a', 'b', 'c')], 'c', { rowIdx: 0, insertAt: 0 });
     expect(l[0].keys).toEqual(['c', 'a', 'b']);
     expectWellFormed(l);
+  });
+
+  test('dentro la stessa riga verso DESTRA non scavalca di uno', () => {
+    // `insertAt` è contato sulla riga con la tessera ancora dentro. Passando
+    // per `pluck`+`splice` atterrava un posto più a destra di dove puntavi —
+    // e diverso da quello che l'anteprima mostrava mentre tenevi premuto.
+    const l = movePinnedTile([row('a', 'b', 'c')], 'a', { rowIdx: 0, insertAt: 2 });
+    expect(l[0].keys).toEqual(['b', 'a', 'c']);
+    expectWellFormed(l);
+  });
+
+  test('l\'UNICA tessera di una riga, rilasciata sulla PROPRIA riga, resta dov\'è', () => {
+    // `pluck` cancellava la riga svuotata, e `rowIdx` finiva a puntare quella
+    // dopo: rimettere la tessera dov'era FONDEVA due righe in una, in modo
+    // persistente e senza undo.
+    const before = [row('x'), row('a', 'b')];
+    for (const at of [0, 1]) {
+      const l = movePinnedTile(before, 'x', { rowIdx: 0, insertAt: at });
+      expect(l.map(r => r.keys)).toEqual([['x'], ['a', 'b']]);
+      expectWellFormed(l);
+    }
+  });
+
+  test('una riga di mezzo non si tocca quando il movimento è altrove', () => {
+    const l = movePinnedTile([row('a', 'b'), row('m'), row('c')], 'a', { rowIdx: 0, insertAt: 2 });
+    expect(l.map(r => r.keys)).toEqual([['b', 'a'], ['m'], ['c']]);
   });
 
   test('sposta su un\'altra riga', () => {
@@ -171,40 +192,245 @@ describe('insertPinnedRow', () => {
     expect(samePinnedLayout(insertPinnedRow(before, 'x', 0), before)).toBe(true);
     expect(samePinnedLayout(insertPinnedRow(before, 'x', 1), before)).toBe(true);
   });
+
+  test('su una chiave che il layout non conosce non si inventa una riga', () => {
+    // Gemella di `movePinnedTile`: la stessa domanda deve avere la stessa
+    // risposta. È il pin a decidere CHI c'è; chi vuole piazzare una chiave
+    // nuova passa da `placePinnedTile`, che prima la fa esistere.
+    const before = [row('a', 'b')];
+    expect(samePinnedLayout(insertPinnedRow(before, 'fantasma', 1), before)).toBe(true);
+    expect(samePinnedLayout(movePinnedTile(before, 'fantasma', { rowIdx: 0, insertAt: 0 }), before)).toBe(true);
+  });
 });
 
-describe('previewWidths', () => {
+/**
+ * `reorderWithinRow` — l'UNICA conversione fra «quante tessere ho a sinistra del
+ * cursore» e «in che posizione finisce la tessera».
+ *
+ * Esiste perché la stessa formula viveva in due copie — una nell'anteprima del
+ * componente, una implicita nel `pluck`+`splice` del modello — e le due
+ * divergevano su ogni spostamento verso destra. I test qui sotto sono scritti
+ * come il gesto: `insertAt` contato sulla riga COSÌ COM'È, con la tessera in
+ * volo ancora al suo posto, perché è l'unica cosa che il cursore possa misurare.
+ */
+describe('reorderWithinRow', () => {
+  test('verso destra: l\'indice è contato con la tessera ancora dentro', () => {
+    // [a,b,c], cursore oltre il centro di 'b' ⇒ due tessere a sinistra ⇒ 2.
+    // Il risultato giusto è [b,a,c]: 'a' passa 'b'. Il `pluck`+`splice` nudo
+    // dava [b,c,a] — un posto più in là di dove puntavi, e diverso da quello
+    // che l'anteprima stava mostrando.
+    expect(reorderWithinRow(['a', 'b', 'c'], 'a', 2)).toEqual(['b', 'a', 'c']);
+    expect(reorderWithinRow(['a', 'b', 'c'], 'a', 3)).toEqual(['b', 'c', 'a']);
+  });
+
+  test('verso sinistra: l\'indice non va compensato', () => {
+    expect(reorderWithinRow(['a', 'b', 'c'], 'c', 0)).toEqual(['c', 'a', 'b']);
+    expect(reorderWithinRow(['a', 'b', 'c'], 'c', 1)).toEqual(['a', 'c', 'b']);
+  });
+
+  test('lasciarla dov\'era non la muove', () => {
+    for (const at of [0, 1]) expect(reorderWithinRow(['a', 'b', 'c'], 'a', at)).toEqual(['a', 'b', 'c']);
+    expect(reorderWithinRow(['a', 'b', 'c'], 'b', 1)).toEqual(['a', 'b', 'c']);
+    expect(reorderWithinRow(['a', 'b', 'c'], 'b', 2)).toEqual(['a', 'b', 'c']);
+  });
+
+  test('indici fuori scala si clampano, la chiave sconosciuta non tocca niente', () => {
+    expect(reorderWithinRow(['a', 'b'], 'a', 99)).toEqual(['b', 'a']);
+    expect(reorderWithinRow(['a', 'b'], 'b', -5)).toEqual(['b', 'a']);
+    expect(reorderWithinRow(['a', 'b'], 'zzz', 1)).toEqual(['a', 'b']);
+  });
+
+  test('non perde né duplica mai una chiave, a nessun indice', () => {
+    const keys = ['a', 'b', 'c', 'd'];
+    for (const k of keys) {
+      for (let at = 0; at <= keys.length; at++) {
+        expect(reorderWithinRow(keys, k, at).slice().sort()).toEqual([...keys].sort());
+      }
+    }
+  });
+
+  test('è la STESSA cosa che fa il drop: anteprima e risultato coincidono', () => {
+    const keys = ['a', 'b', 'c', 'd'];
+    for (const k of keys) {
+      for (let at = 0; at <= keys.length; at++) {
+        const anteprima = reorderWithinRow(keys, k, at);
+        const drop = movePinnedTile([row(...keys)], k, { rowIdx: 0, insertAt: at });
+        expect(drop[0].keys).toEqual(anteprima);
+      }
+    }
+  });
+});
+
+/**
+ * `pinnedDropAllowed` — «questo bersaglio ha senso offrirlo?».
+ *
+ * Il difetto che chiude, con le parole di chi l'ha visto: «se sto occupando una
+ * riga intera, mi dà la possibilità di spostarla in una riga sotto, ma non ha
+ * senso perché già sta occupando una riga». Il modello lo sapeva già e rifiutava
+ * il gesto — ma la griglia continuava ad aprire lo spazio, accenderlo e
+ * disegnarci dentro l'anteprima. Un'affordance che mente è peggio di una che
+ * manca, quindi la domanda è UNA e sta qui.
+ */
+describe('pinnedDropAllowed', () => {
+  test('una tessera che ha già una riga tutta sua: sopra e sotto non sono bersagli', () => {
+    const l = [row('a', 'b'), row('x'), row('c')];
+    expect(pinnedDropAllowed(l, 'x', { kind: 'newRow', atRowIdx: 1 })).toBe(false);
+    expect(pinnedDropAllowed(l, 'x', { kind: 'newRow', atRowIdx: 2 })).toBe(false);
+    // Le altre sì: lì la riga di partenza sparisce davvero e ne nasce una altrove.
+    expect(pinnedDropAllowed(l, 'x', { kind: 'newRow', atRowIdx: 0 })).toBe(true);
+    expect(pinnedDropAllowed(l, 'x', { kind: 'newRow', atRowIdx: 3 })).toBe(true);
+  });
+
+  test('una tessera che divide la riga può SEMPRE aprirsene una', () => {
+    const l = [row('a', 'b')];
+    for (const at of [0, 1]) expect(pinnedDropAllowed(l, 'a', { kind: 'newRow', atRowIdx: at })).toBe(true);
+  });
+
+  test('con UNA sola tessera fissata nessun bersaglio si accende', () => {
+    // Prima si illuminavano tutti, e nessuno poteva muovere niente.
+    const l = [row('solo')];
+    expect(pinnedDropAllowed(l, 'solo', { kind: 'newRow', atRowIdx: 0 })).toBe(false);
+    expect(pinnedDropAllowed(l, 'solo', { kind: 'newRow', atRowIdx: 1 })).toBe(false);
+    expect(pinnedDropAllowed(l, 'solo', { kind: 'row', rowIdx: 0, insertAt: 0 })).toBe(false);
+  });
+
+  test('riordinare dentro la PROPRIA riga si può, anche se è piena', () => {
+    const piena = row(...Array.from({ length: PINNED_ROW_MAX }, (_, i) => `k${i}`));
+    expect(pinnedDropAllowed([piena], 'k0', { kind: 'row', rowIdx: 0, insertAt: 3 })).toBe(true);
+  });
+
+  test('entrare in una riga piena no: il conteggio crescerebbe', () => {
+    const piena = row(...Array.from({ length: PINNED_ROW_MAX }, (_, i) => `k${i}`));
+    const l = [piena, row('x')];
+    expect(pinnedDropAllowed(l, 'x', { kind: 'row', rowIdx: 0, insertAt: 0 })).toBe(false);
+    expect(pinnedDropAllowed(l, null, { kind: 'row', rowIdx: 0, insertAt: 0 })).toBe(false);
+    // …e la riga nuova resta aperta: il rifiuto non è un vicolo cieco.
+    expect(pinnedDropAllowed(l, 'x', { kind: 'newRow', atRowIdx: 0 })).toBe(true);
+  });
+
+  test('una cosa che arriva da FUORI: riga nuova sempre sì, riga esistente se c\'è posto', () => {
+    const l = [row('a', 'b')];
+    expect(pinnedDropAllowed(l, null, { kind: 'newRow', atRowIdx: 0 })).toBe(true);
+    expect(pinnedDropAllowed(l, null, { kind: 'newRow', atRowIdx: 1 })).toBe(true);
+    expect(pinnedDropAllowed(l, null, { kind: 'row', rowIdx: 0, insertAt: 1 })).toBe(true);
+  });
+
+  test('una riga che non esiste non è un bersaglio', () => {
+    expect(pinnedDropAllowed([row('a')], null, { kind: 'row', rowIdx: 7, insertAt: 0 })).toBe(false);
+  });
+
+  test('ogni bersaglio PERMESSO cambia davvero qualcosa', () => {
+    // L'invariante che tiene insieme affordance e modello: se si accende, il
+    // drop non può essere un no-op silenzioso.
+    const layouts: PinnedRow[][] = [
+      [row('a', 'b', 'c')],
+      [row('a'), row('b')],
+      [row('a', 'b'), row('c')],
+      [row('x'), row('a', 'b'), row('y')],
+    ];
+    for (const l of layouts) {
+      for (const k of flattenPinnedLayout(l)) {
+        for (let at = 0; at <= l.length; at++) {
+          if (!pinnedDropAllowed(l, k, { kind: 'newRow', atRowIdx: at })) continue;
+          expect(samePinnedLayout(l, insertPinnedRow(l, k, at))).toBe(false);
+        }
+        for (let ri = 0; ri < l.length; ri++) {
+          if (!pinnedDropAllowed(l, k, { kind: 'row', rowIdx: ri, insertAt: 0 })) continue;
+          const cambia = Array.from({ length: l[ri].keys.length + 1 }, (_, at) =>
+            !samePinnedLayout(l, movePinnedTile(l, k, { rowIdx: ri, insertAt: at })));
+          expect(cambia.some(Boolean)).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+/**
+ * `mergePinnedLayout` — la griglia in resa parla solo delle tessere VISIBILI.
+ *
+ * La ricerca della sidebar filtra, e una chat fissata poi archiviata sparisce da
+ * sola: il componente riconciliava e committava una disposizione che nominava un
+ * SOTTOINSIEME dei fissati, e chi la riceveva la prendeva per la verità su
+ * tutti — le assenti risultavano «mancanti» e finivano riaccodate all'ultima
+ * riga. Bastava riordinare due tessere con una ricerca attiva per appiattire su
+ * una riga sola una disposizione fatta a mano, senza undo.
+ */
+describe('mergePinnedLayout', () => {
+  test('senza niente di nascosto restituisce quello che ha ricevuto', () => {
+    const prev = [row('a', 'b'), row('c')];
+    const next = [row('b', 'a'), row('c')];
+    expect(samePinnedLayout(mergePinnedLayout(prev, next), next)).toBe(true);
+  });
+
+  test('la nascosta torna accanto al vicino di sinistra con cui stava', () => {
+    // 'b' filtrata via: la griglia mostra [a, c] su una riga, ma 'b' stava
+    // fra loro e ci deve tornare.
+    const prev = [row('a', 'b', 'c')];
+    const next = [row('c', 'a')]; // riordinata mentre 'b' era nascosta
+    const out = mergePinnedLayout(prev, next);
+    expect(flattenPinnedLayout(out).slice().sort()).toEqual(['a', 'b', 'c']);
+    expect(out.length).toBe(1);
+    // dopo 'a', che è il vicino di sinistra che 'b' aveva
+    expect(out[0].keys).toEqual(['c', 'a', 'b']);
+    expectWellFormed(out);
+  });
+
+  test('senza vicini a sinistra ripiega su quello a destra', () => {
+    const prev = [row('nascosta', 'a')];
+    const next = [row('a')];
+    const out = mergePinnedLayout(prev, next);
+    expect(out[0].keys).toEqual(['nascosta', 'a']);
+    expectWellFormed(out);
+  });
+
+  test('una riga interamente nascosta rinasce al suo posto, non in coda', () => {
+    const prev = [row('a'), row('x', 'y'), row('b')];
+    const next = [row('a'), row('b')]; // la riga di mezzo era tutta filtrata
+    const out = mergePinnedLayout(prev, next);
+    expect(out.map(r => r.keys)).toEqual([['a'], ['x', 'y'], ['b']]);
+    expectWellFormed(out);
+  });
+
+  test('il riordino fatto con la ricerca attiva RESTA, e non appiattisce niente', () => {
+    // Il caso vero: due righe, la ricerca mostra solo 'a' e 'c', li si scambia.
+    const prev = [row('a', 'nascosta'), row('c')];
+    const next = [row('c'), row('a')];
+    const out = mergePinnedLayout(prev, next);
+    expect(out.length).toBe(2);
+    expect(flattenPinnedLayout(out).slice().sort()).toEqual(['a', 'c', 'nascosta']);
+    expect(out.map(r => r.keys)).toEqual([['c'], ['a', 'nascosta']]);
+    expectWellFormed(out);
+  });
+
+  test('griglia vuota (tutto filtrato): il layout salvato sopravvive intero', () => {
+    const prev = [row('a', 'b'), row('c')];
+    const out = mergePinnedLayout(prev, []);
+    expect(flattenPinnedLayout(out).slice().sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  test('riconciliando dopo il merge non si perde né si duplica un fissato', () => {
+    const prev = [row('a', 'nascosta'), row('c')];
+    const out = reconcilePinnedLayout(['a', 'nascosta', 'c'], mergePinnedLayout(prev, [row('c'), row('a')]));
+    expect(flattenPinnedLayout(out).slice().sort()).toEqual(['a', 'c', 'nascosta']);
+    expectWellFormed(out);
+  });
+});
+
+describe('pinnedRowWidths', () => {
   test('è esattamente ciò che il drop produrrà', () => {
     const r = row('a', 'b');
-    const preview = previewWidths(r, 1);
+    const preview = pinnedRowWidths(r.keys.length + 1);
     const dropped = movePinnedTile([r, row('z')], 'z', { rowIdx: 0, insertAt: 1 });
     expect(preview.length).toBe(3);
     preview.forEach((w, i) => expect(w).toBeCloseTo(dropped[0].widths[i], 9));
   });
 
-  test('somma 1 a ogni posizione d\'inserimento', () => {
-    const r: PinnedRow = { keys: ['a', 'b', 'c'], widths: [1 / 3, 1 / 3, 1 / 3] };
-    for (let at = 0; at <= 3; at++) {
-      const w = previewWidths(r, at);
-      expect(w.length).toBe(4);
+  test('somma 1 a qualunque conteggio', () => {
+    for (let n = 1; n <= 8; n++) {
+      const w = pinnedRowWidths(n);
+      expect(w.length).toBe(n);
       expect(Math.abs(w.reduce((s, x) => s + x, 0) - 1)).toBeLessThan(1e-9);
     }
-  });
-});
-
-describe('tilesPerVisualRow', () => {
-  test('sotto la larghezza minima la riga si spezza', () => {
-    // 200px, gap 6, minimo 40 → (200+6)/(40+6) = 4 tessere
-    expect(tilesPerVisualRow(200, 6, 6)).toBe(4);
-  });
-
-  test('con spazio a sufficienza tiene tutte le tessere della riga', () => {
-    expect(tilesPerVisualRow(1000, 6, 5)).toBe(5);
-  });
-
-  test('non scende mai sotto una tessera per riga', () => {
-    expect(tilesPerVisualRow(10, 6, 5)).toBe(1);
-    expect(tilesPerVisualRow(0, 6, 1)).toBe(1);
   });
 });
 
@@ -250,7 +476,7 @@ describe('le tessere restano larghe uguali', () => {
 
   test("l'anteprima del drag mostra le stesse larghezze eque del drop", () => {
     const r = row('a', 'b');
-    const preview = previewWidths(r, 1);
+    const preview = pinnedRowWidths(r.keys.length + 1);
     const dropped = movePinnedTile([r, row('z')], 'z', { rowIdx: 0, insertAt: 1 });
     expect(preview.length).toBe(3);
     preview.forEach((w, i) => expect(w).toBeCloseTo(dropped[0].widths[i], 9));

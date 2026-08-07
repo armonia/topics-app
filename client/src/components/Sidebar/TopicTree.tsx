@@ -237,7 +237,7 @@ export interface TopicTreeProps {
   /** Fissa una cosa arrivata da fuori PIAZZANDOLA dove è stata lasciata cadere:
    *  una sola operazione, perché pin e disposizione riconciliano l'uno
    *  sull'altro e in due passi la cella si perde (vedi `pinAt`). */
-  onPinAt?: (id: string, at: PinnedDropTarget) => void;
+  onPinAt?: (id: string, at: PinnedDropTarget, griglia?: PinnedRow[]) => void;
   /** Toglie il pin e BASTA. Distinto da `onTogglePin`, che per una chat con la
    *  tab chiusa la ARCHIVIA anche — semantica giusta per «non mi serve più»,
    *  sbagliata per «rimettila nella lista»: la riga sparirebbe proprio dal
@@ -1186,9 +1186,9 @@ export function TopicTree({
       // TOGLIEREBBE dai fissati — il contrario di quello che il gesto dice.
       // Con una cella sotto il cursore serve l'operazione ATOMICA: fissare e
       // piazzare in due passi si annullano a vicenda (vedi `pinAt`).
-      onPinItem={(key, at) => {
+      onPinItem={(key, at, griglia) => {
         if (pinnedIds.has(key)) return;
-        if (at) onPinAt?.(key, at);
+        if (at) onPinAt?.(key, at, griglia);
         else onTogglePin?.(key);
       }}
       // Il «+» della tessera: la STESSA `PaneAddMenu` della riga del progetto,

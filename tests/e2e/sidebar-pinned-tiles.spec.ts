@@ -32,8 +32,8 @@ async function setPins(page: Page, ids: string[], layout?: string[][]): Promise<
       expandedNodes: [],
       pinnedItems: ids,
       // Senza disposizione esplicita si finisce su UNA riga sola: `reconcile`
-      // accoda i fissati che il layout non conosce fino a PINNED_ROW_SOFT_MAX
-      // (6), e non passa da `deriveFromPinOrder`. Chi vuole due righe le chiede.
+      // accoda i fissati che il layout non conosce all'ultima riga finché c'è
+      // posto (`PINNED_ROW_MAX`, 6). Chi vuole due righe le chiede.
       pinnedLayout: (layout ?? []).map(keys => ({
         keys,
         widths: keys.map(() => 1 / keys.length),
@@ -923,13 +923,17 @@ test.describe("Sidebar — l'anteprima del drop e' la cosa, alle misure giuste",
     // la tessera in arrivo toccava quelle gia' in griglia mentre tutte le altre
     // stanno a 6px — un'anteprima che mostra una spaziatura che il risultato non
     // avra'.
+    //
+    // La tessera che si trascina DIVIDE la sua riga con un'altra: una che ha
+    // gia' una riga tutta sua non ha niente da guadagnare nello spazio sopra o
+    // sotto quella riga, e infatti li' la zona non si apre nemmeno (TILE-19b).
     const ids: string[] = [];
-    for (const n of ["E2E-Gap-A", "E2E-Gap-B"]) {
+    for (const n of ["E2E-Gap-A", "E2E-Gap-B", "E2E-Gap-C"]) {
       const t = await createTopic(request, `${n}-${Date.now()}`);
       created.push(t.id);
       ids.push(t.id);
     }
-    await setPins(page, ids, [[ids[0]], [ids[1]]]);
+    await setPins(page, ids, [[ids[0], ids[1]], [ids[2]]]);
     await gotoSidebar(page);
     await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
 
@@ -981,6 +985,507 @@ test.describe("Sidebar — l'anteprima del drop e' la cosa, alle misure giuste",
     // E la stessa colonna: le tessere di una riga cominciano dove cominciano
     // quelle di ogni altra riga.
     expect(misure.sinistra, "e comincia sulla stessa colonna").toBe(0);
+  });
+
+  test("TILE-19b: chi ha gia' una riga tutta sua non trova bersagli sopra e sotto", async ({ page, request }) => {
+    // Il difetto riferito: «sto occupando una riga intera e mi da' la
+    // possibilita' di spostarla in una riga sotto, ma non ha senso perche' gia'
+    // sta occupando una riga». Il modello lo sapeva gia' — `insertPinnedRow`
+    // restituiva il layout invariato — ma la zona si apriva lo stesso, si
+    // accendeva e ci disegnava dentro l'anteprima: un bersaglio che prometteva
+    // uno spostamento e poi non faceva niente.
+    //
+    // Non basta ignorare il drop: senza `preventDefault` la zona non e' proprio
+    // un bersaglio, quindi il cursore stesso dice «qui no».
+    const ids: string[] = [];
+    for (const n of ["E2E-Solo-A", "E2E-Solo-B", "E2E-Solo-X"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    // X e' l'unica della sua riga: sopra di lei e sotto di lei non c'e' niente
+    // da guadagnare. La riga [A, B] invece e' un bersaglio vero.
+    await setPins(page, ids, [[ids[0], ids[1]], [ids[2]]]);
+    await gotoSidebar(page);
+    await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
+
+    const esito = await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const zone = () => Array.from(document.querySelectorAll('[data-testid="pinned-new-row-zone"]')) as HTMLElement[];
+      const righe = Array.from(document.querySelectorAll('[data-testid="pinned-row"]')) as HTMLElement[];
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const dt = new DataTransfer();
+      // `dispatchEvent` torna false quando qualcuno ha chiamato
+      // `preventDefault`: e' letteralmente la domanda «questo e' un bersaglio?».
+      const bersaglio = (el: HTMLElement, punto?: { clientX: number; clientY: number }) =>
+        !el.dispatchEvent(new DragEvent("dragover", {
+          dataTransfer: dt, bubbles: true, cancelable: true, ...(punto ?? {}),
+        }));
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+
+      const z = zone();
+      const dichiarato = z.map(e => e.getAttribute("data-drop-allowed"));
+
+      // Lo spazio FRA le due righe (indice 1) e quello in fondo (indice 2)
+      // sono i due che circondano la riga di X.
+      const accettaSopraSe = bersaglio(z[1]);
+      await attendi();
+      const apertaSopraSe = {
+        padding: getComputedStyle(zone()[1]).paddingTop,
+        anteprima: !!zone()[1].querySelector('[data-testid="pinned-drop-preview"]'),
+        fantasma: !!zone()[1].querySelector('[data-testid="pinned-drop-ghost"]'),
+      };
+      const accettaSotto = bersaglio(zone()[2]);
+      // La riga di X: riordinare dentro una riga dove X e' l'unica non muove niente.
+      const accettaPropriaRiga = bersaglio(righe[1]);
+
+      // …mentre i bersagli VERI restano tali: la riga [A, B] e lo spazio sopra
+      // di lei, che porterebbe X davvero da un'altra parte.
+      const accettaAltraRiga = bersaglio(righe[0]);
+      const accettaSopraTutto = bersaglio(zone()[0]);
+      await attendi();
+      const apertaSopraTutto = !!zone()[0].querySelector('[data-testid="pinned-drop-preview"]');
+
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return {
+        dichiarato, accettaSopraSe, apertaSopraSe, accettaSotto, accettaPropriaRiga,
+        accettaAltraRiga, accettaSopraTutto, apertaSopraTutto,
+      };
+    }, ids[2]);
+
+    // Lo dice il DOM, prima ancora del cursore: gli spazi attorno alla riga di
+    // X non sono bersagli.
+    expect(esito.dichiarato, "solo lo spazio che porta X altrove e' un bersaglio")
+      .toEqual(["si", "no", "no"]);
+    expect(esito.accettaSopraSe, "lo spazio sopra la propria riga non e' un bersaglio").toBe(false);
+    expect(esito.accettaSotto, "ne' quello sotto").toBe(false);
+    expect(esito.accettaPropriaRiga, "ne' la propria riga, dove X e' sola").toBe(false);
+    // E non si apre: niente respiro, niente anteprima, niente tratteggio.
+    expect(esito.apertaSopraSe.padding, "la zona non deve aprirsi").toBe("0px");
+    expect(esito.apertaSopraSe.anteprima, "niente anteprima di uno spostamento che non avviene").toBe(false);
+    expect(esito.apertaSopraSe.fantasma, "niente tratteggio").toBe(false);
+
+    // Il resto della griglia continua a rispondere: la regola toglie i bersagli
+    // finti, non i veri.
+    expect(esito.accettaAltraRiga, "la riga [A, B] resta un bersaglio").toBe(true);
+    expect(esito.accettaSopraTutto, "e lo spazio in cima porta X davvero altrove").toBe(true);
+    expect(esito.apertaSopraTutto, "che infatti si apre e mostra la tessera").toBe(true);
+  });
+
+  test("TILE-19c: lasciata in uno spazio fra due righe, la tessera ne apre una nuova", async ({ page, request }) => {
+    // L'altra meta' di TILE-19b: chi divide la riga con qualcun altro una riga
+    // nuova la guadagna davvero, e il drop la crea. Senza questo, «togliere i
+    // bersagli finti» potrebbe voler dire «averli tolti tutti» e nessuno se ne
+    // accorgerebbe.
+    const ids: string[] = [];
+    for (const n of ["E2E-NewRow-A", "E2E-NewRow-B", "E2E-NewRow-C"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids, [[ids[0], ids[1], ids[2]]]);
+    await gotoSidebar(page);
+    await expect(page.getByTestId("pinned-row")).toHaveCount(1, { timeout: 15000 });
+
+    await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const zona = document.querySelectorAll('[data-testid="pinned-new-row-zone"]')[0] as HTMLElement;
+      const dt = new DataTransfer();
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      zona.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await attendi();
+      zona.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+    }, ids[2]);
+
+    await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
+    // C da sola in cima, A e B rimaste insieme sotto.
+    const disposizione = () =>
+      page.getByTestId("pinned-row").evaluateAll(righe =>
+        righe.map(r => Array.from(r.querySelectorAll("[data-pinned-cell]"))
+          .map(c => (c as HTMLElement).dataset.pinnedCell ?? "")),
+      );
+    await expect.poll(disposizione, { timeout: 15000 }).toEqual([[ids[2]], [ids[0], ids[1]]]);
+
+    // E la disposizione e' arrivata al server, non solo allo schermo.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedLayout ?? []).map((r: { keys: string[] }) => r.keys);
+      }, { timeout: 15000 })
+      .toEqual([[ids[2]], [ids[0], ids[1]]]);
+  });
+
+  test("TILE-18b: la riga di PARTENZA mostra che la tessera se ne sta andando", async ({ page, request }) => {
+    // L'anteprima raccontava mezzo movimento: la riga d'arrivo si stringeva per
+    // fare posto, quella di partenza restava larga com'era — e a drop fatto
+    // scattava. Le due righe devono raccontare lo STESSO gesto.
+    const ids: string[] = [];
+    for (const n of ["E2E-Exit-A", "E2E-Exit-B", "E2E-Exit-C"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    // [A, B] e [C]: trasciniamo A sulla seconda riga.
+    await setPins(page, ids, [[ids[0], ids[1]], [ids[2]]]);
+    await gotoSidebar(page);
+    await expect(page.getByTestId("pinned-row")).toHaveCount(2, { timeout: 15000 });
+
+    const durante = await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const celle = (r: HTMLElement) =>
+        Array.from(r.querySelectorAll("[data-pinned-cell]")).map(e => (e as HTMLElement).dataset.pinnedCell ?? "");
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const righe = Array.from(document.querySelectorAll('[data-testid="pinned-row"]')) as HTMLElement[];
+      const box = (righe[1].querySelector("[data-pinned-tile]") as HTMLElement).getBoundingClientRect();
+      const punto = { clientX: box.left + 2, clientY: box.top + 5 };
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      righe[1].dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      await attendi();
+      const anteprima = righe[1].querySelector('[data-testid="pinned-drop-preview"]');
+      const out = {
+        partenza: celle(righe[0]),
+        arrivo: righe[1].children.length,
+        nome: anteprima?.querySelector("[data-pinned-tile]")?.getAttribute("aria-label") ?? null,
+      };
+
+      righe[1].dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return out;
+    }, ids[0]);
+
+    // La riga di partenza mostra gia' di aver perso A: resta B, a tutta larghezza.
+    expect(durante.partenza, "la riga di partenza deve mostrare la tessera in uscita").toEqual([ids[1]]);
+    // E quella d'arrivo mostra la cella in piu', con il nome giusto dentro.
+    expect(durante.arrivo, "la riga d'arrivo deve mostrare una cella in piu'").toBe(2);
+    expect(durante.nome).toContain("E2E-Exit-A");
+
+    // Il drop conferma quello che si vedeva.
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedLayout ?? []).map((r: { keys: string[] }) => r.keys);
+      }, { timeout: 15000 })
+      .toEqual([[ids[1]], [ids[0], ids[2]]]);
+  });
+
+  test("TILE-10b: verso DESTRA l'anteprima e il risultato dicono la stessa cosa", async ({ page, request }) => {
+    // Le due formule del riordino erano gemelle e vivevano in due posti — una
+    // nella resa, una implicita nel `pluck`+`splice` del modello — e
+    // divergevano su ogni spostamento verso destra: vedevi [B, A, C] mentre
+    // tenevi premuto e ti restava [B, C, A]. TILE-10 sposta verso SINISTRA, cioe'
+    // proprio il verso in cui le due formule coincidono.
+    const ids: string[] = [];
+    for (const n of ["E2E-Right-A", "E2E-Right-B", "E2E-Right-C"]) {
+      const t = await createTopic(request, `${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids, [[ids[0], ids[1], ids[2]]]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(3, { timeout: 15000 });
+
+    const [durante, dopo] = await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const celle = (r: HTMLElement) =>
+        Array.from(r.querySelectorAll("[data-pinned-cell]")).map(e => (e as HTMLElement).dataset.pinnedCell ?? "");
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const row = tile.closest('[data-testid="pinned-row"]') as HTMLElement;
+      // Oltre la meta' della SECONDA tessera ⇒ posizione 2: A scavalca B.
+      const b = (row.querySelectorAll("[data-pinned-cell]")[1] as HTMLElement).getBoundingClientRect();
+      const punto = { clientX: b.left + b.width * 0.75, clientY: b.top + 5 };
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      await attendi();
+      const mentre = celle(row);
+
+      row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+      return [mentre, celle(row)];
+    }, ids[0]);
+
+    expect(durante, "l'anteprima non deve scavalcare di uno").toEqual([ids[1], ids[0], ids[2]]);
+    expect(dopo, "e il drop deve confermarla").toEqual([ids[1], ids[0], ids[2]]);
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
+        const env = await res.json();
+        const v = env?.value ?? env;
+        return (v?.pinnedLayout ?? []).flatMap((r: { keys: string[] }) => r.keys);
+      }, { timeout: 15000 })
+      .toEqual([ids[1], ids[0], ids[2]]);
+  });
+});
+
+/**
+ * Il riordino si VEDE muovere.
+ *
+ * Le celle non hanno una posizione da animare — stanno in un flex e il loro
+ * posto lo decide l'ordine dei nodi — quindi non c'e' nessuna proprieta' CSS da
+ * interpolare e le tessere si scambiavano di posto in un fotogramma. Qui si
+ * difende il movimento con i numeri che lo compongono: fotogrammi con una
+ * traslazione applicata, posizioni intermedie distinte, e zero traslazione alla
+ * fine (un FLIP che non torna a zero lascia la cella storta per sempre).
+ */
+test.describe("Sidebar — il riordino si vede muovere", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  /** Semina tre tessere su una riga e restituisce i loro id. */
+  async function treSuUnaRiga(page: Page, request: Parameters<typeof createTopic>[0], tag: string) {
+    const ids: string[] = [];
+    for (const n of ["A", "B", "C"]) {
+      const t = await createTopic(request, `E2E-${tag}-${n}-${Date.now()}`);
+      created.push(t.id);
+      ids.push(t.id);
+    }
+    await setPins(page, ids, [[ids[0], ids[1], ids[2]]]);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(3, { timeout: 15000 });
+    return ids;
+  }
+
+  /**
+   * Trascina l'ultima tessera in testa e campiona la PRIMA cella a ogni
+   * fotogramma: quella che deve farsi da parte. Torna la traslazione applicata e
+   * la posizione sullo schermo, che e' cio' che l'occhio vede — piu' l'ordine
+   * raggiunto, perche' «non si e' animato» e «non e' successo niente» sono due
+   * esiti diversi e vanno distinti.
+   */
+  async function campiona(page: Page, mossa: string, spiata: string) {
+    return page.evaluate(async ([key, spia]) => {
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const row = tile.closest('[data-testid="pinned-row"]') as HTMLElement;
+      const box = (row.querySelector("[data-pinned-cell]") as HTMLElement).getBoundingClientRect();
+      const dt = new DataTransfer();
+
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      row.dispatchEvent(new DragEvent("dragover", {
+        dataTransfer: dt, bubbles: true, cancelable: true,
+        clientX: box.left + 2, clientY: box.top + 5,
+      }));
+
+      const frames: Array<{ t: string; x: number }> = [];
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => requestAnimationFrame(() => r(null)));
+        const el = document.querySelector(`[data-pinned-cell="${spia}"]`) as HTMLElement | null;
+        if (!el) break;
+        frames.push({
+          t: getComputedStyle(el).transform,
+          x: Math.round(el.getBoundingClientRect().x),
+        });
+      }
+      const ordine = Array.from(row.querySelectorAll("[data-pinned-cell]"))
+        .map(e => (e as HTMLElement).dataset.pinnedCell ?? "");
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      return { frames, ordine };
+    }, [mossa, spiata] as const);
+  }
+
+  test("TILE-28: riordinando dentro la riga le celle attraversano lo spazio", async ({ page, request }) => {
+    const ids = await treSuUnaRiga(page, request, "Flip");
+    // C va in testa: A scivola di un posto a destra, e deve vedersi scivolare.
+    const { frames, ordine } = await campiona(page, ids[2], ids[0]);
+
+    expect(ordine, "il riordino deve essere avvenuto").toEqual([ids[2], ids[0], ids[1]]);
+
+    const animati = frames.filter(f => f.t !== "none");
+    expect(animati.length, "la cella deve passare per fotogrammi traslati").toBeGreaterThanOrEqual(2);
+
+    // Non basta che una traslazione ci sia: deve CAMBIARE. Una `transform` fissa
+    // sarebbe un salto travestito.
+    const posizioni = new Set(frames.map(f => f.x));
+    expect(posizioni.size, "e attraversare posizioni intermedie distinte").toBeGreaterThanOrEqual(3);
+
+    // E finire a zero: un FLIP che non si spegne lascia la cella storta, e ogni
+    // riordino successivo parte da un errore accumulato.
+    expect(frames[frames.length - 1].t, "a fine corsa nessuna traslazione residua").toBe("none");
+  });
+
+  test("TILE-28b: chi ha chiesto meno movimento non lo riceve", async ({ page, request }) => {
+    // `prefers-reduced-motion` non e' un dettaglio di gusto: e' una richiesta di
+    // accessibilita'. Le misure pero' si aggiornano lo stesso — altrimenti al
+    // primo cambio di preferenza si animerebbe un salto accumulato da tutti i
+    // riordini precedenti — quindi qui si verifica che il RISULTATO arrivi
+    // comunque, solo senza corsa.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const ids = await treSuUnaRiga(page, request, "NoFlip");
+    const { frames, ordine } = await campiona(page, ids[2], ids[0]);
+
+    // Il riordino c'e' stato lo stesso…
+    expect(ordine, "il riordino deve avvenire comunque").toEqual([ids[2], ids[0], ids[1]]);
+    // …ma nessuna cella ha attraversato lo spazio: ci e' arrivata e basta.
+    expect(frames.every(f => f.t === "none"), "nessun fotogramma traslato").toBe(true);
+    const posizioni = [...new Set(frames.map(f => f.x))];
+    expect(posizioni.length, "un salto, non una corsa").toBeLessThanOrEqual(2);
+  });
+});
+
+/**
+ * QUANDO una tessera è accesa, e con quale cornice.
+ *
+ * «Accesa» vuol dire selezionata: la superficie della famiglia più una cornice
+ * sottile attorno. Due modi di sbagliarlo, tutti e due riferiti:
+ *
+ *  — restare accese per sempre. La fascia di un progetto esiste solo finché quel
+ *    progetto ha tab aperte; l'insieme delle tessere aperte invece è un insieme
+ *    di INTENZIONI, e nessuno lo puliva. Chiusa l'ultima tab, la tessera restava
+ *    accesa sopra una fascia vuota, e cliccarla non la spegneva.
+ *  — accendersi in modo DIVERSO. La cornice esisteva solo dove c'era un colore
+ *    da proiettare, quindi una tessera senza icona e senza tinta si accendeva
+ *    senza bordo: «senza colore» deve voler dire un colore diverso, non una
+ *    forma diversa.
+ */
+test.describe("Sidebar — quando una tessera è accesa", () => {
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    created.length = 0;
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+    }).catch(() => {});
+  });
+
+  /** L'opacità della cornice: è LEI che dice «accesa», e si legge in numeri. */
+  const cornice = (t: Locator) => t.getByTestId("pinned-tile-rim");
+  const opacita = (l: Locator) => l.evaluate(el => getComputedStyle(el).opacity);
+
+  /**
+   * Un progetto SENZA favicon, con una tab dentro — il caso senza colore.
+   *
+   * La tinta di una tessera viene dall'icona per i progetti e dal tipo per
+   * tutto il resto: una chat ce l'ha sempre (il colore del suo tipo), un
+   * progetto senza icona no. È quindi qui, e solo qui, che si vede come si
+   * accende una tessera che non ha un colore da proiettare.
+   *
+   * La chat è fissata anche lei: è ciò che la rende un FIGLIO visibile del
+   * progetto, e senza un figlio la fascia non esiste e la tessera non si apre.
+   *
+   * Con `conVicino` si fissa anche una chat ESTRANEA al progetto: serve solo a
+   * portare via il fuoco, per guardare l'accensione che NON viene dal fuoco.
+   */
+  async function progettoSenzaColore(
+    page: Page,
+    request: Parameters<typeof createTopic>[0],
+    dir: string,
+    opts?: { conVicino?: boolean },
+  ) {
+    const projectPath = `/tmp/${dir}`;
+    const chat = await createTopic(request, `E2E-Rim-${Date.now()}`, { projectPath });
+    created.push(chat.id);
+    const fissati = [`project:${projectPath}`, chat.id];
+    let vicino: { id: string } | null = null;
+    if (opts?.conVicino) {
+      vicino = await createTopic(request, `E2E-Rim-Vicino-${Date.now()}`);
+      created.push(vicino.id);
+      fissati.push(vicino.id);
+    }
+    await setPins(page, fissati);
+    await gotoSidebar(page);
+    await expect(tiles(page)).toHaveCount(fissati.length, { timeout: 15000 });
+    return { chat, vicino, tessera: tileNamed(page, dir) };
+  }
+
+  test("TILE-29: senza colore la cornice c'è lo stesso, con la stessa forma", async ({ page, request }) => {
+    const { tessera } = await progettoSenzaColore(page, request, "e2e-tessera-neutra");
+    const rim = cornice(tessera);
+
+    // La cornice esiste PRIMA di accendersi: è sempre nel DOM, cambia solo
+    // l'opacità. Renderla condizionale la faceva apparire e sparire, e una cosa
+    // che appare non può dissolversi.
+    await expect(rim, "la cornice esiste anche a riposo").toHaveCount(1);
+    // Senza icona non c'è niente da proiettare: è esattamente il caso che prima
+    // restava senza bordo mentre tutte le altre ne prendevano uno.
+    await expect(rim).toHaveAttribute("data-rim", "neutro");
+    await expect.poll(() => opacita(rim), { timeout: 5000 }).toBe("0");
+
+    // Aperta ⇒ accesa. E la cornice si vede.
+    await tessera.click();
+    await expect(page.getByTestId("pinned-expansion")).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("1");
+
+    // Stessa GEOMETRIA delle altre: copre tutta la tessera, non un pezzo, e ha
+    // il suo stesso raggio. Il neutro cambia il colore, non la forma.
+    const [t, r] = await Promise.all([tessera.boundingBox(), rim.boundingBox()]);
+    expect(t).not.toBeNull();
+    expect(r).not.toBeNull();
+    expect(Math.abs(r!.x - t!.x), "la cornice segue il bordo sinistro").toBeLessThanOrEqual(1);
+    expect(Math.abs(r!.y - t!.y), "e quello superiore").toBeLessThanOrEqual(1);
+    expect(Math.abs(r!.width - t!.width), "ed è larga quanto la tessera").toBeLessThanOrEqual(1);
+    expect(Math.abs(r!.height - t!.height), "e alta quanto la tessera").toBeLessThanOrEqual(1);
+    const forma = await rim.evaluate(el => {
+      const s = getComputedStyle(el);
+      return { raggio: s.borderRadius, transizione: s.transitionProperty };
+    });
+    expect(forma.raggio, "lo stesso raggio della tessera").toBe("8px");
+    expect(forma.transizione, "e si dissolve, non compare").toContain("opacity");
+  });
+
+  test("TILE-30: chiusa l'ultima tab, la tessera del progetto si spegne", async ({ page, request }) => {
+    // Il difetto riferito: «a volte mi restano illuminati i pinnati». Si arriva
+    // qui in due mosse — apri la fascia di un progetto, poi chiudi la sua ultima
+    // tab — e prima la tessera restava accesa su una fascia che non c'era più,
+    // senza nessun gesto che potesse spegnerla.
+    const { chat, vicino, tessera } = await progettoSenzaColore(page, request, "e2e-tessera-spenta", { conVicino: true });
+    const rim = cornice(tessera);
+    await expect(tessera.getByTestId("pinned-expand-hint"), "con una tab c'è da aprire").toHaveCount(1);
+
+    await tessera.click();
+    await expect(page.getByTestId("pinned-expansion")).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("1");
+
+    // Il fuoco se ne va altrove. Una tessera si accende per DUE motivi — è
+    // quella dove sei, oppure ha la fascia aperta — e qui interessa il secondo:
+    // col fuoco addosso resterebbe accesa comunque, e non si vedrebbe niente.
+    await page.locator(`[data-pinned-tile="${vicino!.id}"]`).click();
+    await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("1");
+
+    // Ora la fascia si svuota. La chat sta lì perché è FISSATA (una chat a tab
+    // chiusa resta figlia del suo progetto solo per quello): riportarla nella
+    // lista la toglie dai figli, e il progetto resta senza niente da aprire —
+    // esattamente lo stato che lasciava la tessera accesa nel vuoto.
+    await page.evaluate(async (key) => {
+      const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
+      const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
+      const dt = new DataTransfer();
+      tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+      lista.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await attendi();
+      lista.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+      tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+      await attendi();
+    }, chat.id);
+
+    // La fascia sparisce — e con lei l'accensione. Prima restava questa.
+    await expect(page.getByTestId("pinned-expansion")).toHaveCount(0, { timeout: 15000 });
+    await expect(tessera.getByTestId("pinned-expand-hint"), "e niente più segno di apertura").toHaveCount(0);
+    await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("0");
+
+    // E il click torna a essere un click: porta sul progetto — quindi la
+    // tessera si riaccende, ma per il FUOCO — e non riapre l'intenzione rimasta
+    // appesa da prima. Se l'insieme non venisse ripulito, tornerebbe una fascia.
+    await tessera.click();
+    await expect(page.getByTestId("pinned-expansion"), "nessuna fascia risorta").toHaveCount(0);
   });
 });
 
