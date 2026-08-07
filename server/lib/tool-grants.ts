@@ -72,11 +72,8 @@ export function decideGrant(opts: { toolName: string; patterns: readonly string[
 
 // ─── Persistenza ────────────────────────────────────────────────────────────
 
-export interface ToolGrant {
-  pattern: string;
-  createdAt: string;
-  createdBySession: string | null;
-}
+export type { ToolGrant } from "../../shared/types";
+import type { ToolGrant } from "../../shared/types";
 
 /**
  * Le regole scritte, dalla più recente. Se la tabella non c'è ancora (server

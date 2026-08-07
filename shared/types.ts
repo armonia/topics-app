@@ -71,6 +71,20 @@ export interface PresenceTab {
 }
 
 /** One question emitted by the AskUserQuestion tool. */
+/**
+ * Una regola di «Consenti sempre» su uno strumento: la scrive il pannello dei
+ * permessi in chat, la legge la scheda Impostazioni → Permessi. Vive qui perché
+ * la vedono ENTRAMBI i lati, e due dichiarazioni dello stesso contratto
+ * divergono in silenzio.
+ */
+export interface ToolGrant {
+  /** Nome esatto (`Write`) o prefisso (`mcp__gateway__*`). Mai un `*` nudo. */
+  pattern: string;
+  createdAt: string;
+  /** Da quale chat è uscito il sì. Provenienza, non politica: la regola è globale. */
+  createdBySession: string | null;
+}
+
 export interface AskUserQuestionItem {
   question: string;
   /** Short label, ≤ 12 chars by SDK convention. */
