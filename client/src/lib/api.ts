@@ -229,6 +229,32 @@ export const chatApi = {
    * Callers should surface these inline (form stays editable on 502,
    * collapses with a "already answered" hint on 404).
    */
+  /**
+   * La decisione su un PERMESSO. Endpoint suo e payload tipizzato: un enum, non
+   * un testo dentro una mappa di risposte come quando i permessi passavano per
+   * il pannello delle domande.
+   *
+   * Stesso tetto a orologio di `toolResponse`, per lo stesso motivo: dall'altra
+   * parte c'è un rendez-vous, e un rendez-vous che non si sblocca lascerebbe i
+   * tre bottoni girare per sempre.
+   */
+  async permissionResponse(
+    sessionKey: string,
+    toolCallId: string,
+    decision: import('../types').PermissionDecision,
+  ): Promise<{ ok: boolean; decidedAt: string }> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 30_000);
+    try {
+      return await request<{ ok: boolean; decidedAt: string }>(
+        `/sessions/${encodeURIComponent(sessionKey)}/permission-response`,
+        { method: 'POST', body: JSON.stringify({ toolCallId, decision }), signal: ac.signal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
   async toolResponse(
     sessionKey: string,
     toolCallId: string,

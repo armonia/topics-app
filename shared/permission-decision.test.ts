@@ -1,42 +1,43 @@
 import { describe, expect, it } from "bun:test";
 import {
-  PERMISSION_ALLOW_ALWAYS_LABEL,
-  PERMISSION_ALLOW_ONCE_LABEL,
-  PERMISSION_DENY_LABEL,
-  PERMISSION_QUESTION_PREFIX,
-  isPermissionSchema,
-  permissionDecisionFrom,
-  permissionQuestion,
-  permissionSchemaFor,
+  PERMISSION_CHOICES,
+  PERMISSION_HINTS,
+  PERMISSION_LABELS,
+  isPermissionDecision,
   summarizeToolInput,
 } from "./permission-decision";
 
-const TOOL = "mcp__gateway__kiwi__search-flight";
-
-describe("permissionSchemaFor", () => {
-  it("è un pannello di domande — così eredita form, ambra della tab e composer", () => {
-    const schema = permissionSchemaFor({ toolName: TOOL });
-    expect(schema.kind).toBe("questions");
-    if (schema.kind !== "questions") throw new Error("unreachable");
-    expect(schema.questions).toHaveLength(1);
-    expect(schema.questions[0].options.map((o) => o.label)).toEqual([
-      PERMISSION_ALLOW_ONCE_LABEL,
-      PERMISSION_ALLOW_ALWAYS_LABEL,
-      PERMISSION_DENY_LABEL,
-    ]);
+describe("le tre decisioni, e nient'altro", () => {
+  it("hanno tutte un'etichetta e una riga che dice cosa fanno", () => {
+    for (const choice of PERMISSION_CHOICES) {
+      expect(PERMISSION_LABELS[choice]).toBeTruthy();
+      expect(PERMISSION_HINTS[choice]).toBeTruthy();
+    }
+    expect(PERMISSION_CHOICES).toEqual(["allow", "allow_always", "deny"]);
   });
 
-  it("non consiglia niente: è l'unica domanda in cui il consiglio deciderebbe al posto tuo", () => {
-    const schema = permissionSchemaFor({ toolName: TOOL });
-    if (schema.kind !== "questions") throw new Error("unreachable");
-    expect(schema.questions[0].options.some((o) => o.recommended)).toBe(false);
+  it("il no è per ultimo: si legge prima cosa si concede", () => {
+    expect(PERMISSION_CHOICES[PERMISSION_CHOICES.length - 1]).toBe("deny");
+  });
+});
+
+describe("isPermissionDecision — sul confine si valida, non si spera", () => {
+  it("passa solo le tre", () => {
+    expect(isPermissionDecision("allow")).toBe(true);
+    expect(isPermissionDecision("allow_always")).toBe(true);
+    expect(isPermissionDecision("deny")).toBe(true);
   });
 
-  it("nomina lo strumento nella domanda, che è anche la chiave della risposta", () => {
-    const schema = permissionSchemaFor({ toolName: TOOL });
-    if (schema.kind !== "questions") throw new Error("unreachable");
-    expect(schema.questions[0].question).toContain(TOOL);
-    expect(schema.questions[0].question.startsWith(PERMISSION_QUESTION_PREFIX)).toBe(true);
+  it("tutto il resto è FUORI — e il chiamante risponde 400, non «sì» né un no muto", () => {
+    // È la differenza con la versione a domande: lì un testo qualsiasi
+    // diventava `deny` in silenzio, e chi aveva scritto «ok» vedeva negato.
+    expect(isPermissionDecision("ok")).toBe(false);
+    expect(isPermissionDecision("Consenti")).toBe(false);
+    expect(isPermissionDecision("")).toBe(false);
+    expect(isPermissionDecision(undefined)).toBe(false);
+    expect(isPermissionDecision(null)).toBe(false);
+    expect(isPermissionDecision(true)).toBe(false);
+    expect(isPermissionDecision({ decision: "allow" })).toBe(false);
   });
 });
 
@@ -55,53 +56,12 @@ describe("summarizeToolInput — un permesso senza il COSA è solo un pulsante",
   it("input vuoto → nessun riassunto (niente riga a vuoto nel pannello)", () => {
     expect(summarizeToolInput({})).toBe("");
     expect(summarizeToolInput(undefined)).toBe("");
-  });
-});
-
-describe("permissionDecisionFrom", () => {
-  const ask = (answer: string) => ({
-    kind: "questions" as const,
-    answers: { [permissionQuestion(TOOL, { flyFrom: "NAP" })]: answer },
+    expect(summarizeToolInput(null)).toBe("");
   });
 
-  it("legge le tre decisioni", () => {
-    expect(permissionDecisionFrom(ask(PERMISSION_ALLOW_ONCE_LABEL))).toBe("allow");
-    expect(permissionDecisionFrom(ask(PERMISSION_ALLOW_ALWAYS_LABEL))).toBe("allow_always");
-    expect(permissionDecisionFrom(ask(PERMISSION_DENY_LABEL))).toBe("deny");
-  });
-
-  it("un'etichetta che non riconosce vale NEGA — davanti a un permesso «non ho capito» non è «sì»", () => {
-    expect(permissionDecisionFrom(ask("boh"))).toBe("deny");
-    expect(permissionDecisionFrom(ask(""))).toBe("deny");
-  });
-
-  it("null quando non è una risposta a un permesso", () => {
-    expect(permissionDecisionFrom({ kind: "questions", answers: { "Approvo questo piano?": "Approva ed esegui" } })).toBeNull();
-    expect(permissionDecisionFrom({ kind: "raw" } as never)).toBeNull();
-    expect(permissionDecisionFrom({} as never)).toBeNull();
-  });
-});
-
-describe("isPermissionSchema", () => {
-  it("riconosce il proprio pannello e non quello degli altri", () => {
-    expect(isPermissionSchema(permissionSchemaFor({ toolName: TOOL }))).toBe(true);
-    expect(isPermissionSchema({ kind: "questions", questions: [{ question: "Quale approccio?", options: [] }] })).toBe(false);
-    expect(isPermissionSchema({ kind: "raw", rawInput: {} })).toBe(false);
-    expect(isPermissionSchema(null)).toBe(false);
-  });
-});
-
-describe("il giro completo: quello che il pannello mostra è quello che il server rilegge", () => {
-  it("domanda generata → risposta → decisione, senza intermediari che riscrivano la chiave", () => {
-    const schema = permissionSchemaFor({ toolName: TOOL, input: { flyFrom: "NAP", flyTo: "RAK" } });
-    if (schema.kind !== "questions") throw new Error("unreachable");
-    // Il client rimanda la domanda VERBATIM come chiave. Se la generazione e la
-    // lettura divergessero, il pannello comparirebbe e il bottone non farebbe
-    // niente — senza un solo errore di compilazione.
-    const response = {
-      kind: "questions" as const,
-      answers: { [schema.questions[0].question]: PERMISSION_ALLOW_ALWAYS_LABEL },
-    };
-    expect(permissionDecisionFrom(response)).toBe("allow_always");
+  it("mostra i valori veri, non i tipi: è quello su cui si decide", () => {
+    const s = summarizeToolInput({ flyFrom: "NAP", flyTo: "RAK" });
+    expect(s).toContain("NAP");
+    expect(s).toContain("RAK");
   });
 });

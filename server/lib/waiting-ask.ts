@@ -15,6 +15,9 @@
  * schermo, ed è l'unica fonte che sopravvive a un riavvio. Qui la lettura,
  * pura, perché il resto sono due colonne di JSON.
  */
+import type { ToolCallStatus } from "../../shared/types";
+import { isAwaitingHuman } from "../../shared/types";
+
 
 /** Quando è cominciata l'attesa, o `null` se nessuna domanda è a schermo. */
 export function waitingAskStartedAt(
@@ -37,7 +40,7 @@ interface MaybeToolCall { name?: unknown; status?: unknown; startedAt?: unknown 
 
 function isWaitingAsk(t: MaybeToolCall | null | undefined): t is { name: string; status: string; startedAt?: number } {
   if (!t || typeof t !== "object") return false;
-  return t.status === "waiting_for_input";
+  return isAwaitingHuman(t.status as ToolCallStatus | undefined);
 }
 
 function findWaiting(json: string | null | undefined): { startedAt?: number } | null {

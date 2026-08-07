@@ -5,12 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import {
-  PERMISSION_ALLOW_ALWAYS_LABEL,
-  PERMISSION_ALLOW_ONCE_LABEL,
-  PERMISSION_DENY_LABEL,
-  permissionSchemaFor,
-} from "../../shared/permission-decision";
+import { PERMISSION_LABELS } from "../../shared/permission-decision";
 
 hermetic(test);
 
@@ -18,7 +13,7 @@ const BASE = E2E_BASE;
 
 /**
  * «Uno strumento che la modalità di permessi non copre non muore in silenzio:
- *  chiede, e la risposta della persona arriva davvero alla CLI.»
+ *  chiede, e la decisione della persona arriva davvero alla CLI.»
  *
  * Il guasto, il 7 agosto: 515 topic su 518 giravano in `--permission-mode
  * acceptEdits`, che in headless CHIEDE prima di eseguire ogni tool MCP e ogni
@@ -30,10 +25,14 @@ const BASE = E2E_BASE;
  * chiama il bridge, il bridge blocca su `POST /api/sessions/:key/permission`, e
  * il pannello in chat sblocca il rendez-vous di `server/lib/permission-bridge.ts`.
  *
- * Questo e2e esercita il rendez-vous VERO: registra la gamba come farebbe il
- * bridge, poi guida il pannello vero nell'UI. È un COMPORTAMENTO — video acceso,
- * il .webm è la prova. Le parti pure hanno i loro unit test
- * (permission-bridge, tool-grants, permission-decision, approval-prompt).
+ * Un permesso ha uno STATO SUO (`awaiting_permission`) e non è una domanda
+ * travestita: tre esiti esatti, una `PermissionDecision` sul filo, nessuna
+ * prosa da interpretare. Il primo taglio riusava il pannello delle domande e
+ * costava tre eccezioni là dentro — vedi la nota in `shared/types.ts`.
+ *
+ * È un COMPORTAMENTO: video acceso, il .webm è la prova. Le parti pure hanno i
+ * loro unit test (permission-bridge, tool-grants, permission-decision,
+ * approval-prompt, human-hold).
  */
 test.use({ video: "on" });
 
@@ -68,30 +67,29 @@ test.describe.serial("Pannello di permesso", () => {
   });
 
   /**
-   * Semina il turno fermo sulla riga dello strumento, con il pannello del
-   * permesso già persistito: è ESATTAMENTE ciò che la rotta scrive alla prima
-   * gamba, e ciò che si rilegge dopo un reload.
+   * Semina il turno com'è quando la rotta ha già dipinto: riga in
+   * `awaiting_permission` con la richiesta tipizzata, nei blocchi E in
+   * `tool_calls` — cioè quello che si rilegge dopo un reload.
    */
   async function seedPermission(
     request: import("@playwright/test").APIRequestContext,
     toolCallId: string,
   ) {
-    const schema = permissionSchemaFor({ toolName: TOOL, input: TOOL_INPUT });
+    const tc = {
+      id: toolCallId,
+      name: TOOL,
+      args: TOOL_INPUT,
+      status: "awaiting_permission" as const,
+      startedAt: Date.now() - 3_000,
+      permissionRequest: { toolName: TOOL, input: TOOL_INPUT, requestedAt: Date.now() - 3_000 },
+    };
     await seedMessage(request, { sessionKey, role: "user", content: "cerca un volo" });
     await seedMessage(request, {
       sessionKey,
       role: "assistant",
       content: "Cerco i voli:",
-      toolCalls: [
-        {
-          id: toolCallId,
-          name: TOOL,
-          args: TOOL_INPUT,
-          status: "waiting_for_input",
-          startedAt: Date.now() - 3_000,
-          userInputSchema: schema,
-        },
-      ],
+      toolCalls: [tc],
+      blocks: [{ kind: "text", text: "Cerco i voli:" }, { kind: "tool", toolCall: tc }],
     });
   }
 
@@ -115,51 +113,99 @@ test.describe.serial("Pannello di permesso", () => {
     })();
   }
 
-  test("il pannello dice che è un PERMESSO, mostra con quali argomenti, e non offre testo libero", async ({ page, chatPage, request }) => {
-    const toolCallId = "toolu_perm_shape";
-    await seedPermission(request, toolCallId);
-    const bridge = registerBridgePermission(request, toolCallId);
-
+  async function openChat(page: import("@playwright/test").Page, chatPage: { messageInput: import("@playwright/test").Locator }) {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+  }
 
-    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
-    await expect(form).toBeVisible({ timeout: 15_000 });
+  test("è un pannello di PERMESSO: dice cosa, con quali argomenti, e si decide in un click", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_perm_shape";
+    await seedPermission(request, toolCallId);
+    const bridge = registerBridgePermission(request, toolCallId);
+
+    await openChat(page, chatPage);
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
 
     // Chi lo legge di sfuggita deve capire che sta decidendo COSA l'agente può
     // fare, non quale strada preferisce.
-    await expect(form.getByText("L'agente chiede un permesso")).toBeVisible();
-    await expect(form.getByText("L'agente attende la tua risposta")).toHaveCount(0);
-
-    // Le tre decisioni, e nessuna consigliata: è l'unica domanda dell'app in cui
-    // un consiglio deciderebbe al posto di chi deve decidere.
-    await expect(form.getByText(PERMISSION_ALLOW_ONCE_LABEL, { exact: true })).toBeVisible();
-    await expect(form.getByText(PERMISSION_ALLOW_ALWAYS_LABEL, { exact: true })).toBeVisible();
-    await expect(form.getByText(PERMISSION_DENY_LABEL, { exact: true })).toBeVisible();
-    await expect(form.locator('[data-testid="ask-recommended"]')).toHaveCount(0);
+    await expect(panel.getByText("L'agente chiede un permesso")).toBeVisible();
+    await expect(panel.getByText(TOOL)).toBeVisible();
 
     // Un permesso concesso senza vedere cosa farà è un pulsante, non un permesso.
-    const detail = form.locator('[data-testid="ask-question-detail"]');
-    await expect(detail).toBeVisible();
-    await expect(detail).toContainText("NAP");
+    await expect(panel.locator('[data-testid="tool-permission-detail"]')).toContainText("NAP");
 
-    // Niente «Altro»: qui il testo libero il server lo legge come NEGA, quindi
-    // la casella prometterebbe una risposta e ne darebbe un'altra.
-    await expect(form.getByText("Altro")).toHaveCount(0);
-    await expect(form.locator('[data-testid="ask-other-input-0"]')).toHaveCount(0);
+    // Tre esiti, e NIENTE testo libero: non è una domanda, non c'è un «Altro»
+    // che prometta una risposta e ne dia un'altra.
+    for (const label of Object.values(PERMISSION_LABELS)) {
+      // `exact`: senza, «Consenti» pesca anche «Consenti sempre».
+      await expect(panel.getByRole("button", { name: label, exact: true })).toBeVisible();
+    }
+    await expect(panel.getByText("Altro")).toHaveCount(0);
+    await expect(panel.locator("textarea")).toHaveCount(0);
 
     await page.waitForTimeout(1500);
-    await form.locator(`input[type="radio"][value="${PERMISSION_ALLOW_ONCE_LABEL}"]`).check();
-    await form.locator('[data-testid="ask-submit"]').click();
+    // UN click, non «scegli poi invia»: su tre esiti esatti il secondo gesto non
+    // aggiunge una scelta, aggiunge un modo di lasciare il pannello a metà.
+    await panel.locator(`[data-testid="tool-permission-allow-${toolCallId}"]`).click();
 
-    // La decisione arriva al bridge, che è ciò che sblocca la CLI.
     const out = await bridge;
     expect(out.decision).toBe("allow");
-    // Ed è passata da più di una gamba di poll: il difetto da cui questo giro
-    // ci difende è una gamba che scade sotto una persona che sta leggendo.
+    // Ed è passata da più di una gamba di poll: il difetto da cui questo giro ci
+    // difende è una gamba che scade sotto una persona che sta leggendo.
     expect(out.legs).toBeGreaterThan(1);
+
+    // Decisa, la riga si RICHIUDE — la palla non è più tua — ma la traccia
+    // resta: riaprendola si legge chi ha detto cosa, come per una domanda a cui
+    // hai già risposto.
+    await expect(page.locator(`[data-testid="tool-permission-${toolCallId}"]`)).toHaveCount(0, { timeout: 10_000 });
+    await page.locator(`[data-testid="tool-call-row-${toolCallId}"]`).click();
+    await expect(page.locator(`[data-testid="tool-permission-outcome-${toolCallId}"]`)).toBeVisible({ timeout: 10_000 });
+  });
+
+  /**
+   * IL DIFETTO CHE QUESTO TEST ESISTE PER FERMARE (7 agosto, primo permesso vero).
+   *
+   * Gli altri seminano il pannello già persistito: provano che il pannello
+   * FUNZIONA, non che il server sappia dipingerlo. E il server non lo sapeva:
+   * scriveva lo stato in `tool_calls` e lasciava `blocks` a `running` — ma
+   * quando un messaggio ha blocchi, chi disegna legge QUELLI. A schermo: tre
+   * chiamate che giravano da tre minuti, il piede che diceva «in attesa della
+   * tua risposta», e nessun pannello.
+   */
+  test("il pannello lo dipinge il SERVER, e sopravvive a un caricamento da zero", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_perm_painted";
+    const running = { id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "running" as const, startedAt: Date.now() - 3_000 };
+    await seedMessage(request, { sessionKey, role: "user", content: "cerca un volo" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: "Cerco i voli:",
+      toolCalls: [running],
+      blocks: [{ kind: "text", text: "Cerco i voli:" }, { kind: "tool", toolCall: running }],
+    });
+
+    // Niente è stato seminato: se il pannello compare, l'ha scritto la rotta.
+    const bridge = registerBridgePermission(request, toolCallId);
+    await expect
+      .poll(async () => {
+        const r = await request.get(`${BASE}/api/topics/${topicId}/messages`, { ignoreHTTPSErrors: true });
+        const body = (await r.json()) as { messages?: { blocks?: { kind: string; toolCall?: { id: string; status?: string; permissionRequest?: unknown } }[] }[] };
+        const last = body.messages?.[body.messages.length - 1];
+        const tool = last?.blocks?.find((b) => b.kind === "tool" && b.toolCall?.id === toolCallId);
+        return tool?.toolCall?.status === "awaiting_permission" && !!tool?.toolCall?.permissionRequest;
+      }, { timeout: 15_000, message: "la rotta deve dipingere NEI BLOCCHI, non solo in tool_calls" })
+      .toBe(true);
+
+    // E adesso la prova che conta: una pagina caricata da zero lo vede.
+    await openChat(page, chatPage);
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(1000);
+    await panel.locator(`[data-testid="tool-permission-allow-${toolCallId}"]`).click();
+    expect((await bridge).decision).toBe("allow");
   });
 
   test("«Consenti sempre» scrive la regola, e la volta dopo NESSUNO viene disturbato", async ({ page, chatPage, request }) => {
@@ -167,23 +213,18 @@ test.describe.serial("Pannello di permesso", () => {
     await seedPermission(request, toolCallId);
     const bridge = registerBridgePermission(request, toolCallId);
 
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
-
-    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
-    await expect(form).toBeVisible({ timeout: 15_000 });
+    await openChat(page, chatPage);
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(1000);
-    await form.locator(`input[type="radio"][value="${PERMISSION_ALLOW_ALWAYS_LABEL}"]`).check();
-    await form.locator('[data-testid="ask-submit"]').click();
+    await panel.locator(`[data-testid="tool-permission-allow_always-${toolCallId}"]`).click();
 
     expect((await bridge).decision).toBe("allow_always");
 
     // La regola è scritta dove Topics comanda — non nel `.claude/settings.local.json`
     // gitignorato da cui, fino a ieri, dipendeva se una chat avesse o no i suoi
     // strumenti a seconda della cartella in cui era nata.
-    const grants = await (await request.get(`${BASE}/api/tool-grants`, { ignoreHTTPSErrors: true })).json() as {
+    const grants = (await (await request.get(`${BASE}/api/tool-grants`, { ignoreHTTPSErrors: true })).json()) as {
       grants: { pattern: string }[];
     };
     expect(grants.grants.map((g) => g.pattern)).toContain(TOOL);
@@ -202,92 +243,26 @@ test.describe.serial("Pannello di permesso", () => {
     await seedPermission(request, toolCallId);
     const bridge = registerBridgePermission(request, toolCallId);
 
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
-
-    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
-    await expect(form).toBeVisible({ timeout: 15_000 });
+    await openChat(page, chatPage);
+    const panel = page.locator(`[data-testid="tool-permission-${toolCallId}"]`);
+    await expect(panel).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(1000);
-    await form.locator(`input[type="radio"][value="${PERMISSION_DENY_LABEL}"]`).check();
-    await form.locator('[data-testid="ask-submit"]').click();
+    await panel.locator(`[data-testid="tool-permission-deny-${toolCallId}"]`).click();
 
     expect((await bridge).decision).toBe("deny");
 
     // Un no non scrive nessuna regola: «no una volta» non è «no per sempre».
-    const grants = await (await request.get(`${BASE}/api/tool-grants`, { ignoreHTTPSErrors: true })).json() as {
+    const grants = (await (await request.get(`${BASE}/api/tool-grants`, { ignoreHTTPSErrors: true })).json()) as {
       grants: { pattern: string }[];
     };
     expect(grants.grants.map((g) => g.pattern)).not.toContain(TOOL);
   });
 
-  /**
-   * IL DIFETTO CHE QUESTO TEST ESISTE PER FERMARE (7 agosto, primo permesso vero).
-   *
-   * Gli altri test seminano il pannello già persistito: provano che il pannello
-   * FUNZIONA, non che il server sappia dipingerlo. E il server non lo sapeva:
-   * scriveva `waiting_for_input` + schema in `tool_calls` e lasciava `blocks`
-   * a `running` — ma quando un messaggio ha `blocks`, chi disegna legge QUELLI.
-   * Risultato a schermo: tre chiamate a kiwi che giravano da tre minuti, il
-   * piede che diceva «in attesa della tua risposta», e nessun pannello.
-   *
-   * Qui si semina un turno come lo scrive uno stream VERO — riga in `running`,
-   * con i blocchi — e il pannello lo dipinge la ROTTA. Poi si carica la pagina
-   * da zero: se il server ha scritto solo mezza verità, questo test è rosso.
-   */
-  test("il pannello lo dipinge il SERVER, e sopravvive a un caricamento da zero", async ({ page, chatPage, request }) => {
-    const toolCallId = "toolu_perm_painted";
-    await seedMessage(request, { sessionKey, role: "user", content: "cerca un volo" });
-    await seedMessage(request, {
-      sessionKey,
-      role: "assistant",
-      content: "Cerco i voli:",
-      toolCalls: [{ id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "running", startedAt: Date.now() - 3_000 }],
-      blocks: [
-        { kind: "text", text: "Cerco i voli:" },
-        { kind: "tool", toolCall: { id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "running", startedAt: Date.now() - 3_000 } },
-      ],
-    });
-
-    // Nessuno schema è stato seminato: se il pannello compare, l'ha scritto la rotta.
-    const bridge = registerBridgePermission(request, toolCallId);
-    await expect
-      .poll(async () => {
-        const r = await request.get(`${BASE}/api/topics/${topicId}/messages`, { ignoreHTTPSErrors: true });
-        const body = await r.json() as { messages?: { blocks?: { kind: string; toolCall?: { id: string; status?: string; userInputSchema?: unknown } }[] }[] };
-        const last = body.messages?.[body.messages.length - 1];
-        const tool = last?.blocks?.find((b) => b.kind === "tool" && b.toolCall?.id === toolCallId);
-        return tool?.toolCall?.status === "waiting_for_input" && !!tool?.toolCall?.userInputSchema;
-      }, { timeout: 15_000, message: "la rotta deve dipingere il pannello NEI BLOCCHI, non solo in tool_calls" })
-      .toBe(true);
-
-    // E adesso la prova che conta: una pagina caricata da zero lo vede.
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
-
-    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
-    await expect(form).toBeVisible({ timeout: 15_000 });
-    await expect(form.getByText("L'agente chiede un permesso")).toBeVisible();
-
-    await page.waitForTimeout(1000);
-    await form.locator(`input[type="radio"][value="${PERMISSION_ALLOW_ONCE_LABEL}"]`).check();
-    await form.locator('[data-testid="ask-submit"]').click();
-    expect((await bridge).decision).toBe("allow");
-  });
-
   test("un «sempre» si ritrova e si ritira dalle Impostazioni", async ({ page, chatPage, request }) => {
     // Senza questa scheda, «Consenti sempre» sarebbe una decisione permanente
-    // presa di corsa dentro una chat e visibile in nessun posto: una porta che
-    // si apre e basta.
+    // presa di corsa dentro una chat e visibile in nessun posto.
     await request.post(`${BASE}/api/tool-grants`, { data: { pattern: TOOL }, ignoreHTTPSErrors: true });
-
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await openChat(page, chatPage);
 
     await page.keyboard.press("Meta+Comma");
     const settings = page.locator('[data-testid="settings-panel"]');
@@ -300,8 +275,7 @@ test.describe.serial("Pannello di permesso", () => {
     await settings.locator(`[data-testid="tool-grant-revoke-${TOOL}"]`).click();
     await expect(row).toHaveCount(0, { timeout: 5_000 });
 
-    // E la revoca MORDE: la richiesta successiva torna a chiedere invece di
-    // passare da sé.
+    // E la revoca MORDE: la richiesta successiva torna a chiedere.
     const after = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission`, {
       data: { toolName: TOOL, input: TOOL_INPUT, toolUseId: "toolu_after_revoke", legMs: 300 },
       ignoreHTTPSErrors: true,
@@ -309,6 +283,26 @@ test.describe.serial("Pannello di permesso", () => {
     const body = await after.json();
     expect(body.decision).toBeUndefined();
     expect(body.pending).toBe(true);
+  });
+
+  test("una decisione che non riconosciamo è un 400 — non un sì per inerzia, non un no muto", async ({ request }) => {
+    const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission-response`, {
+      data: { toolCallId: "toolu_qualsiasi", decision: "ok" },
+      ignoreHTTPSErrors: true,
+    });
+    expect(r.status()).toBe(400);
+    expect((await r.json()).code).toBe("invalid_decision");
+  });
+
+  test("un click su un pannello che non ha più nessuno sotto lo DICE, invece di sparire", async ({ request }) => {
+    // Il fantasma: turno morto, server riavviato, richiesta scaduta. Accettare
+    // il click farebbe credere di aver risposto a qualcosa.
+    const r = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/permission-response`, {
+      data: { toolCallId: "toolu_mai_aperto", decision: "allow" },
+      ignoreHTTPSErrors: true,
+    });
+    expect(r.status()).toBe(409);
+    expect((await r.json()).code).toBe("permission_not_pending");
   });
 
   test("le mani di Topics non chiedono mai il permesso di essere sé stesse", async ({ request }) => {

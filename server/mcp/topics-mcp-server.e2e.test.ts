@@ -125,6 +125,11 @@ describe("MCP stdio server (subprocess)", () => {
       "read_process_output", "stop_process",
       "list_tasks", "create_task", "get_task", "update_task", "wait_for_condition", "comment_task",
       "ask_user_question",
+      // Il canale di permesso, pubblicato sempre: lo designa
+      // `--permission-prompt-tool` e la CLI lo toglie da sé dall'elenco che
+      // il modello vede. Non esiste una combinazione in cui la CLI lo cerchi
+      // e il bridge non ce l'abbia — la versione a due flag ce l'aveva.
+      "approval_prompt",
       "move_session_to_project",
       "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",

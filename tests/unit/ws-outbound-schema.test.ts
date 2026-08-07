@@ -221,6 +221,13 @@ describe('outbound registry contract', () => {
       'stream:thinking_start',
       'stream:tool_call',
       'stream:tool_detail',
+      // Un permesso non è una domanda: evento suo, e simmetrico —
+      // `required` porta cosa si chiede, `resolved` cosa è stato deciso.
+      // Senza il secondo, un client che riceveva solo `stream:tool_update`
+      // (che porta il solo `partialResult`) vedeva sparire il pannello e
+      // non sapeva COSA fosse stato deciso fino al reload.
+      'stream:tool_permission_required',
+      'stream:tool_permission_resolved',
       'stream:tool_result',
       'stream:tool_update',
       'stream:tool_usage',
@@ -335,8 +342,8 @@ describe('outbound registry contract', () => {
   // serve di più. Per lo stesso motivo viaggia MIRATO (`ctx.sendToDevice`) e
   // non in broadcast. Mittente `server/routes/auth.ts`, ascoltatore
   // `useWebSocket` → `GuestView`.
-  test('all 90 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(90);
+  test('all 92 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(92);
   });
 });
 

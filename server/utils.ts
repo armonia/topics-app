@@ -23,6 +23,7 @@ import { parseToolCallDetail } from "../shared/tool-call-detail";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
+import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 
 /**
@@ -1310,10 +1311,20 @@ export function createAppContext(baseDir: string): AppContext {
             if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
             return true;
           }
-          if (tc && tc.status === 'waiting_for_input') {
+          // Un pannello a schermo su un turno finito è la variante peggiore:
+          // invita un click che non raggiungerà più nessuno. Vale per la
+          // domanda E per il permesso — sono stati diversi, ma qui contano per
+          // lo stesso motivo, quindi la condizione è il predicato condiviso e
+          // non due `if` che possono divergere.
+          if (tc && isAwaitingHuman(tc.status)) {
+            const eraPermesso = tc.status === 'awaiting_permission';
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
-            if (!tc.error) tc.error = 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+            if (!tc.error) {
+              tc.error = eraPermesso
+                ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo — la decisione non avrebbe più raggiunto nessuno'
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
+            }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;
           }
