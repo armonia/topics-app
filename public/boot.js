@@ -16,11 +16,13 @@
   if (dark) document.documentElement.classList.add('dark');
 
   // Keep the iOS/Android status-bar tint in lock-step with the resolved theme so
-  // the safe-area zone reads as one continuous surface. These hexes MUST match
-  // the `--bg` tokens in index.css (light #f8f9fa / dark #121419).
+  // the safe-area zone reads as one continuous surface. Questi hex sono il
+  // CHROME, non la pagina: la fascia di sistema è il bordo dell'app e deve
+  // leggersi come la sidebar. MUST match `--chrome-bg` in index.css
+  // (light #eaecf0 / dark #080a0e) e il manifest.
   try {
     var tc = document.querySelector('meta[name="theme-color"]');
-    if (tc) tc.setAttribute('content', dark ? '#121419' : '#f8f9fa');
+    if (tc) tc.setAttribute('content', dark ? '#080a0e' : '#eaecf0');
   } catch (e) {}
 
   // Desktop on macOS: tag <html> so the app can let native window vibrancy show

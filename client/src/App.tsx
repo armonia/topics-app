@@ -1249,7 +1249,15 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
+      {/* `bg-app-chrome`, non `bg-app-bg`, e il colore del CONTENUTO scende sul
+          figlio qui sotto. Il motivo è il `paddingTop` della safe-area: il
+          padding lo dipinge il background di QUESTO elemento, quindi la fascia
+          sotto la tacca usciva del colore della PAGINA mentre la sidebar — che
+          la stessa fascia la dipinge di suo — usciva del colore del CHROME. Due
+          tinte per la stessa striscia, a seconda che il drawer fosse aperto o
+          chiuso. Ora la striscia è chrome sempre: è il bordo dell'app, e il
+          bordo dell'app è chrome. */}
+      <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-chrome"
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
@@ -1264,7 +1272,7 @@ function App() {
         {/* Connection status is now shown inline in the sidebar top line */}
         {/* FLIP layer: carries the translateX push reveal (useSidebarFlipPush). Must keep the
             flex column so PanelGrid sizes exactly as before. */}
-        <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0">
+        <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0 bg-app-bg">
         <ErrorBoundary fallbackMessage="Panel error">
         {/* Spazi: the grid gets the VISIBLE subset (openPanels stays the full
             store-backed set — see usePanelLifecycle.visiblePanels) and
