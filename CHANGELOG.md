@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.42 — 2026-08-07
+
+### Sotto il cofano
+- Changelog per 2.2.41
+- Il filtro degli ospiti prendeva il telefono del proprietario, e mancava due fan-out su tre
+- «Staged» e «Changes» mostravano lo stesso diff, e non era nessuno dei due
+- Il ruolo ospite era raggiungibile solo con curl: ora si sceglie approvando
+- L'errore di un turno è una riga sua, non una cornice attorno a tutto
+- Ferma l'agent quando si archivia un task in corso
+- Condividere qualcosa non arrivava all'ospite finché non ricaricava a mano
+- La domanda «questo turno è finito male?» si pone in un posto solo
+
 ## 2.2.41 — 2026-08-07
 
 ### Sotto il cofano
