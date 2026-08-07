@@ -15,7 +15,8 @@ import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { InvokedCommandRow } from './Chat/InvokedCommandRow';
-import type { ContentBlock, ToolCall } from '../types';
+import type { ToolCall } from '../types';
+import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
@@ -1022,26 +1023,6 @@ type BlockGroup =
   | { kind: 'thinking'; idx: number; text: string }
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
-
-/** Il prefisso con cui il server ha marcato i cartelli d'errore prima che
- *  esistesse il blocco `error`. Le righe già in DB si leggono ancora così. */
-const LEGACY_ERROR_PREFIX = '⚠️';
-
-/**
- * Perché il turno è finito male, se è finito male.
- *
- * Due sorgenti, nell'ordine: il blocco `error` (la forma nuova) e — per le
- * righe già scritte — il testo di `content` che comincia con ⚠️. La seconda
- * serve perché sono 214 righe in produzione, e 45 di quelle hanno anche i
- * `blocks`: lì `content` non viene stampato affatto, quindi finché il cartello
- * vive solo nel testo quelle righe restano senza spiegazione.
- */
-export function turnErrorOf(msg: { content?: string; blocks?: ContentBlock[] | null }): string | null {
-  const dalBlocco = msg.blocks?.find((b) => b.kind === 'error');
-  if (dalBlocco) return dalBlocco.text;
-  const c = msg.content ?? '';
-  return c.startsWith(LEGACY_ERROR_PREFIX) ? c.slice(LEGACY_ERROR_PREFIX.length).trim() : null;
-}
 
 /**
  * Il verdetto sul turno, come elemento SUO.
