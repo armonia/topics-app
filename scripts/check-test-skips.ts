@@ -38,11 +38,14 @@ const SPEC_EXT = /\.(spec|test)\.ts$/;
 const SKIP_DIRS = new Set(["node_modules", "test-results"]);
 
 /**
- * Il numero di skip/fixme al 05/08/2026, dopo aver recuperato GRID-05, GRID-10
- * e tolto lo stub del DnD. Non alzarlo per far passare la CI: o il test si
- * ripara, o lo skip merita una discussione.
+ * Il numero di skip/fixme al 07/08/2026: 14 dopo GRID-05, GRID-10 e lo stub del
+ * DnD tolto (05/08), meno l'accordion di progetto in `sidebar.spec.ts` —
+ * riattivato quando si è misurato che il vuoto non era un bug ma il contratto
+ * guidato dalle tab, ed era il SEME del test a non sopravvivere al primo render.
+ * Non alzarlo per far passare la CI: o il test si ripara, o lo skip merita una
+ * discussione.
  */
-const BASELINE = 14;
+const BASELINE = 13;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;

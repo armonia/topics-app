@@ -172,6 +172,37 @@ describe("sweepWorktrees", () => {
     expect(notes[0][1]).toContain("topics/purple-finch");
   });
 
+  // Stessa bugia del task `5770b9de`, vista dal lato del land: il keep nasce
+  // dallo sporco nel tree, ma il branch è già stato cancellato dal land — la
+  // nota NON deve dire «è stato conservato» di un ref che non c'è più.
+  test("keep con branch già sparito → la nota non promette un branch conservato", async () => {
+    const notes: Array<[string, string]> = [];
+    let landed = false;
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("gone-after")],
+      realDirt: async () => (landed ? ["server/foo.ts"] : []),
+      branchStatus: async () => (landed ? "gone" : "unmerged"),
+      tryLand: async () => { landed = true; return "landed"; },
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+      resolveTask: () => ({ taskId: "t-gone", status: "done", archived: false }),
+    }));
+    expect(notes).toHaveLength(1);
+    expect(notes[0][1]).toContain("NON è più nel repo");
+    expect(notes[0][1]).not.toContain("è stato conservato");
+  });
+
+  test("keep con branch ancora presente → la nota dice che è stato conservato", async () => {
+    const notes: Array<[string, string]> = [];
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("kept-branch")],
+      branchStatus: async () => "unmerged",
+      tryLand: async () => "nothing",
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+      resolveTask: () => ({ taskId: "t-kept", status: "done", archived: false }),
+    }));
+    expect(notes[0][1]).toContain("è stato conservato");
+  });
+
   test("land succeeded but dirt appeared in the tree → keep (uncommitted work wins)", async () => {
     const reaped: string[] = [];
     let landed = false;

@@ -7,8 +7,9 @@ import {
   createTerminalSession,
   deleteTerminalSession,
   deleteAllTerminalSessions,
+  patchTopic,
   resetPaneStore,
-  seedPaneStore,
+  seedProjectPane,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -20,6 +21,13 @@ const created: { topics: string[]; terminals: string[] } = {
   topics: [],
   terminals: [],
 };
+
+/** Il progetto a cui è legata `created.topics[0]`. */
+const PROJECT_PATH = "/tmp/e2e-sidebar-project";
+
+/** Le cartelle usa-e-getta create da AC-1 (una per esecuzione), rimosse in
+ *  `afterAll`: il progetto dell'accordion deve essere vergine a ogni tentativo. */
+const accordionDirs: string[] = [];
 
 test.describe("Sidebar — Unified Timeline", () => {
   test.beforeAll(async ({ request }) => {
@@ -40,7 +48,7 @@ test.describe("Sidebar — Unified Timeline", () => {
 
     // Create test data: a project topic, a standalone chat, and a terminal
     const projectTopic = await createTopic(request, "E2E-ProjectChat", {
-      projectPath: "/tmp/e2e-sidebar-project",
+      projectPath: PROJECT_PATH,
     });
     created.topics.push(projectTopic.id);
 
@@ -62,6 +70,8 @@ test.describe("Sidebar — Unified Timeline", () => {
     for (const id of created.terminals) {
       await deleteTerminalSession(request, id);
     }
+    const { rmSync } = await import("node:fs");
+    for (const dir of accordionDirs) rmSync(dir, { recursive: true, force: true });
   });
 
   // AC-1: Timeline view — all items in a single flat list
@@ -94,24 +104,31 @@ test.describe("Sidebar — Unified Timeline", () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  // AC-1: Project accordion expands to show children — ANCORA fixme, ma la
-  // motivazione scritta prima era sbagliata e la semina pure.
+  // AC-1: l'accordion di un progetto elenca le chat APERTE DENTRO di lui, e il
+  // chevron le richiude e le riapre.
   //
-  // Diceva: «pre-setting openPanels via API/localStorage doesn't reliably
-  // propagate to React state before the click». In realtà seminava
-  // `localStorage['topics-open-panels']`, una chiave MORTA: nel client la
-  // nomina solo `state/pane/migration/importLegacy.ts` (la migrazione una
-  // tantum), e `state/pane/bootstrap.ts` documenta che nella cartella pane
-  // «no file references /api/ui-state, topics-open-panels, etc.». Si scriveva
-  // in un cassetto che nessuno apre più — non era una corsa, era un no-op.
+  // PERCHÉ ERA `fixme`, E PERCHÉ NON ERA UN BUG DELLA SIDEBAR.
+  // Il test seminava la chat del progetto come pane di PRIMO LIVELLO (`panes:
+  // { [topicId]: … }` dentro `group:default`) e poi si aspettava di ritrovarla
+  // sotto il progetto. Quel seme non sopravvive al primo render: Effect 7 di
+  // `usePanelLifecycle` (`opensAsProjectPane`) CONVERTE la pane di una chat
+  // legata a un progetto nella pane del PROGETTO e purga quella sciolta
+  // (`PURGE_ORPHAN_PANE`) — è lo stesso avvertimento già scritto nel docstring
+  // di `seedProjectPane` in helpers/api-fixtures.ts. Misurato il 07/08 con una
+  // sonda sullo stesso seme: dopo il caricamento il pane-store del server
+  // conteneva SOLO `project:%2Ftmp%2Fe2e-probe-accordion` — la pane della chat
+  // non esisteva più — e il «No chats open» dello screenshot del fallimento era
+  // il vuoto di `GroupLayout` (il pannello del progetto al centro), non la
+  // sidebar.
   //
-  // Semina corretta (pane-store v2, come le spec stabili) messa comunque, ma
-  // NON basta: il pannello del progetto compare e si apre, e il figlio
-  // `E2E-ProjectChat` non viene elencato lo stesso. Lo screenshot del
-  // fallimento mostra «No chats open», quindi il buco sta a monte, in come
-  // `buildSidebarItems` decide i figli di un progetto — non nella semina.
-  // Serve la sua analisi, tracciato nel backlog.
-  test.fixme("AC-1: project accordion expands and collapses", async ({
+  // Quindi l'accordion vuoto NON era il bug: la sidebar è guidata dalle TAB
+  // (buildSidebarItems §2) e i figli di un progetto sono le pane aperte DENTRO
+  // la sua finestra (`projectOpenPanes` ∪ layout persistito). Una chat che
+  // esiste nel DB ma non è aperta da nessuna parte non è una riga — ed è
+  // esattamente ciò che diceva anche il pannello del progetto («No chats
+  // open»): le due superfici erano d'accordo, non in disaccordo. Il test
+  // descrive ora quel contratto e il gesto dell'AC.
+  test("AC-1: l'accordion del progetto elenca le chat aperte dentro, e si chiude e riapre", async ({
     page,
     request,
   }) => {
@@ -120,20 +137,28 @@ test.describe("Sidebar — Unified Timeline", () => {
       description: "SIDEBAR-AC1",
     });
 
-    const topicId = created.topics[0];
-    // `/api/ui-state/panels` è l'endpoint LEGACY: la sorgente autorevole delle
-    // tab aperte è il pane-store v2, ed è da lì che la sidebar decide chi
-    // elencare. Si seminano entrambi.
-    await seedPaneStore(request, () => ({
-      panes: { [topicId]: { id: topicId, type: "chat", title: "E2E-ProjectChat", topicId } },
-      groups: { "group:default": { id: "group:default", paneIds: [topicId], activePaneId: topicId, splitRatio: 1, splitAxis: "horizontal" } },
-      projects: {},
-      groupOrder: ["group:default"],
-      closedStack: [],
-    }));
-    await request.put(`${E2E_BASE}/api/ui-state/panels`, {
-      data: { openPanels: [topicId] },
-    });
+    // Progetto DEDICATO, con un nome nuovo a ogni esecuzione. Non è vezzo: il
+    // layout interno di un progetto (`topics-project-panes-<hash>`) è
+    // persistito sul server e RI-LETTO all'apertura (`loadProjectLayout`),
+    // quindi riusando lo stesso path un secondo tentativo — su CI i retry sono
+    // due — ripartirebbe con le chat aperte dal primo, e la premessa «questo
+    // progetto non ha chat aperte» sarebbe vera solo alla prima passata.
+    const projectPath = `/tmp/e2e-accordion-${Date.now()}`;
+    const projectName = projectPath.slice("/tmp/".length);
+    // Il pannello di progetto monta pane che ci entrano dentro (File, Git): la
+    // cartella deve esistere davvero.
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(projectPath, { recursive: true });
+    accordionDirs.push(projectPath);
+
+    // Una chat che ESISTE nel progetto e non è aperta da nessuna parte: è il
+    // caso su cui il vecchio test si era arenato.
+    const closed = await createTopic(request, "E2E-AccordionClosed", { projectPath });
+    created.topics.push(closed.id);
+    // La premessa è «la tab del progetto è aperta», e si semina come fa la UI:
+    // la pane `project:<path>`. Additivo (vedi `seedProjectPane`), così le tab
+    // seminate dagli altri test di questo file restano dove sono.
+    await seedProjectPane(request, projectPath);
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
@@ -141,17 +166,75 @@ test.describe("Sidebar — Unified Timeline", () => {
       timeout: 15000,
     });
 
-    // Wait for the project to show in sidebar
-    const projectBtn = page.getByTestId("project-toggle-e2e-sidebar-project");
-    await expect(projectBtn).toBeVisible({ timeout: 10000 });
+    const projectRow = page.getByTestId(`project-toggle-${projectName}`);
+    await expect(projectRow).toBeVisible({ timeout: 10000 });
 
-    // Click to expand the project accordion
-    await projectBtn.click();
-
-    // After expanding, the project chat should be visible
+    // Un click sul nome porta il fuoco sul progetto E apre l'accordion (il
+    // ramo `!isProjectFocused` di TopicTree). Serve anche perché la finestra
+    // del progetto si disegna solo quando la sua è la tab attiva del gruppo:
+    // le altre tab di questo file restano aperte, e senza il click al centro
+    // ci sarebbe la loro.
+    await projectRow.click();
     await expect(
-      page.getByRole("treeitem", { name: /E2E-ProjectChat/ })
+      page.getByRole("button", { name: `Collapse ${projectName}` }),
+      "il click sul nome apre l'accordion",
     ).toBeVisible({ timeout: 10000 });
+
+    // 1. Contratto guidato dalle tab: `E2E-AccordionClosed` esiste in questo
+    //    progetto ma non è aperta dentro di lui, quindi — ad accordion APERTO —
+    //    non è una riga, e il pannello del progetto dice la stessa identica
+    //    cosa. Le due superfici sono d'accordo: è QUESTO che il vecchio test
+    //    leggeva come un buco.
+    const emptyProject = page.getByText("No chats open", { exact: true });
+    await expect(emptyProject).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("treeitem", { name: "E2E-AccordionClosed" }),
+      "una chat mai aperta dentro il progetto non è una riga dell'accordion",
+    ).toHaveCount(0);
+
+    // 2. Si apre una chat DENTRO il progetto, dal suo stesso vuoto: la riga
+    //    compare nell'accordion. È il gesto vero, non un seme.
+    const created1 = page.waitForResponse(
+      (r) => r.url().endsWith("/api/topics") && r.request().method() === "POST",
+    );
+    await emptyProject
+      .locator("xpath=following-sibling::button[normalize-space()='New Chat']")
+      .click();
+    const openedId = ((await (await created1).json()) as { id: string }).id;
+    created.topics.push(openedId);
+    // Rinominata via API solo per avere un nome accessibile distinto: la riga
+    // legge `topic.name` dallo store, aggiornato dal WS.
+    await patchTopic(request, openedId, { name: "E2E-AccordionOpen" });
+    const openedRow = page.getByRole("treeitem", { name: "E2E-AccordionOpen" });
+    await expect(openedRow).toBeVisible({ timeout: 15000 });
+
+    // 3. Una seconda chat creata ALTROVE (altro dispositivo / altra finestra):
+    //    la finestra di progetto le apre una pane da sola (ramo delta di
+    //    useProjectChatSync) e anche lei diventa una riga.
+    const remote = await createTopic(request, "E2E-AccordionRemote", {
+      projectPath,
+    });
+    created.topics.push(remote.id);
+    const remoteRow = page.getByRole("treeitem", { name: "E2E-AccordionRemote" });
+    await expect(remoteRow).toBeVisible({ timeout: 15000 });
+
+    // 4. Il chevron CHIUDE l'accordion: sparisce ciò che non è la chat attiva.
+    //    La chat attiva resta appesa sotto la riga del progetto anche da chiuso
+    //    — è il ramo «Pinned active topic when collapsed» di TopicTree, e non
+    //    dipende dall'accordion: senza questa asserzione «chiuso» e «aperto»
+    //    sarebbero indistinguibili per la riga che stai guardando.
+    await page.getByRole("button", { name: `Collapse ${projectName}` }).click();
+    await expect(remoteRow).toBeHidden({ timeout: 10000 });
+    await expect(
+      openedRow,
+      "la chat ATTIVA del progetto resta visibile anche ad accordion chiuso",
+    ).toBeVisible();
+    await expect(openedRow).toHaveAttribute("aria-selected", "true");
+
+    // 5. E lo RIAPRE: torna l'elenco completo.
+    await page.getByRole("button", { name: `Expand ${projectName}` }).click();
+    await expect(remoteRow).toBeVisible({ timeout: 10000 });
+    await expect(openedRow).toBeVisible();
   });
 
   // AC-2: il toggle cicla fra le TRE viste.
