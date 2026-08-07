@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,
-  isGuestSocketData, isGuestAllowedMethod,
+  isGuestSocketData, isGuestAllowedMethod, isGuestHandshakeFrame,
 } from "./grants";
 import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
@@ -69,7 +69,8 @@ describe("grants · la superficie HTTP di un ospite", () => {
 describe("grants · i frame che un ospite può ricevere", () => {
   const ammessi = [
     "task:created", "task:updated", "task:deleted", "task:review-ready", "task:parked",
-    "stream:start", "stream:content_chunk", "stream:end", "message", "message:new",
+    "stream:start", "stream:content_chunk", "stream:end", "stream:catchup",
+    "message", "message:new",
   ];
 
   it("OGNI tipo in allowlist ESISTE nel registro outbound", () => {
@@ -96,6 +97,55 @@ describe("grants · i frame che un ospite può ricevere", () => {
 
   it("un tipo sconosciuto non passa", () => {
     expect(isGuestSafeFrameType("qualcosa:di:nuovo")).toBe(false);
+  });
+});
+
+describe("grants · la stretta di mano, che scavalca il confinamento", () => {
+  // Questa lista è una DEROGA: ciò che sta qui arriva a un ospite senza nessun
+  // controllo di entità. Il criterio non è «serve al client» — è «non contiene
+  // niente di nessuno». I test qui sotto sono la guardia contro il modo in cui
+  // una lista così si allarga: un frame che serviva, aggiunto senza guardare
+  // cosa porta dentro.
+  it("è corta, e ci sta solo protocollo", () => {
+    for (const t of ["connected", "welcome", "ui:bundle-rev"]) {
+      expect(isGuestHandshakeFrame(t)).toBe(true);
+    }
+  });
+
+  it("NON ci sta niente che porti dati: sono i tre frame del buco vero", () => {
+    // Questi tre erano ciò che la raffica di apertura consegnava a un ospite
+    // prima che passasse dal filtro: il pane-store del proprietario coi titoli
+    // e gli id di ogni chat, i non-letti di tutte, e la configurazione della
+    // macchina. Se un giorno uno di questi finisce nella deroga, questo test
+    // muore — ed è l'unico posto in cui morirebbe.
+    for (const t of ["ui-state:init", "unread:init", "providers:snapshot"]) {
+      expect(isGuestHandshakeFrame(t)).toBe(false);
+    }
+  });
+
+  it("la deroga è CHIUSA: tutto il resto del registro ne resta fuori", () => {
+    // `connected` e `welcome` stanno nel registro outbound e nella deroga: è
+    // giusto, sono protocollo. Quindi l'invariante non è «niente del registro»
+    // — è che la deroga sia esattamente questi tre nomi e nient'altro.
+    // Aggiungerne uno costringe a cambiare QUESTA riga, che è la deliberazione
+    // che si vuole.
+    const deroga = ["connected", "welcome", "ui:bundle-rev"];
+    for (const t of REGISTERED_OUTBOUND_TYPES.filter((x) => !deroga.includes(x))) {
+      expect(`${t}:${isGuestHandshakeFrame(t)}`).toBe(`${t}:false`);
+    }
+  });
+
+  it("un frame della deroga non porta MAI un'entità dentro di sé", () => {
+    // È il criterio dietro la lista, reso eseguibile: se un frame di stretta di
+    // mano cominciasse a portare un `topicId` o un `taskId`, vorrebbe dire che
+    // ha smesso di essere trasporto — e passerebbe comunque, senza controllo.
+    for (const f of [
+      { type: "connected", clientId: "x" },
+      { type: "welcome", serverVersion: "1", protocolVersion: 1 },
+      { type: "ui:bundle-rev", rev: "/assets/a.js" },
+    ]) {
+      expect(frameResource(f)).toBeNull();
+    }
   });
 });
 

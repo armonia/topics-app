@@ -74,7 +74,7 @@ import {
   evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
   type DeviceRecord,
 } from "./server/lib/device-auth";
-import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
+import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
@@ -2196,26 +2196,70 @@ const opzioniServer = {
       }
       wsClients.add(ws);
       console.log(`[WS] Client connected: ${ws.data.id} (total: ${wsClients.size})`);
-      ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
+
+      /**
+       * LA PORTA UNICA della raffica di apertura.
+       *
+       * Serve perché questi `send` non passano da `broadcastToAll`: sono
+       * diretti alla socket appena aperta, e per questo scavalcavano il filtro
+       * degli ospiti per intero. Il buco non era teorico — un ospite riceveva
+       * `ui-state:init` (il pane-store del PROPRIETARIO, con i titoli e gli id
+       * di ogni chat), `unread:init` (i non-letti di tutte), e dal catch-up il
+       * CONTENUTO vivo di qualunque stream in corso. L'API era perfetta e la
+       * roba passava sul filo.
+       *
+       * La regola è la stessa dei broadcast, e non una seconda scritta a mano:
+       * stretta di mano sempre, per un ospite tipo ammesso più entità
+       * concessa, altrimenti si tace. Un frame nuovo aggiunto qui domani cade
+       * dalla parte giusta senza che nessuno se ne ricordi.
+       */
+      const ospiteWS = isGuestSocketData(ws.data);
+      const inviaIniziale = (frame: Record<string, unknown>): void => {
+        const tipo = String(frame.type ?? "");
+        if (!isGuestHandshakeFrame(tipo) && ospiteWS) {
+          if (!isGuestSafeFrameType(tipo)) return;
+          const risorsa = frameResource(frame);
+          if (!risorsa || !hasGrant(ctx.db, principaliDi(ws.data.deviceId!), risorsa.type, risorsa.id)) return;
+        }
+        try { ws.send(JSON.stringify(frame)); } catch { /* socket già chiusa */ }
+      };
+
+      inviaIniziale({ type: "connected", clientId: ws.data.id });
       // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
-      ws.send(JSON.stringify({
+      inviaIniziale({
         type: "welcome",
         serverVersion: SERVER_VERSION,
         protocolVersion: SERVER_PROTOCOL_VERSION,
         capabilities: SERVER_CAPABILITIES,
         serverTime: Date.now(),
         clientId: ws.data.id,
-      }));
+      });
       // Dev-only freshness check: a window that missed the deploy-time
       // broadcast reloads itself on reconnect (null when the flag is off —
       // standalone installs never see this frame).
-      { const __rev = devBundleReload.getRev(); if (__rev) ws.send(JSON.stringify({ type: "ui:bundle-rev", rev: __rev })); }
-      ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
-      { const __ui = loadAllUiState(db); ws.send(JSON.stringify({ type: "ui-state:init", data: __ui.data, meta: __ui.meta })); }
+      { const __rev = devBundleReload.getRev(); if (__rev) inviaIniziale({ type: "ui:bundle-rev", rev: __rev }); }
+      // I non-letti si RESTRINGONO invece di sparire: il pallino sulla chat che
+      // gli hai condiviso è suo, quelli delle altre no. Scartare tutto sarebbe
+      // sicuro e sbagliato — un ospite senza pallini non sa mai che è arrivato
+      // qualcosa.
+      {
+        const tutti = loadUnread() as Record<string, unknown>;
+        const suoi = ospiteWS
+          ? Object.fromEntries(Object.entries(tutti).filter(([topicId]) =>
+              hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)))
+          : tutti;
+        inviaIniziale({ type: "unread:init", data: suoi });
+      }
+      // `ui-state:init` e `providers:snapshot` NON hanno una versione ristretta,
+      // e non devono averla: il primo è l'area di lavoro del proprietario — le
+      // sue finestre, il suo layout — e il secondo la configurazione della
+      // macchina. Non sono dati di cui esista una fetta che spetti a un ospite,
+      // quindi cadono dal filtro come qualunque altro frame non ammesso.
+      { const __ui = loadAllUiState(db); inviaIniziale({ type: "ui-state:init", data: __ui.data, meta: __ui.meta }); }
       // Initial provider snapshot — keeps the picker / settings page in sync without an extra HTTP fetch.
       try {
         const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-        ws.send(JSON.stringify({ type: "providers:snapshot", snapshot: getSnapshotManager().getSnapshot() }));
+        inviaIniziale({ type: "providers:snapshot", snapshot: getSnapshotManager().getSnapshot() });
       } catch {
         // Snapshot manager not loaded yet — initial bootstrap will broadcast once it warms up.
       }
@@ -2248,7 +2292,10 @@ const opzioniServer = {
           continue;
         }
         const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
-        ws.send(JSON.stringify({
+        // Dalla stessa porta della raffica: questo frame porta il TESTO di un
+        // turno a metà, ed è quello che un ospite non deve vedere per una chat
+        // che non è sua.
+        inviaIniziale({
           type: "stream:catchup",
           sessionKey,
           topicId,
@@ -2258,7 +2305,7 @@ const opzioniServer = {
           isThinking: stream.isThinking,
           toolCalls: partial.toolCalls,
           blocks: partial.blocks,
-        }));
+        });
       }
     },
     message(ws, message) {
