@@ -23,6 +23,7 @@
  * classe `.dark`.
  */
 import { test } from "./fixtures/layout.fixture";
+import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
@@ -56,10 +57,7 @@ async function openProjectBoard(page: Page) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") await projectsSection.click();
   }
-  const btn = page
-    .locator('[aria-label="Topics sidebar"] button')
-    .filter({ hasText: /e2e-board-theme/ })
-    .first();
+  const btn = projectRow(page, /e2e-board-theme/);
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.click();
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
