@@ -61,6 +61,27 @@ export const E2E_BASE = `http://localhost:${E2E_PORT}`;
 export const E2E_WS_BASE = `ws://localhost:${E2E_PORT}`;
 
 /**
+ * La porta «da fuori» del server di test.
+ *
+ * Serve perché il confinamento di un ospite NON è osservabile da loopback: la
+ * rete anti-lockout della 080 fa proprietaria ogni richiesta locale, senza
+ * chiedere credenziali. Un test che bussasse alla porta principale con il
+ * biscotto di un ospite vedrebbe un proprietario, e passerebbe dicendo il
+ * contrario di ciò che voleva dire.
+ *
+ * `+ 1000` e non `+ 1`: le porte principali occupano 13334 e 13500–13899
+ * (`worktree-port.ts`), quindi un offset piccolo farebbe collidere il tunnel di
+ * un worktree con la porta principale di un altro, e due suite in parallelo si
+ * ammazzerebbero a vicenda per un motivo illeggibile.
+ */
+export function tunnelPortFor(port: number = E2E_PORT): number {
+  return port + 1000;
+}
+
+export const E2E_TUNNEL_BASE = `http://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
+export const E2E_TUNNEL_WS_BASE = `ws://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
+
+/**
  * Dove vive lo stato del server di test per una data porta.
  *
  * La porta di default tiene il percorso storico: script, `.gitignore` e memoria
@@ -125,6 +146,10 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // distruttive per costruzione — svuotano ogni tabella — quindi esistono solo
     // dove questa variabile c'è: vedi server/routes/e2e.ts.
     TOPICS_E2E: "1",
+    // L'ascoltatore «da fuori»: ciò che entra di qui non è locale per
+    // definizione, ed è l'unico modo di provare il confinamento com'è in
+    // produzione invece che con una scorciatoia buona solo per i test.
+    TOPICS_TUNNEL_PORT: String(tunnelPortFor(port)),
     GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
     GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
   };
