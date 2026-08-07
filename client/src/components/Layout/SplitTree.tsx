@@ -261,6 +261,20 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
       role="separator"
       aria-orientation={horizontal ? 'vertical' : 'horizontal'}
       data-split-divider={dir}
+      // L'ASSE CHE QUESTO DIVISORE RIDIMENSIONA, e NON è un doppione di
+      // `data-split-divider` qui sopra: quello porta la direzione dello SPLIT
+      // (`row` = figli affiancati), questo l'asse del TRASCINAMENTO — e i due
+      // sono invertiti, perché uno split `row` si ridimensiona in colonna.
+      // Due vocabolari sotto lo stesso nome sarebbero il prossimo near-miss.
+      //
+      // Serve perché `cursor-col-resize` è un SUGGERIMENTO DI CURSORE, e lo
+      // portano anche cose che divisori non sono — il ridimensionatore della
+      // barra di progetto, per dirne una. Contare la classe vuol dire contare
+      // quelli: è così che GRID-09 è rimasto rosso per giorni su una griglia
+      // che il reset aveva ripulito davvero, perché sopravviveva un
+      // `project-sidebar-resizer` largo 0×0 dentro una pane tenuta viva e
+      // nascosta. Il rosso era vero e il difetto non c'era.
+      data-resize-axis={horizontal ? 'col' : 'row'}
       className={`bg-app-border ${horizontal ? 'cursor-col-resize' : 'cursor-row-resize'}${active ? ' is-resizing' : ''}`}
       onMouseDown={onMouseDown}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}

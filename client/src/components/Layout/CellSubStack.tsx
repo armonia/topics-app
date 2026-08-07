@@ -212,6 +212,7 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
 
   return (
     <div
+      data-resize-axis="row"
       className={`h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10 ${
         active ? 'bg-primary' : ''
       }`}
