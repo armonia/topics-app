@@ -22,6 +22,24 @@ import { isLiveSpaceId } from './spaces';
  * scrivere su `state.lastSeq` qui farebbe incrementare due volte il dispatcher.
  * Il marcatore si ritratta insieme al timbro — sono la stessa affermazione detta
  * ai due canali, quello durevole e quello causale.
+ *
+ * E BASTA — il messaggio di 865826fc dice «il fix è necessario ma non basta,
+ * PANE-03 resta rosso di proposito»: quella riga è stata misurata contro un
+ * bundle che questa funzione non ce l'aveva. Verificato il 07/08 con un A/B
+ * sullo STESSO comando e sulla stessa macchina
+ * (`playwright test tests/e2e/pane-undo.spec.ts --repeat-each=3 --retries=0`),
+ * due bundle che differiscono SOLO per questo file:
+ *   · undo.ts di 865826fc^  → 4 rossi su 4 (3 + un giro isolato). Quello che ho
+ *     aperto per intero muore alla riga 255: la 247 PASSA — le tab tornano 3 —
+ *     e poi t2 non c'è più. Cioè ⌘Z la rimette e l'hydrate stantio la richiude
+ *     dentro il timeout: è il ritardo di 200-400 ms qui sopra, visto da fuori;
+ *   · undo.ts di 865826fc   → verde 17 volte su 17, da solo, con
+ *     `--repeat-each=3`, in gruppo, nello shard intero da 28 file e con load
+ *     average 55.
+ * Il gemello a pane-undo.spec.ts:290 passa in ENTRAMBI i casi: non aspetta fra
+ * la chiusura e l'undo, quindi il PUT debounced non fa in tempo a tornare
+ * indietro come snapshot e la corsa non si apre. Chi rilegge quel messaggio di
+ * commit non deve rimettersi a cercare una causa residua che non c'è.
  */
 function restampCausalOpen(state: PaneState, id: string): void {
   const pane = state.panes[id];

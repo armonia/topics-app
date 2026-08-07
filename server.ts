@@ -48,6 +48,7 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice";
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings } from "./server/services/landing-audit";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
@@ -3182,6 +3183,18 @@ function runWorktreeGc() {
     abandonAfterDays: WORKTREE_ABANDON_DAYS,
     idleDays: (taskId) => taskIdleDays(taskId),
     abandon: async (taskId, wt, reason) => {
+      // PRIMA SI GUARDA, POI SI SCRIVE. Questa riga è quella che l'umano legge
+      // per decidere se ha perso lavoro: fino al 04/08 era una formula fissa che
+      // giurava «il branch è INTATTO (nessun commit perso)» senza aver mai
+      // risolto il ref — e la scriveva anche sul ramo «branch sparito», negando e
+      // rassicurando nella stessa riga (task `5770b9de`, visto sul task
+      // `8f635484`: `topics/vibrant-creek` non esisteva). Verifica + composizione
+      // stanno in `worktree-abandon-notice`, dove sono collaudate su un repo vero.
+      const notice = await abandonNoticeFromRepo({
+        reason,
+        repoPath: ctx.projectStore.get(wt.projectId)?.path ?? null,
+        branchName: wt.branchName,
+      });
       // Order matters: park FIRST. `release` clears the topic binding, so from
       // here on nothing can resume this task into a checkout that's about to
       // disappear (a resume falls back to the base project dir — the human's own
@@ -3192,10 +3205,7 @@ function runWorktreeGc() {
           requeue: false,
           parkState: "failed",
           by: "system",
-          reason:
-            `Worktree liberato: ${reason}. Il branch \`${wt.branchName ?? "?"}\` è INTATTO ` +
-            `(nessun commit perso) — per riprendere il lavoro ripartilo da lì; ` +
-            `il task torna in backlog perché la sessione non c'è più.`,
+          reason: notice,
         });
       } catch (err) {
         console.warn("[worktree-gc] park del task abbandonato fallito", err);

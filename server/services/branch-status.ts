@@ -75,6 +75,36 @@ export async function commitStatusFromRepo(
 }
 
 /**
+ * Il branch esiste DAVVERO nel repo? Un `git rev-parse --verify` e basta.
+ *
+ * Esiste separato da `branchStatusFromRepo` perché a volte serve solo il fatto
+ * nudo — «il ref risolve, sì o no» — senza il giudizio su main, e soprattutto
+ * senza collassare «non c'è» e «non ho potuto guardare» nello stesso valore:
+ * chi compone il messaggio di abbandono (task `5770b9de`) deve poter distinguere
+ * un branch assente da un repo non raggiungibile, perché il primo è un allarme e
+ * il secondo è ignoranza.
+ */
+export async function branchExistsInRepo(repoPath: string, branch: string | null): Promise<boolean> {
+  if (!branch) return false;
+  return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) === 0;
+}
+
+/**
+ * Quanti commit ha il branch OLTRE `mainRef`. `null` = non contabile (branch
+ * assente, `mainRef` inesistente, git in errore) — mai `0`, che vorrebbe dire
+ * «verificato: non contiene niente» ed è un'affermazione diversa.
+ */
+export async function countCommitsAhead(
+  repoPath: string,
+  branch: string | null,
+  mainRef = "main",
+): Promise<number | null> {
+  if (!branch) return null;
+  const out = (await gitOut(repoPath, ["rev-list", "--count", `${mainRef}..${branch}`])).trim();
+  return /^\d+$/.test(out) ? Number.parseInt(out, 10) : null;
+}
+
+/**
  * Full SHA of a commit-ish, or null when the repo doesn't have it. Used to
  * snapshot what a task delivered: the branch is reaped on landing, the SHA is
  * what survives.

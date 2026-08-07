@@ -48,6 +48,19 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
+      # Il terzo lockfile del repo. Root e client sono sorvegliati di fatto dai
+      # due `bun install --frozen-lockfile` qui sopra; `landing/bun.lock` non lo
+      # toccava NIENTE, perché nessun workflow builda il sito (il deploy è
+      # manuale: `bun run deploy:landing` → build:site + wrangler). Una deriva lì
+      # non rompeva la CI, rompeva il deploy del sito, cioè si scopriva tardi e
+      # altrove. `--dry-run` risolve e confronta senza installare l'albero — è il
+      # passo più economico che esista e fallisce lo stesso con «lockfile had
+      # changes, but lockfile is frozen» (verificato: exit 1 con una dipendenza
+      # aggiunta a mano a landing/package.json, exit 0 sull'albero allineato).
+      - name: Lockfile del sito allineato (landing/)
+        run: bun install --frozen-lockfile --dry-run
+        working-directory: landing
+
       # `test:unit` contiene UN file che lancia un Chromium vero
       # (server/browser-dom-cobrowse.test.ts: rrweb va provato contro una pagina
       # con una CSP vera, non contro un finto). Senza questo passo quei sette
@@ -75,6 +88,27 @@ jobs:
       # di check che nessuno esegue non è una protezione: è la sua imitazione,
       # e costa di più di non averlo perché fa credere che la classe di difetti
       # sia coperta. Sono tutti puri e veloci, quindi stanno in un passo solo.
+      #
+      # Gli altri `check:*`/`lint:*` di package.json restano FUORI da qui, e
+      # ognuno per un motivo che vale la pena scrivere (task b8092abe):
+      #  · `lint:gherkin` (e i fratelli `tag:scenarios`, `uat`) — il codice sta
+      #    in `spec-flow/`, che è in .gitignore:129: su un checkout di CI la
+      #    cartella NON esiste, quindi il passo misurerebbe la presenza di un
+      #    clone, non la qualità dei .feature. E di .feature ce ne sono zero:
+      #    fino a questa modifica il comando rispondeva «✓ 0 feature files:
+      #    tagging OK», un verde che nessuno aveva guadagnato. Ora FALLISCE
+      #    dicendo che non ha niente da controllare (guardia in package.json,
+      #    non nel clone ignorato, dove la modifica sarebbe deriva invisibile);
+      #    quando tornerà un .feature ricomincia a mordere davvero — provato:
+      #    con un file taggato male esce 1 elencando le tre violazioni.
+      #  · `check:lockfile` — è la versione «una botta sola» per l'umano (root,
+      #    client, landing). In CI gli stessi tre lockfile sono già coperti dai
+      #    due install qui sopra più il passo `landing/` dedicato, senza pagare
+      #    un terzo `bun install` completo.
+      #  · `check:contrast`, `check:field`, `check:painted`, `check:landing`,
+      #    `check:copy` — girano su `landing/dist`, cioè su un sito GIÀ
+      #    costruito che nessun workflow costruisce: vivono nel deploy manuale
+      #    del sito, non nella CI dell'app.
       - name: Static guard rails (any / NUL / dead code / eslint-disable / test skip)
         run: |
           bun run check:any
