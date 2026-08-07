@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode, WSMessage } from '../../types';
 import { filesApi } from '../../lib/api';
+import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
@@ -384,10 +385,31 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed, onWSMessage }, ref) {
   const toast = useToast();
-  const [files, setFiles] = useState<FileNode[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  /**
+   * L'albero, le cartelle aperte e lo stato di caricamento NON stanno piu' qui.
+   *
+   * Stavano, ed e' il motivo per cui aprendo e chiudendo la sezione si vedeva
+   * uno spinner ogni volta: `ProjectSidebar` monta questo componente dentro
+   * `{expandedSections.files && …}`, quindi chiudere la sezione lo SMONTA e
+   * porta via tutto — albero compreso. Ora vivono in uno store per
+   * `projectPath` (`hooks/useProjectFiles.ts`) che sopravvive al pannello,
+   * sul modello di `useGitStatus`.
+   */
+  const {
+    tree,
+    expandedDirs: expandedList,
+    loading,
+    error,
+    reload: reloadFiles,
+    setExpanded: setDirExpanded,
+    replaceExpanded,
+    graft,
+  } = useProjectFiles({ projectPath, onMessage: onWSMessage });
+  // `useMemo` e non `tree ?? []` nudo: quel `??` produce un array NUOVO a ogni
+  // render quando l'albero e' `null`, e tre callback lo hanno in dipendenza —
+  // si rifarebbero di continuo, rimontando quello che tengono.
+  const files = useMemo(() => tree ?? [], [tree]);
+  const expandedDirs = useMemo(() => new Set<string>(expandedList), [expandedList]);
   /** Cartelle di cui si stanno leggendo i figli (caricamento pigro). */
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -419,53 +441,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setContextMenuNode(null);
   }, []);
 
-  const initialLoadDone = useRef(false);
-  const loadFiles = useCallback(async () => {
-    try {
-      if (!initialLoadDone.current) setLoading(true);
-      setError(null);
-      const result = await filesApi.list(projectPath, 3);
-      setFiles(result);
-      if (!initialLoadDone.current) {
-        // First load: expand top-level directories
-        const firstLevel = new Set<string>();
-        result.forEach(f => { if (f.type === 'dir') firstLevel.add(f.path); });
-        setExpandedDirs(firstLevel);
-        initialLoadDone.current = true;
-      }
-      // Subsequent loads: keep expandedDirs as-is
-    } catch (err: unknown) {
-      setError(errMessage(err) || 'Failed to load files');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
-
-  useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
-
   /**
-   * L'albero si aggiorna da solo quando il filesystem cambia.
+   * Ricarica la radice. E' lo store a farlo — qui c'e' solo il nome vecchio,
+   * tenuto perche' lo chiamano dodici punti (create, rename, delete, move,
+   * upload) e l'handle esposto col `ref`.
    *
-   * Il server ha un watcher ricorsivo su `projectPath` che manda
-   * `files:changed` (debounce 300ms lato server). Qui si ricarica solo la
-   * radice: le cartelle aperte pigramente restano quelle che sono finché non le
-   * si riapre — ricaricarle tutte a ogni salvataggio significherebbe una
-   * richiesta per cartella aperta, a ogni tasto premuto in un editor esterno.
+   * Anche il caricamento iniziale e l'ascolto di `files:changed` sono passati
+   * allo store: stando qui morivano con il componente, cioe' a ogni chiusura
+   * della sezione. E ora il push a pannello CHIUSO non ricarica piu' niente —
+   * segna «stantio» e si revalida al ritorno: il watcher del server trasmette a
+   * ogni modifica del filesystem, e camminare l'albero per un pannello che
+   * nessuno guarda era carico puro.
    */
-  useEffect(() => {
-    if (!onWSMessage) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = onWSMessage((msg) => {
-      if (msg.type !== 'files:changed' || msg.projectPath !== projectPath) return;
-      // Secondo debounce, lato client: il server ne fa uno per progetto, ma i
-      // messaggi di più progetti aperti arrivano sullo stesso canale.
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; void loadFiles(); }, 200);
-    });
-    return () => { unsub(); if (timer) clearTimeout(timer); };
-  }, [onWSMessage, projectPath, loadFiles]);
+  const loadFiles = reloadFiles;
 
   // Build git lookup maps from shared hook data (no duplicate polling).
   // Keyed on a stable signature of the file statuses so identical poll results
@@ -546,29 +534,30 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // così le dipendenze restano due funzioni a loro volta stabili.
   const filesRef = useRef<FileNode[]>(files);
   filesRef.current = files;
+  /** L'insieme aperto per chi lo legge DENTRO una callback stabile. */
+  const expandedDirsRef = useRef<Set<string>>(expandedDirs);
+  expandedDirsRef.current = expandedDirs;
   const loadingDirsRef = useRef<Set<string>>(loadingDirs);
   loadingDirsRef.current = loadingDirs;
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
   const handleToggleDir = useCallback((path: string) => {
-    let willExpand = false;
-    setExpandedDirs(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else { next.add(path); willExpand = true; }
-      return next;
-    });
+    const willExpand = !expandedDirsRef.current.has(path);
+    setDirExpanded(path, willExpand);
     if (!willExpand) return;
     const node = findNode(filesRef.current, path);
     if (!node || node.type !== 'dir' || node.children !== undefined) return;
     if (loadingDirsRef.current.has(path)) return;
     setLoadingDirs(prev => new Set(prev).add(path));
+    // I figli si innestano nello STORE: erano stati pagati con una richiesta
+    // per cartella, e tenendoli nel componente si ricomprava tutto a ogni
+    // riapertura del pannello.
     filesApi.list(path, 2)
-      .then(children => setFiles(prev => graftChildren(prev, path, children)))
+      .then(children => graft(path, children))
       .catch(err => toastRef.current.error(errMessage(err) || 'Impossibile leggere la cartella'))
       .finally(() => setLoadingDirs(prev => { const n = new Set(prev); n.delete(path); return n; }));
-  }, [findNode, graftChildren]);
+  }, [findNode, setDirExpanded, graft]);
 
   // Flatten tree for keyboard navigation and shift-select
   const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
@@ -658,15 +647,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     if (!contextMenuNode) return;
     const parentDir = contextMenuNode.type === 'dir' ? contextMenuNode.path : getParentDir(contextMenuNode.path);
     // Ensure the parent dir is expanded so the inline input is visible
-    setExpandedDirs(prev => {
-      const next = new Set(prev);
-      next.add(parentDir);
-      return next;
-    });
+    setDirExpanded(parentDir, true);
     setNewItemParent(parentDir);
     setNewItemType(type);
     closeContextMenu();
-  }, [contextMenuNode, getParentDir, closeContextMenu]);
+  }, [contextMenuNode, getParentDir, closeContextMenu, setDirExpanded]);
 
   const handleNewItemSubmit = useCallback(async (name: string) => {
     if (!newItemParent || !newItemType) return;
@@ -785,21 +770,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
   // Collapse all
   const handleCollapseAll = useCallback(() => {
-    setExpandedDirs(new Set());
-  }, []);
+    replaceExpanded([]);
+  }, [replaceExpanded]);
 
   // Collapse a specific directory and all its descendants
   const handleCollapseDir = useCallback((dirPath: string) => {
-    setExpandedDirs(prev => {
-      const next = new Set(prev);
-      for (const p of prev) {
-        if (p === dirPath || p.startsWith(dirPath + '/')) {
-          next.delete(p);
-        }
-      }
-      return next;
-    });
-  }, []);
+    replaceExpanded(
+      [...expandedDirsRef.current].filter(p => p !== dirPath && !p.startsWith(dirPath + '/')),
+    );
+  }, [replaceExpanded]);
 
   // Drag and drop
   const handleDragStart = useCallback((e: React.DragEvent, node: FileNode) => {
@@ -1202,16 +1181,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // Hover button handlers for new file/folder on directory rows
   // MUST be before any early returns to respect Rules of Hooks
   const handleHoverNewFile = useCallback((dirPath: string) => {
-    setExpandedDirs(prev => { const next = new Set(prev); next.add(dirPath); return next; });
+    setDirExpanded(dirPath, true);
     setNewItemParent(dirPath);
     setNewItemType('file');
-  }, []);
+  }, [setDirExpanded]);
 
   const handleHoverNewFolder = useCallback((dirPath: string) => {
-    setExpandedDirs(prev => { const next = new Set(prev); next.add(dirPath); return next; });
+    setDirExpanded(dirPath, true);
     setNewItemParent(dirPath);
     setNewItemType('dir');
-  }, []);
+  }, [setDirExpanded]);
 
   // Imperative handle for parent components (e.g. ProjectSidebar toolbar)
   useImperativeHandle(ref, () => ({
@@ -1265,7 +1244,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     );
   }
 
-  if (error) {
+  // L'errore sostituisce l'albero SOLO se un albero non ce l'ho.
+  //
+  // Prima l'early return era incondizionato, e `loadFiles` faceva `setError`
+  // anche su una revalidazione di sfondo: una richiesta caduta buttava via un
+  // albero completo e corretto. Su questa macchina succede spesso —
+  // `TOPICS_SERVER_WATCH=1` fa ripartire il server a ogni salvataggio sotto
+  // `server/`, e in quella finestra la porta non accetta connessioni. Ora
+  // quell'errore e' una banda sopra l'albero (piu' in basso), e lo store
+  // ritenta da solo dopo 2s: la finestra di riavvio non si vede nemmeno.
+  if (error && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
         <p className="text-red-500 text-[13px]">{error}</p>
@@ -1420,9 +1408,28 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     onCollapseDir: handleCollapseDir,
   };
 
+  /**
+   * La banda dell'errore: sta SOPRA l'albero e non al posto suo.
+   *
+   * Compare solo quando dei dati ci sono — se non ci sono, l'errore e' gia' un
+   * cartello a piena altezza piu' in su. E' il caso della finestra di riavvio
+   * del server: l'albero resta a schermo, la banda dice che l'ultimo
+   * aggiornamento non e' passato, lo store ritenta da solo.
+   */
+  const bandaErrore = error ? (
+    <div
+      data-testid="file-tree-error-banner"
+      className="px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
+    >
+      <span className="truncate">{error}</span>
+      <button onClick={loadFiles} className="text-[11px] text-primary hover:underline flex-shrink-0">Riprova</button>
+    </div>
+  ) : null;
+
   if (compact) {
     return (
       <>
+        {bandaErrore}
         <div
           ref={treeRef}
           className={`flex-1 overflow-y-auto${rootDragOver ? ' ring-2 ring-primary/40 bg-primary/5' : ''}`}
@@ -1465,6 +1472,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   return (
     <>
       <div className="flex flex-col h-full">
+        {bandaErrore}
         {/* File tree */}
         <div
           ref={treeRef}
