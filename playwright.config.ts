@@ -17,6 +17,11 @@ const NIGHTLY_ONLY_SPECS = [
   "browser-agent-control",
   "browser-persistence",
   "browser-login-state",
+  // Stessa famiglia: apre un Chromium headless SERVER-SIDE. Sotto i quattro
+  // shard quel launch va in timeout a 180s (misurato nel log dello shard, 08/08)
+  // e il test accusa il broadcast, che non c'entra — non c'era nessun browser da
+  // cui potesse partire. Nel notturno gira senza sharding e passa.
+  "browser-shared-session",
   "terminal-session-resume",
   "worktree-domain",
   "screenshot-evidence",

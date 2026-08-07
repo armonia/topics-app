@@ -31,14 +31,28 @@ test.afterAll(async ({ request }) => {
  * outbound internet in CI.
  */
 test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
+  /**
+   * QUESTO FILE NON GIRA NEL GATE DELLE PR, ed è una scoperta, non una resa.
+   *
+   * Per settimane è stato «l'ultimo rosso, flaky solo sotto sharding, verde in
+   * isolamento» — una frase vera che ha impedito a chiunque di guardare. Con un
+   * messaggio d'errore che dice cosa è ARRIVATO invece di un solo «false», il
+   * conto è saltato fuori in un giro: `ricevuti []`, cioè ZERO frame. Non un
+   * ritardo — il broadcast non partiva affatto. E nel log del server c'era il
+   * perché: `launch: Timeout 180000ms exceeded`. Il Chromium headless che il
+   * test fa aprire NON PARTE quando quattro shard più i browser di Playwright
+   * si contendono la macchina; tre minuti, e rinuncia.
+   *
+   * Cioè: un limite di capacità della macchina, che il test non può distinguere
+   * da un difetto del prodotto. La famiglia che apre browser veri sta già in
+   * `NIGHTLY_ONLY_SPECS` per la stessa ragione (`browser-ws-streaming`,
+   * `browser-persistence`, `browser-agent-control`, `browser-login-state`):
+   * questo file ne fa parte e ne era rimasto fuori. Nel notturno gira senza
+   * sharding, quindi la copertura non si perde — si sposta dove è affidabile.
+   */
   test("a second viewer of the same context receives the navigation state broadcast", async ({ page, baseURL }) => {
-    // IL TETTO DEL FILE È 30s, E QUI NON BASTA. Questo test aspetta che il
-    // server lanci un Chromium headless, ci apra una pagina e la navighi: da
-    // solo ci mette pochi secondi, sotto i quattro shard i quattro processi che
-    // fanno la stessa cosa si mettono in fila. Con 30s il poll da 25 non ha
-    // nemmeno il tempo di partire. Era l'ultimo rosso del gate, e ogni volta
-    // che qualcuno andava a controllare era verde in isolamento: un budget, non
-    // un difetto.
+    // IL TETTO DEL FILE È 30s, E QUI NON BASTA: questo test aspetta che il
+    // server lanci un Chromium headless, ci apra una pagina e la navighi.
     test.setTimeout(60_000);
     await goToApp(page);
 
@@ -75,12 +89,9 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
         // and, on its `load`, rebroadcasts the nav/url to every viewer (A and B).
         A.ws.send(JSON.stringify({ type: "nav", url: navUrl, phase: "request" }));
 
-        // Quanto si aspetta il broadcast. 12s bastavano da soli e NON bastano
-        // sotto i quattro shard: dentro quella finestra il server deve lanciare
-        // un Chromium headless, aprirci una pagina e navigarla — e quattro
-        // processi che fanno la stessa cosa sulla stessa macchina si mettono in
-        // fila. Era l'ultimo rosso del gate, verde 2/2 in isolamento ogni volta
-        // che qualcuno andava a controllare: un budget, non un difetto.
+        // Quanto si aspetta il broadcast: 12s da soli bastano, ma con margine
+        // costano poco e tolgono di mezzo la variabile del tempo — che qui era
+        // la spiegazione comoda e sbagliata (vedi il commento del file).
         const deadline = Date.now() + 25000;
         const target = new URL(navUrl).href;
         const sawOn = (navs: { phase?: string; url?: string }[]) =>
