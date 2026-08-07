@@ -27,6 +27,12 @@ export interface ComputeMenuPositionOpts {
   gap?: number;
   /** Viewport inset the menu must stay within (default 8). */
   margin?: number;
+  /**
+   * Altezza minima che il menu deve avere comunque, anche quando lo spazio
+   * calcolato è meno (default 160). Sotto, il menu scorre invece di sparire:
+   * un tetto di 21px non è un menu, è una fessura.
+   */
+  minHeight?: number;
   /** Override the viewport (defaults to window.inner*). Injected in tests. */
   viewportWidth?: number;
   viewportHeight?: number;
@@ -37,6 +43,20 @@ export interface MenuPosition {
   left: number;
   /** Which way the menu ended up opening — useful for transform-origin / arrows. */
   placement: 'below' | 'above';
+  /**
+   * Quanto può essere ALTO il menu, in px, restando dentro la finestra.
+   *
+   * Sta qui e non nei call-site perché senza di lui il flip non basta: con 88px
+   * sotto il trigger e 100px sopra, ribaltare sceglie il lato meno peggio e
+   * taglia lo stesso. È la metà mancante — misurata sul difetto vero: le due
+   * tendine dei rami ricavavano il tetto dallo spazio SOTTO il bottone, e con
+   * le sezioni della barra collassate sotto restavano 33px, cioè maxHeight 21
+   * contro un'intestazione di lista da 24,5 → ZERO righe visibili.
+   *
+   * Il valore è lo spazio del lato scelto, mai sotto `minHeight`: sotto quella
+   * soglia un menu non mostra niente e tanto vale farlo scorrere.
+   */
+  maxHeight: number;
 }
 
 /**
@@ -49,7 +69,7 @@ export function computeMenuPosition(
   menu: MenuSize,
   opts: ComputeMenuPositionOpts = {},
 ): MenuPosition {
-  const { align = 'left', gap = 4, margin = 8 } = opts;
+  const { align = 'left', gap = 4, margin = 8, minHeight = 160 } = opts;
   const vw = opts.viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
   const vh = opts.viewportHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
 
@@ -61,8 +81,16 @@ export function computeMenuPosition(
   left = maxLeft >= margin ? Math.max(margin, Math.min(left, maxLeft)) : margin;
 
   // Vertical: open below by default; flip above when there isn't room below.
-  const fitsBelow = anchor.bottom + gap + menu.height <= vh - margin;
+  const spazioSotto = vh - margin - (anchor.bottom + gap);
+  const spazioSopra = anchor.top - gap - margin;
+  const fitsBelow = menu.height <= spazioSotto;
   const top = fitsBelow ? anchor.bottom + gap : Math.max(margin, anchor.top - menu.height - gap);
 
-  return { top, left, placement: fitsBelow ? 'below' : 'above' };
+  // Il tetto del lato scelto. Quando NON ci sta da nessuna parte si prende il
+  // lato più capiente: ribaltare su un lato ancora più stretto sarebbe solo un
+  // modo diverso di tagliare.
+  const spazio = fitsBelow ? spazioSotto : Math.max(spazioSopra, spazioSotto);
+  const maxHeight = Math.max(minHeight, Math.min(spazio, vh - margin * 2));
+
+  return { top, left, placement: fitsBelow ? 'below' : 'above', maxHeight };
 }

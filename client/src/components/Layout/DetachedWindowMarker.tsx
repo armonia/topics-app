@@ -11,7 +11,6 @@
 import { AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
-import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { detachedWindowLabel, focusOrReopenDetachedWindow } from '@/lib/detachedWindow';
 import { useDetachedWindows } from '@/state/windowPresence';
 import type { Topic } from '@/types';
@@ -37,8 +36,9 @@ export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMa
             onClick={() => focusOrReopenDetachedWindow(w, onReopenTopic)}
             className={cn(
               POPOVER_SURFACE,
-              'py-0 flex items-center gap-2 h-11 px-3 text-left transition-colors',
-              `hover:${SELECTED_SURFACE}`,
+              // `py-0` era morto: `POPOVER_SURFACE` porta `py-1`, `cn` non e'
+              // tailwind-merge, e `.py-1` viene emesso dopo `.py-0`. Tolto.
+              'glass-surface-hover cursor-pointer flex items-center gap-2 h-11 px-3 text-left transition-colors',
             )}
             title="Apri l'altra finestra"
             aria-label={`Apri la finestra con ${label}`}
