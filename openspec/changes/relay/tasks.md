@@ -48,12 +48,14 @@ sapere se il disegno regge prima di aprire un conto.
 
 ## 2. Il lato macchina
 
-- [ ] 2.1 Connessione in USCITA verso il relay, con riconnessione a intervalli
-  crescenti. Nessuna porta in ascolto.
-- [ ] 2.2 Il gate resta quello di sempre: chi arriva dal relay è un dispositivo
-  come un altro. **Nessuna scorciatoia di fiducia** — vale la stessa lezione del
-  tunnel, dove loopback significava proprietario.
-- [ ] 2.3 Il relay è spegnibile e l'app locale non se ne accorge.
+- [x] 2.1 Connessione in USCITA (`server/services/relay-client.ts`), con attese
+  crescenti che si fermano: insistere ogni secondo su un relay giù è rumore.
+  Nessuna porta in ascolto.
+- [x] 2.2 Nessuna scorciatoia di fiducia: chi arriva dal relay non diventa
+  nessuno. Il link è una CAPACITÀ su una risorsa (migration 085), e la verifica
+  passa dalla riga di `share_links` — non da un ruolo, non da una sessione.
+- [x] 2.3 Il relay è spegnibile e l'app locale non se ne accorge: senza
+  `baseUrl` il client non si collega e non esplode, con un caso apposta.
 
 ## 3. Il lato Cloudflare
 
@@ -66,6 +68,7 @@ sapere se il disegno regge prima di aprire un conto.
   `new_sqlite_classes` nella migration, che è anche ciò che lo tiene sul piano
   GRATUITO.
 - [ ] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
+  Serve quando ci sarà traffico vero da mantenere vivo.
 - [ ] 3.4 Il co-browse a pixel NON passa di qui: resta WebRTC. Un test di
   contratto che fallisca se un frame video entra nel DO.
 
