@@ -192,7 +192,12 @@ test.describe("cronologia dei commit", () => {
     const pannello = win.locator('[data-testid="git-changes"]');
     await expect(pannello).toBeVisible({ timeout: 15000 });
     const head = pannello.locator('[data-testid="project-sidebar-git"]');
-    if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+    // L'ETICHETTA, non il centro: al centro della riga c'e' il nome del ramo,
+    // che e' un CONTROLLO — cliccarlo apre la sua tendina e la sezione resta
+    // chiusa (misurato con `elementFromPoint`).
+    if ((await head.getAttribute("aria-expanded")) !== "true") {
+      await head.getByText("Git", { exact: true }).click();
+    }
 
     // Albero pulito: il messaggio c'e', la lista no. Ed e' proprio lo stato in
     // cui il vecchio piede si comportava peggio — al posto della lista c'era un

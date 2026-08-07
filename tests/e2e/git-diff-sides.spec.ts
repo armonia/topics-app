@@ -110,7 +110,12 @@ test.describe("i due lati del diff", () => {
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 15000 });
     const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
-    if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+    // L'ETICHETTA, non il centro: al centro della riga c'e' il nome del ramo,
+    // che e' un CONTROLLO — cliccarlo apre la sua tendina e la sezione resta
+    // chiusa (misurato con `elementFromPoint`).
+    if ((await header.getAttribute("aria-expanded")) !== "true") {
+      await header.getByText("Git", { exact: true }).click();
+    }
 
     // Due righe per lo stesso file: e' cosa vuol dire `MM`.
     await expect(gitChanges.locator('[data-git-file="mm.txt"]')).toHaveCount(2, { timeout: 10000 });
