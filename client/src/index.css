@@ -542,8 +542,47 @@
   html.dark:not(.electron-mac) {
     --popover-bg: hsl(222 14% 13%);
     --text-placeholder: hsl(220 8% 48%);
+    /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
+     *
+     * Attilio, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
+     * parti». Misurato (scratchpad/tokens.mjs), ed è un effetto SISTEMATICO,
+     * non un token sbagliato: questi cinque sono tarati per staccare da
+     * `--bg-surface` (11% di lightness), e sotto i 768px si ritrovano sotto
+     * `--chrome-bg` (4,5%). Lo stacco che il disegno dichiara si gonfia dello
+     * stesso fattore su tutti — un grigio che doveva essere un'ombra diventa un
+     * rialzo:
+     *   elevated  1,089 → 1,244    hover  1,198 → 1,368
+     *   input     1,058 → 1,208    inset  1,026 → 1,114
+     *   bolla     1,480 → 1,690
+     * Le lightness qui sotto sono la SOLUZIONE di «quale valore rimette lo
+     * stacco del desktop su questo fondo», non un aggiustamento a occhio.
+     *
+     * I BORDI restano fuori di proposito, ed è la stessa misura a dirlo: lì il
+     * guadagno è un guadagno (1,24 → 1,42 su un capello che era debole), e il
+     * commento del blocco chiaro qui sopra lo registra già come tale. Un bordo
+     * vuole staccare; una superficie vuole stare al suo piano. */
+    --bg-elevated: hsl(220 13% 8.9%);
+    --bg-hover: hsl(220 12% 12.7%);
+    --bg-input: hsl(220 13% 7.5%);
+    --bg-inset: hsl(222 15% 6.2%);
+    --bg-user-bubble: hsl(220 12% 19.3%);
   }
 }
+
+/* IL BLU COME INCHIOSTRO NON È IL BLU COME FONDO.
+ *
+ * `--primary` (#0066ff) è tarato per essere un FONDO, col bianco sopra: come
+ * TESTO sul chrome scuro misura 4,10:1, cioè sotto il 4,5 di WCAG AA — e
+ * `text-primary` è su 110 punti del client, fra cui il link «Ricarica» del
+ * banner di versione, che vive proprio lì. `--primary-dark` (#4d94ff) esiste
+ * già per questo caso e sullo stesso fondo dà 6,63:1.
+ *
+ * La regola tocca SOLO la proprietà `color`, non il token: `bg-primary` resta
+ * #0066ff, perché lì il problema non c'è (è il bianco sopra a doverci stare, e
+ * su #4d94ff sarebbe 3,0:1 — si sarebbe rotto l'altro verso). Specificità
+ * (0,2,0) contro lo (0,1,0) dell'utility di Tailwind: vince a prescindere
+ * dall'ordine di generazione. */
+.dark .text-primary { color: var(--primary-dark); }
 
 /* Global focus styles for keyboard navigation */
 @layer base {
@@ -1156,6 +1195,73 @@ input[type="range"]::-webkit-slider-thumb {
     height: max(100%, 44px);
     transform: translateY(-50%);
   }
+}
+
+/* IL BORDO RIFLESSO — la luce che cade sul bordo alto di una card.
+ *
+ * Attilio, 07/08: «una sorta di bordo riflesso sulle card, molto minimo, non
+ * invasivo, ma ti dà un feel completamente diverso anche quando la card non è
+ * selezionata. Da applicare a tutti gli elementi con border radius e flottanti:
+ * le tab, ma anche i tasti come + e il cerca».
+ *
+ * È la stessa cosa che fanno i controlli di sistema: una superficie leggermente
+ * rialzata prende più luce sullo SPIGOLO SUPERIORE e ne perde su quello
+ * inferiore. Due capelli, non un bordo: il filo pieno tutt'attorno è la parte
+ * «minima» (alpha bassissima, serve solo a chiudere la forma), il riflesso vero
+ * è la riga in cima.
+ *
+ * ── Perché uno pseudo-elemento e non `box-shadow` sulla classe ──────────────
+ * Metà dei consumatori porta già un `box-shadow`: `ring-1 ring-inset` sulle
+ * tessere fissate, `shadow-sm` sui bottoni flottanti, l'anello del focus di
+ * tastiera. In Tailwind v4 tutti finiscono nella STESSA proprietà composta
+ * (`--tw-ring-shadow` & co.), quindi una `box-shadow` scritta qui non si
+ * sommerebbe: cancellerebbe l'anello o verrebbe cancellata, a seconda
+ * dell'ordine — e in entrambi i casi in silenzio. Un `::before` non compete con
+ * niente e eredita il raggio, quindi segue la forma di chi lo ospita senza che
+ * il chiamante debba ripetere il `rounded-*`.
+ *
+ * `border-radius: inherit` + `inset: 0` = il riflesso sta ESATTAMENTE sul
+ * bordo, mai un pixel fuori. `pointer-events: none` perché copre l'intera
+ * superficie e ruberebbe ogni clic al bottone che lo porta.
+ *
+ * Chi lo usa non deve dichiarare `position: relative`: lo impone la classe,
+ * come fa `.tap-expand`. */
+.edge-lit { position: relative; }
+.edge-lit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* Tema CHIARO: la luce ambientale viene dall'alto, quindi lo spigolo
+     superiore è quasi bianco e quello inferiore raccoglie un'ombra. Il filo
+     perimetrale è nero all'4%: su un fondo grigio-azzurro (il chrome) un filo
+     bianco tutt'attorno farebbe sembrare la card ritagliata. */
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.75),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.035),
+    inset 0 0 0 1px rgb(0 0 0 / 0.04);
+}
+.dark .edge-lit::before {
+  /* Tema SCURO: la stessa geometria a parti invertite — lo spigolo alto prende
+     un bianco tenue (il riflesso), quello basso non prende niente (un'ombra
+     nera su un fondo quasi nero non si vede e sporca soltanto). */
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+    inset 0 0 0 1px rgb(255 255 255 / 0.045);
+}
+/* Sotto la vibrancy di macOS il riflesso resta, ma più asciutto: lì il
+   materiale nativo porta già il suo gradiente e due riflessi sovrapposti
+   leggono come un doppio bordo. */
+html.electron-mac .edge-lit::before {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.5),
+    inset 0 0 0 1px rgb(0 0 0 / 0.03);
+}
+html.electron-mac.dark .edge-lit::before {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+    inset 0 0 0 1px rgb(255 255 255 / 0.035);
 }
 
 /* IL LONG-PRESS SI VEDE. Su iPhone `navigator.vibrate` non esiste, quindi

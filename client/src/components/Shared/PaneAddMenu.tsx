@@ -51,7 +51,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM_TOUCH, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { RESTING_SURFACE } from '../../lib/selectionStyles';
+import { RESTING_SURFACE, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -215,6 +215,13 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
   /** Keyboard-shortcut hint rendered INSIDE the trigger (kbd style — same
    *  as the sidebar Search button's ⌘K). Desktop only; hidden on mobile. */
   triggerKbd?: string;
+  /**
+   * Un'etichetta accanto al «+», per il posto in cui il bottone non ha vicini
+   * che lo spieghino: la barra dei comandi in fondo alla sidebar sul telefono,
+   * dove due sole icone in mezzo a una fascia larga sono un indovinello. Assente
+   * ovunque il «+» stia in fila con altre affordance della sua misura, che è il
+   * caso normale — un'icona sola in un binario si legge dal contesto. */
+  triggerLabel?: string;
   /** Optional class to layer on top of the default trigger styling. The
    *  sidebar uses this to make the button hover-revealed on the project
    *  header row (`'hidden group-hover/proj:flex'`); the top tab bar leaves
@@ -233,8 +240,27 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
   presentation?: 'dropdown' | 'palette';
 }
 
+/**
+ * Il «+» — quello della barra delle tab, della riga di progetto e della tessera
+ * fissata. Un componente, un aspetto.
+ *
+ * DUE correzioni, entrambe segnalate da Attilio il 07/08 («il tasto di aggiunta
+ * di una nuova tab sulla tab bar forse è un po' piccolo e, fra l'altro, potrebbe
+ * essere uniformato in termini di colori a quello che abbiamo sulla sidebar»):
+ *
+ *  · IL COLORE. Era `bg-surface`, cioè il token delle PANE DI CONTENUTO: sul
+ *    desktop è bianco puro, quindi sopra la riga di chrome il bottone sembrava
+ *    un ritaglio di pagina incollato lì; sotto i 768px `--bg-surface` collassa
+ *    su `--chrome-bg` (vedi index.css) e il bottone spariva del tutto nel fondo.
+ *    `RESTING_SURFACE` è un rialzo in ALPHA: si compone su qualunque superficie
+ *    e segue il tema da sé — ed è LO STESSO che portano il cerca e il «New»
+ *    dell'header della sidebar, che è la parità chiesta.
+ *  · LA MISURA. 24px in un binario dove ogni altro comando ora sta a
+ *    {@link ROW_ACTION_BOX} (28 desktop / 36 col dito) lo lasciava sia sotto
+ *    soglia col pollice sia fuori colonna rispetto ai vicini.
+ */
 const TRIGGER_CLASS_PILL =
-  'w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors';
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -243,6 +269,7 @@ export function PaneAddMenu({
   availableTypes,
   triggerTitle = 'Add pane',
   triggerVariant = 'pill',
+  triggerLabel,
   triggerKbd,
   triggerClassName = '',
   noElectronDrag,
@@ -288,16 +315,20 @@ export function PaneAddMenu({
   // Trigger preset selection. The 'ghost' variant matches sidebar
   // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
   // transparent at rest, hover bg-black/5. The 'pill' variant matches
-  // tab-bar / sidebar-project-row affordances — 6×6 with bg-surface.
+  // tab-bar / sidebar-project-row affordances — see TRIGGER_CLASS_PILL.
   // The 'header' variant matches the sidebar Search button — compact h-7
   // RESTING_SURFACE card with an inline kbd hint.
   const triggerBase =
     triggerVariant === 'header'
-      ? `${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
+      ? `edge-lit ${isMobile ? 'h-11 px-3' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
-        ? `${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
+        ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
-  const triggerIconSize = triggerVariant !== 'pill' && isMobile ? 18 : 14;
+  // Il glifo cresce col dito su OGNI variante, «pill» compresa: il box della
+  // pill adesso è 36px sotto i 768px (ROW_ACTION_BOX), e un «+» da 14 al centro
+  // di 36 sembra un errore di misura. L'esclusione della pill era corretta
+  // finché la pill era 24 e un glifo da 18 l'avrebbe riempita fino al bordo.
+  const triggerIconSize = isMobile ? 18 : 14;
 
   const menuItems = (
     <PaneAddMenuItems
@@ -324,6 +355,7 @@ export function PaneAddMenu({
         data-testid="pane-add-menu-trigger"
       >
         <Plus size={triggerIconSize} aria-hidden="true" />
+        {triggerLabel && <span className="text-[13px] font-medium">{triggerLabel}</span>}
         {triggerKbd && !isMobile && (
           <kbd className="kbd flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
         )}

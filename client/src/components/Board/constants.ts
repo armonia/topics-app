@@ -50,26 +50,38 @@ export const PRIORITY_LABEL: Record<number, string> = {
   4: 'Urgente', 3: 'Alta', 2: 'Media', 1: 'Bassa', 0: 'Minima',
 };
 
+/**
+ * Il colore di una colonna kanban, sul suo glifo.
+ *
+ * ── Due toni per tema, e la ragione è misurata ──────────────────────────────
+ * Erano i soli `-400` di Tailwind: nati su una superficie scura, dove reggono.
+ * Sul chrome CHIARO (#eaecf0) misurano — contro il fondo, che per un glifo è il
+ * confronto che conta — sky-400 1,83:1, emerald-400 1,64:1, rose-400 2,28:1:
+ * tre colori che si intuiscono invece di vedersi. È il «blu troppo chiaro» che
+ * Attilio ha segnalato il 07/08, e da quando questi glifi compaiono anche nella
+ * SIDEBAR (la riga della board) si vede in tema chiaro senza aprire niente.
+ *
+ * I `-600` sullo stesso fondo danno 3,46 / 3,19 / 3,10:1, cioè sopra la soglia
+ * di 3:1 che WCAG chiede a un elemento grafico. In scuro non cambia niente:
+ * restano i `-400` di prima, che lì sono giusti.
+ *
+ * `backlog` e `todo` erano già su token di testo, quindi già bitematici: la
+ * correzione riguarda i tre che avevano una tinta fissa.
+ */
 export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
   backlog: 'text-app-text-muted',
   todo: 'text-app-text-heading',
-  in_progress: 'text-sky-400',
-  review: 'text-rose-400',
-  done: 'text-emerald-400',
+  in_progress: 'text-sky-600 dark:text-sky-400',
+  review: 'text-rose-500 dark:text-rose-400',
+  done: 'text-emerald-600 dark:text-emerald-400',
 };
 
-/** Lo stesso colore di `STATUS_ICON_COLOR`, come RIEMPIMENTO — per i pallini
- *  che riassumono una colonna dove non c'è spazio per scriverne il nome (il
- *  conteggio per stato sulla riga della board, nella sidebar). Sta qui accanto
- *  al gemello perché i due non possono divergere: un pallino di un colore e
- *  l'icona della stessa colonna di un altro sarebbero due lingue. */
-export const STATUS_DOT: Record<TaskStatus, string> = {
-  backlog: 'bg-app-text-muted',
-  todo: 'bg-app-text-heading',
-  in_progress: 'bg-sky-400',
-  review: 'bg-rose-400',
-  done: 'bg-emerald-400',
-};
+/* (Qui stava `STATUS_DOT`, i pallini pieni per riassumere una colonna dove non
+   c'è spazio per il nome. L'unico consumatore era il conteggio sulla riga della
+   board nella sidebar, che dal 07/08 disegna il glifo VERO della kanban
+   (`StatusIcon`) invece di un pallino: il colore da solo dice «rosso», non dice
+   «review» né in che ordine vengono le colonne. Senza consumatori la mappa era
+   codice morto, e `check:deadcode` l'avrebbe segnalata al giro dopo.) */
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {

@@ -34,18 +34,21 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
 /** Il rientro del «+» dal bordo destro, e — perché il bottone è centrato in
  *  verticale — anche lo spazio sopra e sotto di lui. I tre coincidono solo a
  *  una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
- *  trigger «pill» di `PaneAddMenu` è 24px (`w-6 h-6`), quindi 24 + 8 = 32 =
- *  `h-8`. Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio:
- *  stanno scritti vicini per questo.
+ *  trigger «pill» di `PaneAddMenu` vale `ROW_ACTION_BOX`, cioè 28px sopra i
+ *  768px e 36 sotto: 28 + 2 × 2 = 32 = `h-8`, e 36 + 2 × 4 = 44 = `h-11`.
+ *  Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio: stanno
+ *  scritti vicini per questo.
  *
- *  SOTTO I 768px la tessera è `h-11` (44) — misurata col dito era 378×32, e i 32
- *  sono il lato corto, cioè quello che conta per un pollice. L'uguaglianza vale
- *  anche lì SOLO se l'inset segue: 44 = 24 + 2 × 10. È il motivo per cui questo
- *  non è più un numero secco ma una coppia, e per cui va letto con
- *  `pinnedTileActionInset(isMobile)` invece che direttamente: due costanti
- *  scollegate sarebbero tornate a divergere alla prima modifica. */
-export const PINNED_TILE_ACTION_INSET = 4;
-export const PINNED_TILE_ACTION_INSET_MOBILE = 10;
+ *  I numeri si sono mossi il 07/08 insieme al box: il «+» è passato da 24 a
+ *  `ROW_ACTION_BOX` perché era il comando più piccolo di un binario in cui ogni
+ *  altro era più grande (vedi il commento della costante in selectionStyles), e
+ *  l'inset ha dovuto seguirlo — 4→2 e 10→4 — o la tessera sarebbe cresciuta di
+ *  quattro pixel senza che nessuno l'avesse chiesto.
+ *
+ *  Va letto con `pinnedTileActionInset(isMobile)` invece che direttamente: due
+ *  costanti scollegate sarebbero tornate a divergere alla prima modifica. */
+export const PINNED_TILE_ACTION_INSET = 2;
+export const PINNED_TILE_ACTION_INSET_MOBILE = 4;
 /** L'inset giusto per la larghezza corrente. Vedi il commento qui sopra. */
 export function pinnedTileActionInset(isMobile: boolean): number {
   return isMobile ? PINNED_TILE_ACTION_INSET_MOBILE : PINNED_TILE_ACTION_INSET;
