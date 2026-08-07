@@ -2,6 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.40 — 2026-08-07
+
+### Sotto il cofano
+- Changelog per 2.2.39
+- Gli script di un progetto vengono da tutti i manifest, non solo da package.json
+- Se la fast mode non c'è, il bottone non c'è. Se c'è, sotto c'è quanto costa
+- L'errore dei dispositivi non è più definitivo, e la riga sopra la barra ci porta
+- La sezione Processi ha un'ancora stabile: testid e aria-expanded
+- I PROCESS-* mockavano gli script nella forma di prima, e il pannello non nasceva
+- Una costante che nessuno importa non è documentazione: è codice morto
+- Il lucchetto del protocollo riconosce i tre auth:* dell'accoppiamento
+- Le classi dei numeri a consuntivo escono dal file dei componenti
+- Un file che esporta un componente E altro spegne il fast refresh
+- Il rinomina aveva portato con sé il contenuto vecchio
+- `DetectedScript` era dichiarato due volte, e il cancello degli script parlava ancora di package.json
+- Venti rossi su ventuno, e nessuno comprato col silenziatore
+- Lo sfondo non è più inventato: è l'arco della reference, misurato e con un cancello che lo dice
+- «Insipido» non è un'opinione se ha un numero: quanto di ogni schermata è colorato
+- Due pillole bianche su bianco che nessun cancello poteva vedere, e tre regole per elementi che non esistono
+- Il menu agiva sul nulla, il messaggio stava su una riga, e ogni riga portava un buco
+- Otto rilievi della review, e uno faceva riavviare l'app toccando la versione
+- La condivisione era consegnata senza requisiti: ora li ha
+- Tre task della board, e una mia frase da smentire
+- La tessera fissata decide dalla LARGHEZZA, non da un'icona ancora in volo
+
 ## 2.2.39 — 2026-08-07
 
 ### Sotto il cofano
