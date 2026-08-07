@@ -112,17 +112,24 @@ per entità.
 
 ### Resta aperto
 
-- **Organizzazioni e persone.** Richiedono l'identità del proprietario, che
-  richiede il login, che ha il vincolo già scritto in `device-auth`. Oggi il
-  soggetto è il dispositivo, ed è coerente: con un proprietario solo, «persona» e
-  «dispositivo» sono la stessa informazione.
+- **Organizzazioni e persone.** ~~Richiedono l'identità del proprietario…~~
+  **Ripreso dalla change `sharing-orgs`.** La premessa qui sotto — «con un
+  proprietario solo, persona e dispositivo sono la stessa informazione» — era
+  vera finché il prodotto era di uno. Da quando si vende a singoli **e a team**
+  smette di esserlo: un collega ha due dispositivi, e condividere con il portatile
+  ma non col telefono non è una cosa che qualcuno voglia dire. La persona diventa
+  il soggetto, e il dispositivo resta la credenziale d'accesso.
 - **La raggiungibilità**: un ospite deve poter arrivare al server. Sulla LAN vuol
   dire che è in casa. Fuori serve il relay — decisione di infrastruttura, non
-  implementazione.
-- **La vista dell'ospite.** Oggi un ospite che apre l'app vede la board vuota:
-  i dati ci sono (`/api/auth/shared`), manca la schermata che li dispone. È il
-  prossimo pezzo, ed è quello che rende la condivisione una cosa che si può
-  mostrare a qualcuno.
+  implementazione. **Aggiornamento**: la forma è stata decisa — piano di controllo
+  centrale (account, org, licenze, coordinamento), piano dati locale. Resta da
+  scegliere dove termina il TLS.
+- [x] **La vista dell'ospite.** Fatta: `SessionRoot` decide alla RADICE cosa si
+  monta — cancello, vista ospite o app — e `GuestView` dispone schede e chat da
+  `/api/auth/shared`, col caso vuoto che dice che è normale. La forma sbagliata
+  era stata provata: montare la vista ospite SOPRA l'app la copre ma non la
+  spegne, e ogni pezzo sotto continuava a chiedere al server cose che il gate
+  nega — una schermata piena di errori, che un ospite legge come «è rotto».
 - **Contenitori**: condividere un progetto e vederne i task arrivare in blocco.
   Il campo `via` esiste apposta, ma «progetto» oggi vuol dire quattro cose
   diverse (7 righe in `projects`, 19 slug nei task, 385 percorsi nei topic, 38
