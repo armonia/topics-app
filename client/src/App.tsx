@@ -76,6 +76,7 @@ import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
+import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -936,6 +937,11 @@ function App() {
     stopSession,
   });
 
+  // Lo swipe dai bordi non naviga più (solo PWA iOS): vedi `edgeSwipeGuard`,
+  // che spiega anche perché non si passa dalla cronologia e quale prezzo si
+  // paga sui comandi che vivono sul bordo.
+  useEffect(() => initEdgeSwipeGuard(), []);
+
   // I DUE COMANDI DELLA COLONNA, definiti UNA volta e montati dove serve.
   //
   // Col mouse stanno in testa alla sidebar, accanto al titolo; col dito in
@@ -1089,7 +1095,14 @@ function App() {
             the same 6px the tab strip, the sidebar cards, and the list's
             vertical padding use — one inset on every sidebar axis. */}
         <div
-          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`} {...DRAG_REGION}
+          // L'ALTEZZA SEGUE I BOTTONI, non il contrario. Col dito i due comandi
+          // sono 44px (la soglia iOS) e la riga era 48: 2px sopra e 2 sotto,
+          // cioè «i tasti toccano il bordo». 44 + 2 × ROW_INSET = 56 (`h-14`) e
+          // il respiro torna quello di tutta la colonna — lo STESSO 6px che
+          // separa una card dal bordo e una riga dalla sua vicina. Col mouse i
+          // bottoni sono 28 e la riga resta 40, che è la stessa identità:
+          // 28 + 2 × 6 = 40.
+          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1142,24 +1155,6 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* CONNESSIONI E NUMERI, IN MEZZO. «Le connessioni e le stats
-                affianco a Topics, fra i tasti cerca e + e il logo menu»
-                (Attilio, 07/08). Sul telefono la colonna è alta quanto lo
-                schermo, e una fascia dedicata a quattro numeri costa una riga
-                intera per una cosa che si guarda di sfuggita: qui non costa
-                niente, perché la riga c'è già ed è mezza vuota. Si prende lo
-                spazio che avanza e tronca (è già com'è costruita: l'unico
-                elemento elastico è il testo di stato). */}
-            {isMobile && (
-              <ErrorBoundary fallbackMessage="Stato">
-                <SidebarStatusBar
-                  placement="inline"
-                  wsStatus={wsStatus}
-                  dataNotice={topicsError}
-                  onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
-                />
-              </ErrorBoundary>
-            )}
             {/* CERCA E «+», tutti e due accanto al logo su qualunque schermo.
                 Erano finiti in una barra in fondo alla colonna sul telefono —
                 dove arriva il pollice — e la geometria era giusta ma il prezzo
@@ -1262,26 +1257,22 @@ function App() {
             questo slot e ci si portalano dentro. */}
         <div data-update-slot className="flex-shrink-0 empty:hidden" style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }} />
 
-        {/* Status bar — in fondo col mouse. Col dito è già in cima (vedi sopra)
-            e qui al suo posto c'è la barra dei comandi. */}
-        {!isMobile && (
-          <ErrorBoundary fallbackMessage="Status bar error">
-          <SidebarStatusBar
-            wsStatus={wsStatus}
-            dataNotice={topicsError}
-            onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
-          />
-          </ErrorBoundary>
-        )}
-
-        {/* LA FASCIA DELL'HOME INDICATOR. Col dito la barra di stato è salita in
-            cima e la barra dei comandi non c'è più (i due comandi sono accanto
-            al logo), quindi in fondo alla colonna non resta nessuno a dipingere
-            quella striscia: senza questa riga il cassetto finirebbe con un
-            taglio netto sopra il bordo dello schermo. */}
-        {isMobile && (
-          <div className="flex-shrink-0" style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
-        )}
+        {/* LA BARRA DI STATO STA IN FONDO, su ogni schermo.
+            Ha fatto due giri altrove in un giorno — una fascia dedicata sotto
+            l'header, poi in linea nella riga del titolo — e Attilio l'ha
+            rimandata qui: «per quanto riguarda lo status lascialo in fondo,
+            meglio». Ed è anche il posto della riga dell'IDENTITÀ, che le sta
+            attaccata sopra: fuori di qui non c'era spazio per una seconda riga
+            e l'avevo tolta sul telefono — è il «gli account che fine hanno
+            fatto?». Torna con lei, e con la fascia dell'home indicator che
+            questa barra dipinge di suo. */}
+        <ErrorBoundary fallbackMessage="Status bar error">
+        <SidebarStatusBar
+          wsStatus={wsStatus}
+          dataNotice={topicsError}
+          onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+        />
+        </ErrorBoundary>
       </div>
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
@@ -1336,6 +1327,18 @@ function App() {
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
+          // E ANCHE IL FONDO. La cima era rispettata da sempre, il fondo no: su
+          // iPhone la barra dell'home indicator passava SOPRA il contenuto, e la
+          // cosa che ci finiva sotto era il composer della chat — «il bordo
+          // dell'input tocca i bordi». Il suo `m-2` sono 8px, che sotto una
+          // striscia di sistema da 34 non si vedono nemmeno.
+          // Sta QUI e non sul composer perché la safe-area appartiene a chi
+          // possiede il bordo dello schermo, non all'ultimo componente che ci
+          // finisce contro: così ogni pane — chat, terminale, browser — sta
+          // dentro l'area utile, e nessuno deve ricordarsene di nuovo.
+          // (`.pwa-safe-bottom` in index.css esisteva già per questo e non era
+          // usata da nessuno.)
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           // paddingLeft (the overlay-sidebar reserved column) is owned imperatively by
           // useSidebarFlipPush — NOT a React inline style — so the FLIP can read the
           // pre-commit position and animate the reveal as a compositor transform on the

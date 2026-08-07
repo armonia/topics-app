@@ -821,20 +821,22 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * COL DITO LA COLONNA HA UNA RIGA DI TESTA SOLA, E CI STA TUTTO.
+   * DOVE STANNO LE COSE NELLA COLONNA, col dito.
    *
-   * Attilio, 07/08, in due passaggi: prima «la status bar mettiamola in alto e
-   * i comandi in fondo», poi — vedendolo — «le connessioni e le stats affianco
-   * a Topics, fra i tasti cerca e + e il logo menu». È la stessa idea arrivata
-   * al suo posto: sul telefono la colonna è alta quanto lo schermo, e sia una
-   * fascia dedicata allo stato sia una barra dedicata ai comandi costano una
-   * riga intera ciascuna per cose che stanno in quella che c'è già.
+   * Tre giri in un giorno, e vale la pena che restino scritti perché il test
+   * serve proprio a non rifarli: la barra di stato è andata in una fascia sua
+   * sotto l'header, poi in linea nella riga del titolo, e infine è tornata IN
+   * FONDO — «per quanto riguarda lo status lascialo in fondo, meglio»
+   * (Attilio). Con lei torna la riga dell'IDENTITÀ, che le sta attaccata sopra
+   * ed era sparita sul telefono quando la barra non aveva più una fascia: è il
+   * «gli account che fine hanno fatto».
    *
-   * Si misura l'APPARTENENZA e l'ORDINE, non le classi: «nella riga del titolo»
-   * e «in quest'ordine» sono fatti geometrici, e un test agganciato a un nome di
-   * classe direbbe verde anche a layout rovesciato.
+   * Cerca e «+» invece restano dove sono finiti al secondo giro: accanto al
+   * logo, non in una barra tutta loro.
+   *
+   * Si misura l'APPARTENENZA e l'ORDINE, non le classi.
    */
-  test("SIDEBAR-TOUCH-06: stato e comandi stanno nella riga del titolo, in ordine", async ({ page }) => {
+  test("SIDEBAR-TOUCH-06: stato e identità in fondo, comandi nella riga del titolo", async ({ page }) => {
     await openSidebarOnPhone(page);
 
     const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
@@ -843,23 +845,43 @@ test.describe("Sidebar col dito — audit misurato", () => {
     const cerca = (await page.getByRole("button", { name: /^Search/ }).boundingBox())!;
     const piu = (await page.locator(`${SIDEBAR} [data-testid="pane-add-menu-trigger"]`).first().boundingBox())!;
 
-    // Nessuna fascia tutta loro: né sopra l'albero, né in fondo.
+    // Lo stato sta SOTTO l'albero, in fondo alla colonna.
+    expect(stato.y, "la barra di stato deve stare sotto l'albero").toBeGreaterThan(albero.y);
+    // Nessuna barra dei comandi: i due stanno col titolo, sopra l'albero.
     await expect(page.locator('[data-testid="sidebar-action-bar"]')).toHaveCount(0);
-    for (const [nome, b] of [["lo stato", stato], ["il cerca", cerca], ["il +", piu]] as const) {
+    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
       expect(b.y, `${nome} deve stare nella riga del titolo, sopra l'albero`).toBeLessThan(albero.y);
       expect(Math.abs(b.y + b.height / 2 - (titolo.y + titolo.height / 2)), `${nome} non è sulla riga del titolo`).toBeLessThan(24);
-    }
-
-    // L'ordine: Topics ▾ · stato · cerca · +
-    expect(titolo.x).toBeLessThan(stato.x);
-    expect(stato.x).toBeLessThan(cerca.x);
-    expect(cerca.x).toBeLessThan(piu.x);
-
-    // I due comandi restano bersagli pieni per il dito.
-    for (const [nome, b] of [["il cerca", cerca], ["il +", piu]] as const) {
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
+    // L'ordine in testa: Topics ▾ · cerca · +
+    expect(titolo.x).toBeLessThan(cerca.x);
+    expect(cerca.x).toBeLessThan(piu.x);
+
+    // LA SPAZIATURA È QUELLA DI TUTTA LA COLONNA — 6px, lo stesso passo che
+    // separa una card dal bordo. «I tasti toccano il bordo» era questo: due
+    // bottoni da 44 in una riga da 48 lasciavano 2px sopra e sotto.
+    const testata = (await page.locator(`${SIDEBAR} .app-drag-region`).first().boundingBox())!;
+    const colonna = (await page.locator(SIDEBAR).boundingBox())!;
+    const sopra = Math.round(piu.y - testata.y);
+    const sotto = Math.round(testata.y + testata.height - (piu.y + piu.height));
+    // 6px sopra e 7 sotto, non 6 e 6: il `border-b` della testata è UN PIXEL
+    // che sta dentro i suoi 56 (box-border), quindi il bottone si centra su 55
+    // e l'avanzo dispari cade in basso. È il filo, non uno sbilanciamento — e
+    // pretendere 6/6 vorrebbe dire portare la testata a 57 per un pixel che
+    // nessuno vede. Si chiede che siano il respiro della colonna, e uguali fra
+    // loro entro quel pixel.
+    for (const [dove, v] of [["sopra", sopra], ["sotto", sotto]] as const) {
+      expect(v, `${dove} il + non c'è il respiro della colonna (${v}px invece di ~6)`).toBeGreaterThanOrEqual(6);
+      expect(v, `${dove} il + c'è troppo respiro (${v}px invece di ~6)`).toBeLessThanOrEqual(7);
+    }
+    expect(Math.abs(sopra - sotto), "il + non è centrato nella testata").toBeLessThanOrEqual(1);
+    // In ORIZZONTALE i tre stanno a sinistra in gruppo (è la richiesta:
+    // «a fianco al menu e logo Topics»), quindi il bordo che conta è quello da
+    // cui comincia il gruppo — e deve essere lo stesso da cui comincia una card
+    // della lista, o il titolo risulterebbe rientrato rispetto alle righe.
+    expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
   });
 
   /**
