@@ -77,7 +77,7 @@ import {
 // riesumerebbe l'annotazione nel contenuto finale.
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
-import { crashedTurnNotice, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
+import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
@@ -1236,16 +1236,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // quello per riscrivere il messaggio col cartello di guasto: è così
             // che un pannello `ask_user_question` ancora a schermo è sparito,
             // sostituito da «No response received» (topic:ed2070df, 4 agosto).
-            // La riga sa la verità: se ha dei tool, il turno ha prodotto qualcosa.
-            const rowHasTools = (() => {
-              if (trackedToolCallIds.length > 0) return true;
-              try {
-                const row = ctx.db.prepare("SELECT tool_calls FROM messages WHERE id = ?").get(partialMsg.id) as { tool_calls?: string | null } | undefined;
-                if (!row?.tool_calls) return false;
-                const parsed = JSON.parse(row.tool_calls);
-                return Array.isArray(parsed) && parsed.length > 0;
-              } catch { return false; }
-            })();
+            // La riga sa la verità: se ha dei tool O dei blocchi, il turno ha
+            // prodotto qualcosa.
+            //
+            // `blocks` è stato aggiunto il 7 agosto, su una prova dal vivo:
+            // topic:d04325fa portava DUE righe col cartello «Nessuna risposta:
+            // il turno si è chiuso senza produrre niente» sopra 20 KB e 46 KB di
+            // blocchi. Guardare i soli `tool_calls` non bastava — un turno di
+            // solo testo e ragionamento non ha tool — e per giunta la rifusione
+            // dello snapshot di riadozione, che è ciò che rimette quei blocchi,
+            // gira DOPO questa decisione: qui `fullContent` è ancora vuoto e
+            // `trackedToolCallIds` ancora vuoto, quindi il cartello si scriveva
+            // su un turno intero. Finché viveva sepolto in `content` non si
+            // vedeva; ora che il verdetto si legge, si leggerebbe una falsità.
+            // La domanda è la STESSA che si fa la guardia dei cartelli d'errore,
+            // e si pone con la stessa funzione: `content` qui è già misurato a
+            // parte (`!fullContent.trim()`), quindi si passa vuoto e contano
+            // solo tool e blocchi.
+            const rowHasWork = trackedToolCallIds.length > 0
+              || blocks.length > 0
+              || rowCarriesWork({ ...(readRowForNotice(partialMsg.id) ?? { toolCallsJson: null, blocksJson: null }), content: "" });
             // Il turno che ha PROPOSTO e non ha potuto consegnare.
             //
             // In plan mode la CLI 2.1.223 non espone più `ExitPlanMode`, quindi
@@ -1280,7 +1290,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             // Il cartello del turno a vuoto NON vale quando il turno ha
             // proposto un piano: lì c'è eccome qualcosa, ed è una domanda.
-            if (reason === "done" && !fullContent.trim() && !rowHasTools && !askingPlanApproval) {
+            if (reason === "done" && !fullContent.trim() && !rowHasWork && !askingPlanApproval) {
               // Il testo non dà più la colpa al servizio AI: qui sappiamo solo
               // che il turno si è chiuso a mani vuote, e le volte in cui è
               // successo il guasto era in casa nostra. Dice invece la cosa che
