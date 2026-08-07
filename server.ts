@@ -75,6 +75,7 @@ import {
 } from "./server/lib/device-auth";
 import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
+import { resolvePrincipals } from "./server/lib/principals";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -1637,6 +1638,21 @@ const server = Bun.serve<WSData>({
               ctx.db.query("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(Date.now(), device.id);
             }
             if (r.ok) {
+              // I PRINCIPALI di questo dispositivo: sé stesso, la sua persona,
+              // le sue organizzazioni. Da qui in poi le concessioni si
+              // confrontano con TUTTI, quindi una condivisione fatta a una
+              // persona o a un team ha effetto senza che nessuna riga venga
+              // riscritta a ogni pairing.
+              const princ = r.deviceId ? resolvePrincipals(ctx.db, r.deviceId) : null;
+              // Il confinamento resta deciso da `devices.role`, e la nuova
+              // regola gli sta accanto SENZA decidere: se divergono lo si
+              // scopre da un log, non da un accesso sbagliato. È il passo che
+              // separa «il modello nuovo esiste» da «il modello nuovo comanda».
+              if (princ && princ.confined !== (r.role === "guest")) {
+                console.warn(
+                  `[principals] divergenza su ${r.deviceId}: ruolo=${r.role} confinato=${princ.confined}`,
+                );
+              }
               identityByRequest.set(req, { role: r.role, deviceId: r.deviceId });
               // ── L'OSPITE è confinato QUI, non nei singoli router.
               // Metterlo nei router significa dimenticarne uno: provato sulla
@@ -1658,7 +1674,10 @@ const server = Bun.serve<WSData>({
                 // percorso concesso con dentro l'id di una risorsa NON concessa
                 // è il modo in cui un'allowlist di percorsi diventa inutile.
                 if (r.deviceId) {
-                  const principali = deviceP(r.deviceId);
+                  // Tutti i principali, non il solo dispositivo: è qui che
+                  // «condiviso con una persona» smette di essere una riga
+                  // inerte e diventa un accesso.
+                  const principali = princ?.list ?? deviceP(r.deviceId);
                   const concessa = (tipo: "task" | "topic", id: string): boolean =>
                     hasGrant(ctx.db, principali, tipo, id);
 
