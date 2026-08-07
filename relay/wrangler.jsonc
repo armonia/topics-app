@@ -10,6 +10,22 @@
   "compatibility_date": "2026-01-01",
   "observability": { "enabled": true },
 
+  // Il dominio del relay. `custom_domain: true` crea anche il record DNS e il
+  // certificato — non è una `route` sopra un record che esiste già.
+  //
+  // Vive su un sottodominio SUO e non su `topics.armonia.io`: quello è il sito,
+  // servito da un altro Worker (`topics-landing`), e due Worker sullo stesso
+  // hostname sono una gara che vince chi ha deployato per ultimo.
+  "routes": [
+    { "pattern": "relay.topics.armonia.io", "custom_domain": true }
+  ],
+  // ESPLICITO, e non è ridondanza: aggiungere una `route` DISATTIVA
+  // `workers.dev` per default, e quell'indirizzo è dentro i link già
+  // consegnati e nella configurazione del server. Spegnerlo passando a un
+  // dominio proprio vorrebbe dire rompere tutto ciò che è già in giro
+  // nell'istante esatto in cui si migliora l'indirizzo.
+  "workers_dev": true,
+
   "durable_objects": {
     "bindings": [{ "name": "SESSIONE", "class_name": "SessioneRelay" }]
   },
