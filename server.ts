@@ -73,7 +73,7 @@ import {
   evaluateIdentity, isIdentityExemptPath, readSessionCookie, hashToken,
   type DeviceRecord,
 } from "./server/lib/device-auth";
-import { isGuestAllowedPath, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
+import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -1648,6 +1648,14 @@ const server = Bun.serve<WSData>({
               if (r.role === "guest") {
                 if (!isGuestAllowedPath(pathname)) {
                   return { ok: false as const, status: 403, reason: "non disponibile per un ospite", code: "guest_forbidden" };
+                }
+                // Il METODO, che è il terzo asse e mancava. L'allowlist apre la
+                // strada, il controllo sotto dice quale stanza, e questo dice
+                // cosa ci si può fare: senza, `level='read'` era una parola
+                // nello schema che nessuno faceva valere, e un ospite poteva
+                // modificare o cancellare la scheda che gli avevi condiviso.
+                if (!isGuestAllowedMethod(pathname, method)) {
+                  return { ok: false as const, status: 403, reason: "sola lettura", code: "guest_read_only" };
                 }
                 // L'allowlist apre la STRADA; qui si controlla la STANZA. Un
                 // percorso concesso con dentro l'id di una risorsa NON concessa

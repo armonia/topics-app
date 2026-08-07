@@ -83,6 +83,26 @@ export function isGuestAllowedPath(pathname: string): boolean {
 }
 
 /**
+ * Un ospite può usare QUESTO metodo su questo percorso?
+ *
+ * L'allowlist dei percorsi apre la strada, il controllo sull'entità dice quale
+ * stanza — e mancava il terzo: cosa ci si può FARE dentro. Senza, `level='read'`
+ * era una parola nello schema e nel tipo che nessuno faceva valere: un ospite a
+ * cui avevi condiviso una scheda poteva modificarla (`PATCH /api/tasks/:id`),
+ * commentarla o cancellarla, perché il gate autorizzava il sostantivo e mai il
+ * verbo. La vista dell'ospite dichiara «sola lettura» in fondo alla pagina; da
+ * qui in poi è vero anche fuori dalla pagina.
+ *
+ * L'unica eccezione è uscire. È una POST, e negarla vorrebbe dire che l'unico
+ * modo per un ospite di andarsene è che qualcun altro lo revochi.
+ */
+export function isGuestAllowedMethod(pathname: string, method: string): boolean {
+  const m = method.toUpperCase();
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
+  return pathname === '/api/auth/logout';
+}
+
+/**
  * I tipi di frame WebSocket che un ospite può ricevere.
  *
  * Perché un'allowlist per TIPO e non un filtro per contenuto: `broadcastToAll`
