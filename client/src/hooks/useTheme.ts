@@ -19,6 +19,11 @@ function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
  * cambiare tema dalle impostazioni, o passare a scuro di sistema con l'app già
  * aperta, lasciava la fascia di sistema al tema VECCHIO fino a un ricaricamento.
  *
+ * Il token è `--chrome-bg`, NON `--bg`: questa è la tinta della fascia di
+ * SISTEMA attorno alla PWA, cioè il bordo dell'app — e il bordo dell'app è
+ * chrome, come la sidebar e come la striscia della safe-area. Con `--bg` la
+ * fascia usciva più CHIARA della colonna che le sta attaccata.
+ *
  * Il valore si LEGGE dal token invece di essere ricopiato a mano: gli hex di
  * `--bg` erano scritti in quattro posti (index.html, boot.js, manifest.json,
  * index.css) e restavano allineati solo per disciplina. Qui la fonte è una.
@@ -29,7 +34,7 @@ function syncThemeColorMeta(): void {
   if (document.documentElement.classList.contains('electron-mac')) return;
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
-  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--chrome-bg').trim();
   // Un token con alpha (`hsl(… / .5)`) non è un colore valido per theme-color:
   // meglio lasciare quello che c'è che scriverne uno che il browser scarta.
   if (!value || value.includes('/')) return;

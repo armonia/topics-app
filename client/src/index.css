@@ -77,6 +77,34 @@
   text-overflow: ellipsis;
 }
 
+/* `truncate` + `leading-none`, senza mangiare le code delle lettere.
+ *
+ * `leading-none` fa una line box alta esattamente quanto il font-size, ma i
+ * glifi vivono nella scatola del FONT — per la nostra pila ~1.21em — e quindi
+ * ne escono di ~0.105em sopra e altrettanto sotto. Da solo non si vedrebbe: a
+ * TAGLIARE è `overflow: hidden`, che `truncate` porta con sé per i puntini e
+ * che taglia al PADDING box. Misurato nell'app (canvas
+ * `actualBoundingBoxDescent` contro il padding box): la riga da 11px sotto il
+ * nome di una chat perdeva 1.05px in basso — le code di g/p/q — e il nome da
+ * 13px 0.93px in basso più 0.41px in alto su una Ã.
+ *
+ * Il rimedio NON alza la riga. Allarga di 0.15em per lato il padding box —
+ * cioè la zona dove passa la forbice — e restituisce lo stesso spazio con un
+ * margine negativo: la scatola di MARGINE resta identica al pixel, quindi il
+ * ritmo verticale di chi la contiene non cambia. Cambia solo dove taglia.
+ *
+ * Chi la usa NON deve mettere anche `truncate` o `leading-none`: li contiene
+ * già. E non deve mettere un `mt-*` sul figlio per distanziare — il margine
+ * qui è occupato: la distanza si dà con `gap-*` sul contenitore. */
+@utility truncate-tight {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1;
+  padding-block: 0.15em;
+  margin-block: -0.15em;
+}
+
 /* Topbar tabs — fully hidden by default, ghost 3px thumb only on direct hover */
 @utility scrollbar-topbar {
   scrollbar-width: none;
@@ -387,6 +415,13 @@
 }
 
 /* Prevent pull-to-refresh on mobile (we handle it ourselves) */
+/* Il fondo di ULTIMA ISTANZA è il CHROME, non la pagina.
+   Questo colore si vede solo dove non dipinge nient'altro: il bordo dell'app e
+   le fasce della safe-area. Su iPhone quella striscia sta attaccata alla
+   sidebar, quindi deve leggersi come la sidebar — con `--bg` usciva più chiara
+   della colonna e lo stacco si vedeva a ogni apertura del drawer. Ogni
+   superficie reale (pane, contenuto) dipinge sopra questo, quindi il cambio non
+   si vede da nessun'altra parte. */
 html, body, #root {
   overscroll-behavior-y: contain;
   max-width: 100vw;
@@ -394,7 +429,7 @@ html, body, #root {
   height: 100%;
   height: 100dvh;
   overflow: hidden;
-  background-color: var(--bg);
+  background-color: var(--chrome-bg);
 }
 
 /* (Qui stava una riga `.dark html, .dark body, .dark #root { background-color:
@@ -546,16 +581,19 @@ option {
   color: var(--text);
 }
 
-/* Prevent overscroll white flash */
+/* Il lampo bianco dell'overscroll, e la fascia della safe-area: stesso colore,
+   e quel colore è il CHROME.
+   Queste due regole stavano più in basso di quella in cima al file e la
+   ribattevano con `--bg`, quindi il fondo dell'app restava del colore della
+   PAGINA per quanto lo si cambiasse sopra — la seconda si intitolava perfino
+   «App background color for safe areas», cioè faceva esattamente il contrario
+   di quel che serviva.
+   Il blocco `.dark` è sparito, non spostato: `--chrome-bg` cambia già da sé fra
+   i due temi (`:root` / `.dark`), quindi una regola per tema è una ripetizione
+   che può solo divergere. Ed era per un terzo morta: `.dark` sta su <html>, e
+   `.dark html` chiede un <html> discendente di sé stesso. */
 html, body {
-  background-color: var(--bg, #1a1a1a);
-}
-
-/* App background color for safe areas */
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .dark body, .dark html {
-    background-color: var(--bg);
-  }
+  background-color: var(--chrome-bg, #1a1a1a);
 }
 
 /* Animation for message appear */
@@ -1567,8 +1605,17 @@ html.electron-mac:not(.dark) {
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
  * translucent above). `#main-content` also carries `bg-app-bg`; null it out so
  * the layers don't compound (which would make panes-area frost darker than the
- * sidebar). Now every translucent chrome surface rides the same single layer. */
-html.electron-mac #main-content {
+ * sidebar). Now every translucent chrome surface rides the same single layer.
+ *
+ * `.content-flip-layer` sta nella stessa riga da quando porta `bg-app-bg`: il
+ * colore della pagina e' sceso dal `#main-content` al figlio perche' la fascia
+ * della safe-area (il `paddingTop`) uscisse del colore del CHROME e non della
+ * pagina. Sotto la shell mac quel token e' TRANSLUCIDO, quindi senza questa
+ * riga il figlio dipingerebbe una SECONDA mano sopra la prima e l'area delle
+ * pane risulterebbe piu' scura della sidebar — esattamente il compounding che
+ * questo blocco esiste per evitare. */
+html.electron-mac #main-content,
+html.electron-mac .content-flip-layer {
   background-color: transparent !important;
 }
 
