@@ -224,7 +224,12 @@ export function createAppContext(baseDir: string): AppContext {
      * immediatamente scartati. Le colonne qui sono esattamente quelle che quei tre
      * mutatori leggono o riscrivono.
      */
-    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    // `blocks` c'è perché `updateToolCallFields` deve patchare ANCHE quelli:
+    // quando un messaggio ha blocchi, chi disegna legge quelli e ignora
+    // `tool_calls`. Senza questa colonna nella SELECT la patch ai blocchi
+    // sarebbe partita su un `undefined` e non avrebbe scritto niente — un
+    // aggiornamento che gira, non fallisce, e non si vede.
+    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -1205,13 +1210,34 @@ export function createAppContext(baseDir: string): AppContext {
   function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
     const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
-    const msg = rowToMessage(row, { withBlocks: false });
+    const msg = rowToMessage(row, { withBlocks: true });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
     if (!tc) return msg;
     Object.assign(tc, patch);
+    // ANCHE i blocchi, e non «anche» per scrupolo: quando un messaggio ha
+    // `blocks`, chi disegna legge QUELLI e ignora `tool_calls`
+    // (client/src/state/pendingAsk.ts, <MessageBubble>). Scrivere solo
+    // `tool_calls` da fuori dallo stream produce una riga che nel DB dice
+    // «aspetta una risposta» e a schermo continua a girare.
+    //
+    // Visto il 7 agosto sul primo permesso vero: tre chiamate a kiwi ferme da
+    // tre minuti, il piede della chat che diceva «in attesa della tua
+    // risposta», e NESSUN pannello — perché il pannello viveva in una colonna
+    // che nessuno legge.
+    //
+    // Dentro lo stream i blocchi hanno un altro proprietario (l'array in
+    // memoria di `routes/chat.ts`, che li riscrive con `persistBlocks`), quindi
+    // questa scrittura può essere sovrascritta da un evento successivo. È
+    // accettabile perché chi dipinge un pannello lo RIDIPINGE finché serve
+    // (vedi la rotta `…/permission`): un colpo perso si recupera alla gamba
+    // dopo, invece di restare perso per sempre.
+    const nextBlocks = msg.blocks?.map(b =>
+      b.kind === "tool" && b.toolCall.id === toolCallId
+        ? { kind: "tool" as const, toolCall: { ...b.toolCall, ...patch } }
+        : b,
+    );
     stmts.updateMessage.run({
       $id: msg.id,
-      // Owns tool_calls only — see updateToolCallResult.
       $content: null,
       $thinking: null,
       $tool_calls: JSON.stringify(msg.toolCalls),
@@ -1220,6 +1246,7 @@ export function createAppContext(baseDir: string): AppContext {
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
       ...metaParams({}),
+      $blocks: nextBlocks ? JSON.stringify(nextBlocks) : null,
     });
     return msg;
   }

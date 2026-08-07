@@ -1260,11 +1260,8 @@ export interface AppBehaviorSettings {
  * sempre che non si può rileggere né togliere è una porta che si apre e basta.
  * La superficie è in Impostazioni → Permessi.
  */
-export interface ToolGrant {
-  pattern: string;
-  createdAt: string;
-  createdBySession: string | null;
-}
+export type { ToolGrant } from '../../../shared/types';
+import type { ToolGrant } from '../../../shared/types';
 
 export const toolGrantsApi = {
   async list(): Promise<ToolGrant[]> {
