@@ -101,35 +101,14 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, placement = 'bottom' }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
   /** Apre Impostazioni → Dispositivi. La riga dell'identità è il punto da cui si
    *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
   onOpenDevices?: () => void;
-  /**
-   * DOVE STA LA BARRA NELLA COLONNA.
-   *
-   * · `'bottom'` (default) — la fascia in fondo, col mouse. Filo sopra,
-   *   safe-area dell'home indicator sotto.
-   * · `'inline'` — DENTRO la riga del titolo, fra «Topics ▾» e i due comandi.
-   *   È dove Attilio l'ha chiesta (07/08): «le connessioni e le stats affianco
-   *   a Topics, fra i tasti cerca e + e il logo menu». Sul telefono la colonna
-   *   è alta quanto lo schermo e una fascia dedicata a quattro numeri costa una
-   *   riga intera per una cosa che si guarda di sfuggita; in linea non costa
-   *   niente, perché quella riga c'è già ed è mezza vuota.
-   *   Niente fili, niente padding proprio, niente safe-area: la riga non è sua.
-   *   Si stringe (`min-w-0`) e i suoi pezzi troncano, che è già il modo in cui
-   *   questa barra è costruita — l'unico elemento elastico è il testo di stato.
-   *
-   * Un tempo c'era anche `'top'`, una fascia dedicata sotto l'header: è durata
-   * un giro, e la ragione per cui è caduta è la stessa per cui `'inline'`
-   * esiste — costava una riga per non dire niente di più.
-   */
-  placement?: 'inline' | 'bottom';
 } = {}) {
-  const inline = placement === 'inline';
   // Subscribed HERE, in the leaf that shows the number, not up in App.
   // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
   // while App held it a single `terminal:activity` frame — several a second
@@ -379,11 +358,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, placemen
           nessuno — dal telefono l'unico segnale era «Reconnecting…» per sempre.
           Sul computer non compare: li' l'identita' e' il fatto di essere seduti
           davanti alla macchina, e ripeterlo sarebbe rumore a ogni riga. */}
-      {/* CHI SEI: solo quando la barra ha una fascia sua. In linea non c'è
-          spazio per una seconda riga, e l'identità resta raggiungibile dal
-          menu Topics ▾ → Impostazioni → Dispositivi, che è da dove ci si
-          arriva comunque. */}
-      {!inline && <DeviceIdentityRow onOpenDevices={onOpenDevices} />}
+      <DeviceIdentityRow onOpenDevices={onOpenDevices} />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -413,15 +388,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, placemen
           e lo spazio verticale vale. */}
       <div
         data-testid="sidebar-status-bar"
-        data-placement={placement}
-        className={`flex items-center gap-2 ${
-          inline
-            ? 'min-w-0 flex-1 overflow-hidden'
-            : 'min-h-7 max-md:min-h-11 flex-shrink-0 border-t border-app-border'
-        }`}
-        style={inline ? undefined : {
+        className="flex items-center gap-2 min-h-7 max-md:min-h-11 flex-shrink-0 border-t border-app-border"
+        style={{
           paddingInline: ROW_INSET,
-          // La fascia dell'home indicator la dipinge chi sta DAVVERO in fondo.
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
