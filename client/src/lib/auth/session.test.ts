@@ -124,3 +124,35 @@ describe('sessione · il RUOLO cambia a parità di nome', () => {
     expect(getSession().status).toBe('loading');
   });
 });
+
+describe('sessione · la persona viaggia con lo stato', () => {
+  beforeEach(() => { __resetSessionForTests(); });
+  afterEach(() => { globalThis.fetch = fetchVero; });
+
+  it('la persona arriva e si propaga', async () => {
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner', personId: 'p1' });
+    await refreshSession();
+    const s = getSession();
+    expect(s.status === 'paired' && s.personId).toBe('p1');
+  });
+
+  it('un cambio di PERSONA a parità di tutto il resto risveglia i sottoscrittori', async () => {
+    // Stessa forma del difetto sul ruolo: se il confronto non guardasse
+    // `personId`, spostare un dispositivo su un'altra persona non arriverebbe
+    // a nessuno — e «di chi è» decide cosa vedi.
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner', personId: 'p1' });
+    await refreshSession();
+    const { visti, stop } = raccogli();
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner', personId: 'p2' });
+    await refreshSession();
+    expect(visti).toHaveLength(2);
+    stop();
+  });
+
+  it('un server che non manda la persona non fa esplodere niente', async () => {
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner' });
+    await refreshSession();
+    const s = getSession();
+    expect(s.status === 'paired' && s.personId).toBeNull();
+  });
+});
