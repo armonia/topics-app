@@ -222,6 +222,62 @@ test.describe.serial("Pannello di permesso", () => {
     expect(grants.grants.map((g) => g.pattern)).not.toContain(TOOL);
   });
 
+  /**
+   * IL DIFETTO CHE QUESTO TEST ESISTE PER FERMARE (7 agosto, primo permesso vero).
+   *
+   * Gli altri test seminano il pannello già persistito: provano che il pannello
+   * FUNZIONA, non che il server sappia dipingerlo. E il server non lo sapeva:
+   * scriveva `waiting_for_input` + schema in `tool_calls` e lasciava `blocks`
+   * a `running` — ma quando un messaggio ha `blocks`, chi disegna legge QUELLI.
+   * Risultato a schermo: tre chiamate a kiwi che giravano da tre minuti, il
+   * piede che diceva «in attesa della tua risposta», e nessun pannello.
+   *
+   * Qui si semina un turno come lo scrive uno stream VERO — riga in `running`,
+   * con i blocchi — e il pannello lo dipinge la ROTTA. Poi si carica la pagina
+   * da zero: se il server ha scritto solo mezza verità, questo test è rosso.
+   */
+  test("il pannello lo dipinge il SERVER, e sopravvive a un caricamento da zero", async ({ page, chatPage, request }) => {
+    const toolCallId = "toolu_perm_painted";
+    await seedMessage(request, { sessionKey, role: "user", content: "cerca un volo" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: "Cerco i voli:",
+      toolCalls: [{ id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "running", startedAt: Date.now() - 3_000 }],
+      blocks: [
+        { kind: "text", text: "Cerco i voli:" },
+        { kind: "tool", toolCall: { id: toolCallId, name: TOOL, args: TOOL_INPUT, status: "running", startedAt: Date.now() - 3_000 } },
+      ],
+    });
+
+    // Nessuno schema è stato seminato: se il pannello compare, l'ha scritto la rotta.
+    const bridge = registerBridgePermission(request, toolCallId);
+    await expect
+      .poll(async () => {
+        const r = await request.get(`${BASE}/api/topics/${topicId}/messages`, { ignoreHTTPSErrors: true });
+        const body = await r.json() as { messages?: { blocks?: { kind: string; toolCall?: { id: string; status?: string; userInputSchema?: unknown } }[] }[] };
+        const last = body.messages?.[body.messages.length - 1];
+        const tool = last?.blocks?.find((b) => b.kind === "tool" && b.toolCall?.id === toolCallId);
+        return tool?.toolCall?.status === "waiting_for_input" && !!tool?.toolCall?.userInputSchema;
+      }, { timeout: 15_000, message: "la rotta deve dipingere il pannello NEI BLOCCHI, non solo in tool_calls" })
+      .toBe(true);
+
+    // E adesso la prova che conta: una pagina caricata da zero lo vede.
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+    await expect(form.getByText("L'agente chiede un permesso")).toBeVisible();
+
+    await page.waitForTimeout(1000);
+    await form.locator(`input[type="radio"][value="${PERMISSION_ALLOW_ONCE_LABEL}"]`).check();
+    await form.locator('[data-testid="ask-submit"]').click();
+    expect((await bridge).decision).toBe("allow");
+  });
+
   test("un «sempre» si ritrova e si ritira dalle Impostazioni", async ({ page, chatPage, request }) => {
     // Senza questa scheda, «Consenti sempre» sarebbe una decisione permanente
     // presa di corsa dentro una chat e visibile in nessun posto: una porta che

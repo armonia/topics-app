@@ -40,7 +40,6 @@ import {
   beginPermission,
   waitForDecision,
   deliverDecision,
-  hasPendingPermission,
   resolvePendingPermission,
   cancelPermission,
   PermissionWaitError,
@@ -1980,42 +1979,73 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           ? Math.min(Math.max(body.legMs, 100), 60_000)
           : undefined;
 
-        const wasOpen = hasPendingPermission(sk, toolUseId);
         if (!beginPermission(sk, toolUseId)) {
           cancelPermission(sk, toolUseId, "nessuna risposta: la richiesta è scaduta");
           return json({ cancelled: true, reason: "permesso: la richiesta è scaduta senza risposta" });
         }
 
-        // 2. Prima gamba → dipingi il pannello sulla riga del tool.
-        if (!wasOpen) {
-          const topic = getTopicBySessionKey(sk);
+        // 2. Il pannello si dipinge finché non è a schermo — non «una volta».
+        //
+        // Dipingerlo solo alla PRIMA gamba lo rende irrecuperabile: se quella
+        // scrittura si perde (i blocchi hanno un altro proprietario dentro lo
+        // stream, e `persistBlocks` può passarci sopra), oppure se il server si
+        // riavvia mentre la richiesta è aperta, la riga resta a girare per
+        // sempre sotto un piede che dice «in attesa della tua risposta». È
+        // successo al primo permesso vero, il 7 agosto.
+        //
+        // Quindi: si guarda la riga com'è ADESSO, e si ridipinge se non mostra
+        // già questo pannello. Una lettura ogni 25 secondi per richiesta
+        // aperta, e nessuno stato che possa restare perso.
+        {
           const schema = permissionSchemaFor({ toolName, input: body?.input });
-          // `updateToolCallFields` cerca solo nell'ULTIMO messaggio e torna il
-          // messaggio anche quando la riga non c'è, quindi non serve come
-          // rilevatore: la riga la si cerca a mano. Il ripiego per nome copre
-          // sia un `tool_use_id` che Topics non ha persistito, sia una CLI
-          // futura che smettesse di passarlo.
           let targetId = toolUseId;
+          let alreadyPainted = false;
           try {
             const row = ctx.db
-              .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: string | null } | undefined;
+              .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+              .get(sk) as { tool_calls?: string | null; blocks?: string | null } | undefined;
             const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string; status?: string }[]) : [];
+            // Il ripiego per nome copre sia un `tool_use_id` che Topics non ha
+            // persistito, sia una CLI futura che smettesse di passarlo.
             if (!calls.some((c) => c?.id === toolUseId)) {
               const byName = [...calls].reverse().find(
                 (c) => c?.name === toolName && (c.status === "running" || c.status === "pending"),
               );
               if (byName?.id) targetId = byName.id;
             }
-          } catch { /* la riga si aggancia lo stesso all'id dichiarato */ }
-          updateToolCallFields(sk, targetId, { status: "waiting_for_input", userInputSchema: schema });
-          broadcastToAll({
-            type: "stream:tool_user_input_required",
-            sessionKey: sk,
-            topicId: topic?.id,
-            toolCallId: targetId,
-            schema,
-          });
+            // «Già dipinto» si giudica sui BLOCCHI quando ci sono, perché sono
+            // quelli che chi disegna legge. Un `tool_calls` in ordine sopra dei
+            // blocchi fermi è esattamente il caso che ci ha fregato.
+            const painted = (json: string | null | undefined, pick: (v: unknown) => { id?: string; status?: string; userInputSchema?: unknown } | null) => {
+              if (!json) return null;
+              try {
+                const arr = JSON.parse(json) as unknown[];
+                for (const raw of arr) {
+                  const tc = pick(raw);
+                  if (tc?.id === targetId) return tc;
+                }
+              } catch { /* riga illeggibile */ }
+              return null;
+            };
+            const fromBlocks = painted(row?.blocks, (b) => {
+              const bb = b as { kind?: string; toolCall?: { id?: string; status?: string; userInputSchema?: unknown } };
+              return bb?.kind === "tool" ? bb.toolCall ?? null : null;
+            });
+            const shown = fromBlocks ?? painted(row?.tool_calls, (c) => c as { id?: string; status?: string; userInputSchema?: unknown });
+            alreadyPainted = shown?.status === "waiting_for_input" && !!shown?.userInputSchema;
+          } catch { /* nel dubbio si ridipinge: un pannello in più è visibile, uno in meno no */ }
+
+          if (!alreadyPainted) {
+            const topic = getTopicBySessionKey(sk);
+            updateToolCallFields(sk, targetId, { status: "waiting_for_input", userInputSchema: schema });
+            broadcastToAll({
+              type: "stream:tool_user_input_required",
+              sessionKey: sk,
+              topicId: topic?.id,
+              toolCallId: targetId,
+              schema,
+            });
+          }
         }
 
         // 3. Aspetta che qualcuno prema.
