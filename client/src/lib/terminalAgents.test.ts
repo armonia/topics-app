@@ -37,9 +37,12 @@ describe('buildTerminalSessionBody', () => {
   });
 
   it('builds a shell body without claude-only flags', () => {
+    // `type` resta `shell` (l'id: CHECK di SQLite, testid E2E, protocollo col
+    // server) e il `name` e' la LABEL user-facing — le due cose non sono la
+    // stessa, ed e' proprio qui che si vede.
     expect(buildTerminalSessionBody('shell', { skipPermissions: false })).toEqual({
       type: 'shell',
-      name: 'Shell',
+      name: 'Terminale',
     });
   });
 

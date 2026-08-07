@@ -264,10 +264,14 @@ test.describe.serial("Add menu — sistema", () => {
   });
 
   test("ADD-06: il chip non entra nel nome accessibile della riga", async ({ page, request }) => {
-    // `getByRole('button', { name: 'Shell', exact: true })` esiste in
-    // terminal-tab-reload.spec.ts: se il chip finisse nel nome accessibile
-    // diventerebbe "Shell S" e quella spec smetterebbe di trovare il bottone.
+    // Se il chip finisse nel nome accessibile la riga si chiamerebbe
+    // "Terminale T", e ogni locator per nome esatto smetterebbe di trovarla.
     // Per gli screen reader la lettera passa da `aria-keyshortcuts`.
+    //
+    // La riga si chiama «Terminale», ma il suo testid resta
+    // `pane-add-menu-shell`: l'ID è il contratto E2E (e la chiave del CHECK di
+    // SQLite lato sessioni), la parola è solo la parola. È esattamente la
+    // distinzione che questo test tiene in piedi.
     await resetPaneStore(request, []);
     await goToApp(page);
     await page.keyboard.press("Escape");
@@ -275,12 +279,75 @@ test.describe.serial("Add menu — sistema", () => {
     await page.getByTestId("pane-add-menu-trigger").first().click();
     const shell = page.getByTestId("pane-add-menu-shell");
     await expect(shell).toBeVisible();
-    await expect(shell).toHaveAttribute("aria-keyshortcuts", "S");
+    await expect(shell).toHaveAttribute("aria-keyshortcuts", "T");
     const name = await shell.evaluate((el) => (el.textContent || "").trim());
     // Il chip è nel testo (`aria-hidden` non lo toglie da textContent), ma NON
-    // nel nome accessibile: la riga si chiama ancora esattamente "Shell".
-    expect(name.startsWith("Shell")).toBe(true);
-    await expect(page.getByRole("menuitem", { name: "Shell", exact: true })).toHaveCount(1);
+    // nel nome accessibile: la riga si chiama ancora esattamente "Terminale".
+    expect(name.startsWith("Terminale")).toBe(true);
+    await expect(page.getByRole("menuitem", { name: "Terminale", exact: true })).toHaveCount(1);
+    await page.keyboard.press("Escape");
+  });
+
+  test("ADD-10: l'ordine del menu è quello deciso, e la linea sta prima degli agenti", async ({ page, request }) => {
+    // L'ordine era un effetto collaterale, non una scelta: il ramo `terminal`
+    // di buildAddMenuItems emetteva i QUATTRO agenti in blocco, quindi Browser
+    // e Board finivano per forza dopo Claude Code — e Board finiva addirittura
+    // in coda, perché `kanban` non era in CURATED_ORDER. Nessun test lo
+    // guardava, quindi non era una decisione: era ciò che capitava.
+    //
+    // Ora l'ordine è dichiarato e questo è il suo cancello: prima le pane che
+    // si aprono vuote (Chat, Terminale, Browser, Board, Git, Files), poi una
+    // linea, poi gli agenti CLI — che aprono una sessione con un modello
+    // dentro, e sono un'altra categoria di cosa.
+    await resetPaneStore(request, []);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+
+    await page.keyboard.press("Meta+n");
+    await expect(page.getByTestId("pane-add-palette")).toBeVisible();
+
+    // Righe E divisori nell'ordine del DOM. Il divisore è un `<div>` fratello
+    // della riga (`POPOVER_DIVIDER` = `my-1 h-px bg-app-border`), quindi va
+    // letto insieme alle righe: senza, «la linea sta PRIMA di Claude Code» non
+    // sarebbe una misura, sarebbe un'impressione.
+    const seq = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="pane-add-menu"]')!;
+      return Array.from(
+        panel.querySelectorAll('[data-testid^="pane-add-menu-"], .h-px'),
+      ).map((el) => {
+        const tid = el.getAttribute("data-testid");
+        return tid ? tid.replace("pane-add-menu-", "") : "---";
+      });
+    });
+
+    // Le tre voci che il registro condiviso marca come agenti CLI. `shell` NON
+    // è tra queste: è una pane che si apre vuota, e sta sopra la linea.
+    const AGENTS = ["claude-code", "codex", "opencode"];
+    const agentIdx = seq.flatMap((id, i) => (AGENTS.includes(id) ? [i] : []));
+    expect(agentIdx.length, "i tre agenti CLI sono nel menu").toBe(3);
+
+    // 1. Gli agenti sono un BLOCCO in coda: nessuna riga non-agente dopo il
+    //    primo di loro. È l'invariante che il vecchio ramo atomico rendeva
+    //    impossibile — con quattro agenti emessi insieme, Browser e Board
+    //    finivano per forza dopo Claude Code.
+    const firstAgent = agentIdx[0];
+    const strays = seq.slice(firstAgent).filter((id) => id !== "---" && !AGENTS.includes(id));
+    expect(strays, "sotto la linea ci vanno SOLO gli agenti").toEqual([]);
+
+    // 2. Restano nell'ordine del registro condiviso (TERMINAL_AGENT_TYPES).
+    expect(agentIdx.map((i) => seq[i])).toEqual(AGENTS);
+
+    // 3. La linea sta ESATTAMENTE prima del primo agente.
+    expect(seq[firstAgent - 1], "un divisore apre il blocco degli agenti").toBe("---");
+
+    // 4. E «Terminale» sta sopra la linea, prima di Browser: è una pane, non un
+    //    agente. Il testid resta `shell` — l'id è il contratto, la parola no.
+    const shellIdx = seq.indexOf("shell");
+    const browserIdx = seq.indexOf("browser");
+    expect(shellIdx).toBeGreaterThan(-1);
+    expect(browserIdx).toBeGreaterThan(shellIdx);
+    expect(browserIdx).toBeLessThan(firstAgent);
+
     await page.keyboard.press("Escape");
   });
 });
