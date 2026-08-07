@@ -8,10 +8,11 @@ sapere se il disegno regge prima di aprire un conto.
 - [ ] 0.1 **Verificare i termini di Cloudflare** sull'uso dei Workers come relay
   per conto di clienti terzi. È l'unica cosa che può invalidare la scelta, e
   costa una lettura.
-- [ ] 0.2 **Misurare il traffico VERO di un turno**: quanti frame, quanto grandi,
-  quanto dura la finestra attiva. La stima dei costi poggia su ~4 GB-s a turno;
-  se fosse 40, la conclusione cambia. Si misura sul server locale, senza
-  Cloudflare.
+- [x] 0.2 **Misurare il traffico VERO di un turno.** Fatto su 1511 turni reali di
+  101 giorni: 14,9 turni/giorno per utente, durata mediana 48,7 s, media 163 s,
+  **20,4 GB-s a turno**. Stimavo 4 — cinque volte meno — ma stimavo anche 50
+  turni al giorno invece di 15, e i due errori si annullavano. La conclusione
+  regge ($0,11 a cliente) e adesso poggia su una misura. Numeri nel proposal.
 
 ## 1. Il protocollo, prima del trasporto
 
