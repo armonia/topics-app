@@ -315,4 +315,76 @@ test.describe("cronologia dei commit", () => {
       rmSync(VUOTO, { recursive: true, force: true });
     }
   });
+
+  /**
+   * Il piede regge lo SPAZIO STRETTO senza tagliarsi.
+   *
+   * Tre correzioni di fila hanno sbagliato perche' ognuna guardava UNA misura:
+   *  - il padding sotto (ma sopra restava meta');
+   *  - il ritmo delle righe (ma a pannello stretto la sezione si accartocciava
+   *    a 1px sui 33 naturali, con l'intestazione tagliata);
+   *  - il piede reso incomprimibile (e allora sforava il fondo di 36px con la
+   *    cronologia aperta).
+   *
+   * Qui le tre misure si guardano INSIEME, a due altezze e in due stati.
+   */
+  for (const altezza of [160, 260]) {
+    test(`il piede regge a ${altezza}px senza tagliarsi ne sforare`, async ({ page, request }) => {
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, PROJ);
+      await waitForPaneStoreQuiet(request);
+      // L'altezza del pannello git e' per progetto e sta in sessionStorage: e'
+      // l'unica leva per provare lo spazio stretto senza trascinare a mano.
+      await page.addInitScript(([path, h]) => {
+        try {
+          sessionStorage.setItem(`project-sidebar-bottom-heights:${path}`, JSON.stringify({ git: h, processes: 150 }));
+          sessionStorage.setItem(`sidebar-sections:${path}`, JSON.stringify({ files: true, git: true, processes: false }));
+        } catch { /* niente sessionStorage: si gira coi valori di serie */ }
+      }, [PROJ, altezza] as [string, number]);
+
+      await goToApp(page);
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+      const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+      const storia = await apriStoria(win);
+      const pannello = win.locator('[data-testid="git-changes"]');
+
+      const misura = () => pannello.evaluate((root: HTMLElement) => {
+        const cron = root.querySelector('[data-testid="commit-history"]');
+        const piede = cron?.parentElement ?? null;
+        const testo = cron?.querySelector("button") ?? null;
+        if (!cron || !piede || !testo) return null;
+        const R = root.getBoundingClientRect(), C = cron.getBoundingClientRect();
+        const P = piede.getBoundingClientRect(), T = testo.getBoundingClientRect();
+        // L'invariante e' che l'INTESTAZIONE ci stia: e' lei a sparire quando
+        // la sezione si accartoccia. Non `scrollHeight - height`, che su un
+        // contenitore che scorre balla di un pixel per arrotondamento e
+        // direbbe «schiacciata» anche quando non lo e'.
+        const riga = cron.firstElementChild?.getBoundingClientRect();
+        return {
+          sforo: +(P.bottom - R.bottom).toFixed(1),
+          altezzaSezione: +C.height.toFixed(1),
+          altezzaIntestazione: +(riga?.height ?? 0).toFixed(1),
+          testoDentro: T.bottom <= R.bottom + 0.5 && T.top >= R.top - 0.5,
+        };
+      });
+
+      for (const stato of ["chiusa", "aperta"] as const) {
+        if (stato === "aperta") {
+          await storia.getByRole("button", { name: /Cronologia/ }).click();
+          await page.waitForTimeout(800);
+        }
+        const m = await misura();
+        expect(m, `misura mancante (${stato})`).not.toBeNull();
+        expect(m!.sforo, `il piede sfora il fondo (${stato})`).toBeLessThanOrEqual(0.5);
+        // La sezione non scende MAI sotto la sua intestazione: e' quello che
+        // succedeva a pannello stretto (1px sui 33 naturali).
+        expect(m!.altezzaIntestazione, `intestazione sparita (${stato})`).toBeGreaterThan(20);
+        expect(
+          m!.altezzaSezione,
+          `sezione sotto la sua intestazione (${stato})`,
+        ).toBeGreaterThanOrEqual(m!.altezzaIntestazione - 0.5);
+        expect(m!.testoDentro, `testo fuori dal pannello (${stato})`).toBe(true);
+      }
+    });
+  }
 });
