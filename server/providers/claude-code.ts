@@ -2159,7 +2159,6 @@ export class ClaudeCodeProvider implements AIProvider {
     const existing = this.processes.get(sessionKey);
     if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
 
-    const client = getAiBridgeClient();
     // La voce che stiamo per sostituire va DISARMATA, non lasciata cadere.
     //
     // Qui si passa proprio quando `existing` è INERTE (nessuno `streamHandler`)
@@ -2175,6 +2174,32 @@ export class ClaudeCodeProvider implements AIProvider {
     if (existing) this.cleanupTimers(existing);
     const pp = this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
+
+    // La rete. Il corpo qui sotto parla col broker in quattro punti e ognuno può
+    // rigettare; erano gli unici `await` nudi di tutto il provider, e il boot li
+    // percorre per OGNI topic adottabile. Un rigetto usciva fino al `.catch`
+    // della rotta, che scrive il cartello sopra la riga senza guardarla — e su
+    // questa via il danno era totale, perché la riga è già stata svuotata per
+    // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
+    // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
+    try {
+      return await this.reattachDrive(sessionKey, handler, pp);
+    } catch (err) {
+      return this.finalizeFailedReattach(sessionKey, pp, handler, err);
+    }
+  }
+
+  /**
+   * Il corpo della riadozione: scansione dello store del broker, poi — se c'è un
+   * turno aperto — guida fino al risultato. Estratto da `reattach` solo per
+   * dargli una rete sola, in un punto solo.
+   */
+  private async reattachDrive(
+    sessionKey: string,
+    handler: StreamHandler,
+    pp: PersistentProcess,
+  ): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
+    const client = getAiBridgeClient();
 
     // ── Phase 1 · SCAN ──
     // The broker store spans the child's LIFETIME (multiple turns). A muted
@@ -2246,6 +2271,54 @@ export class ClaudeCodeProvider implements AIProvider {
     // Case 2: mid-generation — keep reading live until the result event.
     await turnDone;
     return "live";
+  }
+
+  /**
+   * La riadozione non è riuscita: o non abbiamo potuto PARLARE col broker
+   * (socket caduto, ack scaduto), o il turno che stavamo guidando ha rigettato.
+   *
+   * Si passa da `onError`, cioè dalla stessa porta che usa ogni altro guasto del
+   * provider (`sendChatInternal` fa lo stesso al suo catch-all). È l'unica via
+   * che porta a `finalizeStream`, e lì stanno le tre cose che servono: la
+   * guardia che NON sovrascrive un contenuto già arrivato, la chiusura ordinata
+   * delle tool call, e la rifusione dello snapshot che rimette la riga com'era
+   * prima che la riadozione la svuotasse.
+   *
+   * Tre cose che di proposito NON si toccano:
+   * - `alive`: non aver potuto parlare col broker non prova che il figlio sia
+   *   morto. Bollarlo così è la bugia che si propaga in `isTurnProcessAlive` e
+   *   nel setaccio di boot (stessa ragione del ramo `scan.alive` più sopra).
+   * - la voce nella mappa: il ponte richiama `onReconnect` quando il socket
+   *   torna, e quel richiamo riattacca le sessioni vive. Sfrattare il `pp` qui
+   *   toglierebbe di mezzo proprio ciò che serve a guarire da solo.
+   * - i timer: sono il ciclo di vita normale di un processo adottato.
+   *
+   * `handler` è il ripiego per il guasto in fase 1, dove `pp.streamHandler` non
+   * è ancora stato assegnato: senza, il rigetto più precoce non chiuderebbe la
+   * riga e lo stream SSE resterebbe aperto per sempre.
+   */
+  private finalizeFailedReattach(
+    sessionKey: string,
+    pp: PersistentProcess,
+    handler: StreamHandler,
+    err: unknown,
+  ): "dead" {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.warn(`[claude-code] reattach fallito su ${sessionKey}: ${detail}`);
+    // Un replay interrotto a metà lascia acceso il silenziatore: se il ponte
+    // torna e ricomincia a consegnare, un turno vivo scorrerebbe muto.
+    pp.replayMute = false;
+    pp.replaySilent = false;
+    if (pp.pendingResolve) {
+      const r = pp.pendingResolve;
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+      r({ runId: "" });
+    }
+    const sink = pp.streamHandler ?? handler;
+    pp.streamHandler = null;
+    sink.onError(`Riadozione del turno non riuscita: ${detail}`);
+    return "dead";
   }
 
   /** Riattacco senza niente da adottare, ma con il figlio VIVO: si scioglie
