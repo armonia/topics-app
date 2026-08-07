@@ -7,6 +7,7 @@ import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { useConfirm } from '../../hooks/useConfirm';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
@@ -135,6 +136,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const confirm = useConfirm();
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   const wantDetail = isAgentReview || (task.status === 'review' && task.subtaskCount > 0);
   useEffect(() => {
@@ -166,6 +168,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // dispatcher.resume), so the answer is a reject carrying the human's choice.
   const answer = (text: string) => review('reject', text);
   const archive = async () => {
+    // Archiviare un task con l'agent al lavoro gli taglia il turno (il server lo
+    // stacca prima di archiviare, altrimenti resterebbe a girare per nessuno).
+    // Il turno non torna indietro, quindi si chiede — ma solo quando c'è
+    // davvero un agent da fermare: su una card ferma la domanda sarebbe rumore.
+    if (isAgentWorking(task.dispatchState)) {
+      const ok = await confirm({
+        title: 'Archiviare un task in corso?',
+        confirmLabel: 'Archivia e ferma',
+        body: <p>Su questo task c&apos;è un agent al lavoro: archiviandolo il suo turno viene interrotto e non riprende.</p>,
+      });
+      if (!ok) return;
+    }
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
