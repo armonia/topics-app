@@ -313,6 +313,38 @@ const TOOLS = [
     },
   },
   {
+    // IL CANALE DI PERMESSO. Non lo chiama il modello: lo chiama la CLI, al
+    // posto del prompt interattivo, perché lo spawn passa
+    // `--permission-prompt-tool mcp__topics__approval_prompt`. Verificato sul
+    // filo (2.1.224): questo tool NON compare nell'elenco `init` che il modello
+    // vede, quindi non costa un byte di contesto e il modello non può chiamarlo
+    // per auto-concedersi qualcosa.
+    //
+    // Senza di lui, in ogni modalità che non sia `bypassPermissions`, la CLI
+    // headless nega e basta: «Claude requested permissions to use X, but you
+    // haven't granted it yet» — un permesso che invita a concederlo e che
+    // nessuno può chiedere.
+    name: "approval_prompt",
+    description:
+      "INTERNO — canale di permesso di Topics. La CLI lo invoca al posto del prompt interattivo quando una modalità di permessi deve chiedere. Non chiamarlo: non è uno strumento di lavoro.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tool_name: { type: "string", description: "Lo strumento per cui si chiede il permesso." },
+        input: { type: "object", description: "Gli argomenti con cui verrebbe eseguito." },
+        tool_use_id: { type: "string", description: "L'id del tool_use — è anche la riga già a schermo in chat." },
+      },
+      required: ["tool_name", "input"],
+    },
+    annotations: {
+      title: "Permesso (pannello in chat)",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
     name: "move_session_to_project",
     description:
       "Low-level: move THIS Claude Code terminal tab into a project window by ABSOLUTE PATH, de-duplicated (one tool call, not manual ui_state edits). Adds the tab to the project's membership AND removes it from the standalone app-level store, so it ends up inside the project only — never duplicated inside-and-outside. Opens/focuses the project window. Prefer open_project (resolves a project by name/slug) or create_project (scaffolds a new one) — reach for this only when you already have the exact absolute path.",
@@ -475,6 +507,18 @@ interface ParsedArgs {
   gatewayToken?: string;
   /** Tool profile: "dispatch" = reduced set for board agents (see DISPATCH_EXCLUDED_TOOLS). */
   profile?: string;
+  /**
+   * Il canale di permesso è acceso per questa sessione?
+   *
+   * Lo passa lo spawn quando la modalità può chiedere (vedi
+   * `permissionPromptArgs`). Serve a NON pubblicare `approval_prompt` quando
+   * non serve: in `bypassPermissions` la CLI non lo designa come tool di
+   * prompt, quindi non lo toglie dall'elenco che il modello vede — e resterebbe
+   * lì uno strumento interno, che costa contesto e che il modello potrebbe
+   * chiamare. Acceso il canale, la CLI lo nasconde da sé. Il risultato è che il
+   * modello non lo vede MAI, in nessuna delle due modalità.
+   */
+  permissionChannel?: boolean;
 }
 
 /**
@@ -501,12 +545,28 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
   "open_project",
 ]);
 
-export function toolsForProfile(profile: string | undefined): typeof TOOLS {
-  if (profile !== "dispatch") return TOOLS;
-  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+/**
+ * Il canale di permesso non è uno strumento di lavoro: esiste solo perché la
+ * CLI lo designi con `--permission-prompt-tool`, e in quel caso la CLI stessa
+ * lo toglie dall'elenco che il modello vede (verificato sul filo). Pubblicarlo
+ * anche quando il canale è spento lo lascerebbe lì come tool normale — schema
+ * in contesto a ogni chiamata, e chiamabile dal modello per niente. Gated qui,
+ * il modello non lo vede MAI: né con il canale acceso (lo nasconde la CLI) né
+ * con il canale spento (non lo pubblichiamo noi).
+ */
+const PERMISSION_CHANNEL_TOOL = "approval_prompt";
+
+export function toolsForProfile(profile: string | undefined, permissionChannel?: boolean): typeof TOOLS {
+  const visible = permissionChannel ? TOOLS : TOOLS.filter((t) => t.name !== PERMISSION_CHANNEL_TOOL);
+  if (profile !== "dispatch") return visible;
+  return visible.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
+  // `approval_prompt` resta CHIAMABILE anche quando non è pubblicato: chi lo
+  // chiama è la CLI, non il modello, e un `tools/list` che non lo elenca non
+  // vuol dire che la CLI non lo designi. Rifiutarlo qui spegnerebbe il canale
+  // proprio nelle sessioni che ne hanno bisogno.
   return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
 }
 
@@ -525,6 +585,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     sessionKey,
     gatewayToken: map["gateway-token"],
     profile: map["profile"],
+    permissionChannel: map["permission-channel"] === "1",
   };
 }
 
@@ -1436,6 +1497,125 @@ export async function callAskUserQuestion(
 }
 
 /**
+ * Tetto anti-giro-a-vuoto del permesso, con lo stesso ragionamento di
+ * `ASK_MAX_LEGS`: chi decide che una richiesta è finita è il SERVER (risponde
+ * `cancelled`), questo numero serve solo perché un server incastrato non faccia
+ * girare qui un ciclo eterno. Deve stare COMODAMENTE SOPRA
+ * `PERMISSION_TTL_MS / ASK_LEG_MS` — 2 h / 25 s = 288 gambe — o sarebbe lui, e
+ * non il server, a decidere che un permesso muore, per giunta col messaggio
+ * sbagliato. L'invariante è provata in `topics-mcp-server.test.ts`.
+ */
+export const PERMISSION_MAX_LEGS = 600;
+
+interface PermissionLegResponse {
+  decision?: "allow" | "allow_always" | "deny";
+  pending?: boolean;
+  cancelled?: boolean;
+  reason?: string;
+}
+
+/** Il payload che la CLI si aspetta come `content[0].text`. */
+function permissionPayload(decision: "allow" | "allow_always" | "deny", input: unknown, message: string): string {
+  return decision === "deny"
+    ? JSON.stringify({ behavior: "deny", message })
+    : JSON.stringify({ behavior: "allow", updatedInput: input ?? {} });
+}
+
+/**
+ * Il canale di permesso, lato bridge.
+ *
+ * ── La regola che governa ogni ramo di questa funzione ──────────────────────
+ * TORNA SEMPRE UNA DECISIONE. Mai un throw. Un throw qui significa «lo
+ * strumento di prompt è esploso», e la CLI lo traduce comunque in un rifiuto —
+ * ma con un messaggio che parla del bridge invece che del permesso, cioè il
+ * genere di errore che manda a cercare il guasto dalla parte sbagliata. Un
+ * `deny` con scritto PERCHÉ è più corto da leggere e più onesto.
+ *
+ * Il giro è quello della domanda (gambe di poll, stessa ragione: la CLI si
+ * blocca sulla risposta JSON-RPC e una richiesta HTTP tenuta aperta a zero byte
+ * muore per timeout di socket dal lato del client).
+ */
+export async function callApprovalPrompt(
+  args: ParsedArgs,
+  toolArgs: { tool_name?: unknown; input?: unknown; tool_use_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+  opts: {
+    maxLegs?: number;
+    legMs?: number;
+    transportGraceMs?: number;
+    backoffMs?: number[];
+    now?: () => number;
+    onProgress?: (leg: number) => void;
+  } = {},
+): Promise<string> {
+  const toolName = typeof toolArgs?.tool_name === "string" ? toolArgs.tool_name : "";
+  const input = toolArgs?.input ?? {};
+  // `tool_use_id` c'è sulla 2.1.224 (verificato). Se un giorno sparisse, il
+  // server sa comunque agganciare il pannello all'ultima riga di tool con quel
+  // nome — vedi la rotta. Qui basta una chiave stabile per questa chiamata.
+  const toolUseId = typeof toolArgs?.tool_use_id === "string" && toolArgs.tool_use_id
+    ? toolArgs.tool_use_id
+    : `noid:${toolName}`;
+
+  if (!toolName) {
+    return permissionPayload("deny", input, "permesso: richiesta senza nome dello strumento");
+  }
+
+  const backoff = opts.backoffMs ?? ASK_RETRY_BACKOFF_MS;
+  const transportGraceMs = opts.transportGraceMs ?? ASK_TRANSPORT_GRACE_MS;
+  const now = opts.now ?? Date.now;
+  const maxLegs = opts.maxLegs ?? PERMISSION_MAX_LEGS;
+  const legMs = opts.legMs ?? ASK_LEG_MS;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/permission`;
+  const payload = { toolName, input, toolUseId, legMs };
+
+  let transportFailures = 0;
+  let firstFailureAt: number | null = null;
+
+  for (let leg = 0; leg < maxLegs; leg++) {
+    let body: PermissionLegResponse | null | undefined;
+    try {
+      body = await httpJson<PermissionLegResponse>(args, "POST", path, payload, fetchImpl);
+      transportFailures = 0;
+      firstFailureAt = null;
+    } catch (err) {
+      transportFailures++;
+      if (firstFailureAt === null) firstFailureAt = now();
+      const downMs = now() - firstFailureAt;
+      if (downMs > transportGraceMs) {
+        // Topics non risponde da un minuto e mezzo: un hot-reload lungo è già
+        // coperto dalla grazia, quindi qui è successo qualcosa di vero. Niente
+        // sì per inerzia — un permesso che nessuno può negare non è un permesso.
+        return permissionPayload(
+          "deny",
+          input,
+          `permesso: Topics non risponde da ${Math.round(downMs / 1000)}s, nessuno ha potuto decidere`,
+        );
+      }
+      await sleep(backoff[Math.min(transportFailures - 1, backoff.length - 1)] ?? 0);
+      continue;
+    }
+
+    if (!body) return permissionPayload("deny", input, "permesso: risposta vuota da Topics");
+    if (body.cancelled) {
+      return permissionPayload("deny", input, body.reason || "permesso: richiesta annullata");
+    }
+    if (body.pending) {
+      // Nessuno ha ancora premuto. Dirlo AD ALTA VOCE: il silenzio è ciò che il
+      // client legge come tool piantato, ed è l'unica moneta con cui questa
+      // richiesta compra altro tempo.
+      opts.onProgress?.(leg + 1);
+      continue;
+    }
+    if (body.decision === "allow" || body.decision === "allow_always") {
+      return permissionPayload(body.decision, input, "");
+    }
+    return permissionPayload("deny", input, body.reason || `permesso negato per ${toolName}`);
+  }
+  return permissionPayload("deny", input, `permesso: nessuna risposta dopo ${maxLegs} gambe di poll`);
+}
+
+/**
  * Tool dispatch registry. Each handler returns the human-readable text that
  * becomes the tool result's `content[0].text`. Adding a tool = one entry here
  * + one entry in TOOLS, nothing else.
@@ -1470,6 +1650,16 @@ const TOOL_HANDLERS: Record<
     callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
       onProgress: ctx?.onProgress
         ? (leg) => ctx.onProgress?.(leg, "in attesa della risposta dell'umano")
+        : undefined,
+    }),
+  // Il canale di permesso: stesso trattamento del pannello delle domande —
+  // `onProgress` a ogni gamba, perché è ciò che impedisce al client MCP di
+  // dichiarare piantata una chiamata sotto la quale c'è solo una persona che
+  // sta ancora leggendo.
+  approval_prompt: (a, t, ctx) =>
+    callApprovalPrompt(a, t as { tool_name?: unknown; input?: unknown; tool_use_id?: unknown }, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa del permesso dell'umano")
         : undefined,
     }),
   wait_for_condition: (a, t) => callWaitForCondition(a, t),
@@ -1538,7 +1728,7 @@ export async function handleMessage(
       return {
         jsonrpc: "2.0",
         id,
-        result: { tools: toolsForProfile(args.profile) },
+        result: { tools: toolsForProfile(args.profile, args.permissionChannel) },
       };
 
     case "tools/call": {

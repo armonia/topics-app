@@ -1,5 +1,10 @@
 # Change: autonomy-level-needs-permission-channel
 
+> **CHIUSA il 07/08/2026.** Il canale esiste. Questo documento resta come
+> registro: cosa mancava, perché non era «un cablaggio dimenticato», e — la
+> parte che serve davvero a chi arriva dopo — **perché la prova che avevamo
+> non provava niente**. La strada scelta è la **A** descritta più sotto.
+
 ## Why
 
 Il selettore **Autonomy Level** nelle impostazioni di un topic mostrava
@@ -16,77 +21,125 @@ worktree). Il 30/07 il selettore è stato **rimosso** dal modal; la colonna, la
 `PATCH` che la scrive e il tipo `AutonomyLevel` restano intatti — i dati non si
 buttano per una UI.
 
-Questo documento esiste perché la rimozione non è la fine della storia: registra
-**perché** non era collegabile, così chi riprova non ripete l'indagine.
+## Cosa è successo dopo — e perché è finita male prima di finire bene
 
-## Perché non è un cablaggio dimenticato
+Il selettore è tornato, e il 06/08 la migration 081 ha portato tutti i topic
+senza scelta su `auto-apply` per uscire da plan mode (la CLI 2.1.223 aveva tolto
+`ExitPlanMode`, quindi «ask» non poteva più né agire né consegnare il piano).
 
-La leva per gli override per-topic esiste ed è collaudata:
+`auto-apply` mappa su `acceptEdits`. E `acceptEdits`, in `--print`, **chiede** il
+permesso per tutto ciò che non copre. Senza canale, chiedere significa negare in
+silenzio:
+
+```
+Claude requested permissions to use mcp__gateway__kiwi__search-flight,
+but you haven't granted it yet.
+```
+
+Quindi da quel giorno, su **515 topic su 518**, sono morti muti **ogni tool MCP**
+e **ogni scrittura fuori dalla cwd**.
+
+**La trappola vera, quella da non ripetere.** La mappatura non era stata scelta a
+naso: c'era una prova, scritta nel commento di `autonomy-mode.ts` e ripetuta
+nella migration 081 — «`acceptEdits` → esegue (provato con un comando shell).
+Nessun blocco». La prova era reale ed era **la prova sbagliata**. Tabella di
+verità misurata il 07/08 (stesso prompt, stessa cwd, `--print`, server MCP
+locale; identica su CLI 2.1.221 e 2.1.224, quindi **non è una regressione**):
+
+| modalità | Bash | Write dentro | Write fuori | tool MCP |
+|---|---|---|---|---|
+| acceptEdits | OK | OK | **NEGATO** | **NEGATO** |
+| auto | OK | NEGATO | NEGATO | NEGATO |
+| bypassPermissions | OK | OK | OK | OK |
+| dontAsk / manual / plan | OK | negato | negato | negato |
+
+`Bash` è **l'unica capacità che passa in tutte e sei le modalità**. Il probe che
+doveva convalidare la mappatura esercitava esattamente quella. Un probe che
+tocca una capacità che non può fallire non è una prova: è una rassicurazione.
+
+**Perché sembrava intermittente.** L'unica cosa che teneva vivi gli strumenti MCP
+era la riga `"mcp__topics__*"` dentro `.claude/settings.local.json` del repo
+topics-app — **gitignorata**. Stesso strumento, stessa modalità, cambia solo la
+cartella: repo `OK`, worktree `OK` (eredita dal repo), **HOME `NEGATO`**. Le chat
+senza progetto non hanno mai avuto un solo tool MCP.
+
+## Perché non era un cablaggio dimenticato (l'analisi del 30/07, confermata)
+
+La leva per gli override per-topic esisteva ed era collaudata:
 `getTopicSpawnOverridesForSession()` in `server/providers/claude-code.ts` legge
-già `effort`, `model` e `mcp_policy` dalla riga del topic, li traduce in flag di
-`argv`, e la `PATCH` forza un respawn quando cambiano (migration 033). Aggiungere
-`autonomy_level` a quella funzione è meccanico.
+già `effort`, `model` e `mcp_policy`. Il problema era a valle: tutti i
+`--permission-mode` che chiedono inoltrano la richiesta su un canale di controllo
+che Topics non gestiva. Nel server non c'era **una sola** occorrenza di
+`can_use_tool`, `control_request` o `permission_request`.
 
-Il problema è a valle. I `--permission-mode` che la CLI accetta sono
-`acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`, `plan` — non
-esiste un `default`. E **tutti quelli che chiedono** inoltrano la richiesta di
-permesso su un canale di controllo che Topics non gestisce:
+Quell'analisi era corretta e incompleta in un punto: dava per scontato che
+l'unica strada fosse implementare il protocollo di controllo. Ne esisteva una
+seconda, più corta, che nessuno aveva verificato perché **non è documentata**.
 
-- `manual` chiede per ogni strumento;
-- `acceptEdits` accetta le modifiche ai file e chiede per **tutto il resto**,
-  quindi si blocca al primo `Bash`.
+## Cosa è stato fatto (strada A, per la porta che non sapevamo ci fosse)
 
-Nel server non c'è **una sola** occorrenza di `can_use_tool`, `control_request`
-o `permission_request`: verificato con grep su tutto `server/`. Ciò che assomiglia
-a un canale di richiesta — `pendingInputs` / `resumeWithToolResponse` /
-`stream:tool_user_input_required` — è guidato da
-`detectUserInputRequest({ name: toolName, input })`, cioè riconosce il **tool
-AskUserQuestion**, non le richieste di permesso della CLI.
+`--permission-prompt-tool <tool MCP>` dirotta la richiesta di permesso su uno
+strumento MCP invece che sul prompt interattivo. **Non compare in `--help` dalla
+2.1.224**, ma è accettato e funziona in `--print` — verificato sul filo. E Topics
+attacca già un server MCP a ogni sessione.
 
-Conseguenza: collegare oggi `'ask'` o `'auto-apply'` a un permission mode che
-chiede significa che il turno resta appeso finché non scatta il watchdog. Non è
-una funzione a metà: è una trappola.
+1. **`mcp__topics__approval_prompt`** sul bridge (`server/mcp/topics-mcp-server.ts`)
+   — gambe di poll come `ask_user_question`, e la regola che governa ogni ramo:
+   *torna sempre una decisione, non lancia mai*; quando nessuno ha potuto
+   decidere, **nega**.
+2. **Rendez-vous** `server/lib/permission-bridge.ts`, indicizzato per
+   `sessionKey + tool_use_id` (non per sessione: la CLI può chiedere per più
+   `tool_use` dello stesso messaggio — misurati a 170 ms di distanza).
+3. **Il pannello** è quello di `AskUserQuestion` (`kind: "questions"`), come per
+   l'approvazione del piano: eredita form inline, ambra della tab, risposta dal
+   composer e sopravvivenza al reload. Etichette e riconoscimento in
+   `shared/permission-decision.ts` — un contratto solo, scritto una volta.
+   Con tre differenze volute: occhiello «chiede un permesso», niente «Altro»
+   (il testo libero qui vale NEGA, quindi prometterebbe una risposta e ne darebbe
+   un'altra), e gli argomenti sotto al nome dello strumento.
+4. **`--permission-prompt-tool` allo spawn** quando la modalità può chiedere,
+   via `permissionPromptArgs()` — una funzione, non uno spread in mezzo
+   all'argv, perché è l'invariante da tenere viva e un test la esegue.
+5. **Le regole di «Consenti sempre»** in `tool_grants` (migration 086), non nel
+   file gitignorato. Con la scheda **Impostazioni → Permessi** per rileggerle e
+   revocarle: un consenso permanente che non si può togliere è una porta che si
+   apre e basta.
+6. **`mcp__topics__*` non chiede mai.** Sono le mani di Topics: il 7 agosto una
+   richiesta di permesso è arrivata su `ask_user_question` — per mostrare un
+   pannello serviva il permesso di mostrare un pannello.
+7. **La porta unica** `server/lib/human-hold.ts`: «questo turno aspetta una
+   persona» aveva due sorgenti e sei posti che dovevano saperlo (tetto di vita,
+   reaper, spazzino, snapshot, abort, fine turno). Sei rami da aggiornare a mano
+   sono sei occasioni di uccidere un turno sotto un pannello aperto.
 
-## Cosa servirebbe per riaccenderlo
+**La trappola indicata qui il 30/07 è stata onorata.** «I topic dispatchati dalla
+board non possono chiedere niente a nessuno»: la loro autonomia è ora scritta
+esplicitamente al momento della creazione (`DISPATCH_AUTONOMY` in `server.ts`),
+non lasciata al default della colonna.
 
-Due strade, non equivalenti.
+## Strada B, e perché resta fuori
 
-**A. Gestire il canale di permesso della CLI (la strada vera).**
-
-1. Nel provider, riconoscere le richieste di controllo in ingresso sullo stream
-   JSON e instradarle come una richiesta pendente per `sessionKey` + tool id —
-   la stessa forma che `pendingInputs` ha già per AskUserQuestion, quindi il
-   percorso di risposta (`resumeWithToolResponse`, scrittura su stdin) è in gran
-   parte riusabile.
-2. Un evento in uscita nuovo (registrato in `shared/ws-outbound.ts`, con il suo
-   payload in `ws-outbound-payload-shape.test.ts`) che porti al client
-   *strumento, argomenti e perché sta chiedendo*.
-3. UI: una riga di approvazione nella chat, con Consenti / Consenti sempre /
-   Nega. «Consenti sempre» deve scrivere da qualche parte, o l'utente la rivede
-   a ogni turno.
-4. Un timeout esplicito: una richiesta senza risposta deve **negare** e chiudere
-   il turno con un motivo leggibile, non lasciarlo appeso al watchdog.
-5. Solo allora `getTopicSpawnOverridesForSession` mappa i tre livelli.
-
-**Trappola da non ripetere:** i topic dispatchati dalla board non possono
-chiedere niente a nessuno. Se il livello resta `'ask'` per default di schema, il
-giorno in cui il mapping si accende **ogni dispatch si blocca**. Chi implementa
-deve decidere prima cosa vale per un topic creato dal dispatcher, e la scelta
-va scritta in una migration, non lasciata al default della colonna.
-
-**B. Allowlist dichiarative (`--allowedTools` / `--disallowedTools`).**
-
-Non richiedono canale: la CLI non chiede, semplicemente non ha lo strumento.
-Ma non esprimono «chiedimi prima»: esprimono «questo non lo puoi fare». Sono una
+**Allowlist dichiarative (`--allowedTools` / `--disallowedTools`).** Non
+richiedono canale: la CLI non chiede, semplicemente non ha lo strumento. Ma non
+esprimono «chiedimi prima»: esprimono «questo non lo puoi fare». Sono una
 funzione diversa e vanno chiamate col loro nome — non «Autonomy Level» — perché
 scegliere l'insieme È progettare una politica, e sbagliarlo dà sicurezza finta.
+`tool_grants` è la loro versione onesta: nasce da un sì premuto da una persona,
+non da una lista scritta a priori.
 
 ## Impatto
 
-- `client/src/components/Modals/TopicSettingsModal.tsx` — selettore rimosso, con
-  il motivo in un commento accanto.
-- `topics.autonomy_level`, `PATCH /api/topics/:id`, `AutonomyLevel` — **intatti**.
-  Nessuna migration: tutti i 461 valori restano `'ask'`, che non significa più
-  niente per nessuno e non fa danni.
-- Nessun cambio di comportamento: lo spawn usava `bypassPermissions` prima e lo
-  usa dopo. Cambia solo che l'app non afferma più il contrario.
+- `server/lib/permission-bridge.ts`, `server/lib/tool-grants.ts`,
+  `server/lib/human-hold.ts`, `shared/permission-decision.ts` — nuovi.
+- `server/mcp/topics-mcp-server.ts` — `approval_prompt`, pubblicato SOLO quando
+  il canale è acceso (altrimenti resterebbe uno strumento interno nell'elenco
+  che il modello vede).
+- `server/routes/topics.ts` — `POST …/permission`, `/api/tool-grants`, e il ramo
+  che instrada un click di permesso PRIMA di quello della domanda (lì il
+  riconoscimento è esatto, qui è un'euristica sul contenuto della riga).
+- `server/providers/claude-code.ts`, `server/lib/autonomy-mode.ts` — lo spawn e
+  la mappatura, con la tabella di verità scritta accanto.
+- `client/…/ToolInputForm.tsx`, `client/…/Settings/PermissionsSection.tsx`,
+  `client/src/state/pendingAsk.ts` — il pannello, la scheda, e il divieto di
+  rispondere a un permesso scrivendo.
+- Migration **086** (`tool_grants`). `topics.autonomy_level` invariata.

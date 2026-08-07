@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
-import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
+import { HelpCircle, Send, Loader2, ChevronRight, ShieldQuestion } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
+import { PERMISSION_QUESTION_PREFIX } from '../../../../shared/permission-decision';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
  *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
@@ -172,6 +173,20 @@ function QuestionsForm({
   const stepped = questions.length > 1;
   const current = questions[Math.min(step, questions.length - 1)]!;
   const isLast = step >= questions.length - 1;
+  /**
+   * Questo pannello è un PERMESSO?
+   *
+   * Cambia tre cose, e nessuna è cosmetica:
+   *   - l'occhiello dice «permesso», non «una domanda» — chi lo legge di
+   *     sfuggita deve capire che sta decidendo cosa l'agente può fare, non
+   *     quale strada preferisce;
+   *   - sparisce «Altro». Il testo libero qui non è una risposta in più: il
+   *     server riconosce tre etichette esatte e tutto il resto vale NEGA,
+   *     quindi la casella prometterebbe una risposta che in silenzio ne dà
+   *     un'altra;
+   *   - il tasto dice «Conferma», perché quello che parte è una decisione.
+   */
+  const isPermission = questions.some((q) => q.question.startsWith(PERMISSION_QUESTION_PREFIX));
 
   const picked = (qKey: string, label: string) => (selections[qKey] || []).includes(label);
 
@@ -249,8 +264,8 @@ function QuestionsForm({
       data-testid={`tool-input-form-${toolCallId}`}
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-        <HelpCircle size={12} />
-        <span>L'agente attende la tua risposta</span>
+        {isPermission ? <ShieldQuestion size={12} /> : <HelpCircle size={12} />}
+        <span>{isPermission ? "L'agente chiede un permesso" : "L'agente attende la tua risposta"}</span>
         {stepped && (
           <span className="ml-auto normal-case tracking-normal text-app-text-muted" data-testid="ask-step-progress">
             {step + 1} di {questions.length}
@@ -281,7 +296,11 @@ function QuestionsForm({
               surrounding tool row uses. Only the eyebrow/header/hint stay
               small, because those are labels about the content, not content. */}
           <legend className="text-[13px] leading-snug font-medium text-app-text">
-            {q.question}
+            {/* Una domanda su più righe è una domanda più il suo CONTESTO: il
+                permesso mette sotto al nome dello strumento gli argomenti con
+                cui verrebbe eseguito. Renderizzate di fila collasserebbero in
+                una riga sola, incollando il riassunto al nome. */}
+            {q.question.split('\n')[0]}
             {q.header && (
               <span className="ml-2 text-[10.5px] uppercase tracking-wide text-app-text-muted">
                 {q.header}
@@ -289,6 +308,14 @@ function QuestionsForm({
             )}
             {q.multiSelect && (
               <span className="ml-2 text-[10.5px] normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
+            )}
+            {q.question.includes('\n') && (
+              <div
+                className="mt-1 font-mono text-[11.5px] font-normal leading-snug text-app-text-muted break-all"
+                data-testid="ask-question-detail"
+              >
+                {q.question.slice(q.question.indexOf('\n') + 1)}
+              </div>
             )}
           </legend>
           <div className="space-y-0.5">
@@ -338,7 +365,11 @@ function QuestionsForm({
                 e con la casella SEMPRE APERTA: la risposta che le opzioni non
                 prevedono è quella che costa di più da dare, e farla precedere
                 da un pallino da spuntare è un ostacolo messo proprio lì.
-                Scrivere seleziona; svuotare annulla. */}
+                Scrivere seleziona; svuotare annulla.
+                MENO che su un permesso: là le etichette valide sono tre e
+                basta, e qualunque altro testo il server lo legge come NEGA —
+                una casella che promette una risposta e ne dà un'altra. */}
+            {!isPermission && (
             <label className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
               <input
                 type={inputType}
@@ -362,6 +393,7 @@ function QuestionsForm({
                 />
               </div>
             </label>
+            )}
           </div>
         </fieldset>
         );
@@ -388,7 +420,7 @@ function QuestionsForm({
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
-          {submitting ? 'Invio…' : isLast ? 'Invia' : 'Avanti'}
+          {submitting ? 'Invio…' : isLast ? (isPermission ? 'Conferma' : 'Invia') : 'Avanti'}
         </button>
       </div>
     </form>

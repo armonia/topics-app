@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, LayoutGrid, Smartphone } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, LayoutGrid, Smartphone, ShieldCheck } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
@@ -8,6 +8,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { DevicesSection } from './DevicesSection';
+import { PermissionsSection } from './PermissionsSection';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -29,7 +30,7 @@ interface GlobalSettingsProps {
 // faceva sparire "New Chat" da tutti e sei gli host del menu "+" senza dirlo, e
 // il valore salvato scavalcava per sempre il default acceso. Il gate è stato
 // tolto dal codice, non nascosto: qui resta la scheda vuota da non riaprire.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts' | 'devices';
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts' | 'devices' | 'permissions';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
@@ -37,6 +38,10 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
   { id: 'devices', label: 'Dispositivi', icon: Smartphone },
+  // Un «Consenti sempre» premuto di corsa dentro una chat deve poter essere
+  // ritrovato e ritirato: senza questa scheda sarebbe una decisione
+  // permanente presa in un posto e visibile in nessuno.
+  { id: 'permissions', label: 'Permessi', icon: ShieldCheck },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
@@ -127,6 +132,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             {section === 'providers' && <AIProvidersSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'devices' && <DevicesSection />}
+            {section === 'permissions' && <PermissionsSection />}
           </div>
         </div>
       </div>

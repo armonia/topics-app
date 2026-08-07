@@ -718,6 +718,32 @@ const externalSessions = createExternalSessionsService({
   broadcast: ctx.broadcastToAll,
 });
 
+/**
+ * L'autonomia con cui nasce la chat di un agente DISPACCIATO dalla board.
+ *
+ * Scritta qui, esplicita, e non lasciata al default della colonna — che è la
+ * trappola segnata nero su bianco in
+ * `openspec/changes/autonomy-level-needs-permission-channel/proposal.md`: «i
+ * topic dispatchati dalla board non possono chiedere niente a nessuno; se il
+ * mapping si accende con il default di colonna, OGNI dispatch si blocca».
+ *
+ * Da oggi il canale di permesso esiste, quindi una modalità che chiede non nega
+ * più in silenzio: apre un pannello in chat e aspetta. Ottimo per una chat che
+ * hai davanti — inservibile per un agente di board, la cui chat nasce chiusa
+ * (`background: true`) e che nessuno sta guardando: il pannello resterebbe a
+ * schermo in una conversazione mai aperta e il task fermo senza un motivo
+ * leggibile sulla board.
+ *
+ * `yolo` e non `auto-apply`, cioè `bypassPermissions`: un agente di board lavora
+ * dentro un worktree isolato e il suo mestiere è ESEGUIRE (protocollo di
+ * consegna, CLAUDE.md). Non è un allargamento mascherato: è la stessa cosa che
+ * faceva finora — con la differenza che finora funzionava per SBAGLIO, perché a
+ * tenere vivi i suoi tool MCP era una riga in un `.claude/settings.local.json`
+ * gitignorato del repo, e nelle chat fuori da quel repo gli stessi strumenti
+ * morivano muti.
+ */
+const DISPATCH_AUTONOMY = "yolo";
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
@@ -812,7 +838,7 @@ const taskDispatcher = createTaskDispatcher({
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,

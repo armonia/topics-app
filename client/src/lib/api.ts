@@ -1253,6 +1253,33 @@ export interface AppBehaviorSettings {
   claudeCodeEnabled: boolean | null;
 }
 
+/**
+ * Le regole di «Consenti sempre» sugli strumenti.
+ *
+ * Esistono come API di client per una ragione sola: un permesso concesso per
+ * sempre che non si può rileggere né togliere è una porta che si apre e basta.
+ * La superficie è in Impostazioni → Permessi.
+ */
+export interface ToolGrant {
+  pattern: string;
+  createdAt: string;
+  createdBySession: string | null;
+}
+
+export const toolGrantsApi = {
+  async list(): Promise<ToolGrant[]> {
+    const r = await request<{ grants: ToolGrant[] }>('/tool-grants');
+    return r.grants ?? [];
+  },
+  async remove(pattern: string): Promise<ToolGrant[]> {
+    const r = await request<{ ok: boolean; grants: ToolGrant[] }>(
+      `/tool-grants/${encodeURIComponent(pattern)}`,
+      { method: 'DELETE' },
+    );
+    return r.grants ?? [];
+  },
+};
+
 export const appSettingsApi = {
   async get(): Promise<AppBehaviorSettings> {
     const r = await request<{ settings: AppBehaviorSettings }>('/app-settings');
