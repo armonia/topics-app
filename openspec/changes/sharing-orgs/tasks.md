@@ -35,7 +35,7 @@ sotto, non prima.
 - [x] 2.1 `server/lib/grants-query.test.ts`: precedenza `deny` su `read`, i tre
   tipi di soggetto, e il **piano** della query (`EXPLAIN QUERY PLAN` deve
   contenere `idx_grants_resource` e non `SCAN`).
-- [ ] 2.2 `tests/e2e/guest-confinement.spec.ts` — **oggi questa superficie ha zero
+- [x] 2.2 `tests/e2e/guest-confinement.spec.ts` — **oggi questa superficie ha zero
   copertura E2E**: un ospite vede la scheda condivisa e non le altre, prende 403
   su ogni metodo diverso da GET, e non riceve i frame di una chat non condivisa.
 
@@ -77,9 +77,9 @@ sotto, non prima.
 
 ## 6. Le rotte
 
-- [ ] 6.1 `/api/people`, `/api/orgs`, `/api/orgs/:id/members` (scrittura riservata
+- [x] 6.1 `/api/people`, `/api/orgs`, `/api/orgs/:id/members` (scrittura riservata
   a chi amministra quell'org — l'unico uso del ruolo di membro).
-- [ ] 6.2 `POST /api/orgs/:id/members/:pid/block` → la revoca locale che
+- [x] 6.2 `POST /api/orgs/:id/members/:pid/block` → la revoca locale che
   sopravvive al pull.
 - [x] 6.3 **`/api/auth/subjects`**, la rubrica dei destinatari: oggi non esiste, e
   al suo posto si usa l'elenco dei dispositivi.

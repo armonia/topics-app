@@ -135,12 +135,44 @@ const GUEST_SAFE_FRAMES = new Set<string>([
   'stream:start',
   'stream:content_chunk',
   'stream:end',
+  // Il recupero a metà turno. Manca**va**, ed è la mancanza che pesava di più:
+  // il catch-up porta `content` e `blocks`, cioè il TESTO, non un id. Senza
+  // questo nome nella lista un ospite non lo riceve nemmeno per una chat che
+  // gli è stata condivisa — e prima che la raffica di apertura passasse dal
+  // filtro lo riceveva per TUTTE.
+  'stream:catchup',
   'message',
   'message:new',
 ]);
 
 export function isGuestSafeFrameType(type: string): boolean {
   return GUEST_SAFE_FRAMES.has(type);
+}
+
+/**
+ * I frame della STRETTA DI MANO: quelli che una socket riceve appena si apre,
+ * prima di essere qualcuno, e che non portano dati di nessuno.
+ *
+ * Esistono perché il filtro dei broadcast, applicato alla raffica iniziale, la
+ * scarterebbe TUTTA — `welcome` compreso, e senza `welcome` il client non sa
+ * nemmeno con che protocollo sta parlando. Ma la lista dev'essere questa e
+ * restare corta: il criterio non è «serve al client», è «non contiene niente
+ * di nessuno». Un frame che porta dati e finisce qui esce dal confinamento
+ * dalla porta di servizio, ed è esattamente il buco che questa lista è nata
+ * per chiudere — la raffica di apertura consegnava a un ospite il pane-store
+ * del proprietario, i conteggi di non-letto di ogni chat, e il contenuto vivo
+ * di qualunque stream in corso.
+ */
+const GUEST_HANDSHAKE_FRAMES = new Set<string>([
+  'connected',
+  'welcome',
+  // Solo una revisione di bundle: una stringa di nomi di file, uguale per
+  // tutti, che dice alla finestra di ricaricarsi dopo un deploy.
+  'ui:bundle-rev',
+]);
+
+export function isGuestHandshakeFrame(type: string): boolean {
+  return GUEST_HANDSHAKE_FRAMES.has(type);
 }
 
 /**
