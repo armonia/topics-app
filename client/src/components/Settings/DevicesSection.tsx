@@ -34,6 +34,18 @@ interface Device {
    *  momento dell'approvazione: senza, un dispositivo autorizzato per sbaglio
    *  come proprietario è indistinguibile da uno voluto. */
   role?: 'owner' | 'guest';
+  /** Di chi è. Assegnata dalla migration 084 con un'euristica — al momento
+   *  dell'appaiamento nessuno lo chiedeva — quindi può essere sbagliata, ed è
+   *  il motivo per cui esiste il gesto per spostarla. */
+  person?: { id: string; name: string } | null;
+}
+
+interface Persona {
+  id: string;
+  name: string;
+  /** Proprietaria dell'installazione: vede tutto, e non è un destinatario di
+   *  condivisioni. */
+  owner: boolean;
 }
 
 function quando(ms: number | null): string {
@@ -56,14 +68,19 @@ export function DevicesSection() {
   const [conferma, setConferma] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState<string | null>(null);
   const [rinomina, setRinomina] = useState<{ id: string; valore: string } | null>(null);
+  const [persone, setPersone] = useState<Persona[]>([]);
+  const [sposta, setSposta] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     try {
       const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
-      const b = await r.json() as { devices: Device[]; thisComputer?: { name: string; current: boolean } };
+      const b = await r.json() as {
+        devices: Device[]; thisComputer?: { name: string; current: boolean }; people?: Persona[];
+      };
       setDevices(b.devices);
       setComputer(b.thisComputer ?? null);
+      setPersone(b.people ?? []);
       setErrore(null);
     } catch {
       // Un errore qui è quasi sempre TRANSITORIO: il server si ricarica in un
@@ -123,6 +140,36 @@ export function DevicesSection() {
     } finally {
       setInCorso(null);
       setRinomina(null);
+    }
+  };
+
+  /**
+   * Sposta un dispositivo su un'altra persona.
+   *
+   * È la correzione dell'euristica con cui la migration 084 ha attribuito i
+   * dispositivi esistenti: al momento dell'appaiamento nessuno chiedeva di chi
+   * fossero, quindi il telefono di un collega approvato una volta è finito
+   * sulla stessa persona dei tuoi. Senza questo gesto quell'errore sarebbe per
+   * sempre — e siccome «di chi è» decide se uno vede tutto, non è un dettaglio
+   * anagrafico.
+   *
+   * NON tocca le concessioni: quelle puntano a una persona, e spostare il ferro
+   * non vuol dire spostare ciò che le è stato condiviso.
+   */
+  const spostaSu = async (id: string, personId: string | null) => {
+    setInCorso(id);
+    try {
+      const r = await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ personId }),
+      });
+      if (!r.ok) setErrore(((await r.json()) as { error?: string }).error ?? 'Non riuscito.');
+      await carica();
+    } finally {
+      setInCorso(null);
+      setSposta(null);
     }
   };
 
@@ -252,7 +299,50 @@ export function DevicesSection() {
                 <div className="text-[11px] text-app-text-muted">
                   {d.connected ? 'connesso adesso' : `visto ${quando(d.lastSeenAt)}`}
                   {d.firstIp && ` · da ${d.firstIp.replace(/^::ffff:/, '')}`}
+                  {/* DI CHI è. Si mostra solo se ci sono davvero più persone:
+                      a un utente solo, «di Proprietario» su ogni riga è rumore
+                      che non distingue niente. */}
+                  {persone.length > 1 && d.person && ` · di ${d.person.name}`}
                 </div>
+
+                {/* Spostare il dispositivo su un'altra persona: la correzione
+                    dell'euristica con cui la 084 li ha attribuiti. Compare solo
+                    dove c'è una scelta da fare. */}
+                {persone.length > 1 && (
+                  sposta === d.id ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <span className="text-[11px] text-app-text-secondary">Di chi è?</span>
+                      {persone.map((p) => (
+                        <button
+                          key={p.id}
+                          disabled={inCorso === d.id}
+                          onClick={() => void spostaSu(d.id, p.id)}
+                          className={`rounded border px-1.5 py-0.5 text-[11px] disabled:opacity-50 ${
+                            d.person?.id === p.id
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-app-border text-app-text hover:bg-app-hover'
+                          }`}
+                        >
+                          {p.name}{p.owner ? ' (tu)' : ''}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setSposta(null)}
+                        className="rounded px-1.5 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+                      >
+                        annulla
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setSposta(d.id)}
+                      data-testid="device-move-person"
+                      className="mt-0.5 text-[11px] text-app-text-tertiary underline decoration-dotted underline-offset-2 hover:text-app-text"
+                    >
+                      è di un'altra persona
+                    </button>
+                  )
+                )}
               </div>
 
               {conferma === d.id ? (

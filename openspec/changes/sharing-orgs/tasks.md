@@ -92,9 +92,11 @@ sotto, non prima.
   dire quale, cioè non risponde alla domanda per cui la colonna esiste).
 - [ ] 7.2 `PairingApproval`: «Di chi è questo dispositivo?» al posto della scelta
   di ruolo — il ruolo è derivato, chiederlo inviterebbe a contraddire il modello.
-- [ ] 7.3 `DevicesSection`: raggruppamento per persona e l'azione «questo
-  dispositivo è di un'altra persona». È **la leva di correzione del backfill**:
-  senza, il passo 3 è una consegna a metà.
+- [x] 7.3 `DevicesSection`: la riga dice DI CHI è (solo quando le persone sono
+  più di una: a un utente solo sarebbe rumore) e offre «è di un'altra persona».
+  `PATCH /api/auth/devices/:id` accetta `personId`, valida la persona, e chiude
+  le socket perché il ruolo derivato può essere cambiato. È **la leva di
+  correzione del backfill**, e senza il passo 3 restava una consegna a metà.
 - [ ] 7.4 `SessionState` porta persona e organizzazione.
 - [ ] 7.5 **`SessionRoot`: il default si inverte.** Oggi tutto ciò che non è
   esattamente `guest` cade sull'app intera, cioè un soggetto nuovo passa dalla
