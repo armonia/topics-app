@@ -7,10 +7,11 @@ import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import type {
-  WSData, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
+  WSData, GuestBroadcastFilter, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext,
 } from "./types";
 import { initDatabase } from "./db";
+import { isGuestSocketData } from "./lib/grants";
 import { resolveStateDir } from "./lib/data-dir";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { maybeSendPush, configurePushTriggers } from "./push-triggers";
@@ -562,9 +563,13 @@ export function createAppContext(baseDir: string): AppContext {
    * Iniettato da `server.ts` (serve il DB) e `null` finché non lo è: `null`
    * significa «nessun ospite da filtrare», cioè il comportamento precedente.
    */
-  let guestFilter: ((deviceId: string, message: OutboundMessage) => boolean) | null = null;
-  function setGuestBroadcastFilter(fn: typeof guestFilter): void { guestFilter = fn; }
+  let guestFilter: GuestBroadcastFilter | null = null;
+  function setGuestBroadcastFilter(f: GuestBroadcastFilter | null): void { guestFilter = f; }
   function guestSocketFilter() { return guestFilter; }
+
+  /** La regola sta in `lib/grants.ts` con le altre del confinamento, e ha un
+   *  test: scritta a mano dentro tre cicli sarebbe tre regole che divergono. */
+  const isGuestSocket = (ws: ServerWebSocket<WSData>) => isGuestSocketData(ws.data);
 
   function broadcastToAll(message: OutboundMessage) {
     devValidateOutbound(message);
@@ -581,7 +586,7 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && ws.data.deviceId && !guests(ws.data.deviceId, message)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
       try { ws.send(payload); } catch (err) {
         console.error(`[WS] Send error to ${ws.data.id}:`, err);
       }
@@ -597,8 +602,13 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcastToTopic(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
+    const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws !== exclude && ws.data.focusedTopicId === topicId && ws.readyState === 1) {
+        // Il confinamento vale su OGNI fan-out, non solo su `broadcastToAll`.
+        // Qui l'entità è l'argomento, non un campo del frame: si chiede il
+        // permesso sul TOPIC, che è la cosa che si sta per consegnare.
+        if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
         try { ws.send(payload); } catch (err) {
           console.error(`[WS] Send error to ${ws.data.id}:`, err);
         }
@@ -616,8 +626,16 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcastToTopicSubscribers(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
+    const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws === exclude || ws.readyState !== 1) continue;
+      // PRIMA del ripiego di `clientReceivesTopicDelta`, che è permissivo per
+      // scelta: un client che non ha mai dichiarato il suo insieme riceve TUTTI
+      // i delta. È la regola giusta fra le finestre del proprietario, ed era la
+      // falla vera per un ospite — `stream:content_chunk` passa quasi sempre di
+      // qui, non da `broadcastToAll`, quindi il testo di una chat non condivisa
+      // gli scorreva addosso mentre l'allowlist dei frame guardava altrove.
+      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
       try { ws.send(payload); } catch (err) {
         console.error(`[WS] Send error to ${ws.data.id}:`, err);
