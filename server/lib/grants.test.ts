@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,
-  isGuestSocketData,
+  isGuestSocketData, isGuestAllowedMethod,
 } from "./grants";
 import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
@@ -138,5 +138,35 @@ describe("grants · quale socket va confinata", () => {
     // Il verso prudente è quello che consegna meno: l'altro consegna tutto.
     expect(isGuestSocketData({ deviceId: "d", deviceRole: undefined })).toBe(true);
     expect(isGuestSocketData({ deviceId: "d", deviceRole: null })).toBe(true);
+  });
+});
+
+describe("grants · un ospite legge e basta", () => {
+  it("le letture passano", () => {
+    for (const m of ["GET", "HEAD", "OPTIONS", "get"]) {
+      expect(isGuestAllowedMethod("/api/tasks/abc", m)).toBe(true);
+    }
+  });
+
+  it("le SCRITTURE no — è il terzo asse, e mancava", () => {
+    // `level='read'` esisteva nello schema, nel CHECK e nel tipo, e nessuno lo
+    // faceva valere: il gate autorizzava il sostantivo (il percorso, poi
+    // l'entità) e mai il verbo. Un ospite poteva quindi modificare, commentare
+    // o cancellare la scheda che gli avevi condiviso — mentre la sua schermata
+    // gli diceva «sola lettura».
+    for (const m of ["POST", "PATCH", "PUT", "DELETE"]) {
+      expect(isGuestAllowedMethod("/api/tasks/abc", m)).toBe(false);
+      expect(isGuestAllowedMethod("/api/topics/abc", m)).toBe(false);
+      expect(isGuestAllowedMethod("/api/messages/abc", m)).toBe(false);
+    }
+  });
+
+  it("uscire è l'unica scrittura concessa", () => {
+    // Negarla vorrebbe dire che l'unico modo per un ospite di andarsene è che
+    // qualcun altro lo revochi.
+    expect(isGuestAllowedMethod("/api/auth/logout", "POST")).toBe(true);
+    // E vale solo per quel percorso, non per tutto ciò che sta sotto /api/auth.
+    expect(isGuestAllowedMethod("/api/auth/shares", "POST")).toBe(false);
+    expect(isGuestAllowedMethod("/api/auth/devices/x", "DELETE")).toBe(false);
   });
 });
