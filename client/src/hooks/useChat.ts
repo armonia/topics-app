@@ -975,11 +975,29 @@ export function useChat() {
 
     // Skip WS stream events for sessions with an active local SSE stream
     // (sendMessage already processes these via HTTP response — avoid double content).
-    // Gli eventi TERMINALI restano scartati come gli altri — processarli qui
-    // duplicherebbe la finalizzazione — ma non li buttiamo del tutto: dicono
-    // che il server ha chiuso il turno, e se il nostro SSE non chiude dietro
-    // sono l'unico modo per accorgersene. Vedi scheduleSSEFailsafe.
-    if (localSSESessionsRef.current.has(sessionKey)) {
+    //
+    // `stream:usage` NON è fra i saltati, ed è il motivo per cui la finestra da
+    // cui parte il turno vedeva i token fermi a zero.
+    //
+    // Questo cancello esiste contro il DOPPIONE: ciò che l'SSE della nostra
+    // POST /api/chat già porta non va riprocessato dal filo. Il consumo però
+    // sull'SSE non viaggia — il server lo emette SOLO come broadcast WS
+    // (routes/chat.ts, `onUsage`) — e da quando i numeri vivono sulla riga del
+    // messaggio invece che in uno stato dentro la striscia (676b9e28, «I numeri
+    // del turno vivono sul messaggio»), passano di qui: prima
+    // `TurnActivityIndicator` si iscriveva al filo per conto suo e questo
+    // cancello non lo toccava. Risultato: la finestra che stai guardando —
+    // quella che ha mandato il messaggio — era l'UNICA a non vedere crescere il
+    // consumo, mentre le altre sì.
+    //
+    // Farlo passare non può duplicare niente: il server manda TOTALI già
+    // accumulati e il gestore li SCRIVE (non li somma) sull'ultima riga, quindi
+    // riceverlo due volte darebbe lo stesso numero. Gli eventi TERMINALI
+    // restano scartati — processarli qui duplicherebbe la finalizzazione — ma
+    // non li buttiamo del tutto: dicono che il server ha chiuso il turno, e se
+    // il nostro SSE non chiude dietro sono l'unico modo per accorgersene. Vedi
+    // scheduleSSEFailsafe.
+    if (localSSESessionsRef.current.has(sessionKey) && event.type !== 'stream:usage') {
       if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
       return;
     }
