@@ -6,6 +6,7 @@ import {
   type DeviceRecord,
 } from "../lib/device-auth";
 import { isLoopbackAddress } from "../lib/auth-gate";
+import { isLocalTransport } from "../lib/tunnel";
 import { isResourceType } from "../lib/grants";
 import {
   grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
@@ -210,7 +211,13 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     const now = Date.now();
     sweep(now);
     const ip = ctx.requestIp?.(req) ?? null;
-    const loopback = isLoopbackAddress(ip);
+    // La stessa domanda del gate, e va posta con la stessa funzione: attraverso
+    // il tunnel il peer È loopback, quindi `isLoopbackAddress(ip)` da solo
+    // direbbe «sei la macchina» a chi ha bussato da Internet. Misurato: prima di
+    // questa riga `/api/auth/session` rispondeva `as:"loopback", role:"owner"`
+    // sulla porta del tunnel. Questo è il TERZO posto che traduceva l'identità
+    // per conto suo — ed è il costo di averne tre.
+    const loopback = isLocalTransport(req, ip, isLoopbackAddress);
     const secure = url.protocol === "https:";
 
     // ── Chi sono? Esente dall'identità: è la domanda che si fa PRIMA di averla.
