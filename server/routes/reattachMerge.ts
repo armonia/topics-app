@@ -100,11 +100,22 @@ export function mergeReattachedRow(snapshot: RowSnapshot, produced: ReattachProd
   const keepOldBlocks =
     !!snapshotBlocks && producedToolBlocks < countToolBlocks(snapshotBlocks);
 
+  // Il VERDETTO non è mai «vecchio»: è quello che sappiamo ADESSO su come è
+  // finito il turno, e lo snapshot per definizione non ce l'ha. Tenere i
+  // blocchi vecchi e basta lo butterebbe via — e con esso l'unica cosa che
+  // spiega perché la riadozione è fallita, visto che a quel punto `content`
+  // porta il testo rifuso e non prende più il cartello. È la regola di questo
+  // modulo applicata a sé stessa: aggiungere, mai togliere.
+  const verdetti = produced.blocks.filter((b) => (b as { kind?: string }).kind === "error");
+  const blocchiTenuti = keepOldBlocks && snapshotBlocks
+    ? [...snapshotBlocks, ...verdetti]
+    : (produced.blocks.length > 0 ? produced.blocks : undefined);
+
   return {
     content: producedText ? produced.content : snapshot.content,
     thinking: produced.thinking || snapshot.thinking || undefined,
     toolCallsJson: keepOldTools ? (snapshot.toolCallsJson ?? undefined) : undefined,
-    blocks: keepOldBlocks ? snapshotBlocks : (produced.blocks.length > 0 ? produced.blocks : undefined),
+    blocks: blocchiTenuti,
     // Niente di nuovo: nessun tool visto e il testo è quello che c'era già
     // (compreso il caso «il riattacco non ha prodotto una riga»).
     nothingNew: produced.trackedTools === 0 && (producedText === "" || producedText === previousText),
