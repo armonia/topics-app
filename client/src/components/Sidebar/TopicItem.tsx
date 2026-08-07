@@ -102,7 +102,7 @@ export const TopicItem = memo(function TopicItem({
   // Fonte UNICA di «siamo su touch». Prima era una costante di modulo, valutata
   // una volta all'import: non reagiva mai — né a un iPad che cambia modalità né
   // a una finestra spostata su un altro schermo — e diceva la sua a ogni riga.
-  const { isTouch } = useMobile();
+  const { isTouch, hasHover } = useMobile();
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
@@ -188,9 +188,18 @@ export const TopicItem = memo(function TopicItem({
         ...lp.handlers
       }
       data-pressing={lp.pressed || undefined}
-      // Il drag nativo si spegne su touch: il lift di HTML5 contende lo stesso
-      // dito del long-press, e vince lui (è la ricetta che PaneTabBar usa già).
-      draggable={!isTouch && !isArchived}
+      // Il drag nativo si spegne solo dove NON c'è un puntatore: il lift di
+      // HTML5 contende lo stesso dito del long-press, e vince lui.
+      //
+      // `!isTouch` non basta come condizione, ed era lo stesso errore che il
+      // blocco in cima a `useMobile` racconta: su un ibrido (portatile
+      // touchscreen, iPad col trackpad) `isTouch` è vero MA il mouse c'è, e
+      // spegnere lì il drag toglie l'unico trasporto che la riga ha — la
+      // sidebar non monta un `DndContext`, quindi i `listeners` di `useSortable`
+      // sono inerti e resta solo `handleDragStart`. Trascinare una chat nella
+      // griglia diventava impossibile con il mouse, su una macchina che il mouse
+      // ce l'ha. Con `hasHover` il dito ha il suo gesto e il mouse il suo.
+      draggable={(hasHover || !isTouch) && !isArchived}
       onDragStart={handleDragStart}
       role="treeitem"
       aria-selected={isFocused}

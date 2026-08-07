@@ -230,3 +230,23 @@ describe('sottoscrizioni — chi si sveglia', () => {
     expect(sveglie).toBe(1);
   });
 });
+
+describe("cleanPreviewText — IDEMPOTENTE davvero", () => {
+  // Il patto con la gemella lato server: il testo che arriva dal WS fa UNA
+  // passata di potatura, quello dell'idratazione ne fa DUE (il server ha già
+  // pulito). Se la seconda passata cambia il risultato, la stessa chat mostra
+  // due testi diversi prima e dopo un ricarico — la divergenza che questo store
+  // esiste per non avere.
+  for (const [nome, grezzo] of [
+    ["citazione impilata", "> > citato"],
+    ["elenco dentro elenco", "- - voce"],
+    ["titoli impilati", "## # titolo"],
+    ["numerata doppia", "1. 2. voce"],
+    ["misto", "> - # roba"],
+  ] as const) {
+    test(`${nome}: una passata = due passate`, () => {
+      const una = cleanPreviewText(grezzo);
+      expect(cleanPreviewText(una), `«${grezzo}» → «${una}» → «${cleanPreviewText(una)}»`).toBe(una);
+    });
+  }
+});

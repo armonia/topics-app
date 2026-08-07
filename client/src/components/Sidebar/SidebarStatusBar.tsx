@@ -389,7 +389,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
-          className={`flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden tap-expand-y ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
+          className={`flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
           title="Performance & stato sistema — apri per FPS live"
         >
           {openclawAvailable ? (
@@ -533,7 +533,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             <button
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
-              className={`text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 -mx-0.5 transition-colors tap-expand-y ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
+              className={`text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
               title="Info versione e aggiornamenti"
             >
               v{appVersion}
@@ -576,7 +576,17 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className={`p-0.5 rounded ${SIDEBAR_HOVER} transition-colors tap-expand ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
+            // NIENTE `tap-expand` qui, e il motivo e' che questo bottone RIAVVIA L'APP.
+            // 44x44 proiettati attorno a un glifo da 10px in un box `p-0.5`
+            // (~14px) sbordano ~15px per lato, e il vicino a sinistra — il
+            // numero di versione — dista `gap-1.5` = 6px. Questo bottone viene
+            // DOPO nel DOM, quindi il suo `::after` vince l'hit-test: col dito gli
+            // ultimi ~9px di «v2.2.38» riavviavano l'app invece di aprire il
+            // popover. Un'area invisibile che ruba il tocco a un vicino e' gia'
+            // sbagliata; che l'azione rubata sia distruttiva la rende inaccettabile.
+            // Si allarga il BOX vero su touch (28px, quanto la riga), che non ruba
+            // niente a nessuno.
+            className={`p-0.5 md:p-0.5 w-7 h-7 md:w-auto md:h-auto flex items-center justify-center rounded ${SIDEBAR_HOVER} transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
             title={isDesktop ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
           >
             {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
