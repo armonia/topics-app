@@ -17,6 +17,12 @@ interface ContextMenuProps {
    *  Fissati"). Optional so legacy hosts render without the entry. */
   isPinned?: boolean;
   onTogglePin?: () => void;
+  /** Sfissare questa chat la archivia anche (semantica «se non la stai
+   *  guardando e la togli dai Fissati, non ti serve» — vedi `handleTogglePin`
+   *  in App). Cambia le PAROLE della voce, non quello che fa: «Rimuovi dai
+   *  Fissati» da solo lascia credere che la riga resti in lista, e invece
+   *  sparisce finché non accendi «Mostra archiviate». */
+  unpinAlsoArchives?: boolean;
   /** Pop the topic into its own OS window (parity with the pane-header /
    *  tab-menu pop-out). Optional so legacy hosts render without the entry. */
   onPopOut?: () => void;
@@ -30,7 +36,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, onPopOut }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -116,7 +122,9 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
           {onTogglePin && (
             <MenuItem
               icon={isPinned ? PinOff : Pin}
-              label={isPinned ? 'Rimuovi dai Fissati' : 'Fissa'}
+              label={isPinned
+                ? (unpinAlsoArchives ? 'Rimuovi dai Fissati e archivia' : 'Rimuovi dai Fissati')
+                : 'Fissa'}
               onClick={() => { onTogglePin(); onClose(); }}
             />
           )}

@@ -13,6 +13,7 @@ import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/sig
 import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
+import { PINNED_TILE_H } from './pinnedTileMetrics';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -39,57 +40,22 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
   Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
 
-/**
- * L'altezza di una tessera, in classe Tailwind. Dichiarata QUI e importata dal
- * posto vuoto del drop: due numeri scritti a mano si allineano finché qualcuno
- * non ne cambia uno, e l'anteprima che salta di quattro pixel rispetto alla
- * tessera che sta annunciando è proprio il difetto che l'anteprima esiste per
- * non avere.
- */
-export const PINNED_TILE_H = 'h-8 max-md:h-11';
-
-/**
- * Il contenitore che la tessera MISURA per decidere se è una riga o un
- * quadrato. Va su chi le dà la larghezza — la cella della griglia — perché un
- * elemento non può interrogare se stesso: `justify-content` del bottone deve
- * poter cambiare con la soglia, e ci riesce solo se il contenitore è il suo
- * genitore. Sta qui accanto alla tessera, ed è esportato, perché le celle sono
- * TRE (quella vera, il fantasma del drop, l'anteprima della riga nuova) e una
- * dimenticata darebbe una tessera che non si adatta più — muta, senza errore.
- */
-export const PINNED_TILE_CONTAINER = '@container/tile';
-
-/** Il rientro del «+» dal bordo destro, e — perché il bottone è centrato in
- *  verticale — anche lo spazio sopra e sotto di lui. I tre coincidono solo a
- *  una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
- *  trigger «pill» di `PaneAddMenu` è 24px (`w-6 h-6`), quindi 24 + 8 = 32 =
- *  `h-8`. Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio:
- *  stanno scritti vicini per questo.
- *
- *  SOTTO I 768px la tessera è `h-11` (44) — misurata col dito era 378×32, e i 32
- *  sono il lato corto, cioè quello che conta per un pollice. L'uguaglianza vale
- *  anche lì SOLO se l'inset segue: 44 = 24 + 2 × 10. È il motivo per cui questo
- *  non è più un numero secco ma una coppia, e per cui va letto con
- *  `pinnedTileActionInset(isMobile)` invece che direttamente: due costanti
- *  scollegate sarebbero tornate a divergere alla prima modifica. */
-export const PINNED_TILE_ACTION_INSET = 4;
-export const PINNED_TILE_ACTION_INSET_MOBILE = 10;
-/** L'inset giusto per la larghezza corrente. Vedi il commento qui sopra. */
-export function pinnedTileActionInset(isMobile: boolean): number {
-  return isMobile ? PINNED_TILE_ACTION_INSET_MOBILE : PINNED_TILE_ACTION_INSET;
-}
-
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
- *  stessa rotazione, così «si apre» si legge uguale ovunque. */
-function ExpandChevron({ expanded }: { expanded: boolean }) {
+ *  stessa rotazione, così «si apre» si legge uguale ovunque.
+ *
+ *  `floating`: quando la tessera è un quadrato e mostra la sola icona, il
+ *  chevron esce dal flusso e si appoggia al bordo sinistro, così non pesa nel
+ *  centraggio (`pinned-tile-lead` in `index.css`, che è anche dove sta scritto
+ *  fin dove c'è spazio per farlo). */
+function ExpandChevron({ expanded, floating }: { expanded: boolean; floating?: boolean }) {
   return (
     <ChevronRight
       size={12}
       aria-hidden="true"
       data-testid="pinned-expand-hint"
       className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${
-        expanded ? 'rotate-90' : ''
-      }`}
+        floating ? 'pinned-tile-lead' : ''
+      } ${expanded ? 'rotate-90' : ''}`}
     />
   );
 }
@@ -325,6 +291,9 @@ export function PinnedTile({
         // `flex-1`), quindi questo si vede SOLO quando il nome se n'è andato:
         // l'icona rimasta sola sta al centro, e sopra la soglia la tessera
         // torna una riga, che comincia da sinistra.
+        // Centra ciò che è NEL FLUSSO: perché il centro sia quello dell'icona
+        // e non quello del gruppo, chevron e conteggio ne escono — vedi
+        // `pinned-tile-lead` / `pinned-tile-count` in `index.css`.
         'justify-center @min-[72px]/tile:justify-start',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
@@ -408,7 +377,7 @@ export function PinnedTile({
           «Senza ripetere il titolo se non c'entra» voleva dire proprio questo:
           se non ci sta. In una riga larga ci sta, troncato, e allora c'è — la
           soglia la misura la container query qui sotto. */}
-      {expandable && <ExpandChevron expanded={expanded} />}
+      {expandable && <ExpandChevron expanded={expanded} floating={hasRealIcon} />}
 
       <span className="relative flex flex-shrink-0 items-center justify-center">
         {hasRealIcon
@@ -456,12 +425,18 @@ export function PinnedTile({
       </span>
 
       {item.notificationCount > 0 && (
-        // In linea, non appoggiato in un angolo: in una riga il conteggio sta
-        // in fondo. Sparisce al passaggio del mouse perché lì, nello stesso
-        // posto, arriva il «+» — e due cose sovrapposte non si leggono.
+        // In RIGA sta in fondo, in linea con tutto il resto. Da QUADRATO no:
+        // lì il conteggio in linea ruberebbe larghezza all'unica cosa rimasta
+        // — l'icona — e la spingerebbe fuori asse, quindi sale nell'angolo
+        // come il badge di un'icona (`pinned-tile-count`, che porta con sé
+        // anche il `relative` del caso in riga).
+        // Sparisce al passaggio del mouse perché lì, nello stesso posto,
+        // arriva il «+» — e due cose sovrapposte non si leggono.
         <NotificationBadge
           count={item.notificationCount}
-          className="relative flex-shrink-0 group-hover/cell:invisible"
+          className={`flex-shrink-0 group-hover/cell:invisible ${
+            hasRealIcon ? 'pinned-tile-count' : 'relative'
+          }`}
         />
       )}
     </button>

@@ -5,9 +5,28 @@ sapere se il disegno regge prima di aprire un conto.
 
 ## 0. Prima di scrivere codice
 
-- [ ] 0.1 **Verificare i termini di Cloudflare** sull'uso dei Workers come relay
-  per conto di clienti terzi. È l'unica cosa che può invalidare la scelta, e
-  costa una lettura.
+- [x] 0.1 **Verificare i termini di Cloudflare.** Sciolto per la parte che
+  contava, con un residuo dichiarato.
+
+  La vecchia sezione 2.8 («Limitation on Serving Non-HTML Content»), che è
+  quella che avrebbe potuto vietarci il relay, **non esiste più**: ritirata a
+  maggio 2023 e sostituita da una clausola specifica per la CDN. I termini
+  supplementari dei Workers permettono esplicitamente contenuto HTML e non-HTML
+  (immagini, audio) **tranne i file video**. Noi trasportiamo frame JSON: dentro
+  senza forzature.
+
+  Coincidenza utile: il vincolo che il co-browse a pixel NON passi dal Durable
+  Object l'avevo messo per il COSTO (RELAY-02), e si scopre che è anche ciò che
+  ci tiene lontani dall'unica categoria ancora ristretta. La stessa decisione
+  paga due volte.
+
+  **Il residuo**: non stiamo mettendo Cloudflare davanti al dominio di un
+  cliente (quello sarebbe «Cloudflare for SaaS» e ha clausole sue). Stiamo
+  facendo girare la NOSTRA applicazione sul nostro account, e i clienti ne sono
+  utenti — cioè un SaaS normale sui Workers, che è ciò per cui il Developer
+  Platform è venduto. Il rischio residuo è basso, ma non è una domanda da forum:
+  se il prodotto cresce, va confermata leggendo il Self-Serve Subscription
+  Agreement o chiedendo a Cloudflare. Non blocca la costruzione.
 - [x] 0.2 **Misurare il traffico VERO di un turno.** Fatto su 1511 turni reali di
   101 giorni: 14,9 turni/giorno per utente, durata mediana 48,7 s, media 163 s,
   **20,4 GB-s a turno**. Stimavo 4 — cinque volte meno — ma stimavo anche 50
