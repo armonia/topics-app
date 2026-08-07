@@ -2,8 +2,9 @@
  * terminalAgents — ONE place that knows which interactive agents can run in a
  * terminal pane and how to spawn them.
  *
- * The add-menu offers three pty flavours: a plain Shell, Claude Code
- * (default agent) and Codex (OpenAI's CLI). Before this module the
+ * The add-menu offers four pty flavours: a plain shell (labelled «Terminale»),
+ * Claude Code (default agent), Codex (OpenAI's CLI) and opencode. Before this
+ * module the
  * `subType → session-create body` dance was copy-pasted at three call sites
  * (usePanelLifecycle.handleQuickCreateTerminal, useProjectLayout's
  * handleAddPaneToGroup + handleAddPaneWhenEmpty) with hardcoded
@@ -26,7 +27,12 @@ import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../shared/te
 
 /** Display name → also the default session/pane title. */
 export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
-  shell: 'Shell',
+  // «Terminale», non «Shell»: e' la cosa che apre, detta come la chiamerebbe
+  // chi la usa. L'ID resta `shell` — e' legato al CHECK di SQLite e al testid
+  // `pane-add-menu-shell` (contratto E2E), e sono due cose diverse: l'id e' la
+  // chiave, questa e' la parola. Cambiando QUESTA riga cambiano insieme il menu
+  // «+», ⌘K, il titolo di default della pane e il `name` della sessione.
+  shell: 'Terminale',
   'claude-code': 'Claude Code',
   codex: 'Codex',
   opencode: 'opencode',
