@@ -111,19 +111,58 @@ test.describe("Changelog (in-app Novità)", () => {
 test.describe("Changelog (real data end-to-end)", () => {
   // No stubs — proves the server actually serves /changelog.json (static
   // allowlist in server.ts) and the modal renders the generated history.
-  test("CHANGELOG-04: modal loads the real generated changelog from the server", async ({ page }) => {
+  test("CHANGELOG-04: modal loads the real generated changelog from the server", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHANGELOG-04" });
+
+    // La versione da ISPEZIONARE si sceglie DAI DATI, non è quella in esecuzione.
+    //
+    // `section li` esiste solo per le sezioni pubbliche (Novità/Correzioni/
+    // Prestazioni): «Sotto il cofano» è un `<ul>` fuori da ogni `<section>`
+    // (ChangelogModal.tsx). Una release fatta di soli commit senza prefisso
+    // convenzionale finisce TUTTA in `internal` — `parseEntry` in
+    // scripts/changelog-lib.mjs manda lì ogni soggetto che non matcha
+    // `tipo(scope): testo` — e allora il modale, che si apre sulla versione in
+    // uso, non disegna NESSUN `section li`. Non è un guasto: è successo a
+    // 2.2.36 e 2.2.37 (commit 88c54175), ed è la forma di 39 delle 167 voci
+    // generate. Legare l'asserzione alla versione in esecuzione rendeva questo
+    // test una moneta lanciata a ogni release.
+    //
+    // Quello che il test deve provare resta intero: il server serve davvero
+    // `/changelog.json`, il client lo carica e ne disegna le voci vere.
+    const res = await request.get("/changelog.json", { ignoreHTTPSErrors: true });
+    expect(res.ok(), "il server deve servire /changelog.json").toBeTruthy();
+    type Voce = { it: string };
+    type Versione = { version: string; sections: { new: Voce[]; fixes: Voce[]; perf: Voce[] } };
+    const storia = (await res.json()) as Versione[];
+    expect(storia.length, "il changelog generato non può essere vuoto").toBeGreaterThan(0);
+    const conVociPubbliche = storia.find(
+      (v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0,
+    );
+    if (!conVociPubbliche) {
+      throw new Error("nessuna versione con voci pubbliche: rigenera con `bun run changelog`");
+    }
+    const primaVoce = [
+      ...conVociPubbliche.sections.new,
+      ...conVociPubbliche.sections.fixes,
+      ...conVociPubbliche.sections.perf,
+    ][0].it;
+
     await page.goto("/");
     await page.locator("[data-version-anchor]").click();
     await page.getByTestId("changelog-open").click();
     const modal = page.getByTestId("changelog-modal");
     await expect(modal).toBeVisible();
 
-    // Real data: at least one version in the rail and at least one entry rendered
-    // (not the "Carico…" / "non disponibile" fallback).
+    // Il client ha caricato e interpretato il file: la colonna delle versioni
+    // porta ESATTAMENTE quelle del file servito, non un ripiego.
     await expect(modal.locator("nav button").first()).toBeVisible();
-    expect(await modal.locator("nav button").count()).toBeGreaterThan(0);
-    await expect(modal.locator("section li").first()).toBeVisible();
+    await expect(modal.locator("nav button")).toHaveCount(storia.length);
     await expect(modal.getByText(/non disponibile/)).toHaveCount(0);
+
+    // E le voci sono quelle vere: si apre la versione scelta dai dati e ci si
+    // ritrova il testo generato, dentro una `section li`.
+    await modal.getByTestId(`changelog-version-${conVociPubbliche.version}`).click();
+    await expect(modal.locator("section li").first()).toBeVisible();
+    await expect(modal.locator("section li").filter({ hasText: primaVoce }).first()).toBeVisible();
   });
 });

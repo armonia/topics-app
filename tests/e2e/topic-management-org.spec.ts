@@ -8,11 +8,13 @@
  * CONVENTION: No waitForTimeout() usage.
  */
 import { test, expect } from "@playwright/test";
+import { mkdirSync, rmSync } from "fs";
 import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
   deleteTopic,
   resetPaneStore,
+  seedProjectPane,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
@@ -63,22 +65,18 @@ async function openTopicViaSearch(
   }
 }
 
-/** Ensure the sezione Chat is expanded and find a topic in the sidebar.
+/** Find a topic in the sidebar.
  *  Note: dnd-kit's useSortable overrides role="treeitem" with role="button"
- *  on sortable topic items, so we search for buttons in the sidebar. */
+ *  on sortable topic items, so we search for buttons in the sidebar.
+ *
+ *  Qui c'era prima un «apri la sezione Chat se è chiusa». Le intestazioni per
+ *  TIPO non esistono più in nessuna vista (28b4aaeb, «Via la vista per tipo»):
+ *  il blocco era un no-op protetto da `count() > 0`, cioè codice che descriveva
+ *  un prodotto che non c'è e non poteva far fallire niente. */
 async function ensureTopicVisible(
   page: import("@playwright/test").Page,
   name: RegExp
 ) {
-  // Ensure sezione Chat is expanded
-  const chatsSection = page.getByRole("button", { name: /sezione Chat/ });
-  if ((await chatsSection.count()) > 0) {
-    const expanded = await chatsSection.getAttribute("aria-expanded");
-    if (expanded === "false") {
-      await chatsSection.click();
-    }
-  }
-
   // Find the topic in the sidebar (rendered as button due to dnd-kit sortable)
   // Use CSS attribute selector to match aria-label exactly (avoid matching "Archive E2E-...")
   const sidebar = page.locator('[aria-label="Topics sidebar"]');
@@ -89,10 +87,17 @@ async function ensureTopicVisible(
   return topicItem;
 }
 
+// Cartella VERA: la riga di progetto in sidebar risolve il nome dal path e
+// `/api/projects/icon` va a guardarci dentro. Nome unico → riga propria.
+const PROJECT_PATH = `/tmp/e2e-topic-org-project-${TS}`;
+const PROJECT_NAME = PROJECT_PATH.split("/").pop()!;
+const PROJECT_CHAT_NAME = `E2E-InProject-${TS}`;
+
 test.describe("Topic Management - Settings & Organization", () => {
   let alphaId: string;
   let betaId: string;
   let gammaId: string;
+  let projectChatId: string;
 
   test.beforeAll(async ({ request }) => {
     const alpha = await createTopic(request, `E2E-Alpha-${TS}`);
@@ -101,12 +106,20 @@ test.describe("Topic Management - Settings & Organization", () => {
     alphaId = alpha.id;
     betaId = beta.id;
     gammaId = gamma.id;
+    // Progetto + una chat dentro, per TOPIC-09 (la cartella e il suo figlio).
+    mkdirSync(PROJECT_PATH, { recursive: true });
+    const inProject = await createTopic(request, PROJECT_CHAT_NAME, {
+      projectPath: PROJECT_PATH,
+    });
+    projectChatId = inProject.id;
   });
 
   test.afterAll(async ({ request }) => {
     await deleteTopic(request, alphaId).catch(() => {});
     await deleteTopic(request, betaId).catch(() => {});
     await deleteTopic(request, gammaId).catch(() => {});
+    await deleteTopic(request, projectChatId).catch(() => {});
+    rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
   // Il reset era in UN solo test (TOPIC-10, sotto): serve a tutti. Il pane-store
@@ -237,67 +250,61 @@ test.describe("Topic Management - Settings & Organization", () => {
     );
   });
 
+  // TOPIC-09 — la CARTELLA DI PROGETTO si apre e si chiude, che è quello che il
+  // titolo di questo test ha sempre detto.
+  //
+  // Il corpo, invece, guardava la «sezione Chat» della vista per TIPO: un
+  // raggruppamento diverso (per tipo di riga, non per progetto) che è stato
+  // TOLTO dal prodotto il 06/08 — commit 28b4aaeb, «Via la vista per tipo»:
+  // `viewMode: 'grouped'` non esiste più (`hydrateSidebarState` lo fa ricadere
+  // su 'timeline', useSidebarState.ts:155) e `renderSection` ha un solo
+  // chiamante, le sezioni per STATO. Quel commit dichiara di aver riscritto «i
+  // test che asseriavano le sezioni per tipo»: ne ha aggiornato uno
+  // (panels.spec.ts) e ha mancato questo, che da allora cerca un bottone
+  // `sezione Chat` che nessuna vista disegna.
+  //
+  // L'invariante che il test proteggeva — «un contenitore della sidebar si
+  // richiude e i suoi figli spariscono, si riapre e tornano» — è intatta e vive
+  // sulla riga di progetto, che è anche ciò che il nome del test promette. Il
+  // chevron è un controllo A SÉ dal nome del progetto (TopicTree.tsx §Project
+  // header): apre e chiude soltanto, senza mai spostare il fuoco.
   test("TOPIC-09: project folder expand and collapse", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
-    // Default sidebar viewMode is 'timeline' → no section-header buttons. Seed
-    // grouped view so the collapsible section headers render (beforeAll creates
-    // 3 chats, so the sezione Chat exists).
-    await page.addInitScript(() => localStorage.setItem('topics-sidebar-state', JSON.stringify({ viewMode: 'grouped', expandedNodes: [], showArchived: false, pinnedItems: [] })));
-    // useSidebarState fetches the server `sidebar-state` on mount and OVERRIDES
-    // the localStorage seed above (isFromServerRef). The shared test DB usually
-    // holds a `timeline` value, so seed grouped on the SERVER too — otherwise no
-    // section headers render and the "sezione Chat" button never appears.
-    await page.request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
-      data: { viewMode: "grouped", showArchived: false, expandedNodes: [], pinnedItems: [] },
-    });
+    test.info().annotations.push({ type: "spec", description: "TOPIC-09" });
+    // Il figlio deve avere una NOTIFICA per comparire senza una tab aperta:
+    // `buildSidebarItems` elenca una chat di progetto solo se ha una pane aperta
+    // dentro il progetto, un'attenzione pendente, o è fissata. L'`unread:updated`
+    // iniettato è la stessa strada di TOPIC-10.
+    const ws = await interceptWebSocket(page);
+    // La riga del progetto esiste finché la sua pane è aperta (`hasProjectTab`):
+    // il beforeEach ha appena azzerato il pane-store, quindi si semina QUI.
+    await seedProjectPane(page.request, PROJECT_PATH);
     await goToApp(page);
 
-    // Locate the sezione Chat button
-    const projectsBtn = page
-      .getByRole("button", { name: /sezione Chat/ })
-      .first();
-    await expect(projectsBtn).toBeVisible({ timeout: 10000 });
-
-    // Check initial expanded state
-    const isExpanded = await projectsBtn.getAttribute("aria-expanded");
-
-    if (isExpanded === "false") {
-      // Expand it
-      await projectsBtn.click();
-    }
-
-    // After expanding, verify at least one project item is visible
-    // Projects render as treeitems or clickable items under the projects section
-    const projectItems = page.locator(
-      '[data-testid="sidebar-projects-section"] [role="treeitem"], [data-testid="sidebar-projects-section"] button'
+    const chevron = page.getByRole("button", { name: `Expand ${PROJECT_NAME}` }).or(
+      page.getByRole("button", { name: `Collapse ${PROJECT_NAME}` }),
     );
-    // If no data-testid, try broader approach: look for project names after the Projects header
-    const anyProjectItem = page
-      .getByRole("treeitem")
-      .filter({ hasText: /topics-app|project/i });
+    await expect(chevron).toBeVisible({ timeout: 10000 });
 
-    // Either specific project items exist or there are treeitem elements visible
-    const hasProjectItems =
-      (await projectItems.count()) > 0 || (await anyProjectItem.count()) > 0;
+    ws.send({ type: "unread:updated", topicId: projectChatId, unreadCount: 2 });
 
-    if (hasProjectItems) {
-      // Collapse the section
-      await projectsBtn.click();
-      // Verify the section is collapsed (aria-expanded=false)
-      await expect(projectsBtn).toHaveAttribute("aria-expanded", "false");
+    // Si parte da APERTA, qualunque fosse lo stato iniziale, così le due metà
+    // dell'asserzione (chiudi → sparisce, riapri → torna) partono da un punto noto.
+    if ((await chevron.getAttribute("aria-expanded")) === "false") await chevron.click();
+    await expect(chevron).toHaveAttribute("aria-expanded", "true");
+    const childRow = page
+      .locator('[aria-label="Topics sidebar"]')
+      .locator(`[aria-label="${PROJECT_CHAT_NAME}"]`);
+    await expect(childRow).toBeVisible({ timeout: 10000 });
 
-      // Expand again
-      await projectsBtn.click();
-      await expect(projectsBtn).toHaveAttribute("aria-expanded", "true");
-    } else {
-      // If no projects exist, at least verify the section toggles
-      // Collapse
-      await projectsBtn.click();
-      await expect(projectsBtn).toHaveAttribute("aria-expanded", "false");
-      // Expand
-      await projectsBtn.click();
-      await expect(projectsBtn).toHaveAttribute("aria-expanded", "true");
-    }
+    // Chiudi: l'attributo cambia E il figlio sparisce davvero.
+    await chevron.click();
+    await expect(chevron).toHaveAttribute("aria-expanded", "false");
+    await expect(childRow).toHaveCount(0);
+
+    // Riapri: torna com'era.
+    await chevron.click();
+    await expect(chevron).toHaveAttribute("aria-expanded", "true");
+    await expect(childRow).toBeVisible({ timeout: 10000 });
   });
 
   test("TOPIC-10: unread indicator via WebSocket mock", async ({ page }) => {
@@ -319,14 +326,8 @@ test.describe("Topic Management - Settings & Organization", () => {
     // Navigate to the app
     await goToApp(page);
 
-    // Ensure sezione Chat is expanded
-    const chatsSection = page.getByRole("button", { name: /sezione Chat/ });
-    if ((await chatsSection.count()) > 0) {
-      const expanded = await chatsSection.getAttribute("aria-expanded");
-      if (expanded === "false") {
-        await chatsSection.click();
-      }
-    }
+    // (Niente «apri la sezione Chat»: le sezioni per tipo non esistono più —
+    // vedi il cappello di ensureTopicVisible.)
 
     // Click on Beta topic to make it focused (so Alpha is unfocused and can show unread badge)
     const betaTopic = page.getByRole("treeitem", { name: new RegExp(`E2E-Beta-${TS}`) });

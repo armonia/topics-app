@@ -250,7 +250,6 @@ test.describe("Context, Memory & Settings", () => {
 
   test("SET-01: settings panel opens from sidebar menu", async ({
     settingsPage,
-    page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
@@ -266,8 +265,12 @@ test.describe("Context, Memory & Settings", () => {
     await expect(darkBtn).toBeVisible();
     await expect(systemBtn).toBeVisible();
 
-    // Verify font size control exists (range input)
+    // Verify font size control exists (range input).
+    // Dal 27ccc796 i cursori nella sezione Aspetto sono DUE (corpo del testo e
+    // "Larghezza chat"): si asserisce che ci siano entrambi e che ognuno sia
+    // raggiungibile per nome — è quello che rende il locator non ambiguo.
     await expect(settingsPage.fontSizeSlider).toBeVisible();
+    await expect(settingsPage.chatWidthSlider).toBeVisible();
 
     // Verify message density section has Compact and Comfortable buttons
     const compactBtn = settingsPage.panel.getByRole("button", { name: "Compact" });
@@ -276,7 +279,7 @@ test.describe("Context, Memory & Settings", () => {
     await expect(comfortableBtn).toBeVisible();
 
     // Close settings via the backdrop overlay
-    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+    await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
   });
 
@@ -295,7 +298,7 @@ test.describe("Context, Memory & Settings", () => {
     await expect(page.locator("html")).toHaveClass(/dark/);
 
     // Close settings
-    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+    await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
 
     // Set localStorage explicitly before reload to test the persistence path.
@@ -379,7 +382,7 @@ test.describe("Context, Memory & Settings", () => {
     await settingsPage.fontSizeSlider.fill("16");
 
     // Close settings
-    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+    await settingsPage.closeSettings();
     await expect(settingsPage.panel).not.toBeVisible();
 
     // Verify localStorage has updated values (settings save immediately to localStorage)

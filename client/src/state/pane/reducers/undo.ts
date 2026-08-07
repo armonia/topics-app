@@ -1,6 +1,37 @@
 import type { PaneState, PaneAction } from '../types';
 import { isLiveSpaceId } from './spaces';
 
+/**
+ * Il timbro che dice «l'ho riaperta DOPO che tu l'hai chiusa».
+ *
+ * L'undo è una transizione chiuso→aperto, e la strip di `HYDRATE_FROM_SNAPSHOT`
+ * (reducers/panes.ts) decide se una pane sopravvive a un marcatore confrontando
+ * `pane.openedSeq` con `mark.seq`: più alto vince e RITRATTA il marcatore, più
+ * basso (o assente) perde e la pane sparisce.
+ *
+ * Qui si ristampava solo `openedAt`, e `openedAt` ha smesso di decidere: dal
+ * confronto causale del 2026-08-06 il campo che conta è `openedSeq` — un
+ * orologio timbrato su una macchina e valutato su un'altra non ordina niente.
+ * Il commento diceva già la cosa giusta («senza quel timbro un marcatore
+ * superstite vince e richiude la tab»): era il timbro a essere diventato quello
+ * sbagliato. Effetto misurato (E2E PANE-03, 2 su 2): ⌘Z rimetteva la tab, e uno
+ * snapshot ANTERIORE all'undo la richiudeva 200-400 ms dopo — il PUT locale è
+ * debounced a 500 ms e arriva sempre secondo.
+ *
+ * `state.lastSeq + 1` è lo stesso «sbircia il prossimo seq» di OPEN_PANE:
+ * scrivere su `state.lastSeq` qui farebbe incrementare due volte il dispatcher.
+ * Il marcatore si ritratta insieme al timbro — sono la stessa affermazione detta
+ * ai due canali, quello durevole e quello causale.
+ */
+function restampCausalOpen(state: PaneState, id: string): void {
+  const pane = state.panes[id];
+  if (pane) {
+    pane.openedAt = Date.now();
+    pane.openedSeq = state.lastSeq + 1;
+  }
+  if (state.tombstones) delete state.tombstones[id];
+}
+
 export function undoReducer(state: PaneState, action: PaneAction): void {
   if (action.type !== 'UNDO_CLOSE') return;
   const record = state.closedStack.pop();
@@ -47,7 +78,9 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
       }
     }
     if (record.focusedAtClose) state.focusedPaneId = record.id;
-    if (state.tombstones) delete state.tombstones[record.id];
+    // Anche l'uscita anticipata TIMBRA: uscire presto non è un'esenzione dal
+    // marcatore, che arriva lo stesso col prossimo snapshot. Vedi `restamp`.
+    restampCausalOpen(state, record.id);
     return;
   }
 
@@ -63,23 +96,14 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   if (paneWithoutScroll.spaceId && !isLiveSpaceId(paneWithoutScroll.spaceId, state.spaces)) {
     delete paneWithoutScroll.spaceId;
   }
-  // Undo is a closed→open transition — stamp the causal open timestamp so a
-  // stale peer's surviving marker for this id (union-merged tombstone maps
-  // never propagate deletions) loses the hydrate comparison to the restore.
   // Se l'entità è stata resuscitata da un'altra strada, la si tiene: quella
   // viva può avere campi più freschi del record (che è una fotografia del
   // momento della chiusura). Quello che serviva è il POSTO nel gruppo, qui
-  // sotto. `openedAt` si ristampa comunque: l'undo è una transizione
-  // chiuso→aperto, e senza quel timbro un marcatore superstite di un peer
-  // stantio vince il confronto all'hydrate e richiude la tab.
+  // sotto. Il timbro causale lo mette `restampCausalOpen`, che ritratta anche
+  // il marcatore durevole (mirrors OPEN_PANE's clear).
   const existing = state.panes[record.id];
-  state.panes[record.id] = existing
-    ? { ...existing, openedAt: Date.now() }
-    : { ...paneWithoutScroll, openedAt: Date.now() };
-
-  // Undo re-opens the pane — retract its durable tombstone so the restored tab
-  // isn't stripped on the next union hydrate (mirrors OPEN_PANE's clear).
-  if (state.tombstones) delete state.tombstones[record.id];
+  state.panes[record.id] = existing ? { ...existing } : { ...paneWithoutScroll };
+  restampCausalOpen(state, record.id);
 
   // Ensure the target group still exists; if not, recreate it
   if (!state.groups[record.groupId]) {
