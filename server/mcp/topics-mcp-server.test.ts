@@ -473,6 +473,11 @@ describe("handleMessage", () => {
       "wait_for_condition",
       "comment_task",
       "ask_user_question",
+      // Il canale di permesso: pubblicato sempre. Lo designa
+      // `--permission-prompt-tool`, e la CLI lo toglie da sé dall'elenco che
+      // il modello vede — quindi non costa contesto, e non esiste una
+      // combinazione in cui la CLI lo cerchi e il bridge non ce l'abbia.
+      "approval_prompt",
       "move_session_to_project",
       "spawn_agent",
       "send_to_agent",

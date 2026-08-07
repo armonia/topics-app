@@ -507,18 +507,6 @@ interface ParsedArgs {
   gatewayToken?: string;
   /** Tool profile: "dispatch" = reduced set for board agents (see DISPATCH_EXCLUDED_TOOLS). */
   profile?: string;
-  /**
-   * Il canale di permesso è acceso per questa sessione?
-   *
-   * Lo passa lo spawn quando la modalità può chiedere (vedi
-   * `permissionPromptArgs`). Serve a NON pubblicare `approval_prompt` quando
-   * non serve: in `bypassPermissions` la CLI non lo designa come tool di
-   * prompt, quindi non lo toglie dall'elenco che il modello vede — e resterebbe
-   * lì uno strumento interno, che costa contesto e che il modello potrebbe
-   * chiamare. Acceso il canale, la CLI lo nasconde da sé. Il risultato è che il
-   * modello non lo vede MAI, in nessuna delle due modalità.
-   */
-  permissionChannel?: boolean;
 }
 
 /**
@@ -546,20 +534,17 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
 ]);
 
 /**
- * Il canale di permesso non è uno strumento di lavoro: esiste solo perché la
- * CLI lo designi con `--permission-prompt-tool`, e in quel caso la CLI stessa
- * lo toglie dall'elenco che il modello vede (verificato sul filo). Pubblicarlo
- * anche quando il canale è spento lo lascerebbe lì come tool normale — schema
- * in contesto a ogni chiamata, e chiamabile dal modello per niente. Gated qui,
- * il modello non lo vede MAI: né con il canale acceso (lo nasconde la CLI) né
- * con il canale spento (non lo pubblichiamo noi).
+ * `approval_prompt` è pubblicato SEMPRE, e non è un'incoerenza: lo spawn passa
+ * `--permission-prompt-tool` in ogni modalità, e la CLI toglie da sé il tool
+ * designato dall'elenco che il modello vede (verificato sul filo, anche in
+ * `bypassPermissions`). Quindi il modello non lo vede mai, e non esiste una
+ * combinazione in cui la CLI lo cerchi e il bridge non ce l'abbia — che è
+ * esattamente il modo in cui la versione a due flag si rompeva:
+ * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
-const PERMISSION_CHANNEL_TOOL = "approval_prompt";
-
-export function toolsForProfile(profile: string | undefined, permissionChannel?: boolean): typeof TOOLS {
-  const visible = permissionChannel ? TOOLS : TOOLS.filter((t) => t.name !== PERMISSION_CHANNEL_TOOL);
-  if (profile !== "dispatch") return visible;
-  return visible.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+export function toolsForProfile(profile: string | undefined): typeof TOOLS {
+  if (profile !== "dispatch") return TOOLS;
+  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
@@ -585,7 +570,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
     sessionKey,
     gatewayToken: map["gateway-token"],
     profile: map["profile"],
-    permissionChannel: map["permission-channel"] === "1",
   };
 }
 
@@ -1728,7 +1712,7 @@ export async function handleMessage(
       return {
         jsonrpc: "2.0",
         id,
-        result: { tools: toolsForProfile(args.profile, args.permissionChannel) },
+        result: { tools: toolsForProfile(args.profile) },
       };
 
     case "tools/call": {

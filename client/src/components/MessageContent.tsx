@@ -24,6 +24,7 @@ import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
 import { isPlanResponse } from './Chat/planDetection';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
+import { isAwaitingHuman } from '../../../shared/types';
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -1116,9 +1117,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // l'indicatore dice la verità in tutti e due i rami di render.
   const awaitingInput = useMemo(() => {
     const inBlocks = (blocks ?? []).some(
-      (b) => b.kind === 'tool' && b.toolCall.status === 'waiting_for_input',
+      (b) => b.kind === 'tool' && isAwaitingHuman(b.toolCall.status),
     );
-    return inBlocks || (toolCalls ?? []).some((tc) => tc.status === 'waiting_for_input');
+    return inBlocks || (toolCalls ?? []).some((tc) => isAwaitingHuman(tc.status));
   }, [blocks, toolCalls]);
 
   // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.

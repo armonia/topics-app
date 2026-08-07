@@ -138,6 +138,9 @@ export function beginPermission(
 /** Chiude una richiesta: decisa, annullata o scaduta. Idempotente. */
 export function endPermission(sessionKey: string, toolUseId: string): void {
   activeRequests.delete(permissionKey(sessionKey, toolUseId));
+  for (const [alias, target] of [...aliases]) {
+    if (target === toolUseId && alias.startsWith(`${sessionKey}\u0000`)) aliases.delete(alias);
+  }
 }
 
 /**
@@ -218,21 +221,37 @@ export function hasPendingPermission(sessionKey: string, toolUseId: string): boo
 }
 
 /**
- * Da quale richiesta aperta viene il click su QUESTA riga di tool.
+ * Il pannello è finito su una riga con un id DIVERSO da quello della richiesta?
+ * Allora si registra la corrispondenza, invece di indovinarla dopo.
  *
- * Quasi sempre la risposta è «da quella con lo stesso id»: il `tool_use_id` che
- * la CLI passa al canale è lo stesso id della riga a schermo. Il ripiego serve
- * al caso in cui il pannello sia finito su una riga diversa — succede solo se
- * Topics non aveva persistito quell'id e la rotta ha agganciato il pannello
- * all'ultima riga con quel nome. Allora, e SOLO se sulla sessione c'è una
- * richiesta sola, il click è per forza suo: con due aperte si preferisce non
- * rispondere piuttosto che rispondere a quella sbagliata — un permesso dato al
- * posto di un altro è il peggiore dei due errori possibili.
+ * Succede solo nel ripiego della rotta: se Topics non aveva persistito il
+ * `tool_use_id` che la CLI passa, il pannello si aggancia all'ultima riga con
+ * quel nome. Il click arriverà con l'id della RIGA, la richiesta è indicizzata
+ * con quello della CLI.
+ *
+ * Prima qui c'era un'euristica — «se sulla sessione c'è una richiesta sola, il
+ * click è suo». Reggeva finché non ce n'era davvero una sola: con una richiesta
+ * aperta e un click su una riga scollegata, mandava la decisione a un permesso
+ * che nessuno aveva guardato. Un sì dato al posto di un altro è il peggiore
+ * degli errori possibili qui dentro, e una corrispondenza SCRITTA non indovina.
+ */
+const aliases = new Map<string, string>();
+
+export function aliasPermission(sessionKey: string, toolUseId: string, aliasId: string): void {
+  if (aliasId === toolUseId) return;
+  aliases.set(permissionKey(sessionKey, aliasId), toolUseId);
+}
+
+/**
+ * Da quale richiesta aperta viene il click su QUESTA riga di tool, o `null` se
+ * da nessuna — e `null` è una risposta legittima: un pannello può sopravvivere
+ * al turno che lo ha aperto (server riavviato, figlio morto), e in quel caso
+ * dirlo è meglio che accettare un click che non arriverà da nessuna parte.
  */
 export function resolvePendingPermission(sessionKey: string, toolUseId: string): string | null {
   if (hasPendingPermission(sessionKey, toolUseId)) return toolUseId;
-  const forSession = [...activeRequests.values()].filter((e) => e.sessionKey === sessionKey);
-  return forSession.length === 1 ? forSession[0].toolUseId : null;
+  const aliased = aliases.get(permissionKey(sessionKey, toolUseId));
+  return aliased && hasPendingPermission(sessionKey, aliased) ? aliased : null;
 }
 
 /** C'è ALMENO una richiesta di permesso aperta su questa sessione? */
@@ -297,28 +316,4 @@ export function cancelPermissionsForSession(sessionKey: string, reason = 'cancel
       buffered.delete(key);
     }
   }
-}
-
-/**
- * Cosa deve fare uno spazzino di turni fermi davanti a una richiesta aperta.
- * Stessa forma (e stessa ragione) di `pendingAskVerdict`: una regola pura, che
- * si prova senza una mappa di stream e un figlio CLI.
- *
- *   - `"none"`       nessuna richiesta aperta — valgono le regole normali.
- *   - `"defer"`      il silenzio È la richiesta: il figlio è bloccato sulla
- *                    risposta JSON-RPC del bridge e per costruzione non produce
- *                    niente finché non si preme.
- *   - `"close"`      non si può più onorare — il figlio è morto sotto il
- *                    pannello, o il TTL è passato. È il ramo che impedisce a
- *                    `defer` di diventare eterno.
- */
-export function pendingPermissionVerdict(opts: {
-  ageMs: number | null;
-  ttlMs?: number;
-  childAlive?: boolean;
-}): 'none' | 'defer' | 'close' {
-  if (opts.ageMs === null) return 'none';
-  if (opts.ageMs >= (opts.ttlMs ?? DEFAULT_REQUEST_TTL_MS)) return 'close';
-  if (opts.childAlive === false) return 'close';
-  return 'defer';
 }

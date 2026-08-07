@@ -1,51 +1,50 @@
 /**
- * Il permesso su un singolo strumento: le etichette e la forma della domanda.
+ * Il permesso su un singolo strumento: le parole e il riassunto degli argomenti.
  *
- * È un CONTRATTO fra tre parti che non si vedono fra loro:
- *   - chi pone la domanda — il server, quando la CLI chiede il permesso
- *     (`server/routes/topics.ts`, rotta `…/permission`);
- *   - chi la mostra — la riga del tool in chat, che la rende con lo STESSO
- *     pannello di `ask_user_question` (`client/…/ToolInputForm.tsx`);
- *   - chi la interpreta — di nuovo il server, che dalla risposta ricava
- *     `allow` / `allow_always` / `deny` e la manda alla CLI.
+ * I TIPI stanno in `shared/types.ts` (`ToolCallStatus: 'awaiting_permission'`,
+ * `ToolPermissionRequest`, `PermissionDecision`), perché sono un contratto sul
+ * filo. Qui resta solo ciò che si LEGGE: le tre etichette e la riga che dice con
+ * quali argomenti verrebbe eseguito.
  *
- * Vive qui, e non tre volte, per lo stesso motivo di `shared/plan-decision.ts`:
- * scritte due volte queste stringhe divergono in silenzio — il pannello
- * continuerebbe a comparire e il bottone smetterebbe di fare qualcosa, senza un
- * solo errore di compilazione.
+ * ── Perché non è (più) una domanda ──────────────────────────────────────────
+ * Il primo taglio riusava il pannello di `AskUserQuestion`: la decisione
+ * viaggiava come valore di una mappa `{ "Permesso richiesto — <tool>":
+ * "Consenti sempre" }`, riconosciuta per prefisso di stringa. Reggeva, e
+ * costava tre eccezioni dentro il form delle domande — spegnere «Altro»,
+ * cambiare l'etichetta del tasto, cambiare l'occhiello. Tre eccezioni sono il
+ * segnale che una cosa è nel posto sbagliato.
  *
- * PERCHÉ riusa il pannello delle domande invece di inventarne uno: il pannello
- * inline, l'ambra della tab, la risposta dal composer e la sopravvivenza al
- * reload esistono già e sono collaudati. Una superficie nuova avrebbe dovuto
- * riconquistarli uno per uno.
+ * Adesso il permesso ha il suo stato e il suo endpoint, e la decisione viaggia
+ * come enum. Queste etichette servono a chi DISEGNA (e ai test che premono i
+ * bottoni), non più a riconoscere niente: se cambi una parola qui, cambia solo
+ * quello che si legge.
  */
 
-import type { AskUserQuestionItem, UserInputSchema } from './types';
+import type { PermissionDecision } from './types';
 
-/** La decisione che la CLI si aspetta indietro dal canale di permesso. */
-export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+export const PERMISSION_LABELS: Record<PermissionDecision, string> = {
+  allow: 'Consenti',
+  allow_always: 'Consenti sempre',
+  deny: 'Nega',
+};
 
-export const PERMISSION_ALLOW_ONCE_LABEL = 'Consenti';
-export const PERMISSION_ALLOW_ALWAYS_LABEL = 'Consenti sempre';
-export const PERMISSION_DENY_LABEL = 'Nega';
+/** Cosa fa ciascuna, in una riga — sotto l'etichetta, nel pannello. */
+export const PERMISSION_HINTS: Record<PermissionDecision, string> = {
+  allow: 'Solo per questa volta.',
+  allow_always: 'Non chiedere più per questo strumento. Si revoca dalle impostazioni.',
+  deny: "L'agente riceve un no e prosegue senza.",
+};
 
-/**
- * Il prefisso che identifica una domanda di permesso. Il nome dello strumento
- * (e un riassunto degli argomenti) seguono, quindi il riconoscimento è per
- * prefisso — non per uguaglianza come sul piano, dove la domanda è una sola.
- */
-export const PERMISSION_QUESTION_PREFIX = 'Permesso richiesto — ';
-
-/** L'intestazione corta del pannello (≤12 caratteri per convenzione SDK). */
-export const PERMISSION_HEADER = 'Permesso';
+/** L'ordine in cui compaiono. Il no per ultimo: si legge prima cosa si concede. */
+export const PERMISSION_CHOICES: PermissionDecision[] = ['allow', 'allow_always', 'deny'];
 
 /**
  * Un riassunto di UNA RIGA degli argomenti, perché un permesso concesso senza
  * vedere cosa farà non è un permesso: è un pulsante.
  *
- * Volutamente breve e senza valori lunghi — il pannello sta in una riga di
- * chat, e il dettaglio completo resta negli argomenti del tool, che la riga sa
- * già mostrare quando la apri.
+ * Volutamente breve e senza valori lunghi — la riga sta in una chat, e il
+ * dettaglio completo resta negli argomenti del tool, che la riga sa già mostrare
+ * quando la apri.
  */
 export function summarizeToolInput(input: unknown, maxLen = 160): string {
   if (input === null || input === undefined) return '';
@@ -75,66 +74,13 @@ function clamp(s: string, n: number): string {
   return flat.length <= n ? flat : `${flat.slice(0, n - 1)}…`;
 }
 
-/** Il testo della domanda per uno strumento — la CHIAVE della mappa risposte. */
-export function permissionQuestion(toolName: string, input?: unknown): string {
-  const summary = summarizeToolInput(input);
-  return summary
-    ? `${PERMISSION_QUESTION_PREFIX}${toolName}\n${summary}`
-    : `${PERMISSION_QUESTION_PREFIX}${toolName}`;
-}
-
 /**
- * Il pannello da mostrare. Tre opzioni e NESSUNA consigliata: su tutto il resto
- * un consiglio fa risparmiare tempo, qui deciderebbe al posto di chi deve
- * decidere — ed è l'unica domanda della app in cui la risposta sbagliata la
- * paga chi l'ha premuta.
- */
-export function permissionSchemaFor(opts: { toolName: string; input?: unknown }): UserInputSchema {
-  const question: AskUserQuestionItem = {
-    question: permissionQuestion(opts.toolName, opts.input),
-    header: PERMISSION_HEADER,
-    options: [
-      { label: PERMISSION_ALLOW_ONCE_LABEL, description: 'Solo per questa volta.' },
-      {
-        label: PERMISSION_ALLOW_ALWAYS_LABEL,
-        description: `Non chiedere più per ${opts.toolName}. Si revoca dalle impostazioni.`,
-      },
-      { label: PERMISSION_DENY_LABEL, description: "L'agente riceve un no e prosegue senza." },
-    ],
-  };
-  return { kind: 'questions', questions: [question] };
-}
-
-type AnswerLike = { kind?: string; answers?: Record<string, string> };
-
-/**
- * La decisione contenuta in una risposta, o `null` se non è una risposta a un
- * permesso. Un'etichetta che non riconosciamo vale `deny`: davanti a un
- * permesso, «non ho capito» non può voler dire «sì».
- */
-export function permissionDecisionFrom(response: AnswerLike): PermissionDecision | null {
-  if (response?.kind !== 'questions') return null;
-  const entry = Object.entries(response.answers ?? {}).find(([q]) =>
-    q.startsWith(PERMISSION_QUESTION_PREFIX),
-  );
-  if (!entry) return null;
-  const answer = (entry[1] ?? '').trim();
-  if (answer === PERMISSION_ALLOW_ONCE_LABEL) return 'allow';
-  if (answer === PERMISSION_ALLOW_ALWAYS_LABEL) return 'allow_always';
-  return 'deny';
-}
-
-/**
- * Questa domanda è un permesso?
+ * Una decisione arrivata dal filo è una delle tre?
  *
- * Serve a `answerFromText` per NON promettere che una riga di prosa possa
- * rispondere: su un ask normale il testo libero passa verbatim al modello, che
- * lo legge per mestiere; qui dall'altra parte non c'è nessun modello, la scelta
- * la interpretiamo noi, e fra tre opzioni esatte «ok», «vai» o «no direi» sono
- * un indovinello — che si risolve concedendo un permesso che volevi negare.
+ * Sul confine si valida, non si spera: un valore che non riconosciamo NON
+ * diventa un sì per inerzia — il chiamante lo rifiuta con un 400, e davanti a
+ * un permesso «non ho capito» non può voler dire «vai».
  */
-export function isPermissionSchema(schema: unknown): boolean {
-  const s = schema as { kind?: string; questions?: { question?: string }[] } | null;
-  if (!s || s.kind !== 'questions') return false;
-  return (s.questions ?? []).some((q) => q?.question?.startsWith(PERMISSION_QUESTION_PREFIX));
+export function isPermissionDecision(value: unknown): value is PermissionDecision {
+  return value === 'allow' || value === 'allow_always' || value === 'deny';
 }

@@ -114,24 +114,21 @@ describe("nessuna modalità che chiede può partire senza il canale", () => {
     }
   });
 
-  test("ogni modalità che chiede riceve --permission-prompt-tool", () => {
+  test("OGNI modalità riceve --permission-prompt-tool, anche quella che non chiede", () => {
+    // Condizionarlo voleva dire tenerlo accoppiato al flag gemello del bridge,
+    // e due flag che devono restare d'accordo prima o poi non lo sono: senza il
+    // secondo la CLI risponde «MCP tool … not found» su OGNI richiesta. Passarlo
+    // sempre costa zero (in `bypassPermissions` non lo chiama nessuno) e non
+    // può desincronizzarsi da sé stesso.
     for (const mode of CLI_MODES) {
-      const args = permissionPromptArgs(mode);
-      if (mode === "bypassPermissions") {
-        // Inutile: non chiede mai. Passarlo comunque non romperebbe niente, ma
-        // metterebbe in argv un flag che non descrive quello che succede.
-        expect(args).toEqual([]);
-      } else {
-        expect(args).toEqual(["--permission-prompt-tool", PERMISSION_PROMPT_TOOL]);
-      }
+      expect(permissionPromptArgs(mode)).toEqual(["--permission-prompt-tool", PERMISSION_PROMPT_TOOL]);
     }
   });
 
   test("e vale attraverso la mappatura, che è la strada vera", () => {
     for (const level of ["ask", "auto-apply", "yolo", "livello-inventato", null, undefined]) {
       const mode = permissionModeForAutonomy(level as string | null | undefined);
-      const args = permissionPromptArgs(mode);
-      expect(permissionModeAsks(mode) ? args.length : 0).toBe(permissionModeAsks(mode) ? 2 : 0);
+      expect(permissionPromptArgs(mode)).toHaveLength(2);
     }
   });
 
@@ -142,10 +139,13 @@ describe("nessuna modalità che chiede può partire senza il canale", () => {
     expect(PERMISSION_PROMPT_TOOL).toBe("mcp__topics__approval_prompt");
   });
 
-  test("un valore mancante non porta il canale (non c'è nessuno spawn da coprire)", () => {
+  test("`permissionModeAsks` resta la verità sulla tabella, anche se non decide più l'argv", () => {
+    // Non guida più il flag (che si passa sempre), ma è il posto dove è scritto
+    // QUALI modalità si fermano a chiedere — cioè quali senza canale morivano
+    // mute. Serve a chi legge la mappatura, e ai test qui sopra.
     expect(permissionModeAsks(null)).toBe(false);
     expect(permissionModeAsks(undefined)).toBe(false);
     expect(permissionModeAsks("")).toBe(false);
-    expect(permissionPromptArgs(null)).toEqual([]);
+    expect(permissionModeAsks("acceptEdits")).toBe(true);
   });
 });

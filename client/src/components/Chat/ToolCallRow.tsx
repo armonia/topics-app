@@ -6,10 +6,12 @@ import { ToolCardBody } from './ToolCards';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
+import { ToolPermissionRow } from './ToolPermissionRow';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
 import { planDecisionFrom } from '../../../../shared/plan-decision';
 import { SETTLED_METRIC_CLASS } from './settledMetrics';
+import { isAwaitingHuman } from '../../../../shared/types';
 
 /**
  * Live elapsed readout for a call that hasn't settled — ticks every second
@@ -109,6 +111,12 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const status = toolCall.status ?? 'pending';
   const isRunning = status === 'pending' || status === 'running';
   const isWaiting = status === 'waiting_for_input';
+  // Un PERMESSO non è una domanda: stato suo, pannello suo, decisione
+  // tipizzata. Ma per tutto ciò che chiede «la palla è dell'umano?» — la
+  // riga aperta, niente cronometro che scorre, il cerchietto ambra — sono
+  // lo stesso fatto, quindi condividono `isHumanTurn`.
+  const isAwaitingPermission = status === 'awaiting_permission';
+  const isHumanTurn = isAwaitingHuman(status);
   const isError = status === 'error';
 
   // True when the whole point of the call is the question — the SDK's
@@ -149,7 +157,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   }, [isRunning, autoOpen]);
   const effectiveOpen = userToggled
     ? open
-    : (open || detail.type === 'sub_agent' || isWaiting || autoOpen);
+    : (open || detail.type === 'sub_agent' || isHumanTurn || autoOpen);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -162,7 +170,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // corpo la riga non offre il gesto (e non ne finge nemmeno lo spazio: il
   // posto del chevron resta, o le righe non si allineerebbero più).
   const hasBody =
-    toolCardHasBody(detail) || isWaiting || isError || !!toolCall.error || !!toolCall.userResponse;
+    toolCardHasBody(detail) || isHumanTurn || isError || !!toolCall.error || !!toolCall.userResponse
+    // Una decisione presa su un permesso è la traccia che si va a rileggere:
+    // la riga si richiude (la palla non è più tua) ma deve restare APRIBILE,
+    // come già fa una domanda a cui hai risposto.
+    || !!toolCall.permissionOutcome;
 
   // Una riga che non si apre e non dice perché si legge come una riga ROTTA —
   // tanto più dopo che si apriva (su un riquadro vuoto, ma si apriva). Il
@@ -277,7 +289,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {isRunning && typeof toolCall.startedAt === 'number' && (
             <ElapsedTimer since={toolCall.startedAt} />
           )}
-          {!isRunning && !isWaiting && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
+          {!isRunning && !isHumanTurn && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
             <span className={`text-[10px] tabular-nums text-app-text-muted ${SETTLED_METRIC_CLASS}`} data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
@@ -295,7 +307,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               the user. Show a help-circle accent instead, matching the
               banner inside the form. Falls back to spinner for the
               pending/running cases that still mean the agent is busy. */}
-          {isWaiting && (
+          {isHumanTurn && (
             <HelpCircle
               size={11}
               className="text-amber-500"
@@ -323,7 +335,22 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               those args are the context you answer FROM. The single exception
               is the ask tool itself — its args *are* the questions, so echoing
               them above the radios would just say everything twice. */}
-          {isWaiting && toolCall.userInputSchema && sessionKey ? (
+          {/* La riga resta anche DOPO la decisione: `permissionOutcome` la fa
+              collassare in una riga sola che dice chi ha detto cosa. Senza,
+              premuto il bottone il pannello spariva e della decisione non
+              restava traccia — e una decisione sui permessi è esattamente ciò
+              che si va a rileggere sei mesi dopo. */}
+          {toolCall.permissionRequest && (isAwaitingPermission || toolCall.permissionOutcome) && sessionKey ? (
+            <>
+            <ToolCardBody detail={detail} isError={isError} isRunning={false} />
+            <ToolPermissionRow
+              request={toolCall.permissionRequest}
+              outcome={toolCall.permissionOutcome}
+              toolCallId={toolCall.id}
+              onDecide={async (decision) => { await chatApi.permissionResponse(sessionKey, toolCall.id, decision); }}
+            />
+            </>
+          ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
             {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} />}
             <ToolInputForm

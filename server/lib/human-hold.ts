@@ -26,14 +26,37 @@
 
 import { hasPendingAsk, pendingAskAgeMs, cancelAsk } from './ask-user-bridge';
 import {
-  sessionHasPendingPermission,
   pendingPermissionAgeMs,
   cancelPermissionsForSession,
+  PERMISSION_TTL_MS,
 } from './permission-bridge';
 
-/** C'è una domanda o una richiesta di permesso a schermo per questa sessione? */
-export function isHumanHold(sessionKey: string): boolean {
-  return hasPendingAsk(sessionKey) || sessionHasPendingPermission(sessionKey);
+/**
+ * C'è una domanda o un permesso a schermo per questa sessione?
+ *
+ * ── Perché il permesso è LIMITATO nel tempo e la domanda no ─────────────────
+ * Questo predicato disarma watchdog, reaper e tetto di vita: dice «il silenzio
+ * è legittimo, non toccare». Per una domanda quel disarmo è senza scadenza di
+ * proposito — chi lascia il computer alle sei e risponde la mattina dopo deve
+ * ritrovare il pannello vivo (vedi la nota su `DEFAULT_ASK_TTL_MS`).
+ *
+ * Per un permesso no, e il motivo è la forma di come muore. Le richieste vivono
+ * in memoria e si chiudono da sole solo quando il bridge torna a pollare: se il
+ * figlio CLI muore SOTTO un pannello aperto, nessuna gamba arriva più, niente
+ * scade, e questa funzione giurerebbe per sempre che una persona sta per
+ * rispondere — su una sessione dove non c'è più nessuno da aspettare. È il
+ * fantasma visto il 7 agosto: tre chiamate ferme e un pannello che invitava un
+ * click che non poteva arrivare da nessuna parte.
+ *
+ * Quindi il permesso vale come attesa finché è dentro il suo TTL, e non un
+ * minuto di più. Non è un modo per negare in fretta: due ore sono oltre
+ * qualunque attesa reale davanti a tre bottoni, e scaduto il tetto le reti di
+ * sicurezza tornano ad avere i denti invece di restare disarmate a vuoto.
+ */
+export function isHumanHold(sessionKey: string, now = Date.now()): boolean {
+  if (hasPendingAsk(sessionKey)) return true;
+  const perm = pendingPermissionAgeMs(sessionKey, now);
+  return perm !== null && perm < PERMISSION_TTL_MS;
 }
 
 /**
@@ -44,7 +67,11 @@ export function isHumanHold(sessionKey: string): boolean {
  */
 export function humanHoldAgeMs(sessionKey: string, now = Date.now()): number | null {
   const ask = pendingAskAgeMs(sessionKey, now);
-  const perm = pendingPermissionAgeMs(sessionKey, now);
+  // Stesso tetto di `isHumanHold`: un permesso scaduto non è più un'attesa, e
+  // continuare a contarne l'età terrebbe la chat su «aspetta te» in sidebar
+  // sopra un turno che non esiste più.
+  const permRaw = pendingPermissionAgeMs(sessionKey, now);
+  const perm = permRaw !== null && permRaw < PERMISSION_TTL_MS ? permRaw : null;
   if (ask === null) return perm;
   if (perm === null) return ask;
   return Math.max(ask, perm);

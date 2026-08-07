@@ -7,13 +7,18 @@ export interface SeedToolCall {
   id: string;
   name: string;
   args: Record<string, any>;
-  status?: "pending" | "running" | "success" | "error" | "waiting_for_input";
+  status?: "pending" | "running" | "success" | "error" | "waiting_for_input" | "awaiting_permission";
   result?: string;
   error?: string;
   /** Persisted verbatim by the seed endpoint. With status "waiting_for_input"
    *  this drives the clickable <ToolInputForm> panel on load (AskUserQuestion /
    *  the mcp__topics__ask_user_question bridge tool). */
   userInputSchema?: unknown;
+  /** Con status "awaiting_permission": cosa la CLI chiede di poter fare, cioè
+   *  quello che <ToolPermissionRow> disegna. Un permesso NON è una domanda —
+   *  vedi la nota in shared/types.ts. */
+  permissionRequest?: unknown;
+  permissionOutcome?: unknown;
   contentOffset?: number;
   /** Real-usage window bounds (epoch ms) — drive duration rendering. */
   startedAt?: number;
