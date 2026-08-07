@@ -2,6 +2,55 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.43 — 2026-08-07
+
+### Sotto il cofano
+- «Sola lettura» era una scritta, non una regola: un ospite poteva scrivere
+- «Nessuna risposta» non si scrive più sopra un turno da 46 KB
+- sharing-orgs: il soggetto di una concessione smette di essere il ferro
+- L'ordine delle colonne della board è totale, e non si riordina dove non si può
+- L'esito di un turno fallito si scrive solo se la riga è ancora la sua
+- Una porta sola su grants, e il soggetto è già plurale dietro di essa
+- Otto difetti trovati dalla verifica avversariale, incluso uno mio
+- Il verdetto sopravvive alla rifusione: dice come è finita ADESSO
+- Il bordo dell'accordion File lampeggiava, e la cronologia si offriva anche senza commit
+- Chiedi conferma prima di archiviare un task con l'agent al lavoro
+- persone e organizzazioni, e la proprietà resta LOCALE
+- Il risolutore dei principali, e le concessioni a una persona diventano vere
+- Su un telefono c'e' una superficie sola, e quindi un colore solo
+- La rubrica dei destinatari, e si condivide con una PERSONA
+- Il filtro dei frame passa dai principali, e la profondità due ha un allarme
+- Fermare un fan-out taglia TUTTI i turni, non solo il primo
+- L'interstizio frazionario esaurito rinumera la colonna invece di non fare niente
+- Una riga tutta sua non ha un «sopra» e un «sotto» da offrire
+- Un tunnel non estende il perimetro: lo rovescia. Ora ha una porta sua
+- La guida del tunnel entra nel repo: descrive un pericolo, non una preferenza
+- Col dito il gesto e' uno solo, e le cose che non servono se ne vanno
+- L'anteprima dello sfissaggio prometteva una riga che il filtro cancellava
+- Una chat legata a un ESEGUIBILE: il ripiego contraddiceva il giro che l'aveva scartato
+- La vibrazione su iPhone si puo' fare, fino a 26.4 — e i bersagli rimasti
+- Il tick si chiede alla LABEL, non all'input — e il segno visivo si fa sentire
+- Il tetto della coda smette di essere un'arma: si sfratta, non si rifiuta
+- Un turno non si prende più i file di un altro
+- La cronologia era schiacciata SOPRA, e la prima correzione guardava solo sotto
+- Il relay: Cloudflare, e la parola «tunnel» non arriva all'utente
+- Cookie → chi sei: una traduzione sola, non tre che divergono
+- Misurato il costo del relay su turni veri: la stima era giusta per caso
+- I termini di Cloudflare non bloccano il relay, e un vincolo paga due volte
+- «Nessuna risposta» si decide DOPO la rifusione, non prima
+- Il protocollo del relay, e un secondo relay che lo tiene onesto
+- Segna fatti il protocollo del relay e il relay finto
+- La chiave sta dove il server non la vede: il contratto di cifratura
+- Un dispositivo si può spostare su un'altra persona
+- Il default di SessionRoot si inverte: si monta l'app solo a chi è owner
+- Il cartello chiede DI CHI È, e il ruolo smette di essere una scelta
+- Riapri l'ultima tab; se non c'è niente da riaprire, la lista
+- Il bordo riflesso, i grigi che erano ×1,14 troppo chiari, un box solo per i comandi di riga
+- La colonna si riorganizza per il pollice, e il banner rientra dentro di lei
+- Tieni premuto e trascina: i fissati si riordinano anche col dito
+- Il piede del pannello git non si taglia piu': la lista cede, le intestazioni no
+- Una riga di progetto si trova per ruolo, non per il testo che ci passa sopra
+
 ## 2.2.42 — 2026-08-07
 
 ### Sotto il cofano
@@ -13,6 +62,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Ferma l'agent quando si archivia un task in corso
 - Condividere qualcosa non arrivava all'ospite finché non ricaricava a mano
 - La domanda «questo turno è finito male?» si pone in un posto solo
+- Changelog per 2.2.42
 
 ## 2.2.41 — 2026-08-07
 

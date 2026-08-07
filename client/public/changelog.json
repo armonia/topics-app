@@ -1,5 +1,298 @@
 [
   {
+    "version": "2.2.43",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "«Sola lettura» era una scritta, non una regola: un ospite poteva scrivere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Nessuna risposta» non si scrive più sopra un turno da 46 KB",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "sharing-orgs: il soggetto di una concessione smette di essere il ferro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'ordine delle colonne della board è totale, e non si riordina dove non si può",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'esito di un turno fallito si scrive solo se la riga è ancora la sua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una porta sola su grants, e il soggetto è già plurale dietro di essa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Otto difetti trovati dalla verifica avversariale, incluso uno mio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il verdetto sopravvive alla rifusione: dice come è finita ADESSO",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bordo dell'accordion File lampeggiava, e la cronologia si offriva anche senza commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiedi conferma prima di archiviare un task con l'agent al lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "persone e organizzazioni, e la proprietà resta LOCALE",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il risolutore dei principali, e le concessioni a una persona diventano vere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su un telefono c'e' una superficie sola, e quindi un colore solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rubrica dei destinatari, e si condivide con una PERSONA",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filtro dei frame passa dai principali, e la profondità due ha un allarme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fermare un fan-out taglia TUTTI i turni, non solo il primo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'interstizio frazionario esaurito rinumera la colonna invece di non fare niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga tutta sua non ha un «sopra» e un «sotto» da offrire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un tunnel non estende il perimetro: lo rovescia. Ora ha una porta sua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guida del tunnel entra nel repo: descrive un pericolo, non una preferenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Col dito il gesto e' uno solo, e le cose che non servono se ne vanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima dello sfissaggio prometteva una riga che il filtro cancellava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat legata a un ESEGUIBILE: il ripiego contraddiceva il giro che l'aveva scartato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La vibrazione su iPhone si puo' fare, fino a 26.4 — e i bersagli rimasti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tick si chiede alla LABEL, non all'input — e il segno visivo si fa sentire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto della coda smette di essere un'arma: si sfratta, non si rifiuta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno non si prende più i file di un altro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cronologia era schiacciata SOPRA, e la prima correzione guardava solo sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay: Cloudflare, e la parola «tunnel» non arriva all'utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cookie → chi sei: una traduzione sola, non tre che divergono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misurato il costo del relay su turni veri: la stima era giusta per caso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I termini di Cloudflare non bloccano il relay, e un vincolo paga due volte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Nessuna risposta» si decide DOPO la rifusione, non prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il protocollo del relay, e un secondo relay che lo tiene onesto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Segna fatti il protocollo del relay e il relay finto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chiave sta dove il server non la vede: il contratto di cifratura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un dispositivo si può spostare su un'altra persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il default di SessionRoot si inverte: si monta l'app solo a chi è owner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cartello chiede DI CHI È, e il ruolo smette di essere una scelta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riapri l'ultima tab; se non c'è niente da riaprire, la lista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bordo riflesso, i grigi che erano ×1,14 troppo chiari, un box solo per i comandi di riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La colonna si riorganizza per il pollice, e il banner rientra dentro di lei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tieni premuto e trascina: i fissati si riordinano anche col dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piede del pannello git non si taglia piu': la lista cede, le intestazioni no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga di progetto si trova per ruolo, non per il testo che ci passa sopra",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.42",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Changelog per 2.2.41",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filtro degli ospiti prendeva il telefono del proprietario, e mancava due fan-out su tre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Staged» e «Changes» mostravano lo stesso diff, e non era nessuno dei due",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ruolo ospite era raggiungibile solo con curl: ora si sceglie approvando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'errore di un turno è una riga sua, non una cornice attorno a tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ferma l'agent quando si archivia un task in corso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Condividere qualcosa non arrivava all'ospite finché non ricaricava a mano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La domanda «questo turno è finito male?» si pone in un posto solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Changelog per 2.2.42",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.41",
     "date": "2026-08-07",
     "sections": {
