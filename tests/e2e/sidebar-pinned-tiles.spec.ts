@@ -1509,6 +1509,15 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     // rientro, quindi centrandolo in verticale i tre spazi coincidono. Se
     // qualcuno cambia l'altezza senza il rientro (o viceversa) questo rosso lo
     // dice subito, invece di lasciare una tessera «troppo alta».
+    //
+    // SI ASSERISCE L'IDENTITA', NON IL NUMERO. Prima qui c'era `{4, 4, 4}`
+    // scritto a mano, cioe' una TERZA copia di una costante che vive gia' in
+    // due posti (`PINNED_TILE_H` e `PINNED_TILE_ACTION_INSET`): il 07/08 il
+    // trigger e' passato da 24 a 28px — un comando di riga ora ha una misura
+    // sola in tutta la sidebar — l'inset l'ha seguito da 4 a 2 come
+    // l'uguaglianza impone, e questo test e' diventato rosso pur essendo la
+    // proprieta' INTATTA. Un test che si rompe quando il codice resta corretto
+    // non sta proteggendo l'invariante: sta ricopiando un valore.
     const projectPath = "/tmp/e2e-tile-inset";
     const chat = await createTopic(request, `E2E-Inset-${Date.now()}`, { projectPath });
     created.push(chat.id);
@@ -1528,7 +1537,13 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     const sotto = Math.round((t.y + t.height) - (p.y + p.height));
     const destra = Math.round((t.x + t.width) - (p.x + p.width));
 
-    expect({ sopra, destra, sotto }).toEqual({ sopra: 4, destra: 4, sotto: 4 });
+    // I tre spazi coincidono…
+    expect({ destra, sotto }).toEqual({ destra: sopra, sotto: sopra });
+    // …e non sono zero (un trigger a filo della tessera li farebbe coincidere
+    // tutti e tre su 0, cioe' passare per il verso sbagliato).
+    expect(sopra).toBeGreaterThan(0);
+    // …e l'identita' che li produce regge: altezza = trigger + 2 × rientro.
+    expect(Math.round(t.height)).toBe(Math.round(p.height) + 2 * sopra);
   });
 });
 
