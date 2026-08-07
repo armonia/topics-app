@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.50",
+    "date": "2026-08-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un pannello di permesso non sopravvive al turno che l'ha aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La safe-area la scavalca il composer, non tutta l'app",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay ha un dominio tuo, e la tua identità ha un nome",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.49",
     "date": "2026-08-07",
     "sections": {
@@ -14,6 +40,11 @@
         },
         {
           "it": "Non era il raggio, era la distanza: il «+» smette di abbracciare l'angolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.49 — la distanza, non il raggio",
           "en": "",
           "scope": null
         }
