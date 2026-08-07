@@ -11,6 +11,7 @@ import { CommitHistory } from '../Git/CommitHistory';
 import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useAutoResize } from '../../hooks/useAutoResize';
+import { isBinaryForDiff, looksBinary, isTooLarge, type DiffBlock } from './diffGuards';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
@@ -196,6 +197,28 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const { gitStatus, loading, error, notGit, reload: loadStatus, fetchRemote } = useGitStatus({ projectPath });
   const toast = useToast();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  /**
+   * DA DOVE viene il diff aperto a destra. Non è un dettaglio di presentazione.
+   *
+   * I due caricatori — l'albero di lavoro e la cronologia — scrivevano lo stesso
+   * stato e nient'altro, quindi a valle nessuno poteva più distinguerli. Da lì
+   * tre bugie e un rischio:
+   *  - l'intestazione diceva sempre «Originale (HEAD) | Modificato (in
+   *    lavorazione)» anche su un file aperto da un commit di marzo;
+   *  - la riga nella lista dei cambiamenti si accendeva per un file aperto
+   *    dalla cronologia, solo perché aveva lo stesso path;
+   *  - e la striscia dei blocchi si montava sulla presenza del PATH fra i file
+   *    sporchi, non sulla provenienza. Un file che sta in un commit vecchio ed
+   *    è anche sporco adesso — cioè il caso normale, apro la cronologia proprio
+   *    perché ci sto lavorando — mostrava bottoni che agiscono sull'albero DI
+   *    ORA sotto un diff di ALLORA. Uno di quei bottoni è Scarta, che non è
+   *    recuperabile.
+   */
+  const [diffSource, setDiffSource] = useState<
+    { kind: 'worktree' } | { kind: 'commit'; hash: string } | null
+  >(null);
+  /** Quando il diff non si può disegnare, e perché. Vedi `diffGuards.ts`. */
+  const [diffBlock, setDiffBlock] = useState<DiffBlock>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
   const [modifiedContent, setModifiedContent] = useState<string>('');
   const [loadingDiff, setLoadingDiff] = useState(false);
@@ -205,6 +228,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
   const [generatingMsg, setGeneratingMsg] = useState(false);
+  /** Chi ha scritto il messaggio nella casella: il modello, o le sole regole. */
+  const [msgSource, setMsgSource] = useState<'ai' | 'rules' | null>(null);
   const [stagingAll, setStagingAll] = useState(false);
   const [stagedExpanded, setStagedExpanded] = useState(true);
   const [unstagedExpanded, setUnstagedExpanded] = useState(true);
@@ -232,6 +257,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged'; targets: string[] } | null>(null);
   const lastClickedRef = useRef<string | null>(null);
   const diffFetchAbortRef = useRef<AbortController | null>(null);
+  /**
+   * Lo stato git per chi lo legge DENTRO una callback stabile.
+   *
+   * `useGitStatus` restituisce un oggetto nuovo a ogni poll (~15s): metterlo
+   * nelle dipendenze di `handleFileClick` ricreerebbe quella callback — e con
+   * lei `handleFileSelect` e `handleBatchOpen` — a ogni giro, cioe' il difetto
+   * gia' pagato e commentato qui sopra. La ref porta il valore fresco senza
+   * portare l'identita'.
+   */
+  const gitStatusRef = useRef(gitStatus);
+  gitStatusRef.current = gitStatus;
   const contextMenuRef = useRef<HTMLDivElement>(null);
   /**
    * La casella del messaggio cresce col testo.
@@ -351,7 +387,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     diffFetchAbortRef.current = controller;
 
     setSelectedFile(filePath);
+    setDiffSource({ kind: 'worktree' });
     setLoadingDiff(true);
+    // Un binario non si scarica nemmeno: git lo dichiara già nella lista, e
+    // leggerlo come testo produce solo i 19 KB di mojibake che CodeMirror
+    // proverebbe a diffare.
+    if (isBinaryForDiff(gitStatusRef.current?.files.find(f => f.path === filePath))) {
+      setDiffBlock({ kind: 'binary' });
+      setLoadingDiff(false);
+      return;
+    }
+    setDiffBlock(null);
     try {
       const original = await gitApi.show(projectPath, filePath);
       if (controller.signal.aborted) return;
@@ -359,10 +405,23 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       let modified = '';
       try {
         modified = await filesApi.content(fullPath);
-      } catch {
+      } catch (e: unknown) {
+        // Un 413 NON è «file vuoto». Inghiottirlo qui disegnava il file intero
+        // come cancellato — vedi `diffGuards.ts`. Un 404 invece sì: è il file
+        // davvero rimosso dal disco, e la rimozione integrale è la verità.
+        if (isTooLarge(e)) {
+          if (!controller.signal.aborted) { setDiffBlock({ kind: 'too-large' }); setLoadingDiff(false); }
+          return;
+        }
         modified = '';
       }
       if (controller.signal.aborted) return;
+      // Ripiego per i non tracciati, che in nessun diff di git compaiono e
+      // quindi non hanno il flag: si guarda il contenuto.
+      if (looksBinary(original) || looksBinary(modified)) {
+        setDiffBlock({ kind: 'binary' });
+        return;
+      }
       setOriginalContent(original);
       setModifiedContent(modified);
     } catch (err: unknown) {
@@ -393,6 +452,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     diffFetchAbortRef.current = controller;
 
     setSelectedFile(filePath);
+    setDiffSource({ kind: 'commit', hash });
+    setDiffBlock(null);
     setLoadingDiff(true);
     try {
       const [prima, dopo] = await Promise.all([
@@ -400,6 +461,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         gitApi.show(projectPath, filePath, hash).catch(() => ''),
       ]);
       if (controller.signal.aborted) return;
+      // Stesso cancello del caricatore dell'albero: un binario letto come testo
+      // e' mojibake in tutt'e due i casi.
+      if (looksBinary(prima) || looksBinary(dopo)) {
+        setDiffBlock({ kind: 'binary' });
+        return;
+      }
       setOriginalContent(prima);
       setModifiedContent(dopo);
     } catch (err: unknown) {
@@ -599,18 +666,33 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     }
   }, [contextMenu, handleFileClick, closeContextMenu]);
 
+  /**
+   * Il ✨ dice anche CHI ha scritto.
+   *
+   * Prima c'era un `catch` nudo che ripiegava su `diffSummary` — un conteggio
+   * di file — senza dirlo. Il generatore era MORTO da mesi (chiamava un gateway
+   * HTTP che su questa macchina non risponde) e nessuno poteva accorgersene:
+   * il bottone rispondeva sempre qualcosa di plausibile. Ora il server dice
+   * `source` e l'errore porta un `code`; il ripiego resta, ma si vede.
+   */
   const handleGenerateMessage = useCallback(async () => {
     try {
       setGeneratingMsg(true);
-      // Try AI-generated message first, fall back to rule-based
-      try {
-        const aiResult = await gitApi.aiCommitMessage(projectPath);
-        setCommitMessage(aiResult.message);
-      } catch {
-        const result = await gitApi.diffSummary(projectPath);
-        setCommitMessage(result.message);
-      }
+      setMsgSource(null);
+      const res = await gitApi.aiCommitMessage(projectPath);
+      setCommitMessage(res.message);
+      setMsgSource(res.source === 'rules' ? 'rules' : 'ai');
     } catch (err: unknown) {
+      // Il server manda un ripiego dentro l'errore quando il provider c'è ma ha
+      // fallito: si usa quello invece di lasciare la casella vuota, e si dice
+      // che non è farina del modello. I campi extra stanno DIRETTAMENTE
+      // sull'errore, non sotto `.body`: `request()` li fa `Object.assign` su
+      // `ApiError` (api.ts:38-42).
+      const ripiego = (err as { fallbackMessage?: string })?.fallbackMessage;
+      if (typeof ripiego === 'string' && ripiego) {
+        setCommitMessage(ripiego);
+        setMsgSource('rules');
+      }
       toast.error(errMessage(err));
     } finally {
       setGeneratingMsg(false);
@@ -987,7 +1069,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       ref={commitBoxRef}
                       data-testid="commit-message-input"
                       value={commitMessage}
-                      onChange={e => setCommitMessage(e.target.value)}
+                      onChange={e => { setCommitMessage(e.target.value); setMsgSource(null); }}
                       rows={1}
                       placeholder="Message"
                       className="flex-1 min-w-0 resize-none px-1.5 py-[2px] text-[11px] leading-[16px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
@@ -1000,9 +1082,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     />
                     <button
                       onClick={handleGenerateMessage}
-                      disabled={generatingMsg}
+                      // Anche il ✨ ha bisogno di qualcosa in stage: descrive
+                      // ciò che stai per committare, e senza indice non c'è
+                      // niente da descrivere. Il bottone Commit accanto lo
+                      // sapeva già; questo no, e rispondeva comunque.
+                      disabled={generatingMsg || stagedFiles.length === 0}
                       className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-muted hover:text-primary transition-colors disabled:opacity-40 flex-shrink-0"
-                      title="AI-generate commit message"
+                      title={stagedFiles.length === 0 ? 'Niente in stage da descrivere' : 'Scrivi il messaggio dalle modifiche in stage'}
                     >
                       {generatingMsg ? (
                         <Spinner size="sm" />
@@ -1024,6 +1110,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       <kbd className="kbd !text-white/50">⌘↩</kbd>
                     </button>
                   </div>
+                  {/* Chi ha scritto. Solo quando NON è il modello: un ripiego
+                      dai soli numeri è plausibile abbastanza da passare per una
+                      descrizione, ed è esattamente per questo che va detto. */}
+                  {msgSource === 'rules' && (
+                    <div data-testid="commit-message-source" className="px-2 pb-1 text-[10px] text-app-text-muted flex-shrink-0">
+                      dalle regole — nessun modello collegato
+                    </div>
+                  )}
 
                   {/* File lists — single Virtuoso scroll context */}
                   <CompactFileList
@@ -1151,7 +1245,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const renderFullModeFileRow = (file: GitFile, group: 'staged' | 'unstaged') => {
     const st = statusLabel(file.status);
     const isMultiSelected = selectedFiles.has(file.path);
-    const isDiffOpen = selectedFile === file.path;
+    // Aperto QUI, non da qualche altra parte con lo stesso path: un file
+    // aperto dalla cronologia accendeva la sua riga nella lista dei
+    // cambiamenti, indicando una cosa che non era stata cliccata.
+    const isDiffOpen = selectedFile === file.path && diffSource?.kind === 'worktree';
     const basename = pathBasename(file.path) || file.path;
     const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
     return (
@@ -1283,7 +1380,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 ref={commitBoxRef}
                 data-testid="commit-message-input"
                 value={commitMessage}
-                onChange={e => setCommitMessage(e.target.value)}
+                onChange={e => { setCommitMessage(e.target.value); setMsgSource(null); }}
                 rows={2}
                 placeholder="Commit message..."
                 className="w-full px-2 py-1.5 pr-7 text-[12px] leading-[17px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded resize-none focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
@@ -1296,9 +1393,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               />
               <button
                 onClick={handleGenerateMessage}
-                disabled={generatingMsg}
+                disabled={generatingMsg || fullStagedFiles.length === 0}
                 className="absolute top-1 right-1 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-muted hover:text-primary transition-colors disabled:opacity-40"
-                title="Auto-generate message"
+                title={fullStagedFiles.length === 0 ? 'Niente in stage da descrivere' : 'Scrivi il messaggio dalle modifiche in stage'}
               >
                 {generatingMsg ? (
                   <Spinner size="sm" />
@@ -1307,6 +1404,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 )}
               </button>
             </div>
+            {msgSource === 'rules' && (
+              <div data-testid="commit-message-source" className="text-[10px] text-app-text-muted">
+                dalle regole — nessun modello collegato
+              </div>
+            )}
             <button
               onClick={handleCommit}
               disabled={committing || !commitMessage.trim() || fullStagedFiles.length === 0}
@@ -1429,18 +1531,35 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {selectedFile ? (
           <>
-            <div className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
+            <div data-testid="diff-header" className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
               <span className="text-[12px] text-app-text-secondary">{selectedFile}</span>
+              {/* L'intestazione dice quale COPPIA sta a schermo. Su un file
+                  aperto dalla cronologia non è HEAD contro il disco: è il
+                  commit contro il suo padre, e dirlo «in lavorazione» era
+                  semplicemente falso. */}
               <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
-                <span>{tr('git.originalHead')}</span>
-                <span>|</span>
-                <span>{tr('git.modifiedWorking')}</span>
+                {diffSource?.kind === 'commit' ? (
+                  <span data-testid="diff-header-commit">
+                    {diffSource.hash.slice(0, 7)}^ | {diffSource.hash.slice(0, 7)}
+                  </span>
+                ) : (
+                  <>
+                    <span>{tr('git.originalHead')}</span>
+                    <span>|</span>
+                    <span>{tr('git.modifiedWorking')}</span>
+                  </>
+                )}
               </div>
             </div>
-            {/* I blocchi, quando il file ne ha più d'uno. Non compare per un
-                file di un COMMIT passato: lì non c'è niente da mettere in
-                stage, e i bottoni sarebbero decorazione. */}
+            {/* I blocchi, quando il file ne ha più d'uno.
+                Il cancello guarda la PROVENIENZA, non solo se il path è fra i
+                file sporchi: questi bottoni agiscono sull'albero di ADESSO — e
+                uno è Scarta, che non torna indietro — quindi sotto un diff di
+                un commit passato non devono esserci. Il commento diceva già che
+                non compaiono per un file di un commit; la condizione non lo
+                controllava. */}
             {(() => {
+              if (diffSource?.kind !== 'worktree') return null;
               const voce = gitStatus.files.find(f => f.path === selectedFile);
               if (!voce) return null;
               return (
@@ -1456,6 +1575,21 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               {loadingDiff ? (
                 <div className="flex items-center justify-center h-full">
                   <Spinner size="md" />
+                </div>
+              ) : diffBlock ? (
+                // Un cartello invece di un diff sbagliato. Il caso «troppo
+                // grande» prima si presentava come una CANCELLAZIONE integrale,
+                // che è la bugia peggiore possibile davanti a un pulsante
+                // Scarta.
+                <div
+                  data-testid={diffBlock.kind === 'binary' ? 'diff-binary' : 'diff-too-large'}
+                  className="flex items-center justify-center h-full px-6 text-center"
+                >
+                  <div className="text-[12px] text-app-text-tertiary">
+                    {diffBlock.kind === 'binary'
+                      ? 'File binario — git non ne fa un diff testuale.'
+                      : 'File troppo grande per il confronto affiancato (oltre 100 KB).'}
+                  </div>
                 </div>
               ) : (
                 <DiffViewer

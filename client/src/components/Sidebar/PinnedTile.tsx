@@ -48,6 +48,17 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
  */
 export const PINNED_TILE_H = 'h-8';
 
+/**
+ * Il contenitore che la tessera MISURA per decidere se è una riga o un
+ * quadrato. Va su chi le dà la larghezza — la cella della griglia — perché un
+ * elemento non può interrogare se stesso: `justify-content` del bottone deve
+ * poter cambiare con la soglia, e ci riesce solo se il contenitore è il suo
+ * genitore. Sta qui accanto alla tessera, ed è esportato, perché le celle sono
+ * TRE (quella vera, il fantasma del drop, l'anteprima della riga nuova) e una
+ * dimenticata darebbe una tessera che non si adatta più — muta, senza errore.
+ */
+export const PINNED_TILE_CONTAINER = '@container/tile';
+
 /** Il rientro del «+» dal bordo destro, e — perché il bottone è centrato in
  *  verticale — anche lo spazio sopra e sotto di lui. I tre coincidono solo a
  *  una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
@@ -84,13 +95,20 @@ const TINT_SURFACE = 0.1;
  * Una tessera dei Fissati.
  *
  * ── L'identità è quella che la cosa HA GIÀ ──────────────────────────────────
- * Un progetto che spedisce una favicon si riconosce da QUELLA, e allora il
- * titolo non si ripete: sarebbe la stessa informazione due volte in uno spazio
- * che non ce l'ha. Un progetto senza icona mostra il nome — mai un'iniziale o
- * una tessera generata: «solo icona reale o zero ingombro» è una decisione già
- * presa, e un monogramma è già stato rifiutato una volta. Chat, terminali e
- * browser mostrano glifo di tipo + nome, perché lì il titolo È l'identità:
- * quattro icone-chat identiche non distinguono niente.
+ * Un progetto che spedisce una favicon si riconosce da QUELLA, e quando la
+ * tessera è stretta il titolo se ne va: a 40px di larghezza sarebbe due
+ * caratteri e tre puntini, cioè ingombro senza informazione. Appena la tessera
+ * è larga abbastanza da essere una riga (72px, vedi sotto) il titolo torna, e
+ * due progetti con la stessa icona tornano distinguibili. Un progetto senza
+ * icona mostra il nome a QUALSIASI larghezza — mai un'iniziale o una tessera
+ * generata: «solo icona reale o zero ingombro» è una decisione già presa, e un
+ * monogramma è già stato rifiutato una volta. Chat, terminali e browser
+ * mostrano glifo di tipo + nome, perché lì il titolo È l'identità: quattro
+ * icone-chat identiche non distinguono niente.
+ *
+ * A decidere è la LARGHEZZA MISURATA, non l'esito di un caricamento: il layout
+ * di una tessera non deve dipendere da una richiesta di rete, o si vede il
+ * titolo per un frame prima che l'icona arrivi.
  *
  * ── Il bagliore dice CHI SEI, non COSA STAI FACENDO ─────────────────────────
  * La tinta è statica e viene dal colore dominante dell'icona (o dal colore di
@@ -137,6 +155,10 @@ export function PinnedTile({
   const projectPath = item.type === 'project' ? (item.projectPath ?? '') : '';
   const icon = useProjectIcon(projectPath);
   const hasRealIcon = icon.status === 'has';
+  /** L'icona di un progetto è ancora in volo — vero solo al PRIMO incontro con
+   *  quel progetto: dal secondo in poi lo store risponde 'has' già al primo
+   *  render, dalla cache persistita. */
+  const iconProbing = item.type === 'project' && icon.status === 'probing';
 
   // Tinta: dall'icona per i progetti, dal colore di tipo per tutto il resto.
   // Nessun ripiego per un progetto senza icona — quello resta neutro.
@@ -287,9 +309,11 @@ export function PinnedTile({
       onContextMenu={onContextMenu}
       className={[
         'group/tile relative flex items-center gap-1',
-        // Senza nome l'icona è tutto il contenuto: al centro. Con il nome la
-        // tessera è una riga, e una riga comincia da sinistra.
-        hasRealIcon ? 'justify-center' : '',
+        // Con il nome accanto non c'è spazio libero da distribuire (il nome è
+        // `flex-1`), quindi questo si vede SOLO quando il nome se n'è andato:
+        // l'icona rimasta sola sta al centro, e sopra la soglia la tessera
+        // torna una riga, che comincia da sinistra.
+        'justify-center @min-[72px]/tile:justify-start',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Senza colori da riflettere resta il filo neutro di prima: una tessera
@@ -302,44 +326,41 @@ export function PinnedTile({
       ].join(' ')}
       style={tint ? ({ '--tile-tint': tint } as React.CSSProperties) : undefined}
     >
-      {/* LA LUCE DELL'ICONA, PROIETTATA SUL BORDO.
-          Due strati della stessa proiezione: uno sfocato che DEBORDA (la luce
-          che cade attorno alla tessera) e uno ritagliato ad anello dalla
-          maschera (il filo acceso sul bordo). Ogni colore del logo è una luce
-          accesa dietro, che si allarga verso il bordo dalla direzione in cui
-          quel colore sta — il blu in basso sfonda in basso, il verde in alto a
-          sinistra sfonda lì. Un gradiente conico invece GIRA, e quello che esce
-          è una fascia arcobaleno: colorata, non illuminata da quella cosa lì.
+      {/* LA LUCE DELL'ICONA, SUL BORDO E DENTRO IL BORDO.
+          Ogni colore del logo è una luce accesa dietro, che si allarga verso il
+          bordo dalla direzione in cui quel colore sta — il blu in basso sfonda
+          in basso, il verde in alto a sinistra sfonda lì. Un gradiente conico
+          invece GIRA, e quello che esce è una fascia arcobaleno: colorata, non
+          illuminata da quella cosa lì.
+
+          NIENTE ESCE DALLA TESSERA. Qui c'era un secondo strato sfocato a
+          `-inset-1.5` con `blur(9px)`: ~15px di alone dipinti FUORI dal
+          rettangolo, che sconfinavano sulle tessere vicine e sulla riga sotto —
+          in una griglia fitta la luce di una tessera finiva addosso a un'altra,
+          e non si capiva più quale delle due fosse accesa. La cornice resta, il
+          bagliore no: `inset-0`, cioè esattamente sul bordo, non un pixel oltre.
 
           Accesa SOLO da selezionata. Statica: l'animazione è il segnale di «sta
           lavorando», e due segnali sullo stesso canale non ne fanno uno più
           forte, ne fanno uno muto. */}
       {projection && (
-        <>
-          <span
-            aria-hidden="true"
-            className={`pointer-events-none absolute -inset-1.5 rounded-[16px] transition-opacity duration-200 ${
-              lit ? 'opacity-70' : 'opacity-0'
-            }`}
-            style={{ background: projection, filter: 'blur(9px)' }}
-          />
-          <span
-            aria-hidden="true"
-            className={`pointer-events-none absolute -inset-px rounded-[9px] transition-opacity duration-200 ${
-              lit ? 'opacity-100' : 'opacity-0'
-            }`}
-            style={{
-              background: projection,
-              padding: 1.5,
-              // La maschera tiene solo la cornice: `exclude` e' lo standard,
-              // `xor` il nome che WebKit conosce da prima. Servono entrambi.
-              WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-              WebkitMaskComposite: 'xor',
-              mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-              maskComposite: 'exclude',
-            }}
-          />
-        </>
+        <span
+          aria-hidden="true"
+          data-testid="pinned-tile-rim"
+          className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${
+            lit ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            background: projection,
+            padding: 1.5,
+            // La maschera tiene solo la cornice: `exclude` e' lo standard,
+            // `xor` il nome che WebKit conosce da prima. Servono entrambi.
+            WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+            WebkitMaskComposite: 'xor',
+            mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+            maskComposite: 'exclude',
+          }}
+        />
       )}
 
       {/* L'alone d'identita' sul FONDO. Sta sotto il contenuto e sopra la
@@ -362,10 +383,9 @@ export function PinnedTile({
           l'altezza richiesta è quella dell'elemento più alto, cioè l'icona, e
           il nome si prende tutta la larghezza che resta.
 
-          Il titolo ora c'è SEMPRE, anche con la favicon: «senza ripetere il
-          titolo se non c'entra» voleva dire quello — se non ci sta. In riga ci
-          sta, troncato, e due progetti con la stessa icona tornano
-          distinguibili. */}
+          «Senza ripetere il titolo se non c'entra» voleva dire proprio questo:
+          se non ci sta. In una riga larga ci sta, troncato, e allora c'è — la
+          soglia la misura la container query qui sotto. */}
       {expandable && <ExpandChevron expanded={expanded} />}
 
       <span className="relative flex flex-shrink-0 items-center justify-center">
@@ -373,25 +393,45 @@ export function PinnedTile({
           ? <ProjectFavicon path={projectPath} size={18} />
           : Glyph
             ? <Glyph size={14} className="text-app-text-secondary" aria-hidden="true" />
-            : null}
+            // Un progetto la cui icona è ancora in volo tiene il POSTO che
+            // l'icona avrà: senza, quando arriva il nome scivola via di 18px a
+            // cose ferme. Solo mentre sonda — un progetto che risulta senza
+            // icona torna a zero ingombro, che è la decisione già presa.
+            : iconProbing
+              ? <span aria-hidden="true" className="block w-[18px]" />
+              : null}
       </span>
 
-      {/* Il nome solo dove SERVE a riconoscere.
-          Un progetto che spedisce una favicon si riconosce da quella, e
-          ripetere il titolo accanto sarebbe la stessa informazione due volte in
-          uno spazio che non ce l'ha. Gli altri tipi mostrano un glifo di
-          categoria — quattro icone-chat identiche non distinguono niente — e lì
-          il titolo È l'identità.
+      {/* IL NOME LO DECIDE LA FORMA DELLA TESSERA, NON IL CARICAMENTO.
+          Sotto i 72px la tessera è quasi un quadrato (è alta 32) e un titolo
+          lì dentro sarebbe due caratteri e tre puntini: se c'è una favicon a
+          reggere l'identità, il nome se ne va e resta l'icona sola, centrata.
+          Sopra, la tessera è una riga e il titolo ci sta — troncato, ma
+          abbastanza da distinguere due progetti con la stessa icona.
+
+          È una CONTAINER QUERY sulla cella, non un booleano: la larghezza di
+          una tessera dipende da quante ne hai messe in riga e da quanto è larga
+          la sidebar, cioè da cose che cambiano mentre trascini. Misurata dal
+          CSS, la soglia risponde durante il gesto e — soprattutto — non passa
+          da nessuno stato asincrono: era proprio la dipendenza dall'icona a far
+          lampeggiare il titolo a ogni refresh, disegnato nel frame in cui
+          l'icona non era ancora risolta e tolto in quello dopo.
+          I 72px stanno scritti a mano nella classe perché Tailwind legge il
+          sorgente: una variabile qui non genererebbe nessuna regola.
+
+          Senza favicon il nome resta SEMPRE, a qualsiasi larghezza: lì il
+          titolo è l'unica identità che la tessera ha, e un glifo di categoria
+          da solo — quattro icone-chat identiche — non distingue niente.
           11px è il minimo di leggibilità imposto in tutta l'app: sotto non si
           scende nemmeno per far entrare una parola in più. */}
-      {!hasRealIcon && (
-        <span
-          data-testid="pinned-tile-name"
-          className="relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary"
-        >
-          {item.name}
-        </span>
-      )}
+      <span
+        data-testid="pinned-tile-name"
+        className={`relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary ${
+          hasRealIcon ? 'hidden @min-[72px]/tile:block' : ''
+        }`}
+      >
+        {item.name}
+      </span>
 
       {item.notificationCount > 0 && (
         // In linea, non appoggiato in un angolo: in una riga il conteggio sta

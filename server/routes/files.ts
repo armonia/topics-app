@@ -12,6 +12,8 @@ import { moveToTrash } from "../lib/trash";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
+import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
+import { getProvider } from "../providers";
 import { IgnoreSet } from "../lib/gitignore";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
@@ -199,7 +201,12 @@ const HEAVY_DIRS = new Set([
 const SEARCH_TIMEOUT_MS = 15_000;
 
 export function createFilesRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, errorResponse, resolveProjectPath } = ctx;
+  // `GATEWAY_URL`/`GATEWAY_TOKEN` non si prendono più: l'unico consumatore era
+  // il generatore del messaggio di commit, che ora passa dal provider vero
+  // (`getProvider("claude-code")`) invece che da un gateway HTTP a parte —
+  // gateway che su questa macchina non ascolta, e che quindi rendeva il ✨ un
+  // bottone morto.
+  const { readJSON, json, errorResponse, resolveProjectPath } = ctx;
 
   return async function filesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -1364,53 +1371,72 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           return json({ error: "Not a git repository" }, 400);
         }
 
-        // Get ONLY staged diff and staged files (--cached = index vs HEAD)
-        const diffProc = Bun.spawn(["git", "diff", "--cached"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        let diffText = await new Response(diffProc.stdout).text();
-        if (diffText.length > 4000) diffText = diffText.slice(0, 4000) + "\n... (truncated)";
-        const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const fullStatus = (await new Response(statusProc.stdout).text()).trim();
-        // Filter to only staged files (first char is not ' ' and not '?')
-        const statusText = fullStatus.split('\n').filter(l => l.length >= 2 && l[0] !== ' ' && l[0] !== '?').join('\n');
+        // Cosa c'è DAVVERO in stage. Il parser `-z` e non lo split su `\n`:
+        // il vecchio codice faceva `.trim()` sull'output intero, e il trim
+        // mangia lo spazio della prima riga — ` M a.txt` diventava `M a.txt`
+        // e un file solo modificato sul disco passava per «in stage». Vedi
+        // `lib/commit-message.ts`.
+        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const porcelain = await new Response(statusProc.stdout).text();
+        await statusProc.exited;
+        const staged = stagedEntries(porcelain);
 
-        if (!statusText && !diffText.trim()) {
-          return json({ error: "No staged changes to describe" }, 400);
+        if (staged.length === 0) {
+          return json({ error: "Niente in stage da descrivere", code: "no_staged_changes" }, 400);
         }
 
-        if (!GATEWAY_URL || !GATEWAY_TOKEN) {
-          return json({ error: "Gateway not configured" }, 503);
+        // La mappa completa (costa poco anche su venti file) più il diff
+        // ripartito nel budget. Vedi `lib/commit-message.ts` per il perché
+        // «i primi 4000 caratteri» era il criterio peggiore a parità di spesa.
+        const statProc = Bun.spawn(["git", "diff", "--cached", "--stat"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statText = await new Response(statProc.stdout).text();
+        const diffProc = Bun.spawn(["git", "diff", "--cached", "--unified=1"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const diffText = await new Response(diffProc.stdout).text();
+
+        const fallback = rulesFallback(staged);
+
+        // Il provider è quello che questa macchina usa DAVVERO per le chat, non
+        // un gateway HTTP a parte: `GATEWAY_URL` (default :18789) qui non
+        // risponde, e il ✨ era morto da lì. `claude-code` gira sulla
+        // subscription via CLI, quindi una chiamata in più non è una riga di
+        // fattura. Non `getDefaultProvider()`: `codex.complete` non accetta
+        // nemmeno il parametro `options` e ignorerebbe il modello in silenzio.
+        const provider = getProvider("claude-code");
+        if (!provider) {
+          return json({ message: fallback, source: "rules", reason: "no_provider" });
         }
 
-        // Bound the gateway call — a hung upstream model would otherwise wedge
-        // this request handler indefinitely (every other provider call here
-        // guards with an AbortController+timeout; this one-shot was the gap).
-        const aiAbort = new AbortController();
-        const aiTimeout = setTimeout(() => aiAbort.abort(), 30_000);
-        const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
-          body: JSON.stringify({
-            model: "fast",
-            stream: false,
-            messages: [
-              { role: "system", content: "Generate a concise git commit message in conventional commit format based on the STAGED changes only. First line max 72 chars. If multiple changes, use bullet points. Be specific about what changed. Reply with ONLY the commit message, no explanation." },
-              { role: "user", content: `Staged files:\n${statusText || '(no staged files)'}\n\nStaged diff:\n${diffText || '(no staged diff)'}` },
+        // `complete()` non accetta un signal e il suo timeout interno è di
+        // MEZZ'ORA: senza questa corsa un modello appeso terrebbe occupato il
+        // gestore per tutto quel tempo. Il fetch di prima aveva un
+        // AbortController a 30s messo lì apposta, e non si perde.
+        const logProc = Bun.spawn(["git", "log", "--pretty=%s", "-10"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const esempi = (await new Response(logProc.stdout).text()).split("\n").map(s => s.trim()).filter(Boolean);
+
+        const scaduto = Symbol("timeout");
+        const risposta = await Promise.race([
+          provider.complete(
+            [
+              { role: "system", content: buildSystemPrompt(esempi) },
+              { role: "user", content: buildUserPrompt(statText, diffText) },
             ],
-          }),
-          signal: aiAbort.signal,
-        }).finally(() => clearTimeout(aiTimeout));
+            { model: "claude-haiku-4-5" },
+          ).catch(() => null),
+          new Promise<typeof scaduto>(r => setTimeout(() => r(scaduto), 30_000)),
+        ]);
 
-        if (!resp.ok) {
-          const errText = await resp.text();
-          return json({ error: `Gateway error: ${resp.status} ${errText.slice(0, 200)}` }, 502);
+        if (risposta === scaduto) {
+          return json({ error: "Il modello non ha risposto in tempo", code: "timeout", fallbackMessage: fallback }, 504);
         }
-
-        const data = await resp.json() as { choices?: Array<{ message?: { content?: unknown } }> };
-        const rawContent = data.choices?.[0]?.message?.content;
-        const message = typeof rawContent === "string" && rawContent.trim() ? rawContent.trim() : "chore: update files";
-        return json({ message });
+        // `complete()` su exit non-zero NON lancia: risolve con
+        // `content: "Error: CLI exited with code N"`. Senza il controllo, quella
+        // stringa finirebbe incollata nella casella del commit.
+        const message = usableMessage(risposta?.content);
+        if (!message) {
+          return json({ error: "Il modello non ha prodotto un messaggio", code: "provider_failed", fallbackMessage: fallback }, 503);
+        }
+        return json({ message, source: "ai" });
       } catch (err: any) {
-        if (err?.name === "AbortError") return json({ error: "AI commit message timed out" }, 504);
         return json({ error: "AI commit message error: " + err.message }, 500);
       }
     }

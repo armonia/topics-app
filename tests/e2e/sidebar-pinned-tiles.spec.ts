@@ -1132,11 +1132,12 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // chiedono ~43px, e quel che avanza viene tagliato. In riga l'altezza
     // richiesta e' quella dell'elemento piu' alto — l'icona — e ci sta.
     //
-    // NON si misura con `scrollHeight`: la tessera ha strati decorativi in
-    // `-inset-1.5` (l'alone proiettato dall'icona) che sporgono di 6px per
-    // costruzione, quindi quel numero dice 38 su una tessera perfettamente
-    // sana. Si misurano i RETTANGOLI di icona e titolo contro quello della
-    // tessera, che e' la domanda vera: si vedono per intero?
+    // NON si misura con `scrollHeight`: si misurano i RETTANGOLI di icona e
+    // titolo contro quello della tessera, che e' la domanda vera — si vedono
+    // per intero? (`scrollHeight` conterebbe anche gli strati decorativi, e
+    // per anni ne e' esistito uno che sporgeva di 6px per costruzione: diceva
+    // 38 su una tessera perfettamente sana. Ora non sporge piu' niente —
+    // TILE-26 lo difende — ma la misura giusta resta questa.)
     const pin = await createTopic(request, `E2E-Fit-Pin-${Date.now()}`);
     const chat = await createTopic(request, `E2E-Fit-Chat-${Date.now()}`);
     created.push(pin.id, chat.id);
@@ -1167,7 +1168,11 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(posata.nome).toContain("E2E-Fit-Pin");
     expect(posata.fuori, "e nessuno dei due esce dalla tessera").toBe(0);
 
-    // Un progetto CON favicon si riconosce da quella: il titolo non si ripete.
+    // Un progetto CON favicon, in una riga LARGA: l'icona identifica, e il
+    // titolo ci sta ACCANTO — due progetti con la stessa icona restano
+    // distinguibili. Che il titolo se ne vada quando la tessera si stringe fino
+    // a diventare un quadrato lo difende TILE-26: la regola e' la forma della
+    // tessera, non la presenza dell'icona.
     const conIcona = "/tmp/e2e-tile-favicon";
     mkdirWithIcon(conIcona);
     const proj = await createTopic(request, `E2E-Fit-Proj-${Date.now()}`, { projectPath: conIcona });
@@ -1177,10 +1182,12 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     const tessellaProj = tileNamed(page, "e2e-tile-favicon");
     await expect(tessellaProj).toBeVisible({ timeout: 15000 });
     await expect(tessellaProj.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
+    const boxProj = (await tessellaProj.boundingBox())!;
+    expect(boxProj.width, "in due su una riga la tessera e' larga, non quadrata").toBeGreaterThan(72);
     await expect(
       tessellaProj.getByTestId("pinned-tile-name"),
-      "e accanto non si ripete il nome",
-    ).toHaveCount(0);
+      "e allora il titolo si legge accanto all'icona",
+    ).toBeVisible();
 
     // 2. L'ANTEPRIMA, trascinando una riga della lista sui fissati, mostra le
     //    stesse due cose — e nemmeno lei trabocca.
@@ -1225,6 +1232,138 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(anteprima.parti, "con icona E titolo").toBe(2);
     expect(anteprima.nome, "il titolo e' quello giusto").toContain("E2E-Fit-Chat");
     expect(anteprima.fuori, "e si vedono per intero").toBe(0);
+  });
+
+  test("TILE-26: il titolo se ne va quando la tessera diventa un quadrato, e niente si dipinge fuori", async ({ page, request }) => {
+    // LA REGOLA E' LA FORMA, NON L'ICONA.
+    // Stretta (quattro o piu' per riga, sotto i 72px) la tessera e' quasi un
+    // quadrato: un titolo li' dentro sarebbe due caratteri e tre puntini, e se
+    // c'e' una favicon a reggere l'identita' se ne va. Larga, la stessa
+    // identica tessera torna una riga e il titolo si legge. Si misura la
+    // STESSA cosa nelle due forme, cambiando solo quante ne stanno in riga:
+    // cosi' il test parla della soglia e non di due tessere diverse.
+    const conIcona = "/tmp/e2e-tile-soglia";
+    mkdirWithIcon(conIcona);
+    const proj = await createTopic(request, `E2E-Soglia-Proj-${Date.now()}`, { projectPath: conIcona });
+    created.push(proj.id);
+    const chiaveProj = `project:${conIcona}`;
+    const riempitivi: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const t = await createTopic(request, `E2E-Soglia-${i}-${Date.now()}`);
+      created.push(t.id);
+      riempitivi.push(t.id);
+    }
+
+    // ── Stretta: cinque su una riga sola ────────────────────────────────────
+    const tutte = [chiaveProj, ...riempitivi];
+    await setPins(page, tutte, [tutte]);
+    await gotoSidebar(page);
+    const stretta = tileNamed(page, "e2e-tile-soglia");
+    await expect(stretta).toBeVisible({ timeout: 15000 });
+    await expect(stretta.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
+    const boxStretta = (await stretta.boundingBox())!;
+    expect(boxStretta.width, "cinque in riga: la tessera e' quasi quadrata").toBeLessThan(72);
+    await expect(
+      stretta.getByTestId("pinned-tile-name"),
+      "e allora il titolo non si vede",
+    ).toBeHidden();
+
+    // Il nome ACCESSIBILE resta: chi legge con uno screen reader, e i test che
+    // cercano la riga per nome, non devono accorgersi che e' un quadrato.
+    await expect(stretta).toHaveAttribute("aria-label", "e2e-tile-soglia");
+
+    // NIENTE DIPINTO FUORI. C'era uno strato sfocato a `-inset-1.5` con
+    // `blur(9px)`: ~15px di alone oltre il rettangolo, che in una griglia
+    // fitta finivano addosso alle tessere vicine. Si misura ogni discendente
+    // contro la tessera — l'unica domanda che conta, e che quello strato
+    // falliva per costruzione.
+    const sbordano = await stretta.evaluate((t: HTMLElement) => {
+      const b = t.getBoundingClientRect();
+      return [...t.querySelectorAll<HTMLElement>("*")]
+        .map(e => ({ e, r: e.getBoundingClientRect() }))
+        .filter(({ r }) => r.width > 0 || r.height > 0)
+        .filter(({ r }) =>
+          r.left < b.left - 0.5 || r.right > b.right + 0.5 ||
+          r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5)
+        .map(({ e, r }) => `${e.tagName.toLowerCase()}.${e.className || "?"} ${JSON.stringify(r.toJSON())}`);
+    });
+    expect(sbordano, "nessuno strato esce dalla tessera").toEqual([]);
+
+    // ── Larga: la stessa tessera, da sola sulla riga ────────────────────────
+    await setPins(page, [chiaveProj], [[chiaveProj]]);
+    await gotoSidebar(page);
+    const larga = tileNamed(page, "e2e-tile-soglia");
+    await expect(larga).toBeVisible({ timeout: 15000 });
+    const boxLarga = (await larga.boundingBox())!;
+    expect(boxLarga.width, "da sola in riga la tessera e' larga").toBeGreaterThan(72);
+    await expect(
+      larga.getByTestId("pinned-tile-name"),
+      "e allora il titolo torna, accanto all'icona",
+    ).toBeVisible();
+  });
+
+  test("TILE-27: al ricarico il titolo non lampeggia prima dell'icona", async ({ page, request }) => {
+    // IL LAYOUT NON PUO' DIPENDERE DA UNA RICHIESTA DI RETE.
+    // Lo store dell'icona partiva da 'probing' e si idratava dalla cache in un
+    // `useEffect`, cioe' DOPO il primo paint: la tessera disegnava un frame col
+    // titolo e poi saltava all'icona sola. Si vedeva a ogni refresh, anche con
+    // l'icona in cache da sempre.
+    //
+    // Non si campiona UN istante — un lampo di un frame passerebbe liscio. Si
+    // registra ogni frame dall'inizio del documento e si guarda l'INSIEME degli
+    // stati attraversati: se e' uno solo, non c'e' stato nessun salto.
+    const conIcona = "/tmp/e2e-tile-lampo";
+    mkdirWithIcon(conIcona);
+    const proj = await createTopic(request, `E2E-Lampo-Proj-${Date.now()}`, { projectPath: conIcona });
+    created.push(proj.id);
+    const chiaveProj = `project:${conIcona}`;
+    const riempitivi: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const t = await createTopic(request, `E2E-Lampo-${i}-${Date.now()}`);
+      created.push(t.id);
+      riempitivi.push(t.id);
+    }
+    const tutte = [chiaveProj, ...riempitivi];
+    await setPins(page, tutte, [tutte]);
+
+    // Primo giro: serve solo a far conoscere l'icona alla cache persistita,
+    // che e' la condizione del refresh vero (la seconda volta in poi).
+    await gotoSidebar(page);
+    await expect(tileNamed(page, "e2e-tile-lampo").locator("img")).toHaveCount(1, { timeout: 15000 });
+
+    // Il registratore parte PRIMA di qualunque script della pagina.
+    await page.addInitScript(() => {
+      const visti = new Set<string>();
+      (window as unknown as { __statiNome: Set<string> }).__statiNome = visti;
+      const giro = () => {
+        const tessera = document.querySelector('[data-pinned-tile^="project:"]');
+        // Finche' la tessera non c'e' non si registra niente: l'assenza non e'
+        // uno stato attraversato, e' la pagina che non e' ancora nata.
+        if (tessera) {
+          const nome = tessera.querySelector('[data-testid="pinned-tile-name"]');
+          // «Non c'e' proprio» e' uno stato quanto «c'e' ma e' nascosto»: senza
+          // registrarlo, un titolo DISEGNATO e poi STACCATO dal DOM lascerebbe
+          // un insieme di un elemento solo — cioe' il lampo che stiamo cercando
+          // passerebbe per «nessun salto».
+          visti.add(nome ? getComputedStyle(nome).display : "assente");
+        }
+        requestAnimationFrame(giro);
+      };
+      requestAnimationFrame(giro);
+    });
+
+    await gotoSidebar(page);
+    const tessera = tileNamed(page, "e2e-tile-lampo");
+    await expect(tessera).toBeVisible({ timeout: 15000 });
+    await expect(tessera.locator("img"), "la favicon e' arrivata").toHaveCount(1, { timeout: 15000 });
+    // Qualche frame in piu' dopo che l'icona e' apparsa: il salto, se c'e',
+    // cade proprio li'.
+    await page.waitForTimeout(500);
+
+    const stati = await page.evaluate(() =>
+      [...(window as unknown as { __statiNome: Set<string> }).__statiNome]);
+    expect(stati.length, `il titolo non deve cambiare stato: visti ${JSON.stringify(stati)}`).toBe(1);
+    expect(stati[0], "e lo stato e' 'nascosto', perche' la tessera e' stretta").toBe("none");
   });
 });
 
