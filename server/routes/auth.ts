@@ -345,6 +345,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         db.query(
           "INSERT OR IGNORE INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, via_type, via_id, granted_at) VALUES (?, 'device', ?, ?, ?, 'read', NULL, NULL, ?)",
         ).run(crypto.randomUUID(), body.deviceId, tipo, risorsa, now);
+        // Senza questo, condividere qualcosa non si vedeva dall'altra parte
+        // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
+        // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.
+        ctx.sendToDevice?.(body.deviceId, { type: "auth:shares-changed" });
         return json({ ok: true });
       }
       if (method === "DELETE") {
@@ -354,6 +358,11 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
         db.query("DELETE FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?")
           .run(deviceId, tipo, risorsa);
+        // Soprattutto qui: la concessione ora NON esiste, quindi nessun frame
+        // filtrato per entita' potrebbe piu' raggiungere quell'ospite. Se non
+        // glielo si dice mirando a lui, resta a guardare una cosa che non ha
+        // piu'.
+        if (deviceId) ctx.sendToDevice?.(deviceId, { type: "auth:shares-changed" });
         return json({ ok: true });
       }
     }

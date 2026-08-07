@@ -933,6 +933,20 @@ const authDeviceRevokedSchema = z.object({
   deviceId: z.string(),
 });
 
+/**
+ * Le concessioni di un dispositivo sono cambiate: qualcosa gli e' stato
+ * condiviso, o tolto.
+ *
+ * NON porta la risorsa, ed e' deliberato: sulla REVOCA la concessione non esiste
+ * piu', quindi un filtro per entita' scarterebbe proprio il frame che serve di
+ * piu'. Per lo stesso motivo non passa da un broadcast filtrato ma da un invio
+ * MIRATO al dispositivo interessato — che e' anche l'unico che ha motivo di
+ * riceverlo.
+ */
+const authSharesChangedSchema = z.object({
+  type: z.literal('auth:shares-changed'),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1050,6 +1064,7 @@ const OUTBOUND_SCHEMAS = {
   'auth:pair-requested': authPairRequestedSchema,
   'auth:pair-resolved': authPairResolvedSchema,
   'auth:device-revoked': authDeviceRevokedSchema,
+  'auth:shares-changed': authSharesChangedSchema,
 } as const;
 
 /**
