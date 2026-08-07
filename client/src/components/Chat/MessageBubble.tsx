@@ -4,7 +4,7 @@ import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { parseSlashInvocation } from '../../../../shared/slash-invocation';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
-import { MessageContent } from '../MessageContent';
+import { MessageContent, turnErrorOf } from '../MessageContent';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
 
@@ -328,8 +328,15 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             // Assistant replies are no longer wrapped in a card (no bg, no
             // padding, no rounding) so long responses get the full row width
-            // to breathe — only the user's own messages keep the bubble
-            // look, and error messages keep the amber alert box.
+            // to breathe — only the user's own messages keep the bubble look.
+            //
+            // Nemmeno un turno FALLITO viene più incorniciato per intero. La
+            // scatola ambra qui dentro avvolgeva tutto — prosa, cronologia dei
+            // tool, media — e si accendeva guardando `content`, che è la colonna
+            // che il client NON stampa quando ci sono i blocchi: il risultato
+            // erano turni riusciti bordati di giallo senza una parola che
+            // dicesse perché. Il verdetto ora è una riga sua, in cima al
+            // contenuto (`TurnErrorBanner` in MessageContent).
             className={`text-[13px] leading-relaxed overflow-hidden ${
               msg.role === 'user'
                 // Grigio di sistema, non il blu del marchio: in quest'app il
@@ -339,9 +346,7 @@ export const MessageBubble = memo(function MessageBubble({
                 // l'ombra sporca invece di staccare — basta il gradino di
                 // tinta.
                 ? `px-3 py-2 user-bubble bg-app-user-bubble text-app-text ${grouped ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl'}`
-                : msg.role === 'assistant' && msg.content.startsWith('⚠️')
-                  ? `px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-700 ${grouped ? 'rounded-2xl rounded-tl-md' : 'rounded-2xl'}`
-                  : 'text-app-text'
+                : 'text-app-text'
             }`}
             style={{ fontSize: `${fontSize}px`, overflowWrap: 'break-word', wordBreak: 'break-word' }}
           >
@@ -374,9 +379,13 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {/* Il bottone che rimanda il messaggio rimasto senza risposta.
               `handleRetry` (ChatPane) ripesca l'ultimo turno dell'utente e lo
-              rispedisce: è il motivo per cui i cartelli ⚠️ possono permettersi
-              di dire «il tuo messaggio è ancora qui». */}
-          {onRetry && msg.role === 'assistant' && msg.content.startsWith('⚠️') && (
+              rispedisce: è il motivo per cui i cartelli d'errore possono
+              permettersi di dire «il tuo messaggio è ancora qui».
+              Il cancello è lo STESSO del banner (`turnErrorOf`), non un secondo
+              sniff sul prefisso: due regole per la stessa domanda divergono, e
+              il primo turno con l'errore nei blocchi avrebbe avuto il cartello
+              senza il bottone per rimediarci. */}
+          {onRetry && msg.role === 'assistant' && turnErrorOf(msg) !== null && (
             <button
               onClick={onRetry}
               data-testid="message-retry"

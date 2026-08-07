@@ -29,6 +29,10 @@ export interface SeedMessageOpts {
   role: "user" | "assistant";
   content: string;
   toolCalls?: SeedToolCall[];
+  /** La cronologia del messaggio. Quando c'è, il client rende QUESTA e non
+   *  `content` — è la divergenza in cui vivono i difetti di resa degli errori,
+   *  e senza poterla seminare non erano riproducibili. */
+  blocks?: Array<Record<string, unknown>>;
   media?: string[];
   thinking?: string;
   id?: string;

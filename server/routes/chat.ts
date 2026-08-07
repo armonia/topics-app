@@ -570,6 +570,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         } catch { return null; }
       };
       /**
+       * I blocchi della riga con in fondo il verdetto. `undefined` se non c'è
+       * niente da scrivere (riga illeggibile e nessun blocco): passare un array
+       * vuoto a `updateLastMessage` cancellerebbe la colonna.
+       */
+      const appendErrorBlock = (row: CrashedTurnRow | null, text: string): ContentBlock[] | undefined => {
+        if (!row?.blocksJson) return [{ kind: "error", text }];
+        try {
+          const parsed = JSON.parse(row.blocksJson);
+          if (Array.isArray(parsed)) return [...(parsed as ContentBlock[]), { kind: "error", text }];
+        } catch { /* vedi sotto */ }
+        // Colonna illeggibile: NON si riscrive. Rimpiazzarla col solo verdetto
+        // butterebbe via un turno intero per non saperlo leggere — è la stessa
+        // prudenza di `rowCarriesWork`. Il `undefined` fa scattare il COALESCE
+        // in `updateMessage`, che lascia la colonna dov'è.
+        return undefined;
+      };
+      /**
        * Chiude il turno quando non si è potuto GUIDARE: `sendChat` ha rigettato,
        * o il montaggio è morto prima di partire.
        *
@@ -591,13 +608,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
+        // Il verdetto va nei blocchi in OGNI caso — anche, e soprattutto, quando
+        // la riga porta già lavoro e il cartello non può toccare `content`. È lì
+        // che sta la differenza fra «un turno giallo senza spiegazione» e un
+        // errore che si legge.
+        const conVerdetto = appendErrorBlock(row, `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`);
         if (notice) {
-          updateLastMessage(sessionKey, { content: notice, partial: undefined, streamedAt: undefined });
+          updateLastMessage(sessionKey, { content: notice, blocks: conVerdetto, partial: undefined, streamedAt: undefined });
         } else {
-          // La riga si tiene il suo lavoro; cade solo il flag che la dichiara
+          // La riga si tiene il suo contenuto; cade solo il flag che la dichiara
           // ancora in volo, o il setaccio di boot la crederebbe viva.
-          updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined });
-          console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore solo sul filo`);
+          updateLastMessage(sessionKey, { blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+          console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
         }
         const wire = notice ?? `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
         if (matchedTopic) {
@@ -1194,6 +1216,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             recordTurnEnd(sessionKey, endInfo);
 
             if (reason === "error" && errorMsg) {
+              // Il verdetto entra nei BLOCCHI, che sono ciò che il client rende.
+              // Il testo in `fullContent` resta solo per la riga altrimenti
+              // vuota: è l'unica colonna che la ricerca ⌘K interroga, e i client
+              // vecchi (senza il blocco `error`) leggono ancora da lì.
+              blocks.push({ kind: "error", text: errorMsg });
               if (!fullContent.trim()) fullContent = `⚠️ ${errorMsg}`;
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });

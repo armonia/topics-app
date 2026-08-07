@@ -15,7 +15,7 @@ import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { InvokedCommandRow } from './Chat/InvokedCommandRow';
-import type { ToolCall } from '../types';
+import type { ContentBlock, ToolCall } from '../types';
 import { releaseAudio } from '../lib/releaseAudio';
 import { useModalDialog } from '../hooks/useModalDialog';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
@@ -1023,17 +1023,70 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
+/** Il prefisso con cui il server ha marcato i cartelli d'errore prima che
+ *  esistesse il blocco `error`. Le righe già in DB si leggono ancora così. */
+const LEGACY_ERROR_PREFIX = '⚠️';
+
+/**
+ * Perché il turno è finito male, se è finito male.
+ *
+ * Due sorgenti, nell'ordine: il blocco `error` (la forma nuova) e — per le
+ * righe già scritte — il testo di `content` che comincia con ⚠️. La seconda
+ * serve perché sono 214 righe in produzione, e 45 di quelle hanno anche i
+ * `blocks`: lì `content` non viene stampato affatto, quindi finché il cartello
+ * vive solo nel testo quelle righe restano senza spiegazione.
+ */
+export function turnErrorOf(msg: { content?: string; blocks?: ContentBlock[] | null }): string | null {
+  const dalBlocco = msg.blocks?.find((b) => b.kind === 'error');
+  if (dalBlocco) return dalBlocco.text;
+  const c = msg.content ?? '';
+  return c.startsWith(LEGACY_ERROR_PREFIX) ? c.slice(LEGACY_ERROR_PREFIX.length).trim() : null;
+}
+
+/**
+ * Il verdetto sul turno, come elemento SUO.
+ *
+ * Prima era il contenitore di tutta la bolla a diventare giallo — e con lui la
+ * prosa, la cronologia dei tool, i media. Un turno riuscito che inciampa alla
+ * fine veniva incorniciato per intero come se fosse tutto sbagliato, e il testo
+ * che spiegava il perché non si vedeva nemmeno. Qui la riga d'errore sta in
+ * cima e basta: quello che il turno ha prodotto le sta sotto, reso come sempre.
+ */
+function TurnErrorBanner({ text }: { text: string }) {
+  return (
+    <div
+      data-testid="turn-error"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-[12px] leading-snug text-amber-900 dark:text-amber-200"
+    >
+      <span aria-hidden className="flex-shrink-0 leading-snug">⚠️</span>
+      <span className="min-w-0 break-words">{text}</span>
+    </div>
+  );
+}
+
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanApprove, onPlanReject, onPlanDecision, invokedCommand, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
   }, [content]);
 
+  // Il verdetto e il testo, separati una volta sola. `turnError` sale in cima
+  // alla bolla; `cleanText` non deve ristamparlo come se fosse prosa. Solo per
+  // l'assistente: un messaggio dell'utente che comincia con ⚠️ è testo suo.
+  const turnError = useMemo(
+    () => (role === 'assistant' ? turnErrorOf({ content, blocks }) : null),
+    [role, content, blocks],
+  );
+  const isLegacyErrorOnlyText = turnError !== null && (content ?? '').startsWith(LEGACY_ERROR_PREFIX);
+
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
-  const cleanText = useMemo(
+  const streamSafeText = useMemo(
     () => (partial && rawCleanText) ? completePartialMarkdown(rawCleanText) : rawCleanText,
     [rawCleanText, partial],
   );
+  // Sulle righe vecchie il cartello È il contenuto: sale nel banner, e qui non
+  // va ristampato — altrimenti si legge due volte.
+  const cleanText = isLegacyErrorOnlyText ? '' : streamSafeText;
   
   // Combine extracted media paths with explicit media array
   const allMediaPaths = useMemo(() => {
@@ -1093,6 +1146,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     if (!blocks) return out;
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
+      // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
+      // si rende in cima. Qui si salta.
+      if (b.kind === 'error') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
@@ -1182,6 +1238,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // unrelated rows. Visually lighter, easier to scan.
     return (
       <div data-testid="message-content-assistant">
+        {turnError && <TurnErrorBanner text={turnError} />}
         {showInvoked && invokedCommand && (
           <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
         )}
@@ -1257,6 +1314,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // inside the prose via renderContentWithInlineTools.
   return (
     <div data-testid="message-content-assistant">
+      {turnError && <TurnErrorBanner text={turnError} />}
       {showInvoked && invokedCommand && (
         <InvokedCommandRow command={invokedCommand.command} args={invokedCommand.args} />
       )}
