@@ -1,4 +1,5 @@
 import { basename, join, resolve, sep } from "path";
+import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
@@ -2701,36 +2702,16 @@ function finalizeOrphanedRunningTools() {
        WHERE timestamp >= date('now', '-30 days') AND partial = 0 AND (
          tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
          OR tool_calls LIKE '%"status":"waiting_for_input"%'
+         OR tool_calls LIKE '%"status":"awaiting_permission"%'
          OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%'
-         OR blocks LIKE '%"status":"waiting_for_input"%')`
+         OR blocks LIKE '%"status":"waiting_for_input"%'
+         OR blocks LIKE '%"status":"awaiting_permission"%')`
     ).all() as Array<{ id: string; session_key: string | null; content: string | null; tool_calls: string | null; blocks: string | null }>;
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
     const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
     const now = Date.now();
     let msgs = 0, tools = 0;
-    const fix = (tc: Record<string, unknown> | undefined | null): boolean => {
-      if (tc && (tc.status === "running" || tc.status === "pending")) {
-        tc.status = "error";
-        if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
-        if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
-        tools++;
-        return true;
-      }
-      // Una domanda rimasta a schermo su un turno GIÀ chiuso (`partial = 0`,
-      // vedi la query) è un pannello cliccabile che non consegna più niente:
-      // il rendez-vous vive in memoria e questo processo è appena partito.
-      // I turni ripresi dopo un riavvio non passano di qui — il loro messaggio
-      // è ancora `partial = 1` e la prima gamba di poll riapre l'ask da sola.
-      if (tc && tc.status === "waiting_for_input") {
-        tc.status = "error";
-        if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
-        if (!tc.error) tc.error = "Interrotto: la sessione si è chiusa mentre la domanda era a schermo";
-        tools++;
-        return true;
-      }
-      return false;
-    };
     let spared = 0;
     for (const r of rows) {
       // Il figlio di questa sessione è ancora VIVO nel broker: quel tool può
@@ -2739,7 +2720,8 @@ function finalizeOrphanedRunningTools() {
       // un ⚠️ con il bottone Retry al primo hot-reload che perdeva il flag
       // `partial` (topic:ed2070df, 3 agosto). Chi è davvero morto lo dirà il
       // prossimo boot, quando il broker non lo elencherà più.
-      if (r.session_key && liveBrokerChatSessions.has(r.session_key)) { spared++; continue; }
+      const alive = !!r.session_key && liveBrokerChatSessions.has(r.session_key);
+      if (alive) spared++;
       let changed = false;
       let tcStr = r.tool_calls, blStr = r.blocks;
       // The client renders tool state from `blocks` (the chronological timeline)
@@ -2748,7 +2730,7 @@ function finalizeOrphanedRunningTools() {
       try {
         if (r.tool_calls) {
           const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
-          let c = false; for (const tc of tcs) if (fix(tc)) c = true;
+          let c = false; for (const tc of tcs) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
           if (c) { tcStr = JSON.stringify(tcs); changed = true; }
         }
       } catch { /* skip malformed tool_calls */ }
@@ -2756,7 +2738,7 @@ function finalizeOrphanedRunningTools() {
         if (r.blocks) {
           const bl = JSON.parse(r.blocks) as Array<Record<string, unknown>>;
           let c = false;
-          for (const b of bl) if (b && b.kind === "tool" && fix(b.toolCall as Record<string, unknown>)) c = true;
+          for (const b of bl) if (b && b.kind === "tool" && finalizeOrphanTool(b.toolCall as Record<string, unknown>, { childAlive: alive, now })) { c = true; tools++; }
           if (c) { blStr = JSON.stringify(bl); changed = true; }
         }
       } catch { /* skip malformed blocks */ }
@@ -2764,12 +2746,14 @@ function finalizeOrphanedRunningTools() {
         // If the interrupted turn produced no final prose, add an explanation
         // so the user sees a reason instead of a bare unexplained error X.
         const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
-        const content = hasProse ? r.content : INTERRUPTED_MARKER;
+        // Il cartello «turno interrotto» NON va su una sessione viva: lì
+        // abbiamo chiuso solo un pannello di permesso, non il turno.
+        const content = hasProse || alive ? r.content : INTERRUPTED_MARKER;
         upd.run(content, tcStr, blStr, r.id); msgs++;
       }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
-    if (spared > 0) console.log(`[boot] left ${spared} message(s) alone: their broker child is still alive`);
+    if (spared > 0) console.log(`[boot] ${spared} message(s) with a live broker child: chiusi solo i permessi, il resto lasciato stare`);
     // Second pass: an assistant turn already finalized as interrupted (its tool
     // carries the "Interrotto" marker) but with no final prose renders as a bare
     // unexplained error X. Give it the explanation. Idempotent — once content is
