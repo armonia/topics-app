@@ -10,7 +10,7 @@ import { ToolPermissionRow } from './ToolPermissionRow';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
 import { planDecisionFrom } from '../../../../shared/plan-decision';
-import { SETTLED_METRIC_CLASS } from './settledMetrics';
+import { useSettledMetricClass } from './settledMetrics';
 import { isAwaitingHuman } from '../../../../shared/types';
 
 /**
@@ -99,6 +99,7 @@ interface Props {
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
 export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, onPlanDecision }: Props) {
+  const settledMetricClass = useSettledMetricClass('tool');
   const [open, setOpen] = useState(false);
 
   // Resolve the detail (server-provided or fallback derivation) and the
@@ -290,7 +291,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <ElapsedTimer since={toolCall.startedAt} />
           )}
           {!isRunning && !isHumanTurn && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
-            <span className={`text-[10px] tabular-nums text-app-text-muted ${SETTLED_METRIC_CLASS}`} data-testid="tool-duration">
+            <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
           )}
@@ -298,7 +299,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               decisa, non il totale del turno. Prezzo se il modello è noto,
               altrimenti i token. Assente sui messaggi vecchi. */}
           {costLabel && (
-            <span className={`text-[10px] tabular-nums text-app-text-muted ${SETTLED_METRIC_CLASS}`} data-testid="tool-cost" title={costTitle}>
+            <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
               {costLabel}
             </span>
           )}

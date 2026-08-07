@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { registerOpenPopover } from '../lib/popoverRegistry';
+import { registerOpenPopover, subSurfaceNodes } from '../lib/popoverRegistry';
 
 /**
  * useDismissable — ONE dismissal contract for every custom menu / dropdown /
@@ -84,6 +84,12 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     const onPointer = (e: Event) => {
       const t = e.target as Node | null;
       if (t && inside(t)) return;
+      // Una SOTTO-SUPERFICIE dichiarata (`exclusive: false`) conta come dentro
+      // per tutti: un menu al cursore aperto da una riga di questo pannello
+      // vive in un portal su `<body>`, quindi geometricamente è «fuori» — e
+      // chiudersi qui vorrebbe dire smontarlo prima che il click arrivi alla
+      // voce scelta. Vedi `lib/popoverRegistry.subSurfaceNodes`.
+      if (t && subSurfaceNodes().some((n) => !!n && n.contains(t))) return;
       onCloseRef.current();
     };
     const onKey = (e: KeyboardEvent) => {
