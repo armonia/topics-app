@@ -1033,7 +1033,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // leggere la tab come una superficie rialzata anche quando NON è
             // selezionata. È lo stesso trattamento del «+», del cerca e delle
             // tessere fissate: un elemento arrotondato che flotta lo porta.
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
+            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
@@ -1850,7 +1850,7 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
   // or from the sidebar (archive icon / close-terminal / close-browser).
   const status = usePanePendingStatus(paneId);
   if (!status) return null;
-  return <PendingActionProgressOverlay status={status} className="rounded-md" />;
+  return <PendingActionProgressOverlay status={status} className="rounded-lg" />;
 }
 
 /**

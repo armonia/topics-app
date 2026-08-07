@@ -952,7 +952,7 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto' }}
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
@@ -1102,8 +1102,8 @@ function App() {
           // separa una card dal bordo e una riga dalla sua vicina. Col mouse i
           // bottoni sono 28 e la riga resta 40, che è la stessa identità:
           // 28 + 2 × 6 = 40.
-          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
-          style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
+          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
+          style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* NIENTE «X» accanto al titolo. Il cassetto mobile si chiude da
@@ -1155,12 +1155,27 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* CERCA E «+», tutti e due accanto al logo su qualunque schermo.
-                Erano finiti in una barra in fondo alla colonna sul telefono —
-                dove arriva il pollice — e la geometria era giusta ma il prezzo
-                no: due comandi staccati dalla cosa che comandano. Restano gli
-                STESSI due bottoni, definiti una volta in App, solo più grandi
-                col dito. */}
+          </div>
+          {/* CERCA E «+», in coda alla riga del titolo.
+              Hanno girato: erano qui, sono finiti in una barra in fondo alla
+              colonna sul telefono (geometria giusta per il pollice, prezzo
+              sbagliato — due comandi staccati dalla cosa che comandano), poi
+              attaccati al logo, e ora tornano allineati a destra, che è dove
+              l'occhio cerca le scorciatoie. Sono sempre gli STESSI due bottoni,
+              definiti una volta in App: cambia solo la misura, 44px col dito e
+              28 col mouse. */}
+          <div
+            className="flex items-center relative z-50 app-no-drag flex-shrink-0"
+            {...NO_DRAG_REGION}
+            // `gap: ROW_INSET`, non `gap-2` scritto a mano. La colonna ha UN
+            // passo — 6px — ed è lo stesso che separa una card dal bordo, una
+            // card dalla sua vicina, e questi bottoni dal bordo destro e dai
+            // fili sopra e sotto. Fra i due era 8, cioè l'unica distanza della
+            // riga che non tornava («la spaziatura non mi sembra corretta fra i
+            // due tasti»): con tutto il resto a 6 uno scarto di due pixel non si
+            // legge come una scelta, si legge come uno sbaglio.
+            style={{ pointerEvents: 'auto', gap: ROW_INSET }}
+          >
             {sidebarSearchButton}
             {sidebarAddMenu}
           </div>
