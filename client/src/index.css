@@ -1126,11 +1126,32 @@ input[type="range"]::-webkit-slider-thumb {
  * ritira di un soffio e si smorza — e parte dall'attributo che `useLongPress`
  * mette sull'elemento mentre il timer è armato. */
 [data-pressing] {
-  transform: scale(0.97);
-  opacity: 0.75;
-  transition: transform 160ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Più marcato di prima (era `scale(.97)` + `opacity .75`), e non per gusto: su
+     iPhone questo è l'UNICO segnale che arriva. La Vibration API su iOS non
+     esiste e il ripiego dello switch nativo Apple l'ha chiuso in 26.5 — dove il
+     tick non esce, mezzo secondo di attesa senza risposta si legge come «non ha
+     preso». Il movimento è quello che fa il sistema quando raccogli un'icona:
+     la superficie si ritira e si smorza, poi il menu arriva.
+     `filter: brightness` invece di un secondo colore: si compone su qualunque
+     fondo — chiaro, scuro, e le superfici in alpha della sidebar — senza dover
+     scegliere una tinta per ognuno. */
+  transform: scale(0.94);
+  opacity: 0.6;
+  filter: brightness(1.25);
+  transition: transform 140ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 140ms cubic-bezier(0.4, 0, 0.2, 1),
+              filter 140ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dark [data-pressing] {
+  /* In scuro schiarire è il verso giusto; in chiaro `brightness > 1` slava. */
+  filter: brightness(1.35);
+}
+:root:not(.dark) [data-pressing] {
+  filter: brightness(0.92);
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Senza movimento resta il segnale, che è il punto: chi ha chiesto meno
+     animazioni non ha chiesto meno feedback. */
   [data-pressing] { transform: none; }
 }
 
