@@ -8,6 +8,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { DevicesSection } from './DevicesSection';
+import { IdentitySection } from './IdentitySection';
 import { PermissionsSection } from './PermissionsSection';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -131,7 +132,15 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             )}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
-            {section === 'devices' && <DevicesSection />}
+            {section === 'devices' && (
+              // Chi sei viene PRIMA di che ferri hai: i dispositivi fanno capo
+              // a una persona, e leggere l'elenco senza sapere di chi sono è
+              // leggere una lista di oggetti.
+              <div className="space-y-6">
+                <IdentitySection />
+                <DevicesSection />
+              </div>
+            )}
             {section === 'permissions' && <PermissionsSection />}
           </div>
         </div>

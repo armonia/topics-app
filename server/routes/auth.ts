@@ -593,6 +593,65 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       });
     }
 
+    // ── CHI SEI e QUAL È la tua organizzazione.
+    //
+    // Sotto `/api/auth/` e non su `/api/people` come diceva il piano: sono
+    // domande d'identità, e stanno dove stanno le altre — così il cancello e
+    // l'allowlist degli ospiti hanno un prefisso solo da conoscere invece di
+    // due.
+    //
+    // Non c'è una POST per creare una persona-proprietaria: quella la crea la
+    // migration, una volta, e resta una. Qui si può solo dirle come si chiama —
+    // che è la differenza fra rinominare sé stessi e potersi nominare
+    // proprietari.
+    if (method === "GET" && pathname === "/api/auth/me") {
+      try {
+        const io = db.query(`
+          SELECT p.id, p.display_name AS name, p.email
+            FROM installation_owners io JOIN people p ON p.id = io.person_id
+           ORDER BY io.is_default DESC LIMIT 1`).get() as
+          { id: string; name: string; email: string | null } | undefined;
+        const org = db.query(`
+          SELECT o.id, o.name,
+                 (SELECT COUNT(*) FROM org_members m WHERE m.org_id = o.id AND m.revoked_at IS NULL) AS membri
+            FROM orgs o WHERE o.revoked_at IS NULL ORDER BY o.created_at LIMIT 1`).get() as
+          { id: string; name: string; membri: number } | undefined;
+        return json({
+          person: io ?? null,
+          org: org ? { id: org.id, name: org.name, members: Number(org.membri) } : null,
+        });
+      } catch {
+        // Schema più vecchio della 084: non c'è ancora nessuno da nominare.
+        return json({ person: null, org: null });
+      }
+    }
+
+    if (method === "PATCH" && (pathname.startsWith("/api/auth/people/") || pathname.startsWith("/api/auth/orgs/"))) {
+      const persona = pathname.startsWith("/api/auth/people/");
+      const id = decodeURIComponent(pathname.slice(persona ? "/api/auth/people/".length : "/api/auth/orgs/".length));
+      const body = await readJSON(req) as { name?: unknown; email?: unknown } | null;
+      const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : null;
+      // `null` esplicito cancella l'email; assente la lascia com'è. Sono due
+      // intenzioni diverse e vanno distinte, o non si può più togliere un
+      // indirizzo messo per sbaglio.
+      const email = body?.email === null ? null
+        : typeof body?.email === "string" ? body.email.trim().slice(0, 200) : undefined;
+      if (name !== null && !name) return json({ error: "nome vuoto" }, 400);
+
+      try {
+        if (name) {
+          db.query(`UPDATE ${persona ? "people" : "orgs"} SET ${persona ? "display_name" : "name"} = ?, rev = rev + 1, updated_at = ? WHERE id = ?`)
+            .run(name, now, id);
+        }
+        if (persona && email !== undefined) {
+          db.query("UPDATE people SET email = ?, rev = rev + 1, updated_at = ? WHERE id = ?").run(email || null, now, id);
+        }
+      } catch {
+        return json({ error: "non disponibile su questo database" }, 400);
+      }
+      return json({ ok: true });
+    }
+
     // ── I LINK: condividere con chi NON è sulla tua rete.
     //
     // Un link è una CAPACITÀ su una cosa sola, non un accesso: fuori dalla rete
