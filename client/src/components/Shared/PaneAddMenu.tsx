@@ -51,7 +51,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -262,7 +262,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  *    soglia col pollice sia fuori colonna rispetto ai vicini.
  */
 const TRIGGER_CLASS_PILL =
-  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors`;
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-full ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -322,7 +322,7 @@ export function PaneAddMenu({
   // RAISED_CONTROL plate with an inline kbd hint.
   const triggerBase =
     triggerVariant === 'header'
-      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
+      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-full ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
@@ -348,12 +348,14 @@ export function PaneAddMenu({
         ref={buttonRef}
         onClick={handleClick}
         className={`${triggerBase} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
+        // La compensazione ottica vale solo dove c'è un glifo a sinistra e del
+        // testo a destra (la variante 'header' col suo ⌘N). Vedi la costante.
+        style={triggerVariant === 'header' && !isMobile ? { ...GLYPH_KBD_PADDING, ...(noElectronDrag ? { WebkitAppRegion: 'no-drag' } : null) } as React.CSSProperties : (noElectronDrag ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined)}
         {...(noElectronDrag ? NO_DRAG_REGION : {})}
         title={triggerTitle}
         aria-label={triggerTitle}
         aria-haspopup="menu"
         aria-expanded={open}
-        style={noElectronDrag ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         data-testid="pane-add-menu-trigger"
       >
         <Plus size={triggerIconSize} aria-hidden="true" />

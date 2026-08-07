@@ -1290,12 +1290,19 @@ html.electron-mac.dark .edge-lit::before {
  * arrotondato a 12px — e lui era a 6. Due curve diverse a distanza di un
  * centimetro si leggono come un errore di allineamento, non come due elementi.
  *
- * La scala era già dichiarata (`--radius: 0.5rem`) e già disattesa: le card
- * della sidebar e le tessere fissate stavano a 8 (`rounded-lg`), le tab e i tre
- * comandi a 6 (`rounded-md`). Adesso ogni superficie INTERATTIVA sta a 8, e
- * restano due curve in tutta l'app: 8 per ciò che si tocca, 12 per la finestra
- * che le contiene. Un raggio interno più stretto di quello che lo contiene è la
- * regola giusta; averne tre non lo era.
+ * Il primo tentativo è stato portare tutto a 8 (`--radius`), e non è bastato:
+ * «il tasto di aggiunta ancora non si trova col border radius della finestra».
+ * Il motivo è che 8 contro 12 resta un QUASI-uguale, e due curve quasi uguali a
+ * un centimetro di distanza si leggono come un errore di misura — mentre due
+ * curve dichiaratamente diverse si leggono come due cose diverse. Non serviva
+ * avvicinare il raggio: serviva smettere di gareggiare.
+ *
+ * Quindi tre linguaggi, ognuno inequivocabile:
+ *   · i COMANDI (il «+», il cerca, il tasto che riapre la colonna) sono TONDI —
+ *     `rounded-full`: un cerchio se hanno la sola icona, una pillola se portano
+ *     la scorciatoia. È anche l'idioma dei controlli di sistema su macOS.
+ *   · le SUPERFICI (tab, card della sidebar, tessere fissate) stanno a 8.
+ *   · la FINESTRA sta a 12, e non ha più nessun vicino che le somigli.
  *
  * Questo blocco non genera CSS: sta qui perché è il posto in cui si va a
  * cercare «quanto è arrotondato cosa», e la risposta non deve essere «dipende
