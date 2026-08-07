@@ -1601,6 +1601,16 @@ function App() {
             onSettingsChange={setAppSettings}
             themeMode={themeMode}
             onThemeChange={setTheme}
+            // La scheda «Shortcuts» delle Impostazioni è stata rimossa (era una
+            // terza lista scritta a mano, e sbagliata). Il rimando in Aspetto
+            // porta alla finestra vera, ⌘? — che finora era l'UNICA porta, e
+            // una scorciatoia non si scopre con una scorciatoia. Le Impostazioni
+            // si chiudono: due modali sovrapposti non hanno un ordine di uscita.
+            onOpenShortcuts={() => {
+              setShowSettings(false);
+              setSettingsSection(undefined);
+              setShowShortcuts(true);
+            }}
           />
         </Suspense>
       )}

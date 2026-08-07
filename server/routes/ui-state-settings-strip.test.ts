@@ -22,14 +22,14 @@ describe("stripDeviceLocalFields — chiave `settings`", () => {
       {
         fontSize: 15,
         notificationsEnabled: false,
-        workingGlow: true,
+        messageDensity: "compact",
         sidebarWidth: 420,
         sidebarCollapsed: true,
       },
       SETTINGS_KEY,
     ) as Record<string, unknown>;
 
-    expect(out).toEqual({ fontSize: 15, notificationsEnabled: false, workingGlow: true });
+    expect(out).toEqual({ fontSize: 15, notificationsEnabled: false, messageDensity: "compact" });
     expect("sidebarWidth" in out).toBe(false);
     expect("sidebarCollapsed" in out).toBe(false);
   });

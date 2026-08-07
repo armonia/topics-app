@@ -166,10 +166,11 @@ const IT: Dict = {
   'sidebar.unpinVanishes': '{nome} esce dai Fissati — in lista non resta',
   'sidebar.unpinnedGone': '{nome} non è più fissato, e non ha una riga in lista',
   'sidebar.undo': 'Annulla',
-  'settings.language': 'Lingua',
-  'settings.language.auto': 'Automatica (come il browser)',
-  'settings.language.it': 'Italiano',
-  'settings.language.en': 'English',
+  // Qui c'erano quattro `settings.language*`: nessuna superficie le ha mai
+  // chiamate — il selettore della lingua in Impostazioni scrive le sue etichette
+  // in chiaro, bilingui, perché è l'unico posto che si deve poter leggere anche
+  // quando la lingua scelta è quella sbagliata. Chiavi che nessuno risolve non
+  // sono un dizionario pronto: sono due traduzioni da tenere allineate a mano.
 };
 
 const EN: Dict = {
@@ -296,10 +297,6 @@ const EN: Dict = {
   'sidebar.unpinVanishes': '{nome} leaves Pinned — no row in the list',
   'sidebar.unpinnedGone': '{nome} is no longer pinned, and has no row in the list',
   'sidebar.undo': 'Undo',
-  'settings.language': 'Language',
-  'settings.language.auto': 'Automatic (follow the browser)',
-  'settings.language.it': 'Italiano',
-  'settings.language.en': 'English',
 };
 
 const DICTS: Record<Locale, Dict> = { it: IT, en: EN };
