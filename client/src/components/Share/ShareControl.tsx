@@ -315,7 +315,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
           ) : (
             <p className="px-1.5 py-1 text-[11px] leading-relaxed text-app-text-secondary">
               {soggetti.length === 0
-                ? 'Nessuno con cui condividere. Autorizza un dispositivo come ospite da Impostazioni → Dispositivi, e comparirà qui.'
+                ? 'Nessuno con cui condividere. Autorizza un dispositivo come ospite da Impostazioni → Account, e comparirà qui.'
                 : 'Già condiviso con tutti.'}
             </p>
           )}
