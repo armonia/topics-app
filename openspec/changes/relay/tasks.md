@@ -69,13 +69,18 @@ sapere se il disegno regge prima di aprire un conto.
   GRATUITO.
 - [ ] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
   Serve quando ci sarà traffico vero da mantenere vivo.
-- [ ] 3.4 Il co-browse a pixel NON passa di qui: resta WebRTC. Un test di
-  contratto che fallisca se un frame video entra nel DO.
+- [x] 3.4 Il co-browse a pixel NON passa di qui, e c'è un test di contratto —
+  `relay/relay-contract.test.ts` — che copre anche l'ibernazione e RELAY-04.
+  Testuale, perché entrambi i difetti sono invisibili a runtime: cambia solo la
+  bolletta.
 
 ## 4. Il gesto, nell'interfaccia
 
 - [ ] 4.1 «Condividi fuori rete» produce un link. La parola «tunnel» non compare.
 - [ ] 4.2 Il link è la credenziale: scadenza visibile e revoca dove lo si crea.
+  Il SERVER è pronto (`/api/auth/share-links`: scadenza obbligatoria con tetto
+  a 30 giorni, chiave consegnata una volta sola, revoca che marca e non
+  cancella, conteggio delle aperture). Manca il gesto nell'interfaccia.
 - [ ] 4.3 Macchina spenta → «non raggiungibile adesso», col motivo. Mai una
   pagina vuota che sembra «non ti hanno condiviso niente».
 

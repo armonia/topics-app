@@ -572,3 +572,77 @@ describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
     expect(db.query("SELECT role FROM devices").get()).toEqual({ role: "guest" });
   });
 });
+
+describe("rotte auth · i link di condivisione", () => {
+  function db085(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql", "085-share-links.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+    return db;
+  }
+
+  test("la chiave esce UNA volta sola, e l'elenco non la ripropone", async () => {
+    // Un endpoint che restituisce la chiave a richiesta trasformerebbe ogni
+    // lettura dell'elenco in una copia del segreto.
+    const db = db085();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const creato = await (await chiama(router, "/api/auth/share-links", "POST", {
+      body: { resourceType: "task", resourceId: "t1" },
+    }))!.json() as { ref: string; key: string };
+    expect(creato.key).toBeTruthy();
+
+    const elenco = await (await chiama(router, "/api/auth/share-links?resourceType=task&resourceId=t1"))!.text();
+    expect(elenco).toContain(creato.ref);
+    expect(elenco).not.toContain(creato.key);
+  });
+
+  test("la scadenza c'è sempre e ha un tetto", async () => {
+    // Un link senza scadenza è un link che qualcuno ritrova in una chat fra due
+    // anni e che funziona ancora.
+    const db = db085();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const a = await (await chiama(router, "/api/auth/share-links", "POST", {
+      body: { resourceType: "task", resourceId: "t1" },
+    }))!.json() as { expiresAt: number };
+    const giorni = (a.expiresAt - Date.now()) / 86_400_000;
+    expect(giorni).toBeGreaterThan(6.9);
+    expect(giorni).toBeLessThan(7.1);
+
+    const b = await (await chiama(router, "/api/auth/share-links", "POST", {
+      body: { resourceType: "task", resourceId: "t1", giorni: 3650 },
+    }))!.json() as { expiresAt: number };
+    expect((b.expiresAt - Date.now()) / 86_400_000).toBeLessThan(30.1);
+  });
+
+  test("due link della stessa cosa hanno chiavi DIVERSE", async () => {
+    // Riusare la chiave vorrebbe dire che revocare un link non basta: chi ha il
+    // vecchio potrebbe ancora leggere quello nuovo.
+    const db = db085();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const uno = await (await chiama(router, "/api/auth/share-links", "POST", { body: { resourceType: "task", resourceId: "t1" } }))!.json() as { key: string };
+    const due = await (await chiama(router, "/api/auth/share-links", "POST", { body: { resourceType: "task", resourceId: "t1" } }))!.json() as { key: string };
+    expect(uno.key).not.toBe(due.key);
+  });
+
+  test("revocare marca la riga, e non la cancella", async () => {
+    const db = db085();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const c = await (await chiama(router, "/api/auth/share-links", "POST", { body: { resourceType: "task", resourceId: "t1" } }))!.json() as { ref: string };
+    await chiama(router, `/api/auth/share-links?ref=${c.ref}`, "DELETE");
+    const r = db.query("SELECT revoked_at FROM share_links WHERE ref = ?").get(c.ref) as { revoked_at: number | null };
+    expect(r.revoked_at).toBeGreaterThan(0);
+  });
+
+  test("su uno schema più vecchio della 085 non esplode", async () => {
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const r = await chiama(router, "/api/auth/share-links", "POST", { body: { resourceType: "task", resourceId: "t1" } });
+    expect(r?.status).toBe(400);
+    const e = await chiama(router, "/api/auth/share-links?resourceType=task&resourceId=t1");
+    expect(await e!.json()).toEqual({ links: [] });
+  });
+});

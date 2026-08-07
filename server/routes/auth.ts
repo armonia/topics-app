@@ -10,6 +10,7 @@ import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
 import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
+import { nuovaChiave } from "../../shared/relay-crypto";
 import {
   grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
 } from "../lib/grants-query";
@@ -576,6 +577,75 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       }
 
       return json({ subjects: soggetti });
+    }
+
+    // ── I LINK: condividere con chi NON è sulla tua rete.
+    //
+    // Un link è una CAPACITÀ su una cosa sola, non un accesso: fuori dalla rete
+    // non si può chiedere a un ospite di appaiare un dispositivo — quel gesto
+    // vuole due schermi vicini e un codice da confrontare. Quindi chi ha il
+    // link vede quella cosa, e nient'altro.
+    //
+    // La chiave NON esce mai da qui in una risposta successiva: si consegna una
+    // volta sola, al momento della creazione, perché è quello l'unico istante
+    // in cui serve. Un endpoint che la restituisce a richiesta trasformerebbe
+    // ogni lettura dell'elenco in una copia del segreto.
+    if (pathname === "/api/auth/share-links") {
+      if (method === "GET") {
+        const tipo = url.searchParams.get("resourceType") ?? "task";
+        const id = url.searchParams.get("resourceId") ?? "";
+        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        try {
+          const righe = db.query(`
+            SELECT ref, created_at, expires_at, revoked_at, opened_count, last_opened_at
+              FROM share_links WHERE resource_type = ? AND resource_id = ?
+             ORDER BY created_at DESC`).all(tipo, id) as Array<Record<string, unknown>>;
+          return json({
+            links: righe.map((r) => ({
+              ref: r.ref, createdAt: r.created_at, expiresAt: r.expires_at,
+              revokedAt: r.revoked_at, openedCount: r.opened_count, lastOpenedAt: r.last_opened_at,
+              // Scaduto è diverso da revocato, e chi guarda deve poterlo dire:
+              // uno è passato da solo, l'altro l'ha deciso qualcuno.
+              scaduto: Number(r.expires_at) <= now,
+            })),
+          });
+        } catch { return json({ links: [] }); }
+      }
+
+      if (method === "POST") {
+        const body = await readJSON(req) as {
+          resourceType?: string; resourceId?: string; giorni?: unknown;
+        } | null;
+        const tipo = body?.resourceType ?? "task";
+        const risorsa = body?.resourceId;
+        if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
+        if (!risorsa) return json({ error: "resourceId richiesto" }, 400);
+
+        // La scadenza c'è sempre e ha un tetto: un link senza scadenza è un
+        // link che qualcuno ritrova in una chat fra due anni e che funziona
+        // ancora. Sette giorni di default, trenta al massimo.
+        const g = typeof body?.giorni === "number" && body.giorni > 0 ? Math.min(body.giorni, 30) : 7;
+        const ref = crypto.randomUUID().replace(/-/g, "").slice(0, 22);
+        const key = nuovaChiave();
+        try {
+          db.query(
+            "INSERT INTO share_links (ref, key, resource_type, resource_id, created_at, expires_at) VALUES (?,?,?,?,?,?)",
+          ).run(ref, key, tipo, risorsa, now, now + g * 86_400_000);
+        } catch {
+          return json({ error: "i link non sono disponibili su questo database" }, 400);
+        }
+        // La chiave esce SOLO qui. Chi chiama la mette nel frammento dell'URL e
+        // poi la dimentica: il server non la ripropone mai più.
+        return json({ ref, key, expiresAt: now + g * 86_400_000 });
+      }
+
+      if (method === "DELETE") {
+        const ref = url.searchParams.get("ref") ?? "";
+        try {
+          db.query("UPDATE share_links SET revoked_at = ? WHERE ref = ? AND revoked_at IS NULL").run(now, ref);
+        } catch { /* schema più vecchio della 085 */ }
+        return json({ ok: true });
+      }
     }
 
     if (pathname === "/api/auth/shares") {
