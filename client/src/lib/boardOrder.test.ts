@@ -95,32 +95,32 @@ describe('planDrop', () => {
     const r = task({ id: 'r', status: 'review', kanbanOrder: 10 });
     const g = col([a, b, c, r]);
     expect(planDrop({ task: r, overId: 'b', byStatus: g, scope: 'board' }))
-      .toEqual({ status: 'todo', kanbanOrder: 1.5 }); // fra a(1) e b(2)
+      .toEqual({ patch: { status: 'todo', kanbanOrder: 1.5 } }); // fra a(1) e b(2)
   });
 
   test('rilascio sull\'area vuota di una colonna → in fondo', () => {
     const r = task({ id: 'r', status: 'review', kanbanOrder: 10 });
     const g = col([a, b, c, r]);
     expect(planDrop({ task: r, overId: 'todo', byStatus: g, scope: 'board' }))
-      .toEqual({ status: 'todo', kanbanOrder: 4 }); // dopo c(3)
+      .toEqual({ patch: { status: 'todo', kanbanOrder: 4 } }); // dopo c(3)
   });
 
   test('stessa colonna verso il BASSO: si finisce DOPO la card di arrivo', () => {
     // a (1) rilasciata su b (2): b stava sotto, quindi a prende il posto DI b,
     // cioè fra b(2) e c(3).
     expect(planDrop({ task: a, overId: 'b', byStatus, scope: 'board' }))
-      .toEqual({ kanbanOrder: 2.5 });
+      .toEqual({ patch: { kanbanOrder: 2.5 } });
   });
 
   test('stessa colonna verso l\'ALTO: si finisce PRIMA della card di arrivo', () => {
     // c (3) rilasciata su b (2): si infila fra a(1) e b(2).
     expect(planDrop({ task: c, overId: 'b', byStatus, scope: 'board' }))
-      .toEqual({ kanbanOrder: 1.5 });
+      .toEqual({ patch: { kanbanOrder: 1.5 } });
   });
 
   test('verso l\'alto fino in cima', () => {
     expect(planDrop({ task: c, overId: 'a', byStatus, scope: 'board' }))
-      .toEqual({ kanbanOrder: 0 }); // prima di a(1)
+      .toEqual({ patch: { kanbanOrder: 0 } }); // prima di a(1)
   });
 
   test('drop su se stessa, o senza bersaglio, non fa niente', () => {
@@ -138,13 +138,45 @@ describe('planDrop', () => {
     expect(planDrop({ task: a, overId: 'fantasma', byStatus, scope: 'board' })).toBeNull();
   });
 
+  test('interstizio esaurito: si rinumera la colonna invece di non fare niente', () => {
+    // Due vicini contigui in virgola mobile: `between` ricade su uno dei due e
+    // la card non avrebbe un posto. Prima il drag moriva in silenzio.
+    const x = task({ id: 'x', kanbanOrder: 1 });
+    const y = task({ id: 'y', kanbanOrder: 1 + Number.EPSILON });
+    const z = task({ id: 'z', kanbanOrder: 5 });
+    const g = col([x, y, z]);
+    const plan = planDrop({ task: z, overId: 'y', byStatus: g, scope: 'board' })!;
+    expect(plan).not.toBeNull();
+    // z si infila fra x e y → posizione 2 su interi, e gli altri seguono.
+    expect(plan.patch).toEqual({ kanbanOrder: 2 });
+    expect(plan.renumber).toEqual([
+      { id: 'x', kanbanOrder: 1 },
+      { id: 'y', kanbanOrder: 3 },
+    ]);
+    // La rinumerazione non include mai la card trascinata (già in `patch`).
+    expect(plan.renumber!.some((r) => r.id === 'z')).toBe(false);
+  });
+
+  test('interstizio esaurito arrivando da un\'ALTRA colonna: porta anche lo stato', () => {
+    const x = task({ id: 'x', kanbanOrder: 1 });
+    const y = task({ id: 'y', kanbanOrder: 1 + Number.EPSILON });
+    const fuori = task({ id: 'fuori', status: 'backlog', kanbanOrder: 9 });
+    const g = col([x, y, fuori]);
+    const plan = planDrop({ task: fuori, overId: 'y', byStatus: g, scope: 'board' })!;
+    expect(plan.patch).toEqual({ status: 'todo', kanbanOrder: 2 });
+    expect(plan.renumber).toEqual([
+      { id: 'x', kanbanOrder: 1 },
+      { id: 'y', kanbanOrder: 3 },
+    ]);
+  });
+
   test('review: ci si entra, non ci si riordina', () => {
     const r1 = task({ id: 'r1', status: 'review', kanbanOrder: 1, updatedAt: '2026-01-01T00:00:00.000Z' });
     const r2 = task({ id: 'r2', status: 'review', kanbanOrder: 2, updatedAt: '2026-02-01T00:00:00.000Z' });
     const g = col([a, b, c, r1, r2]);
     // Entrare in review: solo lo stato, nessun numero derivato da vicini
     // ordinati per data.
-    expect(planDrop({ task: a, overId: 'r2', byStatus: g, scope: 'board' })).toEqual({ status: 'review' });
+    expect(planDrop({ task: a, overId: 'r2', byStatus: g, scope: 'board' })).toEqual({ patch: { status: 'review' } });
     // Riordinare dentro review non fa niente.
     expect(planDrop({ task: r1, overId: 'r2', byStatus: g, scope: 'board' })).toBeNull();
   });
@@ -156,7 +188,7 @@ describe('planDrop', () => {
     const altro = task({ id: 'altro', projectId: 'pY', status: 'review', kanbanOrder: 300 });
     const g = col([a, b, c, altro], 'cross-project');
     expect(planDrop({ task: altro, overId: 'b', byStatus: g, scope: 'cross-project' }))
-      .toEqual({ status: 'todo' });
+      .toEqual({ patch: { status: 'todo' } });
     expect(planDrop({ task: a, overId: 'b', byStatus: g, scope: 'cross-project' })).toBeNull();
     expect(planDrop({ task: a, overId: 'todo', byStatus: g, scope: 'cross-project' })).toBeNull();
   });
