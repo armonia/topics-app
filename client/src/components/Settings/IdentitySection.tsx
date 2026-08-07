@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { User, Building2, Pencil } from 'lucide-react';
+import { User, Building2, Pencil, Plus, X } from 'lucide-react';
 
 /**
  * Chi sei, e come si chiama la tua organizzazione.
@@ -25,12 +25,23 @@ interface Io {
   org: { id: string; name: string; members: number } | null;
 }
 
+interface Membro {
+  id: string;
+  name: string;
+  email: string | null;
+  devices: number;
+  owner: boolean;
+  blocked: boolean;
+}
+
 export function IdentitySection() {
   const [io, setIo] = useState<Io | null>(null);
   const [modifica, setModifica] = useState<'persona' | 'org' | null>(null);
   const [bozza, setBozza] = useState('');
   const [bozzaEmail, setBozzaEmail] = useState('');
   const [inCorso, setInCorso] = useState(false);
+  const [membri, setMembri] = useState<Membro[]>([]);
+  const [nuovo, setNuovo] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     try {
@@ -41,7 +52,42 @@ export function IdentitySection() {
     }
   }, []);
 
+  const caricaMembri = useCallback(async (orgId: string) => {
+    try {
+      const r = await fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
+      const b = r.ok ? (await r.json()) as { members?: Membro[] } : null;
+      // Chi è stato tolto resta nel database — serve perché il blocco locale
+      // sopravviva a una sincronizzazione — ma non ha motivo di stare in un
+      // elenco di chi c'è.
+      setMembri((b?.members ?? []).filter((m) => !m.blocked));
+    } catch { setMembri([]); }
+  }, []);
+
   useEffect(() => { void carica(); }, [carica]);
+  useEffect(() => { if (io?.org) void caricaMembri(io.org.id); }, [io?.org, caricaMembri]);
+
+  const aggiungi = async () => {
+    const nome = (nuovo ?? '').trim();
+    if (!io?.org || !nome) { setNuovo(null); return; }
+    setInCorso(true);
+    try {
+      await fetch(`/api/auth/orgs/${encodeURIComponent(io.org.id)}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ name: nome }),
+      });
+      await Promise.all([carica(), caricaMembri(io.org.id)]);
+    } finally { setInCorso(false); setNuovo(null); }
+  };
+
+  const togli = async (m: Membro) => {
+    if (!io?.org) return;
+    await fetch(`/api/auth/orgs/${encodeURIComponent(io.org.id)}/members?personId=${encodeURIComponent(m.id)}`, {
+      method: 'DELETE', credentials: 'same-origin',
+    });
+    await Promise.all([carica(), caricaMembri(io.org.id)]);
+  };
 
   const salva = async () => {
     if (!io || !modifica) return;
@@ -154,54 +200,123 @@ export function IdentitySection() {
       {io.org && (
         <>
           <div>
-            <h3 className="text-[13px] font-semibold text-app-text">La tua organizzazione</h3>
+            {/* ORG-07: a chi è solo non si nomina un concetto che non gli
+                serve. La parola compare quando c'è davvero più di una persona
+                — prima è un elenco di persone, e basta. */}
+            <h3 className="text-[13px] font-semibold text-app-text">
+              {soloTu ? 'Persone' : 'La tua organizzazione'}
+            </h3>
             <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
               {soloTu
-                // A un utente solo non si spiega un concetto che non gli serve:
-                // gli si dice a cosa servirà, in una riga.
-                ? 'Per adesso ci sei solo tu. Serve quando condividi con un gruppo di persone invece che una alla volta.'
+                ? 'Per adesso ci sei solo tu. Aggiungi qualcuno per poter condividere con lui, anche prima che colleghi un suo dispositivo.'
                 : 'Condividere con l’organizzazione vale per tutti i suoi membri, senza rifarlo uno per uno.'}
             </p>
           </div>
 
-          <div className="rounded-lg border border-app-border px-3 py-2.5">
-            {modifica === 'org' ? (
-              <div className="flex gap-1.5">
+          {!soloTu && (
+            <div className="rounded-lg border border-app-border px-3 py-2.5">
+              {modifica === 'org' ? (
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    value={bozza}
+                    onChange={(e) => setBozza(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void salva(); if (e.key === 'Escape') setModifica(null); }}
+                    aria-label="Nome dell'organizzazione"
+                    className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary"
+                  />
+                  <button
+                    disabled={inCorso}
+                    onClick={() => void salva()}
+                    className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+                  >
+                    Salva
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setBozza(io.org!.name); setModifica('org'); }}
+                  className="group flex w-full items-center gap-2 text-left"
+                  title="Cambia nome"
+                >
+                  <Building2 size={13} className="flex-shrink-0 text-app-text-tertiary" />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-app-text">{io.org.name}</span>
+                  <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-lg border border-app-border">
+            {membri.map((m) => (
+              <div
+                key={m.id}
+                className="group flex items-center gap-2 border-b border-app-border px-3 py-2 last:border-b-0"
+              >
+                <User size={13} className="flex-shrink-0 text-app-text-tertiary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] text-app-text">{m.name}</span>
+                  {m.email && <span className="block truncate text-[11px] text-app-text-muted">{m.email}</span>}
+                </span>
+                <span className="flex-shrink-0 text-[11px] text-app-text-muted">
+                  {/* Zero dispositivi non è un errore: è il caso normale di chi
+                      è stato invitato e non si è ancora collegato. Detto qui,
+                      perché un contatore a zero senza spiegazione sembra un
+                      guasto. */}
+                  {m.owner ? 'tu' : m.devices === 0 ? 'da collegare' : `${m.devices} dispositiv${m.devices === 1 ? 'o' : 'i'}`}
+                </span>
+                {!m.owner && (
+                  <button
+                    onClick={() => void togli(m)}
+                    title={`Togli ${m.name}`}
+                    aria-label={`Togli ${m.name}`}
+                    className="flex-shrink-0 rounded p-0.5 text-app-text-tertiary opacity-0 transition-opacity hover:bg-app-hover hover:text-app-text group-hover:opacity-100"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {nuovo === null ? (
+              <button
+                onClick={() => setNuovo('')}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-app-text-secondary hover:bg-app-hover"
+              >
+                <Plus size={13} className="flex-shrink-0 text-app-text-tertiary" />
+                Aggiungi una persona
+              </button>
+            ) : (
+              <div className="flex gap-1.5 px-3 py-2">
                 <input
                   autoFocus
-                  value={bozza}
-                  onChange={(e) => setBozza(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void salva(); if (e.key === 'Escape') setModifica(null); }}
-                  aria-label="Nome dell'organizzazione"
+                  value={nuovo}
+                  onChange={(e) => setNuovo(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void aggiungi(); if (e.key === 'Escape') setNuovo(null); }}
+                  aria-label="Nome della persona"
+                  placeholder="Nome"
                   className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary"
                 />
                 <button
                   disabled={inCorso}
-                  onClick={() => void salva()}
+                  onClick={() => void aggiungi()}
                   className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
                 >
-                  Salva
+                  Aggiungi
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={() => { setBozza(io.org!.name); setModifica('org'); }}
-                className="group flex w-full items-center gap-2 text-left"
-                title="Cambia nome"
-              >
-                <Building2 size={13} className="flex-shrink-0 text-app-text-tertiary" />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-app-text">{io.org.name}</span>
-                {!soloTu && (
-                  <span className="flex-shrink-0 text-[11px] text-app-text-muted">
-                    {io.org.members} persone
-                  </span>
-                )}
-                <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
-              </button>
             )}
           </div>
+
+          <p className="text-[10px] leading-snug text-app-text-muted">
+            Aggiungere una persona non le dà accesso a questa macchina: le dà un
+            nome con cui condividere. Per entrare le serve comunque autorizzare
+            un suo dispositivo, e resterà un ospite — vedrà solo ciò che le hai
+            condiviso.
+          </p>
         </>
       )}
+
     </div>
   );
 }

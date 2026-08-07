@@ -652,6 +652,102 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true });
     }
 
+    // ── I MEMBRI di un'organizzazione.
+    //
+    // Chi può scrivere qui: solo una richiesta NON confinata, cioè il
+    // proprietario di questa installazione. Il gate lo garantisce già — un
+    // ospite non passa il cancello del metodo — e non si aggiunge un secondo
+    // controllo che direbbe la stessa cosa in un altro modo: due guardie sulla
+    // stessa porta sono due occasioni di aprirla.
+    if (/^\/api\/auth\/orgs\/[^/]+\/members$/.test(pathname)) {
+      const orgId = decodeURIComponent(pathname.split("/")[4]);
+
+      if (method === "GET") {
+        try {
+          const righe = db.query(`
+            SELECT p.id, p.display_name AS name, p.email, m.role, m.joined_at,
+                   m.revoked_at, m.local_blocked_at,
+                   (SELECT COUNT(*) FROM devices d WHERE d.person_id = p.id AND d.revoked_at IS NULL) AS devices,
+                   (p.id IN (SELECT person_id FROM installation_owners)) AS owner
+              FROM org_members m JOIN people p ON p.id = m.person_id
+             WHERE m.org_id = ? AND p.revoked_at IS NULL
+             ORDER BY owner DESC, p.display_name`).all(orgId) as Array<Record<string, unknown>>;
+          return json({
+            members: righe.map((r) => ({
+              id: r.id, name: r.name, email: r.email, role: r.role,
+              devices: Number(r.devices), owner: !!r.owner,
+              // Le DUE revoche restano distinte anche qui: una l'ha decisa il
+              // piano di controllo, l'altra tu — e solo la seconda sopravvive
+              // al prossimo aggiornamento.
+              revoked: r.revoked_at !== null,
+              blocked: r.local_blocked_at !== null,
+            })),
+          });
+        } catch { return json({ members: [] }); }
+      }
+
+      if (method === "POST") {
+        const body = await readJSON(req) as { personId?: unknown; name?: unknown; email?: unknown } | null;
+        try {
+          const org = db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId);
+          if (!org) return json({ error: "organizzazione sconosciuta" }, 404);
+
+          let pid: string;
+          if (typeof body?.personId === "string" && body.personId) {
+            const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(body.personId) as { revoked_at: number | null } | undefined;
+            if (!p) return json({ error: "persona sconosciuta" }, 404);
+            if (p.revoked_at !== null) return json({ error: "quella persona è stata revocata" }, 400);
+            pid = body.personId;
+          } else {
+            const nome = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
+            if (!nome) return json({ error: "serve un nome" }, 400);
+            const email = typeof body?.email === "string" ? body.email.trim().slice(0, 200) : null;
+            // Si crea la persona QUI, senza aspettare che appaia un suo
+            // dispositivo: è il punto di ORG-04 — invitare qualcuno viene prima
+            // che quel qualcuno si colleghi, non dopo.
+            pid = crypto.randomUUID().replace(/-/g, "");
+            db.query(
+              "INSERT INTO people (id, display_name, email, created_at, origin, rev, updated_at) VALUES (?,?,?,?,'local',1,?)",
+            ).run(pid, nome, email || null, now, now);
+          }
+
+          // `member` e non `admin`: chi entra non amministra. Promuovere è un
+          // gesto in più, e deve esserlo.
+          db.query(
+            "INSERT OR IGNORE INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES (?,?, 'member', ?, 1, ?)",
+          ).run(orgId, pid, now, now);
+          // Se c'era ed era stato bloccato, rientrare vuol dire togliere il
+          // blocco: altrimenti «l'ho riaggiunto e non vede niente».
+          db.query("UPDATE org_members SET revoked_at = NULL, local_blocked_at = NULL WHERE org_id = ? AND person_id = ?")
+            .run(orgId, pid);
+          return json({ ok: true, personId: pid });
+        } catch {
+          return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
+        }
+      }
+
+      if (method === "DELETE") {
+        const pid = url.searchParams.get("personId") ?? "";
+        try {
+          const owner = db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(pid);
+          // Il proprietario dell'installazione non si toglie dalla propria
+          // organizzazione: sarebbe l'unico gesto capace di lasciare la
+          // macchina senza nessuno che la possieda.
+          if (owner) return json({ error: "non puoi togliere te stesso" }, 400);
+          // `local_blocked_at`, non `revoked_at`: questa è una decisione presa
+          // QUI, e deve sopravvivere al prossimo aggiornamento dal piano di
+          // controllo. Scriverla nell'altra colonna vorrebbe dire vederla
+          // annullare dal primo pull, in silenzio.
+          db.query("UPDATE org_members SET local_blocked_at = ? WHERE org_id = ? AND person_id = ? AND local_blocked_at IS NULL")
+            .run(now, orgId, pid);
+          for (const d of dispositiviDelSoggetto(db, "person", pid)) ctx.closeDeviceSockets?.(d);
+          return json({ ok: true });
+        } catch {
+          return json({ error: "non disponibile su questo database" }, 400);
+        }
+      }
+    }
+
     // ── I LINK: condividere con chi NON è sulla tua rete.
     //
     // Un link è una CAPACITÀ su una cosa sola, non un accesso: fuori dalla rete
