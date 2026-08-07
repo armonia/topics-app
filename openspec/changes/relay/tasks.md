@@ -76,13 +76,18 @@ sapere se il disegno regge prima di aprire un conto.
 
 ## 4. Il gesto, nell'interfaccia
 
-- [ ] 4.1 «Condividi fuori rete» produce un link. La parola «tunnel» non compare.
+- [x] 4.1 Il link si crea e si APRE: la pagina dell'ospite la serve il Worker
+  (l'unico posto che c'è sempre — la macchina può essere spenta, ed è il caso
+  che quella pagina deve saper raccontare). La parola «tunnel» non compare da
+  nessuna parte. Manca solo il bottone in `ShareControl`.
 - [ ] 4.2 Il link è la credenziale: scadenza visibile e revoca dove lo si crea.
   Il SERVER è pronto (`/api/auth/share-links`: scadenza obbligatoria con tetto
   a 30 giorni, chiave consegnata una volta sola, revoca che marca e non
   cancella, conteggio delle aperture). Manca il gesto nell'interfaccia.
-- [ ] 4.3 Macchina spenta → «non raggiungibile adesso», col motivo. Mai una
-  pagina vuota che sembra «non ti hanno condiviso niente».
+- [x] 4.3 Macchina spenta → «Questa cosa non è raggiungibile adesso», col
+  motivo e con la rassicurazione che il link resta valido. Scaduto e revocato
+  si dicono INSIEME: distinguerli racconterebbe a chi prova quale dei due gli è
+  capitato.
 
 ## 5. Prima di venderlo
 

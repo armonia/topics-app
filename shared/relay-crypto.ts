@@ -117,9 +117,12 @@ export async function apri(chiave: string, busta: string): Promise<string | null
  * uno solo — la chiave dopo `#` — e due funzioni scritte lontane sono due
  * occasioni di metterla prima.
  */
-export function componiLink(base: string, shareRef: string, chiave: string): string {
+export function componiLink(base: string, installationId: string, shareRef: string, chiave: string): string {
   const u = new URL(base);
-  u.pathname = `${u.pathname.replace(/\/$/, "")}/s/${encodeURIComponent(shareRef)}`;
+  // DUE segmenti, entrambi pubblici: quale installazione (serve al relay per
+  // instradare) e quale condivisione (serve alla macchina per trovare la
+  // chiave). Nessuno dei due apre niente da solo.
+  u.pathname = `${u.pathname.replace(/\/$/, "")}/g/${encodeURIComponent(installationId)}/${encodeURIComponent(shareRef)}`;
   // La chiave NON è un parametro di query: lì il browser la manderebbe al
   // server, e sarebbe finita nei log del relay prima ancora di essere usata.
   u.hash = chiave;
@@ -127,13 +130,17 @@ export function componiLink(base: string, shareRef: string, chiave: string): str
   return u.toString();
 }
 
-export function leggiLink(href: string): { shareRef: string; chiave: string } | null {
+export function leggiLink(href: string): { installationId: string; shareRef: string; chiave: string } | null {
   try {
     const u = new URL(href);
-    const m = u.pathname.match(/\/s\/([^/]+)\/?$/);
+    const m = u.pathname.match(/\/g\/([^/]+)\/([^/]+)\/?$/);
     const chiave = u.hash.replace(/^#/, "");
     if (!m || !chiave) return null;
-    return { shareRef: decodeURIComponent(m[1]), chiave };
+    return {
+      installationId: decodeURIComponent(m[1]),
+      shareRef: decodeURIComponent(m[2]),
+      chiave,
+    };
   } catch {
     return null;
   }
