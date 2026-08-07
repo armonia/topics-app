@@ -16,28 +16,17 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, surfaceBg } from "./helpers/surfaces";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
-const SIDEBAR = '[role="navigation"][aria-label="Topics sidebar"]';
+const SIDEBAR = SIDEBAR_SELECTOR;
 /** Il testo che il seed manda: deve ricomparire sotto al nome della riga. */
 const LAST_MESSAGE = "Questa frase deve comparire sotto al nome nella sidebar.";
 
-/** Luminanza relativa WCAG di un `rgb(...)` computato. */
-function luminance(css: string): number {
-  const m = css.match(/\d+(\.\d+)?/g);
-  if (!m || m.length < 3) throw new Error(`colore non parsabile: ${css}`);
-  const [r, g, b] = m.slice(0, 3).map((v) => {
-    const c = Number(v) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-async function bg(page: Page, selector: string): Promise<string> {
-  return page.locator(selector).first().evaluate((el) => getComputedStyle(el).backgroundColor);
-}
+/** Alias locale: le chiamate qui sotto misurano tutte lo stesso `background-color`. */
+const bg = surfaceBg;
 
 /**
  * Su mobile la sidebar NASCE CHIUSA (`useSidebarAndLayout`: `isDetached ||
@@ -159,20 +148,38 @@ test.describe("Sidebar col dito — audit misurato", () => {
   });
 
   /**
-   * IL CHROME È UNA SUPERFICIE SOLA.
+   * SU UN TELEFONO C'È UNA SUPERFICIE SOLA.
    *
    * Il difetto che ha aperto tutto questo: su iPhone la fascia in cima cambiava
    * colore aprendo e chiudendo la sidebar (`--bg-surface` contro `--bg`), e i
    * due estremi della stessa colonna avevano due token diversi — sopra
-   * `bg-surface`, sotto `bg-app-bg`. Qui si pretende che header, albero e barra
-   * di stato dipingano lo STESSO pixel, e che quel pixel sia un gradino SOTTO la
-   * pagina, non sopra: è ciò che salda la colonna alla barra di stato opaca che
-   * iOS disegna sopra la PWA.
+   * `bg-surface`, sotto `bg-app-bg`.
+   *
+   * La cura è arrivata fino in fondo: sotto i 768px `--bg` e `--bg-surface`
+   * collassano su `--chrome-bg` (index.css, `@media (max-width: 767px)`), perché
+   * a 390×844 le tre superfici NON stanno una accanto all'altra — stanno
+   * impilate, ognuna al 100% dello schermo, e se ne vede una per volta. Un
+   * gradino che non si può vedere accanto al suo vicino non separa niente: si
+   * manifesta solo come «lo sfondo è più chiaro della sidebar».
+   *
+   * Quindi qui si pretende UNA COSA SOLA: colonna, fascia della safe-area, fondo
+   * dell'app e piano delle pane sono lo STESSO pixel. La gerarchia «il chrome sta
+   * un gradino SOTTO la pagina» non è morta — è un'invariante da DESKTOP, dove le
+   * superfici si vedono affiancate, e vive dove è vera: `sidebar.spec.ts`,
+   * «SIDEBAR-SURFACES-01», a 1280×800.
    */
-  test("SIDEBAR-CHROME-01: la colonna è una superficie sola, e sta sotto la pagina", async ({ page }) => {
+  test("SIDEBAR-CHROME-01: la colonna, la fascia e il piano delle pane sono lo stesso pixel", async ({ page }) => {
     await openSidebarOnPhone(page);
 
     const chrome = await bg(page, SIDEBAR);
+    // Il perno di tutte le uguaglianze qui sotto: se la colonna non dipingesse
+    // nulla, «tutto è uguale al chrome» sarebbe vero per vuoto — quattro
+    // trasparenti che coincidono, e il test verde su un'app senza colore.
+    expect(
+      chrome,
+      `la colonna non dipinge un colore opaco (${chrome}): le uguaglianze qui sotto sarebbero vere per vuoto`,
+    ).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
+
     // La barra di stato in fondo NON deve dipingere: deve ereditare la colonna.
     // Un suo sfondo proprio è ciò che sotto Tauri comporrebbe una SECONDA mano
     // dell'alpha della vibrancy sopra la prima (0.80 contro 0.55).
@@ -196,13 +203,19 @@ test.describe("Sidebar col dito — audit misurato", () => {
     const backdrop = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     expect(backdrop, `il fondo dell'app (${backdrop}) deve essere il chrome (${chrome})`).toBe(chrome);
 
-    const page_ = await bg(page, ".content-flip-layer");
-    const lChrome = luminance(chrome);
-    const lPage = luminance(page_);
+    // E IL PIANO DELLE PANE È LO STESSO PIXEL, non un gradino sopra.
+    // Qui stava `luminance(chrome) < luminance(pagina)`, ereditato dal desktop.
+    // Con le superfici collassate quell'asserzione non poteva che essere falsa
+    // (misurato: entrambe rgb(234, 236, 240), L=0.8377 contro L=0.8377) — e se
+    // un domani si allentasse a `<=` sarebbe peggio, perché passerebbe SIA sul
+    // collasso voluto SIA su una regressione che riapre il gradino nella
+    // direzione sbagliata. L'uguaglianza esatta è l'unica forma che dice la
+    // cosa giusta: qualunque scarto, in qualunque verso, è la regressione.
+    const pagina = await bg(page, PAGE_LAYER_SELECTOR);
     expect(
-      lChrome,
-      `chrome ${chrome} (L=${lChrome.toFixed(4)}) deve stare SOTTO la pagina ${page_} (L=${lPage.toFixed(4)})`,
-    ).toBeLessThan(lPage);
+      pagina,
+      `il piano delle pane (${pagina}) deve essere lo stesso pixel della colonna (${chrome}): sotto i 768px le superfici collassano`,
+    ).toBe(chrome);
   });
 
   /**

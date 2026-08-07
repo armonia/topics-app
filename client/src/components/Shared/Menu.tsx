@@ -127,8 +127,14 @@ export function Menu({
 
   return createPortal(
     <>
+      {/* Il velo del foglio dal basso era TRASPARENTE — nessuno sfondo — quindi
+          non c'era niente a staccarlo dalla pagina. Da quando su mobile le
+          superfici di base collassano in una sola, il foglio dipinge il pixel
+          del suo fondo e resterebbe in piedi sul solo bordo (misurato: 1,04:1 in
+          chiaro; in scuro l'ombra è nero su quasi-nero e non aiuta). Il gemello
+          in `ChatInput` usa `bg-black/40` da sempre: qui mancava e basta. */}
       {isMobile && (
-        <div className="fixed inset-0" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
+        <div className="fixed inset-0 bg-black/40" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
       )}
       <div
         ref={panelRef}
