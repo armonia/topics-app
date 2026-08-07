@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import { projectRow } from "../helpers/project-row";
 
 /**
  * Deterministic mock data for browser/process E2E tests.
@@ -266,11 +267,15 @@ export class BrowserProcessPage {
       }
     }
 
-    // Click the project folder button in the sidebar
-    const projectBtn = this.page
-      .locator('[aria-label="Topics sidebar"] button')
-      .filter({ hasText: projectNamePattern })
-      .first();
+    // Click the project folder button in the sidebar.
+    //
+    // `projectRow` e non «il primo bottone della colonna che contenga quel
+    // testo»: quella forma identifica una riga dal TESTO che porta, e il testo
+    // di un progetto compare in più posti (la riga della board elenca i
+    // progetti con task aperti). Sette spec ci sono già cadute il 07/08 —
+    // `.first()` prendeva la riga sbagliata e il rosso arrivava dieci secondi
+    // dopo, su un componente che non c'entrava. Vedi `helpers/project-row`.
+    const projectBtn = projectRow(this.page, projectNamePattern);
     await projectBtn.waitFor({ state: "visible", timeout: 10000 });
     await projectBtn.click();
 
