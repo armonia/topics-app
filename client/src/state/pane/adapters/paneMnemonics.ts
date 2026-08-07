@@ -23,9 +23,10 @@
  *   d. altrimenti NESSUNA lettera — la riga resta raggiungibile con frecce e
  *      mouse, e il test qui accanto segnala che serve una scelta a mano.
  *
- * La lettera è SEMPRE contenuta nell'etichetta (asserito dal test): così la
- * resa a sottolineatura resta possibile come ripiego, e la lettera non è mai
- * una convenzione arbitraria da imparare a memoria.
+ * La lettera è SEMPRE contenuta nell'etichetta O nell'id di riga (asserito dal
+ * test): così la resa a sottolineatura resta possibile come ripiego dove la
+ * lettera è nell'etichetta, e nel caso (c) resta comunque una lettera che la
+ * riga PRONUNCIA — mai una convenzione arbitraria da imparare a memoria.
  */
 
 /** Gli id di riga del menu "New…". Non sono `PaneType`: `terminal` produce
@@ -47,10 +48,14 @@ export type AddMenuItemId =
 export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   // La riga si chiama «Chat», non «New Chat»: il verbo lo dice il menu, e ogni
   // altra riga e' un sostantivo secco. C resta all'agente di DEFAULT (Claude
-  // Code, il piu' aperto), quindi la regola scorre alla lettera libera
-  // successiva dell'etichetta: c-H-at. Stesso meccanismo di Codex → X.
-  'new-chat': 'H',
-  shell: 'S',
+  // Code, il piu' aperto), quindi la regola scorre — ma non alla H di c-H-at:
+  // scorre fino al caso (c), la prima libera dell'ID di riga, `new-chat` → N.
+  // Ed e' la lettera giusta anche per una ragione che l'etichetta non poteva
+  // dare: il menu lo apre ⌘N, e N e' la cosa che ⌘N crea per default. La mano
+  // che ha gia' premuto N con il meta preme N di nuovo senza pensarci.
+  'new-chat': 'N',
+  // T e' l'iniziale di «Terminale» ed e' libera: caso (a), il piu' semplice.
+  shell: 'T',
   // C è dell'agente DI DEFAULT. Codex prende la X di `Code·x`: è la lettera che
   // dice Codex e nient'altro, e lascia C dove l'utente se la aspetta.
   'claude-code': 'C',

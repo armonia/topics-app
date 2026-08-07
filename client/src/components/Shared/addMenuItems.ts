@@ -40,8 +40,9 @@ const TERMINAL_AGENT_PRESENTATION: Record<
   TerminalAgentType,
   { icon: 'terminal' | 'claude' | 'codex' | 'cpu'; color?: string }
 > = {
-  // Viola dalla palette di PANE_CONFIG.terminal: Shell e Claude Code sono
-  // entrambe sessioni pty e devono leggersi come la stessa famiglia.
+  // Viola dalla palette di PANE_CONFIG.terminal: Terminale e Claude Code sono
+  // entrambe sessioni pty e devono leggersi come la stessa famiglia — la linea
+  // che ora le separa dice «altra categoria», non «altra tecnologia».
   shell: { icon: 'terminal' },
   'claude-code': { icon: 'claude', color: '#D97757' },
   // Mono di proposito: il marchio OpenAI è monocromatico (vedi CodexIcon).
@@ -93,14 +94,45 @@ export interface BuildAddMenuItemsArgs {
 
 /** Ordine curato. `getAddableTypesForScope` restituisce i tipi nell'ordine di
  *  PANE_CONFIG, che va bene per il codice e male per il menu: mette le voci
- *  rare (Files, Board) sopra quelle frequenti (Shell, Claude Code). I tipi non
- *  elencati finiscono in coda nel loro ordine dichiarato, così aggiungere un
- *  `addableScopes` continua a bastare per farli comparire. */
-const CURATED_ORDER: PaneType[] = ['terminal', 'browser', 'git', 'files'];
+ *  rare (Files) sopra quelle frequenti (Terminale). I tipi non elencati
+ *  finiscono in coda nel loro ordine dichiarato, così aggiungere un
+ *  `addableScopes` continua a bastare per farli comparire — ma la coda è il
+ *  RIPIEGO, non un posto scelto: `kanban`/`board` ci finivano, e il Board si
+ *  leggeva come un ripensamento in fondo al menu. Ora ci sono ENTRAMBI in
+ *  questa lista, e possono starci perché non compaiono MAI insieme
+ *  (`addableScopes` disgiunti, project vs standalone — la stessa ragione per
+ *  cui condividono la mnemonica D). */
+const CURATED_ORDER: PaneType[] = ['terminal', 'browser', 'kanban', 'board', 'git', 'files'];
 
 function iconFor(paneType: PaneType) {
   const cfg = getPaneConfig(paneType);
   return { kind: 'lucide' as const, Component: ICON_MAP[cfg.icon] ?? null, color: cfg.color };
+}
+
+/** La riga di UN agente del terminale. Estratta perché il blocco terminale non
+ *  è più contiguo: la shell sta al suo posto nell'ordine curato, gli agenti
+ *  vanno in fondo dopo una linea. Due punti di costruzione sarebbero due
+ *  posti da aggiornare per ogni agente nuovo — esattamente il debito che
+ *  questo modulo esiste per estinguere (vedi il commento in testa al file). */
+function terminalAgentRow(agent: TerminalAgentType, onAddPane: (type: PaneType, subType?: string) => void): AddMenuItem {
+  const pres = TERMINAL_AGENT_PRESENTATION[agent];
+  return {
+    id: agent,
+    label: TERMINAL_AGENT_LABELS[agent],
+    mnemonic: ADD_MENU_MNEMONICS[agent],
+    // `pane-add-menu-shell` è cablato: l'id di riga è `shell`, quindi il
+    // template lo produrrebbe uguale — ma resta esplicito perché è un
+    // contratto E2E dichiarato (helpers/terminal-workspace.ts,
+    // terminal-tab-reload.spec.ts, panels.spec.ts) e non deve poter cambiare
+    // di rimbalzo se un giorno l'id cambiasse.
+    testId: agent === 'shell' ? 'pane-add-menu-shell' : `pane-add-menu-${agent}`,
+    run: () => onAddPane('terminal', agent),
+    icon:
+      pres.icon === 'claude' ? { kind: 'claude' }
+      : pres.icon === 'codex' ? { kind: 'codex' }
+      : pres.icon === 'cpu' ? { kind: 'lucide', Component: Cpu, color: pres.color }
+      : { kind: 'lucide', Component: TerminalSquare, color: getPaneConfig('terminal').color },
+  };
 }
 
 export function buildAddMenuItems({
@@ -136,23 +168,12 @@ export function buildAddMenuItems({
     ];
     for (const type of ordered) {
       if (type === 'terminal') {
-        // Gli agenti vengono dal registro condiviso, non da una lista scritta
-        // qui: è l'unico modo perché aggiungerne uno resti UNA modifica.
-        for (const agent of TERMINAL_AGENT_TYPES) {
-          const pres = TERMINAL_AGENT_PRESENTATION[agent];
-          items.push({
-            id: agent,
-            label: TERMINAL_AGENT_LABELS[agent],
-            mnemonic: ADD_MENU_MNEMONICS[agent],
-            testId: agent === 'shell' ? 'pane-add-menu-shell' : `pane-add-menu-${agent}`,
-            run: () => onAddPane('terminal', agent),
-            icon:
-              pres.icon === 'claude' ? { kind: 'claude' }
-              : pres.icon === 'codex' ? { kind: 'codex' }
-              : pres.icon === 'cpu' ? { kind: 'lucide', Component: Cpu, color: pres.color }
-              : { kind: 'lucide', Component: TerminalSquare, color: getPaneConfig('terminal').color },
-          });
-        }
+        // SOLO la shell qui. Prima questo ramo sputava tutti e quattro gli
+        // agenti in blocco, ed era QUELLO — non `CURATED_ORDER` — il motivo per
+        // cui Browser e Board finivano dopo Claude Code: finché il blocco era
+        // atomico non c'era modo di infilare niente in mezzo. Gli agenti vanno
+        // sotto la linea, appesi dopo il loop.
+        items.push(terminalAgentRow('shell', onAddPane));
         continue;
       }
       const cfg = getPaneConfig(type);
@@ -163,6 +184,24 @@ export function buildAddMenuItems({
         testId: `pane-add-menu-${type}`,
         run: () => onAddPane(type),
         icon: iconFor(type),
+      });
+    }
+
+    // Gli agenti CLI, staccati da una linea: aprono una sessione con un modello
+    // dentro, non una pane vuota da riempire — sono un'altra categoria di cosa,
+    // e il menu deve dirlo prima che l'utente legga i nomi.
+    //
+    // Gated su `terminal`: senza, uno scope che non può ospitare un terminale
+    // mostrerebbe tre agenti orfani il cui `run` chiama `onAddPane('terminal')`
+    // su un tipo che quello scope non accetta.
+    //
+    // La lista viene dal registro condiviso, non scritta qui: è l'unico modo
+    // perché aggiungere un agente resti UNA modifica.
+    if (scopeTypes.includes('terminal')) {
+      const agents = TERMINAL_AGENT_TYPES.filter((a) => a !== 'shell');
+      agents.forEach((agent, i) => {
+        const row = terminalAgentRow(agent, onAddPane);
+        items.push(i === 0 ? { ...row, dividerBefore: true } : row);
       });
     }
   }

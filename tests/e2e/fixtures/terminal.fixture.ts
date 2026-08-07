@@ -8,7 +8,6 @@ export class TerminalPage {
   // (or `.first()`) can resolve to a hidden leftover pane. Scope to :visible so
   // locators always land on the terminal that's actually on screen.
   get xtermRows() { return this.page.locator('.xterm-rows:visible'); }
-  get newTerminalBtn() { return this.page.locator('[data-testid="terminal-new-btn"]'); }
 
   /** Get visible xterm rows scoped to the active (displayed) terminal */
   get activeXtermRows() {
@@ -36,12 +35,16 @@ export class TerminalPage {
     await this.page.locator('.xterm-screen:visible').first().click();
   }
 
-  /** Open a new shell terminal via the "+" button dropdown */
-  async openNewShell() {
-    await this.newTerminalBtn.click();
-    await this.page.getByRole('button', { name: 'Shell' }).click();
-    await expect(this.xtermRows.first()).toBeVisible({ timeout: 15_000 });
-  }
+  // `openNewShell()` viveva qui e non lo chiamava nessuno. Era rotto in DUE
+  // punti — il `terminal-new-btn` che cliccava non esiste più nel client, e il
+  // `getByRole('button', { name: 'Shell' })` era morto da baff80a5, quando le
+  // righe del menu «+» sono passate a `role="menuitem"`. Rimosso invece che
+  // aggiustato: la procedura vera è `openShellViaSidebar` in
+  // helpers/terminal-workspace.ts, che passa dal testid `pane-add-menu-shell` e
+  // la usano davvero terminal-multi / terminal-reconnect. Un secondo modo di
+  // aprire una shell, non esercitato da nessuno, è solo un posto in più dove la
+  // prossima rinomina si rompe in silenzio — ed è appena successo: la riga ora
+  // si chiama «Terminale».
 
   /** Wait for terminal to be ready (xterm rows visible + shell prompt character) */
   async waitForReady(timeout = 15_000) {
