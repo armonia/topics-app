@@ -135,6 +135,16 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
     }
   }, [projectPath, apertoHash]);
 
+  // `min-h-0` sul contenitore, e l'intestazione qui sotto `flex-shrink-0`: sono
+  // le due meta' della stessa regola, e vanno insieme.
+  //
+  // Senza `min-h-0` questa sezione non cede MAI, perche' il suo min-content
+  // comprende l'intera lista dei commit: misurato, 173px di piede dentro un
+  // pannello da 200, con gli ultimi commit tagliati dal fondo — «tagliato a
+  // meta'». Con `min-h-0` la sezione cede, e a cedere dentro di lei e' la
+  // LISTA: l'intestazione e' `flex-shrink-0` e resta, la lista scorre gia' di
+  // suo. Mettere solo `min-h-0` senza proteggere l'intestazione e' l'errore
+  // opposto — la sezione si schiacciava a 1px sui 33 naturali.
   return (
     <div className="border-t border-app-border flex flex-col min-h-0" data-testid="commit-history">
       {/* `py-2`, come ogni altra riga del piede e come l'intestazione del
@@ -161,7 +171,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
           spazio ci sarebbe: aprire la cronologia non deve far sparire la lista
           delle modifiche. */}
       {expanded && (
-        <div className="pb-1 overflow-y-auto min-h-0 max-h-[220px]">
+        <div className="pb-1 overflow-y-auto flex-1 min-h-0 max-h-[220px]">
           {errore && <div className="px-3 py-1 text-[11px] text-red-500">{errore}</div>}
           {!errore && !loading && commits.length === 0 && (
             <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessun commit</div>

@@ -35,8 +35,20 @@ const DEFAULT_SIDEBAR_W = 224;
 const MIN_SIDEBAR_W = 160;
 const MAX_SIDEBAR_W = 560;
 
-/** Sotto questa altezza una sezione aperta non mostra nulla: è solo intestazione. */
-const MIN_USEFUL_H = 96;
+/**
+ * Sotto questa altezza una sezione aperta non mostra nulla: è solo chrome.
+ *
+ * PER SEZIONE, perché le due non hanno lo stesso chrome. Git ne ha molto:
+ * misurato, 32px di intestazione + 31 della riga di commit + 67 di piede
+ * (Remotes e Cronologia) = 130, prima ancora di una riga di contenuto. Col
+ * vecchio minimo unico di 96 il pannello non conteneva nemmeno se stesso, e a
+ * cedere era la sezione Cronologia: schiacciata a 1px sui suoi 33 naturali,
+ * cioè una fessura con dentro un'intestazione tagliata. 160 = quei 130 più una
+ * riga di file, che è la promessa che questo minimo fa.
+ *
+ * Processi non ha piede: per lui 96 resta giusto.
+ */
+const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes: 96 };
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
 
 /**
@@ -174,7 +186,7 @@ export function ProjectSidebar({
       // chevron ruotava e non compariva niente). Se l'altezza salvata non
       // lascia spazio, si riapre alla misura di partenza.
       if (opening && (section === 'git' || section === 'processes')) {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
       }
       return { ...prev, [section]: opening };
     });
@@ -231,7 +243,7 @@ export function ProjectSidebar({
     // 32px era l'altezza dell'INTESTAZIONE: si poteva trascinare una sezione
     // fino a farla sparire del tutto e poi non c'era modo di capire perché
     // «non si apriva». Il minimo lascia sempre una riga di contenuto.
-    const MIN_H = MIN_USEFUL_H;
+    const minDi = (s: 'git' | 'processes') => MIN_USEFUL_H[s];
     const dropChrome = () => {
       if (dragOverlay.current) {
         dragOverlay.current.remove();
@@ -270,12 +282,12 @@ export function ProjectSidebar({
       raiseChrome('row-resize');
       if (r.otherSection) {
         // Redistributing between git ↔ processes
-        const newTop = Math.max(MIN_H, r.startHeight - delta);
-        const newBottom = Math.max(MIN_H, (r.otherStartHeight || 0) + delta);
+        const newTop = Math.max(minDi(r.section), r.startHeight - delta);
+        const newBottom = Math.max(minDi(r.otherSection ?? r.section), (r.otherStartHeight || 0) + delta);
         setBottomHeights(prev => ({ ...prev, [r.section]: newTop, [r.otherSection!]: newBottom }));
       } else {
         // Resizing files ↔ bottom section
-        setBottomHeights(prev => ({ ...prev, [r.section]: Math.max(MIN_H, r.startHeight - delta) }));
+        setBottomHeights(prev => ({ ...prev, [r.section]: Math.max(minDi(r.section), r.startHeight - delta) }));
       }
     };
     const onUp = () => {
@@ -332,7 +344,7 @@ export function ProjectSidebar({
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.
       if (section === 'git' || section === 'processes') {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
       }
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
