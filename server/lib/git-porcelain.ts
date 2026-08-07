@@ -42,8 +42,26 @@ export interface PorcelainEntry {
   origPath?: string;
 }
 
+/**
+ * Un comando git di SOLA LETTURA, che però non si limita a leggere.
+ *
+ * `git status` e `git diff` rinfrescano l'indice come effetto collaterale
+ * (riscrivono la stat cache quando gli mtime non tornano) e per farlo prendono
+ * `.git/index.lock`. È un lock *facoltativo*: serve a loro, non all'utente. Ma
+ * mentre ce l'hanno, un `git commit` concorrente muore con
+ * «Unable to create '.../index.lock': File exists».
+ *
+ * Qui lo status parte da solo — il watcher su `.git/index` lo lancia 500 ms
+ * dopo ogni stage — quindi la finestra si apre esattamente sopra il commit che
+ * l'utente sta per fare. `--no-optional-locks` toglie a ogni lettore il diritto
+ * di prendere quel lock: legge quello che c'è e non riscrive niente.
+ */
+export function gitRead(...args: string[]): string[] {
+  return ["git", "--no-optional-locks", ...args];
+}
+
 /** Gli argomenti da passare a `Bun.spawn` per uno status parsabile. */
-export const STATUS_ARGS = ["git", "status", "--porcelain", "-z"];
+export const STATUS_ARGS = gitRead("status", "--porcelain", "-z");
 
 /** Un XY è un rename o una copia? Allora porta con sé un secondo path. */
 function carriesOrigPath(status: string): boolean {
