@@ -294,7 +294,28 @@ body.v3 > .footer { position: relative; z-index: 1; }
 .capsule__links a { font-size: 14.5px; font-weight: 500; color: var(--ink-mute); transition: color var(--dur-1) var(--state); }
 .capsule__links a:hover { color: var(--ink); }
 .capsule__cta { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-@media (max-width: 900px) { .capsule__links { display: none; } .capsule__ghlabel { display: none; } }
+/* WHEN THE LABEL GOES, THE BUTTON HAS TO STOP BEING A BUTTON SHAPE. Below 900px
+   the GitHub link loses its word and keeps its padding, so it collapsed to a
+   43x33 slab beside a 94x40 one: two rectangles of almost the same weight, one
+   of them mysteriously squat, and neither reading as the more important. It is
+   the icon that is left, so make it an ICON — square, smaller than the thing it
+   sits next to, centred against it. The size ranking then says what the header
+   means: Download is the action, GitHub is a place to go. */
+@media (max-width: 900px) {
+  .capsule__links { display: none; }
+  .capsule__ghlabel { display: none; }
+  .capsule__cta .btn--ghost {
+    position: relative;
+    width: 34px; height: 34px; padding: 0;
+    display: inline-grid; place-items: center;
+  }
+  .capsule__cta .btn--ghost .ic { width: 16px; height: 16px; }
+  /* Smaller to LOOK at, not smaller to hit. The mark is 34px; the target under
+     a thumb is 44, which is what the rest of this page's controls are held to
+     (styles.css :681). A control that shrinks its hit area to match its drawing
+     is how icon buttons become the thing you tap three times. */
+  .capsule__cta .btn--ghost::before { content: ""; position: absolute; inset: -5px; }
+}
 
 /* The halo. A second ring, offset, on the one control that matters most.
    Reference B puts it on its primary CTA and it is the cheapest way to make a
@@ -358,12 +379,32 @@ body.v3.is-ready .hero__title .dim {
    under the accented word, and it is under the word rather than beside it. */
 .hero__proof { gap: 6px 30px; }
 .hero__proof > div { flex: 0 1 auto; min-width: 108px; padding: 0; }
-.hero__proof dt { font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); }
+/* FULL INK, and it is the light behind it that decides. The palest ink on the
+   page is what SETS the field's ceiling — 4.5:1 against #a3abbb is why the
+   composite caps at L 0.036 — so the faintest ink on the ONE screen where the
+   glow is allowed to be bright was, measured, the single thing holding the hero
+   dark: with everything else passing, these two labels were the last two
+   failures at 390. A micro-label over a glowing ground should be the brightest
+   small text there, not the dimmest.
+   It costs nothing in hierarchy. The label is 12.5px mono, uppercase, tracked;
+   the number under it is 27px display weight. The size does the ranking. */
+.hero__proof dt { font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .09em; text-transform: uppercase; color: var(--ink); }
 .hero__proof dd {
   margin: 5px 0 0; font-family: var(--display); font-weight: var(--display-weight);
   font-size: 27px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.05;
 }
-.hero__proof dd.is-word { color: var(--accent-ink); }
+/* BLUE ON BLUE IS NOT EMPHASIS. This word was --accent-ink (#8ab9ff) to mark it
+   as the notable figure in the row — which worked while the ground behind it was
+   near-black. It is now the brightest part of a blue glow, and measured there
+   the word came back at 2.78:1 against a backdrop of rgb(69 103 169): the accent
+   and the light are the same hue, so the emphasis colour is the one colour that
+   disappears. On a lit ground the loud thing is the WHITE one, and the accent
+   goes under the word as a rule instead of into it. */
+.hero__proof dd.is-word { color: var(--ink); position: relative; }
+.hero__proof dd.is-word::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -6px;
+  height: 2px; border-radius: 2px; background: var(--accent);
+}
 
 /* ── THE STAGE ───────────────────────────────────────────────────────────────
    The real client, whole, running. It used to be a photograph cropped by the

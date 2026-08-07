@@ -31,7 +31,6 @@ import { homeTools, READ_ON } from '../data/compare';
 import { repoStats, longDate } from '../lib/repo-stats';
 
 const stats = repoStats();
-const fmt = (n: number) => n.toLocaleString('en-GB');
 ---
 
 <Base
@@ -145,9 +144,13 @@ const fmt = (n: number) => n.toLocaleString('en-GB');
 
         {/* The proof used to be 1,211px below the claim. It is the same
              sentence, so it goes in the same breath. */}
+        {/* TWO, AND BOTH ARE ABOUT THE READER. It had four, and the first two
+             were "commits" and "in 7 days" — activity theatre. A commit count is
+             a fact about how busy I have been, not about whether this is worth
+             installing, and a landing page that leads with it is asking to be
+             admired rather than used. Releases says it ships; telemetry: none is
+             a promise about what happens on the visitor's machine. */}
         <dl class="hero__proof">
-          <div><dt>commits</dt><dd data-count={stats.commits}>{fmt(stats.commits)}</dd></div>
-          <div><dt>in 7 days</dt><dd data-count={stats.commitsLast7}>{fmt(stats.commitsLast7)}</dd></div>
           <div><dt>releases</dt><dd data-count={stats.releases}>{stats.releases}</dd></div>
           <div><dt>telemetry</dt><dd class="is-word">none</dd></div>
         </dl>
