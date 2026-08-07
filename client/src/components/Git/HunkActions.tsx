@@ -33,12 +33,25 @@ import type { GitHunkSummary } from '../../types';
 export interface HunkActionsProps {
   projectPath: string;
   file: string;
+  /**
+   * Il lato da mostrare, quando chi monta lo SA.
+   *
+   * Il pannello git lo sa — è il gruppo della riga cliccata — e passarlo evita
+   * che la striscia mostri un lato mentre il diff sopra ne mostra un altro:
+   * cliccando sotto «Staged» il diff confronta HEAD con l'indice, e i blocchi
+   * giusti da elencare sono quelli DA TOGLIERE, non quelli fuori dall'indice.
+   *
+   * Omesso, si indovina come prima: la tab del diff non conosce lo stato git
+   * del file, e chiederglielo vorrebbe dire portarlo in un posto che non ne ha
+   * bisogno per nient'altro.
+   */
+  side?: 'staged' | 'unstaged';
   /** Da rialzare quando lo stato git cambia, così la lista si rilegge. */
   reloadKey?: unknown;
   onApplied?: () => void;
 }
 
-export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkActionsProps) {
+export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onApplied }: HunkActionsProps) {
   const [hunks, setHunks] = useState<GitHunkSummary[]>([]);
   const [side, setSide] = useState<'staged' | 'unstaged'>('unstaged');
   const [loading, setLoading] = useState(false);
@@ -58,6 +71,16 @@ export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkAct
     setErrore(null);
     (async () => {
       try {
+        // Se il lato è dichiarato si prende quello, senza indovinare: chi lo
+        // passa lo sa meglio di questa euristica, e un disaccordo fra la
+        // striscia e il diff sopra fa mettere in stage il blocco sbagliato.
+        if (sideProp) {
+          const dati = await gitApi.hunks(projectPath, file, sideProp);
+          if (!vivo) return;
+          setSide(sideProp);
+          setHunks(dati.hunks);
+          return;
+        }
         const fuori = await gitApi.hunks(projectPath, file, 'unstaged');
         if (!vivo) return;
         if (fuori.hunks.length > 0) { setSide('unstaged'); setHunks(fuori.hunks); return; }
@@ -72,7 +95,7 @@ export function HunkActions({ projectPath, file, reloadKey, onApplied }: HunkAct
       }
     })();
     return () => { vivo = false; };
-  }, [projectPath, file, reloadKey]);
+  }, [projectPath, file, sideProp, reloadKey]);
 
   const applica = useCallback(async (index: number, action: 'stage' | 'unstage' | 'discard') => {
     setInCorso(index);

@@ -1064,6 +1064,26 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!/^[A-Za-z0-9_./^~@{}-]{1,200}$/.test(rev) || rev.includes("..")) {
         return json({ error: "rev non valida" }, 400);
       }
+      /**
+       * `side=index` legge il contenuto DELL'INDICE, cioè `git show :0:<file>`.
+       *
+       * È un parametro a parte e non un valore di `rev` perché la regex qui
+       * sopra vieta i due punti di proposito (spezzerebbero l'argomento di
+       * `git show` in due, e `file` arriva dal client). Allargarla per far
+       * passare `:0` significherebbe smontare quel cancello per comodità.
+       *
+       * Serve perché senza, «Staged» e «Changes» mostravano lo STESSO diff:
+       * `HEAD` contro il file su disco, cioè la somma dei due. Su un file con
+       * entrambe le colonne piene — che è l'uscita garantita dello staging per
+       * blocco di questo stesso pannello — chi mette in stage metà file vedeva
+       * sotto anche ciò che NON aveva messo in stage, e non poteva rispondere
+       * alla domanda che ci si fa prima di ogni commit: «cosa sto per
+       * committare?».
+       */
+      const side = url.searchParams.get("side");
+      if (side !== null && side !== "index") {
+        return json({ error: "side non valido" }, 400);
+      }
       if (!dirPath || !filePath) return json({ error: "path and file required" }, 400);
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
@@ -1075,7 +1095,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
           if (prefix) gitRelativePath = prefix + filePath;
         } catch {}
-        const proc = Bun.spawn(["git", "show", `${rev}:${gitRelativePath}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // `:0:` è lo stage 0 dell'indice — quello normale, non un lato di
+        // merge. Il `0` è composto QUI e non arriva mai dal client.
+        const spec = side === "index" ? `:0:${gitRelativePath}` : `${rev}:${gitRelativePath}`;
+        const proc = Bun.spawn(["git", "show", spec], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const content = await new Response(proc.stdout).text();
         await proc.exited;
         if (proc.exitCode !== 0) return new Response("", { headers: { "Content-Type": "text/plain; charset=utf-8" } });

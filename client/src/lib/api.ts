@@ -581,8 +581,12 @@ export const gitApi = {
    * Il contenuto di un file a una certa revisione. `rev` serve per la
    * cronologia: il diff di un commit passato e `<hash>^` contro `<hash>`.
    */
-  async show(path: string, file: string, rev?: string): Promise<string> {
-    const q = rev ? `&rev=${encodeURIComponent(rev)}` : '';
+  async show(path: string, file: string, rev?: string, side?: 'index'): Promise<string> {
+    // `side=index` è un parametro a parte e non un valore di `rev` perché il
+    // server vieta i due punti nella revisione di proposito: `git show :0:<file>`
+    // li vuole, e allargare quel cancello significherebbe smontarlo su una
+    // rotta che interpola anche `file`.
+    const q = (rev ? `&rev=${encodeURIComponent(rev)}` : '') + (side ? `&side=${side}` : '');
     const response = await fetch(
       `${API_BASE}/git/show?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}${q}`
     );
