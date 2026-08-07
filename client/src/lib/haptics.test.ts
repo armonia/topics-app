@@ -82,7 +82,8 @@ describe('haptic — il ripiego iOS (switch nativo)', () => {
   // gli altri test client fanno lo stesso): qui serve solo sapere quale elemento
   // viene creato, con quali attributi, e quante volte lo si clicca.
   interface FakeEl {
-    type: string; tabIndex: number; checked: boolean; name: string;
+    tag: string; type: string; tabIndex: number; checked: boolean; name: string;
+    id: string; htmlFor: string;
     isConnected: boolean; style: { cssText: string };
     attrs: Record<string, string>;
     setAttribute(k: string, v: string): void;
@@ -96,18 +97,18 @@ describe('haptic — il ripiego iOS (switch nativo)', () => {
 
   const stubDom = (ua: string) => {
     creati = []; clicks = 0;
-    const mk = (): FakeEl => {
+    const mk = (tag: string): FakeEl => {
       const el: FakeEl = {
-        type: '', tabIndex: 0, checked: false, name: '', isConnected: false,
-        style: { cssText: '' }, attrs: {},
+        tag, type: '', tabIndex: 0, checked: false, name: '', id: '', htmlFor: '',
+        isConnected: false, style: { cssText: '' }, attrs: {},
         setAttribute(k, v) { this.attrs[k] = v; },
         getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
-        click() { clicks++; this.checked = !this.checked; },
+        click() { clicks++; },
       };
       creati.push(el); return el;
     };
     Object.defineProperty(globalThis, 'document', {
-      value: { createElement: mk, body: { appendChild: (e: FakeEl) => { e.isConnected = true; } } },
+      value: { createElement: (t: string) => mk(t), body: { appendChild: (e: FakeEl) => { e.isConnected = true; } } },
       configurable: true, writable: true,
     });
     Object.defineProperty(globalThis, 'navigator', {
@@ -127,14 +128,20 @@ describe('haptic — il ripiego iOS (switch nativo)', () => {
   test('su iPhone senza Vibration API il click parte', () => {
     stubDom(IPHONE);
     expect(haptic('medium')).toBe(true);
-    expect(clicks, 'il tick è un click sullo switch').toBe(1);
+    expect(clicks, 'il tick è UN click, e va sulla label').toBe(1);
+    const cliccato = creati.find(e => e.tag === 'label');
+    expect(cliccato, 'deve esistere una label legata allo switch').toBeTruthy();
+    expect(cliccato!.htmlFor, 'la label deve puntare allo switch').toBe(
+      creati.find(e => e.tag === 'input')!.id,
+    );
   });
 
   test("l'elemento è inerte: fuori dall'albero a11y, non focalizzabile, non toccabile", () => {
     stubDom(IPHONE);
     haptic();
-    expect(creati.length).toBe(1);
-    const el = creati[0];
+    // Due elementi: lo switch e la label che lo attiva.
+    expect(creati.length).toBe(2);
+    const el = creati.find(e => e.tag === 'input')!;
     expect(el.type).toBe('checkbox');
     // È l'attributo `switch` — non la checkbox — ad avere il tick di sistema.
     expect(el.getAttribute('switch')).toBe('');
@@ -151,14 +158,14 @@ describe('haptic — il ripiego iOS (switch nativo)', () => {
   test('se ne crea UNO solo, per quante volte lo si chiami', () => {
     stubDom(IPHONE);
     for (let i = 0; i < 5; i++) haptic();
-    expect(creati.length).toBe(1);
+    expect(creati.length, 'switch + label, creati una volta sola').toBe(2);
     expect(clicks).toBe(5);
   });
 
   test('lo stato non resta sporco: dopo il tick lo switch è spento', () => {
     stubDom(IPHONE);
     haptic();
-    expect(creati[0].checked).toBe(false);
+    expect(creati.find(e => e.tag === 'input')!.checked).toBe(false);
   });
 
   test('fuori da iOS non nasce nessun elemento', () => {

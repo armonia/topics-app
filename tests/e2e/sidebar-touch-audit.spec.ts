@@ -615,11 +615,26 @@ test.describe("Sidebar col dito — audit misurato", () => {
       `il «tieni premuto» deve chiedere una pulsazione da 20ms (Vibration API nativa presente: ${probe.hadVibrate})`,
     ).toEqual([20]);
 
+    // E QUI L'ASSERZIONE È CAMBIATA, perché è cambiato il prodotto (07/08).
+    //
+    // Prima diceva: «uno `<input switch>` non ha nessuna ragione di esistere in
+    // questa app, qualunque occorrenza è il trucco iOS rientrato dalla
+    // finestra». Non è più vero: su iOS 17.4–26.4 quel controllo è l'UNICA
+    // strada per la micro-vibrazione, e ora `haptic()` lo crea apposta
+    // (client/src/lib/haptics.ts). Lasciata com'era, quella riga sarebbe
+    // rimasta VERDE — questo browser non è un iPhone, quindi l'elemento non
+    // nasce comunque — mentre asseriva il contrario di ciò che il codice fa:
+    // un verde che descrive un prodotto che non esiste più.
+    //
+    // L'invariante VERA, e quella che serve: fuori da iOS non nasce NIENTE. Un
+    // elemento di servizio su un desktop sarebbe peso senza contropartita, e
+    // sarebbe anche il segno che il ramo iOS si è slegato dal suo `if`. Che su
+    // iPhone l'elemento sia inerte (aria-hidden, tabIndex -1, non toccabile,
+    // uno solo, stato pulito) lo provano i test unitari di `haptics.test.ts`,
+    // dove lo user-agent si può fingere; qui non si può.
     const stowaways = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLInputElement>('input[switch], input[type="checkbox"]')]
         .filter((el) => {
-          // Uno `<input switch>` non ha nessuna ragione di esistere in questa app:
-          // qualunque occorrenza è il trucco iOS rientrato dalla finestra.
           if (el.hasAttribute("switch")) return true;
           // Una checkbox VERA e visibile (le impostazioni della board) è
           // legittima; una invisibile o parcheggiata fuori schermo è la firma di
@@ -632,7 +647,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
     );
     expect(
       stowaways,
-      "un input di servizio è comparso nel DOM: vedi «cosa NON funziona» in client/src/lib/haptics.ts",
+      "fuori da iOS `haptic()` non deve creare nessun elemento di servizio: qui lo user-agent non è un iPhone, quindi il ramo iOS non deve nemmeno essere entrato (vedi iosSwitchPulse in client/src/lib/haptics.ts)",
     ).toEqual([]);
   });
 
