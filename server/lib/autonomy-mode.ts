@@ -8,20 +8,40 @@
  * c'era e il valore non aveva effetto — cioè la promessa peggiore che
  * un'interfaccia possa fare.
  *
- * ── Perché queste tre modalità e non altre ──────────────────────────────────
- * In `--print` una modalità che CHIEDE il permesso rischia di lasciare il turno
- * appeso: nessuno può rispondere, e il canale `can_use_tool` non esiste. Quindi
- * la mappatura non è stata scelta a naso — è stata **provata** sulla CLI 2.1.221
- * (04/08/2026):
+ * ── La tabella di verità, MISURATA ──────────────────────────────────────────
+ * Stesso prompt, stessa cwd, `--print`, server MCP locale. Identica su CLI
+ * 2.1.221 e 2.1.224 — quindi NON è una regressione della CLI:
  *
- *  - `plan` → «Crea un file, fallo davvero» ⇒ il file **NON** viene creato, esce
- *    un piano e la domanda «approvi?». Il turno finisce regolarmente.
- *  - `acceptEdits` → esegue (provato con un comando shell). Nessun blocco.
- *  - `bypassPermissions` → il comportamento di prima, invariato.
+ *   modalità            Bash   Write dentro   Write fuori   tool MCP
+ *   acceptEdits          OK         OK          NEGATO       NEGATO
+ *   auto                 OK       NEGATO        NEGATO       NEGATO
+ *   bypassPermissions    OK         OK            OK           OK
+ *   dontAsk/manual/plan  OK       negato        negato       negato
  *
- * Le altre modalità offerte dalla CLI (`manual`, `auto`, `dontAsk`) restano
- * fuori finché qualcuno non le prova allo stesso modo: metterle senza averle
- * viste girare significherebbe scoprire il turno appeso in produzione.
+ * ── L'errore da non ripetere ────────────────────────────────────────────────
+ * Questo blocco diceva, fino al 07/08/2026: «`acceptEdits` → esegue (provato
+ * con un comando shell). Nessun blocco.» La prova c'era davvero — ed era la
+ * prova sbagliata: `Bash` è **l'unica capacità che passa in tutte e sei le
+ * modalità**, quindi quel probe non poteva fallire. Sotto, `acceptEdits`
+ * negava in silenzio ogni tool MCP e ogni scrittura fuori dalla cwd, e la
+ * migration 081 — che porta tutti su `auto-apply` per uscire da plan mode — ha
+ * esteso quel silenzio a 515 topic su 518. Un probe che esercita una capacità
+ * che non può fallire non è una prova: è una rassicurazione.
+ *
+ * ── Cos'è cambiato adesso ───────────────────────────────────────────────────
+ * «Negato» qui sopra voleva dire NEGATO E MUTO: la CLI chiedeva il permesso su
+ * un canale che Topics non gestiva, e l'unica traccia era un messaggio che
+ * invitava a concedere ciò che nessuno poteva chiedere. Da oggi quel canale
+ * esiste — `--permission-prompt-tool mcp__topics__approval_prompt`, vedi
+ * `server/lib/permission-bridge.ts` — quindi «chiede» vuol dire davvero
+ * chiede, con un pannello in chat. Le righe della tabella restano vere; cambia
+ * che ora si può rispondere.
+ *
+ * `manual`, `auto` e `dontAsk` restano comunque fuori: `dontAsk` nega senza
+ * consultare nessuno (nemmeno il canale), e `auto`/`manual` chiedono anche per
+ * le modifiche dentro la cwd — cioè trasformerebbero ogni turno in una fila di
+ * pannelli. Non è una mancanza di canale: è che non descrivono nessuno dei tre
+ * livelli che l'interfaccia offre.
  *
  * ── Il default non cambia ───────────────────────────────────────────────────
  * Un topic senza livello scelto continua ad avere `bypassPermissions`. Cambiare
@@ -58,6 +78,43 @@ export function permissionModeForAutonomy(level: string | null | undefined): str
     default:
       return DEFAULT_PERMISSION_MODE;
   }
+}
+
+/**
+ * Il nome del tool MCP che fa da CANALE DI PERMESSO.
+ *
+ * È il bridge che Topics attacca già a ogni sessione, quindi non c'è niente da
+ * installare: `--permission-prompt-tool` dirotta lì la richiesta che altrimenti
+ * finirebbe su un prompt interattivo che in `--print` non esiste. Il nome vive
+ * qui, accanto alla mappatura, perché è la stessa decisione: quale modalità
+ * chiede, e a chi.
+ */
+export const PERMISSION_PROMPT_TOOL = "mcp__topics__approval_prompt";
+
+/**
+ * Questa modalità può fermarsi a chiedere?
+ *
+ * Vale per tutte tranne `bypassPermissions`. Serve allo spawn per decidere se
+ * passare `--permission-prompt-tool`: senza, una modalità che chiede nega e
+ * basta, ed è precisamente il guasto del 7 agosto. Un solo posto dove è scritto
+ * «questa chiede», così non può capitare che una modalità nuova entri nella
+ * mappatura e resti fuori dal canale.
+ */
+export function permissionModeAsks(mode: string | null | undefined): boolean {
+  return !!mode && mode !== "bypassPermissions";
+}
+
+/**
+ * I pezzi di `argv` che collegano il canale, per questa modalità.
+ *
+ * Esiste come funzione — invece che come uno `spread` in mezzo alle altre
+ * quaranta righe dell'argv — perché è l'INVARIANTE che questo lavoro deve
+ * mantenere viva: *nessuna modalità che chiede può essere lanciata senza il
+ * canale*. In mezzo all'argv sarebbe vera finché qualcuno non sposta una riga;
+ * qui è una riga sola che un test esegue davvero.
+ */
+export function permissionPromptArgs(mode: string | null | undefined): string[] {
+  return permissionModeAsks(mode) ? ["--permission-prompt-tool", PERMISSION_PROMPT_TOOL] : [];
 }
 
 /**

@@ -30,12 +30,24 @@ import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
-import { waitForAnswer, deliverAnswer, hasPendingAsk, pendingAskAgeMs, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
+import { waitForAnswer, deliverAnswer, hasPendingAsk, cancelAsk, beginAsk, AskWaitError } from "../lib/ask-user-bridge";
 // «Aspetta te» si legge anche dalla RIGA: le domande del pannello passano dal
 // bridge MCP, non dal canale nativo del provider, e dopo un riavvio nessuna
 // mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
+import {
+  beginPermission,
+  waitForDecision,
+  deliverDecision,
+  hasPendingPermission,
+  resolvePendingPermission,
+  cancelPermission,
+  PermissionWaitError,
+} from "../lib/permission-bridge";
+import { decideGrantForTool, addToolGrant, listToolGrants, removeToolGrant } from "../lib/tool-grants";
+import { permissionSchemaFor, permissionDecisionFrom } from "../../shared/permission-decision";
+import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
 import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
 
 /**
@@ -1013,8 +1025,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         // è l'unica che sopravvive a un riavvio del server: le due mappe in
         // memoria si svuotano, il figlio la domanda ce l'ha ancora aperta.
         if (awaitingSince == null) {
-          const askAge = pendingAskAgeMs(topic.sessionKey);
-          if (askAge != null) awaitingSince = Date.now() - askAge;
+          // Domanda o PERMESSO: per chi guarda la sidebar sono lo stesso fatto
+          // — la chat aspetta te, non sta lavorando.
+          const holdAge = humanHoldAgeMs(topic.sessionKey);
+          if (holdAge != null) awaitingSince = Date.now() - holdAge;
         }
         if (awaitingSince == null) {
           try {
@@ -1922,6 +1936,125 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/sessions/:sessionKey/permission
+    //
+    // Una GAMBA del rendez-vous del CANALE DI PERMESSO. La chiama il bridge
+    // (`mcp__topics__approval_prompt`) quando la CLI, invece di eseguire uno
+    // strumento, chiede il permesso — cioè in ogni `--permission-mode` che non
+    // sia `bypassPermissions`. Senza questa rotta quella richiesta diventava un
+    // no muto («…but you haven't granted it yet»), e con lei sparivano TUTTI i
+    // tool MCP e ogni scrittura fuori dalla cwd.
+    //
+    // Tre risposte, esattamente come la gamba di una domanda:
+    //   { decision }            qualcuno ha deciso (o una regola lo copriva)
+    //   { pending: true }       nessuno ha ancora premuto — torna subito
+    //   { cancelled, reason }   la richiesta è finita: turno interrotto o scaduta
+    //
+    // Il pannello lo dipinge QUESTA rotta, non lo stream: la chiamata al tool di
+    // prompt non compare nella trascrizione (verificato sul filo), quindi non
+    // c'è nessun `tool_use` da cui il rilevatore possa ricavarla. Si aggancia
+    // alla riga che è GIÀ a schermo — quella dello strumento in attesa — perché
+    // il `tool_use_id` che la CLI passa è lo stesso id di quella riga.
+    {
+      const permM = matchRoute(pathname, "/api/sessions/:sessionKey/permission");
+      if (permM && method === "POST") {
+        const sk = decodeURIComponent(permM.sessionKey);
+        const body = (await readJSON(req)) as
+          | { toolName?: unknown; input?: unknown; toolUseId?: unknown; legMs?: unknown }
+          | null;
+        const toolName = typeof body?.toolName === "string" ? body.toolName : "";
+        const toolUseId = typeof body?.toolUseId === "string" && body.toolUseId ? body.toolUseId : "";
+        if (!toolName || !toolUseId) {
+          return json({ error: "toolName and toolUseId are required" }, 400);
+        }
+        // 1. Una regola lo copre già? Allora non si disturba nessuno. Qui dentro
+        //    c'è anche `mcp__topics__*`: sono le mani di Topics, e il 7 agosto
+        //    una richiesta di permesso è arrivata proprio su
+        //    `ask_user_question` — serviva il permesso di mostrare un pannello
+        //    per poter mostrare un pannello.
+        if (decideGrantForTool(toolName) === "allow") {
+          return json({ decision: "allow" });
+        }
+
+        const legMs = typeof body?.legMs === "number" && Number.isFinite(body.legMs)
+          ? Math.min(Math.max(body.legMs, 100), 60_000)
+          : undefined;
+
+        const wasOpen = hasPendingPermission(sk, toolUseId);
+        if (!beginPermission(sk, toolUseId)) {
+          cancelPermission(sk, toolUseId, "nessuna risposta: la richiesta è scaduta");
+          return json({ cancelled: true, reason: "permesso: la richiesta è scaduta senza risposta" });
+        }
+
+        // 2. Prima gamba → dipingi il pannello sulla riga del tool.
+        if (!wasOpen) {
+          const topic = getTopicBySessionKey(sk);
+          const schema = permissionSchemaFor({ toolName, input: body?.input });
+          // `updateToolCallFields` cerca solo nell'ULTIMO messaggio e torna il
+          // messaggio anche quando la riga non c'è, quindi non serve come
+          // rilevatore: la riga la si cerca a mano. Il ripiego per nome copre
+          // sia un `tool_use_id` che Topics non ha persistito, sia una CLI
+          // futura che smettesse di passarlo.
+          let targetId = toolUseId;
+          try {
+            const row = ctx.db
+              .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+              .get(sk) as { tool_calls?: string | null } | undefined;
+            const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string; status?: string }[]) : [];
+            if (!calls.some((c) => c?.id === toolUseId)) {
+              const byName = [...calls].reverse().find(
+                (c) => c?.name === toolName && (c.status === "running" || c.status === "pending"),
+              );
+              if (byName?.id) targetId = byName.id;
+            }
+          } catch { /* la riga si aggancia lo stesso all'id dichiarato */ }
+          updateToolCallFields(sk, targetId, { status: "waiting_for_input", userInputSchema: schema });
+          broadcastToAll({
+            type: "stream:tool_user_input_required",
+            sessionKey: sk,
+            topicId: topic?.id,
+            toolCallId: targetId,
+            schema,
+          });
+        }
+
+        // 3. Aspetta che qualcuno prema.
+        try {
+          const decision = await waitForDecision(sk, toolUseId, legMs !== undefined ? { timeoutMs: legMs } : {});
+          return json({ decision });
+        } catch (err: any) {
+          if (err instanceof PermissionWaitError && err.code === "timeout") {
+            return json({ pending: true });
+          }
+          return json({ cancelled: true, reason: err?.message ?? String(err) });
+        }
+      }
+    }
+
+    // GET/POST/DELETE /api/tool-grants — le regole di «Consenti sempre».
+    //
+    // Un consenso permanente che non si può rileggere né togliere è una porta
+    // che si apre e basta. Qui si leggono, si aggiungono a mano e si revocano.
+    {
+      if (pathname === "/api/tool-grants" && method === "GET") {
+        return json({ grants: listToolGrants() });
+      }
+      if (pathname === "/api/tool-grants" && method === "POST") {
+        const body = (await readJSON(req)) as { pattern?: unknown } | null;
+        const pattern = typeof body?.pattern === "string" ? body.pattern.trim() : "";
+        if (!pattern) return json({ error: "pattern is required" }, 400);
+        if (!addToolGrant(pattern)) {
+          return json({ error: "pattern non valido (un '*' nudo non è una regola)", code: "invalid_pattern" }, 400);
+        }
+        return json({ ok: true, grants: listToolGrants() });
+      }
+      const grantM = matchRoute(pathname, "/api/tool-grants/:pattern");
+      if (grantM && method === "DELETE") {
+        const removed = removeToolGrant(decodeURIComponent(grantM.pattern));
+        return json({ ok: true, removed, grants: listToolGrants() });
+      }
+    }
+
     // POST /api/sessions/:sessionKey/{switch-topic,new-topic,create-project,open-project}
     //
     // Tool-shaped successors to the {{TOPIC_SWITCH/TOPIC_NEW/PROJECT_CREATE/
@@ -2382,7 +2515,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // If a `mcp__topics__ask_user_question` bridge handler is blocked waiting
       // for this session's human answer, unblock it with an error so the CLI
       // turn tears down now instead of hanging on the 10-min ask timeout.
-      cancelAsk(sessionKey, "turn aborted");
+      releaseHumanHold(sessionKey, "turn aborted");
 
       // `clearMessages` is the client's hint that this was a brand-new chat
       // whose first message was canceled before the AI could reply, so the
@@ -2468,6 +2601,47 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const response = body?.response;
       if (!sessionKey || !toolCallId || !response || typeof response.kind !== 'string') {
         return errorResponse(400, "sessionKey, toolCallId, and response{kind,...} required");
+      }
+
+      // --- Permesso: un sì/no su UNO strumento ---
+      //
+      // Va prima della domanda del bridge perché il riconoscimento qui è
+      // ESATTO (c'è una richiesta aperta su questa riga?), mentre quello della
+      // domanda è un'euristica sul contenuto della riga: invertirli
+      // manderebbe un click sul permesso dentro `deliverAnswer`, dove nessuno
+      // lo aspetta, e il pannello resterebbe su «Invio…» per sempre.
+      {
+        const decision = permissionDecisionFrom(response as { kind?: string; answers?: Record<string, string> });
+        const openId = decision ? resolvePendingPermission(sessionKey, toolCallId) : null;
+        if (decision && openId) {
+          const submittedAt = new Date().toISOString();
+          const topic = getTopicBySessionKey(sessionKey);
+          if (decision === "allow_always") {
+            // Il pattern è il nome dello strumento, letto dalla riga: è l'unica
+            // cosa che sappiamo per certo, e scriverne uno più largo (tutto il
+            // server MCP) sarebbe concedere qualcosa che nessuno ha premuto.
+            try {
+              const row = ctx.db
+                .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+                .get(sessionKey) as { tool_calls?: string | null } | undefined;
+              const calls = row?.tool_calls ? (JSON.parse(row.tool_calls) as { id?: string; name?: string }[]) : [];
+              const name = calls.find((c) => c?.id === toolCallId)?.name;
+              if (name) addToolGrant(name, sessionKey);
+            } catch { /* la concessione di QUESTA volta vale comunque */ }
+          }
+          deliverDecision(sessionKey, openId, decision);
+          updateToolCallFields(sessionKey, toolCallId, {
+            status: "running",
+            userResponse: { ...(response as object), submittedAt } as never,
+          });
+          broadcastToAll({
+            type: "stream:tool_update",
+            sessionKey,
+            topicId: topic?.id,
+            toolCallId,
+          });
+          return json({ ok: true, submittedAt });
+        }
       }
 
       // --- Bridge ask path: mcp__topics__ask_user_question ---

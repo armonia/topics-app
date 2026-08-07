@@ -22,7 +22,7 @@ import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "../shared/tool-call-detail";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
-import { cancelAsk } from "./lib/ask-user-bridge";
+import { releaseHumanHold } from "./lib/human-hold";
 import type { OutboundMessage } from "../shared/ws-outbound";
 
 /**
@@ -1287,7 +1287,7 @@ export function createAppContext(baseDir: string): AppContext {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) tc.error = 'Interrotto: il turno è finito mentre la domanda era ancora a schermo — la risposta non avrebbe più raggiunto nessuno';
-            cancelAsk(sessionKey, 'il turno è terminato mentre la domanda era a schermo');
+            releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;
           }
           return false;
