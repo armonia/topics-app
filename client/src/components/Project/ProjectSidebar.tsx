@@ -425,6 +425,10 @@ export function ProjectSidebar({
             <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
+                // Stessa ancora della variante desktop qui sotto.
+                data-testid="project-sidebar-files"
+                role="button"
+                aria-expanded={expandedSections.files}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
               >
                 <FolderTree size={14} className="flex-shrink-0" />
@@ -533,6 +537,12 @@ export function ProjectSidebar({
         <div className="flex flex-col flex-1 min-h-0">
           <div
             onClick={() => toggleSection('files')}
+            // Ancora stabile, come per Git e Processi: l'etichetta e' testo
+            // tradotto e questo e' un TOGGLE — chi lo clicca alla cieca su una
+            // sezione gia' aperta la richiude.
+            data-testid="project-sidebar-files"
+            role="button"
+            aria-expanded={expandedSections.files}
             // Il bordo sotto SOLO da chiusa. Il contenitore di «File» resta
             // `flex-1` anche quando è chiusa — serve a spingere Git e Processi
             // in fondo — quindi il divisore da 1px finisce in fondo alla
