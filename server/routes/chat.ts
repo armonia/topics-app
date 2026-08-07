@@ -77,7 +77,7 @@ import {
 // riesumerebbe l'annotazione nel contenuto finale.
 import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-markers";
 import { createHumanWaitLedger } from "../lib/human-wait";
-import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
+import { crashedTurnNotice, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
@@ -555,6 +555,58 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // fondo: se schiantiamo dopo averla aperta, va chiusa lì — vedi
       // crashedTurnNotice.ts. Dichiarata fuori dal `try` apposta.
       let crashedPartialId: string | null = null;
+      /**
+       * La riga com'è ADESSO, per decidere se un cartello d'errore può scriverci
+       * sopra. Le tre colonne servono tutte: `content` da solo direbbe «vuota»
+       * su una riga che a schermo è un turno intero, perché la prosa è
+       * persistita anche in `blocks` ed è da lì che il client la rende.
+       */
+      const readRowForNotice = (rowId: string | null): CrashedTurnRow | null => {
+        if (!rowId) return null;
+        try {
+          const r = db.prepare("SELECT content, tool_calls, blocks FROM messages WHERE id = ?")
+            .get(rowId) as { content?: string; tool_calls?: string | null; blocks?: string | null } | undefined;
+          return r ? { content: r.content ?? "", toolCallsJson: r.tool_calls ?? null, blocksJson: r.blocks ?? null } : null;
+        } catch { return null; }
+      };
+      /**
+       * Chiude il turno quando non si è potuto GUIDARE: `sendChat` ha rigettato,
+       * o il montaggio è morto prima di partire.
+       *
+       * Le due vie che finiscono qui scrivevano `content: errorMsg` senza
+       * guardare la riga. Il commento che le accompagnava — «il turno non è mai
+       * arrivato alla CLI» — descriveva l'unico caso per cui erano state
+       * scritte, ma non è l'unico che ci arriva: `sendChat` resta pendente per
+       * TUTTO il turno, quindi un rigetto tardivo cadeva nello stesso ramo e
+       * cancellava lavoro vero.
+       *
+       * Ora il cartello si scrive solo su una riga che non porta niente. Se
+       * porta qualcosa, quel qualcosa resta e l'errore viaggia comunque sul filo
+       * e nel log: non si perde, e non si mangia il turno.
+       *
+       * Torna il testo da mandare sull'SSE — sempre, anche quando la riga non è
+       * stata toccata: quello è il canale che chiude il client, e lasciarlo muto
+       * lo terrebbe appeso.
+       */
+      const closeTurnWithFailure = (err: unknown, rowId: string): string => {
+        const row = readRowForNotice(rowId);
+        const notice = sendFailureNotice(row, err);
+        if (notice) {
+          updateLastMessage(sessionKey, { content: notice, partial: undefined, streamedAt: undefined });
+        } else {
+          // La riga si tiene il suo lavoro; cade solo il flag che la dichiara
+          // ancora in volo, o il setaccio di boot la crederebbe viva.
+          updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined });
+          console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore solo sul filo`);
+        }
+        const wire = notice ?? `⚠️ Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
+        if (matchedTopic) {
+          broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: wire });
+          broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: rowId });
+          finalizeTurnActivity(matchedTopic);
+        }
+        return wire;
+      };
       if (useWS) {
         // === WS-based chat: sends via chat.send, receives tool + text events ===
         try {
@@ -2238,13 +2290,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               undoInlineMark();
               topicProvider.unregisterStreamHandler?.(sessionKey);
               endStream(sessionKey);
-              const errorMsg = `⚠️ Failed to send message: ${err.message}`;
-              updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
-              if (matchedTopic) {
-                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-                finalizeTurnActivity(matchedTopic);
-              }
+              // Il turno è chiuso: un `onDone` in ritardo non deve riaprirlo e
+              // riscrivere la riga da `finalizeStream`. Mancava, ed era un buco
+              // — non una decisione.
+              streamState = "finalized";
+              const errorMsg = closeTurnWithFailure(err, partialMsg.id);
               await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
               await writeSSE("[DONE]");
               await closeClient();
@@ -2253,13 +2303,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             endStream(sessionKey);
-            const errorMsg = `⚠️ Failed to send message: ${err.message}`;
-            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
-            if (matchedTopic) {
-              broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-              finalizeTurnActivity(matchedTopic);
-            }
+            const errorMsg = closeTurnWithFailure(err, partialMsg.id);
             await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
             await writeSSE("[DONE]");
             await closeClient();
@@ -2287,12 +2331,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           try {
             endStream(sessionKey);
             if (crashedPartialId) {
-              const row = db.prepare("SELECT content, tool_calls FROM messages WHERE id = ?")
-                .get(crashedPartialId) as { content?: string; tool_calls?: string | null } | undefined;
-              const notice = crashedTurnNotice(
-                row ? { content: row.content ?? "", toolCallsJson: row.tool_calls ?? null } : null,
-                err,
-              );
+              const notice = crashedTurnNotice(readRowForNotice(crashedPartialId), err);
               // Il flag `partial` cade comunque: aperta, quella riga farebbe
               // credere a un turno in volo che non esiste più.
               if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0 WHERE id = ?").run(notice, crashedPartialId);
