@@ -2328,8 +2328,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         : ((db.prepare(`SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`).get(body.sessionKey) as any)?.id ?? null);
       try {
         db.prepare(`
-          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens)
-          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens)
+          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens)
+          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens)
         `).run({
           $id: id,
           $session_key: body.sessionKey,
@@ -2337,6 +2337,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           $content: body.content || '',
           $thinking: body.thinking || null,
           $tool_calls: body.toolCalls ? JSON.stringify(body.toolCalls) : null,
+          // `blocks` è la cronologia che il client rende quando c'è — e quando
+          // c'è, `content` non viene stampato affatto. Senza questa colonna nel
+          // seed, nessun test poteva riprodurre la classe di difetti che vive
+          // proprio in quella divergenza.
+          $blocks: body.blocks ? JSON.stringify(body.blocks) : null,
           $media: body.media ? JSON.stringify(body.media) : null,
           $timestamp: timestamp,
           $sort_order: sortOrder,
