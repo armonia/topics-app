@@ -48,9 +48,47 @@ export interface SessionInfo {
   createdAt: number;
 }
 
+/**
+ * Quanto si aspetta un ack, per tipo di richiesta.
+ *
+ * Erano 5 secondi per tutti, ed era la cifra sbagliata due volte. Un `list` è un
+ * giro di andata e ritorno dentro il daemon: se non risponde in 5s è rotto.
+ * Uno `spawn` deve forkare un processo `claude` — sotto carico (dieci pane vive,
+ * un `bun test` in corso) 5 secondi si superano senza che niente sia guasto, e
+ * il turno moriva con «ack timeout» a schermo. Ora ogni richiesta ha il suo
+ * tempo, e — cosa che conta di più — un socket caduto NON aspetta più il
+ * timeout: fallisce subito e si riprova (vedi `request`).
+ */
 const ACK_TIMEOUT_MS = 5_000;
+const SPAWN_ACK_TIMEOUT_MS = 20_000;
+const ATTACH_ACK_TIMEOUT_MS = 15_000;
 const WATCHDOG_EVERY_MS = 15_000;
 const PONG_TIMEOUT_MS = 45_000;
+
+/**
+ * Il guasto è la CONNESSIONE, non il daemon.
+ *
+ * Distinguerli è ciò che rende sensato un secondo tentativo: se il frame non è
+ * mai partito (socket appena caduto, riaggancio in corso) riprovare è corretto e
+ * risolve; se invece il daemon ha ricevuto e tace, riprovare raddoppia solo
+ * l'attesa. Le tre richieste del ponte — spawn, attach, list — sono tutte
+ * idempotenti per costruzione (uno `spawn` su una sessione viva la RIPRENDE,
+ * un `attach` rirende dallo stesso offset), quindi il secondo tentativo è
+ * sicuro.
+ */
+export class BridgeConnectionLost extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BridgeConnectionLost";
+  }
+}
+
+type Waiter = {
+  pred: (m: any) => boolean;
+  resolve: (m: any) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 export class AiBridgeClient {
   private socket: net.Socket | null = null;
@@ -58,7 +96,7 @@ export class AiBridgeClient {
   private connecting = false;
   private readyResolvers: Array<() => void> = [];
   private readonly handlers = new Map<string, SessionHandlers>();
-  private readonly waiters: Array<{ pred: (m: any) => boolean; resolve: (m: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = [];
+  private readonly waiters: Waiter[] = [];
   private readonly reconnectCbs = new Set<() => void>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private lastPongAt = 0;
@@ -152,6 +190,13 @@ export class AiBridgeClient {
       this.ready = false;
       this.socket = null;
       if (this.watchdog) { clearInterval(this.watchdog); this.watchdog = null; }
+      // Chi stava aspettando un ack su QUESTO socket non lo riceverà mai: la
+      // risposta sarebbe arrivata da qui. Svegliarli subito è ciò che evita il
+      // caso peggiore osservato — un hot-reload chiude il socket, un waiter
+      // resta appeso al suo timer, e cinque secondi dopo un turno appena
+      // cominciato muore con «ack timeout» in chat. L'errore è di CLASSE
+      // connessione, quindi `request` lo ritenta invece di propagarlo.
+      this.failWaiters(new BridgeConnectionLost("ai-bridge: connessione al daemon caduta"));
       if (this.disposed) return; // shut down deliberately — do NOT respawn
       console.log("[AI Bridge] socket closed — reconnecting");
       setTimeout(() => {
@@ -184,19 +229,91 @@ export class AiBridgeClient {
     }
   }
 
-  private waitFor(pred: (m: any) => boolean, timeoutMs = ACK_TIMEOUT_MS): Promise<any> {
-    return new Promise((res, rej) => {
+  /** Arma un waiter e restituisce anche la maniglia per ucciderlo: serve quando
+   *  il frame non parte, per non lasciarlo a scadere a vuoto. */
+  private arm(pred: (m: any) => boolean, timeoutMs: number, what: string): { promise: Promise<any>; cancel: (e: Error) => void } {
+    let entry!: Waiter;
+    const promise = new Promise<any>((res, rej) => {
       const timer = setTimeout(() => {
-        const i = this.waiters.findIndex((w) => w.timer === timer);
-        if (i >= 0) this.waiters.splice(i, 1);
-        rej(new Error("ai-bridge: ack timeout"));
+        this.dropWaiter(entry);
+        rej(new Error(`ai-bridge: ack timeout (${what}, ${Math.round(timeoutMs / 1000)}s)`));
       }, timeoutMs);
-      this.waiters.push({ pred, resolve: res, reject: rej, timer });
+      entry = { pred, resolve: res, reject: rej, timer };
+      this.waiters.push(entry);
     });
+    return {
+      promise,
+      cancel: (e: Error) => { this.dropWaiter(entry); clearTimeout(entry.timer); entry.reject(e); },
+    };
   }
 
-  private send(msg: object): void {
-    try { this.socket?.write(JSON.stringify(msg) + "\n"); } catch { /* reconnect will retry */ }
+  private dropWaiter(w: Waiter): void {
+    const i = this.waiters.indexOf(w);
+    if (i >= 0) this.waiters.splice(i, 1);
+  }
+
+  /** Chiude e dimentica il socket corrente, così il prossimo `ensureConnected`
+   *  ne apre davvero uno nuovo. Il riaggancio automatico dell'evento `close`
+   *  resta: questo serve a chi non può aspettarlo. */
+  private dropSocket(): void {
+    const s = this.socket;
+    this.socket = null;
+    this.ready = false;
+    try { s?.destroy(); } catch { /* già andato */ }
+  }
+
+  /** Rigetta TUTTI i waiter in volo (socket caduto). */
+  private failWaiters(err: Error): void {
+    for (const w of this.waiters.splice(0, this.waiters.length)) {
+      clearTimeout(w.timer);
+      w.reject(err);
+    }
+  }
+
+  /**
+   * Manda un frame e aspetta il suo ack, con UN solo secondo tentativo se il
+   * guasto è di connessione.
+   *
+   * Prima ogni chiamante faceva `ensureConnected()` → `waitFor()` → `send()`, e
+   * `send()` su socket nullo scartava il frame IN SILENZIO con il waiter già
+   * armato: nessuno avrebbe mai risposto, e l'unico esito possibile era il
+   * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
+   * hot-reload del server, cioè quanto capita ogni giorno.
+   */
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string): Promise<any> {
+    let lost: Error | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.ensureConnected();
+      const w = this.arm(pred, timeoutMs, what);
+      if (!this.send(frame)) {
+        w.cancel(new BridgeConnectionLost(`ai-bridge: ${what} non è partito (socket caduto)`));
+      }
+      try {
+        return await w.promise;
+      } catch (err: any) {
+        if (err instanceof BridgeConnectionLost && attempt === 0) {
+          lost = err;
+          console.warn(`[AI Bridge] ${what}: ${err.message} — riprovo`);
+          // Il socket va BUTTATO prima di riprovare. `ensureConnected` si fida
+          // di `ready` e di `destroyed`, e un socket può essere rotto senza
+          // essere nessuno dei due (write che fallisce, peer sparito senza
+          // FIN): senza questo, il secondo tentativo tornerebbe a scrivere
+          // sullo stesso tubo morto e il ritentativo sarebbe finto.
+          this.dropSocket();
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lost ?? new Error(`ai-bridge: ${what} fallito`);
+  }
+
+  /** `true` se il frame è davvero uscito sul filo. Un `false` va gestito dal
+   *  chiamante: scartarlo in silenzio è come non averlo mai mandato. */
+  private send(msg: object): boolean {
+    const s = this.socket;
+    if (!s || s.destroyed || !this.ready) return false;
+    try { s.write(JSON.stringify(msg) + "\n"); return true; } catch { return false; }
   }
 
   private startWatchdog(): void {
@@ -220,20 +337,24 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
-    await this.ensureConnected();
-    const ack = this.waitFor((m) => (m.type === "spawned" || m.type === "error") && m.id === id);
-    this.send({ type: "spawn", id, cliPath: opts.cliPath, args: opts.args, cwd: opts.cwd, env: opts.env });
-    const m = await ack;
+    const m = await this.request(
+      { type: "spawn", id, cliPath: opts.cliPath, args: opts.args, cwd: opts.cwd, env: opts.env },
+      (f) => (f.type === "spawned" || f.type === "error") && f.id === id,
+      SPAWN_ACK_TIMEOUT_MS,
+      `spawn ${id}`,
+    );
     if (m.type === "error") throw new Error(`ai-bridge spawn: ${m.error}`);
     return { pid: m.pid, resumed: m.resumed === true };
   }
 
   /** Re-attach to an existing session, replaying the store from `fromOffset`. */
   async attach(id: string, fromOffset: number): Promise<AttachResult> {
-    await this.ensureConnected();
-    const ack = this.waitFor((m) => m.type === "attached" && m.id === id);
-    this.send({ type: "attach", id, fromOffset });
-    const m = await ack;
+    const m = await this.request(
+      { type: "attach", id, fromOffset },
+      (f) => f.type === "attached" && f.id === id,
+      ATTACH_ACK_TIMEOUT_MS,
+      `attach ${id}`,
+    );
     return { endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true };
   }
 
@@ -258,10 +379,7 @@ export class AiBridgeClient {
   kill(id: string): void { this.send({ type: "kill", id }); this.handlers.delete(id); }
 
   async list(): Promise<SessionInfo[]> {
-    await this.ensureConnected();
-    const ack = this.waitFor((m) => m.type === "list");
-    this.send({ type: "list" });
-    const m = await ack;
+    const m = await this.request({ type: "list" }, (f) => f.type === "list", ACK_TIMEOUT_MS, "list");
     return (m.sessions ?? []) as SessionInfo[];
   }
 
@@ -285,6 +403,10 @@ export class AiBridgeClient {
     try { this.socket?.destroy(); } catch { /* already gone */ }
     this.socket = null;
     this.ready = false;
+    // Anche senza un evento `close` (socket già nullo) nessuno risponderà più:
+    // lasciare i waiter appesi terrebbe in vita il processo di test fino al
+    // timeout più lungo.
+    this.failWaiters(new BridgeConnectionLost("ai-bridge: client chiuso"));
   }
 }
 
