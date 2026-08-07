@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { rowCarriesWork } from "./crashedTurnNotice";
 import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 
 const ASK = JSON.stringify([{ id: "toolu_1", name: "mcp__topics__ask_user_question", status: "waiting_for_input" }]);
@@ -79,6 +80,32 @@ describe("mergeReattachedRow — riattaccarsi non toglie", () => {
   test("il pensiero non si perde se il riattacco non ne porta", () => {
     const m = mergeReattachedRow(snap({ thinking: "stavo ragionando" }), { content: "", trackedTools: 0, blocks: [] });
     expect(m.thinking).toBe("stavo ragionando");
+  });
+
+  test("la riga svuotata dice «vuota» PRIMA del merge e «piena» DOPO: si decide dopo", () => {
+    // Il difetto vero, visto in produzione il 7 agosto: un turno con 54 tool e
+    // 14 blocchi di testo è finito etichettato «Nessuna risposta: il turno si è
+    // chiuso senza produrre niente».
+    //
+    // La riadozione SVUOTA la riga per riusarla, e ciò che la riempiva torna
+    // solo di qui. Una guardia che guarda le colonne giuste ma PRIMA del merge
+    // vede una riga azzerata da qualcun altro e conclude che non è stato
+    // prodotto niente. Le colonne erano giuste; era sbagliato il momento.
+    const snapshot = snap({
+      content: "",
+      toolCallsJson: JSON.stringify([{ id: "toolu_1" }, { id: "toolu_2" }]),
+      blocksJson: JSON.stringify([{ kind: "text", text: "l'analisi" }, { kind: "tool", toolCall: { id: "toolu_1" } }]),
+    });
+    // Com'è la riga in DB durante il turno riadottato: azzerata.
+    expect(rowCarriesWork({ content: "", toolCallsJson: null, blocksJson: null })).toBe(false);
+
+    // Dopo il merge, con un replay muto (niente prodotto), torna quella di prima.
+    const merged = mergeReattachedRow(snapshot, { content: "", trackedTools: 0, blocks: [] });
+    expect(rowCarriesWork({
+      content: merged.content,
+      toolCallsJson: merged.toolCallsJson ?? null,
+      blocksJson: merged.blocks ? JSON.stringify(merged.blocks) : null,
+    })).toBe(true);
   });
 
   test("il VERDETTO sopravvive anche quando si tengono i blocchi vecchi", () => {
