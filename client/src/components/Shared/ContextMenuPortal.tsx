@@ -33,16 +33,27 @@ export interface ContextMenuPortalProps {
   className?: string;
   /** Extra nodes that count as "inside" for dismissal (nested panels). */
   extraRefs?: Array<React.RefObject<HTMLElement | null>>;
+  /**
+   * false = aprendosi NON chiude gli altri popover.
+   *
+   * Serve al menu di riga aperto DENTRO un popover già aperto (la tendina dei
+   * rami in `BranchList`): il registro «un popover alla volta» riconosce un
+   * figlio dal suo trigger, e il trigger di un menu al cursore è il pannello
+   * stesso — che sta in un portal su `<body>`, quindi fuori dal genitore. Senza
+   * questa uscita il menu chiudeva la tendina che lo ospita e moriva con lei:
+   * il gesto «tieni premuto» faceva sparire tutto invece di aprire il menu.
+   */
+  exclusive?: boolean;
 }
 
 const MARGIN = 8;
 
-export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 160, className = '', extraRefs }: ContextMenuPortalProps) {
+export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 160, className = '', extraRefs, exclusive = true }: ContextMenuPortalProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   // Cursor menu has no persistent trigger to restore focus to.
-  useDismissable({ open, onClose, refs: [menuRef, ...(extraRefs ?? [])], restoreFocus: false });
+  useDismissable({ open, onClose, refs: [menuRef, ...(extraRefs ?? [])], restoreFocus: false, exclusive });
 
   // Measure the real menu and clamp it inside the viewport BEFORE paint, so it
   // never spills off-screen and never flashes at the raw cursor point.

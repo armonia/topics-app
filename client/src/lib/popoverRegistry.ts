@@ -97,6 +97,29 @@ export function closeAllPopovers(): void {
   }
 }
 
+/**
+ * I nodi dei popover aperti che si sono dichiarati SOTTO-SUPERFICI
+ * (`exclusive: false`).
+ *
+ * Serve all'altra metà del contratto. `exclusive: false` dice «aprendomi non
+ * caccio nessuno»: risolve il registro, ma non basta, perché `useDismissable`
+ * chiude anche su un `pointerdown` FUORI dai propri ref — e un menu al cursore
+ * vive in un portal su `<body>`, cioè fuori dal pannello che lo ospita. Il
+ * risultato era che cliccare una voce del menu chiudeva il pannello genitore, e
+ * il menu — che è renderizzato da quel pannello — spariva PRIMA che il `click`
+ * arrivasse al bottone: la voce non si poteva scegliere.
+ *
+ * Una sotto-superficie dichiarata conta quindi come «dentro» per tutti: se il
+ * puntatore è caduto lì, nessun popover si chiude.
+ */
+export function subSurfaceNodes(): Array<Node | null> {
+  const nodes: Array<Node | null> = [];
+  for (const entry of open) {
+    if (!entry.exclusive) nodes.push(...entry.nodes());
+  }
+  return nodes;
+}
+
 /** Quanti popover sono aperti adesso. Solo per test/diagnostica. */
 export function openPopoverCount(): number {
   return open.size;

@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
-import { SETTLED_GROUP_METRIC_CLASS } from './settledMetrics';
+import { useSettledMetricClass } from './settledMetrics';
 import {
   GROUP_MIN,
   formatCostCents,
@@ -26,6 +26,7 @@ import {
  * to the single summary row.
  */
 function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; onPlanDecision?: (approved: boolean) => void }) {
+  const settledMetricClass = useSettledMetricClass('toolgroup');
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
   const live = summary.running > 0;
@@ -95,13 +96,13 @@ function ToolGroupRow({ tools, sessionKey, onPlanDecision }: { tools: ToolCall[]
               <ElapsedTimer since={summary.startedAt} title="Da quanto va avanti questa corsa di azioni" />
             )}
             {summary.durationMs !== undefined && !live && (
-              <span className={`text-[10px] tabular-nums text-app-text-muted ${SETTLED_GROUP_METRIC_CLASS}`} data-testid="tool-group-duration">
+              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
                 {formatDurationMs(summary.durationMs)}
               </span>
             )}
             {/* Costo sommato delle azioni del gruppo — la sua parte del turno. */}
             {groupCost && (
-              <span className={`text-[10px] tabular-nums text-app-text-muted ${SETTLED_GROUP_METRIC_CLASS}`} data-testid="tool-group-cost" title="Costo sommato delle azioni del gruppo">
+              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title="Costo sommato delle azioni del gruppo">
                 {groupCost}
               </span>
             )}
