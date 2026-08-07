@@ -5,6 +5,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   messageDensity: 'comfortable',
   sidebarWidth: 256,
   sidebarCollapsed: false,
+  // La larghezza a cui riaprire la sidebar. `undefined` di serie — ma la chiave
+  // deve ESSERCI: `loadSettings`, `sanitizeSettingsPayload` e `syncableSettings`
+  // scorrono `Object.keys(DEFAULT_SETTINGS)`, quindi una chiave assente qui non
+  // sopravviverebbe nemmeno a un giro di localStorage.
+  sidebarWidthExpanded: undefined,
   // Notifications default to on with sound; users disable from Settings.
   // `notifyEvenWhenFocused` defaults to ON: with several topics open in
   // parallel the user wants the completion cue even on the visible one. The
@@ -21,9 +26,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'auto',
   // Experimental floating-splits layout — OFF by default, desktop-only.
   floatingSplits: false,
-  // Animated "working" glow ring around actively-streaming chat panes — ON by
-  // default (subtle, readability-safe; users can disable in Settings → Appearance).
-  workingGlow: true,
   // Misura di lettura della chat. 820px sta attorno alle 90 colonne al corpo di
   // serie: la stessa fascia in cui si tengono le superfici di lettura serie,
   // Claude Code nel terminale compreso. Attiva di serie perché il difetto che
@@ -47,7 +49,7 @@ export const SETTINGS_SERVER_KEY = 'settings';
  * verso il server né nell'idratazione (il server le rimuove comunque a sua
  * volta, `stripDeviceLocalFields`).
  */
-export const DEVICE_LOCAL_SETTING_KEYS = ['sidebarWidth', 'sidebarCollapsed'] as const;
+export const DEVICE_LOCAL_SETTING_KEYS = ['sidebarWidth', 'sidebarCollapsed', 'sidebarWidthExpanded'] as const;
 
 export function loadSettings(): AppSettings {
   try {

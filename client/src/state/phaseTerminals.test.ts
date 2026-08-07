@@ -6,7 +6,7 @@
  * isn't known yet, so real work is never hidden when hooks are silent.
  */
 import { describe, test, expect } from "bun:test";
-import { derivePhaseTerminals, terminalLoadingFrom, terminalRingFrom, NOTABLE_CLAUDE_PHASES, ACTIVE_CLAUDE_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
+import { derivePhaseTerminals, terminalLoadingFrom, NOTABLE_CLAUDE_PHASES, ACTIVE_CLAUDE_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
 
 const roster = (entries: Array<[string, string, string | null]>): TerminalRosterTypeEntry[] =>
   entries.map(([id, type, claudeSessionId]) => ({ id, type, claudeSessionId }));
@@ -100,63 +100,7 @@ describe("terminalLoadingFrom — phase-authoritative", () => {
   });
 });
 
-describe("terminalRingFrom — the STRICT working-aura signal", () => {
-  // The prominent Apple-Intelligence ring must light ONLY on confident work, so
-  // a claude-code session never glows from the pty-busy fallback (the fix for the
-  // aura firing "appena creo la sessione", when the startup banner marks the pty
-  // busy while the phase is still `starting`).
 
-  test("claude-code: active phase → ring ON", () => {
-    expect(terminalRingFrom("t1", true, new Set(["t1"]), new Set(), new Set())).toBe(true);
-  });
-
-  test("claude-code: fresh session (starting/no-phase) + pty busy from banner → ring OFF", () => {
-    // `starting`/no-phase are NEITHER active nor resting; the banner paint marks
-    // pty busy. terminalLoadingFrom would return true (sidebar dot), but the RING
-    // must stay off — this is the bug being fixed.
-    expect(terminalRingFrom("t1", true, new Set(), new Set(["t1"]), new Set())).toBe(false);
-    expect(terminalLoadingFrom("t1", new Set(), new Set(["t1"]), new Set())).toBe(true); // sidebar still lenient
-  });
-
-  test("claude-code: resting phase + pty blip → ring OFF (no random flashing)", () => {
-    expect(terminalRingFrom("t1", true, new Set(), new Set(["t1"]), new Set(["t1"]))).toBe(false);
-  });
-
-  test("plain shell: pty busy → ring ON (a long build/test SHOULD glow)", () => {
-    expect(terminalRingFrom("sh", false, new Set(), new Set(["sh"]), new Set())).toBe(true);
-  });
-
-  test("plain shell: idle → ring OFF", () => {
-    expect(terminalRingFrom("sh", false, new Set(), new Set(), new Set())).toBe(false);
-  });
-
-  test("active phase wins for both claude and shell (defensive)", () => {
-    expect(terminalRingFrom("t1", true, new Set(["t1"]), new Set(), new Set(["t1"]))).toBe(true);
-    expect(terminalRingFrom("sh", false, new Set(["sh"]), new Set(), new Set())).toBe(true);
-  });
-});
-
-describe("derivePhaseTerminals watching partition", () => {
-  test("watching phase is active (part of the spinner/ring signal)", () => {
-    const { active, resting, watching } = derivePhaseTerminals(
-      roster([["t1", "claude-code", "c1"]]),
-      phases([["c1", { phase: "watching" }]]),
-    );
-    expect([...active]).toEqual(["t1"]);
-    expect([...resting]).toEqual([]);
-    expect([...watching]).toEqual(["t1"]);
-  });
-
-  test("watching is a subset of active", () => {
-    // watching terminates ONLY on MonitorClosed (→awaiting-user), never on
-    // ptyBusy/phase-resting, so it's ALWAYS active when present.
-    const { active, watching } = derivePhaseTerminals(
-      roster([["t1", "claude-code", "c1"]]),
-      phases([["c1", { phase: "watching" }]]),
-    );
-    expect(watching.size > 0 && active.has([...watching][0])).toBe(true);
-  });
-});
 
 describe("phase classification sets — loading vs attention buckets", () => {
   test("running / tool-running / watching are the ACTIVE (loading) phases", () => {

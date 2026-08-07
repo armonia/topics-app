@@ -1372,6 +1372,20 @@ export interface AppSettings {
   messageDensity: 'compact' | 'comfortable';
   sidebarWidth: number;   // 180-400
   sidebarCollapsed: boolean;
+  /**
+   * La larghezza a cui la sidebar torna quando si RIAPRE, in px.
+   *
+   * Serve perché `sidebarWidth` è una cosa sola per due stati diversi:
+   * chiudere la sidebar trascinandola la porta al minimo (180) e quel valore
+   * viene salvato come preferenza permanente, così alla riapertura non c'è più
+   * niente da ripristinare — la misura scelta a mano è andata. Qui si tiene
+   * l'ULTIMA larghezza da aperta, che è quella a cui tornare.
+   *
+   * `undefined` (e non 180) è il default: senza una larghezza da aperta mai
+   * registrata non si finge di averne una — chi legge deve poter distinguere
+   * «non l'ho mai vista aperta» da «l'ho vista aperta al minimo».
+   */
+  sidebarWidthExpanded?: number;
   // Topic / agent completion notifications (in-app toast + native Electron).
   // Surfaced in Settings → Notifications. When `notificationsEnabled` is
   // false, no toast and no native notification fires for completions, and the
@@ -1416,13 +1430,11 @@ export interface AppSettings {
   // easier to read. Gated to Electron (relies on native vibrancy) and ignored
   // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
   floatingSplits: boolean;
-  // Apple-Intelligence-style animated glow ring around a chat pane while its
-  // session is actively WORKING (streaming / an agent running). Thin, cool,
-  // low-opacity rotating conic-gradient ring — never a fill, never behind text.
-  // Purely cosmetic; the ring element only exists in the DOM while the session
-  // is working (see .chat-working-ring). Surfaced in Settings → Appearance.
-  // Defaults ON.
-  workingGlow: boolean;
+  // Qui c'era `workingGlow`, l'interruttore dell'aura animata attorno alle pane
+  // che lavorano. L'aura viene rimossa del tutto: un campo di preferenza per un
+  // effetto che non esiste più non è retrocompatibilità, è un fossile che
+  // `syncableSettings` continuerebbe a rispedire al server a ogni salvataggio
+  // (è già successo con `enableNewChat`).
   /**
    * Larghezza massima della colonna di lettura della chat, in px. `0` =
    * nessun tetto (la chat riempie la pane, com'era prima).
