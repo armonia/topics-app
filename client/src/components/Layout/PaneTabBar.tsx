@@ -26,7 +26,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -1791,7 +1791,14 @@ function PaneCloseButton({
   //    72 (-18%), e mentre la chat streama il vicino a destra è il bottone Stop
   //    da 16px: è il conto che questo commento ha già litigato una volta. Qui i
   //    44 di Apple non ci sono e non si possono avere senza rubarli allo Stop.
-  const slot = `${isTouch ? 'w-7 h-7' : 'w-5 h-5'} flex items-center justify-center flex-shrink-0 relative z-10`;
+  //
+  // 07/08: il GLIFO passa da 14 a 16 (`ROW_ACTION_GLYPH`, la stessa misura che
+  // ora hanno tutti i cerchi «fatto / chiudi» dell'app) e lo slot col mouse da
+  // 20 a 24, o un cerchio da 16 in un box da 20 tocca i bordi. Il conto qui
+  // sopra si sposta di 4px, non di 8: l'etichetta scende da 88 a 84 — meno di
+  // quanto era già costato allargare il bersaglio col dito, e il motivo è lo
+  // stesso: «il tasto per poter spuntare una tab e chiuderla è troppo piccolo».
+  const slot = `${isTouch ? 'w-7 h-7' : 'w-6 h-6'} flex items-center justify-center flex-shrink-0 relative z-10`;
 
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
@@ -1799,7 +1806,7 @@ function PaneCloseButton({
       <span className={slot}>
         <PendingActionRing
           status={pendingStatus}
-          size={14}
+          size={ROW_ACTION_GLYPH}
           boxClassName="w-full h-full"
           className="tap-expand-y"
           pendingTitle="Annulla chiusura"
@@ -1818,7 +1825,7 @@ function PaneCloseButton({
       } transition-opacity`}>
         <PendingActionRing
           status={null}
-          size={14}
+          size={ROW_ACTION_GLYPH}
           boxClassName="w-full h-full"
           className="tap-expand-y"
           onIdleClick={() => onClose(paneId)}

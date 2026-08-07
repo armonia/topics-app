@@ -717,8 +717,15 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // `boxClassName`: `size` resta il diametro del cerchio, il box è un'altra
     // cosa. Senza questa riga, «bersaglio più grande» si potrebbe soddisfare
     // gonfiando il glifo, che è proprio ciò che non si vuole.
+    //
+    // Il numero è 16 dal 07/08 (era 14): un comando di riga ha ora UNA misura in
+    // tutta la sidebar, e dentro un box da 36 un cerchio da 14 era un pallino —
+    // «il tasto per spuntare una tab e chiuderla è troppo piccolo». Quello che
+    // il test protegge non è il 16: è che il glifo resti MOLTO più piccolo del
+    // suo bersaglio, cioè che nessuno soddisfi «più grande» gonfiando il disegno.
     const cerchio = await chiudi.locator("span").first().boundingBox();
-    expect(Math.round(cerchio?.width ?? 0), "il cerchio DISEGNATO deve restare 14px").toBe(14);
+    const disegnato = Math.round(cerchio?.width ?? 0);
+    expect(disegnato, "il cerchio DISEGNATO deve restare un glifo, non un bottone").toBe(16);
 
     // ── e adesso lo si tocca davvero ────────────────────────────────────────
     await chiudi.tap();
@@ -738,5 +745,44 @@ test.describe("Sidebar col dito — audit misurato", () => {
       chiudi,
       "l'annullo non ha ripreso: o il tocco è finito sulla tab, o la chiusura è andata fino in fondo",
     ).toBeVisible({ timeout: 5_000 });
+  });
+
+  /**
+   * COL DITO LA COLONNA È CAPOVOLTA — e questa è la prova che regge.
+   *
+   * «Da PWA si invertisse la status bar: la possiamo mettere in alto, mentre il
+   * cerca e altre cose utili possiamo metterle come tasti in fondo alla sidebar,
+   * così sono più utili da raggiungere» (Attilio, 07/08). È la geometria del
+   * telefono: in fondo arriva il pollice, e lì c'erano numeri da GUARDARE
+   * mentre i due comandi da TOCCARE stavano in cima.
+   *
+   * Si misura l'ORDINE VERTICALE, non le classi: «in alto» e «in fondo» sono
+   * fatti geometrici, e un test agganciato a un nome di classe direbbe verde
+   * anche se il layout andasse a rovescio.
+   */
+  test("SIDEBAR-TOUCH-06: la barra di stato sta in cima, i comandi in fondo, e si toccano", async ({ page }) => {
+    await openSidebarOnPhone(page);
+
+    const colonna = (await page.locator(SIDEBAR).boundingBox())!;
+    const stato = (await page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`).boundingBox())!;
+    const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
+    const comandi = (await page.locator(`${SIDEBAR} [data-testid="sidebar-action-bar"]`).boundingBox())!;
+
+    expect(stato.y, "la barra di stato deve stare SOPRA l'albero").toBeLessThan(albero.y);
+    expect(comandi.y, "i comandi devono stare SOTTO l'albero").toBeGreaterThan(albero.y);
+    // In fondo davvero: l'ultimo elemento della colonna, non uno a metà.
+    expect(
+      Math.round(comandi.y + comandi.height),
+      "la barra dei comandi non arriva in fondo alla colonna",
+    ).toBeGreaterThanOrEqual(Math.round(colonna.y + colonna.height) - 2);
+
+    // I due bottoni si dividono la larghezza e reggono il pollice.
+    const bottoni = page.locator(`${SIDEBAR} [data-testid="sidebar-action-bar"] button`);
+    await expect(bottoni).toHaveCount(2);
+    for (const b of await bottoni.all()) {
+      const r = (await b.boundingBox())!;
+      expect(Math.round(r.height), "un comando in fondo è sotto la soglia del dito").toBeGreaterThanOrEqual(44);
+      expect(Math.round(r.width), "un comando in fondo è troppo stretto per il pollice").toBeGreaterThanOrEqual(120);
+    }
   });
 });
