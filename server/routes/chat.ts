@@ -1279,7 +1279,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // e si pone con la stessa funzione: `content` qui è già misurato a
             // parte (`!fullContent.trim()`), quindi si passa vuoto e contano
             // solo tool e blocchi.
-            const rowHasWork = trackedToolCallIds.length > 0
+            // Valutata come FUNZIONE, non come valore: va chiamata dopo la
+            // rifusione dello snapshot, quando `blocks` e la riga dicono la
+            // verità. `content` è misurato a parte (`!fullContent.trim()`),
+            // quindi qui si passa vuoto e contano solo tool e blocchi.
+            const rowHasWorkDopoMerge = () => trackedToolCallIds.length > 0
               || blocks.length > 0
               || rowCarriesWork({ ...(readRowForNotice(partialMsg.id) ?? { toolCallsJson: null, blocksJson: null }), content: "" });
             // Il turno che ha PROPOSTO e non ha potuto consegnare.
@@ -1312,22 +1316,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 toolCallId: pendingPlan.toolCallId,
                 schema,
               });
-            }
-
-            // Il cartello del turno a vuoto NON vale quando il turno ha
-            // proposto un piano: lì c'è eccome qualcosa, ed è una domanda.
-            if (reason === "done" && !fullContent.trim() && !rowHasWork && !askingPlanApproval) {
-              // Il testo non dà più la colpa al servizio AI: qui sappiamo solo
-              // che il turno si è chiuso a mani vuote, e le volte in cui è
-              // successo il guasto era in casa nostra. Dice invece la cosa che
-              // all'utente serve davvero sapere — che il suo messaggio non è
-              // perso e come rimandarlo.
-              const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui — «Riprova» lo rimanda.";
-              fullContent = emptyErrorMsg;
-              console.warn(`[StreamWS] Empty response for ${sessionKey}`);
-              if (matchedTopic) {
-                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
-              }
             }
 
             // Finalize any tool calls that the provider started but never
@@ -1409,6 +1397,27 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // verdetto lo porta già il blocco.
             if (reason === "error" && errorMsg && !fullContent.trim()) {
               fullContent = `⚠️ ${errorMsg}`;
+            }
+
+            // «Nessuna risposta» si decide QUI, dopo la rifusione, per la stessa
+            // ragione del cartello d'errore qui sopra — e per una ragione in
+            // più, imparata dal vivo il 7 agosto.
+            //
+            // Su una riadozione la riga è già stata SVUOTATA per essere riusata
+            // (`reuseOrCreatePartialForReattach`), e ciò che la riempiva torna
+            // solo con il merge. Deciderlo prima significa guardare una riga che
+            // qualcuno ha appena azzerato e concludere che il turno non ha
+            // prodotto niente: è successo su un turno con 54 tool e 14 blocchi
+            // di testo, riadottato dopo un hot-reload del server. Il fix
+            // precedente guardava le colonne giuste ma nel momento sbagliato.
+            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval) {
+              const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui — «Riprova» lo rimanda.";
+              fullContent = emptyErrorMsg;
+              blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
+              console.warn(`[StreamWS] Empty response for ${sessionKey}`);
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
+              }
             }
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
             const finalizedMsg = updateLastMessage(sessionKey, {
