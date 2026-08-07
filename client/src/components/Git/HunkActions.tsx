@@ -5,6 +5,7 @@ import { Spinner } from '../Shared/Spinner';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { createPortal } from 'react-dom';
 import type { GitHunkSummary } from '../../types';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 /**
  * I blocchi di un file, uno alla volta.
@@ -52,6 +53,10 @@ export interface HunkActionsProps {
 }
 
 export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onApplied }: HunkActionsProps) {
+  // Stage/scarta di un singolo blocco non hanno un altro percorso col dito (non
+  // c'e' un menu di riga sugli hunk), quindi senza puntatore i comandi si
+  // VEDONO invece di restare bersagli invisibili: `touch: 'shown'`.
+  const hunkReveal = useHoverReveal('hunk', { touch: 'shown' });
   const [hunks, setHunks] = useState<GitHunkSummary[]>([]);
   const [side, setSide] = useState<'staged' | 'unstaged'>('unstaged');
   const [loading, setLoading] = useState(false);
@@ -156,7 +161,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
               {h.added > 0 && h.removed > 0 && ' '}
               {h.removed > 0 && <span className="text-red-500">-{h.removed}</span>}
             </span>
-            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/hunk:opacity-100 focus-within:opacity-100 transition-opacity">
+            <div className={`flex items-center gap-0.5 flex-shrink-0 ${hunkReveal}`}>
               {side === 'unstaged' ? (
                 <>
                   <button

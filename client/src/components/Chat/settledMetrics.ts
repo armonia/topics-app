@@ -1,21 +1,14 @@
 /**
  * Quando si vedono i numeri di un'azione FINITA.
  *
- * Vive in un modulo suo, non dentro `ToolCallRow`: sono due costanti, e un file
- * di componenti che esporta anche costanti spegne il fast refresh di Vite —
- * ogni salvataggio su quel file rimonterebbe l'albero invece di aggiornarlo in
- * posto (`react-refresh/only-export-components`). Il posto giusto di una
- * costante condivisa fra due componenti è fuori da entrambi.
+ * Vive in un modulo suo, non dentro `ToolCallRow`: un file di componenti che
+ * esporta anche altro spegne il fast refresh di Vite — ogni salvataggio su
+ * quel file rimonterebbe l'albero invece di aggiornarlo in posto
+ * (`react-refresh/only-export-components`). Il posto giusto di una regola
+ * condivisa fra due componenti è fuori da entrambi.
  */
 
-/**
- * Un puntatore c'è davvero? Stessa prova che usano `MessageBubble` e
- * `TopicItem` — su un touch il passaggio del mouse non esiste, e nascondere
- * qualcosa dietro di esso vuol dire nasconderlo per sempre.
- */
-const isTouchDevice = typeof window !== 'undefined' && (
-  'ontouchstart' in window || navigator.maxTouchPoints > 0
-);
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 /**
  * I NUMERI A CONSUNTIVO si mostrano quando li cerchi.
@@ -31,20 +24,20 @@ const isTouchDevice = typeof window !== 'undefined' && (
  * gira, la rotella, il cerchietto ambra dell'attesa — non si nasconde mai: è
  * segnale, non archivio.
  *
- * Su touch niente hover: lì i numeri restano come sono sempre stati.
- */
-export const SETTLED_METRIC_CLASS = isTouchDevice
-  ? ''
-  : 'opacity-0 group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 transition-opacity';
-
-/**
- * Lo stesso patto per la riga di riepilogo di un GRUPPO di azioni.
+ * Senza puntatore niente hover: lì i numeri restano come sono sempre stati
+ * (`touch: 'shown'`) — sono TESTO, non un comando, e non c'è niente da
+ * raggiungere in un altro modo.
  *
- * Gruppo suo, non `/tool`: il gruppo contiene le righe singole, e con un nome
- * solo il passaggio del mouse su una riga interna accenderebbe anche i numeri
- * del riepilogo sopra. I due nomi vanno scritti per esteso — Tailwind legge le
- * classi nel sorgente, e una composta a runtime non verrebbe mai generata.
+ * Erano due COSTANTI di modulo calcolate una volta sola su `ontouchstart`.
+ * Due errori in uno: la domanda giusta è `hasHover` (un portatile touch ha
+ * anche il mouse, e lì i numeri restavano stampati per sempre), e una costante
+ * di modulo non si accorge del puntatore che va e viene — una Magic Keyboard
+ * tolta da un iPad non manda nessun `resize`. Adesso è un hook, quindi risponde.
+ *
+ * I due gruppi sono distinti — `/tool` per la riga, `/toolgroup` per il
+ * riepilogo — perché con un nome solo il mouse su una riga interna
+ * accenderebbe anche i numeri del riepilogo sopra.
  */
-export const SETTLED_GROUP_METRIC_CLASS = isTouchDevice
-  ? ''
-  : 'opacity-0 group-hover/toolgroup:opacity-100 group-focus-within/toolgroup:opacity-100 transition-opacity';
+export function useSettledMetricClass(scope: 'tool' | 'toolgroup' = 'tool'): string {
+  return useHoverReveal(scope, { touch: 'shown' });
+}

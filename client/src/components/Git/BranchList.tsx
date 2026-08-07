@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2, Link } from 'lucide-react';
 import { gitApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
-import { ConfirmDialog } from '../Shared/ConfirmDialog';
+import { useConfirm } from '../../hooks/useConfirm';
 import { SELECTED_SURFACE } from '../../lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
+import { useMobile } from '../../hooks/useMobile';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { hoverRevealClass } from '../../lib/hoverReveal';
 
 interface Branch {
   name: string;
@@ -41,13 +44,30 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState<string | null>(null);
   const toast = useToast();
+  const confirm = useConfirm();
   const [showNewInput, setShowNewInput] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [forceDeleteConfirm, setForceDeleteConfirm] = useState<string | null>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * IL MENU DI RIGA — l'unico percorso che «cancella branch» ha col dito.
+   *
+   * Cancellare un branch e togliere un remote vivevano solo dentro un bottone
+   * `opacity-0 group-hover:opacity-100`: una classe che sta dentro
+   * `@media (hover: hover)` e che quindi, senza puntatore, non si accende mai.
+   * Il comando non era «meno visibile», era irraggiungibile — e l'`opacity: 0`
+   * lasciava comunque un bersaglio da 14px cliccabile alla cieca a 8px dal
+   * bordo di una riga il cui tocco fa checkout.
+   *
+   * Il gesto e' quello standard dell'app: tasto destro col mouse, «tieni
+   * premuto» col dito, e `openContextMenuAt` sintetizza il `contextmenu` che
+   * l'handler qui sotto gia' ascolta — quindi e' LO STESSO menu, non un
+   * secondo da tenere allineato.
+   */
+  const [rowMenu, setRowMenu] = useState<
+    { kind: 'branch' | 'remote'; name: string; x: number; y: number } | null
+  >(null);
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [newRemoteName, setNewRemoteName] = useState('origin');
   const [newRemoteUrl, setNewRemoteUrl] = useState('');
@@ -106,13 +126,35 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     }
   };
 
-  const handleDeleteBranch = (name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteConfirm(name);
-  };
+  const removeRemote = useCallback(async (name: string) => {
+    if (!onRemoveRemote) return;
+    try {
+      await onRemoveRemote(name);
+      toast.success(`Remote "${name}" removed`);
+    } catch (err) {
+      toast.error(errMessage(err) || 'Failed to remove remote');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` viene dal ToastProvider, il cui context value non e' memoizzato: includerlo darebbe a removeRemote una nuova identita' a ogni toast.
+  }, [onRemoveRemote]);
 
-  const executeDeleteBranch = useCallback(async (name: string) => {
-    setDeleteConfirm(null);
+  /**
+   * IL DIALOGO DI CONFERMA NON DEVE MORIRE COL PANNELLO CHE L'HA APERTO.
+   *
+   * Prima erano due stati locali piu' due `createPortal`, montati da questa
+   * lista — che vive dentro la tendina dei rami. Scegliere «Delete branch» dal
+   * menu di riga chiude la tendina (il menu e' un portal su `<body>`, quindi
+   * per `useDismissable` quel click e' «fuori»), e con la tendina se ne andava
+   * anche il dialogo: il comando non arrivava mai a chiedere conferma.
+   * `useConfirm` vive nel provider in cima all'app, quindi sopravvive.
+   */
+  const askDeleteBranch = useCallback(async (name: string) => {
+    const ok = await confirm({
+      title: 'Delete Branch',
+      confirmLabel: 'Delete',
+      body: <>Delete branch <span className="font-mono">{name}</span>? This cannot be undone.</>,
+    });
+    if (!ok) return;
+    let nonUnito = false;
     try {
       setDeleting(name);
       await gitApi.deleteBranch(projectPath, name);
@@ -122,18 +164,19 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       // `git branch -d` refuses branches with unmerged commits — that failure
       // is exactly the case where a silent force-retry would destroy work, so
       // surface it as its own explicit confirmation instead of auto-retrying.
-      if (/not fully merged/i.test(message)) {
-        setForceDeleteConfirm(name);
-      } else {
-        toast.error(message);
-      }
+      nonUnito = /not fully merged/i.test(message);
+      if (!nonUnito) toast.error(message);
     } finally {
       setDeleting(null);
     }
-  }, [projectPath, loadBranches, toast]);
+    if (!nonUnito) return;
 
-  const executeForceDeleteBranch = useCallback(async (name: string) => {
-    setForceDeleteConfirm(null);
+    const forza = await confirm({
+      title: 'Force Delete Branch',
+      confirmLabel: 'Force Delete',
+      body: <>The branch <span className="font-mono">{name}</span> has unmerged commits. Force delete anyway? This will permanently discard those commits.</>,
+    });
+    if (!forza) return;
     try {
       setDeleting(name);
       await gitApi.deleteBranch(projectPath, name, true);
@@ -143,7 +186,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     } finally {
       setDeleting(null);
     }
-  }, [projectPath, loadBranches, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` viene dal ToastProvider, il cui context value non e' memoizzato: includerlo darebbe a questa callback una nuova identita' a ogni toast.
+  }, [projectPath, loadBranches, confirm]);
 
   const handleAddRemoteSubmit = async () => {
     const name = newRemoteName.trim();
@@ -228,44 +272,15 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
         </div>
       </div>
       {localBranches.map(branch => (
-        <div
+        <BranchRow
           key={branch.name}
-          className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer transition-colors group ${
-            branch.current
-              ? SELECTED_SURFACE
-              : 'hover:bg-app-hover text-app-text-body'
-          }`}
-          onClick={() => !branch.current && handleCheckout(branch.name)}
-        >
-          {branch.current ? (
-            <Check size={12} className="flex-shrink-0 text-primary" />
-          ) : switching === branch.name ? (
-            <Spinner size="sm" className="flex-shrink-0" />
-          ) : (
-            <GitBranch size={12} className="flex-shrink-0 opacity-40" />
-          )}
-          <span className="truncate">{branch.name}</span>
-          {(branch.ahead !== undefined && branch.ahead > 0) && (
-            <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 flex-shrink-0">↑{branch.ahead}</span>
-          )}
-          {(branch.behind !== undefined && branch.behind > 0) && (
-            <span className={`${branch.ahead ? '' : 'ml-auto'} text-[11px] text-red-600 dark:text-red-400 flex-shrink-0`}>↓{branch.behind}</span>
-          )}
-          {/* Delete button — only on non-current branches */}
-          {!branch.current && (
-            <button
-              onClick={(e) => handleDeleteBranch(branch.name, e)}
-              className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
-              title={`Delete ${branch.name}`}
-            >
-              {deleting === branch.name ? (
-                <Spinner size="xs" tone="current" className="text-red-500" />
-              ) : (
-                <Trash2 size={10} />
-              )}
-            </button>
-          )}
-        </div>
+          branch={branch}
+          switching={switching === branch.name}
+          deleting={deleting === branch.name}
+          onCheckout={() => handleCheckout(branch.name)}
+          onDelete={() => { void askDeleteBranch(branch.name); }}
+          onOpenMenu={(x, y) => setRowMenu({ kind: 'branch', name: branch.name, x, y })}
+        />
       ))}
 
       {/* Remote branches */}
@@ -358,67 +373,177 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             </div>
           )}
           {remotes.map(r => (
-            <div
+            <RemoteRow
               key={r.name}
-              className="flex items-center gap-1.5 px-2 py-[3px] text-[11px] group/remote hover:bg-app-hover transition-colors"
-            >
-              <Link size={10} className="text-app-text-muted flex-shrink-0" />
-              <span className="font-medium text-app-text-heading">{r.name}</span>
-              <span className="truncate text-app-text-muted text-[11px] min-w-0">{r.fetchUrl}</span>
-              {onRemoveRemote && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await onRemoveRemote(r.name);
-                      toast.success(`Remote "${r.name}" removed`);
-                    } catch (err) {
-                      toast.error(errMessage(err) || 'Failed to remove remote');
-                    }
-                  }}
-                  className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover/remote:opacity-100 flex-shrink-0"
-                  title={`Remove ${r.name}`}
-                >
-                  <Trash2 size={10} />
-                </button>
-              )}
-            </div>
+              remote={r}
+              canRemove={!!onRemoveRemote}
+              onRemove={() => removeRemote(r.name)}
+              onOpenMenu={(x, y) => setRowMenu({ kind: 'remote', name: r.name, x, y })}
+            />
           ))}
         </>
       )}
     </div>
-    {deleteConfirm && createPortal(
-      <DeleteBranchConfirmDialog
-        branchName={deleteConfirm}
-        force={false}
-        onConfirm={() => executeDeleteBranch(deleteConfirm)}
-        onCancel={() => setDeleteConfirm(null)}
-      />,
-      document.body,
-    )}
-    {forceDeleteConfirm && createPortal(
-      <DeleteBranchConfirmDialog
-        branchName={forceDeleteConfirm}
-        force
-        onConfirm={() => executeForceDeleteBranch(forceDeleteConfirm)}
-        onCancel={() => setForceDeleteConfirm(null)}
-      />,
-      document.body,
-    )}
+    <ContextMenuPortal
+      open={!!rowMenu}
+      x={rowMenu?.x ?? 0}
+      y={rowMenu?.y ?? 0}
+      onClose={() => setRowMenu(null)}
+      // Questa lista vive DENTRO la tendina dei rami: un menu esclusivo la
+      // chiuderebbe aprendosi, e morirebbe con lei. Vedi ContextMenuPortal.
+      exclusive={false}
+    >
+      {rowMenu?.kind === 'branch' && (
+        <>
+          <button
+            role="menuitem"
+            data-testid="branch-menu-checkout"
+            onClick={() => { const n = rowMenu.name; setRowMenu(null); handleCheckout(n); }}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          >
+            <GitBranch size={14} className="text-app-text-tertiary" /> Checkout
+          </button>
+          <div className="border-t border-app-border my-1" />
+          <button
+            role="menuitem"
+            data-testid="branch-menu-delete"
+            onClick={() => { const n = rowMenu.name; setRowMenu(null); void askDeleteBranch(n); }}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
+          >
+            <Trash2 size={14} /> Delete branch
+          </button>
+        </>
+      )}
+      {rowMenu?.kind === 'remote' && (
+        <button
+          role="menuitem"
+          data-testid="remote-menu-remove"
+          onClick={() => { const n = rowMenu.name; setRowMenu(null); void removeRemote(n); }}
+          className="w-full text-left px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
+        >
+          <Trash2 size={14} /> Remove remote
+        </button>
+      )}
+    </ContextMenuPortal>
     </>
   );
 }
 
-function DeleteBranchConfirmDialog({ branchName, force, onConfirm, onCancel }: { branchName: string; force: boolean; onConfirm: () => void; onCancel: () => void }) {
+/**
+ * Una riga di branch, estratta perche' `useLongPress` e' un hook e dentro un
+ * `.map()` non ci puo' stare.
+ *
+ * Il bottone «cancella» resta la scorciatoia del mouse, ma solo quando un
+ * puntatore esiste davvero: `hoverRevealClass` gli mette `pointer-events-none`
+ * nel ramo senza hover, cosi' non c'e' piu' un bersaglio invisibile sul bordo.
+ * Col dito il comando passa dal menu (tieni premuto), che e' lo stesso del
+ * tasto destro.
+ */
+function BranchRow({ branch, switching, deleting, onCheckout, onDelete, onOpenMenu }: {
+  branch: Branch;
+  switching: boolean;
+  deleting: boolean;
+  onCheckout: () => void;
+  onDelete: () => void;
+  onOpenMenu: (x: number, y: number) => void;
+}) {
+  const { isTouch, hasHover } = useMobile();
+  const press = useLongPress(openContextMenuAt, { enabled: isTouch && !branch.current });
+  const deleteReveal = hoverRevealClass(hasHover);
+
   return (
-    <ConfirmDialog
-      title={force ? 'Force Delete Branch' : 'Delete Branch'}
-      confirmLabel={force ? 'Force Delete' : 'Delete'}
-      onConfirm={onConfirm}
-      onCancel={onCancel}
+    <div
+      data-testid="branch-row"
+      data-branch={branch.name}
+      className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer transition-colors group select-none ${
+        branch.current ? SELECTED_SURFACE : 'hover:bg-app-hover text-app-text-body'
+      }`}
+      {...press.handlers}
+      data-pressing={press.pressed || undefined}
+      onContextMenu={e => {
+        if (branch.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenMenu(e.clientX, e.clientY);
+      }}
+      onClick={() => {
+        // Il `click` sintetico che segue un long-press andato a segno va
+        // mangiato, o la riga fa checkout sotto il menu appena aperto.
+        if (press.consumeClick()) return;
+        if (!branch.current) onCheckout();
+      }}
     >
-      {force
-        ? <>The branch <span className="font-mono">{branchName}</span> has unmerged commits. Force delete anyway? This will permanently discard those commits.</>
-        : <>Delete branch <span className="font-mono">{branchName}</span>? This cannot be undone.</>}
-    </ConfirmDialog>
+      {branch.current ? (
+        <Check size={12} className="flex-shrink-0 text-primary" />
+      ) : switching ? (
+        <Spinner size="sm" className="flex-shrink-0" />
+      ) : (
+        <GitBranch size={12} className="flex-shrink-0 opacity-40" />
+      )}
+      <span className="truncate">{branch.name}</span>
+      {(branch.ahead !== undefined && branch.ahead > 0) && (
+        <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 flex-shrink-0">↑{branch.ahead}</span>
+      )}
+      {(branch.behind !== undefined && branch.behind > 0) && (
+        <span className={`${branch.ahead ? '' : 'ml-auto'} text-[11px] text-red-600 dark:text-red-400 flex-shrink-0`}>↓{branch.behind}</span>
+      )}
+      {/* Delete button — only on non-current branches */}
+      {!branch.current && (
+        <button
+          data-testid="branch-delete"
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          className={`ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 flex-shrink-0 ${deleteReveal}`}
+          title={`Delete ${branch.name}`}
+        >
+          {deleting ? (
+            <Spinner size="xs" tone="current" className="text-red-500" />
+          ) : (
+            <Trash2 size={10} />
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Stessa storia della riga di branch, per un remote. */
+function RemoteRow({ remote, canRemove, onRemove, onOpenMenu }: {
+  remote: { name: string; fetchUrl: string; pushUrl: string };
+  canRemove: boolean;
+  onRemove: () => void;
+  onOpenMenu: (x: number, y: number) => void;
+}) {
+  const { isTouch, hasHover } = useMobile();
+  const press = useLongPress(openContextMenuAt, { enabled: isTouch && canRemove });
+  const removeReveal = hoverRevealClass(hasHover, 'remote');
+
+  return (
+    <div
+      data-testid="remote-row"
+      data-remote={remote.name}
+      className="flex items-center gap-1.5 px-2 py-[3px] text-[11px] group/remote hover:bg-app-hover transition-colors select-none"
+      {...press.handlers}
+      data-pressing={press.pressed || undefined}
+      onContextMenu={e => {
+        if (!canRemove) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenMenu(e.clientX, e.clientY);
+      }}
+    >
+      <Link size={10} className="text-app-text-muted flex-shrink-0" />
+      <span className="font-medium text-app-text-heading">{remote.name}</span>
+      <span className="truncate text-app-text-muted text-[11px] min-w-0">{remote.fetchUrl}</span>
+      {canRemove && (
+        <button
+          data-testid="remote-remove"
+          onClick={e => { e.stopPropagation(); onRemove(); }}
+          className={`ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 flex-shrink-0 ${removeReveal}`}
+          title={`Remove ${remote.name}`}
+        >
+          <Trash2 size={10} />
+        </button>
+      )}
+    </div>
   );
 }
