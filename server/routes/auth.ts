@@ -7,6 +7,7 @@ import {
 } from "../lib/device-auth";
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isResourceType } from "../lib/grants";
+import { grantedByType, subjectsOf, putGrant, dropGrant, deviceP } from "../lib/grants-query";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -292,11 +293,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       const ident = ctx.requestIdentity?.(req) ?? null;
       const subj = ident?.deviceId;
       if (!subj) return json({ tasks: [], topics: [] });
-      const righe = db.query(
-        "SELECT resource_type, resource_id FROM grants WHERE subject_type='device' AND subject_id = ?",
-      ).all(subj) as Array<{ resource_type: string; resource_id: string }>;
-      const idTask = righe.filter((r) => r.resource_type === "task").map((r) => r.resource_id);
-      const idTopic = righe.filter((r) => r.resource_type === "topic").map((r) => r.resource_id);
+      const { task: idTask, topic: idTopic } = grantedByType(db as never, deviceP(subj));
       const segna = (n: number) => Array(n).fill("?").join(",");
       const tasks = idTask.length
         ? db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask)
@@ -319,15 +316,33 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const tipo = url.searchParams.get("resourceType") ?? "task";
         const id = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        const rows = db.query(
-          "SELECT g.subject_id, g.granted_at, g.via_type, g.via_id, d.name FROM grants g JOIN devices d ON d.id = g.subject_id WHERE g.resource_type = ? AND g.resource_id = ? AND d.revoked_at IS NULL",
-        ).all(tipo, id) as Array<{ subject_id: string; granted_at: number; via_type: string | null; via_id: string | null; name: string }>;
+        // I soggetti stanno in `grants` e il NOME sta altrove: prima li univa
+        // una JOIN su `devices`, che assumeva che ogni soggetto fosse un
+        // dispositivo. Ora il nome si risolve DOPO, per tipo di soggetto —
+        // così una riga verso una persona o un'organizzazione non sparisce
+        // dall'elenco solo perché la JOIN non la trova.
+        const righe = subjectsOf(db as never, tipo, id).filter((r) => r.level !== "deny");
+        const nomeDispositivo = new Map(
+          (db.query("SELECT id, name FROM devices WHERE revoked_at IS NULL").all() as Array<{ id: string; name: string }>)
+            .map((d) => [d.id, d.name]),
+        );
         return json({
-          shares: rows.map((r) => ({
-            deviceId: r.subject_id, name: r.name, sharedAt: r.granted_at,
-            // La PROVENIENZA risponde a «perché costui vede questa cosa?».
-            via: r.via_type ? { type: r.via_type, id: r.via_id } : null,
-          })),
+          shares: righe
+            // Un dispositivo revocato non compare: la sua riga di concessione
+            // resta (non si cancella la storia) ma non ha piu' effetto.
+            .filter((r) => r.subjectType !== "device" || nomeDispositivo.has(r.subjectId))
+            .map((r) => ({
+              subjectType: r.subjectType,
+              subjectId: r.subjectId,
+              // `deviceId` resta come alias legacy per una release: il client
+              // vecchio continua a leggerlo mentre quello nuovo passa a
+              // `subjectId`. La rotta ha gia' questo idioma con `taskId`.
+              deviceId: r.subjectType === "device" ? r.subjectId : undefined,
+              name: r.subjectType === "device" ? nomeDispositivo.get(r.subjectId) ?? r.subjectId : r.subjectId,
+              sharedAt: r.grantedAt,
+              // La PROVENIENZA risponde a «perché costui vede questa cosa?».
+              via: r.viaType ? { type: r.viaType, id: r.viaId } : null,
+            })),
         });
       }
       if (method === "POST") {
@@ -342,9 +357,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const d = db.query("SELECT role FROM devices WHERE id = ? AND revoked_at IS NULL").get(body.deviceId) as { role?: string } | undefined;
         if (!d) return json({ error: "dispositivo sconosciuto o revocato" }, 404);
         if (d.role !== "guest") return json({ error: "quel dispositivo vede già tutto: è un tuo dispositivo, non un ospite" }, 400);
-        db.query(
-          "INSERT OR IGNORE INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, via_type, via_id, granted_at) VALUES (?, 'device', ?, ?, ?, 'read', NULL, NULL, ?)",
-        ).run(crypto.randomUUID(), body.deviceId, tipo, risorsa, now);
+        putGrant(db as never, { kind: "device", id: body.deviceId }, tipo, risorsa, { grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
         // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
         // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.
@@ -356,8 +369,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const risorsa = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         const deviceId = url.searchParams.get("deviceId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "tipo di risorsa sconosciuto" }, 400);
-        db.query("DELETE FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?")
-          .run(deviceId, tipo, risorsa);
+        dropGrant(db as never, { kind: "device", id: deviceId }, tipo, risorsa);
         // Soprattutto qui: la concessione ora NON esiste, quindi nessun frame
         // filtrato per entita' potrebbe piu' raggiungere quell'ospite. Se non
         // glielo si dice mirando a lui, resta a guardare una cosa che non ha
