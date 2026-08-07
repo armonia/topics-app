@@ -69,34 +69,37 @@ export const POPOVER_PANEL =
   'glass-surface border border-app-border rounded-lg shadow-lg';
 
 /**
- * A standard menu row: icon + label. 44px alti sotto i 768px — la misura di un
- * dito secondo le linee guida iOS — e compatti (~24px) da tablet in su, dove
- * c'è un puntatore.
+ * Una riga di menu: icona + etichetta. **45px dove c'è un dito**, 30px dove c'è
+ * un puntatore.
  *
- * I 44px erano l'ECCEZIONE, ed è il difetto che questa riga chiude: il default
- * era `py-2`, cioè 36px sul telefono, e la variante giusta (`POPOVER_ITEM_TOUCH`,
- * `py-3`) era usata da UN file su 49. Quarantotto menu su quarantanove si
- * toccavano male, e chi leggeva `POPOVER_ITEM` non aveva modo di sospettarlo.
- * Adesso l'eccezione è il default e la variante è solo un alias.
+ * IL CANCELLO È IL DITO, NON LA LARGHEZZA. Era `md:`, cioè un test sui 768px
+ * usato come sostituto della domanda vera, e le due cose non coincidono.
+ * Misurato con queste classi sul CSS costruito:
  *
- * NB — un menu con TANTE voci non si rimette in riga togliendogli i 44px: gli si
+ *     390×844  (iPhone verticale)   → 45px   ✓
+ *     844×390  (iPhone ORIZZONTALE) → 30px   ✗  stesso dito, riga da mouse
+ *     820×1180 (iPad verticale)     → 30px   ✗  e qui `isMobile` è già true,
+ *                                              cioè il foglio dal basso si apre
+ *                                              col layout da telefono e le righe
+ *                                              da mouse
+ *     1440×900 (portatile)          → 30px   ✓
+ *
+ * Ora il gate è `coarse:` (`any-pointer: coarse`, dichiarata in index.css), che
+ * è la stessa domanda che `useMobile.ts` fa con `isTouch` — e la sua regola,
+ * scritta lì, è «affordance touch → isTouch». Il default torna a essere la riga
+ * compatta e il dito è la variante: è il verso giusto, perché una riga da mouse
+ * su un telefono è un errore, mentre una riga da dito su un desktop è solo
+ * spazio sprecato.
+ *
+ * NB — un menu con TANTE voci non si rimette in riga togliendogli i 45px: gli si
  * dà un tetto e lo scroll (`max-height` + `overflow-y-auto`), come fa il menu
- * della tab in `PaneTabBar`. Rimpicciolire le righe sposta il problema di
- * qualche voce e rompe il bersaglio per tutti gli altri menu.
+ * della tab in `PaneTabBar` e come ora fa il foglio dal basso in `Menu.tsx`.
+ * Rimpicciolire le righe sposta il problema di qualche voce e rompe il bersaglio
+ * per tutti gli altri menu.
  */
 export const POPOVER_ITEM =
-  'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
+  'w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors';
 
-/**
- * @deprecated Alias di {@link POPOVER_ITEM}, che ORA è già a bersaglio touch.
- *
- * Restava come classe a sé quando il default era più basso; da quando i 44px
- * sono il default, tenerne due copie identiche è solo un modo per farle
- * divergere di nuovo. Sopravvive per non rompere il suo unico call-site
- * (`Shared/PaneAddMenu.tsx`): quando quello passa a `POPOVER_ITEM`, questa riga
- * si cancella.
- */
-export const POPOVER_ITEM_TOUCH = POPOVER_ITEM;
 
 /**
  * Le due coppie di testo colorato che passano AA su ENTRAMBI i fondi.
@@ -124,7 +127,7 @@ export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
  *  voce rossa avrebbe una riga più bassa delle altre. */
 export const POPOVER_ITEM_DANGER =
-  `w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] ${DANGER_TEXT} hover:bg-red-600/10 transition-colors`;
+  `w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-[12px] coarse:text-[14px] ${DANGER_TEXT} hover:bg-red-600/10 transition-colors`;
 
 /** Hairline separator between menu groups. */
 export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
