@@ -192,7 +192,12 @@ void main(){
   vec2  pt   = uPtr / uRes;
   vec2  pd   = vec2((sx - pt.x) * wide, sy - (1.0 - pt.y));
   float lamp = uPtrOn * exp(-dot(pd, pd) * 26.0);
-  crest -= lamp * 0.055;
+  /* Half of what it was. At 0.055 the cursor lifted the crest far enough that a
+     narrow window with a fine pointer put body copy over the bright side of the
+     arch — the only four contrast failures left were all of them, and all of
+     them under the cursor. A pointer that changes the picture that much is not
+     an affordance, it is a second light. */
+  crest -= lamp * 0.026;
 
   /* ── THE RISE ─────────────────────────────────────────────────────────────
      Measured off the file as a fraction of each column's own maximum: 0.13 at
@@ -247,16 +252,26 @@ void main(){
      subject stands in front of it, because what reaches the eye is the bloom.
      This page has its subject in the same place. The app frame runs y626-1304
      across x178-1262 and the core at (69%, 81%) is x994, y731: inside it.
-     It is a MIX toward pale, not an addition of white, and capped at 0.34. A
-     white clamped to L 0.036 is a grey; what survives a luminance cap is hue
-     and saturation, so the core is the palest thing here rather than the
-     brightest, and it stays a colour. */
+     It is a MIX toward pale, not an addition of white. A white clamped to the
+     reading ceiling is a grey; what survives a luminance cap is hue and
+     saturation, so below the hero the core is the palest thing here rather than
+     the brightest, and it stays a colour.
+
+     AND IT IS WHAT MAKES THE PICTURE BRIGHT, which is not a preference either.
+     Raising the ceiling stopped paying long before the glow read like the
+     reference: from 0.090 to 0.170 the peak moved 75 to 88 out of 255, because
+     the limit had stopped being the cap and become the COLOUR. Topics blue is
+     (0, 0.29, 1.0) and its relative luminance is 0.121 — the blue channel is
+     worth 0.0722 of it. A saturated blue cannot be bright; that is arithmetic.
+     The reference's own core is 253,253,255. So the light in this picture comes
+     from the same place theirs does — the heart going pale — and everything
+     around it stays the brand's blue. White and Topics blue, which is the brief. */
   vec2  cp   = vec2(0.692 - drift, 0.812);
   float cd   = length(vec2((sx - cp.x) * wide, sy - cp.y));
-  float core = exp(-cd * 4.6) * lit * channel;
-  col = mix(col, PALE, core * 0.34);
+  float core = exp(-cd * 3.9) * lit * channel;
+  col = mix(col, PALE, core * 0.62);
 
-  col += BLUE * lamp * 0.10 * channel;
+  col += BLUE * lamp * 0.05 * channel;
 
   /* A grain of light, so the falloff is a material and not a ramp. Eight-bit
      blue on near-black bands, and a banded gradient is the most reliable way to
@@ -307,6 +322,7 @@ const C_FRAG = `
 precision highp float;
 uniform sampler2D uTex;
 uniform float uTime;
+uniform float uHero;
 varying vec2 vUv;
 
 float h1(vec2 p){
@@ -320,7 +336,35 @@ void main(){
   vec3 lin = mix(c0 / 12.92, pow((c0 + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c0));
   float lumY = dot(lin, vec3(0.2126, 0.7152, 0.0722));
 
-  float ceilY = 0.036;
+  /* ── TWO CEILINGS, AND THE SCROLL IS WHAT CHOOSES ───────────────────────
+     One number could not do this job, and the measurement is what proved it.
+     With a single ceiling high enough for the glow to read like the reference,
+     check:painted failed in forty places — every one of them BELOW the hero,
+     16px body copy in --ink-mute over the lit half of the frame. With a ceiling
+     low enough for that copy, the field peaks at 54/255 against the reference's
+     253 and the whole picture is a dark blue wash: the composition was right and
+     the LIGHT was not there, which is exactly the verdict it got.
+
+     So the light goes where the reference puts it. Its glow is a HERO element —
+     a video in the first screen, and then a white page. Ours is one fixed canvas
+     behind 14,081px of prose, and asking it to be a hero and a backdrop at once
+     is what kept it dim. Bright over the first screen, down to the reading
+     ceiling by the time the hero ends, continuously.
+
+     The reading ceiling is DERIVED, not chosen: --ink-faint is #a3abbb, L 0.405,
+     and WCAG asks 4.5:1, so the brightest pixel allowed behind a glyph is
+     L 0.051 — less the CSS dot weave painted after this pass, measured at +0.011
+     on the brightest pixel. The hero ceiling is what the hero can afford, and
+     what it can afford is set by one row: nothing else up there is small and
+     pale, and the app frame is opaque over the brightest part.
+
+     THE FADE IS MEASURED IN SCREENS, NOT IN PAGE FRACTIONS, and that is a bug
+     already paid for. At 1440 the hero is 1,495px of a 14,081px page — 10.6% —
+     and at 390 the same hero is a much larger share of a much longer page, so a
+     single fraction that ended at the hero on a desktop was still two thirds
+     open a screen further down on a phone. check:painted found it there and
+     nowhere else. uHero counts viewport heights. */
+  float ceilY = mix(0.170, 0.036, clamp(uHero, 0.0, 1.0));
   float mapped = ceilY * (1.0 - exp(-lumY / ceilY));
   lin *= mapped / max(lumY, 0.00001);
 
@@ -389,6 +433,7 @@ function start(cv: HTMLCanvasElement) {
   const cu = {
     tex: gl.getUniformLocation(cProg, 'uTex'),
     time: gl.getUniformLocation(cProg, 'uTime'),
+    hero: gl.getUniformLocation(cProg, 'uHero'),
   };
   gl.uniform1i(cu.tex, 0);
 
@@ -449,6 +494,13 @@ function start(cv: HTMLCanvasElement) {
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.useProgram(cProg);
     gl.uniform1f(cu.time, t);
+    /* How far past the first screen we are, in viewport heights, from the same
+       page position the body was drawn at. Derived here rather than passed in so
+       that freeze(t, at) still fully determines the frame — the gates depend on
+       that — while the fade stays measured in screens rather than in a fraction
+       of a page whose length depends on the width. */
+    const span = document.documentElement.scrollHeight - innerHeight;
+    gl.uniform1f(cu.hero, Math.min(1, (at * Math.max(0, span)) / (innerHeight * 1.1)));
     fullscreen(cProg, cLoc);
   };
 
