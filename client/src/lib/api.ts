@@ -660,8 +660,14 @@ export const gitApi = {
     return request<{ message: string; stat: string; files: { added: string[]; modified: string[]; deleted: string[]; untracked: string[] } }>(`/git/diff-summary?path=${encodeURIComponent(path)}`);
   },
 
-  async aiCommitMessage(path: string): Promise<{ message: string }> {
-    return request<{ message: string }>('/git/ai-commit-message', {
+  /**
+   * `source` dice CHI l'ha scritto: `ai` il modello, `rules` il ripiego dai soli
+   * numeri quando non c'è nessun provider collegato. Non è un dettaglio da
+   * inghiottire — un conteggio di file che passa per una descrizione scritta è
+   * peggio di nessuna descrizione, perché è plausibile.
+   */
+  async aiCommitMessage(path: string): Promise<{ message: string; source?: 'ai' | 'rules'; reason?: string }> {
+    return request<{ message: string; source?: 'ai' | 'rules'; reason?: string }>('/git/ai-commit-message', {
       method: 'POST',
       body: JSON.stringify({ path }),
     });

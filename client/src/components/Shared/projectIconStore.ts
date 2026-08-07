@@ -100,7 +100,24 @@ function subscribe(path: string, cb: () => void): () => void {
   return () => { listeners.get(path)?.delete(cb); };
 }
 function getSnapshot(path: string): Resolved {
-  return state.get(path) ?? PROBING;
+  const cur = state.get(path);
+  if (cur) return cur;
+  // IDRATAZIONE SINCRONA, al primo render e non nell'effetto.
+  //
+  // `ensureProbe` sa già leggere un 'has' persistito e saltare la sonda — ma
+  // gira in un `useEffect`, cioè DOPO il primo paint. Chi decide il layout
+  // sull'esito (la tessera fissata) disegnava quindi un frame da 'probing'
+  // — nome, allineato a sinistra — e poi saltava all'icona: al refresh il
+  // titolo lampeggiava anche quando l'icona era in cache da sempre.
+  // Qui l'esito noto c'è già al primo render, e non c'è nessun frame
+  // intermedio da cui saltare. Nessun `notify`: si scrive lo stato, non lo si
+  // annuncia — siamo dentro il render di chi lo sta leggendo.
+  if (cachedStatus(path) === 'has') {
+    const known: Resolved = { s: 'has', src: endpointUrl(path) };
+    state.set(path, known);
+    return known;
+  }
+  return PROBING;
 }
 
 /** Settle a path's status via fetch — the recovery lane. Used when the native
