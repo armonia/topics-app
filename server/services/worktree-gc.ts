@@ -377,10 +377,15 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         if (post.action === "keep") {
           deps.log(`[worktree-gc] keep ${wt.branchName ?? wt.id}: ${post.reason}`);
           if (outcome === "landed" || outcome === "nothing") {
-            deps.noteOnTask?.(
-              taskId,
-              `⚠️ Worktree NON ripulito: ${post.reason}. Il branch \`${wt.branchName ?? wt.id}\` è stato conservato — verifica a mano prima di cancellarlo.`,
-            );
+            // Anche qui si dice solo ciò che è stato VERIFICATO: `branchAfter` è
+            // la ri-lettura del repo dopo il land. Un keep può nascere dallo
+            // sporco nel tree con il branch già cancellato dal land stesso, e in
+            // quel caso «il branch è stato conservato» sarebbe falso — la stessa
+            // bugia del task `5770b9de`, vista da questo lato.
+            const branchNote = branchAfter === "gone"
+              ? `Il branch \`${wt.branchName ?? wt.id}\` NON è più nel repo: quello che resta è nel worktree, controllalo prima che sparisca.`
+              : `Il branch \`${wt.branchName ?? wt.id}\` è stato conservato — verifica a mano prima di cancellarlo.`;
+            deps.noteOnTask?.(taskId, `⚠️ Worktree NON ripulito: ${post.reason}. ${branchNote}`);
           }
           keep(post.reason);
           continue;
