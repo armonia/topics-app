@@ -12,6 +12,7 @@ import {
   seedProjectPane,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, luminance, surfaceBg } from "./helpers/surfaces";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -766,5 +767,53 @@ test.describe("Sidebar — Project icons", () => {
     ).toHaveCount(0);
 
     await deleteTopic(request, topic.id).catch(() => {});
+  });
+});
+
+/**
+ * IL GRADINO FRA LE SUPERFICI È UNA COSA DA DESKTOP.
+ *
+ * Questa invariante viveva nella spec touch (`sidebar-touch-audit.spec.ts`,
+ * SIDEBAR-CHROME-01), cioè misurata a 390×844 — l'unico posto dove NON è vera.
+ * Sotto i 768px `--bg` e `--bg-surface` collassano su `--chrome-bg` (index.css,
+ * `@media (max-width: 767px)`) perché lì le superfici non stanno affiancate,
+ * stanno impilate a schermo pieno e se ne vede una per volta: il gradino non
+ * separa niente e si legge solo come «lo sfondo è più chiaro della sidebar».
+ *
+ * Qui invece le superfici si vedono INSIEME — la colonna a sinistra, la pagina
+ * a destra, sullo stesso schermo — e il gradino ha il suo lavoro: dire «questa
+ * è la navigazione, questo è il lavoro». Quindi l'affermazione non è stata
+ * cancellata col difetto che l'aveva resa falsa: è stata portata al viewport in
+ * cui parla del prodotto (1280×800, il default della suite).
+ *
+ * Regge in ENTRAMBI i temi, e non per caso: chiaro `--chrome-bg` hsl(220 16% 93%)
+ * contro `--bg` #f8f9fa, scuro hsl(224 26% 4.5%) contro hsl(222 16% 8.5%). Il
+ * chrome è il più scuro dei due da tutte e due le parti.
+ */
+test.describe("Sidebar — le superfici, sul desktop", () => {
+  test("SIDEBAR-SURFACES-01: il chrome sta un gradino SOTTO la pagina", async ({ page }) => {
+    await goToApp(page);
+
+    const chrome = await surfaceBg(page, SIDEBAR_SELECTOR);
+    const pagina = await surfaceBg(page, PAGE_LAYER_SELECTOR);
+    // Senza questo, due `rgba(0, 0, 0, 0)` darebbero L=0 contro L=0 e il test
+    // fallirebbe per il motivo sbagliato — o, con un `<=`, passerebbe per vuoto.
+    for (const [nome, valore] of [["colonna", chrome], ["pagina", pagina]] as const) {
+      expect(valore, `la ${nome} non dipinge un colore opaco (${valore})`).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
+    }
+
+    const lChrome = luminance(chrome);
+    const lPagina = luminance(pagina);
+    expect(
+      lChrome,
+      `chrome ${chrome} (L=${lChrome.toFixed(4)}) deve stare SOTTO la pagina ${pagina} (L=${lPagina.toFixed(4)})`,
+    ).toBeLessThan(lPagina);
+
+    // E la fascia che circonda la pagina è chrome, non pagina: `#main-content`
+    // porta `bg-app-chrome` e il colore della pagina sta sul FIGLIO
+    // (`.content-flip-layer`, `bg-app-bg`). È lo stesso impianto che su iPhone
+    // salda la striscia sotto la tacca alla colonna.
+    const fascia = await surfaceBg(page, "#main-content");
+    expect(fascia, `la cornice di #main-content (${fascia}) deve essere il chrome (${chrome})`).toBe(chrome);
   });
 });
