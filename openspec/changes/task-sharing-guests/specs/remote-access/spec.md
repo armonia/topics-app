@@ -149,6 +149,37 @@ next, so that "nothing shared yet" cannot be read as a failure.
 - **THEN** the emptiness SHALL be presented as normal
 - **AND** the interface SHALL say what would make something appear
 
+### Requirement: SHARE-06 — Read-only is enforced, not merely declared
+
+Where the granted level conveys reading only, the gate SHALL refuse any request
+that is not a read, for every path a restricted recipient can reach. Declaring
+the level in the schema, the type, or the interface SHALL NOT be treated as
+enforcement.
+
+The three axes are distinct and all three SHALL be checked: **which path** may be
+reached, **which entity** within it, and **what may be done** to it. A gate that
+authorizes the noun without the verb permits a restricted recipient to modify or
+destroy exactly the things that were shared with it.
+
+Ending one's own session SHALL remain possible, since it is the only way for a
+restricted recipient to leave without depending on someone else revoking them.
+
+#### Scenario: A guest cannot modify what was shared with them
+- **GIVEN** a restricted recipient granted a resource
+- **WHEN** it issues a write against that resource — update, comment, or delete
+- **THEN** the server SHALL refuse it
+- **AND** the refusal SHALL identify the level, not the path or the entity
+
+#### Scenario: A guest can still read it
+- **GIVEN** the same recipient and resource
+- **WHEN** it reads the resource
+- **THEN** the server SHALL serve it
+
+#### Scenario: Leaving is still possible
+- **GIVEN** a restricted recipient
+- **WHEN** it ends its own session
+- **THEN** the server SHALL allow it despite the request not being a read
+
 ### Requirement: SHARE-05 — Sharing is offered where the thing lives, and says who can see it
 
 The gesture that shares a resource SHALL sit with the resource itself, SHALL be
