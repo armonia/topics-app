@@ -1325,7 +1325,7 @@ function App() {
               e `--bg-surface` sotto i 768px COLLASSA sul chrome (index.css):
               l'unico modo di riaprire la colonna quando non c'è nessuna pane
               spariva nel fondo proprio sul telefono. */}
-          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
+          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
         </div>
       )}
 
@@ -1342,18 +1342,19 @@ function App() {
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          // E ANCHE IL FONDO. La cima era rispettata da sempre, il fondo no: su
-          // iPhone la barra dell'home indicator passava SOPRA il contenuto, e la
-          // cosa che ci finiva sotto era il composer della chat — «il bordo
-          // dell'input tocca i bordi». Il suo `m-2` sono 8px, che sotto una
-          // striscia di sistema da 34 non si vedono nemmeno.
-          // Sta QUI e non sul composer perché la safe-area appartiene a chi
-          // possiede il bordo dello schermo, non all'ultimo componente che ci
-          // finisce contro: così ogni pane — chat, terminale, browser — sta
-          // dentro l'area utile, e nessuno deve ricordarsene di nuovo.
-          // (`.pwa-safe-bottom` in index.css esisteva già per questo e non era
-          // usata da nessuno.)
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          // IL FONDO NO, ed è una correzione: la prima versione metteva anche
+          // qui la safe-area, cioè ALZAVA TUTTO IL CONTENUTO — «non dovevi
+          // alzare tutta l'app ma solo l'input, ora la chat è tagliata nella
+          // safe area sotto». Vero: la conversazione perdeva 34px di altezza
+          // utile e sotto restava una fascia morta.
+          //
+          // La cima e il fondo non sono simmetrici, e la differenza è cosa ci
+          // sta contro. In cima c'è la barra di stato di iOS, OPACA: ogni pixel
+          // sotto di lei è perso, quindi il contenuto deve cominciare dopo. In
+          // fondo c'è l'home indicator, un trattino su fondo TRASPARENTE: il
+          // contenuto può scorrerci sotto, deve solo non finirci sotto qualcosa
+          // da TOCCARE. Quindi la spinta la prende il solo composer — vedi
+          // ChatInput, che se la calcola da sé.
           // paddingLeft (the overlay-sidebar reserved column) is owned imperatively by
           // useSidebarFlipPush — NOT a React inline style — so the FLIP can read the
           // pre-commit position and animate the reveal as a compositor transform on the

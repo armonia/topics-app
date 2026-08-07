@@ -1118,7 +1118,23 @@ export function ChatInput({
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
         className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
-        style={{ maxWidth: '100%' }}
+        // L'HOME INDICATOR LO SCAVALCA IL COMPOSER, non la pane.
+        //
+        // «Il bordo dell'input nelle chat tocca i bordi sull'iPhone»: il suo
+        // margine sono 8px, e sotto una striscia di sistema da 34 non si vedono.
+        // Il primo rimedio metteva la safe-area su `#main-content`, cioè alzava
+        // TUTTO il contenuto — «non dovevi alzare tutta l'app ma solo l'input,
+        // ora la chat è tagliata nella safe area sotto». Giusto: la
+        // conversazione perdeva quei 34px di altezza utile per una striscia
+        // sotto cui può benissimo scorrere.
+        //
+        // L'home indicator è un trattino su fondo TRASPARENTE: il contenuto ci
+        // passa sotto senza danno, deve solo non finirci sotto qualcosa da
+        // TOCCARE. Quindi la spinta la prende solo chi si tocca. `max(…)` e non
+        // una somma: dove la safe-area è più stretta del margine (o è zero, cioè
+        // ovunque tranne un iPhone) resta il margine di sempre, e la riga non
+        // cambia niente per nessun altro.
+        style={{ maxWidth: '100%', marginBottom: 'max(var(--composer-gap), env(safe-area-inset-bottom, 0px))' }}
       >
         {isRecording ? (
           <div className="flex gap-2 items-center p-3">

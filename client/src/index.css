@@ -1281,6 +1281,14 @@ html.electron-mac.dark .edge-lit::before {
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
 }
 
+/* Il margine del composer, come variabile: serve a `max(…)` nel confronto con
+ * la safe-area (vedi ChatInput), e una variabile è l'unico modo di scriverlo
+ * una volta invece di ripetere `0.5rem` dentro una `calc` dove nessuno lo
+ * troverebbe. Segue il breakpoint come le classi `m-2` / `m-3` che gli stanno
+ * accanto. */
+:root { --composer-gap: 0.75rem; }
+@media (max-width: 767px) { :root { --composer-gap: 0.5rem; } }
+
 /* UNA CURVA SOLA, E LA FINESTRA CHE LA CONTIENE.
  *
  * Attilio, 07/08: «il + a destra nella tabbar dell'app è forse troppo poco
