@@ -92,8 +92,11 @@ sotto, non prima.
 - [x] 7.1 `ShareControl`: rubrica dai soggetti, dedup, conteggio per persona e non
   per dispositivo, e `via.id` finalmente **reso** (oggi dice «da progetto» senza
   dire quale, cioè non risponde alla domanda per cui la colonna esiste).
-- [ ] 7.2 `PairingApproval`: «Di chi è questo dispositivo?» al posto della scelta
-  di ruolo — il ruolo è derivato, chiederlo inviterebbe a contraddire il modello.
+- [x] 7.2 `PairingApproval` chiede «È mio» / «È di un'altra persona» e NON manda
+  più un ruolo: quello discende dall'essere proprietari dell'installazione. Una
+  persona nuova non è proprietaria, quindi il suo dispositivo nasce confinato —
+  il verso opposto trasformerebbe un errore di battitura in un accesso pieno.
+  `role` resta accettato come alias legacy dove le persone non ci sono.
 - [x] 7.3 `DevicesSection`: la riga dice DI CHI è (solo quando le persone sono
   più di una: a un utente solo sarebbe rumore) e offre «è di un'altra persona».
   `PATCH /api/auth/devices/:id` accetta `personId`, valida la persona, e chiude
