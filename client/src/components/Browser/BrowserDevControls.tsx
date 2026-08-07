@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
 import { Menu } from '../Shared/Menu';
+import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 
 const ICON = 14;
 
@@ -103,8 +104,15 @@ export function DeviceSwitcher({
 
 /* ------------------------------------------------------------ Console ---- */
 
+/**
+ * I colori dei livelli, tarati per ENTRAMBI i temi.
+ *
+ * Erano `red-400` e `amber-400` nudi, cioè scelti guardando solo il buio: sul
+ * vetro chiaro di macOS l'ambra faceva 1,55:1 contro una soglia di 4,5. Le
+ * coppie stanno in `popoverStyles` coi numeri misurati accanto.
+ */
 const LEVEL_STYLE: Record<BrowserConsoleEntry['level'], string> = {
-  error: 'text-red-400', warn: 'text-amber-400', info: 'text-app-text', log: 'text-app-text-secondary', debug: 'text-app-text-tertiary',
+  error: DANGER_TEXT, warn: WARNING_TEXT, info: 'text-app-text', log: 'text-app-text-secondary', debug: 'text-app-text-tertiary',
 };
 
 export function ConsoleBadge({
@@ -128,7 +136,7 @@ export function ConsoleBadge({
       <button ref={btnRef} type="button" title="Console"
         data-testid="browser-console-badge"
         onClick={() => setOpen(o => !o)}
-        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? 'text-red-400' : hasWarn ? 'text-amber-400' : 'text-app-text-secondary'}`}>
+        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : 'text-app-text-secondary'}`}>
         <Terminal size={ICON} />
         {count > 0 && <span className="text-[10px] font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>

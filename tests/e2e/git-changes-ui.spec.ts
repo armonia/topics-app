@@ -40,7 +40,13 @@ async function apriGit(page: import("@playwright/test").Page) {
   await expect(gitChanges).toBeVisible({ timeout: 10000 });
   const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
   await expect(header).toBeVisible({ timeout: 10000 });
-  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+  // Si clicca l'ETICHETTA, non il centro della riga: al centro c'e' il nome
+  // del ramo, che e' un CONTROLLO — cliccarlo apre la tendina dei rami e la
+  // sezione resta chiusa (misurato: `elementFromPoint` al centro restituisce
+  // lo span del branch).
+  if ((await header.getAttribute("aria-expanded")) !== "true") {
+    await header.getByText("Git", { exact: true }).click();
+  }
   return gitChanges;
 }
 

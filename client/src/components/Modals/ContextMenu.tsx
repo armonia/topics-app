@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PenLine, Palette, Trash2, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { DANGER_TEXT, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
 import { useCopyTabLink } from '@/hooks/useCopyTabLink';
 
@@ -179,7 +179,10 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
 
       {subMenu === 'confirm-delete' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-red-600 mb-2">Archiviare il topic?</div>
+          {/* `text-red-600` nudo faceva 4,22:1 sul fondo popover chiaro e 3,01
+              su quello scuro, per un 11px semibold: sotto AA in tutt'e due i
+              temi. La coppia sta in popoverStyles, coi numeri. */}
+          <div className={`text-[11px] font-semibold ${DANGER_TEXT} mb-2`}>Archiviare il topic?</div>
           <p className="text-[12px] text-app-text-secondary mb-3">
             Vuoi archiviare <strong>{topic.name}</strong>? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).
           </p>
@@ -202,7 +205,11 @@ function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; la
       onClick={onClick}
       className={`${danger ? POPOVER_ITEM_DANGER : POPOVER_ITEM}`}
     >
-      <Icon size={14} className={danger ? 'text-red-500' : 'text-app-text-tertiary'} />
+      {/* Sul ramo distruttivo l'icona NON si dipinge: lucide usa
+          `stroke="currentColor"`, quindi eredita il rosso del bottone. Dandogli
+          un `text-red-500` suo si avevano due rossi diversi a otto pixel di
+          distanza. */}
+      <Icon size={14} className={danger ? undefined : 'text-app-text-tertiary'} />
       {label}
     </button>
   );

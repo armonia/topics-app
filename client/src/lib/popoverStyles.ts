@@ -98,11 +98,33 @@ export const POPOVER_ITEM =
  */
 export const POPOVER_ITEM_TOUCH = POPOVER_ITEM;
 
+/**
+ * Le due coppie di testo colorato che passano AA su ENTRAMBI i fondi.
+ *
+ * Non si scrivono a mano nei call-site: il gradino giusto NON è lo stesso nei
+ * due temi, e chi ne sceglie uno solo sbaglia sempre metà dei casi. Misurato
+ * sui fondi veri — il vetro chiaro di macOS (#f2f3f6), il fondo popover
+ * (#f0f1f4), la superficie scura (#181a20):
+ *
+ *   red-400   2,56 chiaro · 4,97 scuro   → giusto SOLO al buio
+ *   red-500   3,37 · 3,77                → sotto in tutt'e due
+ *   red-600   4,22 · 3,01                → sotto in tutt'e due (era questo qui)
+ *   red-700   5,69 · 2,71                → giusto SOLO in chiaro
+ *   amber-400 1,53 · 8,34                → giusto SOLO al buio
+ *   amber-700 4,45 · 2,86                → chiaro per un pelo SOTTO il 4,5
+ *   amber-800 6,28 · 2,03                → giusto in chiaro
+ *
+ * Quindi: 700/800 in chiaro, 400 al buio. La soglia è 4,5:1, che è quella del
+ * testo normale — questi sono 11-12px, non testo grande.
+ */
+export const DANGER_TEXT = 'text-red-700 dark:text-red-400';
+export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
+
 /** Destructive variant of POPOVER_ITEM (delete / clear / discard). Stesso ritmo
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
  *  voce rossa avrebbe una riga più bassa delle altre. */
 export const POPOVER_ITEM_DANGER =
-  'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] text-red-600 dark:text-red-400 hover:bg-red-600/10 transition-colors';
+  `w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-left text-[14px] md:text-[12px] ${DANGER_TEXT} hover:bg-red-600/10 transition-colors`;
 
 /** Hairline separator between menu groups. */
 export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
