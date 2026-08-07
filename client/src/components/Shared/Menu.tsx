@@ -153,12 +153,38 @@ export function Menu({
         aria-label={ariaLabel}
         className={
           isMobile
-            ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} outline-none`
+            // Tetto e scroll: senza, il foglio dal basso cresce verso l'ALTO
+            // oltre lo schermo e le prime voci diventano irraggiungibili —
+            // `html, body, #root` hanno `overflow: hidden`, quindi non c'e'
+            // nessun modo di recuperarle. Caso vero: il menu di overflow della
+            // riga progetto, 10 voci, reso SOLO su tocco: 475px contro i ~390
+            // di un telefono in orizzontale.
+            //
+            // `100dvh` e non una frazione fissa: `70vh` taglierebbe anche in
+            // verticale, dove oggi il menu si vede intero. `overscroll-contain`
+            // e' obbligatorio perche' gli antenati hanno gia'
+            // `overscroll-behavior-y: contain`: senza, il rubber-band di iOS
+            // annulla il gesto di scorrimento.
+            //
+            // E `className` ANCHE qui: era concatenato solo nel ramo desktop,
+            // quindi le larghezze che i chiamanti passano (`max-w-[460px]`,
+            // `w-[420px]`, `w-48`) erano gia' oggi silenziosamente morte sotto
+            // i 768px. Il tetto e lo scroll pero' NON stanno in classe ma nello
+            // stile qui sotto: uno dei chiamanti passa `overflow-hidden`, e fra
+            // due utility dello stesso layer a vincere e' l'ordine nel foglio
+            // generato, non quello nell'attributo. Lo stile inline non ha
+            // questa ambiguita'.
+            ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} outline-none overscroll-contain ${className}`
             : `${POPOVER_SURFACE} outline-none ${className}`
         }
         style={
           isMobile
-            ? { zIndex: Z_POPOVER, paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }
+            ? {
+                zIndex: Z_POPOVER,
+                paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)',
+                maxHeight: 'calc(100dvh - 3rem)',
+                overflowY: 'auto',
+              }
             : {
                 position: 'fixed',
                 top: pos?.top ?? -9999,

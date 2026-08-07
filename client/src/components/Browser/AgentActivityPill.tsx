@@ -48,7 +48,7 @@ export function AgentActivityPill({ active, action }: AgentActivityPillProps) {
   if (!show) return null;
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/15 border border-accent/30 text-accent text-[11px] font-medium select-none"
+      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-[11px] font-medium select-none"
       data-testid="browser-agent-activity-pill"
       title="L'agente sta controllando il browser"
     >

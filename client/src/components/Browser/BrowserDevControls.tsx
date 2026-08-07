@@ -25,7 +25,7 @@ export function ZoomControl({ zoom = 100, onZoom }: { zoom?: number; onZoom: (de
         <Minus size={12} />
       </button>
       <button type="button" onClick={() => apply('reset')} title="Reimposta zoom (100%)"
-        className={`px-1 h-6 text-[11px] tabular-nums ${pct !== 100 ? 'text-accent font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
+        className={`px-1 h-6 text-[11px] tabular-nums ${pct !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
         {pct}%
       </button>
       <button type="button" onClick={() => apply(1)} title="Aumenta zoom"
@@ -62,7 +62,7 @@ export function DeviceSwitcher({
       <button ref={btnRef} type="button" title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
         data-testid="browser-device-switcher"
         onClick={() => setOpen(o => !o)}
-        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-accent' : 'text-app-text-secondary'}`}>
+        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-primary' : 'text-app-text-secondary'}`}>
         <Icon size={ICON} />
         <ChevronDown size={10} className="opacity-60" />
       </button>
@@ -75,7 +75,7 @@ export function DeviceSwitcher({
             return (
               <button key={m} type="button"
                 onClick={() => { onSet(m); setOpen(false); }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-[12px] hover:bg-app-hover ${mode === m ? 'text-accent' : 'text-app-text'}`}>
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-[12px] hover:bg-app-hover ${mode === m ? 'text-primary' : 'text-app-text'}`}>
                 <MI size={13} /> {DEVICE_LABEL[m]}
               </button>
             );

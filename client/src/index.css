@@ -1944,7 +1944,30 @@ html.electron-mac .chrome-glass .chrome-glass {
  * whatever is behind it (content or desktop). Slightly more opaque than the
  * chrome (≈0.72 vs 0.55) so menu text stays crisp over busy content. On the web
  * (no `.electron-mac`) the base rule keeps the opaque `--bg-surface` fallback. */
-.glass-surface { background-color: var(--bg-surface); }
+/* IL DISTACCO DEL POPOVER, fuori dalla media query dove era rimasto chiuso.
+ *
+ * `.glass-surface` senza vibrancy dipinge `--bg-surface`, cioè LO STESSO pixel
+ * della superficie su cui atterra: contrasto 1,000:1, il popover non stacca.
+ * Il rimedio esisteva già — `--popover-bg`, un gradino nella direzione di chi
+ * sta più vicino all'occhio — ma viveva solo dentro `@media (max-width: 767px)`.
+ * Su macOS la vibrancy copre tutto e il difetto è invisibile; morde sulle build
+ * Windows e Linux, su ogni browser desktop sopra i 768px, e in ogni screenshot
+ * degli E2E.
+ *
+ * I valori NON sono copiati da quelli mobile: là il fondo è un altro (`--bg`
+ * collassato su `--chrome-bg`) e ricopiarli darebbe il distacco sbagliato.
+ * Misurati sul fondo di QUI:
+ *   · chiaro  #f0f1f4 su #ffffff → 1,17:1
+ *   · scuro   hsl(222 14% 17%) su hsl(222 14% 11%) → 1,19:1
+ * Il valore mobile scuro (13%) darebbe 1,05:1, cioè quasi niente.
+ *
+ * Solo `.glass-surface`: `.native-occlude` e il form del pannello stanno su un
+ * velo scuro e il distacco ce l'hanno già — includerli sarebbe una regressione.
+ * E la regola resta sotto `html.electron-mac .glass-surface`, che ha più peso:
+ * la vibrancy del Mac non si tocca. */
+:root { --popover-bg: hsl(220 14% 95%); }
+.dark { --popover-bg: hsl(222 14% 17%); }
+.glass-surface { background-color: var(--popover-bg, var(--bg-surface)); }
 /* Use Tailwind's backdrop utilities via @apply rather than a raw
  * `backdrop-filter` declaration: the minifier (Lightning CSS) collapsed the raw
  * pair to ONLY `-webkit-backdrop-filter`, which Chromium/Electron ignores
