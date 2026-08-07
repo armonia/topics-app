@@ -514,3 +514,61 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     expect(db.query("SELECT name FROM devices WHERE id=?").get(id)).toEqual({ name: "Telefono di Luca" });
   });
 });
+
+describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    // La 084 il proprietario lo crea da sé, anche su un database vuoto — e la
+    // UNIQUE su `is_default` impedisce di metterne un secondo, che è
+    // esattamente il presidio giusto: di proprietario predefinito ce n'è uno.
+    return db;
+  }
+
+  async function approva(router: ReturnType<typeof createAuthRouter>, corpo: Record<string, unknown>) {
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, ...corpo } });
+  }
+
+  test("«è mio» → il dispositivo è del proprietario, e vede tutto", async () => {
+    const db = db084();
+    await approva(createAuthRouter(creaCtx(db).ctx), {});
+    const d = db.query("SELECT role, person_id FROM devices").get() as { role: string; person_id: string };
+    const io = db.query("SELECT person_id FROM installation_owners").get() as { person_id: string };
+    expect(d).toEqual({ role: "owner", person_id: io.person_id });
+  });
+
+  test("«è di un'altra persona» → nasce la persona, e NON è proprietaria", async () => {
+    // Il verso opposto — nuovo quindi proprietario — trasformerebbe un errore
+    // di battitura in un accesso pieno.
+    const db = db084();
+    await approva(createAuthRouter(creaCtx(db).ctx), { personName: "Luca" });
+    const d = db.query("SELECT role, person_id FROM devices").get() as { role: string; person_id: string };
+    expect(d.role).toBe("guest");
+    const p = db.query("SELECT display_name FROM people WHERE id = ?").get(d.person_id) as { display_name: string };
+    expect(p.display_name).toBe("Luca");
+    expect(db.query("SELECT COUNT(*) c FROM installation_owners").get()).toEqual({ c: 1 });
+  });
+
+  test("una persona che c'è già si riusa invece di duplicarla", async () => {
+    const db = db084();
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p9','Luca',1,'local',1,1)");
+    await approva(createAuthRouter(creaCtx(db).ctx), { personId: "p9" });
+    const d = db.query("SELECT role, person_id FROM devices").get() as { role: string; person_id: string };
+    expect(d).toEqual({ role: "guest", person_id: "p9" });
+    // Il proprietario creato dalla 084 più Luca: due, non tre.
+    expect(db.query("SELECT COUNT(*) c FROM people").get()).toEqual({ c: 2 });
+  });
+
+  test("`role` resta accettato come alias legacy dove le persone non ci sono", async () => {
+    // Un client non aggiornato, o uno schema più vecchio della 084, non deve
+    // rompersi il giorno del rilascio.
+    const db = dbFresco();
+    await approva(createAuthRouter(creaCtx(db).ctx), { role: "guest" });
+    expect(db.query("SELECT role FROM devices").get()).toEqual({ role: "guest" });
+  });
+});
