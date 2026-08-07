@@ -17,6 +17,7 @@
  * guarda.
  */
 export { SessioneRelay } from "./relay-do";
+import { PAGINA_OSPITE } from "./pagina-ospite";
 
 interface Env {
   SESSIONE: DurableObjectNamespace;
@@ -25,6 +26,26 @@ interface Env {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+
+    // ── La PAGINA che un ospite apre cliccando il link.
+    //
+    // Statica e identica per tutti: non sa niente di nessuno. La chiave sta nel
+    // frammento dell'URL, che il browser non manda al server — quindi mentre
+    // serviamo il visore non vediamo cosa aprirà. Il relay resta cieco anche
+    // qui.
+    if (/^\/g\/[^/]+\/[^/]+\/?$/.test(url.pathname)) {
+      return new Response(PAGINA_OSPITE, {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          // Un link condiviso non si mette in cache lungo la strada e non
+          // finisce in un motore di ricerca.
+          "cache-control": "no-store",
+          "x-robots-tag": "noindex, nofollow",
+          "referrer-policy": "no-referrer",
+        },
+      });
+    }
+
     const m = url.pathname.match(/^\/(agent|s)\/([A-Za-z0-9_-]{1,128})$/);
 
     if (!m) {

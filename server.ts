@@ -77,6 +77,8 @@ import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameRe
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
+import { creaRelayClient } from "./server/services/relay-client";
+import { leggiRelayConfig } from "./server/services/relay-config";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -3504,6 +3506,54 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 // L'indirizzo VERO di chi chiede. Attraverso il tunnel il peer e' sempre
 // loopback, quindi il tetto per-indirizzo sull'appaiamento diventerebbe un
 // tetto per l'intero Internet: tre richieste in tutto.
+// ── Il RELAY: questa macchina chiama fuori, e nessuno chiama lei.
+//
+// Spento per default. Con `TOPICS_RELAY_URL` si collega in uscita e resta in
+// ascolto di ospiti arrivati da un link; senza, non succede niente e l'app
+// locale e' identica a prima — il relay e' un di piu', mai la strada del
+// lavoro.
+//
+// Il link e' una CAPACITA' su una cosa sola: qui non si proietta nessuna
+// sessione e nessun ruolo. Chi arriva non diventa nessuno.
+const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
+const relay = creaRelayClient({
+  baseUrl: relayCfg.baseUrl,
+  installationId: relayCfg.installationId,
+  trovaLink: (ref) => {
+    try {
+      const r = ctx.db.query(
+        "SELECT ref, key, resource_type, resource_id, expires_at, revoked_at FROM share_links WHERE ref = ?",
+      ).get(ref) as Record<string, unknown> | undefined;
+      if (!r) return null;
+      return {
+        ref: String(r.ref), key: String(r.key),
+        resourceType: r.resource_type === "topic" ? "topic" : "task",
+        resourceId: String(r.resource_id),
+        expiresAt: Number(r.expires_at),
+        revokedAt: r.revoked_at === null || r.revoked_at === undefined ? null : Number(r.revoked_at),
+      };
+    } catch { return null; }
+  },
+  serviRisorsa: async (l) => {
+    // La stessa strada dei dati locali: qui non si duplica nessuna regola.
+    const riga = l.resourceType === "task"
+      ? ctx.db.query("SELECT id, text, status, project_id FROM tasks WHERE id = ?").get(l.resourceId)
+      : ctx.db.query("SELECT id, name, updated_at FROM topics WHERE id = ?").get(l.resourceId);
+    if (!riga) return { status: 404, body: { error: "non disponibile" } };
+    return { status: 200, body: riga };
+  },
+  segnaApertura: (ref) => {
+    try {
+      ctx.db.query("UPDATE share_links SET opened_count = opened_count + 1, last_opened_at = ? WHERE ref = ?")
+        .run(Date.now(), ref);
+    } catch { /* non deve mai far fallire una consegna */ }
+  },
+  log: (m) => console.log(m),
+});
+ctx.relayConfig = () => relayCfg;
+ctx.relayConnected = () => relay.collegato();
+if (relayCfg.baseUrl) relay.avvia();
+
 ctx.requestIp = (req: Request) =>
   clientIpOf(req, (serverTunnel?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
 
