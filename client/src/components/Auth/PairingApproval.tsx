@@ -49,14 +49,24 @@ export function PairingApproval() {
     };
   }, []);
 
-  const rispondi = async (id: string, approva: boolean) => {
+  /**
+   * `role` viaggia SOLO all'approvazione, ed è l'unico momento in cui ha senso
+   * chiederlo: è la stessa occhiata in cui si confronta il codice.
+   *
+   * Finché questo cartello mandava il solo `requestId`, ogni dispositivo
+   * autorizzato dall'app nasceva proprietario e il ruolo `guest` era
+   * raggiungibile solo con `curl`. La condivisione ne restava irraggiungibile a
+   * cascata: `ShareControl` diceva sempre «Nessun ospite» e rimandava a un
+   * pannello che quella leva non ce l'aveva.
+   */
+  const rispondi = async (id: string, approva: boolean, role?: 'owner' | 'guest') => {
     setInCorso(id);
     try {
       await fetch(`/api/auth/pair/${approva ? 'approve' : 'deny'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ requestId: id }),
+        body: JSON.stringify(approva ? { requestId: id, role: role ?? 'owner' } : { requestId: id }),
       });
       setRichieste((prev) => prev.filter((r) => r.id !== id));
     } finally {
@@ -83,6 +93,12 @@ export function PairingApproval() {
             Autorizza solo se questo codice è lo stesso mostrato su quel dispositivo.
           </p>
 
+          {/* DUE autorizzazioni, non una con un interruttore accanto.
+              La differenza fra «vede tutto» e «vede solo ciò che gli condivido»
+              è la cosa più importante di questo cartello, e un interruttore la
+              renderebbe una preferenza da notare invece di una scelta da fare.
+              Il pieno resta il bottone pieno: il caso normale è il tuo secondo
+              telefono. */}
           <div className="mt-3 flex gap-2">
             <button
               disabled={inCorso === r.id}
@@ -93,12 +109,24 @@ export function PairingApproval() {
             </button>
             <button
               disabled={inCorso === r.id}
-              onClick={() => void rispondi(r.id, true)}
+              onClick={() => void rispondi(r.id, true, 'owner')}
               className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+              data-testid="pair-approve-owner"
             >
               Autorizza
             </button>
           </div>
+          <button
+            disabled={inCorso === r.id}
+            onClick={() => void rispondi(r.id, true, 'guest')}
+            className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
+            data-testid="pair-approve-guest"
+          >
+            Autorizza come ospite
+          </button>
+          <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
+            Un ospite vede solo ciò che gli condividi, in sola lettura.
+          </p>
         </div>
       ))}
     </div>
