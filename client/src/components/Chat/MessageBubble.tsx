@@ -5,7 +5,7 @@ import { MessageMetaFooter } from './MessageMetaFooter';
 import { parseSlashInvocation } from '../../../../shared/slash-invocation';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
-import { turnErrorOf } from './turnError';
+import { turnIsOnlyError } from './turnError';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
 
@@ -382,11 +382,12 @@ export const MessageBubble = memo(function MessageBubble({
               `handleRetry` (ChatPane) ripesca l'ultimo turno dell'utente e lo
               rispedisce: è il motivo per cui i cartelli d'errore possono
               permettersi di dire «il tuo messaggio è ancora qui».
-              Il cancello è lo STESSO del banner (`turnErrorOf`), non un secondo
-              sniff sul prefisso: due regole per la stessa domanda divergono, e
-              il primo turno con l'errore nei blocchi avrebbe avuto il cartello
-              senza il bottone per rimediarci. */}
-          {onRetry && msg.role === 'assistant' && turnErrorOf(msg) !== null && (
+              Il cancello NON è «c'è un errore»: è «c'è SOLO un errore». Un turno
+              che ha risposto e poi è inciampato non si ripara rimandandolo — se
+              ne farebbe un secondo, a pagamento, sopra uno che è già lì. Il
+              cartello dice che qualcosa è andato storto; solo l'assenza di
+              lavoro dice che c'è da rifarlo. */}
+          {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && (
             <button
               onClick={onRetry}
               data-testid="message-retry"

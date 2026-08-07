@@ -1054,20 +1054,31 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Il verdetto e il testo, separati una volta sola. `turnError` sale in cima
   // alla bolla; `cleanText` non deve ristamparlo come se fosse prosa. Solo per
   // l'assistente: un messaggio dell'utente che comincia con ⚠️ è testo suo.
+  // Il testo passa da `rawCleanText`, non da `content`: i marcatori dei media
+  // (`MEDIA:/percorso/…`) sono già stati estratti là, e prenderli da `content`
+  // li stampava in chiaro dentro il banner.
   const turnError = useMemo(
-    () => (role === 'assistant' ? turnErrorOf({ content, blocks }) : null),
-    [role, content, blocks],
+    () => (role === 'assistant' ? turnErrorOf({ content: rawCleanText, blocks }) : null),
+    [role, rawCleanText, blocks],
   );
-  const isLegacyErrorOnlyText = turnError !== null && (content ?? '').startsWith(LEGACY_ERROR_PREFIX);
+  const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
 
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
   const streamSafeText = useMemo(
     () => (partial && rawCleanText) ? completePartialMarkdown(rawCleanText) : rawCleanText,
     [rawCleanText, partial],
   );
-  // Sulle righe vecchie il cartello È il contenuto: sale nel banner, e qui non
-  // va ristampato — altrimenti si legge due volte.
-  const cleanText = isLegacyErrorOnlyText ? '' : streamSafeText;
+  // Sulle righe vecchie il cartello sta DENTRO il contenuto: è salito nel
+  // banner, e qui va tolto — altrimenti si legge due volte. Si toglie solo il
+  // primo capoverso, non tutto: una riadozione appende alla stessa colonna il
+  // contenuto rifuso, e buttarlo via cancellerebbe il turno per far posto alla
+  // sua etichetta.
+  const cleanText = useMemo(() => {
+    if (!isLegacyErrorOnlyText) return streamSafeText;
+    const resto = streamSafeText.trim().slice(LEGACY_ERROR_PREFIX.length);
+    const sep = resto.search(/\n\s*\n/);
+    return sep === -1 ? '' : resto.slice(sep).trim();
+  }, [isLegacyErrorOnlyText, streamSafeText]);
   
   // Combine extracted media paths with explicit media array
   const allMediaPaths = useMemo(() => {
