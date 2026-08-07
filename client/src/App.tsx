@@ -952,7 +952,7 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-full ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
@@ -1325,7 +1325,7 @@ function App() {
               e `--bg-surface` sotto i 768px COLLASSA sul chrome (index.css):
               l'unico modo di riaprire la colonna quando non c'è nessuna pane
               spariva nel fondo proprio sul telefono. */}
-          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className={`edge-lit ${RAISED_CONTROL} rounded-full shadow-sm`} />
+          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
         </div>
       )}
 

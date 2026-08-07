@@ -1294,7 +1294,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           sidebar's project-header "+" renders the SAME component with
           different `availableTypes` and a hover-revealed trigger. */}
       {hasMenuItems && (
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1" {...NO_DRAG_REGION}>
+        <div
+          // `ROW_INSET` e non `pr-1`. Il «+» stava a 4px dal bordo destro —
+          // l'unico numero della barra fuori dal passo della colonna, e proprio
+          // nell'angolo in alto a destra della FINESTRA, che sotto la shell mac
+          // è arrotondato a 12. Da lì nasceva il «non si trova col border radius
+          // della finestra»: non è il raggio del bottone a essere sbagliato (le
+          // superfici stanno tutte a 8), è che a 4px dalla curva della finestra
+          // due archi diversi si toccano e il confronto diventa inevitabile.
+          // A 6 il bottone respira, sta sul ritmo di tutto il resto, e smette di
+          // essere letto insieme all'angolo.
+          className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
+          style={{ paddingRight: ROW_INSET }}
+          {...NO_DRAG_REGION}
+        >
           <PaneAddMenu
             scope={addMenuScope}
             onNewChat={onNewChat}
