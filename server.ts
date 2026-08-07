@@ -75,7 +75,7 @@ import {
 } from "./server/lib/device-auth";
 import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
-import { resolvePrincipals } from "./server/lib/principals";
+import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -485,19 +485,40 @@ ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
  * ospiti finché qualcuno non lo aggiunge all'allowlist. Un aggiornamento che
  * manca si nota e si corregge; una fuga no.
  */
+/**
+ * I principali di un dispositivo, memorizzati finché il mondo non cambia.
+ *
+ * Questo predicato gira nel ciclo dei broadcast — per OGNI socket e per OGNI
+ * frame — quindi risolvere ogni volta significherebbe due query in più a frame.
+ * La memoria si invalida da sola sul contatore `principals_rev`, che i trigger
+ * SQL muovono quando cambia un'appartenenza, una revoca o l'attribuzione di un
+ * dispositivo: non è una scadenza a tempo, è il fatto che il dato è cambiato.
+ * Una cache a scadenza qui vorrebbe dire una finestra in cui una revoca non ha
+ * ancora effetto, ed è esattamente la cosa da non avere.
+ */
+const memoPrincipali = new Map<string, { rev: number; list: ReturnType<typeof deviceP> }>();
+function principaliDi(deviceId: string) {
+  const rev = principalsRev(ctx.db);
+  const cache = memoPrincipali.get(deviceId);
+  if (cache && cache.rev === rev) return cache.list;
+  const list = resolvePrincipals(ctx.db, deviceId).list;
+  memoPrincipali.set(deviceId, { rev, list });
+  return list;
+}
+
 ctx.setGuestBroadcastFilter({
   mayReceiveFrame(deviceId, message) {
     const tipo = (message as { type?: unknown }).type;
     if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
     const risorsa = frameResource(message);
     if (!risorsa) return false;
-    return hasGrant(ctx.db, deviceP(deviceId), risorsa.type, risorsa.id);
+    return hasGrant(ctx.db, principaliDi(deviceId), risorsa.type, risorsa.id);
   },
   // Le fan-out per topic non portano l'entità NEL frame: ce l'hanno come
   // argomento. Qui quindi si guarda il topic che si sta per consegnare, non
   // quello che il frame dichiara — molti di quei frame non lo nominano affatto.
   mayReadTopic(deviceId, topicId) {
-    return hasGrant(ctx.db, deviceP(deviceId), "topic", topicId);
+    return hasGrant(ctx.db, principaliDi(deviceId), "topic", topicId);
   },
 });
 const processesRouter = createProcessesRouter(ctx);
