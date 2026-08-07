@@ -12,6 +12,7 @@ import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useAutoResize } from '../../hooks/useAutoResize';
 import { isBinaryForDiff, looksBinary, isTooLarge, type DiffBlock } from './diffGuards';
+import { diffEndpoints, endLabel, type DiffEnd, type DiffSource } from './diffEndpoints';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
@@ -214,9 +215,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
    *    ORA sotto un diff di ALLORA. Uno di quei bottoni è Scarta, che non è
    *    recuperabile.
    */
-  const [diffSource, setDiffSource] = useState<
-    { kind: 'worktree' } | { kind: 'commit'; hash: string } | null
-  >(null);
+  const [diffSource, setDiffSource] = useState<DiffSource | null>(null);
   /** Quando il diff non si può disegnare, e perché. Vedi `diffGuards.ts`. */
   const [diffBlock, setDiffBlock] = useState<DiffBlock>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
@@ -374,7 +373,20 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return () => { diffFetchAbortRef.current?.abort(); };
   }, []);
 
-  const handleFileClick = useCallback(async (filePath: string) => {
+  /**
+   * Legge un'estremità del confronto. Vedi `diffEndpoints.ts` per il PERCHÉ
+   * ce ne sono tre forme e non una sola.
+   */
+  const leggiEstremita = useCallback(async (end: DiffEnd): Promise<string> => {
+    if (end.from === 'disk') return filesApi.content(`${projectPath}/${end.path}`);
+    if (end.from === 'index') return gitApi.show(projectPath, end.path, undefined, 'index');
+    return gitApi.show(projectPath, end.path, end.rev);
+  }, [projectPath]);
+
+  const handleFileClick = useCallback(async (
+    filePath: string,
+    group: 'staged' | 'unstaged' | 'conflicted' = 'unstaged',
+  ) => {
     if (compact) {
       // Dispatch event to open diff in editor tabs
       window.dispatchEvent(new CustomEvent('open-file-diff', { detail: { filePath, projectPath } }));
@@ -386,25 +398,28 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     const controller = new AbortController();
     diffFetchAbortRef.current = controller;
 
+    const voce = gitStatusRef.current?.files.find(f => f.path === filePath);
     setSelectedFile(filePath);
-    setDiffSource({ kind: 'worktree' });
+    setDiffSource({ kind: 'worktree', group });
     setLoadingDiff(true);
     // Un binario non si scarica nemmeno: git lo dichiara già nella lista, e
     // leggerlo come testo produce solo i 19 KB di mojibake che CodeMirror
     // proverebbe a diffare.
-    if (isBinaryForDiff(gitStatusRef.current?.files.find(f => f.path === filePath))) {
+    if (isBinaryForDiff(voce)) {
       setDiffBlock({ kind: 'binary' });
       setLoadingDiff(false);
       return;
     }
     setDiffBlock(null);
     try {
-      const original = await gitApi.show(projectPath, filePath);
+      // Le DUE estremità giuste per questo gruppo, col nome vecchio a sinistra
+      // se è un rename.
+      const { left, right } = diffEndpoints(voce ?? { path: filePath }, { kind: 'worktree', group });
+      const original = await leggiEstremita(left).catch(() => '');
       if (controller.signal.aborted) return;
-      const fullPath = `${projectPath}/${filePath}`;
       let modified = '';
       try {
-        modified = await filesApi.content(fullPath);
+        modified = await leggiEstremita(right);
       } catch (e: unknown) {
         // Un 413 NON è «file vuoto». Inghiottirlo qui disegnava il file intero
         // come cancellato — vedi `diffGuards.ts`. Un 404 invece sì: è il file
@@ -431,7 +446,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       if (!controller.signal.aborted) setLoadingDiff(false);
     }
-  }, [projectPath, compact]);
+  }, [projectPath, compact, leggiEstremita]);
 
   /**
    * Un file come stava in un commit passato: `<hash>^` contro `<hash>`.
@@ -592,7 +607,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       // Plain click: single select + open file
       setSelectedFiles(new Set([filePath]));
       lastClickedRef.current = filePath;
-      handleFileClick(filePath);
+      // Il GRUPPO viaggia col click: e' cio' che decide QUALE coppia si
+      // confronta. Prima si scartava qui, e le due liste aprivano lo stesso
+      // diff — che non era nessuno dei due.
+      handleFileClick(filePath, group);
       return;
     }
   }, [getFileList, handleFileClick]);
@@ -1248,7 +1266,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     // Aperto QUI, non da qualche altra parte con lo stesso path: un file
     // aperto dalla cronologia accendeva la sua riga nella lista dei
     // cambiamenti, indicando una cosa che non era stata cliccata.
-    const isDiffOpen = selectedFile === file.path && diffSource?.kind === 'worktree';
+    // Aperto da QUESTA riga: path E gruppo. Un file `MM` sta in entrambe le
+    // liste, e senza il gruppo un click su una accendeva anche l'altra —
+    // indicando come «aperto» un diff che non era quello a schermo.
+    const isDiffOpen = selectedFile === file.path
+      && diffSource?.kind === 'worktree'
+      && diffSource.group === group;
     const basename = pathBasename(file.path) || file.path;
     const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
     return (
@@ -1532,23 +1555,26 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {selectedFile ? (
           <>
             <div data-testid="diff-header" className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
-              <span className="text-[12px] text-app-text-secondary">{selectedFile}</span>
-              {/* L'intestazione dice quale COPPIA sta a schermo. Su un file
-                  aperto dalla cronologia non è HEAD contro il disco: è il
-                  commit contro il suo padre, e dirlo «in lavorazione» era
-                  semplicemente falso. */}
-              <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
-                {diffSource?.kind === 'commit' ? (
-                  <span data-testid="diff-header-commit">
-                    {diffSource.hash.slice(0, 7)}^ | {diffSource.hash.slice(0, 7)}
-                  </span>
-                ) : (
-                  <>
-                    <span>{tr('git.originalHead')}</span>
-                    <span>|</span>
-                    <span>{tr('git.modifiedWorking')}</span>
-                  </>
-                )}
+              {/* Il file, col nome vecchio quando è un rename: senza, un file
+                  rinominato si presenta come comparso dal nulla. */}
+              <span className="text-[12px] text-app-text-secondary">
+                {(() => {
+                  const v = gitStatus.files.find(f => f.path === selectedFile);
+                  return v?.origPath ? `${v.origPath} → ${selectedFile}` : selectedFile;
+                })()}
+              </span>
+              {/* Quale COPPIA sta a schermo. Diceva sempre «Originale (HEAD) |
+                  Modificato (in lavorazione)»: falso su un file aperto dalla
+                  cronologia (è il commit contro suo padre) e falso sotto
+                  «Staged» (è HEAD contro l'INDICE). Ora l'etichetta esce dalle
+                  estremità vere — stessa funzione che le sceglie. */}
+              <div data-testid="diff-header-sides" className="flex items-center gap-2 text-[11px] text-app-text-muted">
+                {(() => {
+                  if (!diffSource) return null;
+                  const v = gitStatus.files.find(f => f.path === selectedFile);
+                  const { left, right } = diffEndpoints(v ?? { path: selectedFile }, diffSource);
+                  return <span>{endLabel(left)} | {endLabel(right)}</span>;
+                })()}
               </div>
             </div>
             {/* I blocchi, quando il file ne ha più d'uno.
@@ -1566,8 +1592,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 <HunkActions
                   projectPath={projectPath}
                   file={selectedFile}
+                  // Il lato del GRUPPO da cui si e' cliccato: sotto «Staged» i
+                  // blocchi da elencare sono quelli da togliere, non quelli
+                  // fuori dall'indice. I conflitti non hanno un lato su cui
+                  // agire per blocco, quindi si lascia indovinare.
+                  side={diffSource.group === 'conflicted' ? undefined : diffSource.group}
                   reloadKey={`${gitStatus.lastCommit.hash}:${voce.status}:${voce.unstaged?.added ?? 0}-${voce.unstaged?.removed ?? 0}`}
-                  onApplied={() => { loadStatus(); handleFileClick(selectedFile); }}
+                  // Si rientra nello STESSO gruppo: senza, applicare un blocco
+                  // da «Staged» riapriva il diff come se fosse «Changes», e la
+                  // striscia si rileggeva su un altro lato.
+                  onApplied={() => { loadStatus(); handleFileClick(selectedFile, diffSource.group); }}
                 />
               );
             })()}
