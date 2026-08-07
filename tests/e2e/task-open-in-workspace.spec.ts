@@ -12,6 +12,7 @@
  * registrato dalla suite mostra il pane che compare nel workspace.
  */
 import { test } from "./fixtures/layout.fixture";
+import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
@@ -59,10 +60,7 @@ async function openTestProject(page: Page) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") await projectsSection.click();
   }
-  const btn = page
-    .locator('[aria-label="Topics sidebar"] button')
-    .filter({ hasText: /e2e-wsopen/ })
-    .first();
+  const btn = projectRow(page, /e2e-wsopen/);
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.click();
   await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 10000 });
