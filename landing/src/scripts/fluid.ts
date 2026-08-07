@@ -1,57 +1,76 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   THE FIELD — one lit body, low in the frame, and the halo it throws.
+   THE FIELD — the arch of light from the reference's intro, measured off the
+   reference and rebuilt as a shader.
 
-   ── WHAT THE REFERENCES ACTUALLY DO ────────────────────────────────────────
-   Both were opened, rendered and measured rather than remembered, and neither
-   is what it looks like:
+   ── WHAT THE REFERENCE ACTUALLY IS ─────────────────────────────────────────
+   The "shader" in the hero of nextsaas ai-solutions is a VIDEO. It was checked
+   rather than assumed, because the whole point of this round was to stop
+   inventing: the page has 0 canvas elements and 1 video, and no three / gl /
+   pixi script anywhere; paused at currentTime = 2.0 the best-matching frame of
+   all 210 is frame 061, which is 2.0s x 30fps; and where nothing is painted
+   over it, the browser's pixels equal the file's to 1/255.
+   colorflow-animation.mp4, 1920x1440, 30fps, 7.00s, 210 frames, served by
+   Elementor and drawn with object-fit: cover into a 1440x1136 section.
 
-     ai-solutions   the "shader" in its hero is a VIDEO: colorflow-animation.mp4,
-                    1920x1440, a 7s loop. Sampled, it is 40% pure black and 22%
-                    near-white with violet flanks (192,192,224 · 160,160,224 ·
-                    224,192,224), and its bright centroid sits at 53%, 77% —
-                    low centre. Rendered as a density map it is a luminous DOME
-                    rising off the bottom edge, black above, with a soft arched
-                    crest that undulates across the loop.
+   So there was no shader to copy. There was a picture to measure.
 
-     tranquil       a WebGL2 canvas plus draco_wasm_wrapper.js — a Draco-
-                    compressed 3D mesh, not a particle system. What it draws is
-                    a globe-like body with a glowing pattern on it, and it moves
-                    continuously: 78.5% of pixels change in 1.2s, 93.8% in 2.4s.
+   ── WHAT WAS MEASURED ──────────────────────────────────────────────────────
+   Every number below is in the coordinates a visitor SEES at 1440x900 — the
+   file's own frame put through that cover crop (x inset 2.48% then scaled by
+   0.9505, y scaled by 1136/900) — because what is being copied is what is on
+   screen, not what is in the file. The first pass of this work quoted the curve
+   in the video's own coordinates and had the apex at 40% instead of 54%.
 
-   ── WHAT THIS IS ───────────────────────────────────────────────────────────
-   The two joined, which is what was asked for: ai-solutions' halo, moving the
-   way tranquil's body moves. One object. A closed body sitting low in the
-   frame, lit by a moving key, whose silhouette is a sum of harmonics that turn
-   and open — so it is never the same shape twice and never jumps — and whose
-   light spills upward into black as the dome.
+   The composition is an ARCH. Light fills the bottom of the frame and its edge
+   rises to a peak, off centre to the right:
+
+       x     0     9    18    27    36    45    55    64    73    82    91   100  %
+       y  81.5  75.8  66.6  64.8  61.9  59.0  56.0  54.0  57.9  63.5  70.3  74.6  %
+
+   apex at x 64%, y 54%; 24 points of arch between the corners and the peak; a
+   near-white core (253,253,255) at (69%, 81%); mean luminance 104/255, constant
+   to +/-2 across the whole loop.
+
+   AND IT IS ALMOST STILL. The crest breathes at most 10.6 points over the 7s
+   loop, and at the two edges it does not move at all (0.3 points). Everything
+   built here before moved far more than that, which is most of why none of it
+   read as this. The quality is in the composition and in the stillness.
 
    ── WHAT IT REPLACES ───────────────────────────────────────────────────────
-   Two layers, both deleted: a domain-warped height field, and a swarm of
-   24,000 points that morphed through seven shapes. The verdict on them was
-   "figo, però non ben definito", and it was right about both. A warped surface
-   has mood and no subject. The swarm had subjects — seven of them — but a
-   background that becomes seven things is a background you cannot name, and
-   under this page's contrast budget it never got to be more than a texture:
-   measured, it changed 2% of the visible pixels.
+   Three attempts, all deleted, all invented rather than measured: a domain-
+   warped height field, a swarm of 24,000 points morphing through seven shapes,
+   and a lit body throwing a halo. The verdict each time was some form of
+   "figo, però non ci siamo", and each time it was right.
 
-   One body you can point at beats seven you cannot see.
+   ── HOW THE ARCH IS DRAWN ──────────────────────────────────────────────────
+   The twelve measured points are carried by a quintic least-squared onto them,
+   whose largest error is 2.2 points — SMALLER THAN THE CURVE'S OWN BREATHING,
+   so the fit sits inside the measurement rather than beside it. Below that line
+   the light rises with the profile the reference has (13% of full at the crest,
+   66% a tenth of a frame under it, plateau by a fifth), brighter toward the
+   flank the core is on, exactly as measured along the bottom row.
 
-   ── WHY IT IS NOT RAYMARCHED ───────────────────────────────────────────────
-   It reads as three-dimensional and it is drawn in two. The silhouette is an
-   implicit curve; the normal is taken from it the way a sphere's is
-   (z = sqrt(1 - x^2 - y^2)), so the body gets a real key light, a real
-   terminator and a real fresnel rim, which is the whole of what the eye uses to
-   call something round. A sphere-traced SDF would spend forty evaluations per
-   pixel arriving at the same three cues.
+   ── WHERE THE CORE GOES, AND WHY IT IS AFFORDABLE ──────────────────────────
+   The reference's core is never actually seen: a 1290x605 photograph starts at
+   y531 and the core at y716 sits 185px inside it. That is what lets a near-
+   white survive in a picture — it is behind the subject, and what reaches the
+   eye is the bloom around it.
+
+   This page has the same subject in the same place. The app frame runs
+   y626-1304 across x178-1262, and the measured core at (69%, 81%) is x994,
+   y731 — inside it. So the core is kept where the reference put it and the page
+   covers it, which is the only reason a page whose luminance ceiling is L 0.036
+   can have a hot centre at all.
 
    ── THE SCROLL ─────────────────────────────────────────────────────────────
-   Continuous, never staged. Page progress lifts the body through the frame,
-   opens and closes its harmonics, turns the key light through 200 degrees, and
-   moves the hue from the brand's blue toward the agent ember and back. Nothing
-   snaps, because there is nothing to snap between.
+   The reference has none: its video lives in the hero and the page moves on.
+   This field is fixed to the window for 14,081px, so below the hero the apex
+   walks across the frame and the whole arch lifts — continuously, never staged,
+   and never back to a picture already shown. It also has to step out of the
+   reading column, which is the one thing the reference never had to do.
 
    ── THE BUDGET ─────────────────────────────────────────────────────────────
-   The body renders into a framebuffer and a composite pass rolls its luminance
+   The field renders into a framebuffer and a composite pass rolls its luminance
    off against a ceiling derived from the palest reading ink on the page. Both
    are documented where they are applied.
    ═════════════════════════════════════════════════════════════════════════ */
@@ -79,14 +98,18 @@ uniform vec2  uPtr;
 uniform float uPtrOn;
 uniform float uGain;
 
-/* The palette is the product's. GROUND is the page's own #0a0d14. CORE is the
-   brand at full chroma and low light — saturation is free on a near-black
-   ground and luminance is not, and the composite caps the second one. EMBER is
-   #d97757, the colour the app's tab bar paints a Claude session with. */
+/* WHITE AND TOPICS BLUE, which is what was asked for. GROUND is the page's own
+   #0a0d14 and it happens to be the reference's own top-of-frame to within three
+   values (11,17,22). BLUE is the brand at full chroma and low light —
+   saturation is free on a near-black ground and luminance is not, and the
+   composite caps the second one. PALE is the heart: the reference's is
+   253,253,255, ours is biased blue so that what survives the cap is a colour
+   rather than a grey. */
 const vec3 GROUND = vec3(0.039, 0.051, 0.078);
-const vec3 CORE   = vec3(0.000, 0.290, 1.000);
-const vec3 RIMCOL = vec3(0.360, 0.660, 1.000);
-const vec3 EMBER  = vec3(1.000, 0.360, 0.140);
+const vec3 BLUE   = vec3(0.000, 0.290, 1.000);
+const vec3 PALE   = vec3(0.680, 0.820, 1.000);
+
+const float PI = 3.14159265;
 
 float hash(vec2 p){
   p = fract(p * vec2(233.34, 851.73));
@@ -101,188 +124,144 @@ float noise(vec2 p){
              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
-float fbm(vec2 p){
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++){
-    v += a * noise(p);
-    p = p * 2.03 + vec2(8.3, 2.8);
-    a *= 0.5;
-  }
-  return v;
-}
+/* ── THE ARCH ──────────────────────────────────────────────────────────────
+   The reference's crest, as a quintic least-squared onto the twelve measured
+   points. It returns the height of the edge of the light, as a fraction of the
+   window, measured DOWN FROM THE TOP:
 
-/* THE SILHOUETTE. Four harmonics on the radius, each turning at its own rate.
-   Four is where the outline stops reading as an ellipse and starts reading as a
-   body, and it is below where it starts reading as a splat. The amplitudes open
-   with the scroll, so the body is nearly round at the top of the page and most
-   itself in the middle of it. */
-float radiusAt(float ang, float t, float open) {
-  float r = 1.0;
-  r += 0.115 * open * sin(ang * 2.0 + t * 0.23);
-  r += 0.075 * open * sin(ang * 3.0 - t * 0.31 + 1.7);
-  r += 0.045 * open * sin(ang * 5.0 + t * 0.19 + 4.1);
-  r += 0.026 * open * sin(ang * 8.0 - t * 0.27 + 2.3);
-  return r;
+     x  0     9    18    27    36    45    55    64    73    82    91   100  %
+     y 81.5  75.8  66.6  64.8  61.9  59.0  56.0  54.0  57.9  63.5  70.3  74.6 %
+
+   The fit's largest error is 2.2 points, against a curve that breathes by up to
+   10.6 — so this is inside the measurement, not an approximation of it. The
+   coefficients are not adjustable by taste: change them and check:field says
+   the arch has left the reference. */
+float archAt(float x){
+  float c = clamp(x, 0.0, 1.0);
+  float y = 0.82147 + c * (-1.32360 + c * (5.26663 + c * (-14.00114 +
+                       c * (16.88941 + c * (-6.90486)))));
+  /* AND THEN IT IS DEEPENED BY A FIFTH, because the curve that is DRAWN is not
+     the curve that is SEEN. The composite rolls luminance off against a ceiling,
+     so equal steps of light are not equal steps on screen, and the contour the
+     eye reads as the edge of the light lands flatter than the arch that
+     generated it. Measured on the rendered page, the drawn 24.1-point arch came
+     back as 18.9. The gain is around the curve's own mean (0.6549), so it
+     deepens the arch without moving the picture up or down, and the number is
+     the one that made the RENDERING match — 1.20 puts the peak within 1.8 points
+     and both corners within 1.5. Check it with check:field, never by eye. */
+  return 0.6549 + (y - 0.6549) * 1.20;
 }
 
 void main(){
-  vec2 frag = gl_FragCoord.xy;
-  vec2 uv   = frag / uRes;
-  float aspect = uRes.x / uRes.y;
-  vec2 p = (uv - 0.5) * vec2(aspect, 1.0) * 2.0;
+  vec2  frag = gl_FragCoord.xy;
+  vec2  uv   = frag / uRes;
+  float sx   = uv.x;
+  float sy   = 1.0 - uv.y;              /* 0 at the TOP, like the measurements */
+  float s    = clamp(uScroll, 0.0, 1.0);
+  float t    = uTime;
+  float wide = (uRes.x / uRes.y) / 1.6; /* the curve was measured at 1440x900 */
 
-  float s = clamp(uScroll, 0.0, 1.0);
-  float t = uTime;
+  /* ── THE SCROLL ───────────────────────────────────────────────────────────
+     The reference has no scroll behaviour: its video lives in its hero and the
+     page moves on to a white section. This canvas is fixed to the window for
+     14,081px, so it has to keep being a picture the whole way down without ever
+     being the same picture twice.
+     Two continuous terms only. The apex WALKS across the frame — which is also
+     what hands the reading column back, since the brightest flank is wherever
+     the apex is — and the whole arch LIFTS, so the light claims more of the
+     frame the further down you are. Both are zero in the hero, where the
+     composition is the reference's exactly. */
+  float drift = smoothstep(0.03, 0.14, s) * 0.42 * sin(s * 2.6);
+  float lift  = s * 0.12;
+  float ax    = sx + drift;
 
-  /* ── the scroll terms, all continuous ─────────────────────────────────── */
-  float open  = 0.35 + 0.65 * sin(s * 3.14159);        /* how deformed */
-  /* The reference's bright centroid is at 77% down the frame, measured off the
-     video: visible, not cropped. At -0.80 the body sat at 90% and all that was
-     on screen was its halo, which is why the middle of the frame read as darker
-     than the flanks — those were not the flanks of the body, they were the
-     shoulders of the dome above it. */
-  float rise  = -0.56 + s * 0.46;                      /* the body climbs */
-  float scale = 0.56 + 0.16 * sin(s * 3.14159 * 0.8);  /* and breathes */
-  float key   = 1.05 + s * 3.5;                        /* the light turns */
-  float warm  = smoothstep(0.20, 0.44, s) * (1.0 - smoothstep(0.58, 0.84, s));
+  /* ── THE BREATH ───────────────────────────────────────────────────────────
+     Nailed to the reference's own loop: 7.00s, so 2*PI/7 = 0.8976 rad/s. The
+     amplitude goes to nothing at both edges because theirs does — measured, the
+     crest at x=0 and x=100% moves 0.3 points across the entire loop while the
+     middle moves 10.6. That stillness is the single property every earlier
+     version of this background got wrong. */
+  float env    = pow(max(sin(PI * clamp(sx, 0.0, 1.0)), 0.0001), 0.9);
+  float breath = 0.046 * env * sin(t * 0.8976 + sx * 2.4);
 
-  /* The body's centre. Low in the frame at the top of the page — exactly where
-     the reference's dome sits on the bottom edge — and climbing as you go. */
-  /* AND IT MOVES OFF THE COLUMN. Below the hero the body swings between the
-     left and right thirds of the frame, and that is a legibility decision
-     before it is a compositional one: the reading column runs down the middle,
-     so a light centred there is a light aimed at the text. Measured with the
-     body centred, the field's mean contribution in the reading column was up to
-     2.09x its mean in the gutters — the opposite of what the channel term is
-     for. Over the hero it stays central, because what is over it there is 66px
-     display type and the opaque frame of the app. */
-  float swing = smoothstep(0.035, 0.105, s) * 0.92 * sin(s * 3.6 + 0.5);
-  vec2 c = vec2(0.06 * sin(t * 0.07) + swing, rise);
-  vec2 q = (p - c) / scale;
+  float crest = archAt(ax) - lift + breath;
 
-  float ang = atan(q.y, q.x);
-  float rad = length(q);
-  float R   = radiusAt(ang, t, open);
-  float d   = rad - R;
+  /* The pointer LIFTS THE CREST toward the cursor rather than adding a lamp on
+     top of the picture. A separate light can look pasted on; a light that is
+     the same light, reaching, cannot. */
+  vec2  pt   = uPtr / uRes;
+  vec2  pd   = vec2((sx - pt.x) * wide, sy - (1.0 - pt.y));
+  float lamp = uPtrOn * exp(-dot(pd, pd) * 26.0);
+  crest -= lamp * 0.055;
 
-  /* ── THE BODY ───────────────────────────────────────────────────────────
-     Inside, the surface is a hemisphere over the silhouette: the normal is the
-     one a sphere would have, which is all the eye needs to call it round. */
-  float inside = smoothstep(0.03, -0.05, d);
-  float u2 = clamp(rad / max(R, 0.001), 0.0, 1.0);
-  float nz = sqrt(max(0.0, 1.0 - u2 * u2));
-  vec3 n = normalize(vec3(q.x / max(R, 0.001), q.y / max(R, 0.001), nz + 0.12));
+  /* ── THE RISE ─────────────────────────────────────────────────────────────
+     Measured off the file as a fraction of each column's own maximum: 0.13 at
+     the crest, 0.33 three points under it, 0.46 at six, 0.66 at ten, 0.85 at
+     fifteen, plateau by twenty. One smoothstep over 0.33 of the frame lands
+     within a few points of that the whole way down. */
+  float lit = smoothstep(-0.085, 0.245, sy - crest);
 
-  vec3 L = normalize(vec3(cos(key), 0.42 + 0.35 * sin(key * 0.6), 0.72));
-  float diff = max(dot(n, L), 0.0);
-  float spec = pow(max(dot(n, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), 11.0);
-  /* Fresnel. The edge of a translucent body is its brightest part, and it is
-     what makes the shape read as a volume rather than as a filled outline. */
-  float fres = pow(1.0 - clamp(nz, 0.0, 1.0), 2.6);
+  /* ── AND IT LEANS ─────────────────────────────────────────────────────────
+     The reference is not an even wash under its arch. Along its bottom row,
+     left to right: 0.58 0.61 0.63 0.66 0.86 0.93 0.96 0.97 0.98 0.99 1.00 — the
+     mass is half again as bright on the flank the core is on. That asymmetry is
+     most of why the picture reads as a light source and not as a gradient, and
+     it is also why there is no symmetric vignette here: one would fight the
+     brightest corner the reference has. */
+  float hg = 0.58 + 0.42 * smoothstep(0.28, 0.55, ax);
 
-  /* A slow interior flow, so the body is not a painted ball. Sampled in the
-     body's own frame, so it turns with the silhouette. */
-  float flow = fbm(q * 2.1 + vec2(t * 0.06, -t * 0.045)) * 0.55 + 0.45;
-
-  /* ── THE HALO ───────────────────────────────────────────────────────────
-     The whole point of the reference, and the reason the body sits low: the
-     light does not stop at the edge, it spills, and it spills UPWARD more than
-     sideways. Two falloffs — a tight one hugging the silhouette and a wide one
-     that becomes the dome — plus a vertical stretch, so the glow rises the way
-     it does in the reference rather than ringing the shape evenly. */
-  /* Built from the CREST rather than from the silhouette, and that is the whole
-     difference between a halo and a fog. A radial falloff around the body rings
-     it evenly and, stretched enough to rise, fills the frame: measured, the top
-     row of the viewport sat at rgb(9 21 53) against a ground of rgb(10 13 20) —
-     there was no black left for the light to be light against.
-     Two exponentials instead. One upward from the crest, one sideways past a
-     half-width that OPENS with height, which is what a glow does. Under the
-     crest both are 1, so the bottom of the frame is fully lit the way the
-     reference's is, and by a third of the way up there is nothing. */
-  float rScale = R * scale;
-  float crest = c.y + rScale * 0.90;
-  float above = p.y - crest;
-  float up    = exp(-max(above, 0.0) * 1.75);
-  float halfw = rScale * (1.0 + max(above, 0.0) * 1.25);
-  float side  = exp(-max(abs(p.x - c.x) - halfw, 0.0) * 1.05);
-  float dome  = up * side;
-
-  /* And a tight one hugging the silhouette, which is the body's own bloom. */
-  float near = exp(-max(d, 0.0) * 6.5 / max(scale, 0.001));
-
-  /* The pointer is a third light rather than a separate layer, so it obeys the
-     same falloff and cannot look pasted on. */
-  vec2 pt = (uPtr / uRes - 0.5) * vec2(aspect, 1.0) * 2.0;
-  float lamp = uPtrOn * exp(-length(p - pt) * 2.6) * 0.30;
-
-  /* ── THE CHANNEL ────────────────────────────────────────────────────────
+  /* ── THE CHANNEL ──────────────────────────────────────────────────────────
      The reading column runs down the middle of this page, so a light brightest
      in the middle spends its contrast budget on exactly the pixels that cannot
      afford it. It steps aside below the hero only: over the first screen the
-     things above it are 66px display type and the opaque frame of the app. */
-  float column  = smoothstep(0.40, 0.07, abs(uv.x - 0.5));
-  /* Both of these open by s = 0.105, which is where the hero ends: 1,437px of a
-     14,081px page. A slower ramp left the body still near the middle over the
-     first section below the fold, and the gate measured 1.37x there. */
+     things above it are 66px display type and the opaque frame of the app.
+     Both terms open by s = 0.105, which is where the hero ends — 1,437px of a
+     14,081px page. A slower ramp left the light still near the middle over the
+     first section below the fold, and the gate measured 1.37x there.
+     It multiplies a whole COLUMN evenly, so it cannot move the crest: the shape
+     gate and this term are independent by construction. */
+  float column  = smoothstep(0.40, 0.07, abs(sx - 0.5));
   float opened  = smoothstep(0.035, 0.105, s);
   float channel = 1.0 - column * opened * 0.80;
 
-  /* ── COMPOSITE ──────────────────────────────────────────────────────────── */
-  vec3 col = GROUND;
+  float mass = lit * hg * channel;
 
-  /* THE WHOLE COMPOSITION IS SIZED TO THE CEILING, not to taste. A pure blue
-     reaches the composite's L 0.036 at roughly B = 0.55, so every value above
-     that is in the asymptote of the roll-off and every gradient inside it gets
-     squeezed flat. Composed to 0.98 at its brightest, half the body's modelling
-     was happening in the part of the curve that cannot represent it: the
-     interior measured 130-138 in blue across its entire width, a dome with no
-     terminator in it. Summed to about 0.62 the top compresses gently and the
-     rest of the range is linear, which is where the shape lives. */
-  col += CORE * dome * 0.27 * channel;
-  col += CORE * near * 0.08 * channel;
-  col += CORE * lamp * 0.6 * channel;
+  /* ── COMPOSITE ────────────────────────────────────────────────────────────
+     THE VALUES ARE KEPT UNDER 1.0 ON PURPOSE, and this is the trap the whole
+     composite architecture nearly fell into once already. The framebuffer is
+     RGBA8: anything above 1.0 is CLIPPED THERE, before the tone-map ever sees
+     it. A mass composed above 1.0 does not roll off gracefully — it saturates
+     the blue channel in the buffer, arrives at the composite flat, and gets
+     scaled down to a desaturated grey. Measured, on the version that made that
+     mistake, the supposedly brightest part of the picture read rgb(30 58 58)
+     while the glow an inch outside it read rgb(4 40 133).
+     At 0.70 the brightest pixel lands at L 0.080, about 2.2x the composite's
+     ceiling: far enough in to use the roll-off, near enough out that the
+     gradient underneath it survives. */
+  vec3 col = GROUND + BLUE * mass * 0.70;
 
-  /* BRIGHTEST AT THE CORE, and that is the reference rather than a preference.
-     The first version weighted the fresnel rim at 0.80 and the interior at
-     CORE * 0.8 — so the edge was brighter than the middle and the body read as
-     a dark shape silhouetted against its own glow. Measured against the video
-     frames, ai-solutions is the opposite: its brightest value is a near-white
-     224,224,224 at the centre of the mass, with the violet at the flanks. A
-     glowing volume is brightest where you look through most of it. */
-  /* NO WHITE HEART. The reference's brightest value is a near-white 224,224,224
-     and this page cannot have one: the composite caps relative luminance at
-     0.036 so that 12px ink stays legible over it, and a white clamped to 0.036
-     is a GREY. Measured, that is exactly what happened — the body's interior
-     came out rgb(30 58 58), a grey-green hole in the middle of a blue field,
-     while the halo just outside it was rgb(4 40 133).
-     So the core is the most SATURATED thing rather than the lightest. Under a
-     luminance cap that is the only kind of brightness left, and by this page's
-     own vividness measure it is the better one anyway. */
-  float core = pow(max(nz, 0.0), 1.5);
-  /* THE VALUES ARE KEPT UNDER 1.0 ON PURPOSE, and this is the trap the whole
-     composite architecture nearly fell into. The framebuffer is RGBA8: anything
-     above 1.0 is CLIPPED THERE, before the tone-map ever sees it. So a body
-     composed at CORE * 2.4 does not roll off gracefully — it saturates the blue
-     channel to 255 in the buffer, arrives at the composite as a flat white-blue,
-     and gets scaled down to a desaturated grey. Measured, the body's interior
-     read rgb(1 60 61) while the halo an inch outside it read rgb(4 40 133): the
-     supposedly brightest part of the picture was its dullest.
-     A roll-off can only compress what it can hold. The terms below are sized so
-     the composition lands just under 1.0 at its brightest point, which leaves
-     the tone-map compressing a real gradient instead of a clipped one. */
-  vec3 bodyCol = CORE * (0.04 + 0.30 * core * (0.38 + 0.62 * diff * flow));
-  bodyCol += RIMCOL * spec * 0.10;
-  bodyCol += RIMCOL * fres * 0.07;
-  bodyCol = mix(bodyCol, EMBER * (0.5 + 0.6 * diff), warm * 0.38);
-  col = mix(col, col + bodyCol, inside * channel);
+  /* ── THE CORE ─────────────────────────────────────────────────────────────
+     The reference's is near-white (253,253,255) and it is NEVER SEEN: a
+     1290x605 photograph starts at y531 and the core at y716 sits 185px inside
+     it. That is the whole trick — a page can afford a white heart if its
+     subject stands in front of it, because what reaches the eye is the bloom.
+     This page has its subject in the same place. The app frame runs y626-1304
+     across x178-1262 and the core at (69%, 81%) is x994, y731: inside it.
+     It is a MIX toward pale, not an addition of white, and capped at 0.34. A
+     white clamped to L 0.036 is a grey; what survives a luminance cap is hue
+     and saturation, so the core is the palest thing here rather than the
+     brightest, and it stays a colour. */
+  vec2  cp   = vec2(0.692 - drift, 0.812);
+  float cd   = length(vec2((sx - cp.x) * wide, sy - cp.y));
+  float core = exp(-cd * 4.6) * lit * channel;
+  col = mix(col, PALE, core * 0.34);
 
-  /* A grain of light on the halo, so the falloff is a material and not a ramp. */
-  col += CORE * (noise(frag * 0.9 + t * 3.0) - 0.5) * 0.012 * (dome + inside);
+  col += BLUE * lamp * 0.10 * channel;
 
-  /* Vignette toward the ground at the corners, so the frame has an edge to end
-     on rather than being cropped by the window. */
-  float vig = smoothstep(1.45, 0.34, length((uv - 0.5) * vec2(1.30, 1.0)));
-  col = mix(GROUND, col, 0.42 + 0.58 * vig);
+  /* A grain of light, so the falloff is a material and not a ramp. Eight-bit
+     blue on near-black bands, and a banded gradient is the most reliable way to
+     make a shader look cheap. */
+  col += BLUE * (noise(frag * 0.9 + t * 3.0) - 0.5) * 0.012 * mass;
 
   gl_FragColor = vec4(GROUND + (col - GROUND) * uGain, 1.0);
 }
