@@ -72,6 +72,38 @@ export function dragMatchesScope(types: readonly string[], scope: string | undef
 }
 
 /**
+ * Questo drag è NOSTRO — cioè lo ha iniziato un elemento di questa app.
+ *
+ * Serve alla rete di sicurezza in `main.tsx`, che impedisce al browser di
+ * navigare via quando ci si lascia cadere sopra un file o un link. Quella rete
+ * era stesa su TUTTO: un `preventDefault` sul `dragover` del documento, per
+ * ogni trascinata. Ma `preventDefault` sul `dragover` è LETTERALMENTE il modo in
+ * cui una zona dice «sì, qui puoi lasciare» — stenderlo sul documento vuol dire
+ * dire di sì da ogni pixel della finestra. Il cursore mostrava «sposta» anche
+ * sopra i posti che il drop poi rifiutava, e una zona che si tira indietro non
+ * aveva nessun modo di farsi sentire: il suo silenzio veniva coperto un livello
+ * più su. Diversi commenti in giro per il codice («no preventDefault → the
+ * browser shows "no drop"») descrivevano un comportamento che la rete rendeva
+ * impossibile.
+ *
+ * Le trascinate ESTERNE — file dal Finder, link, testo — restano coperte: sono
+ * quelle che possono portare la finestra su un `file://`, ed è da quelle che la
+ * rete difende. Le nostre no: se ne occupano le zone, una per una, che è
+ * l'unico livello che sa se quel gesto lì ha senso.
+ */
+const TIPI_NOSTRI: readonly string[] = [
+  ...Object.values(DND_TYPES),
+  // Le due famiglie con l'ambito nell'hash del NOME (vedi sopra): il prefisso è
+  // la parte stabile, la coda cambia col progetto o col gruppo.
+  'application/x-pane-scope-',
+  'application/x-pane-solo-src-',
+];
+
+export function isInternalDrag(types: readonly string[]): boolean {
+  return types.some(t => TIPI_NOSTRI.some(nostro => t.startsWith(nostro)));
+}
+
+/**
  * Marks a tab drag whose SOURCE group holds a single pane (a "solo" group),
  * encoded per-group as a dataTransfer TYPE — same hashed-type trick as
  * `paneTabScopeType`, because `getData()` is blocked during dragover. A drop
