@@ -137,7 +137,11 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey }: CommitHist
 
   return (
     <div className="border-t border-app-border flex flex-col min-h-0" data-testid="commit-history">
-      <div className="flex items-center justify-between px-3 py-1 flex-shrink-0">
+      {/* `py-2`, come ogni altra riga del piede e come l'intestazione del
+          pannello (`h-8`, cioe' ~8px sopra il testo). Con `py-1` questa riga
+          aveva 4px sopra contro gli 8px della riga sopra: piu' bassa di 9px e
+          asimmetrica, e si leggeva come schiacciata sul fondo. */}
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
         <button
           onClick={() => setExpanded(v => !v)}
           aria-expanded={expanded}
