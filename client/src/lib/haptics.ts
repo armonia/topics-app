@@ -92,13 +92,15 @@ const PULSE_MS: Record<HapticStrength, number> = { light: 10, medium: 20, heavy:
  *  · nessun `name`, mai dentro un form → non finisce in nessun invio.
  */
 let iosSwitch: HTMLInputElement | null = null;
+let iosLabel: HTMLLabelElement | null = null;
 
-/** Solo per i test: dimentica lo switch creato, così ogni caso riparte pulito. */
-export function __resetHaptics(): void { iosSwitch = null; }
+/** Solo per i test: dimentica gli elementi creati, così ogni caso riparte pulito. */
+export function __resetHaptics(): void { iosSwitch = null; iosLabel = null; }
 
-function iosHapticSwitch(): HTMLInputElement | null {
+function iosHapticSwitch(): HTMLLabelElement | null {
   if (typeof document === 'undefined') return null;
-  if (iosSwitch?.isConnected) return iosSwitch;
+  if (iosLabel?.isConnected && iosSwitch?.isConnected) return iosLabel;
+
   const el = document.createElement('input');
   el.type = 'checkbox';
   // L'attributo che rende il controllo uno SWITCH nativo (Safari 17.4+): è
@@ -106,12 +108,30 @@ function iosHapticSwitch(): HTMLInputElement | null {
   // attributo perché non esiste nella tipizzazione di HTMLInputElement.
   el.setAttribute('switch', '');
   el.setAttribute('aria-hidden', 'true');
+  el.id = 'topics-haptic-switch';
   el.tabIndex = -1;
   el.style.cssText =
     'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+
+  // SI CLICCA LA LABEL, NON L'INPUT — ed è la differenza fra sentire e non
+  // sentire. Le librerie che questa tecnica l'hanno provata sul campo
+  // (`ios-haptics`, `web-haptics`) cliccano una `<label for=…>` legata allo
+  // switch, e la nota della patch di Apple lo dice in tutte lettere: «you can no
+  // longer trigger haptic feedback programmatically by calling .click() on a
+  // <label> that is for an <input type="checkbox" switch />». Cioè: fino a 26.4
+  // è QUEL percorso — attivazione per label — a far suonare il motore; un
+  // `.click()` sull'input cambia lo stato senza passare di lì. Al primo giro
+  // avevo cliccato l'input, e non si sentiva niente.
+  const lab = document.createElement('label');
+  lab.htmlFor = el.id;
+  lab.setAttribute('aria-hidden', 'true');
+  lab.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
+
   document.body.appendChild(el);
+  document.body.appendChild(lab);
   iosSwitch = el;
-  return el;
+  iosLabel = lab;
+  return lab;
 }
 
 export function haptic(strength: HapticStrength = 'light'): boolean {
@@ -158,15 +178,16 @@ function iosSwitchPulse(): boolean {
   // Solo su iOS: altrove non c'è nessun tick da ottenere, e un elemento in più
   // nel DOM di ogni desktop sarebbe peso senza contropartita.
   if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return false;
-  const el = iosHapticSwitch();
-  if (!el) return false;
+  const lab = iosHapticSwitch();
+  if (!lab) return false;
   try {
-    // `.click()` inverte lo stato: si rimette com'era subito dopo, così l'unico
-    // effetto osservabile resta il tick. Lo stato non lo legge nessuno — non ha
-    // né `name` né form — ma lasciarlo alternato sarebbe uno stato sporco che
-    // prima o poi qualcuno leggerebbe.
-    el.click();
-    el.checked = false;
+    // Il click sulla LABEL attiva lo switch per la strada che il sistema
+    // riconosce (vedi il commento in `iosHapticSwitch`). Lo stato si rimette a
+    // riposo subito: nessuno lo legge — lo switch non ha né `name` né form — ma
+    // lasciarlo alternato sarebbe uno stato sporco che prima o poi qualcuno
+    // leggerebbe.
+    lab.click();
+    if (iosSwitch) iosSwitch.checked = false;
   } catch {
     return false;
   }
