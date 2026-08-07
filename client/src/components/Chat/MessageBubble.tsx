@@ -4,7 +4,8 @@ import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { parseSlashInvocation } from '../../../../shared/slash-invocation';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
-import { MessageContent, turnErrorOf } from '../MessageContent';
+import { MessageContent } from '../MessageContent';
+import { turnErrorOf } from './turnError';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
 
