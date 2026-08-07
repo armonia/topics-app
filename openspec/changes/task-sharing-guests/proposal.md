@@ -92,6 +92,18 @@ righe è lavoro di fondamenta, non una voce in un enum.
 risorsa, con la provenienza mostrata e il caso «nessun ospite» che dice dove
 crearne uno.
 
+**Correzione al 2026-08-07** — quel «dove crearne uno» puntava a una leva che non
+esisteva. Il cartello di approvazione mandava il solo `requestId`, quindi ogni
+dispositivo autorizzato dall'app nasceva proprietario e il ruolo `guest` era
+raggiungibile **solo con `curl`**: la condivisione era, di fatto, inutilizzabile
+dall'interfaccia, e `ShareControl` diceva per sempre «Nessun ospite». La mitigazione
+scritta qui sotto ai Rischi — «la scelta è esplicita nel cartello di approvazione,
+e il pannello Dispositivi mostra il ruolo di ogni riga» — descriveva una UI mai
+scritta. Ora c'è davvero: due autorizzazioni distinte nel cartello (non un
+interruttore: la differenza fra «vede tutto» e «vede solo ciò che gli condivido» è
+una scelta da fare, non una preferenza da notare) e l'etichetta «ospite» sulle
+righe dell'inventario.
+
 **Tre errori miei, trovati e chiusi costruendo** — valgono più del resto perché
 sono la stessa forma sbagliata ripetuta:
 1. il filtro ospite messo nel **router dei task**: un ospite leggeva `/api/topics`

@@ -28,6 +28,12 @@ interface Device {
   /** Quello da cui stai guardando. Senza, con tre iPhone in elenco non sai
    *  quale stai per revocare — e ti tagli fuori da solo. */
   current: boolean;
+  /** `owner` vede tutto, `guest` vede solo ciò che gli è stato condiviso.
+   *  Si mostra perché è la differenza più grossa fra due righe di questo
+   *  elenco, e perché è l'unico modo di accorgersi di averla scelta male al
+   *  momento dell'approvazione: senza, un dispositivo autorizzato per sbaglio
+   *  come proprietario è indistinguibile da uno voluto. */
+  role?: 'owner' | 'guest';
 }
 
 function quando(ms: number | null): string {
@@ -226,6 +232,18 @@ export function DevicesSection() {
                     {d.current && (
                       <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
                         stai qui
+                      </span>
+                    )}
+                    {/* Solo l'ospite si marca. Un'etichetta su ogni riga
+                        peserebbe come rumore, e «proprietario» è il caso
+                        normale: quello da vedere a colpo d'occhio è l'altro. */}
+                    {d.role === 'guest' && (
+                      <span
+                        className="flex-shrink-0 rounded bg-app-hover px-1.5 py-px text-[10px] text-app-text-secondary"
+                        title="Vede solo ciò che gli è stato condiviso, in sola lettura"
+                        data-testid="device-role-guest"
+                      >
+                        ospite
                       </span>
                     )}
                     <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
