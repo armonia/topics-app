@@ -53,7 +53,8 @@ import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles'
 import { POPOVER_ITEM_TOUCH, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
-import { buildAddMenuItems, AddMenuIcon, type AddMenuItem } from './addMenuItems';
+import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
+import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 
 /** Window event that opens the centered add palette (⌘N — dispatched by

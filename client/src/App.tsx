@@ -55,7 +55,7 @@ import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
 import { focusSpaceWindow, isSpaceClaimedLocally } from './lib/popOutSpace';
-import { useGoToSpace } from './components/Sidebar/SpaceGroups';
+import { useGoToSpace } from './components/Sidebar/useSpaceCards';
 import { spaceWindowId } from './lib/windowRole';
 import { useSpaceWindows } from './state/windowPresence';
 import { SpaceElsewherePanel } from './components/Layout/SpaceElsewherePanel';
