@@ -574,18 +574,14 @@ test.describe("Cross-Feature Interactions", () => {
       // On mobile, sidebar opens as fixed overlay (280px wide)
       await expect(layoutPage.sidebar).toBeVisible({ timeout: 5_000 });
 
-      // Close sidebar using the X button inside the mobile sidebar overlay
-      // (the X button is rendered only on mobile, inside the sidebar header)
-      const closeBtn = layoutPage.sidebar.locator('button').filter({
-        has: page.locator('svg.lucide-x'),
-      });
-      const closeBtnVisible = await closeBtn.isVisible().catch(() => false);
-      if (closeBtnVisible) {
-        await closeBtn.click();
-      } else {
-        // Fallback: use keyboard shortcut to toggle sidebar
-        await layoutPage.toggleSidebar();
-      }
+      // La X dentro il cassetto NON esiste più (07/08: era ridondante — il
+      // cassetto si chiude da solo appena apri qualcosa, e con lo swipe). Qui
+      // c'era un `if (closeBtnVisible) … else fallback`: da quando il bottone è
+      // sparito il ramo `if` è morto e il test passava sempre dal fallback,
+      // cioè provava una strada diversa da quella che il suo commento
+      // dichiarava. Un ramo che non può più essere preso non è una rete di
+      // sicurezza: è una riga che mente a chi la legge.
+      await layoutPage.toggleSidebar();
     }
 
     // Verify no layout crash -- main content still accessible

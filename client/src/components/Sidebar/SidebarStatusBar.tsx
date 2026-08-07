@@ -381,7 +381,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           0.55) — la stessa cucitura che la regola anti-compounding di
           `.chrome-glass` esiste per evitare, rientrata da un'altra porta.
           Non dipingere è l'unico modo di essere davvero la stessa superficie. */}
-      <div data-testid="sidebar-status-bar" className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* `max-md:min-h-11` — 44px sotto i 768px. Le due fasce in fondo alla
+          colonna stavano a 28 e 24px: misurati col dito, i loro bottoni davano
+          bersagli fra 24 e 28px di altezza, ed è il punto della sidebar dove il
+          pollice arriva peggio. Sul desktop restano 28, dove il mouse è preciso
+          e lo spazio verticale vale. */}
+      <div data-testid="sidebar-status-bar" className="flex items-center gap-2 min-h-7 max-md:min-h-11 border-t border-app-border flex-shrink-0" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -389,7 +394,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
-          className={`flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
+          className={`tap-expand-y flex items-center gap-1.5 text-[11px] ${SIDEBAR_HOVER} rounded px-1 py-1 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? SIDEBAR_ACTIVE : ''}`}
           title="Performance & stato sistema — apri per FPS live"
         >
           {openclawAvailable ? (
@@ -533,7 +538,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             <button
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
-              className={`text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
+              className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
               title="Info versione e aggiornamenti"
             >
               v{appVersion}
