@@ -7,6 +7,13 @@ import { mergePinnedLayout, placePinnedTile, reconcilePinnedLayout, type PinnedD
  *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
 export type { PinnedDropTarget } from '../components/Sidebar/pinnedLayout';
 
+/** I Fissati per intero: la lista E la disposizione. Le due cose viaggiano
+ *  sempre insieme (vedi `snapshotPinned`/`restorePinned`). */
+export interface PinnedSnapshot {
+  items: string[];
+  layout: PinnedRow[];
+}
+
 /**
  * Le viste della sidebar.
  *   - 'timeline' — una lista sola, ordinata per attività.
@@ -517,6 +524,33 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     }));
   }, []);
 
+  /**
+   * I Fissati com'erano un istante fa, e come rimetterli.
+   *
+   * Sfissare qualcosa che non ha altre ancore la toglie dalla sidebar: non è
+   * un cambio di vista, è una perdita, e una perdita va annullabile. Il
+   * ripristino è integrale — lista E disposizione — perché ri-fissare e basta
+   * riaccoderebbe la tessera in fondo invece che nella cella da cui è uscita:
+   * l'annulla tornerebbe a uno stato che non è quello di prima.
+   *
+   * `snapshotPinned` legge da `stateRef`, non da `state`: chi chiama lo fa
+   * dentro un gestore di evento, dove la closure può avere in mano un render
+   * vecchio di un aggiornamento.
+   */
+  const snapshotPinned = useCallback((): PinnedSnapshot => ({
+    items: stateRef.current.pinnedItems,
+    layout: stateRef.current.pinnedLayout ?? [],
+  }), []);
+
+  const restorePinned = useCallback((snap: PinnedSnapshot) => {
+    lastLocalChangeRef.current = Date.now();
+    setStateRaw(prev => ({
+      ...prev,
+      pinnedItems: snap.items,
+      pinnedLayout: reconcilePinnedLayout(snap.items, snap.layout),
+    }));
+  }, []);
+
   // Stable predicate (reads through stateRef) so ref-backed consumers — the
   // usePanelLifecycle archive guards — never re-bind on pin changes.
   const isPinned = useCallback(
@@ -560,6 +594,8 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     setPinnedLayout,
     pinAt,
     togglePin,
+    snapshotPinned,
+    restorePinned,
     isPinned,
     // New
     viewMode: state.viewMode,
