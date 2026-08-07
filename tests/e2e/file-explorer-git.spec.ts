@@ -500,6 +500,14 @@ test.describe("File Explorer — Git", () => {
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
 
+    // La sezione Git puo' arrivare CHIUSA, esattamente come in FILE-16/17:
+    // senza questo passo non esiste nessun bottone "Changes" da trovare.
+    const gitHeader = gitChanges.locator("div").filter({ hasText: /^Git$/ }).first();
+    const changedFilesList = gitChanges.locator("span", { hasText: /^[MDUA]$/ });
+    if (!(await changedFilesList.first().isVisible().catch(() => false))) {
+      await gitHeader.click();
+    }
+
     const changesHeader = gitChanges.locator("button", { hasText: /Changes/ });
     await expect(changesHeader.first()).toBeVisible({ timeout: 10000 });
     const changesRow = changesHeader.first().locator("..");
