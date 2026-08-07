@@ -387,6 +387,179 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
 
 });
 
+/**
+ * `pinOnly` — «se sfilo il pin, questa riga sparisce».
+ *
+ * Il caso vero: un progetto le cui chat sono tutte archiviate stava in sidebar
+ * SOLO perché fissato. Trascinare la tessera sulla lista mostrava la riga
+ * posarsi al suo posto e poi non lasciava niente. Il cancello lo conosce solo
+ * questo modulo, quindi è qui che la risposta va detta.
+ */
+describe("buildSidebarItems — pinOnly (il pin è l'unica ancora)", () => {
+  const soloArchiviate = {
+    ...base,
+    workspaceProjects: [],
+    topics: {
+      t1: topic("t1", "vecchia", { projectPath: PP, archived: true }),
+      t2: topic("t2", "vecchissima", { projectPath: PP, archived: true }),
+    },
+    terminalSessions: [],
+    projectOpenPanes: {},
+  };
+
+  test("progetto con sole chat archiviate, nessuna tab: fissato ⇒ pinOnly", () => {
+    const items = buildSidebarItems({
+      ...soloArchiviate,
+      openPanels: [],
+      pinnedIds: new Set([`project:${PP}`]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project).toBeTruthy();
+    expect(project!.children).toHaveLength(0);
+    expect(project!.pinOnly).toBe(true);
+    // …e senza il pin la riga non c'è affatto: è la prova che `pinOnly` non è
+    // un'etichetta decorativa ma la descrizione esatta di cosa succede dopo.
+    const senzaPin = buildSidebarItems({ ...soloArchiviate, openPanels: [], pinnedIds: new Set() });
+    expect(senzaPin.find((i) => i.id === `project:${PP}`)).toBeUndefined();
+  });
+
+  test("lo stesso progetto con la sua tab aperta: fissato ma NON pinOnly", () => {
+    const items = buildSidebarItems({
+      ...soloArchiviate,
+      openPanels: [projectPaneId],
+      pinnedIds: new Set([`project:${PP}`]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project!.pinned).toBe(true);
+    expect(project!.pinOnly).toBeUndefined();
+  });
+
+  test("un figlio visibile regge il progetto: niente pinOnly", () => {
+    const items = buildSidebarItems({
+      ...soloArchiviate,
+      topics: {
+        ...soloArchiviate.topics,
+        t3: topic("t3", "viva", { projectPath: PP }),
+      },
+      openPanels: ["t3"],
+      pinnedIds: new Set([`project:${PP}`]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project!.children!.length).toBeGreaterThan(0);
+    expect(project!.pinOnly).toBeUndefined();
+  });
+
+  test("chat standalone fissata a tab chiusa ⇒ pinOnly; con la tab aperta no", () => {
+    const chiusa = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha") },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    expect(chiusa.find((i) => i.id === "a1")!.pinOnly).toBe(true);
+
+    const aperta = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha") },
+      terminalSessions: [],
+      openPanels: ["a1"],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    expect(aperta.find((i) => i.id === "a1")!.pinOnly).toBeUndefined();
+  });
+
+  test("una chat ARCHIVIATA fissata è pinOnly anche con la tab aperta (la taglia il filtro archiviate)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha", { archived: true }) },
+      terminalSessions: [],
+      openPanels: ["a1"],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    expect(items.find((i) => i.id === "a1")!.pinOnly).toBe(true);
+    // Con «mostra archiviate» acceso la riga vive di suo: il pin non è più
+    // l'unica ancora.
+    const conArchiviate = buildSidebarItems({
+      ...base,
+      showArchived: true,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha", { archived: true }) },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    expect(conArchiviate.find((i) => i.id === "a1")!.pinOnly).toBeUndefined();
+  });
+
+  test("terminale standalone fissato: pinOnly a tab chiusa, non con la tab aperta", () => {
+    const chiuso = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [term("s1", "/elsewhere")],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["terminal:s1"]),
+    });
+    expect(chiuso.find((i) => i.id === "terminal:s1")!.pinOnly).toBe(true);
+
+    const aperto = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [term("s1", "/elsewhere")],
+      openPanels: ["terminal:s1"],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["terminal:s1"]),
+    });
+    expect(aperto.find((i) => i.id === "terminal:s1")!.pinOnly).toBeUndefined();
+  });
+
+  test("browser fissato a tab chiusa ⇒ pinOnly (per lui il pin è quasi sempre l'unica ancora)", () => {
+    const chiuso = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["browser:ctx9"]),
+    });
+    expect(chiuso.find((i) => i.id === "browser:ctx9")!.pinOnly).toBe(true);
+
+    const aperto = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: ["browser:ctx9"],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["browser:ctx9"]),
+    });
+    expect(aperto.find((i) => i.id === "browser:ctx9")!.pinOnly).toBeUndefined();
+  });
+
+  test("niente pinOnly su ciò che non è fissato", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha") },
+      terminalSessions: [],
+      openPanels: ["a1"],
+      projectOpenPanes: {},
+    });
+    expect(items.every((i) => i.pinOnly === undefined)).toBe(true);
+  });
+});
+
 describe("buildSidebarItems — browser row title (tab/sidebar parity)", () => {
   const browserBase = { ...base, workspaceProjects: [], topics: {}, terminalSessions: [] };
   const CTX = "ctx1";

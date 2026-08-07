@@ -160,6 +160,12 @@ const IT: Dict = {
   'sidebar.restoreProject': 'Ripristina il progetto',
   'sidebar.markAllRead': 'Segna tutto come letto',
   'sidebar.openAsProject': 'Apri come progetto',
+  // Trascinare una tessera sulla lista di solito la rimette in lista. Ma se il
+  // pin era l'unica cosa che la teneva su, di riga non ne nasce nessuna: e
+  // allora l'anteprima deve dire QUESTO, prima che si lasci il dito.
+  'sidebar.unpinVanishes': '{nome} esce dai Fissati — in lista non resta',
+  'sidebar.unpinnedGone': '{nome} non è più fissato, e non ha una riga in lista',
+  'sidebar.undo': 'Annulla',
   'settings.language': 'Lingua',
   'settings.language.auto': 'Automatica (come il browser)',
   'settings.language.it': 'Italiano',
@@ -287,6 +293,9 @@ const EN: Dict = {
   'sidebar.restoreProject': 'Restore project',
   'sidebar.markAllRead': 'Mark all as read',
   'sidebar.openAsProject': 'Open as project',
+  'sidebar.unpinVanishes': '{nome} leaves Pinned — no row in the list',
+  'sidebar.unpinnedGone': '{nome} is no longer pinned, and has no row in the list',
+  'sidebar.undo': 'Undo',
   'settings.language': 'Language',
   'settings.language.auto': 'Automatic (follow the browser)',
   'settings.language.it': 'Italiano',

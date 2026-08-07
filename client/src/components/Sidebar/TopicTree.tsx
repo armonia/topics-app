@@ -42,7 +42,8 @@ import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
-import type { PinnedDropTarget, SidebarViewMode } from '@/hooks/useSidebarState';
+import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/useSidebarState';
+import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardStatusCounts } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
@@ -243,6 +244,11 @@ export interface TopicTreeProps {
    *  sbagliata per «rimettila nella lista»: la riga sparirebbe proprio dal
    *  posto in cui l'hai appena trascinata. */
   onUnpinToList?: (id: string) => void;
+  /** I Fissati com'erano un istante fa, e come rimetterli — le due metà
+   *  dell'«Annulla» che compare quando lo sfissaggio non lascia una riga in
+   *  lista ma un vuoto. Vedi `snapshotPinned`/`restorePinned`. */
+  onSnapshotPinned?: () => PinnedSnapshot;
+  onRestorePinned?: (snap: PinnedSnapshot) => void;
   /** Active (non-done) task count across all projects. When > 0, a
    *  "Board generale" row is shown above the Fissati block. */
   boardTaskCount?: number;
@@ -307,6 +313,8 @@ export function TopicTree({
   onPinnedLayoutChange,
   onPinAt,
   onUnpinToList,
+  onSnapshotPinned,
+  onRestorePinned,
   boardTaskCount = 0,
   boardByStatus,
   boardOpen = false,
@@ -315,6 +323,7 @@ export function TopicTree({
   paneSpaceById,
 }: TopicTreeProps) {
   const tr = useT();
+  const toast = useToast();
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
   // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
@@ -514,6 +523,10 @@ export function TopicTree({
           notificationCount: boardTaskCount,
           archived: false,
           pinned: true,
+          // La riga dedicata alla Board esiste solo con task attivi o con la
+          // sua tab aperta (`boardRow`, più sotto): senza nessuna delle due,
+          // sfissarla non la riporta in lista — la fa sparire e basta.
+          ...(boardTaskCount > 0 || boardOpen ? {} : { pinOnly: true }),
         });
       }
     }
@@ -521,7 +534,7 @@ export function TopicTree({
       const item = byId.get(id);
       return item ? [item] : [];
     });
-  }, [filteredItems, pinnedItems, boardTaskCount, searchQuery]);
+  }, [filteredItems, pinnedItems, boardTaskCount, boardOpen, searchQuery]);
   const unpinnedItems = useMemo(
     () => filteredItems.filter(i => !i.pinned),
     [filteredItems]
@@ -1164,6 +1177,28 @@ export function TopicTree({
     if (!unpinPreview) return out;
     const tessera = pinnedBlock.find(i => i.id === unpinPreview);
     if (!tessera) return out;
+    // Se il pin è l'unica ancora, la riga di dopo NON esiste, e disegnarla
+    // sarebbe la promessa che ha fatto sparire «edm contratto»: si vede la
+    // riga posarsi al suo posto, si lascia, e al suo posto non c'è niente.
+    // Qui l'anteprima dice l'altra cosa vera — che quella roba esce dai
+    // Fissati e in lista non ci sarà — e la mette in cima, dove si legge come
+    // un avviso e non come un punto d'inserimento.
+    if (tessera.pinOnly) {
+      out.unshift(
+        <div
+          key="unpin-preview"
+          data-testid="unpin-preview"
+          data-vanish="true"
+          className="mx-1.5 mb-1 px-2.5 rounded-lg pointer-events-none flex items-center gap-1.5 text-[11px] font-medium
+                     bg-amber-500/12 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/30"
+          style={{ height: ROW_PX }}
+        >
+          <PinOff size={12} className="flex-shrink-0 opacity-80" />
+          <span className="truncate">{tr('sidebar.unpinVanishes', { nome: tessera.name })}</span>
+        </div>,
+      );
+      return out;
+    }
     const dopo = filteredItems.filter(i => !i.pinned || i.id === unpinPreview);
     const at = dopo.findIndex(i => i.id === unpinPreview);
     out.splice(Math.max(0, Math.min(at === -1 ? out.length : at, out.length)), 0, (
@@ -1406,7 +1441,22 @@ export function TopicTree({
           // istante dopo averla trascinata dentro — e senza più modo di
           // riprenderla. Il ripiego resta per chi non passa la prop nuova.
           const sfissa = onUnpinToList ?? onTogglePin;
-          if (key && sfissa && pinnedIds.has(key)) sfissa(key);
+          if (!key || !sfissa || !pinnedIds.has(key)) return;
+          // Quando in lista non resterà niente, il gesto non SPOSTA: toglie. Il
+          // prima va preso ADESSO — un istante dopo la tessera non è più fra i
+          // fissati e la sua cella non esiste più — e l'annulla rimette lista e
+          // disposizione insieme, cioè la tessera nella cella da cui è uscita.
+          const svanisce = pinnedBlock.find(i => i.id === key)?.pinOnly === true;
+          const nome = pinnedBlock.find(i => i.id === key)?.name ?? '';
+          const prima = svanisce ? onSnapshotPinned?.() : undefined;
+          sfissa(key);
+          if (prima && onRestorePinned) {
+            toast.warning(
+              tr('sidebar.unpinnedGone', { nome }),
+              8000,
+              { label: tr('sidebar.undo'), onClick: () => onRestorePinned(prima) },
+            );
+          }
         }}
       >
         {/* Board generale — THE single sidebar row for the board, above the
