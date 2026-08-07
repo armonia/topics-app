@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { boardProjectChips, fitProjectChips } from './boardProjectChips';
+import { boardProjectChips, fitProjectChips, CHIP_W, CHIP_GAP, MORE_W } from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
 
 function task(projectId: string, status: TaskStatus): BoardTask {
@@ -57,6 +57,11 @@ describe('boardProjectChips', () => {
 
 describe('fitProjectChips', () => {
   const chips = ['a', 'b', 'c', 'd', 'e'];
+  /** Lo spazio che occupano `n` pastiglie affiancate. Derivato dalle costanti,
+   *  non ricopiato: la larghezza è già cambiata una volta (68 → 52, passando da
+   *  due piani a uno) e con i numeri scritti a mano questi test sarebbero
+   *  diventati rossi mentre la regola restava intatta. */
+  const span = (n: number) => n * CHIP_W + (n - 1) * CHIP_GAP;
 
   test('prima della prima misura non si disegna e non si annuncia niente', () => {
     // Un «+5» che compare e sparisce al primo layout è peggio del vuoto di un
@@ -65,21 +70,24 @@ describe('fitProjectChips', () => {
   });
 
   test('se ci stanno tutte non c\'è nessun «+N»', () => {
-    // 5 × 68 + 4 × 6 = 364
-    expect(fitProjectChips(364, chips)).toEqual({ shown: chips, hidden: 0 });
-    expect(fitProjectChips(1000, chips)).toEqual({ shown: chips, hidden: 0 });
+    expect(fitProjectChips(span(5), chips)).toEqual({ shown: chips, hidden: 0 });
+    expect(fitProjectChips(span(5) + 500, chips)).toEqual({ shown: chips, hidden: 0 });
   });
 
   test('il «+N» si prende il suo posto PRIMA di contare quante ne restano', () => {
-    // A 363px ne entrerebbero 4 (4×68 + 3×6 = 290) — ma con 4 mostrate serve
-    // anche il «+1»: 290 + 6 + 22 = 318 ≤ 363, quindi 4 e una nascosta.
-    expect(fitProjectChips(363, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1 });
-    // A 310px il conto con quattro non regge (318 > 310): si scende a tre.
-    expect(fitProjectChips(310, chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2 });
+    // Un pixel meno del necessario per cinque: ne entrerebbero quattro, e con
+    // quattro mostrate serve anche il «+1» — che qui ci sta.
+    expect(fitProjectChips(span(5) - 1, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1 });
+    // Esattamente lo spazio di quattro: il «+1» NON ci sta più, quindi si
+    // scende a tre. È il passaggio che di solito manca, e senza il quale
+    // l'ultima pastiglia e il «+N» si contendono gli stessi pixel.
+    expect(fitProjectChips(span(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2 });
+    // E la soglia esatta: con lo spazio di quattro PIÙ il «+N», quattro tornano.
+    expect(fitProjectChips(span(4) + CHIP_GAP + MORE_W, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1 });
   });
 
   test('una colonna troppo stretta per una sola pastiglia non ne disegna nessuna', () => {
-    expect(fitProjectChips(40, chips)).toEqual({ shown: [], hidden: 5 });
+    expect(fitProjectChips(CHIP_W - 1, chips)).toEqual({ shown: [], hidden: 5 });
   });
 
   test('nessun progetto, nessuna riga', () => {
