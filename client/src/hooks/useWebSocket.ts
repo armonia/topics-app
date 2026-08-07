@@ -176,13 +176,18 @@ export function useWebSocket(): UseWebSocketReturn {
         // percorso caldo dei messaggi, che gira migliaia di volte al minuto.
         {
           const t = (raw as { type?: unknown })?.type;
-          if (t === 'auth:pair-requested' || t === 'auth:pair-resolved' || t === 'auth:device-revoked') {
-            const nome = t === 'auth:pair-requested'
-              ? 'topics:auth-pair-requested'
-              : t === 'auth:pair-resolved'
-                ? 'topics:auth-pair-resolved'
-                : 'topics:auth-device-revoked';
-            window.dispatchEvent(new CustomEvent(nome, { detail: raw }));
+          const NOMI: Record<string, string> = {
+            'auth:pair-requested': 'topics:auth-pair-requested',
+            'auth:pair-resolved': 'topics:auth-pair-resolved',
+            'auth:device-revoked': 'topics:auth-device-revoked',
+            // Le concessioni di QUESTO dispositivo sono cambiate. Arriva
+            // mirato — non da un broadcast filtrato — perché su una revoca la
+            // concessione non esiste più e un filtro per entità scarterebbe
+            // proprio questo frame.
+            'auth:shares-changed': 'topics:auth-shares-changed',
+          };
+          if (typeof t === 'string' && NOMI[t]) {
+            window.dispatchEvent(new CustomEvent(NOMI[t], { detail: raw }));
             return;
           }
         }

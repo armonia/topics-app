@@ -257,6 +257,10 @@ export interface AppContext {
   // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
   // un broadcast con un tipo che nessuno ha modellato non compila.
   broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
+  /** A UN dispositivo soltanto, tutte le sue socket. L'opposto di un broadcast
+   *  filtrato: si usa quando il destinatario è noto e il frame non porta
+   *  un'entità su cui filtrare (vedi `auth:shares-changed`). */
+  sendToDevice: (deviceId: string, message: OutboundMessage) => void;
   /** Innesta il filtro che decide cosa può raggiungere un OSPITE. Vive in
    *  `server.ts` perché serve il DB delle concessioni; `utils.ts` resta senza
    *  quella dipendenza. */
