@@ -476,6 +476,38 @@ describe("board router (human, project-scoped)", () => {
     expect((await call(r, "POST", `/api/boards/pX/tasks/${t.id}/stop`, {}))!.status).toBe(409);
   });
 
+  test("DELETE su un task con l'agent al lavoro taglia il turno prima di archiviare", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-arch')");
+    const aborted: string[] = [];
+    const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "ripensamento", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-arch', dispatch_state = 'working' WHERE id = ?").run(t.id);
+
+    const resp = (await call(r, "DELETE", `/api/boards/pX/tasks/${t.id}`))!;
+    expect(resp.status).toBe(200);
+    // Il turno è stato abortito, non lasciato girare su una riga invisibile.
+    expect(aborted).toEqual(["topic:top-arch"]);
+    const row = db.prepare("SELECT archived, status, assigned_topic_id, dispatch_state FROM tasks WHERE id = ?").get(t.id) as any;
+    expect(row.archived).toBe(1);
+    expect(row.assigned_topic_id).toBeNull();
+    // E il task non conta più come "in corso": è questo che falsava il tetto di
+    // concorrenza (il claim conta le righe in_progress non archiviate).
+    expect(row.status).toBe("backlog");
+  });
+
+  test("DELETE su un task senza agent non aborta niente", async () => {
+    const aborted: string[] = [];
+    const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "innocuo", status: "todo" }))!.json();
+    expect((await call(r, "DELETE", `/api/boards/pX/tasks/${t.id}`))!.status).toBe(200);
+    expect(aborted).toEqual([]);
+    const row = db.prepare("SELECT archived, status FROM tasks WHERE id = ?").get(t.id) as any;
+    expect(row.archived).toBe(1);
+    expect(row.status).toBe("todo"); // nessun parcheggio spurio
+  });
+
   test("PATCH agent refines title/description of its task", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "titolo grezzo dal composer" }))!.json();
     const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { text: "Titolo pulito", description: "Dettagli utili" }))!;

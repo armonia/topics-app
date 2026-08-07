@@ -24,7 +24,7 @@ import type { AppContext, RouteHandler } from "../types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking } from "../../shared/board";
 import { getTerminalSessionById } from "./terminal";
-import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
+import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -951,6 +951,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (isBoard) {
       const HUMAN = "user";
 
+      /**
+       * Stacca l'agente vivo da un task e taglia il suo turno.
+       *
+       * L'ordine conta, ed è quello dello "stop" umano: si PARCHEGGIA prima
+       * (release, che azzera il legame col topic) e si taglia dopo — così
+       * quando l'`onTurnEnd` del turno abortito arriva trova il task già
+       * spostato e lascia cadere la chip, invece di rimetterlo in coda per un
+       * tentativo nuovo.
+       *
+       * Vive qui, in una funzione sola, perché ha DUE chiamanti che devono
+       * comportarsi identici: il bottone "Ferma" e l'archiviazione. Prima
+       * l'archiviazione non lo faceva affatto — la riga spariva dalla board e
+       * l'agente continuava a girare fino al timeout, invisibile: `list()`
+       * filtra `archived = 0`, quindi né `reconcile` lo spazzava né il
+       * contatore del tetto di concorrenza lo contava (`claim` conta anche lui
+       * solo le righe non archiviate). Risultato: token bruciati su un task che
+       * non esiste più, e una macchina che crede di avere uno slot libero in
+       * più di quanti ne ha davvero.
+       *
+       * Ritorna il task parcheggiato, o null se non c'era nessun agente da
+       * fermare (nel qual caso il chiamante non deve toccare niente).
+       */
+      const detachLiveAgent = (
+        t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
+        reason: string,
+      ): Task | null => {
+        if (!t.assignedTopicId && !isAgentWorking(t.dispatchState)) return null;
+        const sessionKey = t.assignedTopicId ? "topic:" + t.assignedTopicId.slice(0, 8) : null;
+        dispatcher?.onLeaveTodo(t.id); // sgancia un grace timer ancora pendente (queued)
+        const parked = svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason });
+        if (sessionKey && opts?.abortTurn) void opts.abortTurn(sessionKey).catch(() => { /* best-effort */ });
+        return parked;
+      };
+
       // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
       // (concurrency cap, effort, worktree, timeout). `autoDispatch` in the
       // patch routes to the GLOBAL switch (see /api/all-boards/settings).
@@ -1114,17 +1148,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
-          const t = got.task;
-          const live = t.assignedTopicId || isAgentWorking(t.dispatchState);
-          if (!live) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
-          const sessionKey = t.assignedTopicId ? "topic:" + t.assignedTopicId.slice(0, 8) : null;
-          dispatcher?.onLeaveTodo(t.id); // clears a pending grace timer (queued)
-          const parked = svc.release({
-            taskId: t.id, requeue: false, by: "user",
-            reason: "Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.",
-          });
+          const parked = detachLiveAgent(
+            got.task,
+            "Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.",
+          );
+          if (!parked) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
-          if (sessionKey && opts?.abortTurn) void opts.abortTurn(sessionKey).catch(() => { /* best-effort */ });
           return json(parked);
         } catch (e) { return fail(e); }
       }
@@ -1360,6 +1389,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         if (method === "DELETE") {
           try {
+            // Un task che sparisce dalla board si porta dietro il suo agente:
+            // archiviare senza tagliare il turno lascia un agente che lavora per
+            // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
+            const got = svc.get(taskId, { projectId });
+            if (got) {
+              detachLiveAgent(
+                got.task,
+                "Archiviato da te mentre l'agent lavorava: turno interrotto.",
+              );
+            }
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
             broadcastToAll({ type: "task:deleted", projectId, taskId });
