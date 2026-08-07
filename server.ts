@@ -76,6 +76,7 @@ import {
 import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
+import { resolveIdentity } from "./server/lib/identity";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -1641,24 +1642,13 @@ const opzioniServer = {
         ? undefined
         : (() => {
             const loopback = isLocalTransport(req, peerIp, isLoopbackAddress);
-            // Il DB si tocca SOLO per un peer remoto con un cookie: il percorso
-            // locale — che e' il 99% del traffico — non paga una query.
-            let device: DeviceRecord | null = null;
+            // UNA sola traduzione cookie→identità, condivisa con l'upgrade del
+            // WebSocket e con `/api/auth/session`. Erano tre query diverse, e
+            // divergevano: la strada dimenticata è sempre la meno percorsa,
+            // cioè quella dove il difetto vive di più prima che si veda.
+            const io = resolveIdentity(ctx.db, req.headers.get("cookie"), loopback);
+            const device = io.device;
             const sessionToken = loopback ? null : readSessionCookie(req.headers.get("cookie"));
-            if (sessionToken) {
-              const row = ctx.db.query("SELECT * FROM devices WHERE token_hash = ?")
-                .get(hashToken(sessionToken)) as Record<string, unknown> | undefined;
-              if (row) {
-                device = {
-                  id: String(row.id), name: String(row.name), tokenHash: String(row.token_hash),
-                  createdAt: Number(row.created_at),
-                  lastSeenAt: row.last_seen_at === null ? null : Number(row.last_seen_at),
-                  firstIp: row.first_ip === null ? null : String(row.first_ip),
-                  revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
-                  role: row.role === 'guest' ? 'guest' : 'owner',
-                };
-              }
-            }
             const r = evaluateIdentity({
               transport: loopback ? "loopback" : "remote",
               sessionToken,
@@ -1680,7 +1670,7 @@ const opzioniServer = {
               // confrontano con TUTTI, quindi una condivisione fatta a una
               // persona o a un team ha effetto senza che nessuna riga venga
               // riscritta a ogni pairing.
-              const princ = r.deviceId ? resolvePrincipals(ctx.db, r.deviceId) : null;
+              const princ = r.deviceId ? io : null;
               // Il confinamento resta deciso da `devices.role`, e la nuova
               // regola gli sta accanto SENZA decidere: se divergono lo si
               // scopre da un log, non da un accesso sbagliato. È il passo che
@@ -1714,7 +1704,7 @@ const opzioniServer = {
                   // Tutti i principali, non il solo dispositivo: è qui che
                   // «condiviso con una persona» smette di essere una riga
                   // inerte e diventa un accesso.
-                  const principali = princ?.list ?? deviceP(r.deviceId);
+                  const principali = princ?.principals ?? deviceP(r.deviceId);
                   const concessa = (tipo: "task" | "topic", id: string): boolean =>
                     hasGrant(ctx.db, principali, tipo, id);
 
@@ -1812,15 +1802,14 @@ const opzioniServer = {
       // confondere le due cose faceva cadere ogni frame sul telefono del
       // proprietario — che non ha concessioni perché non gliene servono.
       const wsDevice = (() => {
-        if (isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress)) return { id: null, role: null };
-        const t = readSessionCookie(req.headers.get("cookie"));
-        if (!t) return { id: null, role: null };
-        const row = ctx.db.query("SELECT id, role FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
-          .get(hashToken(t)) as { id?: string; role?: string } | undefined;
-        if (!row?.id) return { id: null, role: null };
-        // Default prudente, come nel client: un ruolo che non riconosciamo vale
-        // OSPITE. Sbagliare verso qui vorrebbe dire consegnare tutto.
-        return { id: row.id, role: row.role === "owner" ? "owner" as const : "guest" as const };
+        const locale = isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress);
+        // La STESSA traduzione del cancello HTTP. Prima qui c'era una query a
+        // parte che filtrava `revoked_at` in SQL e non calcolava persona né
+        // organizzazione: era la strada su cui una novità restava indietro in
+        // silenzio, perché nessuno guarda un WebSocket.
+        const io = resolveIdentity(ctx.db, req.headers.get("cookie"), locale);
+        if (!io.device || io.device.revokedAt !== null) return { id: null, role: null };
+        return { id: io.device.id, role: io.confined ? "guest" as const : "owner" as const };
       })();
       const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDevice.id, deviceRole: wsDevice.role } });
       if (upgraded) return undefined;
