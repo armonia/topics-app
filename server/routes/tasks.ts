@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
+import { grantedResourceIds, deviceP } from "../lib/grants-query";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking } from "../../shared/board";
 import { getTerminalSessionById } from "./terminal";
@@ -598,11 +599,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // caso esisterà (vedi `task-sharing-guests`, fuori scope).
       if (method !== "GET") return json({ error: "sola lettura", code: "guest_read_only" }, 403);
 
-      const condivisi = new Set(
-        (ctx.db.query(
-          "SELECT resource_id FROM grants WHERE subject_type='device' AND subject_id = ? AND resource_type='task'",
-        ).all(deviceId) as Array<{ resource_id: string }>).map((r) => r.resource_id),
-      );
+      const condivisi = new Set(grantedResourceIds(ctx.db, deviceP(deviceId), "task"));
 
       // L'elenco: solo i suoi.
       if (pathname === "/api/all-boards/tasks") {

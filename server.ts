@@ -74,6 +74,7 @@ import {
   type DeviceRecord,
 } from "./server/lib/device-auth";
 import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, frameResource } from "./server/lib/grants";
+import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -483,23 +484,19 @@ ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
  * ospiti finché qualcuno non lo aggiunge all'allowlist. Un aggiornamento che
  * manca si nota e si corregge; una fuga no.
  */
-const concessaA = (deviceId: string, tipo: string, id: string): boolean => !!ctx.db.query(
-  "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
-).get(deviceId, tipo, id);
-
 ctx.setGuestBroadcastFilter({
   mayReceiveFrame(deviceId, message) {
     const tipo = (message as { type?: unknown }).type;
     if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
     const risorsa = frameResource(message);
     if (!risorsa) return false;
-    return concessaA(deviceId, risorsa.type, risorsa.id);
+    return hasGrant(ctx.db, deviceP(deviceId), risorsa.type, risorsa.id);
   },
   // Le fan-out per topic non portano l'entità NEL frame: ce l'hanno come
   // argomento. Qui quindi si guarda il topic che si sta per consegnare, non
   // quello che il frame dichiara — molti di quei frame non lo nominano affatto.
   mayReadTopic(deviceId, topicId) {
-    return concessaA(deviceId, "topic", topicId);
+    return hasGrant(ctx.db, deviceP(deviceId), "topic", topicId);
   },
 });
 const processesRouter = createProcessesRouter(ctx);
@@ -1661,10 +1658,9 @@ const server = Bun.serve<WSData>({
                 // percorso concesso con dentro l'id di una risorsa NON concessa
                 // è il modo in cui un'allowlist di percorsi diventa inutile.
                 if (r.deviceId) {
-                  const concessa = (tipo: string, id: string): boolean =>
-                    !!ctx.db.query(
-                      "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
-                    ).get(r.deviceId, tipo, id);
+                  const principali = deviceP(r.deviceId);
+                  const concessa = (tipo: "task" | "topic", id: string): boolean =>
+                    hasGrant(ctx.db, principali, tipo, id);
 
                   const idTask = pathname.match(/^\/api\/tasks\/([^/]+)/)?.[1];
                   if (idTask && !concessa("task", decodeURIComponent(idTask))) {
@@ -1678,9 +1674,10 @@ const server = Bun.serve<WSData>({
                   // solo il file che è l'anteprima di un task concesso.
                   if (pathname.startsWith("/media/")) {
                     const richiesto = decodeURIComponent(pathname.slice("/media".length));
-                    const ok = ctx.db.query(
-                      "SELECT 1 FROM grants g JOIN tasks t ON t.id = g.resource_id WHERE g.subject_type='device' AND g.subject_id=? AND g.resource_type='task' AND t.preview_image LIKE ?",
-                    ).get(r.deviceId, `%${richiesto}`) as unknown;
+                    // I metacaratteri del LIKE vanno neutralizzati: un `%` in un
+                    // nome di file trasformerebbe «questa anteprima» in «una
+                    // qualunque anteprima», cioè in un passe-partout.
+                    const ok = holdsGrantOnTaskPreview(ctx.db, principali, richiesto);
                     if (!ok) {
                       return { ok: false as const, status: 403, reason: "anteprima non condivisa", code: "guest_forbidden" };
                     }
