@@ -51,8 +51,36 @@ export function useMobile(): MobileState {
   const [state, setState] = useState<MobileState>(() => getInitialState());
 
   useEffect(() => {
+    // Si aggiorna solo se qualcosa e' DAVVERO cambiato.
+    //
+    // `getInitialState()` restituisce un oggetto nuovo a ogni chiamata, quindi
+    // un `setState(getInitialState())` secco ri-renderizzava ogni consumatore a
+    // OGNI evento di resize — anche quando nessuno dei valori si era mosso. Da
+    // quando questo hook e' letto PER RIGA di sidebar (TopicItem, che prima
+    // usava una costante di modulo), quel render passa da uno a N: trascinare
+    // il bordo della finestra ridisegnava l'albero intero, `memo` compreso, e
+    // ogni riga rifaceva tre `matchMedia` piu' le regex sullo user-agent.
+    // Il confronto e' superficiale su tutti i campi tranne `safeAreaInsets`,
+    // che e' l'unico annidato e si confronta a mano sui suoi quattro numeri.
+    const sameState = (a: MobileState, b: MobileState): boolean =>
+      a.isMobile === b.isMobile &&
+      a.isTouch === b.isTouch &&
+      a.hasHover === b.hasHover &&
+      a.isStandalone === b.isStandalone &&
+      a.isIOS === b.isIOS &&
+      a.isAndroid === b.isAndroid &&
+      a.keyboardVisible === b.keyboardVisible &&
+      a.orientation === b.orientation &&
+      a.safeAreaInsets.top === b.safeAreaInsets.top &&
+      a.safeAreaInsets.bottom === b.safeAreaInsets.bottom &&
+      a.safeAreaInsets.left === b.safeAreaInsets.left &&
+      a.safeAreaInsets.right === b.safeAreaInsets.right;
+
     const updateState = () => {
-      setState(getInitialState());
+      setState((prev) => {
+        const next = getInitialState();
+        return sameState(prev, next) ? prev : next;
+      });
     };
 
     // Listen for resize

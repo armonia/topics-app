@@ -473,7 +473,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!el) return;
     const r = el.getBoundingClientRect();
     const next = computeMenuPosition(ctxMenu.anchor, { width: r.width, height: r.height }, { margin: POPOVER_MARGIN });
-    setCtxPos({ top: next.top, left: next.left });
+    // Confronto prima di scrivere: riaprire il menu sulla STESSA tab ricrea
+    // l'oggetto `ctxMenu` e rifarebbe partire un render per una posizione
+    // identica. E scrivendo sempre, una misura invariata riaccendeva l'effetto
+    // in coda a se stesso.
+    setCtxPos((prev) =>
+      prev && prev.top === next.top && prev.left === next.left ? prev : { top: next.top, left: next.left },
+    );
   }, [ctxMenu, renameDraft, spaceSubmenuOpen]);
 
   // «Tieni premuto» = la primitiva condivisa (hooks/useLongPress). Qui c'era la
