@@ -426,7 +426,7 @@ export function PinnedTile({
           scende nemmeno per far entrare una parola in più. */}
       <span
         data-testid="pinned-tile-name"
-        className={`relative min-w-0 flex-1 truncate text-left text-[11px] leading-none text-app-text-secondary ${
+        className={`relative min-w-0 flex-1 truncate-tight text-left text-[11px] text-app-text-secondary ${
           hasRealIcon ? 'hidden @min-[72px]/tile:block' : ''
         }`}
       >
