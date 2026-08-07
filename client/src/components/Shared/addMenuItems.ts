@@ -10,15 +10,15 @@
  * agente costava tre modifiche e se ne dimenticava sempre una.
  *
  * Qui c'è il MODELLO (id, etichetta, lettera, icona, azione); la resa resta di
- * chi disegna — righe nel menu, pill nella palette.
+ * chi disegna — righe nel menu, pill nella palette. Il glifo lo dipinge
+ * `AddMenuIcon`, che sta in un file suo: un modulo che esporta sia il modello
+ * sia un componente spegne il fast refresh di Vite.
  */
 import {
   MessageSquare, TerminalSquare, Globe, GitBranch, Activity, BookOpen, Cpu, Kanban,
   BarChart3, LayoutGrid, FolderOpen, FolderTree, FileCode, Eye, Terminal,
   Brain, type LucideIcon,
 } from 'lucide-react';
-import { ClaudeIcon } from './ClaudeIcon';
-import { CodexIcon } from './CodexIcon';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { ADD_MENU_MNEMONICS, type AddMenuItemId } from '../../state/pane/adapters/paneMnemonics';
 import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -187,19 +187,4 @@ export function buildAddMenuItems({
   }
 
   return items;
-}
-
-/** Dipinge l'icona di una voce. Un solo punto, così le righe del menu e le pill
- *  di ⌘K non possono più mostrare due glifi diversi per la stessa cosa. */
-export function AddMenuIcon({ item, size }: { item: AddMenuItem; size: number }) {
-  const icon = item.icon;
-  if (icon.kind === 'claude') {
-    return <ClaudeIcon size={size} className="text-[#D97757] flex-shrink-0" />;
-  }
-  if (icon.kind === 'codex') {
-    return <CodexIcon size={size} className="flex-shrink-0" />;
-  }
-  const Component = icon.Component;
-  if (!Component) return null;
-  return <Component size={size} className="flex-shrink-0" style={icon.color ? { color: icon.color } : undefined} />;
 }
