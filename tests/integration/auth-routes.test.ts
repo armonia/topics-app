@@ -444,3 +444,73 @@ describe("rotte auth · inondare la coda non chiude fuori nessuno", () => {
     expect(quarta?.status).toBe(429);
   });
 });
+
+describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
+  /** Uno schema con la 084, che è dove vivono le persone. */
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    return db;
+  }
+
+  test("il dispositivo cambia persona, e le concessioni NON si muovono", async () => {
+    // È la leva di correzione del backfill della 084: al momento
+    // dell'appaiamento nessuno chiedeva di chi fosse un dispositivo, quindi
+    // l'attribuzione è un'euristica e può essere sbagliata. Senza questo gesto
+    // l'errore sarebbe per sempre — e «di chi è» decide se uno vede tutto.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p2','Altra',1,'local',1,1)");
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
+
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
+    // Una concessione verso la persona di destinazione, che deve restare com'è.
+    db.run("INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person','p2','task','t1','read',1)");
+
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: "p2" } });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT person_id FROM devices WHERE id=?").get(id)).toEqual({ person_id: "p2" });
+    // Le concessioni puntano a una PERSONA: spostare il ferro non le tocca.
+    expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 1 });
+  });
+
+  test("una persona che non esiste è rifiutata", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: "fantasma" } });
+    expect(r?.status).toBe(404);
+  });
+
+  test("una persona REVOCATA è rifiutata", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO people (id, display_name, created_at, revoked_at, origin, rev, updated_at) VALUES ('px','Via',1,999,'local',1,1)");
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: "px" } });
+    expect(r?.status).toBe(400);
+  });
+
+  test("rinominare continua a funzionare: i due gesti non si sono pestati", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { name: "Telefono di Luca" } });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT name FROM devices WHERE id=?").get(id)).toEqual({ name: "Telefono di Luca" });
+  });
+});

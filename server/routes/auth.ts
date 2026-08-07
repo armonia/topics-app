@@ -193,6 +193,31 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     role: r.role === 'guest' ? 'guest' : 'owner',
   });
 
+  /** Le persone note, per raggruppare l'elenco e per offrire lo spostamento. */
+  const elencoPersone = (): Array<{ id: string; name: string; owner: boolean }> => {
+    try {
+      return (db.query(`
+        SELECT p.id, p.display_name AS name,
+               (p.id IN (SELECT person_id FROM installation_owners)) AS owner
+          FROM people p WHERE p.revoked_at IS NULL ORDER BY owner DESC, p.display_name
+      `).all() as Array<{ id: string; name: string; owner: number }>)
+        .map((p) => ({ id: p.id, name: p.name, owner: !!p.owner }));
+    } catch {
+      // Schema più vecchio della 084: nessuna persona, e il pannello resta
+      // quello di prima invece di rompersi.
+      return [];
+    }
+  };
+
+  const personaDi = (deviceId: string): { id: string; name: string } | null => {
+    try {
+      const r = db.query(
+        "SELECT p.id, p.display_name AS name FROM devices d JOIN people p ON p.id = d.person_id WHERE d.id = ?",
+      ).get(deviceId) as { id: string; name: string } | undefined;
+      return r ?? null;
+    } catch { return null; }
+  };
+
   const listDevices = (): DeviceRecord[] =>
     (db.query("SELECT * FROM devices ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, created_at DESC").all() as Record<string, unknown>[])
       .map(rowToDevice);
@@ -327,8 +352,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // per sessione — quindi la si compone, e non e' revocabile: revocare il
         // computer da cui gira il server non vuol dire niente.
         thisComputer: { name: "Questo computer", current: loopback },
+        // Le persone conosciute, così l'elenco può raggruppare per PERSONA e
+        // offrire lo spostamento. Senza, il pannello sa solo di ferri.
+        people: elencoPersone(),
         devices: listDevices().map((d) => ({
           id: d.id, name: d.name, role: d.role, createdAt: d.createdAt,
+          person: personaDi(d.id),
           lastSeenAt: d.lastSeenAt, firstIp: d.firstIp, revokedAt: d.revokedAt,
           // CONNESSO adesso, che non e' «autorizzato»: un dispositivo puo' essere
           // autorizzato da settimane e spento da ieri.
@@ -345,7 +374,41 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     // revoca smette di avere un posto da cui partire.
     if (method === "PATCH" && pathname.startsWith("/api/auth/devices/")) {
       const id = decodeURIComponent(pathname.slice("/api/auth/devices/".length));
-      const body = await readJSON(req) as { name?: unknown } | null;
+      const body = await readJSON(req) as { name?: unknown; personId?: unknown } | null;
+
+      // ── Riassegnare un dispositivo a un'altra PERSONA.
+      //
+      // È la leva di correzione del backfill della 084, e senza di essa quella
+      // migration è una consegna a metà: al momento dell'appaiamento nessuno
+      // chiedeva di chi fosse un dispositivo, quindi il telefono di un collega
+      // approvato una volta è finito sulla stessa persona dei tuoi. Se non si
+      // può spostare, quell'errore è per sempre.
+      //
+      // NON tocca nessuna concessione: le grant puntano a una persona, e
+      // spostare il ferro da una persona all'altra non è dire che le cose
+      // condivise si spostano con lui.
+      if ("personId" in (body ?? {})) {
+        const pid = body?.personId;
+        if (pid !== null && typeof pid !== "string") {
+          return json({ error: "personId deve essere una stringa o null" }, 400);
+        }
+        try {
+          if (pid !== null) {
+            const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(pid) as { revoked_at: number | null } | undefined;
+            if (!p) return json({ error: "persona sconosciuta" }, 404);
+            if (p.revoked_at !== null) return json({ error: "quella persona è stata revocata" }, 400);
+          }
+          db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pid, id);
+        } catch {
+          return json({ error: "le persone non sono disponibili su questo database" }, 400);
+        }
+        // Il ruolo derivato può essere cambiato: le socket aperte portano
+        // ancora quello di prima, timbrato all'upgrade e non più riletto.
+        ctx.closeDeviceSockets?.(id);
+        ctx.broadcast?.({ type: "auth:device-revoked", deviceId: id });
+        return json({ ok: true, personId: pid });
+      }
+
       const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : "";
       if (!name) return json({ error: "nome vuoto" }, 400);
       db.query("UPDATE devices SET name = ? WHERE id = ?").run(name, id);
