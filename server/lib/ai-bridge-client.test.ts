@@ -118,4 +118,61 @@ describe("AiBridgeClient", () => {
     expect(res.missing).toBe(true);
     expect(res.alive).toBe(false);
   });
+
+  // ── Il socket che cade ──────────────────────────────────────────────────────
+  // Il caso vero, osservato il 6 agosto: un hot-reload del server chiude questo
+  // socket mentre una richiesta è in volo. `send()` scriveva su un socket morto
+  // e scartava il frame IN SILENZIO, con il waiter già armato — nessuno avrebbe
+  // mai risposto, e l'unico esito possibile era il timeout. Cinque secondi dopo,
+  // «⚠️ Failed to send message: ai-bridge: ack timeout» in chat, su un turno
+  // appena cominciato.
+
+  test("un socket caduto non costa un timeout: la richiesta si riaggancia da sola", async () => {
+    (client as unknown as { socket: { destroy(): void } | null }).socket?.destroy();
+    const t0 = Date.now();
+    const sessions = await client.list();
+    const dt = Date.now() - t0;
+    expect(Array.isArray(sessions)).toBe(true);
+    // ACK_TIMEOUT_MS è 5s: se il frame fosse sparito in silenzio, questa
+    // riga arriverebbe dopo — o non arriverebbe affatto.
+    expect(dt).toBeLessThan(3000);
+  });
+
+  test("un tubo rotto che NON sembra rotto: la richiesta lo butta e riprova", async () => {
+    // La corsa vera è più stretta di «socket distrutto»: il socket muore fra
+    // l'`ensureConnected` e il `write`, e può essere rotto senza essere né
+    // `destroyed` né non-`ready` — un write che fallisce, un peer sparito senza
+    // FIN. Qui è simulato con un tubo che si dichiara sano e fallisce a scrivere:
+    // se il ritentativo si fidasse di `ready`, tornerebbe a scrivere sullo stesso
+    // tubo morto e la richiesta morirebbe lo stesso.
+    const priv = client as unknown as { socket: unknown; ready: boolean };
+    const vero = priv.socket;
+    let scritture = 0;
+    priv.socket = {
+      destroyed: false,
+      write() { scritture++; throw new Error("EPIPE"); },
+      destroy() { (vero as { destroy(): void } | null)?.destroy(); },
+    };
+    priv.ready = true;
+
+    const t0 = Date.now();
+    const sessions = await client.list();
+    expect(Array.isArray(sessions)).toBe(true);
+    expect(scritture).toBe(1);                    // il tubo rotto è stato usato UNA volta sola
+    expect(Date.now() - t0).toBeLessThan(3000);   // e non si è aspettato nessun timeout
+  });
+
+  test("il secondo tentativo è sicuro: uno spawn ripetuto RIPRENDE, non duplica", async () => {
+    const id = "topic:cli-drop-idem";
+    client.registerHandlers(id, { onData: () => {} });
+    const first = await client.spawn(id, { cliPath: "cat", args: [], cwd: dataDir, env: {} });
+
+    // È l'invariante su cui poggia il ritentativo di `request`: se il frame era
+    // partito davvero e si è perso solo l'ack, rimandarlo non crea un secondo
+    // figlio.
+    (client as unknown as { socket: { destroy(): void } | null }).socket?.destroy();
+    const again = await client.spawn(id, { cliPath: "cat", args: [], cwd: dataDir, env: {} });
+    expect(again.resumed).toBe(true);
+    expect(again.pid).toBe(first.pid);
+  });
 });
