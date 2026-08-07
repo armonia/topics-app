@@ -2,6 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.41 — 2026-08-07
+
+### Sotto il cofano
+- Changelog per 2.2.40
+- Una spia su fetch che non veniva mai ritirata sporcava gli altri file
+- I miei due test erano instabili, e uno misurava una sidebar in movimento
+- La vista dell'ospite era segnata come da fare, ed era fatta
+- Una rete sotto le rotte di auth, prima di rifarle per le organizzazioni
+- Il ponte AI non perde più un frame in silenzio
+- Una riadozione che non riesce a parlare col ponte non cancella più la riga
+- Un cambio di RUOLO non arrivava a nessuno: la delibera guardava il nome
+- Un turno fallito non scrive più sopra il lavoro che la riga porta già
+- L'albero dei file non muore piu' chiudendo la sezione, e un errore non lo cancella
+- La fascia della safe-area e' lo STESSO pixel della sidebar, non un parente
+- Le code delle lettere finivano sotto la forbice di `truncate`
+
 ## 2.2.40 — 2026-08-07
 
 ### Sotto il cofano
