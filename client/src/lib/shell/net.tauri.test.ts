@@ -56,6 +56,11 @@ function makeSpy(): typeof globalThis.fetch {
   }) as unknown as typeof globalThis.fetch;
 }
 
+// I global veri, presi PRIMA di piantarci sopra la spia. `bun test` condivide il
+// processo fra i file: quello che pianti qui lo trova chi gira dopo.
+const realFetch = globalThis.fetch;
+const realWindow = (globalThis as unknown as { window?: unknown }).window;
+
 beforeAll(async () => {
   calls = [];
   const w = globalThis as unknown as { window?: unknown; fetch?: unknown };
@@ -81,8 +86,21 @@ afterEach(() => {
 
 // Il mock del registry è di PROCESSO: senza questo, un file che gira dopo vedrebbe
 // `isTauri` true e proverebbe il contrario di ciò che crede.
+//
+// E la stessa cosa vale per i GLOBAL, che è la metà che mancava: `beforeAll` pianta
+// su `globalThis.fetch` una spia che risponde `{}` a chiunque, e restava piantata
+// per tutto il resto del processo. Misurato il 07/08/2026: `bun test ./client/src
+// ./server` dava 1 rosso — `server/browser-native-delegate.socket.test.ts`
+// («round-trips a browser_op over a REAL WebSocket») leggeva `undefined` invece di
+// '42', perché la sua `fetch('/trigger')` verso il proprio server Bun effimero
+// finiva nella spia di QUESTO file. Da soli i due file erano verdi: il rosso
+// nasceva solo dall'ordine. Rimettere i global veri è il fix strutturale.
 afterAll(() => {
   mock.restore();
+  const w = globalThis as unknown as { window?: unknown; fetch?: unknown };
+  w.fetch = realFetch;
+  if (realWindow === undefined) delete w.window;
+  else w.window = realWindow;
 });
 
 describe('installNetShim · gate (Tauri)', () => {
