@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.50",
+  "version": "2.2.51",
   "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
@@ -30,6 +30,7 @@
     "check:landing": "node scripts/landing-verify.mjs",
     "check:copy": "node scripts/landing-copy.mjs",
     "landing:vividness": "node scripts/landing-vividness.mjs",
+    "landing:probe": "node scripts/landing-probe.mjs",
     "landing:serve": "cd landing/dist && python3 -m http.server 4321 --bind 127.0.0.1",
     "build:landing": "cd client && bun run build:landing",
     "deploy:landing": "bun run build:site && bunx wrangler@latest deploy",

@@ -1,5 +1,61 @@
 [
   {
+    "version": "2.2.51",
+    "date": "2026-08-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tendine si aprivano VUOTE: il flip mancava, e il tetto veniva dal lato sbagliato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'account non è mai un cancello: ORG-08",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Invita per nome chi non ha ancora collegato niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo diceva che l'ultimo commit c'è sempre; il server dice `null` da sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un modo per GUARDARE la landing costruita, senza deployarla da nessuna parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "GRID-09 era rosso su una griglia pulita: contava una maniglia, non un divisore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La raffica di apertura consegnava a un ospite roba d'altri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'ultimo rosso del gate era un budget, non un difetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Flaky solo sotto sharding» era una spiegazione comoda: il browser non partiva",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.50",
     "date": "2026-08-07",
     "sections": {
@@ -19,6 +75,11 @@
         },
         {
           "it": "Il relay ha un dominio tuo, e la tua identità ha un nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.50 — solo il composer scavalca l'home indicator",
           "en": "",
           "scope": null
         }
