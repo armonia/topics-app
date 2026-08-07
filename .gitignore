@@ -128,6 +128,9 @@ tests/**/node_modules/
 tabbar-*.png
 spec-flow/
 
+# What `bun run landing:vividness` writes to look at. Diagnostics, not artefacts.
+landing/.shots/
+
 # Generated UAT artifacts (videos & report) — produced by Playwright + spec-flow
 uat.html
 videos/**/*.webm
