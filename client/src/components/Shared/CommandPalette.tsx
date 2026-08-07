@@ -21,7 +21,8 @@ import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles'
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
-import { buildAddMenuItems, AddMenuIcon } from './addMenuItems';
+import { buildAddMenuItems } from './addMenuItems';
+import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 
 export interface CommandAction {

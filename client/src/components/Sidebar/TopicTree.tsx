@@ -47,7 +47,8 @@ import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardStatusCounts } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
-import { SpaceGroupCard, useSpaceCards } from './SpaceGroups';
+import { SpaceGroupCard } from './SpaceGroups';
+import { useSpaceCards } from './useSpaceCards';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
