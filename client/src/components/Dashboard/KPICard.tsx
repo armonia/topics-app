@@ -48,7 +48,7 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
       </div>
       <div className="flex items-baseline gap-1 min-w-0">
         <span
-          className={`text-[18px] font-semibold leading-none truncate ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
+          className={`text-[18px] font-semibold truncate-tight ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
           title={missing ? 'Dato non disponibile: nessuna fonte per questa metrica' : undefined}
         >
           {missing ? '—' : value}

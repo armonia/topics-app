@@ -1748,9 +1748,12 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             ? <CodexIcon size={13} className="flex-shrink-0" />
             : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
         {/* Name + live "what it's doing" subline (self-hides when idle). */}
-        <span className="flex-1 min-w-0 flex flex-col justify-center">
-          <span className={`text-[12px] truncate leading-none ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
-          <SessionActivity subjectId={s.id} onFill={onFill} className="mt-[3px]" />
+        {/* `gap-[3px]` invece di `mt-[3px]` sulla subline: vedi TopicItem —
+            `truncate-tight` usa il margine verticale, e un `mt` sul figlio glielo
+            porterebbe via. */}
+        <span className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+          <span className={`text-[12px] truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
+          <SessionActivity subjectId={s.id} onFill={onFill} />
         </span>
         {projectName && (
           <span className={`text-[11px] truncate max-w-[80px] mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>

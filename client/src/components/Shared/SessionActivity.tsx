@@ -111,7 +111,7 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   const tone = onFill ? ON_FILL_TEXT : 'text-app-text-tertiary';
   return (
     <span
-      className={`truncate text-[11px] leading-none tabular-nums ${tone} ${className}`}
+      className={`truncate-tight text-[11px] tabular-nums ${tone} ${className}`}
       title={title}
     >
       {text}
@@ -163,7 +163,7 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   const tone = onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary';
   return (
     <span
-      className={`truncate text-[11px] leading-none ${tone} ${className}`}
+      className={`truncate-tight text-[11px] ${tone} ${className}`}
       title={preview.text}
       // Ancora per l'e2e: il testo dell'anteprima è quello dell'ultimo
       // messaggio, quindi non è cercabile per stringa senza inseguire il seed.
