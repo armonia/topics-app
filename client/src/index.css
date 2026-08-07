@@ -1297,12 +1297,22 @@ html.electron-mac.dark .edge-lit::before {
  * curve dichiaratamente diverse si leggono come due cose diverse. Non serviva
  * avvicinare il raggio: serviva smettere di gareggiare.
  *
- * Quindi tre linguaggi, ognuno inequivocabile:
- *   · i COMANDI (il «+», il cerca, il tasto che riapre la colonna) sono TONDI —
- *     `rounded-full`: un cerchio se hanno la sola icona, una pillola se portano
- *     la scorciatoia. È anche l'idioma dei controlli di sistema su macOS.
- *   · le SUPERFICI (tab, card della sidebar, tessere fissate) stanno a 8.
- *   · la FINESTRA sta a 12, e non ha più nessun vicino che le somigli.
+ * Il secondo tentativo — comandi TONDI, per smettere di gareggiare — è durato
+ * un giro: «noo, non tondo». Giusto anche quello: un cerchio in mezzo a una
+ * barra di rettangoli arrotondati non è una famiglia diversa, è un intruso.
+ *
+ * La leva vera non era il raggio, era la DISTANZA. Quel «+» stava a 4px dal
+ * bordo destro — l'unico numero della barra fuori dal passo della colonna — e
+ * proprio sotto l'angolo della finestra: a quattro pixel due archi si toccano e
+ * il confronto è inevitabile, qualunque raggio si scelga. Portato a 6 (il passo
+ * di tutto il resto) il bottone respira e smette di essere letto insieme
+ * all'angolo.
+ *
+ * Quindi due curve, non tre:
+ *   · tutto ciò che è INTERATTIVO — tab, comandi, card della sidebar, tessere —
+ *     sta a 8, che è `--radius`;
+ *   · la FINESTRA sta a 12, e ciò che le sta vicino se ne tiene a distanza
+ *     invece di somigliarle.
  *
  * Questo blocco non genera CSS: sta qui perché è il posto in cui si va a
  * cercare «quanto è arrotondato cosa», e la risposta non deve essere «dipende

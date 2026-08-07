@@ -870,31 +870,32 @@ test.describe("Sidebar — i due comandi in testa alla colonna", () => {
   });
 
   /**
-   * I COMANDI SONO TONDI, LE SUPERFICI NO.
+   * UNA CURVA SOLA PER CIÒ CHE SI TOCCA.
    *
-   * «Il tasto di aggiunta ancora non si trova col border radius della finestra
-   * del Mac» — dopo che li avevo già portati tutti a 8. Il punto è che 8 contro
-   * i 12 della finestra resta un QUASI-uguale, e due curve quasi uguali a un
-   * centimetro di distanza si leggono come un errore di misura. Non serviva
-   * avvicinare il raggio, serviva smettere di gareggiare: i comandi diventano
-   * TONDI, le superfici restano a 8, la finestra a 12 non ha più vicini che le
-   * somigliano. Vedi il blocco in index.css.
+   * Tre giri: 6 («troppo poco rotondo»), 8 («ancora non si trova col border
+   * radius della finestra»), tondo («noo, non tondo»). La risposta non era il
+   * raggio: quel «+» stava a 4px dall'angolo della finestra, e a quattro pixel
+   * due archi si toccano e il confronto è inevitabile qualunque raggio si
+   * scelga. È la DISTANZA a essere stata corretta (a 6, il passo della colonna),
+   * e il raggio è tornato quello di tutte le superfici.
+   *
+   * Il test pretende che i comandi abbiano la STESSA curva delle righe della
+   * lista: è l'invariante che i tre giri hanno cercato, e ora è scritta.
    */
-  test("SIDEBAR-CMD-02: i comandi sono tondi, le righe della lista no", async ({ page }) => {
+  test("SIDEBAR-CMD-02: i comandi hanno la stessa curva delle righe della lista", async ({ page }) => {
     await goToApp(page);
     const raggi = await page.evaluate(() => {
       const side = document.querySelector('[aria-label="Topics sidebar"]')!;
       const r = (el: Element | null) => (el ? parseFloat(getComputedStyle(el).borderTopLeftRadius) : -1);
+      const riga = side.querySelector('[role="treeitem"]');
       return {
         piu: r(side.querySelector('[data-testid="pane-add-menu-trigger"]')),
         cerca: r(side.querySelector('button[aria-label^="Search"]')),
-        altezzaPiu: (side.querySelector('[data-testid="pane-add-menu-trigger"]') as HTMLElement)?.getBoundingClientRect().height ?? 0,
+        riga: r(riga),
       };
     });
-    // «Tondo» = il raggio è almeno metà dell'altezza: qualunque valore sopra
-    // quella soglia produce lo stesso arco, quindi si asserisce la FORMA e non
-    // il numero con cui Tailwind la ottiene.
-    expect(raggi.piu, `il «+» ha raggio ${raggi.piu} su un'altezza di ${raggi.altezzaPiu}`).toBeGreaterThanOrEqual(raggi.altezzaPiu / 2);
-    expect(raggi.cerca).toBeGreaterThanOrEqual(raggi.altezzaPiu / 2);
+    expect(raggi.riga, "nessuna riga nella lista da cui prendere la curva").toBeGreaterThan(0);
+    expect(raggi.piu, `il «+» ha raggio ${raggi.piu}, le righe ${raggi.riga}`).toBe(raggi.riga);
+    expect(raggi.cerca, `il cerca ha raggio ${raggi.cerca}, le righe ${raggi.riga}`).toBe(raggi.riga);
   });
 });
