@@ -2,6 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.46 — 2026-08-07
+
+### Sotto il cofano
+- Lo stato torna in fondo con gli account, i progetti si leggono, lo swipe non naviga
+- Il pannello del permesso viveva in una colonna che nessuno legge
+- Ignora `installation-id`, e registra dove è finito il lavoro sul relay
+- Un link condiviso si apre davvero: pagina, cablaggio, revoca immediata
+
+## 2.2.45 — 2026-08-07
+
+### Sotto il cofano
+- Tre difetti dei popover che si vedono a occhio: nero su nero, voci irraggiungibili, e un popover che non stacca
+- La macchina chiama fuori, e un link è una capacità su UNA cosa
+- Un guardiano sui due vincoli che decidono se il conto è $10 o $416
+- Le rotte dei link: la chiave esce una volta sola, e la scadenza non è opzionale
+- I rossi sotto soglia, il menu 80px fuori schermo, e mezza riga d'intestazione che non era cliccabile
+- Il bersaglio del dito lo decideva la LARGHEZZA dello schermo, non il dito
+- Un permesso che nessuno poteva concedere adesso si preme
+
 ## 2.2.44 — 2026-08-07
 
 ### Sotto il cofano
@@ -11,6 +30,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il fantasma del trascinamento non è una tessera della griglia
 - Cronologia e remotes escono dal pannello: il piede non esiste piu'
 - Stato e comandi in UNA riga di testa, e i progetti sulla board tornano a vedersi
+- 2.2.44 — la riga di testa, e i progetti tornati sulla board
 
 ## 2.2.43 — 2026-08-07
 
