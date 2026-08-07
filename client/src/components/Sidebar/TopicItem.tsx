@@ -295,15 +295,20 @@ export const TopicItem = memo(function TopicItem({
           riga muta. Sul telefono, dove la sidebar è a tutto schermo, è la
           superficie principale per capire di cosa parla una chat.
           On an attention fill the name goes white (fixes grey-on-blue). */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center">
+      {/* `gap-[3px]` e non `mt-[3px]` sulla subline: le due righe usano
+          `truncate-tight`, che si prende il margine verticale per allargare la
+          zona di taglio senza alzare la riga — un `mt` sul figlio lo
+          sovrascriverebbe e le code tornerebbero tagliate. Il totale resta
+          quello di prima: 13 + 3 + 11. */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
         <span className={cn(
-          "truncate leading-none",
+          "truncate-tight",
           onFill && cn("font-semibold", ON_FILL_TEXT),
           !onFill && notificationCount > 0 && !isFocused && "font-semibold text-app-text"
         )}>
           {topic.name}
         </span>
-        <TopicSubline topicId={topic.id} onFill={onFill} className="mt-[3px]" />
+        <TopicSubline topicId={topic.id} onFill={onFill} />
       </div>
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
