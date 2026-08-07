@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WSMessage } from '../types';
 import { normalizePinKey } from '../state/pane/adapters';
-import { placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
+import { mergePinnedLayout, placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
 
 /** Dove una cosa trascinata da fuori viene posata. Ri-esportato da qui perché è
  *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
@@ -477,21 +477,44 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
    * Idempotente su una cosa già fissata: quel drop non è uno spostamento, e
    * `togglePin` la SFISSEREBBE (è un interruttore) — il contrario del gesto.
    */
-  const pinAt = useCallback((rawId: string, target: PinnedDropTarget) => {
+  const pinAt = useCallback((rawId: string, target: PinnedDropTarget, griglia?: PinnedRow[]) => {
     lastLocalChangeRef.current = Date.now();
     const id = normalizePinKey(rawId);
     setStateRaw(prev => {
       if (prev.pinnedItems.includes(id)) return prev;
       const pinnedItems = [...prev.pinnedItems, id];
-      return { ...prev, pinnedItems, pinnedLayout: placePinnedTile(pinnedItems, prev.pinnedLayout, id, target) };
+      // Con `griglia` gli indici di `target` sono già stati risolti da chi li ha
+      // misurati — sulle tessere VISIBILI, che con una ricerca attiva sono un
+      // sottoinsieme. Riapplicarli qui sul layout intero li farebbe puntare a
+      // un'altra riga; fondere invece rimette al loro posto le nascoste.
+      const pinnedLayout = griglia
+        ? reconcilePinnedLayout(pinnedItems, mergePinnedLayout(prev.pinnedLayout ?? [], griglia))
+        : placePinnedTile(pinnedItems, prev.pinnedLayout, id, target);
+      return { ...prev, pinnedItems, pinnedLayout };
     });
   }, []);
 
-  /** La disposizione dopo un drag. Riconciliata comunque: chi chiama passa una
-   *  griglia, non la verità su cosa è fissato. */
+  /**
+   * La disposizione dopo un drag. Riconciliata comunque: chi chiama passa una
+   * griglia, non la verità su cosa è fissato.
+   *
+   * E nemmeno la verità su DOVE stanno tutti: la griglia in resa lavora sulle
+   * tessere visibili, e la ricerca della sidebar (o una chat fissata e poi
+   * archiviata) ne toglie. Prima quelle assenti risultavano «mancanti» alla
+   * riconciliazione e venivano riaccodate all'ultima riga: bastava riordinare
+   * due tessere con una ricerca attiva per appiattire su una riga sola una
+   * disposizione fatta a mano, in modo persistente e senza undo. `merge` le
+   * rimette accanto ai vicini con cui stavano.
+   */
   const setPinnedLayout = useCallback((next: PinnedRow[]) => {
     lastLocalChangeRef.current = Date.now();
-    setStateRaw(prev => ({ ...prev, pinnedLayout: reconcilePinnedLayout(prev.pinnedItems, next) }));
+    setStateRaw(prev => ({
+      ...prev,
+      pinnedLayout: reconcilePinnedLayout(
+        prev.pinnedItems,
+        mergePinnedLayout(prev.pinnedLayout ?? [], next),
+      ),
+    }));
   }, []);
 
   // Stable predicate (reads through stateRef) so ref-backed consumers — the

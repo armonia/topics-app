@@ -342,26 +342,36 @@ export function PinnedTile({
 
           Accesa SOLO da selezionata. Statica: l'animazione è il segnale di «sta
           lavorando», e due segnali sullo stesso canale non ne fanno uno più
-          forte, ne fanno uno muto. */}
-      {projection && (
-        <span
-          aria-hidden="true"
-          data-testid="pinned-tile-rim"
-          className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${
-            lit ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{
-            background: projection,
-            padding: 1.5,
-            // La maschera tiene solo la cornice: `exclude` e' lo standard,
-            // `xor` il nome che WebKit conosce da prima. Servono entrambi.
-            WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-            WebkitMaskComposite: 'xor',
-            mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-            maskComposite: 'exclude',
-          }}
-        />
-      )}
+          forte, ne fanno uno muto.
+
+          E LA CORNICE C'È SEMPRE, colore o non colore. Prima esisteva solo se
+          c'era una luce da proiettare: una tessera senza icona e senza colore di
+          tipo — un progetto senza favicon, una utility — da selezionata restava
+          senza bordo, cioè si accendeva in un modo diverso da tutte le altre.
+          «Senza colore» deve voler dire un colore diverso, non una FORMA diversa:
+          stessa geometria, stesso raggio, stessa dissolvenza, e al posto della
+          proiezione il neutro della famiglia (la stessa scala in alpha di
+          `SELECTED_SURFACE`, un gradino più su perché un filo sottile ha bisogno
+          di più contrasto di una campitura). */}
+      <span
+        aria-hidden="true"
+        data-testid="pinned-tile-rim"
+        data-rim={projection ? 'tinta' : 'neutro'}
+        className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${
+          lit ? 'opacity-100' : 'opacity-0'
+        } ${projection ? '' : 'bg-black/[0.18] dark:bg-white/[0.22]'}`}
+        style={{
+          ...(projection ? { background: projection } : null),
+          padding: 1.5,
+          // La maschera tiene solo la cornice: `exclude` e' lo standard,
+          // `xor` il nome che WebKit conosce da prima. Servono entrambi.
+          WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+          WebkitMaskComposite: 'xor',
+          mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+          maskComposite: 'exclude',
+        }}
+      />
+
 
       {/* L'alone d'identita' sul FONDO. Sta sotto il contenuto e sopra la
           superficie di stato, a bassa opacita': una tinta, non una vernice. */}

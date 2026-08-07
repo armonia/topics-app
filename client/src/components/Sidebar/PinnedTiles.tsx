@@ -6,14 +6,19 @@ import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile, PINNED_TILE_H, PINNED_TILE_ACTION_INSET, PINNED_TILE_CONTAINER } from './PinnedTile';
 import {
+  flattenPinnedLayout,
   insertPinnedRow,
   movePinnedTile,
-  previewWidths,
+  pinnedDropAllowed,
+  pinnedRowWidths,
+  placePinnedTile,
   reconcilePinnedLayout,
+  reorderWithinRow,
   samePinnedLayout,
   type PinnedDropTarget,
   type PinnedRow,
 } from './pinnedLayout';
+import { liveTranslate, useCellFlip } from './useCellFlip';
 
 /**
  * L'UNICO passo del blocco: fra due tessere della stessa riga, fra due righe, e
@@ -31,6 +36,19 @@ const TILE_GAP = 6;
 /** Quanto della sezione possono prendersi le fasce aperte. Il resto della
  *  sidebar deve restare raggiungibile: una tessera espansa non è una modale. */
 const EXPANDED_MAX_HEIGHT = '62%';
+
+/**
+ * Il cursore del drop — e non è una scelta di parole.
+ *
+ * Ogni sorgente che può atterrare qui dichiara `effectAllowed = 'move'` (le tab
+ * della barra, le righe dentro un gruppo, l'albero). Il modello DnD prescrive
+ * che un `dropEffect` NON compreso nell'`effectAllowed` della sorgente venga
+ * riportato a `'none'`, e con `'none'` il `drop` non viene proprio consegnato.
+ * Il `'copy'` che stava qui era la parola giusta per l'utente («fissare non
+ * toglie la tab da dov'era») e quella sbagliata per il browser: accendeva il
+ * bersaglio e poi lasciava che il gesto venisse annullato in silenzio.
+ */
+const DROP_EFFECT = 'move' as const;
 
 /**
  * La tessera come apparirà una volta posata: stesso componente, stessi segnali.
@@ -111,8 +129,13 @@ export function PinnedTiles({
   /** Fissa una cosa arrivata da FUORI (una riga dentro un gruppo, una tab, un
    *  progetto dell'albero). La chiave è già quella di riga: la conversione dalla
    *  pane la fa la griglia. `at` è la cella sotto il cursore quando il drop cade
-   *  su una riga o fra due righe — senza, la tessera si accoda. */
-  onPinItem?: (key: string, at?: PinnedDropTarget) => void;
+   *  su una riga o fra due righe — senza, la tessera si accoda.
+   *
+   *  `griglia` è la disposizione delle tessere VISIBILI con la nuova già al suo
+   *  posto: quando la ricerca filtra, gli indici di `at` sono contati su quel
+   *  sottoinsieme e non su tutto il layout salvato, quindi da soli mentirebbero
+   *  di una riga. Chi riceve la fonde con quello che ha (`mergePinnedLayout`). */
+  onPinItem?: (key: string, at?: PinnedDropTarget, griglia?: PinnedRow[]) => void;
   /** La riga della sidebar per una chiave, anche se NON è fra i fissati: serve
    *  a disegnare l'anteprima come la tessera vera invece che come un rettangolo
    *  colorato. `null` quando la chiave non ha una riga qui (drag da un'altra
@@ -139,10 +162,36 @@ export function PinnedTiles({
   const [newRowAt, setNewRowAt] = useState<number | null>(null);
   const [incomingRow, setIncomingRow] = useState<SidebarItem | null>(null);
   const [adopting, setAdopting] = useState(false);
+  // C'è una pane in volo, da qualsiasi parte del programma. Serve SOLO allo
+  // stato vuoto, che altrimenti non ha nessun elemento da cui sentire un
+  // `dragover`: senza tessere non c'è sezione, e senza sezione non c'è bersaglio.
+  const [dragEsterno, setDragEsterno] = useState(false);
   const dragKeyRef = useRef<string | null>(null);
+  const radice = useRef<HTMLDivElement>(null);
 
   const byId = new Map(items.map(i => [i.id, i]));
   const rows = reconcilePinnedLayout(items.map(i => i.id), layout);
+
+  /**
+   * Chi ha DAVVERO qualcosa da aprire qui sotto — deciso una volta per render,
+   * e non una domanda retorica.
+   *
+   * La fascia di un progetto esiste solo finché quel progetto ha tab aperte:
+   * chiuse tutte, `renderExpanded` torna `null`. `expanded` però è un insieme di
+   * INTENZIONI, e nessuno lo puliva — quindi una tessera aperta e poi rimasta
+   * senza tab restava `lit` (cioè accesa, cornice e superficie da selezionata)
+   * mostrando sotto di sé una fascia grigia vuota, e cliccarla non la spegneva:
+   * il ramo «niente da aprire» di `toggle` usciva senza toccare l'insieme. Una
+   * tessera illuminata per sempre, senza un gesto che la spenga. È il «a volte
+   * mi restano illuminati i pinnati».
+   */
+  const apribili = new Set(items.filter(i => renderExpanded(i) !== null).map(i => i.id));
+
+  /** Aperta per davvero: l'intenzione dell'utente E qualcosa da mostrare. */
+  const aperta = (key: string) => expanded.has(key) && apribili.has(key);
+
+  // Il riordino è un movimento, e si deve vedere muovere.
+  useCellFlip(radice);
 
   const clearDrag = useCallback(() => {
     dragKeyRef.current = null;
@@ -151,6 +200,7 @@ export function PinnedTiles({
     setNewRowAt(null);
     setIncomingRow(null);
     setAdopting(false);
+    setDragEsterno(false);
   }, []);
 
   // Il gesto è finito, comunque sia finito.
@@ -161,10 +211,19 @@ export function PinnedTiles({
   // lista) lasciava `adopting`/`dropAt` accesi per sempre: la griglia restava
   // convinta di avere un gesto in corso, e il gesto dopo non funzionava più.
   // È il «faccio avanti e indietro e poi non riesco più».
+  //
+  // `dragstart` è l'altra metà, e serve allo stato vuoto: il ripiano della pane
+  // è già stato posato dalla sorgente quando l'evento arriva fin qui (prima il
+  // bersaglio, poi la risalita), quindi basta guardarlo.
   useEffect(() => {
     const fine = () => clearDrag();
+    const inizio = () => setDragEsterno(draggedPaneId() !== null);
+    window.addEventListener('dragstart', inizio);
     window.addEventListener('dragend', fine);
-    return () => window.removeEventListener('dragend', fine);
+    return () => {
+      window.removeEventListener('dragstart', inizio);
+      window.removeEventListener('dragend', fine);
+    };
   }, [clearDrag]);
 
   /** Un drag che possiamo servire: porta il tipo giusto E viene da QUESTA
@@ -202,13 +261,43 @@ export function PinnedTiles({
     return paneId ? pinKeyFromPaneId(paneId) : null;
   };
 
-  /** Quante tessere della riga stanno a sinistra del cursore. */
+  /**
+   * La tessera che questo gesto sta SPOSTANDO, se è una che sta già in griglia.
+   *
+   * Non basta guardare da dove parte il drag. La tab di un progetto già fissato,
+   * trascinata dalla barra, è una cosa che una tessera ce l'ha: prima veniva
+   * trattata come un arrivo — anteprima di una cella nuova, riga che si stringe
+   * — e poi il drop non faceva niente, perché fissare una cosa già fissata è un
+   * no-op. Un bersaglio che si accende e non risponde. Se la chiave è nostra il
+   * gesto è uno spostamento, da qualunque parte arrivi.
+   */
+  const movingKey = (): string | null => {
+    if (dragKeyRef.current) return dragKeyRef.current;
+    const paneId = draggedPaneId();
+    const key = paneId ? pinKeyFromPaneId(paneId) : null;
+    return key && byId.has(key) ? key : null;
+  };
+
+  /**
+   * Quante tessere VERE della riga stanno a sinistra del cursore.
+   *
+   * Si misurano le CELLE, non le tessere: la cella d'anteprima porta dentro una
+   * `PinnedTile` vera — stessa icona, stesso nome — e quindi anche il suo
+   * `data-pinned-tile`, e finiva contata. Con il fantasma nel mucchio l'indice
+   * saliva di uno a ogni giro finché non sbatteva in fondo: lasciavi la tessera
+   * a metà riga e ti finiva in coda. `insertAt` è un indice dentro `row.keys`,
+   * che di celle finte non ne contiene.
+   *
+   * E si sottrae la traslazione del riordino in corso: `getBoundingClientRect`
+   * dice dove la cella è ORA, non dove starà, e misurare il fotogramma farebbe
+   * rimbalzare l'indice mentre l'animazione scorre.
+   */
   const insertIndexAt = (rowEl: HTMLElement, clientX: number): number => {
-    const tiles = Array.from(rowEl.querySelectorAll<HTMLElement>('[data-pinned-tile]'));
     let n = 0;
-    for (const t of tiles) {
-      const r = t.getBoundingClientRect();
-      if (clientX > r.left + r.width / 2) n++;
+    for (const cella of rowEl.querySelectorAll<HTMLElement>('[data-pinned-cell]')) {
+      const r = cella.getBoundingClientRect();
+      const { x } = liveTranslate(cella);
+      if (clientX > r.left - x + r.width / 2) n++;
     }
     return n;
   };
@@ -219,8 +308,19 @@ export function PinnedTiles({
   };
 
   const toggle = (item: SidebarItem) => {
-    const willExpand = !expanded.has(item.id);
-    if (renderExpanded(item) === null) {
+    const willExpand = !aperta(item.id);
+    if (!apribili.has(item.id)) {
+      // Niente da aprire: il click porta lì e basta. E se era rimasta accesa
+      // un'intenzione di quando invece c'era qualcosa, si spegne QUI — altrimenti
+      // riaprendo una tab del progetto la fascia si spalancherebbe da sola,
+      // ricordando un gesto fatto in un'altra vita della tessera.
+      if (expanded.has(item.id)) {
+        setExpanded(prev => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+      }
       onToggleItem?.(item, false);
       return;
     }
@@ -233,9 +333,75 @@ export function PinnedTiles({
     onToggleItem?.(item, willExpand);
   };
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    // Con zero fissati non c'era NIENTE da colpire: la sezione non si
+    // renderizzava affatto, quindi «trascina una cosa qui per fissarla»
+    // smetteva di esistere proprio nello stato in cui è l'unico modo per
+    // scoprirlo. A riposo resta niente — nessuna fascia vuota che occupa la
+    // sidebar per annunciare di essere vuota: il bersaglio nasce solo mentre
+    // una pane è davvero in volo, e muore col gesto.
+    if (!dragEsterno || !onPinItem) return null;
+    return (
+      <div
+        data-testid="sidebar-pinned-empty-drop"
+        role="group"
+        aria-label="Fissa qui"
+        className="mx-1.5 mb-1.5"
+        onDragOver={e => {
+          if (!isForeignPane(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = DROP_EFFECT;
+        }}
+        onDrop={e => {
+          if (!isForeignPane(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const key = foreignKey(e);
+          if (key) onPinItem(key);
+          clearDrag();
+        }}
+      >
+        <div
+          className={`${PINNED_TILE_H} pointer-events-none flex items-center justify-center rounded-lg border border-dashed border-app-border text-[11px] text-app-text-tertiary`}
+        >
+          Fissa qui
+        </div>
+      </div>
+    );
+  }
 
-  const anyExpanded = rows.some(r => r.keys.some(k => expanded.has(k)));
+  const anyExpanded = rows.some(r => r.keys.some(k => aperta(k)));
+
+  /**
+   * La stessa domanda di `movingKey`, posta IN RESA.
+   *
+   * E la risposta arriva dallo stato, non dal ripiano sincrono: il ref esiste
+   * per gli EVENTI, che possono scattare prima che React abbia applicato
+   * `setDragKey`. In resa quel vantaggio non c'è — se stiamo renderizzando, lo
+   * stato è già quello — e leggere un ref mentre si rende è il modo classico di
+   * disegnare un fotogramma che nessun aggiornamento verrà a correggere.
+   */
+  const movingRender: string | null = (() => {
+    if (dragKey) return dragKey;
+    // La tab di un fissato trascinata dalla barra: `dragKey` è nostro solo se il
+    // drag nasce da una tessera, ma la chiave può essere comunque una che
+    // teniamo. Il ripiano lo dice, e a questo render è già posato (il
+    // `dragstart` di finestra ci ha fatto ri-renderizzare).
+    const paneId = draggedPaneId();
+    const key = paneId ? pinKeyFromPaneId(paneId) : null;
+    return key && byId.has(key) ? key : null;
+  })();
+
+  /**
+   * La chiave che questo gesto sta spostando, se sta già in griglia — decisa una
+   * volta per render, così tutte le righe raccontano lo STESSO movimento: quella
+   * di arrivo che fa posto e quella di partenza che si stringe.
+   */
+  const inVolo: string | null = dropAt
+    ? dropAt.movingKey
+    : newRowAt !== null
+      ? movingRender
+      : null;
 
   /** La zona sottile fra due righe (e in fondo): ci si lascia cadere una
    *  tessera per aprire una riga nuova. A riposo è 6px di niente; sotto un drag
@@ -246,38 +412,67 @@ export function PinnedTiles({
     // appartiene a ciò che segue (il filo, che porta il suo margine). Dandogli
     // anche 6px a riposo i due si sommerebbero e il filo scivolerebbe via.
     const trailing = at === rows.length;
+    // Questa zona serve a qualcosa, per la cosa che è in volo ADESSO?
+    //
+    // Una tessera che si tiene già una riga tutta sua non ha nessun posto dove
+    // andare nello spazio sopra o sotto quella riga: la riga di partenza
+    // sparirebbe e ne nascerebbe una identica. Il modello lo sapeva già e
+    // rifiutava il gesto — ma la zona si apriva lo stesso, si accendeva e ci
+    // disegnava dentro l'anteprima della tessera. Prometteva uno spostamento
+    // che poi non avveniva: è il difetto «mi dà la possibilità di spostarla in
+    // una riga sotto, ma già sta occupando una riga».
+    //
+    // Non basta ignorare il drop: senza `preventDefault` la zona non è proprio
+    // un bersaglio, quindi il cursore lo dice — «qui no» — invece di dire «qui
+    // sì» e poi non fare niente.
+    const utile = pinnedDropAllowed(rows, movingRender, { kind: 'newRow', atRowIdx: at });
+    const attiva = utile && (dragKey !== null || adopting);
     return (
     <div
       key={`gap-${at}`}
       data-testid="pinned-new-row-zone"
+      data-drop-allowed={utile ? 'si' : 'no'}
       onDragOver={e => {
         const ours = isOurs(e);
         if (!ours && !isForeignPane(e)) return;
+        if (!pinnedDropAllowed(rows, movingKey(), { kind: 'newRow', atRowIdx: at })) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = ours ? 'move' : 'copy';
+        e.dataTransfer.dropEffect = DROP_EFFECT;
         setDropAt(null);
         setNewRowAt(at);
         // Chi sta per atterrare: sua, se il drag parte da questa griglia;
         // altrimenti la riga che il ripiano del drag sa nominare.
-        const moving = dragKeyRef.current;
+        const moving = movingKey();
         setIncomingRow(moving ? byId.get(moving) ?? null : incomingItem());
       }}
-      onDragLeave={() => setNewRowAt(cur => (cur === at ? null : cur))}
+      onDragLeave={e => {
+        // Come per la riga: `dragleave` scatta anche entrando in un FIGLIO —
+        // qui il rettangolo tratteggiato del posto vuoto — e senza questa
+        // guardia la zona si chiudeva proprio mentre ci passavi sopra.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setNewRowAt(cur => (cur === at ? null : cur));
+      }}
       onDrop={e => {
         const ours = isOurs(e);
         if (!ours && !isForeignPane(e)) return;
+        const moving = ours ? dragKeyRef.current : movingKey();
+        if (!pinnedDropAllowed(rows, moving, { kind: 'newRow', atRowIdx: at })) return;
         e.preventDefault();
         // La sezione ha un `drop` suo che fissa SENZA posizione: se il gesto è
         // già stato servito qui, quello dietro accoderebbe la tessera dopo
         // averla piazzata.
         e.stopPropagation();
-        if (ours) { commit(insertPinnedRow(rows, dragKeyRef.current!, at)); return; }
-        const key = foreignKey(e);
-        if (key) onPinItem?.(key, { kind: 'newRow', atRowIdx: at });
+        const key = ours ? dragKeyRef.current : foreignKey(e);
+        if (!key) { clearDrag(); return; }
+        // Già in griglia (anche arrivando da fuori: la tab di un fissato) ⇒ è
+        // uno spostamento, non un pin.
+        if (byId.has(key)) { commit(insertPinnedRow(rows, key, at)); return; }
+        const target: PinnedDropTarget = { kind: 'newRow', atRowIdx: at };
+        onPinItem?.(key, target, placePinnedTile([...flattenPinnedLayout(rows), key], rows, key, target));
         clearDrag();
       }}
       className={`mx-1.5 transition-all duration-100 ${
-        newRowAt === at ? '' : dragKey || adopting ? 'h-2' : ''
+        newRowAt === at ? '' : attiva ? 'h-2' : ''
       }`}
       // Mostrando l'anteprima questo spazio DIVENTA una riga, e una riga ha
       // il suo respiro sopra e sotto: senza, la tessera in arrivo toccava
@@ -286,7 +481,7 @@ export function PinnedTiles({
       style={
         newRowAt === at
           ? { paddingTop: TILE_GAP, paddingBottom: TILE_GAP }
-          : dragKey || adopting
+          : attiva
             ? undefined
             : { height: trailing ? 0 : TILE_GAP }
       }
@@ -304,7 +499,10 @@ export function PinnedTiles({
             </div>
           : <div
               data-testid="pinned-drop-ghost"
-              className={`${PINNED_TILE_H} rounded-lg border border-dashed border-app-border`}
+              // Non è un bersaglio: è il disegno di uno. Restando cliccabile si
+              // prendeva il `dragleave` della zona che l'aveva appena aperta —
+              // e la zona si chiudeva proprio mentre ci passavi sopra.
+              className={`${PINNED_TILE_H} pointer-events-none rounded-lg border border-dashed border-app-border`}
             />
       )}
     </div>
@@ -313,6 +511,7 @@ export function PinnedTiles({
 
   return (
     <div
+      ref={radice}
       data-testid="sidebar-pinned-section"
       // Nessun alone sulla sezione. L'anteprima è la tessera vera nella cella
       // dove atterrerà: un riquadro azzurro sopra direbbe una seconda volta,
@@ -329,7 +528,7 @@ export function PinnedTiles({
       onDragOver={e => {
         if (!isForeignPane(e)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
+        e.dataTransfer.dropEffect = DROP_EFFECT;
         if (!adopting) setAdopting(true);
       }}
       onDragLeave={e => {
@@ -357,22 +556,39 @@ export function PinnedTiles({
         // diretta: quello che vedi mentre tieni premuto è come resterà.
         const adding = over && !dragFromThisRow;
         const reordering = over && dragFromThisRow;
-        const widths = adding ? previewWidths(row, dropAt.insertAt) : row.widths;
-        const openHere = row.keys.filter(k => expanded.has(k) && byId.has(k));
+        const openHere = row.keys.filter(k => aperta(k) && byId.has(k));
 
-        let cells: Array<string | null> = [...row.keys];
+        // La riga da cui la tessera sta USCENDO mostra che sta uscendo. Senza,
+        // l'anteprima raccontava metà movimento: la riga d'arrivo si stringeva
+        // per fare posto, quella di partenza restava larga com'era, e a drop
+        // fatto scattava. Non quando la riga resterebbe VUOTA: farla sparire
+        // sotto un cursore sospeso sposterebbe di una riga tutti i bersagli
+        // sotto — compreso quello che si sta mirando.
+        const uscente =
+          inVolo !== null && !over && row.keys.length > 1 && row.keys.includes(inVolo)
+            ? inVolo
+            : null;
+
+        let cells: Array<string | null> = uscente
+          ? row.keys.filter(k => k !== uscente)
+          : [...row.keys];
         if (adding) {
           // Il fantasma è una cella in più: le chiavi vanno interlacciate con
           // lui per restare allineate alle larghezze.
           cells.splice(dropAt.insertAt, 0, null);
         } else if (reordering && dropAt.movingKey) {
-          const moving = dropAt.movingKey;
-          const from = cells.indexOf(moving);
-          const rest = cells.filter(k => k !== moving);
-          const at = Math.max(0, Math.min(dropAt.insertAt > from ? dropAt.insertAt - 1 : dropAt.insertAt, rest.length));
-          rest.splice(at, 0, moving);
-          cells = rest;
+          // La STESSA funzione che il drop applicherà. Prima erano due formule
+          // gemelle in due posti — una qui, una implicita nel `pluck`+`splice`
+          // del modello — e divergevano su ogni spostamento verso destra:
+          // vedevi [b, a, c] mentre tenevi premuto e ti restava [b, c, a].
+          cells = reorderWithinRow(row.keys, dropAt.movingKey, dropAt.insertAt);
         }
+
+        // Un conteggio diverso vuol dire larghezze diverse, e sono SEMPRE
+        // quelle che il drop produrrà: stessa funzione, chiamata in anticipo.
+        // A parità di conteggio (riordino) le larghezze salvate restano quelle.
+        const widths =
+          cells.length === row.keys.length ? row.widths : pinnedRowWidths(cells.length);
 
         return (
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">
@@ -384,14 +600,21 @@ export function PinnedTiles({
               onDragOver={e => {
                 const ours = isOurs(e);
                 if (!ours && !isForeignPane(e)) return;
+                // La riga GUADAGNA una cella solo se la tessera non è già sua.
+                // Piena vuol dire piena: oltre `PINNED_ROW_MAX` le tessere
+                // diventano più strette del cursore che deve riprenderle, e
+                // nessun gesto sa più disfare la riga. Non essendo un bersaglio
+                // il cursore lo dice, e gli spazi qui sopra e qui sotto restano
+                // aperti: il gesto viene guidato a una riga nuova.
+                const moving = ours ? dragKeyRef.current : movingKey();
+                if (!pinnedDropAllowed(rows, moving, { kind: 'row', rowIdx, insertAt: 0 })) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = ours ? 'move' : 'copy';
+                e.dataTransfer.dropEffect = DROP_EFFECT;
                 setNewRowAt(null);
                 // Da fuori non c'è chiave da muovere: la riga GUADAGNA una
                 // cella, quindi fantasma + larghezze finali — la stessa
                 // anteprima del riordino, per lo stesso motivo (vedere dove
                 // finisce prima di lasciare).
-                const moving = ours ? dragKeyRef.current : null;
                 setDropAt({
                   rowIdx,
                   insertAt: insertIndexAt(e.currentTarget, e.clientX),
@@ -418,12 +641,16 @@ export function PinnedTiles({
               onDrop={e => {
                 const ours = isOurs(e);
                 if (!ours && !isForeignPane(e)) return;
+                const moving = ours ? dragKeyRef.current : movingKey();
+                if (!pinnedDropAllowed(rows, moving, { kind: 'row', rowIdx, insertAt: 0 })) return;
                 e.preventDefault();
                 e.stopPropagation(); // vedi `rowGap`: la sezione fissa senza posizione
                 const insertAt = insertIndexAt(e.currentTarget, e.clientX);
-                if (ours) { commit(movePinnedTile(rows, dragKeyRef.current!, { rowIdx, insertAt })); return; }
-                const key = foreignKey(e);
-                if (key) onPinItem?.(key, { kind: 'row', rowIdx, insertAt });
+                const key = ours ? dragKeyRef.current : foreignKey(e);
+                if (!key) { clearDrag(); return; }
+                if (byId.has(key)) { commit(movePinnedTile(rows, key, { rowIdx, insertAt })); return; }
+                const target: PinnedDropTarget = { kind: 'row', rowIdx, insertAt };
+                onPinItem?.(key, target, placePinnedTile([...flattenPinnedLayout(rows), key], rows, key, target));
                 clearDrag();
               }}
             >
@@ -444,7 +671,7 @@ export function PinnedTiles({
                           </div>
                         : <div
                             data-testid="pinned-drop-ghost"
-                            className={`${PINNED_TILE_H} rounded-lg border border-dashed border-app-border`}
+                            className={`${PINNED_TILE_H} pointer-events-none rounded-lg border border-dashed border-app-border`}
                           />}
                     </div>
                   );
@@ -456,9 +683,15 @@ export function PinnedTiles({
                 return (
                   <div
                     key={key}
+                    // Il marcatore della cella VERA, e serve a due cose che
+                    // devono restare la stessa: il FLIP che la anima quando
+                    // cambia posto, e la misura di quante ne stanno a sinistra
+                    // del cursore. Il fantasma non ce l'ha — non è una tessera,
+                    // è il posto che una tessera prenderà.
+                    data-pinned-cell={key}
                     style={flex}
                     className={`${PINNED_TILE_CONTAINER} relative group/cell min-w-0 ${
-                      reordering && dropAt.movingKey === key ? 'opacity-70 transition-opacity' : ''
+                      dropAt?.movingKey === key ? 'opacity-70 transition-opacity' : ''
                     }`}
                   >
                     {/* I comandi stanno SOPRA la tessera, non dentro: fratelli
@@ -481,11 +714,14 @@ export function PinnedTiles({
                     )}
                     <PinnedTile
                       item={item}
-                      expanded={expanded.has(key)}
+                      // Non `expanded.has(key)`: l'intenzione da sola non basta
+                      // a dirsi aperta, e una tessera accesa senza una fascia
+                      // sotto è una tessera accesa senza motivo.
+                      expanded={aperta(key)}
                       // La stessa domanda che fa `toggle`: se non c'è niente da
                       // aprire il click porta e basta, e la tessera non deve
                       // promettere una fascia che non arriva.
-                      expandable={renderExpanded(item) !== null}
+                      expandable={apribili.has(key)}
                       focused={meta.focused}
                       attention={meta.attention}
                       dragging={dragKey === key && !reordering}

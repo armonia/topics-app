@@ -9,6 +9,7 @@ import App from './App'
 import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
+import { isInternalDrag } from './lib/dndTypes';
 import { SessionRoot } from './components/Share/SessionRoot';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
@@ -24,7 +25,20 @@ if (!container) {
 // Prevent browser default file drop behavior (navigating to file:// URL).
 // Individual drop zones (e.g. FileExplorer) call e.preventDefault() themselves and
 // handle the files — this global handler is a safety net for drops outside those zones.
-document.addEventListener('dragover', (e) => e.preventDefault());
+//
+// Ma SOLO per ciò che arriva da fuori. Sul `dragover`, `preventDefault` non è
+// una difesa: è il modo in cui una zona dichiara «qui si può lasciare». Steso
+// sul documento diceva di sì da ogni pixel — cursore di spostamento anche sopra
+// i posti che il drop rifiutava, e nessun modo per una zona di dire «qui no»,
+// perché il suo silenzio veniva coperto un livello più su. Le nostre trascinate
+// se le vedono le zone; vedi `isInternalDrag`.
+document.addEventListener('dragover', (e) => {
+  if (e.dataTransfer && isInternalDrag(e.dataTransfer.types)) return;
+  e.preventDefault();
+});
+// Il `drop` resta coperto senza eccezioni: qui `preventDefault` non promette
+// niente a nessuno, toglie solo la navigazione. E per una trascinata nostra non
+// arriva nemmeno — il browser emette `drop` solo dove il `dragover` ha detto sì.
 document.addEventListener('drop', (e) => e.preventDefault());
 
 // Self-heal stale bundles. build:watch rebuilds /public with NEW content hashes
