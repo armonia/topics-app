@@ -407,3 +407,40 @@ describe("rotte auth · condividere con un soggetto che non è un dispositivo", 
     expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 0 });
   });
 });
+
+describe("rotte auth · inondare la coda non chiude fuori nessuno", () => {
+  test("il proprietario appaia il suo telefono anche con la coda piena", async () => {
+    // Il caso per cui la quota è stata rifatta. Col tetto complessivo applicato
+    // come RIFIUTO, bastavano sette indirizzi con tre richieste a testa e da lì
+    // in poi nessuno entrava più — nemmeno chi ha il telefono in mano e la
+    // macchina davanti. Non fa entrare nessuno: impedisce a TE di far entrare.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+
+    // Ottanta indirizzi diversi, tre richieste ciascuno: la coda va oltre il
+    // tetto e resta piena.
+    for (let i = 0; i < 80; i++) {
+      for (let k = 0; k < 3; k++) {
+        await chiama(router, "/api/auth/pair/request", "POST", { ip: `203.0.113.${i}` });
+      }
+    }
+
+    const mia = await chiama(router, "/api/auth/pair/request", "POST", { ip: "192.168.1.7" });
+    expect(mia?.status).toBe(200);
+    const b = await mia!.json() as { code: string };
+    expect(b.code).toMatch(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/);
+  });
+
+  test("ma il limite su UN indirizzo resta un rifiuto", async () => {
+    // È un limite su di te, non sulla coda: sfrattare le tue richieste per far
+    // posto ad altre tue non vorrebbe dire niente.
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    for (let k = 0; k < 3; k++) {
+      const r = await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
+      expect(r?.status).toBe(200);
+    }
+    const quarta = await chiama(router, "/api/auth/pair/request", "POST", { ip: "10.0.0.9" });
+    expect(quarta?.status).toBe(429);
+  });
+});
