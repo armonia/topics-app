@@ -186,4 +186,43 @@ printf '{"type":"result","result":"already-done","usage":{"input_tokens":1,"outp
     expect(outcome).toBe("completed");
     expect(hB.result as string | null).toBe("already-done");
   }, 20000);
+
+  /**
+   * Il ponte non risponde durante una riadozione.
+   *
+   * Erano gli unici `await` nudi di tutto il provider, e il boot li percorre per
+   * OGNI topic adottabile. Il rigetto usciva fino al `.catch` della rotta, che
+   * scrive «⚠️ Failed to send message» SOPRA il contenuto della riga senza
+   * guardarlo — e proprio qui il danno era totale, perché la riadozione ha già
+   * svuotato la riga per riusarla e la rifusione dello snapshot vive dentro
+   * `finalizeStream`, che quel `.catch` non chiama mai.
+   *
+   * Il patto: si esce da `onError`, cioè dalla porta ordinata, e il processo NON
+   * viene bollato come morto — non aver potuto parlare col broker non lo prova.
+   */
+  test("il ponte muto durante una riadozione NON rigetta: esce da onError, e il figlio non viene bollato morto", async () => {
+    const sessionKey = "topic:reattach-bridge-muto";
+    seedTopic(sessionKey, "t-bridge-muto");
+
+    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient() as unknown as {
+      attach: (id: string, off: number) => Promise<unknown>;
+    };
+    const vero = bridge.attach.bind(bridge);
+    bridge.attach = async () => { throw new Error("ai-bridge: ack timeout (attach, 15s)"); };
+
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const h = makeHandler();
+    try {
+      // Non rigetta: è questo il punto.
+      expect(await prov.reattach(sessionKey, h.handler)).toBe("dead");
+    } finally {
+      bridge.attach = vero;
+    }
+
+    expect(h.err).toContain("Riadozione del turno non riuscita");
+    expect(h.err).toContain("ack timeout");
+    // `alive` resta com'era: il figlio potrebbe star benissimo, e bollarlo morto
+    // è la bugia che si propaga in `isTurnProcessAlive` e nel setaccio di boot.
+    expect((prov as unknown as { processes: Map<string, { alive: boolean }> }).processes.get(sessionKey)?.alive).toBe(true);
+  }, 20000);
 });
