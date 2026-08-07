@@ -967,6 +967,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
        * non esiste più, e una macchina che crede di avere uno slot libero in
        * più di quanti ne ha davvero.
        *
+       * Un FAN-OUT ha N agenti, non uno: `assigned_topic_id` ne punta uno solo
+       * (il tentativo 1), quindi tagliare quello lasciava gli altri N-1 a
+       * girare, ciascuno nel suo worktree, dopo che l'umano aveva già detto
+       * «basta». Si abortiscono tutte le sessioni dei tentativi ancora
+       * `running`, e le loro righe si chiudono a `failed`: un tentativo che
+       * resta `running` per sempre tiene il task dentro il gate del fan-out
+       * (`fanOutGuard`) e fa credere a `reconcile` che ci sia un giro da
+       * recuperare.
+       *
        * Ritorna il task parcheggiato, o null se non c'era nessun agente da
        * fermare (nel qual caso il chiamante non deve toccare niente).
        */
@@ -974,11 +983,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
         reason: string,
       ): Task | null => {
-        if (!t.assignedTopicId && !isAgentWorking(t.dispatchState)) return null;
-        const sessionKey = t.assignedTopicId ? "topic:" + t.assignedTopicId.slice(0, 8) : null;
+        let running: TaskAttempt[] = [];
+        try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
+        catch { /* tabella assente (host degradato) ⇒ nessun fan-out */ }
+        if (!t.assignedTopicId && !isAgentWorking(t.dispatchState) && running.length === 0) return null;
+        // Dedup: il tentativo 1 è anche il topic legato al task.
+        const keys = new Set<string>();
+        for (const id of [t.assignedTopicId, ...running.map((a) => a.topicId)]) {
+          if (id) keys.add("topic:" + id.slice(0, 8));
+        }
         dispatcher?.onLeaveTodo(t.id); // sgancia un grace timer ancora pendente (queued)
         const parked = svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason });
-        if (sessionKey && opts?.abortTurn) void opts.abortTurn(sessionKey).catch(() => { /* best-effort */ });
+        for (const a of running) {
+          try { attempts.finish(a.id, { state: "failed", error: reason }); }
+          catch { /* best-effort: il taglio del turno conta più della riga */ }
+        }
+        if (opts?.abortTurn) {
+          for (const key of keys) void opts.abortTurn(key).catch(() => { /* best-effort */ });
+        }
         return parked;
       };
 
