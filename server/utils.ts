@@ -619,6 +619,25 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /**
+   * Chiude tutte le socket di un dispositivo.
+   *
+   * Serve perché l'identità di una socket è timbrata all'upgrade e non si
+   * rilegge: dopo, un WebSocket è solo un tubo. Quindi una connessione già
+   * aperta sopravviveva alla revoca del proprio dispositivo — il gate HTTP
+   * rifiutava le richieste, e intanto i frame continuavano ad arrivare.
+   * «Revocato» deve voler dire subito, su tutti i canali, non solo su quello
+   * che ricontrolla.
+   */
+  function closeDeviceSockets(deviceId: string): number {
+    let chiuse = 0;
+    for (const ws of wsClients) {
+      if (ws.data.deviceId !== deviceId) continue;
+      try { ws.close(4003, "device revoked"); chiuse++; } catch { /* già andata */ }
+    }
+    return chiuse;
+  }
+
   function broadcastToTopic(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
@@ -1872,7 +1891,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, setGuestBroadcastFilter,
+    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,
