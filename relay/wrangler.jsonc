@@ -1,0 +1,25 @@
+{
+  // Il relay. NOME DIVERSO da `topics-landing`, e questo è il punto: un
+  // `wrangler deploy` senza `--name` sovrascrive il Worker di produzione del
+  // sito, e la memoria del progetto lo segna come trappola già pagata.
+  // Questo file vive in `relay/` e si deploya da lì, così i due non si
+  // incontrano mai.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "topics-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-01-01",
+  "observability": { "enabled": true },
+
+  "durable_objects": {
+    "bindings": [{ "name": "SESSIONE", "class_name": "SessioneRelay" }]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      // `new_sqlite_classes` e non `new_classes`: i Durable Object con
+      // archiviazione SQLite sono quelli disponibili anche sul piano gratuito.
+      // Con la forma vecchia il deploy chiede il piano a pagamento.
+      "new_sqlite_classes": ["SessioneRelay"]
+    }
+  ]
+}
