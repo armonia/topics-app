@@ -72,16 +72,45 @@ L'esempio ufficiale di Cloudflare — 100 oggetti × 100 connessioni ibernanti, 
 messaggio/minuto — costa **$10/mese in tutto**. Qui un oggetto è
 un'installazione, con 2-5 connessioni, non 100.
 
-Stima per **100 clienti**: ~$10-15/mese totali, cioè **10-15 centesimi a
-cliente**. Contro un piano team a 10-20€ è rumore. I messaggi in USCITA non si
-pagano, e quelli in entrata contano 20:1 — la chat, fatta di tanti frame
-piccoli, è quasi gratis sull'asse richieste. Il consumo vero è la DURATA durante
-i turni in streaming, e i 400.000 GB-s inclusi coprono dell'ordine di 100.000
-turni al mese.
+### Misurato, non stimato (task 0.2 — fatto)
 
-Margine di sicurezza: la documentazione di Cloudflare ha una segnalazione aperta
-secondo cui l'ibernazione impiega ~10 secondi a scattare, quindi la durata reale
-è più alta dell'esempio. Anche a 3× si resta sotto i $50/mese a 100 clienti.
+I numeri vengono da **1511 turni veri su 101 giorni** del database di sviluppo,
+non da un'ipotesi:
+
+| | |
+|---|---|
+| turni al giorno, per utente | **14,9** |
+| durata mediana di un turno | **48,7 s** |
+| durata media | **163 s** (coda lunga: il 7% supera i 10 minuti) |
+| GB-s per turno (163 s × 128 MB) | **20,4** |
+
+| clienti | GB-s/mese | costo | a cliente |
+|---|---|---|---|
+| 10 | 91.000 | **$5,00** (solo il minimo) | $0,50 |
+| 100 | 913.000 | **$11,41** | **$0,11** |
+| 1000 | 9,1 M | **$114** | $0,11 |
+
+**La stima di prima era giusta per caso.** Avevo detto ~4 GB-s a turno: sono
+20,4, cioè cinque volte tanto. Ma avevo anche ipotizzato 50 turni al giorno, e
+sono 15. I due errori si annullavano, e la conclusione — dieci centesimi a
+cliente — regge. Ora però poggia su una misura invece che su due sbagli
+compensati, che è la ragione per cui il task 0.2 veniva prima del codice.
+
+**E il caso misurato è il PEGGIORE possibile**, perché assume che un ospite stia
+guardando ogni singolo turno. Il relay non gira quando nessuno guarda: se non
+c'è un ospite collegato, quei GB-s non esistono. Il consumo vero è funzione dei
+**minuti di visione**, non dei turni — cioè di quanto il prodotto viene usato in
+due, che è una domanda di prodotto e non di infrastruttura.
+
+I messaggi in USCITA non si pagano, e quelli in entrata contano 20:1: sull'asse
+richieste la chat è rumore. Il ritardo di ~10 secondi con cui scatta
+l'ibernazione (segnalazione aperta nella documentazione di Cloudflare) è
+trascurabile contro turni da 163 secondi — inciderebbe su turni brevissimi, che
+consumano poco per definizione.
+
+**Il margine è quindi confermato**: 11 centesimi a cliente contro un piano team a
+10-20€, e la stessa cifra a 100 come a 1000 clienti perché il costo è lineare e
+la quota inclusa si diluisce.
 
 ## Out of scope — e perché
 
