@@ -1281,6 +1281,51 @@ html.electron-mac.dark .edge-lit::before {
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
 }
 
+/* UNA CURVA SOLA, E LA FINESTRA CHE LA CONTIENE.
+ *
+ * Attilio, 07/08: «il + a destra nella tabbar dell'app è forse troppo poco
+ * rotondo e stona con il bordo della finestra del Mac, dovremmo uniformare
+ * tutto bene». È vero e si vedeva solo lì: quel bottone sta a pochi pixel
+ * dall'angolo in alto a destra della finestra, che sotto la shell mac è
+ * arrotondato a 12px — e lui era a 6. Due curve diverse a distanza di un
+ * centimetro si leggono come un errore di allineamento, non come due elementi.
+ *
+ * La scala era già dichiarata (`--radius: 0.5rem`) e già disattesa: le card
+ * della sidebar e le tessere fissate stavano a 8 (`rounded-lg`), le tab e i tre
+ * comandi a 6 (`rounded-md`). Adesso ogni superficie INTERATTIVA sta a 8, e
+ * restano due curve in tutta l'app: 8 per ciò che si tocca, 12 per la finestra
+ * che le contiene. Un raggio interno più stretto di quello che lo contiene è la
+ * regola giusta; averne tre non lo era.
+ *
+ * Questo blocco non genera CSS: sta qui perché è il posto in cui si va a
+ * cercare «quanto è arrotondato cosa», e la risposta non deve essere «dipende
+ * dal componente». */
+
+/* UN COMANDO SU UN PIANO DI VETRO — il «+», il cerca, il tasto che riapre la
+ * colonna.
+ *
+ * Attilio, 07/08: «da app mi sembrano di uno schema di colore diverso rispetto
+ * al grigio blur dell'app attuale». Esatto, ed è strutturale: sotto la shell
+ * mac tutto il chrome è UNA lastra translucida (vedi §vibrancy in fondo — la
+ * sidebar, le barre delle tab e i fondali dei gruppi dipingono tutti la stessa
+ * unica mano sopra il materiale nativo). Un fondo OPACO appoggiato lì sopra non
+ * partecipa al vetro: non lascia salire niente, non ha la tinta del materiale,
+ * e si stacca come un adesivo. Sul web invece l'opaco è giusto — lì sotto non
+ * c'è nessun materiale, e un rialzo in alpha su un chrome già tenue si legge a
+ * malapena («non dovrebbe essere trasparente il +»).
+ *
+ * Quindi il colore lo decide la PIATTAFORMA, non il chiamante: token opaco fuori
+ * dalla shell, rialzo in alpha dentro. I due numeri della vibrancy stanno nella
+ * stessa famiglia degli altri stati della colonna (hover 0.05/0.08, selezionata
+ * 0.06/0.14): un comando sta in mezzo, cioè si vede come oggetto senza pesare
+ * come una selezione. */
+.raised-control { background-color: var(--bg-elevated); }
+.raised-control:hover { background-color: var(--bg-hover); }
+html.electron-mac .raised-control { background-color: rgb(0 0 0 / 0.06); }
+html.electron-mac .raised-control:hover { background-color: rgb(0 0 0 / 0.10); }
+html.electron-mac.dark .raised-control { background-color: rgb(255 255 255 / 0.10); }
+html.electron-mac.dark .raised-control:hover { background-color: rgb(255 255 255 / 0.16); }
+
 /* IL LONG-PRESS SI VEDE. Su iPhone `navigator.vibrate` non esiste, quindi
  * `haptic()` è un no-op e 500ms di pressione sarebbero ciechi: senza un segno,
  * chi tiene premuto non sa se sta succedendo qualcosa e molla prima. Il segno è

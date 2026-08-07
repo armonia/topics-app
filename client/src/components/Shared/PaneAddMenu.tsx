@@ -262,7 +262,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  *    soglia col pollice sia fuori colonna rispetto ai vicini.
  */
 const TRIGGER_CLASS_PILL =
-  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors`;
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -322,7 +322,7 @@ export function PaneAddMenu({
   // RAISED_CONTROL plate with an inline kbd hint.
   const triggerBase =
     triggerVariant === 'header'
-      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
+      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
