@@ -10,7 +10,8 @@
 import { useT } from '../../hooks/useT';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -23,6 +24,7 @@ import {
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
+import { groupByStatus, planDrop, type OrderScope } from '../../lib/boardOrder';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -799,24 +801,22 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     }
   }, [projectPath]);
 
+  // `kanbanOrder` è una chiave PER BOARD: nella board generale i numeri vengono
+  // da sequenze indipendenti e non si confrontano. Lo scope lo dice al
+  // comparatore (e a `planDrop`, che lì non scrive posizioni).
+  const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
+
   const byStatus = useMemo(() => {
-    const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
-    for (const t of tasks) {
+    const visible = tasks.filter((t) => {
       // Apply filters: all active conditions must match (AND logic).
-      if (filters.priority.length > 0 && !filters.priority.includes(t.priority)) continue;
-      if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) continue;
-      if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) continue;
-      if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) continue;
-      (m[t.status] ??= []).push(t);
-    }
-    for (const s of TASK_STATUSES) m[s].sort((a, b) => a.kanbanOrder - b.kanbanOrder);
-    // Review is a human inbox, not a hand-ordered lane: order it by LAST UPDATE
-    // (most recent first) so a fresh delivery or a just-answered "serve te" floats
-    // to the top — matching the "ultimo aggiornamento" shown on each card. The
-    // other columns keep their manual kanbanOrder.
-    m.review.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-    return m;
-  }, [tasks, filters]);
+      if (filters.priority.length > 0 && !filters.priority.includes(t.priority)) return false;
+      if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) return false;
+      if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
+      if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) return false;
+      return true;
+    });
+    return groupByStatus(visible, orderScope);
+  }, [tasks, filters, orderScope]);
 
   // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
   // and blocked-by ("in attesa di…", needs the blocker's status too). Best
@@ -877,9 +877,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Mouse: pick a card up after a 4px drag. Touch: require a 200ms press-and-hold
   // (with an 8px slop) before a drag starts, so a horizontal swipe scrolls the
   // snap carousel instead of yanking the card under the finger.
+  // Tastiera: spazio/invio afferra la card, le frecce la spostano, spazio molla,
+  // Esc annulla. Senza questo sensore riordinare una colonna era possibile SOLO
+  // col mouse — cambiare stato no (il selettore nel drawer c'è), ma la posizione
+  // dentro la colonna non era raggiungibile in nessun altro modo.
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const flushDrag = useCallback(() => {
     draggingRef.current = false;
@@ -889,32 +894,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     draggingRef.current = true;
     setActiveId(String(e.active.id));
   }, []);
-  // Fractional insertion key between two neighbours (SQLite NUMERIC affinity
-  // keeps the float): no renumbering, one PATCH per drop.
-  const between = (prev: number | undefined, next: number | undefined): number =>
-    prev === undefined && next === undefined ? 1
-    : prev === undefined ? next! - 1
-    : next === undefined ? prev + 1
-    : (prev + next) / 2;
+  // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
+  // qui resta solo il raccordo fra dnd-kit e la PATCH.
   const onDragEnd = useCallback((e: DragEndEvent) => {
     setActiveId(null);
     flushDrag();
     const task = tasks.find((t) => t.id === e.active.id);
-    const overId = e.over ? String(e.over.id) : null;
-    if (!task || !overId || overId === task.id) return;
-    // Dropped on a COLUMN (its empty area) → append; on a CARD → take its place.
-    const overTask = TASK_STATUSES.includes(overId as TaskStatus) ? undefined : tasks.find((t) => t.id === overId);
-    const status = overTask ? overTask.status : (overId as TaskStatus);
-    if (!TASK_STATUSES.includes(status)) return;
-    const col = byStatus[status].filter((t) => t.id !== task.id); // already kanbanOrder-sorted
-    let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;
-    if (idx < 0) idx = col.length;
-    // Same-column move DOWN past the over card = land after it (its old slot).
-    if (overTask && task.status === status && task.kanbanOrder < overTask.kanbanOrder) idx += 1;
-    const kanbanOrder = between(col[idx - 1]?.kanbanOrder, col[idx]?.kanbanOrder);
-    if (task.status === status && kanbanOrder === task.kanbanOrder) return;
-    dropTo(task, task.status === status ? { kanbanOrder } : { status, kanbanOrder });
-  }, [tasks, byStatus, dropTo, flushDrag]);
+    if (!task) return;
+    const plan = planDrop({
+      task,
+      overId: e.over ? String(e.over.id) : null,
+      byStatus,
+      scope: orderScope,
+    });
+    if (plan) dropTo(task, plan);
+  }, [tasks, byStatus, dropTo, flushDrag, orderScope]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {

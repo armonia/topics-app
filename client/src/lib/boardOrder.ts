@@ -1,0 +1,152 @@
+/**
+ * boardOrder.ts — l'ordine delle colonne della kanban e cosa fa un drop.
+ *
+ * Stava dentro `KanbanBoardPane` (1164 righe): la logica più delicata del lato
+ * client — inserimento frazionario, correzione dell'indice per lo spostamento
+ * verso il basso, scelta della colonna di destinazione — viveva dentro un
+ * `useCallback` e non era coperta da NESSUN test (le spec della board non
+ * trascinano mai una card). Qui è pura: entra lo stato, esce la patch.
+ *
+ * Due cose che non erano vere prima e ora lo sono:
+ *
+ *  1. **L'ordine è TOTALE.** Si ordinava per `kanbanOrder` e basta. A parità di
+ *     numero l'ordine dipendeva da come SQLite aveva restituito le righe — che
+ *     non è garantito — quindi due card pari-merito potevano scambiarsi di
+ *     posto da un refetch all'altro. I pari-merito non sono ipotetici: nella
+ *     board generale sono la norma (vedi sotto), e `between` dimezza l'ampiezza
+ *     a ogni inserimento nello stesso interstizio, quindi anche su una board
+ *     sola bastano ~50 drop per esaurire la mantissa e produrne.
+ *
+ *  2. **`kanbanOrder` non si confronta fra board diverse.** È assegnato per
+ *     progetto (`MAX(kanban_order) + 1 WHERE project_id = ?`), quindi nella
+ *     board generale un task di un progetto giovane sta sempre in cima e uno di
+ *     un progetto anziano sempre in fondo — non perché qualcuno l'abbia deciso,
+ *     ma perché quel progetto ha più task. Peggio: riordinare lì scriveva un
+ *     `kanbanOrder` calcolato sui VICINI DI ALTRI PROGETTI, e quel numero poi
+ *     spostava la card in un punto a caso della sua board vera. La board
+ *     generale ordina quindi per data di creazione (chiave che esiste allo
+ *     stesso modo su ogni progetto) e non riordina: trascinare fra colonne
+ *     cambia lo stato — che è per-task e ha senso ovunque — ma non la posizione.
+ */
+
+import type { BoardTask, TaskStatus } from './board';
+import { TASK_STATUSES } from './board';
+
+/**
+ * Come si legge l'ordine di una colonna.
+ *
+ * `board` = una board sola: comanda l'ordine che l'umano ha dato trascinando.
+ * `cross-project` = la board generale e la fascia in sidebar: `kanbanOrder` non
+ * è comparabile, si va per data di creazione.
+ */
+export type OrderScope = 'board' | 'cross-project';
+
+/** Il minimo che serve per ordinare: così i test non costruiscono un BoardTask intero. */
+export type OrderableTask = Pick<BoardTask, 'id' | 'kanbanOrder' | 'createdAt' | 'updatedAt'>;
+
+/**
+ * Comparatore TOTALE: due task distinti non sono mai pari-merito, quindi
+ * l'ordine non dipende da come sono arrivati. `id` è l'ancora finale — arbitrario
+ * ma stabile, che è tutto quel che serve per non far ballare le card.
+ */
+export function compareTasks(scope: OrderScope) {
+  return (a: OrderableTask, b: OrderableTask): number => {
+    if (scope === 'board' && a.kanbanOrder !== b.kanbanOrder) return a.kanbanOrder - b.kanbanOrder;
+    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+
+/**
+ * Review è una casella di posta, non una corsia ordinata a mano: comanda
+ * l'ultimo aggiornamento (più recente in cima), così una consegna fresca o un
+ * «serve te» appena risposto sale da solo — ed è la stessa data che la card
+ * mostra. Stessa coda di spareggi del comparatore normale: l'ordine è totale.
+ */
+const compareReview = (a: OrderableTask, b: OrderableTask): number => {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+};
+
+/** Raggruppa per stato e ordina ogni colonna. Una colonna per stato, sempre presente. */
+export function groupByStatus<T extends OrderableTask & { status: TaskStatus }>(
+  tasks: readonly T[],
+  scope: OrderScope,
+): Record<TaskStatus, T[]> {
+  const byStatus = Object.fromEntries(TASK_STATUSES.map((s) => [s, [] as T[]])) as Record<TaskStatus, T[]>;
+  for (const t of tasks) byStatus[t.status]?.push(t);
+  const cmp = compareTasks(scope);
+  for (const s of TASK_STATUSES) byStatus[s].sort(s === 'review' ? compareReview : cmp);
+  return byStatus;
+}
+
+/**
+ * Chiave di inserimento fra due vicini: nessuna rinumerazione, una sola PATCH
+ * per drop. SQLite ha affinità NUMERIC sulla colonna, quindi il float sopravvive.
+ */
+export function between(prev: number | undefined, next: number | undefined): number {
+  if (prev === undefined && next === undefined) return 1;
+  if (prev === undefined) return next! - 1;
+  if (next === undefined) return prev + 1;
+  return (prev + next) / 2;
+}
+
+/** La patch che un drop produce, o null se il drop non cambia niente. */
+export type DropPlan = { status?: TaskStatus; kanbanOrder?: number } | null;
+
+/**
+ * Cosa fa il rilascio di `task` sopra `overId`.
+ *
+ * `overId` è o l'id di una colonna (si è lasciata la card nel vuoto sotto le
+ * altre → in fondo) o l'id di un'altra card (→ al suo posto).
+ *
+ * In `cross-project` la posizione non si tocca mai: si restituisce al più il
+ * cambio di stato. Vedi la nota in testa al file.
+ */
+export function planDrop(args: {
+  task: BoardTask;
+  overId: string | null;
+  byStatus: Record<TaskStatus, BoardTask[]>;
+  scope: OrderScope;
+}): DropPlan {
+  const { task, overId, byStatus, scope } = args;
+  if (!overId || overId === task.id) return null;
+
+  const isColumn = (TASK_STATUSES as readonly string[]).includes(overId);
+  const overTask = isColumn ? undefined : findById(byStatus, overId);
+  const status = (overTask ? overTask.status : overId) as TaskStatus;
+  if (!(TASK_STATUSES as readonly string[]).includes(status)) return null;
+  // Rilasciata su una card che non è in nessuna colonna nota (lista già cambiata
+  // sotto le dita): non si inventa una posizione.
+  if (!isColumn && !overTask) return null;
+
+  const sameColumn = task.status === status;
+
+  // Board generale: la posizione non è scrivibile (kanbanOrder è per-progetto).
+  if (scope === 'cross-project') return sameColumn ? null : { status };
+
+  // Review si ordina per data (vedi `compareReview`): una posizione scritta lì
+  // non si vedrebbe, e resterebbe appesa al task come un numero derivato da
+  // vicini ordinati per tutt'altro — pronto a spostarlo altrove quando la card
+  // torna in una colonna a mano. Si entra in review, non ci si riordina.
+  if (status === 'review') return sameColumn ? null : { status };
+
+  const col = byStatus[status].filter((t) => t.id !== task.id); // già ordinata
+  let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;
+  if (idx < 0) idx = col.length;
+  // Spostamento verso il BASSO nella stessa colonna: rilasciare "sopra" una card
+  // che stava sotto di noi significa finire DOPO di lei, nel posto che occupava.
+  if (overTask && sameColumn && task.kanbanOrder < overTask.kanbanOrder) idx += 1;
+  const kanbanOrder = between(col[idx - 1]?.kanbanOrder, col[idx]?.kanbanOrder);
+  if (sameColumn && kanbanOrder === task.kanbanOrder) return null;
+  return sameColumn ? { kanbanOrder } : { status, kanbanOrder };
+}
+
+function findById(byStatus: Record<TaskStatus, BoardTask[]>, id: string): BoardTask | undefined {
+  for (const s of TASK_STATUSES) {
+    const hit = byStatus[s].find((t) => t.id === id);
+    if (hit) return hit;
+  }
+  return undefined;
+}

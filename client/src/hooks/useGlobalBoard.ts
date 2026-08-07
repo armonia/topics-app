@@ -13,7 +13,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WSMessage } from '../types';
-import { boardApi, TASK_STATUSES, type BoardTask, type TaskStatus } from '../lib/board';
+import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
+import { groupByStatus } from '../lib/boardOrder';
 
 export interface GlobalBoard {
   /** Task non ancora `done`, su tutti i progetti. */
@@ -21,9 +22,6 @@ export interface GlobalBoard {
   /** Le righe per colonna kanban, ordinate come le mostra la board. */
   byStatus: Record<TaskStatus, BoardTask[]>;
 }
-
-const EMPTY_BY_STATUS = (): Record<TaskStatus, BoardTask[]> =>
-  Object.fromEntries(TASK_STATUSES.map(s => [s, [] as BoardTask[]])) as Record<TaskStatus, BoardTask[]>;
 
 export function useGlobalBoard(
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
@@ -38,6 +36,13 @@ export function useGlobalBoard(
     }
   }, []);
 
+  // La prima lettura del feed globale: `refresh` è async e scrive lo stato solo
+  // DOPO l'await, quindi non c'è nessun setState sincrono da cui nasca la
+  // cascata di render che la regola previene. La regola non vede oltre l'await
+  // e segnala la chiamata in sé. (Prima non compariva perché il compilatore
+  // React si arrendeva su questo componente e la regola non lo analizzava
+  // affatto: semplificare `byStatus` l'ha reso analizzabile, non l'ha rotto.)
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
@@ -49,15 +54,12 @@ export function useGlobalBoard(
   }, [onMessage, refresh]);
 
   return useMemo(() => {
-    const byStatus = EMPTY_BY_STATUS();
     let activeCount = 0;
-    for (const task of tasks) {
-      (byStatus[task.status] ??= []).push(task);
-      if (task.status !== 'done') activeCount++;
-    }
-    // `kanbanOrder` è l'ordine che l'umano ha dato alla colonna: la fascia deve
-    // leggersi come la colonna, non come l'ordine in cui il server ha risposto.
-    for (const status of TASK_STATUSES) byStatus[status].sort((a, b) => a.kanbanOrder - b.kanbanOrder);
-    return { activeCount, byStatus };
+    for (const task of tasks) if (task.status !== 'done') activeCount++;
+    // Stesso ordinamento della board vera, così la fascia non racconta un ordine
+    // diverso da quello che si vede aprendola. Scope `cross-project`: qui i task
+    // vengono da board diverse e `kanbanOrder` non si confronta fra sequenze
+    // indipendenti (vedi `lib/boardOrder`).
+    return { activeCount, byStatus: groupByStatus(tasks, 'cross-project') };
   }, [tasks]);
 }

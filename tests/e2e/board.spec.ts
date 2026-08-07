@@ -498,4 +498,78 @@ test.describe("Kanban board", () => {
     // Project badge on cross-project cards (label = dirName before the hash).
     await expect(board.getByText("otherproj", { exact: true })).toBeVisible();
   });
+
+  test("BOARD-14: trascinare una card cambia colonna e riordina, e resta dopo un reload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-03" });
+    // Il drag era l'unica parte della board senza rete: nessuna spec trascinava
+    // una card, quindi l'inserimento frazionario e la correzione dell'indice per
+    // lo spostamento verso il basso non erano provati da nessuna parte. La
+    // logica pura sta in `client/src/lib/boardOrder.ts` (bun:test); questo prova
+    // il filo intero — dnd-kit → PATCH → persistito.
+    const stamp = Date.now();
+    const primo = `Drag primo ${stamp}`;
+    const secondo = `Drag secondo ${stamp}`;
+    const t1 = await apiCreateTask(page.request, { text: primo, status: "todo" });
+    await apiCreateTask(page.request, { text: secondo, status: "todo" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const todo = page.getByTestId("kanban-column-body-todo");
+    await expect(todo.getByText(primo)).toBeVisible({ timeout: 10000 });
+    await expect(todo.getByText(secondo)).toBeVisible();
+
+    /** dnd-kit parte dopo 4px: serve un drag vero, a passi. */
+    const drag = async (from: string, to: string) => {
+      const src = page.locator(`[data-task-card="${from}"]`);
+      const dst = page.locator(to);
+      const a = (await src.boundingBox())!;
+      const b = (await dst.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2 + 8, { steps: 4 });
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
+      await page.mouse.up();
+    };
+
+    // 1) Ordine dentro la colonna: il primo scende sotto il secondo.
+    const cardsNow = async () =>
+      (await todo.locator("[data-task-card]").allInnerTexts()).map((s) => s.split("\n").find((l) => l.includes(String(stamp))) ?? "");
+    expect((await cardsNow()).findIndex((t) => t.includes("primo")))
+      .toBeLessThan((await cardsNow()).findIndex((t) => t.includes("secondo")));
+
+    await drag(t1.id, `[data-task-card="${(await apiFindTask(page, secondo))}"]`);
+    await expect.poll(async () => {
+      const c = await cardsNow();
+      return c.findIndex((t) => t.includes("primo")) > c.findIndex((t) => t.includes("secondo"));
+    }, { timeout: 10000 }).toBe(true);
+
+    // …e sopravvive al reload: la posizione è sul server, non nella memoria del
+    // pane. Il pane è persistito, quindi si ASPETTA la board che torna su — non
+    // si riapre dal "+" (che filtra via i tipi singleton già nel gruppo).
+    await page.reload();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("kanban-column-body-todo").getByText(primo)).toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => {
+      const c = await cardsNow();
+      return c.findIndex((t) => t.includes("primo")) > c.findIndex((t) => t.includes("secondo"));
+    }, { timeout: 10000 }).toBe(true);
+
+    // 2) Fra colonne: il drop cambia lo STATO, e il server lo conferma.
+    await drag(t1.id, '[data-testid="kanban-column-body-backlog"]');
+    await expect(page.getByTestId("kanban-column-body-backlog").getByText(primo)).toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => {
+      const r = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${t1.id}`);
+      return (await r.json()).task.status;
+    }, { timeout: 10000 }).toBe("backlog");
+  });
 });
+
+/** L'id del task con questo testo, letto dall'API (le card lo espongono come attributo). */
+async function apiFindTask(page: Page, text: string): Promise<string> {
+  const r = await page.request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks`);
+  const { tasks } = (await r.json()) as { tasks: { id: string; text: string }[] };
+  const hit = tasks.find((t) => t.text === text);
+  if (!hit) throw new Error(`nessun task con testo "${text}"`);
+  return hit.id;
+}
