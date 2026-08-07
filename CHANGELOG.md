@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.47 — 2026-08-07
+
+### Sotto il cofano
+- Il comando prende il colore dalla piattaforma, e in tutta l'app resta una curva sola
+
 ## 2.2.46 — 2026-08-07
 
 ### Sotto il cofano
@@ -9,6 +14,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il pannello del permesso viveva in una colonna che nessuno legge
 - Ignora `installation-id`, e registra dove è finito il lavoro sul relay
 - Un link condiviso si apre davvero: pagina, cablaggio, revoca immediata
+- 2.2.46 — lo stato in fondo, i progetti leggibili, i bordi che non rubano il gesto
 
 ## 2.2.45 — 2026-08-07
 
