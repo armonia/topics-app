@@ -233,7 +233,9 @@ test.describe("File Explorer — Git", () => {
     // sono assenti anche da APERTA, quindi asserirne l'assenza sarebbe passato
     // comunque. Il predicato giusto è questo.
     const statusIndicators = gitChanges.locator("span", { hasText: /^[MDUA]$/ });
-    const commitInput = gitChanges.locator('input[placeholder="Message"]');
+    // `[data-testid]` e non il placeholder: la casella e passata da <input> a
+    // <textarea> che cresce col testo, e un locator sul tag sarebbe morto li.
+    const commitInput = gitChanges.locator('[data-testid="commit-message-input"]');
     const cleanTree = gitChanges.getByText("Albero di lavoro pulito");
     const sectionHasContent = async () =>
       (await statusIndicators.first().isVisible().catch(() => false)) ||
@@ -383,17 +385,20 @@ test.describe("File Explorer — Git", () => {
     const changesHeader = gitChanges.locator("button", { hasText: /Changes/ });
     await expect(changesHeader.first()).toBeVisible({ timeout: 10000 });
 
-    // Find a file in the unstaged/changes section and hover to reveal Stage button
-    // newfile.txt should be in unstaged section
-    const newfileRow = gitChanges.locator('[title="newfile.txt"]').first();
+    // La RIGA, agganciata al path. Prima si cercava `[title="newfile.txt"]` e poi
+    // si saliva col `..`: ma il `title` sta gia sulla riga, quindi quel `..` era
+    // il CONTENITORE della lista. Si passava il mouse sul contenitore (cioe' al
+    // centro, su una riga qualunque) e si cercava un bottone Stage fra tutti
+    // quelli della lista. Passava per fortuna, finche' la lista aveva una riga.
+    const newfileRow = gitChanges.locator('[data-git-file="newfile.txt"]');
     await expect(newfileRow).toBeVisible({ timeout: 5000 });
 
-    // Hover to reveal the action buttons (they have opacity-0 by default)
-    const newfileContainer = newfileRow.locator("..");
-    await newfileContainer.hover();
+    // Le azioni ora sono `invisible` (non `opacity-0`) e occupano il posto del
+    // conteggio delle righe: Playwright le vede nascoste davvero, quindi questa
+    // hover e' una condizione, non una formalita'.
+    await newfileRow.hover();
 
-    // Click the stage button (Plus icon, title="Stage")
-    const stageButton = newfileContainer.locator('button[title="Stage"]');
+    const stageButton = newfileRow.locator('button[title="Stage"]');
     await expect(stageButton).toBeVisible();
     await stageButton.click();
 
@@ -436,8 +441,8 @@ test.describe("File Explorer — Git", () => {
     const stagedHeader = gitChanges.locator("button", { hasText: /Staged/ });
     await expect(stagedHeader.first()).toBeVisible({ timeout: 10000 });
 
-    // Find the commit message input (placeholder "Message")
-    const commitInput = gitChanges.locator('input[placeholder="Message"]');
+    // Find the commit message box (textarea che cresce col testo)
+    const commitInput = gitChanges.locator('[data-testid="commit-message-input"]');
     await expect(commitInput).toBeVisible();
 
     // Type a commit message

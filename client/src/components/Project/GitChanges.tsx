@@ -10,6 +10,7 @@ import { BranchList } from '../Git/BranchList';
 import { CommitHistory } from '../Git/CommitHistory';
 import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
+import { useAutoResize } from '../../hooks/useAutoResize';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
@@ -93,6 +94,59 @@ function LineStat({ file, group }: { file: GitFile; group: 'staged' | 'unstaged'
 }
 
 /**
+ * Il nome del file e la cartella che lo contiene, su una riga sola.
+ *
+ * Il vincolo: nella barra laterale ci sono ~250px e un percorso vero
+ * (`client/src/components/Project/GitChanges.tsx`) non ci sta a nessuna misura
+ * di carattere. Qualcosa si perde per forza — la scelta è COSA.
+ *
+ * Prima si perdeva la coda. Nome e cartella stavano dentro un unico `truncate`,
+ * che taglia da destra: quando la riga era stretta spariva prima la cartella,
+ * poi la fine del nome, e restava `GitChang…` — cioè si perdeva esattamente la
+ * parte che identifica il file. Da lì il tooltip come unico modo per sapere che
+ * file fosse.
+ *
+ * Ora: il nome non si taglia mai (è la cosa che stai cercando), e la cartella
+ * si accorcia da SINISTRA — `…/components/Project`. La radice è la stessa per
+ * ogni riga della lista, quindi è la parte che non distingue niente; le
+ * cartelle vicine al file sono quelle che rispondono a «quale dei tre
+ * `index.ts`?». Vedi `.path-elide-left` in index.css, incluso il perché del
+ * marcatore U+200E.
+ *
+ * Il tetto al 70% sul nome è per il caso patologico (un nome più lungo della
+ * riga intera): senza, spingerebbe la cartella fuori dal contenitore invece di
+ * cedere lui.
+ */
+/**
+ * LEFT-TO-RIGHT MARK. Va in testa a ogni testo messo in `.path-elide-left`.
+ *
+ * Scritto come sequenza di escape e mai come carattere: nel sorgente sarebbe
+ * invisibile, e un carattere invisibile sopravvive male a copia, ricerca e
+ * revisione — nessuno lo vede sparire.
+ */
+const LRM = '\u200E';
+
+function FileLabel({ file, basename, dir }: { file: GitFile; basename: string; dir: string }) {
+  return (
+    <span className="flex items-baseline gap-1 min-w-0 flex-1">
+      {file.origPath && (
+        // Il vecchio nome, barrato, PRIMA del nuovo: senza, un rename si
+        // presenta come un file comparso dal nulla.
+        <span className="text-app-text-muted line-through flex-shrink-0 truncate max-w-[40%]">
+          {pathBasename(file.origPath) || file.origPath}
+        </span>
+      )}
+      <span className="text-app-text-body flex-shrink-0 truncate max-w-[70%]">{basename}</span>
+      {dir && (
+        <span className="path-elide-left text-app-text-muted text-[11px] min-w-0 flex-1">
+          {LRM + dir}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * I path da passare a git per agire su questi file.
  *
  * Un rename in stage sono DUE voci nell'indice: la cancellazione del vecchio e
@@ -163,11 +217,34 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [addingRemote, setAddingRemote] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [discardConfirm, setDiscardConfirm] = useState<{ files: string[]; group: 'staged' | 'unstaged' } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged' } | null>(null);
+  /**
+   * `targets` sono i file su cui il menu agisce, fissati QUANDO SI APRE.
+   *
+   * Prima le voci leggevano `selectedFiles` al momento del click, e la
+   * selezione si svuota da sola: l'effetto su `fileKeys` qui sotto la azzera a
+   * ogni cambio della lista dei file modificati, e da quando il watcher dei
+   * FILE rinfresca lo stato git (server/file-watcher.ts) quella lista cambia
+   * anche solo perche' qualcun altro sta salvando nel repo. Col menu aperto si
+   * vedeva sparire il nome del file dall'intestazione — ed era il sintomo
+   * gentile: le voci Stage/Unstage/Discard restavano, e agivano su una lista
+   * VUOTA senza dire niente.
+   */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged'; targets: string[] } | null>(null);
   const lastClickedRef = useRef<string | null>(null);
   const diffFetchAbortRef = useRef<AbortController | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * La casella del messaggio cresce col testo.
+   *
+   * In compatto era un `<input>`: una riga sola, senza possibilità di andare a
+   * capo. Un messaggio di commit ha un soggetto e — spesso — un corpo, e il
+   * generatore ✨ risponde a punti elenco: in un input arrivavano tutti
+   * schiacciati su una riga da leggere scorrendo con le frecce.
+   *
+   * Un ref solo per le due modalità: compatta e piena sono rami esclusivi
+   * (`if (!compact)` esce prima), quindi la casella montata è sempre una.
+   */
+  const { ref: commitBoxRef } = useAutoResize(commitMessage, 120);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -457,10 +534,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     e.preventDefault();
     e.stopPropagation();
     // If right-clicked file is not in selection, select only it
-    if (!selectedFiles.has(filePath)) {
+    const inSelection = selectedFiles.has(filePath);
+    if (!inSelection) {
       setSelectedFiles(new Set([filePath]));
     }
-    setContextMenu({ x: e.clientX, y: e.clientY, group });
+    // I bersagli si fissano ora, non si rileggono al click sulla voce.
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      group,
+      targets: inSelection ? [...selectedFiles] : [filePath],
+    });
   }, [selectedFiles]);
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
@@ -478,36 +562,42 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   useEffect(() => { setSelectedFiles(new Set()); }, [fileKeys]);
 
   // --- Batch context menu actions ---
+  // Tutte leggono `contextMenu.targets`, non `selectedFiles`: i bersagli sono
+  // quelli su cui il menu e' stato APERTO. Vedi il commento sullo stato.
   const handleBatchStage = useCallback(async () => {
-    const files = [...selectedFiles];
+    const files = contextMenu?.targets ?? [];
     closeContextMenu();
+    if (!files.length) return;
     try {
       await gitApi.stageFiles(projectPath, files);
       await loadStatus();
     } catch (err: unknown) { toast.error(errMessage(err)); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
+  }, [contextMenu, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchUnstage = useCallback(async () => {
-    const files = [...selectedFiles];
+    const files = contextMenu?.targets ?? [];
     closeContextMenu();
+    if (!files.length) return;
     try {
       await gitApi.unstageFiles(projectPath, files);
       await loadStatus();
     } catch (err: unknown) { toast.error(errMessage(err)); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
+  }, [contextMenu, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchDiscard = useCallback(() => {
-    const files = [...selectedFiles];
+    const files = contextMenu?.targets ?? [];
     closeContextMenu();
+    if (!files.length) return;
     setDiscardConfirm({ files, group: 'unstaged' });
-  }, [selectedFiles, closeContextMenu]);
+  }, [contextMenu, closeContextMenu]);
 
   const handleBatchOpen = useCallback(() => {
+    const files = contextMenu?.targets ?? [];
     closeContextMenu();
-    if (selectedFiles.size === 1) {
-      handleFileClick([...selectedFiles][0]);
+    if (files.length === 1) {
+      handleFileClick(files[0]);
     }
-  }, [selectedFiles, handleFileClick, closeContextMenu]);
+  }, [contextMenu, handleFileClick, closeContextMenu]);
 
   const handleGenerateMessage = useCallback(async () => {
     try {
@@ -584,8 +674,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // --- Context menu portal ---
   const renderContextMenu = () => {
     if (!contextMenu) return null;
-    const count = selectedFiles.size;
-    const label = count > 1 ? `${count} files` : pathBasename([...selectedFiles][0] || '');
+    const count = contextMenu.targets.length;
+    const label = count > 1 ? `${count} files` : pathBasename(contextMenu.targets[0] || '');
     const isUnstaged = contextMenu.group === 'unstaged';
 
     // Clamp menu to viewport
@@ -700,6 +790,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {/* Header — two-part layout: left flexible, right fixed (no shift) */}
         <div
           onClick={onToggle}
+          // Stessa ancora della sezione Processi: un testid perche' l'etichetta
+          // e' testo, e `aria-expanded` perche' questo e' un TOGGLE — chi lo
+          // clicca alla cieca su una sezione gia' aperta la richiude.
+          data-testid="project-sidebar-git"
+          role="button"
+          aria-expanded={expanded}
           className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/git"
         >
           {/* Left: icon + label + chevron */}
@@ -835,46 +931,50 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       isSelected ? SELECTED_SURFACE : 'hover:bg-app-hover'
                     }`}
                     title={fileTitle(file)}
+                    // Ancore stabili: il `title` e il testo cambiano (rename,
+                    // traduzioni, badge), il path no. Vedi anche il gemello in
+                    // modalita piena.
+                    data-git-file={file.path}
+                    data-git-group={group}
                     onClick={(e) => handleFileSelect(file.path, group === 'conflicted' ? 'unstaged' : group, e)}
                     onContextMenu={(e) => handleContextMenu(e, file.path, group === 'conflicted' ? 'unstaged' : group)}
                   >
                     <span className={`${st.color} ${st.bg} text-[8px] font-bold px-0.5 py-[1px] rounded leading-none flex-shrink-0 min-w-[14px] text-center`}>
                       {st.text}
                     </span>
-                    <span className="truncate text-app-text-body min-w-0">
-                      {file.origPath && (
-                        // Il vecchio nome, barrato, PRIMA del nuovo: senza, un
-                        // rename si presenta come un file comparso dal nulla.
-                        <span className="text-app-text-muted line-through mr-1">
-                          {pathBasename(file.origPath) || file.origPath}
-                        </span>
-                      )}
-                      {basename}
-                      {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
+                    <FileLabel file={file} basename={basename} dir={dir} />
+                    {/* Conteggio e azioni nello STESSO posto, impilati in una
+                        cella di griglia: la colonna e larga quanto il piu largo
+                        dei due e al passaggio del mouse si scambiano SENZA
+                        spostare niente. Prima le azioni stavano in un blocco a
+                        parte, sempre presente e solo trasparente: uno spazio
+                        vuoto riservato su ogni riga per tutta la vita del
+                        pannello. */}
+                    <span className="ml-auto flex-shrink-0 grid grid-cols-1 grid-rows-1 items-center justify-items-end">
+                      <span className="col-start-1 row-start-1 group-hover/file:invisible">
+                        <LineStat file={file} group={group} />
+                      </span>
+                      <span className="col-start-1 row-start-1 invisible group-hover/file:visible flex items-center gap-0.5">
+                        {group === 'unstaged' && (
+                          <button
+                            onClick={(e) => handleDiscard(file.path, e)}
+                            className="p-0.5 rounded hover:bg-app-hover"
+                            title="Discard changes"
+                          >
+                            <Undo2 size={10} className="text-app-text-muted" />
+                          </button>
+                        )}
+                        {group !== 'conflicted' && (
+                          <button
+                            onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
+                            className="p-0.5 rounded hover:bg-app-hover"
+                            title={group === 'staged' ? 'Unstage' : 'Stage'}
+                          >
+                            {group === 'staged' ? <Minus size={10} className="text-red-500" /> : <Plus size={10} className="text-green-500" />}
+                          </button>
+                        )}
+                      </span>
                     </span>
-                    <span className="ml-auto flex-shrink-0">
-                      <LineStat file={file} group={group} />
-                    </span>
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover/file:opacity-100 transition-all flex-shrink-0">
-                      {group === 'unstaged' && (
-                        <button
-                          onClick={(e) => handleDiscard(file.path, e)}
-                          className="p-0.5 rounded hover:bg-app-hover"
-                          title="Discard changes"
-                        >
-                          <Undo2 size={10} className="text-app-text-muted" />
-                        </button>
-                      )}
-                      {group !== 'conflicted' && (
-                        <button
-                          onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
-                          className="p-0.5 rounded hover:bg-app-hover"
-                          title={group === 'staged' ? 'Unstage' : 'Stage'}
-                        >
-                          {group === 'staged' ? <Minus size={10} className="text-red-500" /> : <Plus size={10} className="text-green-500" />}
-                        </button>
-                      )}
-                    </div>
                   </div>
                 );
               };
@@ -882,14 +982,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               return (
                 <>
                   {/* Inline commit row — input + AI + commit all in one line */}
-                  <div className="border-t border-app-border px-3 py-1 flex items-center gap-1 flex-shrink-0">
-                    <input
-                      ref={commitInputRef}
-                      type="text"
+                  <div className="border-t border-app-border px-2 py-1 flex items-end gap-1 flex-shrink-0">
+                    <textarea
+                      ref={commitBoxRef}
+                      data-testid="commit-message-input"
                       value={commitMessage}
                       onChange={e => setCommitMessage(e.target.value)}
+                      rows={1}
                       placeholder="Message"
-                      className="flex-1 min-w-0 h-[22px] px-1.5 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                      className="flex-1 min-w-0 resize-none px-1.5 py-[2px] text-[11px] leading-[16px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
                       onKeyDown={e => {
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                           e.preventDefault();
@@ -1060,45 +1161,41 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : 'hover:bg-app-hover'
         }`}
         title={fileTitle(file)}
+        data-git-file={file.path}
+        data-git-group={group}
         onClick={(e) => handleFileSelect(file.path, group, e)}
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
         <span className={`${st.color} ${st.bg} text-[11px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
           {st.text}
         </span>
-        <span className="truncate text-app-text-body min-w-0">
-          {file.origPath && (
-            // Come nella lista compatta: senza il vecchio nome barrato, in
-            // modalita estesa un rename si presentava come un file comparso dal
-            // nulla accanto a una cancellazione senza motivo.
-            <span className="text-app-text-muted line-through mr-1">
-              {pathBasename(file.origPath) || file.origPath}
-            </span>
-          )}
-          {basename}
-          {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
-        </span>
-        <span className="ml-auto flex-shrink-0">
-          <LineStat file={file} group={group} />
-        </span>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-          {group === 'unstaged' && (
+        <FileLabel file={file} basename={basename} dir={dir} />
+        {/* Stessa cella condivisa della lista compatta: il conteggio lascia il
+            posto alle azioni al passaggio del mouse, senza riservare spazio
+            vuoto e senza far ballare la riga. */}
+        <span className="ml-auto flex-shrink-0 grid grid-cols-1 grid-rows-1 items-center justify-items-end">
+          <span className="col-start-1 row-start-1 group-hover:invisible">
+            <LineStat file={file} group={group} />
+          </span>
+          <span className="col-start-1 row-start-1 invisible group-hover:visible flex items-center gap-0.5">
+            {group === 'unstaged' && (
+              <button
+                onClick={(e) => handleDiscard(file.path, e)}
+                className="p-0.5 rounded hover:bg-app-hover"
+                title="Discard changes"
+              >
+                <Undo2 size={12} className="text-app-text-muted" />
+              </button>
+            )}
             <button
-              onClick={(e) => handleDiscard(file.path, e)}
+              onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
               className="p-0.5 rounded hover:bg-app-hover"
-              title="Discard changes"
+              title={group === 'staged' ? 'Unstage' : 'Stage'}
             >
-              <Undo2 size={12} className="text-app-text-muted" />
+              {group === 'staged' ? <Minus size={12} className="text-red-500" /> : <Plus size={12} className="text-green-500" />}
             </button>
-          )}
-          <button
-            onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
-            className="p-0.5 rounded hover:bg-app-hover"
-            title={group === 'staged' ? 'Unstage' : 'Stage'}
-          >
-            {group === 'staged' ? <Minus size={12} className="text-red-500" /> : <Plus size={12} className="text-green-500" />}
-          </button>
-        </div>
+          </span>
+        </span>
       </div>
     );
   };
@@ -1180,13 +1277,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
         {/* Inline commit area for full mode too */}
         {gitStatus.files.length > 0 && (
-          <div className="border-b border-app-border px-3 py-2 space-y-1.5">
+          <div className="border-b border-app-border px-2 py-2 space-y-1.5">
             <div className="relative">
               <textarea
+                ref={commitBoxRef}
+                data-testid="commit-message-input"
                 value={commitMessage}
                 onChange={e => setCommitMessage(e.target.value)}
+                rows={2}
                 placeholder="Commit message..."
-                className="w-full h-[44px] px-2 py-1.5 text-[12px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded resize-none focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                className="w-full px-2 py-1.5 pr-7 text-[12px] leading-[17px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded resize-none focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
                 onKeyDown={e => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
