@@ -52,11 +52,12 @@ sotto, non prima.
 
 - [x] 4.1 `server/lib/principals.ts` — `resolvePrincipals`, con la cache dei
   proprietari invalidata dal contatore di revisione.
-- [ ] 4.2 Innestarlo nei **tre** punti che oggi traducono cookie→identità e non
-  concordano: ~~gate HTTP~~ (fatto), upgrade WebSocket, `/api/auth/session`. Il
-  secondo non passa da `evaluateIdentity` e non calcola il ruolo: è la strada su
-  cui una novità resterebbe indietro in silenzio — quindi finché è aperto, una
-  concessione a una PERSONA vale sull'HTTP e non sui frame dal vivo.
+- [x] 4.2 Innestato in tutti e **tre** i punti: `server/lib/identity.ts` è ora
+  l'unico che traduce cookie→identità, e lo usano il gate HTTP, l'upgrade
+  WebSocket e `/api/auth/session`. Erano tre query diverse — una filtrava la
+  revoca in SQL, una dopo, la terza aveva una forma di risposta sua — e
+  divergevano davvero: due volte in un giorno, e sempre sulla strada meno
+  percorsa.
 - [x] 4.3 **Nessun consumatore decide ancora su questi valori.** Si logga il
   confronto «ruolo vecchio vs confinato nuovo» e si lascia girare un giorno in
   produzione: se divergono, lo si scopre adesso.
@@ -69,9 +70,10 @@ sotto, non prima.
   si riscrivono.
 - [ ] 5.3 Il filtro WS ri-risolve il socket quando il contatore diverge.
 - [ ] 5.4 `devices.role` smette di essere letta da qualunque riga di codice.
-- [ ] 5.5 `tests/unit/no-org-nesting.test.ts`: fallisce se `orgs.parent_id`
-  compare in una migration. È **l'unico allarme** che la decisione sulla
-  profondità due avrà.
+- [x] 5.5 `tests/unit/no-org-nesting.test.ts`: fallisce se `orgs.parent_id`
+  compare in una migration, e prova anche che il proprio setaccio riconosca ciò
+  che cerca. È **l'unico allarme** che la decisione sulla profondità due avrà —
+  quando suonerà, la risposta giusta non è zittirlo ma rifare il conto.
 
 ## 6. Le rotte
 
@@ -97,10 +99,13 @@ sotto, non prima.
   `PATCH /api/auth/devices/:id` accetta `personId`, valida la persona, e chiude
   le socket perché il ruolo derivato può essere cambiato. È **la leva di
   correzione del backfill**, e senza il passo 3 restava una consegna a metà.
-- [ ] 7.4 `SessionState` porta persona e organizzazione.
-- [ ] 7.5 **`SessionRoot`: il default si inverte.** Oggi tutto ciò che non è
-  esattamente `guest` cade sull'app intera, cioè un soggetto nuovo passa dalla
-  parte permissiva per omissione.
+- [x] 7.4 `SessionState` porta la persona, e il confronto di `emit` la guarda:
+  senza, spostare un dispositivo su un'altra persona non arriverebbe a nessuno.
+- [x] 7.5 **`SessionRoot`: il default è invertito.** Si monta l'app solo a chi è
+  riconosciuto `owner`; tutto il resto è confinato. Prima qualunque ruolo non
+  previsto — un valore nuovo, un server più avanti del client — cadeva dalla
+  parte permissiva per omissione. Sbagliare da questa parte si vede e si
+  corregge; dall'altra non si vede affatto.
 
 ## 8. La pulizia — 085, e non prima
 

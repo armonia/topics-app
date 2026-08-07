@@ -12,7 +12,18 @@ export type SessionState =
   /** Non lo sappiamo ancora: la prima interrogazione non è tornata. */
   | { status: 'loading' }
   /** Dentro. `name` è ciò che si mostra sopra la status bar. */
-  | { status: 'paired'; as: 'loopback' | 'device'; name: string; deviceId?: string; role: 'owner' | 'guest' }
+  | {
+      status: 'paired';
+      as: 'loopback' | 'device';
+      name: string;
+      deviceId?: string;
+      role: 'owner' | 'guest';
+      /** La persona a cui il dispositivo appartiene, quando il server la
+       *  conosce. È ciò che un giorno prenderà il posto del nome del ferro:
+       *  «Attilio» dice più di «iPhone», e con due telefoni dice l'unica cosa
+       *  che li accomuna. */
+      personId?: string | null;
+    }
   /** Fuori, e si può rimediare: `reason` decide cosa dice la schermata. */
   | { status: 'unpaired'; reason: 'not_paired' | 'revoked' | 'expired' };
 
@@ -38,7 +49,8 @@ const listeners = new Set<(s: SessionState) => void>();
 function stessoStato(a: SessionState, b: SessionState): boolean {
   if (a.status !== b.status) return false;
   if (a.status === 'paired' && b.status === 'paired') {
-    return a.name === b.name && a.role === b.role && a.as === b.as && a.deviceId === b.deviceId;
+    return a.name === b.name && a.role === b.role && a.as === b.as
+      && a.deviceId === b.deviceId && a.personId === b.personId;
   }
   if (a.status === 'unpaired' && b.status === 'unpaired') return a.reason === b.reason;
   return true;
@@ -77,11 +89,12 @@ export async function refreshSession(): Promise<SessionState> {
     if (!r.ok) { markUnpaired(undefined); return state; }
     const body = await r.json() as {
       paired: boolean; as: 'loopback' | 'device' | null; name: string | null;
-      deviceId?: string; code?: string; role?: 'owner' | 'guest';
+      deviceId?: string; code?: string; role?: 'owner' | 'guest'; personId?: string | null;
     };
     if (body.paired && body.as && body.name) {
       emit({
         status: 'paired', as: body.as, name: body.name, deviceId: body.deviceId,
+        personId: body.personId ?? null,
         // Default prudente: se il server non lo dice, si assume il ruolo con
         // MENO poteri. Il contrario — assumere `owner` — mostrerebbe l'app
         // intera a chi non deve vederla, e la schermata sbagliata sarebbe l'unico
