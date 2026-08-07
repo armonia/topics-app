@@ -39,10 +39,8 @@
    structural rather than cosmetic:
 
    • COMPETING WITH THE SCREENSHOTS. The field is masked OUT behind every dark
-     slab (`.scene`, `.hero__shot`) — those elements are opaque and sit above it,
-     and the wash is aimed at the gutters rather than the centre column. The
-     lattice also drops to zero in `deep` sections. It cannot compete with a
-     picture it is never behind.
+     slab (`.scene`, the demo stage) — those elements are opaque and sit above
+     it. It cannot compete with a picture it is never behind.
    • GRAIN READING AS DIRT. The old layer was `multiply`, which can only ever
      darken, and it sat over the reading column. This one is `soft-light`, which
      modulates lightness in both directions around the mid point, at 4.5%, and it
@@ -167,42 +165,15 @@ body.v3 .grain { display: none; }   /* the old, dead layer */
      size-contained fixed box computes its own dimensions from nothing. */
   contain: layout paint style;
   isolation: isolate;
-  /* set by the section observer, crossfaded */
-  --lattice: 1;
-  --wash: 1;
   transition: none;
 }
-.field__lattice,
-.field__wash,
+/* `.field__lattice` and `.field__wash` used to live here — a hatched layer and a
+   three-lobe accent wash, both from the paper/ink era. Neither has had markup
+   since the field became one WebGL surface, and the wash's first lobe sat at
+   12% 8%: a glow in the TOP LEFT CORNER, which is precisely where this page's
+   composition is now supposed to be black. Rules for elements that do not exist
+   are not free — they are a description of a page that is no longer there. */
 .field__grain { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-.field__lattice {
-  opacity: calc(var(--lattice) * .85 * var(--field-gain));
-  transition: opacity var(--field-fade) var(--state);
-}
-
-/* One wash, one hue, and it is the accent — the page's only hue break, so the
-   background cannot introduce a second one. 5% at the strongest. It is what
-   carries continuity from the first screen to the last, which is the job the
-   reference does with a dark ground it never leaves. */
-/* The stated design was "aimed at the gutters rather than the centre column".
-   It was not: `check:field` measured the wash visibly touching 2.52% of the
-   reading column in a dense section, against 0.02% at the hero — the bottom
-   gradient sits at 50% and rises straight into the text. Masked back to 40%
-   across the middle, which is where the grain already goes to zero. Not to
-   zero here, because unlike the grain this layer's whole job is continuity
-   from the first screen to the last, and a band of nothing down the centre of
-   the page would be a seam. */
-.field__wash {
-  opacity: calc(var(--wash) * 1 * var(--field-gain));
-  transition: opacity var(--field-fade) var(--state);
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 16%, rgba(0,0,0,.4) 36%, rgba(0,0,0,.4) 64%, #000 84%, #000 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 16%, rgba(0,0,0,.4) 36%, rgba(0,0,0,.4) 64%, #000 84%, #000 100%);
-  background:
-    radial-gradient(60% 44% at 12% 8%, color-mix(in oklab, var(--accent) 5%, transparent), transparent 70%),
-    radial-gradient(52% 38% at 92% 42%, color-mix(in oklab, var(--accent) 4%, transparent), transparent 72%),
-    radial-gradient(70% 50% at 50% 104%, color-mix(in oklab, var(--accent) 4%, transparent), transparent 68%);
-}
 
 /* Grain. soft-light, not multiply, and masked away from the reading column. */
 .field__grain {
@@ -1258,7 +1229,6 @@ body.v3.is-ready .hero__title .ch-block {
   .hero__stage {
     height: auto; -webkit-mask-image: none; mask-image: none;
   }
-  .hero__shot { border-radius: var(--r-slab); }
   .scene { min-height: 340px; }
   .scene__fg { width: 92%; }
   .kcols { grid-template-columns: 1fr; }
@@ -1541,6 +1511,26 @@ body.v3.has-field .field__aurora { display: none; }
   .field__weave { background-size: 90px 90px, 30px 30px; }
 }
 /* ── What the ink ground changes about the parts ─────────────────────────── */
+
+/* THE TWO PILLS OVER THE DEMO WERE WHITE ON WHITE, and no gate could see it.
+   `.shield__hint` and `.expand` in styles.css are `color: var(--ink)` on
+   `hsl(220 33% 98% / .92)`. On paper that is dark ink on a near-white pill and
+   it is correct. Here `--ink` is #eef1f7, so it is #eef1f7 on #f9fafd — 1.09:1,
+   a label that is not there. It survived because both are `opacity: 0` until
+   hover or focus, and a gate that samples a rendered page samples them at zero.
+
+   The fix is the ground's own ramp rather than a picked colour: a raised surface
+   with a hairline, which is what every other control on the ink ground already
+   is, and which also separates from the app's dark chrome underneath — these two
+   float over the live demo, not over the page. 15.2:1. */
+[data-ground="dark"] .shield__hint,
+[data-ground="dark"] .expand {
+  color: var(--ink);
+  background: var(--p-3);
+  border: 1px solid var(--rule-2);
+}
+[data-ground="dark"] .expand:hover { background: var(--p-4); }
+
 /* THE MOCK LOSES ITS CARD, and this is the point of the ink ground rather than
    a side effect of it.
 
@@ -1729,7 +1719,6 @@ body.v3.has-field .field__aurora { display: none; }
    bleeding into the ground is the app. The mask at the fold already dissolves
    its bottom edge into whatever is behind it, which is now the band, so the
    crop needs no colour of its own. */
-[data-ground="dark"] .hero__shot { border-radius: 0; box-shadow: none; background: none; }
 [data-ground="dark"] .hero__stage::after { display: none; }
 
 /* Same rule, third instance. `.agents-block` is a slab of `--dark` (#07090f)
@@ -1787,8 +1776,6 @@ body.v3 .btn--ghost:hover { background: hsl(220 16% 100% / .08); }
   body.v3 .reveal, body.v3 .reveal.in { opacity: 1; animation: none; }
   body.v3.is-ready .hero__title .ch { animation: none; }
   body.v3.is-ready .hero__title .dim { animation: none; }
-  .field__lattice { display: none; }
   .scene__fg { transform: translate3d(-50%, -50%, 0); }
   .scene__shot { transform: none; }
-  .hero__shot { transform: none !important; }
 }
