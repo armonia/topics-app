@@ -104,7 +104,7 @@ const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ 
 export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  /** Apre Impostazioni → Dispositivi. La riga dell'identità è il punto da cui si
+  /** Apre Impostazioni → Account. La riga dell'identità è il punto da cui si
    *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
   onOpenDevices?: () => void;
