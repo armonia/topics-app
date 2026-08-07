@@ -75,10 +75,12 @@
 
 ## 6. Resta aperto
 
-- [ ] 6.1 **Rinominare un dispositivo.** «iPhone» basta con un telefono; con tre
-  no.
-- [ ] 6.2 **Prova su dispositivo VERO.** Il giro è stato provato con un viewport
-  iPhone in Chromium, non con Safari su iOS: mancano il click-through
+- [x] 6.1 **Rinominare un dispositivo.** «iPhone» basta con un telefono; con tre
+  no. `PATCH /api/auth/devices/:id` (nome potato a 60 caratteri, vuoto → 400) più
+  il campo in Impostazioni → Dispositivi.
+- [x] 6.2 **Prova su dispositivo VERO.** Fatta dal proprietario dal suo iPhone —
+  richiesta, codice, approvazione dal computer, app aperta. Copre proprio ciò che
+  il viewport in Chromium non poteva coprire: il click-through
   sull'interstiziale del certificato e il touch.
 - [ ] 6.3 **Identità del PROPRIETARIO (es. login Google).** Oggi l'identità dice
   QUALE dispositivo, non CHI. Serve quando le persone diventano più di una — il
@@ -89,3 +91,8 @@
   app installate), e l'account servirebbe a firmare le approvazioni, non a
   sostituire la sessione del dispositivo. E richiede Internet al momento del
   login, cosa che oggi l'app non richiede mai.
+
+  **Ripreso dalla change `sharing-orgs`**, dove smette di essere un di più: da
+  quando il prodotto si vende a singoli *e* a team, «chi» non è più deducibile da
+  «quale dispositivo». Lì il proprietario diventa una `person`, e questo punto è
+  il modo in cui quella riga acquista un nome verificabile dall'esterno.
