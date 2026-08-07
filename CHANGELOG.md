@@ -2,12 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.51 — 2026-08-08
+
+### Sotto il cofano
+- Le tendine si aprivano VUOTE: il flip mancava, e il tetto veniva dal lato sbagliato
+- L'account non è mai un cancello: ORG-08
+- Invita per nome chi non ha ancora collegato niente
+- Il tipo diceva che l'ultimo commit c'è sempre; il server dice `null` da sempre
+- Un modo per GUARDARE la landing costruita, senza deployarla da nessuna parte
+- GRID-09 era rosso su una griglia pulita: contava una maniglia, non un divisore
+- La raffica di apertura consegnava a un ospite roba d'altri
+- L'ultimo rosso del gate era un budget, non un difetto
+- «Flaky solo sotto sharding» era una spiegazione comoda: il browser non partiva
+
 ## 2.2.50 — 2026-08-07
 
 ### Sotto il cofano
 - Un pannello di permesso non sopravvive al turno che l'ha aperto
 - La safe-area la scavalca il composer, non tutta l'app
 - Il relay ha un dominio tuo, e la tua identità ha un nome
+- 2.2.50 — solo il composer scavalca l'home indicator
 
 ## 2.2.49 — 2026-08-07
 
