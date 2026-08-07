@@ -92,8 +92,17 @@ export function between(prev: number | undefined, next: number | undefined): num
   return (prev + next) / 2;
 }
 
-/** La patch che un drop produce, o null se il drop non cambia niente. */
-export type DropPlan = { status?: TaskStatus; kanbanOrder?: number } | null;
+/** Cosa scrivere dopo un drop, o null se il drop non cambia niente. */
+export interface DropPlan {
+  /** La patch per la card trascinata. */
+  patch: { status?: TaskStatus; kanbanOrder?: number };
+  /**
+   * Le ALTRE card della colonna da riscrivere, quando l'interstizio frazionario
+   * si è esaurito e la sola patch non basta (vedi `planDrop`). Assente = il caso
+   * normale, una PATCH e basta.
+   */
+  renumber?: { id: string; kanbanOrder: number }[];
+}
 
 /**
  * Cosa fa il rilascio di `task` sopra `overId`.
@@ -109,7 +118,7 @@ export function planDrop(args: {
   overId: string | null;
   byStatus: Record<TaskStatus, BoardTask[]>;
   scope: OrderScope;
-}): DropPlan {
+}): DropPlan | null {
   const { task, overId, byStatus, scope } = args;
   if (!overId || overId === task.id) return null;
 
@@ -124,13 +133,13 @@ export function planDrop(args: {
   const sameColumn = task.status === status;
 
   // Board generale: la posizione non è scrivibile (kanbanOrder è per-progetto).
-  if (scope === 'cross-project') return sameColumn ? null : { status };
+  if (scope === 'cross-project') return sameColumn ? null : { patch: { status } };
 
   // Review si ordina per data (vedi `compareReview`): una posizione scritta lì
   // non si vedrebbe, e resterebbe appesa al task come un numero derivato da
   // vicini ordinati per tutt'altro — pronto a spostarlo altrove quando la card
   // torna in una colonna a mano. Si entra in review, non ci si riordina.
-  if (status === 'review') return sameColumn ? null : { status };
+  if (status === 'review') return sameColumn ? null : { patch: { status } };
 
   const col = byStatus[status].filter((t) => t.id !== task.id); // già ordinata
   let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;
@@ -138,9 +147,29 @@ export function planDrop(args: {
   // Spostamento verso il BASSO nella stessa colonna: rilasciare "sopra" una card
   // che stava sotto di noi significa finire DOPO di lei, nel posto che occupava.
   if (overTask && sameColumn && task.kanbanOrder < overTask.kanbanOrder) idx += 1;
-  const kanbanOrder = between(col[idx - 1]?.kanbanOrder, col[idx]?.kanbanOrder);
+  const prev = col[idx - 1]?.kanbanOrder;
+  const next = col[idx]?.kanbanOrder;
+  const kanbanOrder = between(prev, next);
+
+  // Interstizio ESAURITO. `between` dimezza l'ampiezza a ogni inserimento nello
+  // stesso punto, e dopo una cinquantina di drop consecutivi lì in mezzo i due
+  // vicini sono numeri contigui: la media ricade su uno dei due e la card non ha
+  // più un posto in cui stare. Senza questa via d'uscita il drag smetteva di
+  // funzionare in silenzio — il caso peggiore, perché sembra un bug del mouse.
+  // Si rinumera la colonna a interi: N patch invece di una, ma solo qui.
+  if (kanbanOrder === prev || kanbanOrder === next) {
+    const target = [...col.slice(0, idx), task, ...col.slice(idx)];
+    const renumber = target
+      .map((t, i) => ({ id: t.id, kanbanOrder: i + 1 }))
+      .filter((r) => r.id !== task.id);
+    return {
+      patch: { ...(sameColumn ? {} : { status }), kanbanOrder: idx + 1 },
+      renumber,
+    };
+  }
+
   if (sameColumn && kanbanOrder === task.kanbanOrder) return null;
-  return sameColumn ? { kanbanOrder } : { status, kanbanOrder };
+  return { patch: sameColumn ? { kanbanOrder } : { status, kanbanOrder } };
 }
 
 function findById(byStatus: Record<TaskStatus, BoardTask[]>, id: string): BoardTask | undefined {

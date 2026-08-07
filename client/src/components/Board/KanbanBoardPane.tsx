@@ -24,7 +24,7 @@ import {
   type BoardProjectRef, type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
-import { groupByStatus, planDrop, type OrderScope } from '../../lib/boardOrder';
+import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -843,12 +843,29 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
-  /** Persist a drop: status and/or position, optimistically. Routed by the
-   *  task's OWN projectId so it works identically in the global board. */
-  const dropTo = useCallback(async (task: BoardTask, patch: { status?: TaskStatus; kanbanOrder?: number }) => {
-    patchLocal(task.id, patch); // optimistic
-    try { await boardApi.update(task.projectId, task.id, patch); }
-    catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
+  /**
+   * Persist a drop: status and/or position, optimistically. Routed by the
+   * task's OWN projectId so it works identically in the global board.
+   *
+   * `plan.renumber` c'è solo nel caso raro in cui l'interstizio frazionario si
+   * è esaurito (vedi `lib/boardOrder`): allora la colonna va riscritta a interi,
+   * N patch invece di una. Si spedisce PRIMA la colonna e poi la card
+   * trascinata, così se una scrittura cade a metà la card non resta l'unica
+   * spostata in un ordine che non le corrisponde più; un errore qualsiasi
+   * rifetcha e la verità torna dal server.
+   */
+  const dropTo = useCallback(async (task: BoardTask, plan: DropPlan) => {
+    for (const r of plan.renumber ?? []) patchLocal(r.id, { kanbanOrder: r.kanbanOrder });
+    patchLocal(task.id, plan.patch); // optimistic
+    try {
+      // `renumber` esiste solo nello scope `board` (nella board generale la
+      // posizione non si scrive affatto), quindi le card riscritte sono per
+      // costruzione dello STESSO progetto della trascinata.
+      for (const r of plan.renumber ?? []) {
+        await boardApi.update(task.projectId, r.id, { kanbanOrder: r.kanbanOrder });
+      }
+      await boardApi.update(task.projectId, task.id, plan.patch);
+    } catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
   }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
