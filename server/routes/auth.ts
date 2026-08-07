@@ -276,6 +276,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // Revoca, non DELETE: una riga cancellata non racconta niente, una revocata
       // dice che quel dispositivo c'è stato e quando gli è stata tolta la fiducia.
       db.query("UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(now, id);
+      // Prima il filo, poi l'annuncio. Una socket già aperta conserva l'identità
+      // timbrata all'upgrade e non la rilegge: senza chiuderla, «revocato»
+      // valeva sulle richieste HTTP e non su ciò che continuava ad arrivare.
+      ctx.closeDeviceSockets?.(id);
       ctx.broadcast?.({ type: "auth:device-revoked", deviceId: id });
       return json({ ok: true });
     }

@@ -261,6 +261,10 @@ export interface AppContext {
    *  filtrato: si usa quando il destinatario è noto e il frame non porta
    *  un'entità su cui filtrare (vedi `auth:shares-changed`). */
   sendToDevice: (deviceId: string, message: OutboundMessage) => void;
+  /** Chiude tutte le socket di un dispositivo. L'identità di una socket è
+   *  timbrata all'upgrade e non si rilegge, quindi senza questo una revoca
+   *  valeva sull'HTTP e non sul filo già aperto. Torna quante ne ha chiuse. */
+  closeDeviceSockets: (deviceId: string) => number;
   /** Innesta il filtro che decide cosa può raggiungere un OSPITE. Vive in
    *  `server.ts` perché serve il DB delle concessioni; `utils.ts` resta senza
    *  quella dipendenza. */
