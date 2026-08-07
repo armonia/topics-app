@@ -9,12 +9,28 @@ import { type Page, expect } from "@playwright/test";
 
 /** Count column-resize (horizontal split) dividers in the main content area. */
 export async function countColDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-col-resize').count();
+  return page.locator('[role="main"] [data-resize-axis="col"]').count();
 }
 
+/**
+ * I divisori si contano per ATTRIBUTO, non per classe del cursore.
+ *
+ * `.cursor-col-resize` è un suggerimento di CURSORE, e lo portano anche cose che
+ * divisori non sono: il ridimensionatore della barra di progetto, le maniglie
+ * dei pannelli. Contare la classe vuol dire contare quelli — ed è così che
+ * GRID-09 è rimasto rosso per giorni su una griglia che il reset aveva ripulito
+ * davvero: sopravviveva un `project-sidebar-resizer` largo 0×0, dentro una pane
+ * tenuta viva e nascosta. Il rosso era vero e il difetto non c'era.
+ *
+ * `data-resize-axis` lo mettono i quattro divisori della GRIGLIA (SplitTree,
+ * InsertDividers, CellSubStack) e nessun altro. NB: è distinto da
+ * `data-split-divider`, che sullo SplitTree porta la direzione dello SPLIT —
+ * invertita rispetto all'asse del trascinamento, perché uno split `row` si
+ * ridimensiona in colonna.
+ */
 /** Count row-resize (vertical split) dividers in the main content area. */
 export async function countRowDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-row-resize').count();
+  return page.locator('[role="main"] [data-resize-axis="row"]').count();
 }
 
 /** Count the tab bars in the layout — one per cell, so one more after every split. */

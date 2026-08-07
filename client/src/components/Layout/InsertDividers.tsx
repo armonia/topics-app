@@ -107,6 +107,7 @@ export function ColumnInsertDivider({
 
   return (
     <div
+      data-resize-axis="col"
       className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-divider-row={rowIdx}
       data-panel-divider-col={colIdx}
@@ -201,6 +202,7 @@ export function RowInsertDivider({
 
   return (
     <div
+      data-resize-axis="row"
       className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-row-divider={rowIdx}
       title={onEqualize ? 'Double-click to equalize heights' : undefined}
