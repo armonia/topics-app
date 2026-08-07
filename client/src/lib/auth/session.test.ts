@@ -1,0 +1,126 @@
+/**
+ * Lo stato «chi sono» vive fuori da React, quindi si prova senza React.
+ *
+ * Il caso che conta è la DEDUPLICA: questo modulo notifica solo quando qualcosa
+ * è davvero cambiato, e il confronto sbagliato non produce un errore rumoroso —
+ * produce una schermata che resta com'era. È il modo peggiore in cui un difetto
+ * si presenta, perché somiglia a «non è successo niente».
+ */
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
+import {
+  subscribeSession, markUnpaired, refreshSession, __resetSessionForTests, getSession,
+} from './session';
+
+const fetchVero = globalThis.fetch;
+
+/** Fa rispondere `/api/auth/session` con quello che diciamo noi. */
+function rispondi(corpo: Record<string, unknown>) {
+  globalThis.fetch = (async () => new Response(JSON.stringify(corpo), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  })) as unknown as typeof fetch;
+}
+
+function raccogli() {
+  const visti: string[] = [];
+  const stop = subscribeSession((s) => {
+    visti.push(
+      s.status === 'paired' ? `paired:${s.name}:${s.role}`
+        : s.status === 'unpaired' ? `unpaired:${s.reason}`
+          : 'loading',
+    );
+  });
+  return { visti, stop };
+}
+
+describe('sessione · la notifica arriva quando cambia qualcosa che si guarda', () => {
+  beforeEach(() => { __resetSessionForTests(); });
+
+  it('chi si iscrive riceve subito lo stato corrente', () => {
+    const { visti, stop } = raccogli();
+    expect(visti).toEqual(['loading']);
+    stop();
+  });
+
+  it('«mai entrato» e «revocato» sono due cartelli diversi, e il secondo arriva', () => {
+    // Entrambi hanno status 'unpaired': confrontare solo lo stato avrebbe
+    // lasciato a schermo la frase sbagliata — «autorizza questo dispositivo»
+    // invece di «ti è stato tolto l'accesso».
+    const { visti, stop } = raccogli();
+    markUnpaired(undefined);
+    markUnpaired('device_revoked');
+    expect(visti).toEqual(['loading', 'unpaired:not_paired', 'unpaired:revoked']);
+    stop();
+  });
+
+  it('lo stesso motivo due volte non risveglia nessuno', () => {
+    const { visti, stop } = raccogli();
+    markUnpaired('session_expired');
+    markUnpaired('session_expired');
+    expect(visti).toEqual(['loading', 'unpaired:expired']);
+    stop();
+  });
+
+  it('il codice sconosciuto ricade su «mai entrato», non su «revocato»', () => {
+    // Sbagliare verso qui vuol dire accusare il server di aver tolto un accesso
+    // che non ha mai tolto.
+    markUnpaired('qualcosa_che_non_conosciamo');
+    const s = getSession();
+    expect(s.status === 'unpaired' && s.reason).toBe('not_paired');
+  });
+
+  it('disiscriversi ferma le notifiche', () => {
+    const { visti, stop } = raccogli();
+    stop();
+    markUnpaired(undefined);
+    expect(visti).toEqual(['loading']);
+  });
+});
+
+describe('sessione · il RUOLO cambia a parità di nome', () => {
+  beforeEach(() => { __resetSessionForTests(); });
+  afterEach(() => { globalThis.fetch = fetchVero; });
+
+  it('da proprietario a ospite si propaga, anche se il nome è lo stesso', async () => {
+    // È il difetto per cui questo file esiste. La delibera di prima confrontava
+    // `status` e il solo `name`: qui i due sono identici, quindi il cambio
+    // veniva scartato come «niente di nuovo» — e `SessionRoot` decide proprio
+    // su `role` se montare l'app o la vista dell'ospite. Restava montata l'app
+    // a chi non deve più vederla.
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner' });
+    await refreshSession();
+    const { visti, stop } = raccogli();
+
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'guest' });
+    await refreshSession();
+
+    expect(visti).toEqual(['paired:Mac:owner', 'paired:Mac:guest']);
+    stop();
+  });
+
+  it('una risposta identica non risveglia nessuno', async () => {
+    rispondi({ paired: true, as: 'device', name: 'Mac', deviceId: 'd1', role: 'owner' });
+    await refreshSession();
+    const { visti, stop } = raccogli();
+    await refreshSession();
+    expect(visti).toEqual(['paired:Mac:owner']);
+    stop();
+  });
+
+  it('un server che non dice il ruolo vale OSPITE, non proprietario', async () => {
+    // Il default prudente è quello con MENO poteri: assumere `owner` mostrerebbe
+    // l'app intera a chi non deve vederla, e un server vecchio ne sarebbe
+    // l'unico sintomo.
+    rispondi({ paired: true, as: 'device', name: 'Ignoto', deviceId: 'd9' });
+    await refreshSession();
+    const s = getSession();
+    expect(s.status === 'paired' && s.role).toBe('guest');
+  });
+
+  it('la rete giù non è «non appaiato»', async () => {
+    globalThis.fetch = (async () => { throw new Error("rete giù"); }) as unknown as typeof fetch;
+    await refreshSession();
+    // Dire «non appaiato» qui manderebbe a riappaiare un dispositivo che sta
+    // benissimo.
+    expect(getSession().status).toBe('loading');
+  });
+});
