@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
+import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, type AIProvider } from "../providers";
@@ -690,6 +691,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   function bindTopicToProject(topicId: string, targetDir: string, opts?: { focus?: boolean }): boolean {
     const t = getTopicById(topicId);
     if (!t) return false;
+    // Un progetto e' una CARTELLA. Il cancello sta qui, alla porta, e non sugli
+    // otto chiamanti: metterlo li' vorrebbe dire dimenticarne uno, e quello
+    // dimenticato sarebbe il buco. Un path che non esiste passa — puo' essere
+    // una cartella che sta per nascere, o un progetto su un disco staccato —
+    // ma un FILE no: quello e' definitivamente non un progetto, e legarcisi
+    // fa comparire nella barra laterale un progetto fantasma col nome del file.
+    try {
+      if (existsSync(targetDir) && !statSync(targetDir).isDirectory()) {
+        console.warn(`[topics] bind rifiutato: ${targetDir} esiste e non e' una cartella`);
+        return false;
+      }
+    } catch { /* stat fallito: si lascia passare, come per un path assente */ }
     if (t.projectPath !== targetDir) {
       t.projectPath = targetDir;
       t.updatedAt = new Date().toISOString();
@@ -703,50 +716,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   /**
-   * Detect projectPath from user + assistant messages without needing an LLM call.
-   * Looks for explicit directory paths in the conversation.
+   * Indovina la cartella di progetto dai messaggi. La regola sta in
+   * `lib/detect-project-path.ts`, fuori da questa closure perche' dentro non
+   * la poteva provare nessuno — ed e' proprio il suo ripiego ad aver legato una
+   * chat a un eseguibile.
    */
-  function detectProjectPathFromMessages(messages: { role: string; content: string }[]): string | null {
-    const allText = messages.map(m => m.content).join('\n');
-    // Match explicit paths like /tmp/something, ~/projects/xxx, /Users/xxx/yyy
-    const pathPatterns = [
-      /(?:in|to|at|from|create|mkdir|cd)\s+(\/(?:tmp|Users|home|var|opt|srv)\/[\w./-]+)/gi,
-      /(?:in|to|at|from|create|mkdir|cd)\s+(~\/[\w./-]+)/gi,
-      /(?:project|app|directory|folder|dir)\s+(?:at|in|is)?\s*(\/[\w./-]+)/gi,
-    ];
-    const candidates: string[] = [];
-    for (const pattern of pathPatterns) {
-      let match;
-      while ((match = pattern.exec(allText)) !== null) {
-        let p = match[1].replace(/[.,;:!?)]+$/, ''); // strip trailing punctuation
-        if (p.startsWith('~/')) p = join(homedir(), p.slice(2));
-        // Must be at least 2 levels deep
-        if (p.split('/').filter(Boolean).length >= 2) {
-          candidates.push(p);
-        }
-      }
-    }
-    // Return first candidate that looks like a project directory (has package.json, or was explicitly created)
-    for (const candidate of candidates) {
-      try {
-        if (existsSync(candidate) && statSync(candidate).isDirectory()) {
-          return candidate;
-        }
-      } catch {}
-    }
-    // Even if directory doesn't exist yet, return the first candidate from user message
-    const userText = messages.filter(m => m.role === 'user').map(m => m.content).join('\n');
-    for (const pattern of pathPatterns) {
-      pattern.lastIndex = 0;
-      let match;
-      while ((match = pattern.exec(userText)) !== null) {
-        let p = match[1].replace(/[.,;:!?)]+$/, '');
-        if (p.startsWith('~/')) p = join(homedir(), p.slice(2));
-        if (p.split('/').filter(Boolean).length >= 2) return p;
-      }
-    }
-    return null;
-  }
+  const detectProjectPathFromMessages = (messages: { role: string; content: string }[]) =>
+    detectProjectPath(messages);
 
   /**
    * After first AI response: auto-detect projectPath and auto-name the topic (simple heuristic).
