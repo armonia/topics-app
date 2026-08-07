@@ -110,6 +110,7 @@ export function PinnedTile({
   onContextMenu,
   onDragStart,
   onDragEnd,
+  onTouchDragStart,
   onTouchDragMove,
   onTouchDragDrop,
   dragging,
@@ -127,6 +128,10 @@ export function PinnedTile({
   onContextMenu?: (e: React.MouseEvent) => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  /** La tessera si è SOLLEVATA sotto il dito (500ms di pressione). Distinto da
+   *  `onDragStart`: lì il fantasma lo disegna il browser, qui non esiste nessun
+   *  fantasma e la griglia deve crearselo. */
+  onTouchDragStart?: () => void;
   /** Il dito si muove mentre trascina questa tessera, in coordinate viewport.
    *  È il gemello di `dragover` per iOS, dove `dragover` non esiste: la griglia
    *  ci risolve la cella sotto il dito e accende la stessa anteprima. */
@@ -263,7 +268,7 @@ export function PinnedTile({
   const press = useTouchDrag({
     enabled: isTouch && (!!onContextMenu || !!onTouchDragMove),
     onPress: onContextMenu ? openContextMenuAt : undefined,
-    onLift: onDragStart,
+    onLift: onTouchDragStart,
     onMove: onTouchDragMove,
     onDrop: onTouchDragDrop,
     onCancel: onDragEnd,

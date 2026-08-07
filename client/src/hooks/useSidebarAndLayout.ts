@@ -31,6 +31,30 @@ import { showTrafficLights, hideTrafficLights } from '../lib/shell/window';
 import { usePaneStore } from '../state/pane/store';
 import { hasVisiblePane } from '../state/pane/selectors';
 
+/**
+ * Il cassetto del TELEFONO: aperto o chiuso, ricordato per dispositivo.
+ *
+ * Chiave propria e non `appSettings.sidebarCollapsed`: quelle viaggiano fra i
+ * dispositivi, e qui si sta ricordando dove eravamo su QUESTO schermo — dove
+ * per giunta «chiuso» vuol dire una cosa diversa (un cassetto che copre tutto,
+ * non una colonna che si stringe).
+ */
+const MOBILE_DRAWER_KEY = 'topics-mobile-drawer-collapsed';
+
+function readMobileDrawerCollapsed(): boolean | null {
+  try {
+    const raw = localStorage.getItem(MOBILE_DRAWER_KEY);
+    // `null` = non l'abbiamo mai scritto, ed è DIVERSO da «chiuso»: chi legge
+    // deve poter distinguere «non lo so» da «era chiuso» per ricadere sul
+    // contenuto solo la prima volta.
+    return raw === null ? null : raw === '1';
+  } catch { return null; }
+}
+
+function writeMobileDrawerCollapsed(collapsed: boolean): void {
+  try { localStorage.setItem(MOBILE_DRAWER_KEY, collapsed ? '1' : '0'); } catch { /* quota / private mode */ }
+}
+
 const getWindowId = (): string => {
   let id = sessionStorage.getItem('topics-window-id');
   if (!id) {
@@ -169,19 +193,37 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (isDetached) return true;
-    // SUL TELEFONO SI PARTE DOVE C'È QUALCOSA.
+    // SUL TELEFONO SI RIAPRE DOVE ERAVAMO, non dove il contenuto suggerisce.
     //
-    // «Appena apro Topics dovrei aprire l'ultima tab che ho lasciato aperta. Se
-    // no, di default dovrei trovarmi sulla sidebar» (Attilio, 07/08). Prima il
-    // cassetto partiva SEMPRE chiuso: con almeno una tab la regola era già
-    // giusta per caso, ma a zero tab l'app si apriva su una schermata vuota con
-    // l'unica lista di cose nascosta dietro uno swipe. Lo stato della griglia è
-    // già idratato da localStorage quando questo initializer gira (bootstrap
-    // chiama `hydrateFromLocalSnapshot` prima del primo render), quindi la
-    // risposta è disponibile subito e senza un lampo di layout.
-    if (isMobile) return hasVisiblePane(usePaneStore.getState());
+    // Prima passata (07/08): «se non c'è niente da riaprire, trovarmi sulla
+    // sidebar» — e lo decideva `hasVisiblePane`, cioè il CONTENUTO. Sbagliato,
+    // e Attilio l'ha visto subito: «se chiudo l'app PWA mentre è sulla sidebar
+    // e la riapro, mi apre le tab aperte». Certo: con delle tab aperte quella
+    // regola risponde sempre «chiudi», qualunque cosa stessi guardando. Una PWA
+    // su iOS viene terminata dal sistema di continuo, quindi «chiudere e
+    // riaprire» è la cosa che succede più spesso di tutte — e ogni volta ti
+    // riportava altrove.
+    //
+    // Lo stato del cassetto è un POSTO IN CUI SEI, e va ricordato come tale.
+    // Chiave device-local e non `appSettings`: quelle si sincronizzano fra
+    // dispositivi, e il cassetto del telefono non ha niente da dire alla
+    // finestra del Mac (dove per giunta «chiuso» significa un'altra cosa).
+    // `hasVisiblePane` resta, ma solo come PRIMA VOLTA: al primissimo avvio non
+    // c'è nessun posto da ricordare, e allora sì che decide il contenuto.
+    if (isMobile) {
+      const saved = readMobileDrawerCollapsed();
+      return saved ?? hasVisiblePane(usePaneStore.getState());
+    }
     return appSettings.sidebarCollapsed || false;
   });
+
+  // Si scrive a ogni cambio, in modo sincrono: una PWA che il sistema termina
+  // non riceve nessun `beforeunload`, quindi rimandare la scrittura a un
+  // «prima di chiudere» vorrebbe dire non scriverla quasi mai.
+  useEffect(() => {
+    if (!isMobile || isDetached) return;
+    writeMobileDrawerCollapsed(sidebarCollapsed);
+  }, [isMobile, isDetached, sidebarCollapsed]);
 
   // Remove pre-render sidebar-collapsed class now that React owns the state
   useEffect(() => {

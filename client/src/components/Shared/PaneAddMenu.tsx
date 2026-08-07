@@ -51,7 +51,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM_TOUCH, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { RESTING_SURFACE, ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -206,9 +206,9 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *   - `'ghost'` — 7×7 desktop / 10×10 mobile with no resting background,
    *     hover `bg-black/5`. Matches the global sidebar header icons
    *     (Settings, Remote, etc.).
-   *   - `'header'` — compact h-7 button with the shared RESTING_SURFACE
-   *     fill (same family as inactive tabs / the sidebar Search button),
-   *     with room for a `triggerKbd` hint. The sidebar header "+".
+   *   - `'header'` — compact h-7 button with the shared RAISED_CONTROL fill
+   *     (the same OPAQUE plate as the Search button beside it and the button
+   *     that reopens the column), with room for a `triggerKbd` hint.
    *
    *  The size also drives the inner `Plus` icon (14px / 18px). */
   triggerVariant?: 'pill' | 'ghost' | 'header';
@@ -252,15 +252,17 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  *    desktop è bianco puro, quindi sopra la riga di chrome il bottone sembrava
  *    un ritaglio di pagina incollato lì; sotto i 768px `--bg-surface` collassa
  *    su `--chrome-bg` (vedi index.css) e il bottone spariva del tutto nel fondo.
- *    `RESTING_SURFACE` è un rialzo in ALPHA: si compone su qualunque superficie
- *    e segue il tema da sé — ed è LO STESSO che portano il cerca e il «New»
- *    dell'header della sidebar, che è la parità chiesta.
+ *    Il primo tentativo è stato `RESTING_SURFACE`, un rialzo in alpha: giusto
+ *    per una superficie, sbagliato per un COMANDO — «non dovrebbe essere
+ *    trasparente il +» (Attilio, subito dopo). Ora è `RAISED_CONTROL`, opaco,
+ *    lo stesso del cerca e del tasto che riapre la colonna: tre gemelli, un
+ *    trattamento.
  *  · LA MISURA. 24px in un binario dove ogni altro comando ora sta a
  *    {@link ROW_ACTION_BOX} (28 desktop / 36 col dito) lo lasciava sia sotto
  *    soglia col pollice sia fuori colonna rispetto ai vicini.
  */
 const TRIGGER_CLASS_PILL =
-  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors`;
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -317,10 +319,10 @@ export function PaneAddMenu({
   // transparent at rest, hover bg-black/5. The 'pill' variant matches
   // tab-bar / sidebar-project-row affordances — see TRIGGER_CLASS_PILL.
   // The 'header' variant matches the sidebar Search button — compact h-7
-  // RESTING_SURFACE card with an inline kbd hint.
+  // RAISED_CONTROL plate with an inline kbd hint.
   const triggerBase =
     triggerVariant === 'header'
-      ? `edge-lit ${isMobile ? 'h-11 px-3' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
+      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
