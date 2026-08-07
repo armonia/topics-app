@@ -483,14 +483,24 @@ ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
  * ospiti finché qualcuno non lo aggiunge all'allowlist. Un aggiornamento che
  * manca si nota e si corregge; una fuga no.
  */
-ctx.setGuestBroadcastFilter((deviceId, message) => {
-  const tipo = (message as { type?: unknown }).type;
-  if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
-  const risorsa = frameResource(message);
-  if (!risorsa) return false;
-  return !!ctx.db.query(
-    "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
-  ).get(deviceId, risorsa.type, risorsa.id);
+const concessaA = (deviceId: string, tipo: string, id: string): boolean => !!ctx.db.query(
+  "SELECT 1 FROM grants WHERE subject_type='device' AND subject_id=? AND resource_type=? AND resource_id=?",
+).get(deviceId, tipo, id);
+
+ctx.setGuestBroadcastFilter({
+  mayReceiveFrame(deviceId, message) {
+    const tipo = (message as { type?: unknown }).type;
+    if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
+    const risorsa = frameResource(message);
+    if (!risorsa) return false;
+    return concessaA(deviceId, risorsa.type, risorsa.id);
+  },
+  // Le fan-out per topic non portano l'entità NEL frame: ce l'hanno come
+  // argomento. Qui quindi si guarda il topic che si sta per consegnare, non
+  // quello che il frame dichiara — molti di quei frame non lo nominano affatto.
+  mayReadTopic(deviceId, topicId) {
+    return concessaA(deviceId, "topic", topicId);
+  },
 });
 const processesRouter = createProcessesRouter(ctx);
 // ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
@@ -1735,15 +1745,23 @@ const server = Bun.serve<WSData>({
       // e quindi il cookie di sessione — sono leggibili. Dopo l'upgrade un
       // WebSocket e' solo un tubo, e chiedersi «di chi e' questa socket»
       // sarebbe troppo tardi.
-      const wsDeviceId = (() => {
-        if (isLoopbackAddress(server.requestIP(req)?.address ?? null)) return null;
+      // Id E RUOLO nello stesso giro. Il ruolo serve perché il filtro degli
+      // ospiti si applica a chi È un ospite, non a chi ha un id: l'upgrade
+      // timbra l'id di ogni dispositivo appaiato, proprietari compresi, e
+      // confondere le due cose faceva cadere ogni frame sul telefono del
+      // proprietario — che non ha concessioni perché non gliene servono.
+      const wsDevice = (() => {
+        if (isLoopbackAddress(server.requestIP(req)?.address ?? null)) return { id: null, role: null };
         const t = readSessionCookie(req.headers.get("cookie"));
-        if (!t) return null;
-        const row = ctx.db.query("SELECT id FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
-          .get(hashToken(t)) as { id?: string } | undefined;
-        return row?.id ?? null;
+        if (!t) return { id: null, role: null };
+        const row = ctx.db.query("SELECT id, role FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
+          .get(hashToken(t)) as { id?: string; role?: string } | undefined;
+        if (!row?.id) return { id: null, role: null };
+        // Default prudente, come nel client: un ruolo che non riconosciamo vale
+        // OSPITE. Sbagliare verso qui vorrebbe dire consegnare tutto.
+        return { id: row.id, role: row.role === "owner" ? "owner" as const : "guest" as const };
       })();
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDeviceId } });
+      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDevice.id, deviceRole: wsDevice.role } });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }

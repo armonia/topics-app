@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,
+  isGuestSocketData,
 } from "./grants";
 import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
@@ -112,5 +113,30 @@ describe("grants · a quale entità appartiene un frame", () => {
     expect(frameResource(null)).toBeNull();
     expect(frameResource("stringa")).toBeNull();
     expect(frameResource({ taskId: "" })).toBeNull();
+  });
+});
+
+describe("grants · quale socket va confinata", () => {
+  it("il loopback non è un ospite: è il computer stesso", () => {
+    expect(isGuestSocketData({ deviceId: null, deviceRole: null })).toBe(false);
+    expect(isGuestSocketData({})).toBe(false);
+  });
+
+  it("un PROPRIETARIO remoto non va filtrato — ed è il guasto che questo test presidia", () => {
+    // L'upgrade timbra `deviceId` su ogni dispositivo appaiato, proprietari
+    // compresi. Finché la domanda era «ha un id?», il telefono del proprietario
+    // rispondeva sì, non aveva concessioni (non gliene servono) e si vedeva
+    // cadere OGNI frame: l'app viva sul computer e ferma sul telefono.
+    expect(isGuestSocketData({ deviceId: "d-telefono", deviceRole: "owner" })).toBe(false);
+  });
+
+  it("un ospite va filtrato", () => {
+    expect(isGuestSocketData({ deviceId: "d-ospite", deviceRole: "guest" })).toBe(true);
+  });
+
+  it("un ruolo che non riconosciamo vale OSPITE", () => {
+    // Il verso prudente è quello che consegna meno: l'altro consegna tutto.
+    expect(isGuestSocketData({ deviceId: "d", deviceRole: undefined })).toBe(true);
+    expect(isGuestSocketData({ deviceId: "d", deviceRole: null })).toBe(true);
   });
 });
