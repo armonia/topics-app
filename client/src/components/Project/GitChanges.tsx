@@ -11,11 +11,12 @@ import { CommitHistory } from '../Git/CommitHistory';
 import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useAutoResize } from '../../hooks/useAutoResize';
+import { useAnchoredPopover } from '../../hooks/useAnchoredPopover';
 import { isBinaryForDiff, looksBinary, isTooLarge, type DiffBlock } from './diffGuards';
 import { diffEndpoints, endLabel, type DiffEnd, type DiffSource } from './diffEndpoints';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
-import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -289,7 +290,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
    */
   const { ref: commitBoxRef } = useAutoResize(commitMessage, 120);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
+  // I tre popover del pannello si collocano MISURANDOSI, e il tetto e' quello
+  // del lato scelto. Prima scrivevano `top: bottom + 4` e ricavavano il tetto
+  // dallo spazio sotto: con le sezioni della barra collassate restavano 33px,
+  // cioe' 21 di tetto contro un'intestazione di lista da 24,5 — zero righe.
+  const posStoria = useAnchoredPopover(showStoria, storiaBtnRef, storiaPopRef, { align: 'right' });
   const branchBtnRef = useRef<HTMLButtonElement>(null);
+  const posRami = useAnchoredPopover(showBranches, branchBtnRef, branchDropdownRef);
 
   // Dismissal for the branch dropdown (compact & full modes share these refs).
   useDismissable({
@@ -1198,7 +1205,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             e' proprio la competizione per l'altezza del pannello che l'ha
             portata qui. Il tetto e' lo spazio sotto il bottone, non una misura
             fissa: vicino al bordo inferiore scorre invece di sfondare. */}
-        {showStoria && storiaBtnRef.current && createPortal(
+        {showStoria && createPortal(
           <div
             ref={storiaPopRef}
             role="dialog"
@@ -1206,16 +1213,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             data-testid="git-history-popover"
             className={`fixed w-64 overflow-hidden flex flex-col ${POPOVER_PANEL}`}
             style={{
-              top: storiaBtnRef.current.getBoundingClientRect().bottom + 4,
-              left: Math.max(
-                POPOVER_MARGIN,
-                Math.min(
-                  storiaBtnRef.current.getBoundingClientRect().right - 256,
-                  window.innerWidth - 256 - POPOVER_MARGIN,
-                ),
-              ),
-              maxHeight: `min(320px, calc(100vh - ${storiaBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
+              top: posStoria?.top ?? -9999,
+              left: posStoria?.left ?? -9999,
+              maxHeight: Math.min(posStoria?.maxHeight ?? 320, 320),
               zIndex: Z_POPOVER,
+              // Nascosto per il solo fotogramma della misura, cosi' non
+              // lampeggia mai nel posto sbagliato.
+              visibility: posStoria ? 'visible' : 'hidden',
             }}
           >
             <div className="px-3 py-2 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider flex-shrink-0">
@@ -1231,23 +1235,20 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         )}
 
         {/* Branch dropdown — portal to escape overflow-hidden */}
-        {showBranches && branchBtnRef.current && createPortal(
+        {showBranches && createPortal(
           <div
             ref={branchDropdownRef}
             className={`fixed w-52 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
             style={{
-              top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
-              // Clamp both axes. The width is fixed (w-52 = 208px) so the
-              // horizontal clamp needs no measurement; the height takes the
-              // TIGHTER of its design cap and the room actually left below the
-              // trigger, so a button near the bottom edge scrolls instead of
-              // spilling off-screen.
-              left: Math.max(
-                POPOVER_MARGIN,
-                Math.min(branchBtnRef.current.getBoundingClientRect().left, window.innerWidth - 208 - POPOVER_MARGIN),
-              ),
-              maxHeight: `min(220px, calc(100vh - ${branchBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
+              // Misurato e ribaltabile. Prima il tetto veniva dallo spazio
+              // SOTTO il bottone: con le sezioni della barra collassate ne
+              // restavano 33px, cioe' 21 di tetto contro un'intestazione di
+              // lista da 24,5 — la tendina si apriva vuota.
+              top: posRami?.top ?? -9999,
+              left: posRami?.left ?? -9999,
+              maxHeight: Math.min(posRami?.maxHeight ?? 220, 220),
               zIndex: Z_POPOVER,
+              visibility: posRami ? 'visible' : 'hidden',
             }}
           >
             <BranchList
@@ -1672,19 +1673,18 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       </div>
 
       {/* Branch dropdown — portal to escape overflow-hidden */}
-      {showBranches && branchBtnRef.current && createPortal(
+      {showBranches && createPortal(
         <div
           ref={branchDropdownRef}
           className={`fixed w-56 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
           style={{
-            top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
-            // Same clamp as the compact variant above (w-56 = 224px here).
-            left: Math.max(
-              POPOVER_MARGIN,
-              Math.min(branchBtnRef.current.getBoundingClientRect().left, window.innerWidth - 224 - POPOVER_MARGIN),
-            ),
-            maxHeight: `min(320px, calc(100vh - ${branchBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
+            // Stesso posizionatore della variante compatta: misura, ribalta,
+            // e il tetto e' quello del lato scelto.
+            top: posRami?.top ?? -9999,
+            left: posRami?.left ?? -9999,
+            maxHeight: Math.min(posRami?.maxHeight ?? 320, 320),
             zIndex: Z_POPOVER,
+            visibility: posRami ? 'visible' : 'hidden',
           }}
         >
           <BranchList

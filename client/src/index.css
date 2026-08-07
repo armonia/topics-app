@@ -2055,6 +2055,17 @@ html.electron-mac .chrome-glass .chrome-glass {
 :root { --popover-bg: hsl(220 14% 95%); }
 .dark { --popover-bg: hsl(222 14% 17%); }
 .glass-surface { background-color: var(--popover-bg, var(--bg-surface)); }
+/* L'hover di una `.glass-surface` cliccabile, e va scritto QUI.
+ *
+ * `.glass-surface` sta fuori dai layer di Tailwind, quindi batte qualunque
+ * `hover:bg-*` — che è una utility dentro `@layer utilities` — a prescindere
+ * dall'ordine. Chi ci provava dal call-site otteneva zero: la card della
+ * finestra staccata scriveva `` `hover:${SELECTED_SURFACE}` ``, dove il
+ * prefisso si attaccava solo alla PRIMA delle tre classi della costante e la
+ * classe risultante non veniva nemmeno generata (Tailwind scansiona i
+ * letterali, e quella non lo era). Affordance zero: nessun hover, e nemmeno il
+ * cursore, che il preflight v4 non mette. */
+.glass-surface-hover:hover { background-color: var(--bg-hover); }
 /* Use Tailwind's backdrop utilities via @apply rather than a raw
  * `backdrop-filter` declaration: the minifier (Lightning CSS) collapsed the raw
  * pair to ONLY `-webkit-backdrop-filter`, which Chromium/Electron ignores
