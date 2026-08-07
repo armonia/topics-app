@@ -137,6 +137,15 @@ console.log(`axe        ${axeChecks} runs`);
   await page.waitForTimeout(600);
 
   // The whole reason the poster exists.
+  //
+  // THIS CONTRACT IS `/`, NOT `/v3`. On /v3 the demo is deliberately the other
+  // way round: one demo, in the hero, booted on the first idle callback with no
+  // play button, because a poster with a play button on it is a page telling you
+  // there is a video. `home.ts` is shared between the two and keys the
+  // difference off the poster's tag name — a BUTTON is gated, a DIV is not.
+  // So whoever moves /v3 to /: this block fails the moment you do, and it is
+  // right to. Rewrite it to the auto-boot contract (no src at parse time, a src
+  // after one idle callback, poster faded) rather than deleting it.
   if (appRequests.length) fail('behaviour', `the demo fetched ${appRequests.length} /app/ resources before anyone asked for it`);
   const srcBefore = await page.locator('#demoFrame').getAttribute('src');
   if (srcBefore) fail('behaviour', `#demoFrame has a src (${srcBefore}) before the poster is clicked`);
