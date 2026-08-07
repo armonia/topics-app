@@ -32,6 +32,14 @@ test.afterAll(async ({ request }) => {
  */
 test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
   test("a second viewer of the same context receives the navigation state broadcast", async ({ page, baseURL }) => {
+    // IL TETTO DEL FILE È 30s, E QUI NON BASTA. Questo test aspetta che il
+    // server lanci un Chromium headless, ci apra una pagina e la navighi: da
+    // solo ci mette pochi secondi, sotto i quattro shard i quattro processi che
+    // fanno la stessa cosa si mettono in fila. Con 30s il poll da 25 non ha
+    // nemmeno il tempo di partire. Era l'ultimo rosso del gate, e ogni volta
+    // che qualcuno andava a controllare era verde in isolamento: un budget, non
+    // un difetto.
+    test.setTimeout(60_000);
     await goToApp(page);
 
     const ctx = `e2e-shared-${Date.now()}`;
@@ -67,8 +75,13 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
         // and, on its `load`, rebroadcasts the nav/url to every viewer (A and B).
         A.ws.send(JSON.stringify({ type: "nav", url: navUrl, phase: "request" }));
 
-        // Poll up to ~12s for B to receive a nav broadcast carrying the new url.
-        const deadline = Date.now() + 12000;
+        // Quanto si aspetta il broadcast. 12s bastavano da soli e NON bastano
+        // sotto i quattro shard: dentro quella finestra il server deve lanciare
+        // un Chromium headless, aprirci una pagina e navigarla — e quattro
+        // processi che fanno la stessa cosa sulla stessa macchina si mettono in
+        // fila. Era l'ultimo rosso del gate, verde 2/2 in isolamento ogni volta
+        // che qualcuno andava a controllare: un budget, non un difetto.
+        const deadline = Date.now() + 25000;
         const target = new URL(navUrl).href;
         const sawOn = (navs: { phase?: string; url?: string }[]) =>
           navs.some((n) => n.phase === "response" && !!n.url && new URL(n.url).href === target);
@@ -81,6 +94,11 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
           bReceivedState: sawOn(B.navs),
           aReceivedState: sawOn(A.navs),
           bNavCount: B.navs.length,
+          // Cosa è arrivato davvero: senza, un rosso dice solo «false» e
+          // costringe a rifare il giro per sapere se il broadcast è mancato del
+          // tutto o è arrivato con un'altra url.
+          visti: B.navs.slice(0, 6),
+          atteso: target,
         };
         try { A.ws.close(); B.ws.close(); } catch { /* ignore */ }
         return out;
@@ -90,7 +108,10 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
 
     // The core guarantee: viewer B (the "other device") saw the navigation state
     // even though viewer A drove it — the pane state is genuinely shared.
-    expect(result.bReceivedState).toBe(true);
+    expect(
+      result.bReceivedState,
+      `il secondo spettatore non ha visto la navigazione. Atteso ${result.atteso}, ricevuti ${JSON.stringify(result.visti)}`,
+    ).toBe(true);
     // And the driving viewer sees it too (its own nav response + the broadcast).
     expect(result.aReceivedState).toBe(true);
   });
