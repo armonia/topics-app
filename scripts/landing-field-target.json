@@ -1,0 +1,69 @@
+{
+  "_": "The composition of the reference's intro, as numbers. Read by scripts/landing-field.mjs (the SHAPE budget).",
+
+  "why": [
+    "Three rounds of background work on /v3 were rejected, and all three were INVENTED: built in the spirit of a reference and then judged by eye. This file is what replaced the eye.",
+    "The reference is https://nextsaas-wp.pixels71.com/ai-solutions-one-page/ and its hero 'shader' is a VIDEO — verified, not assumed: the page has 0 canvas elements and 1 video and no three/gl/pixi script; paused at currentTime=2.0 the best-matching frame of all 210 is frame 061 (= 2.0s x 30fps); and where nothing is painted over it the browser's pixels equal the file's to 1/255.",
+    "Neither that mp4 nor any frame of it is in this repo. It is a commercial theme's asset. What is here is a MEASUREMENT of it, which is a fact about a public page rather than a copy of a file."
+  ],
+
+  "source": {
+    "file": "colorflow-animation.mp4",
+    "natural": "1920x1440",
+    "fps": 30,
+    "frames": 210,
+    "loopSeconds": 7.0,
+    "drawnInto": "1440x1136 section, object-fit: cover, object-position: 50% 50%"
+  },
+
+  "method": {
+    "space": "VIEWPORT fractions at 1440x900 — what a visitor sees, not what is in the file. The first pass of this work measured the file's own frame and put the apex at 40% instead of 54%; a curve copied in the wrong coordinate system is a different curve.",
+    "coverMapping": "x_viewport = (x_video - 0.024752) / 0.950495 ; y_viewport = y_video * 1136 / 900",
+    "sampling": "each frame decoded to 192x144 rgb24 (ffmpeg scale + rawvideo), every 5th frame = 42 times across the loop",
+    "crest": "per column, the y where luminance first reaches min + 0.15 * (max - min) of THAT COLUMN, linearly interpolated between the two straddling rows",
+    "whyScaleFree": "the reference's mean luminance is 104/255; this page's composite caps relative luminance at L 0.036. An absolute threshold would be comparing two different quantities. A fraction of each column's own range compares the COMPOSITION, which is the only thing being copied — the hue is deliberately not (theirs is violet, ours is Topics blue)."
+  },
+
+  "x": [0, 0.0909, 0.1818, 0.2727, 0.3636, 0.4545, 0.5455, 0.6364, 0.7273, 0.8182, 0.9091, 1],
+
+  "crest": {
+    "mean": [0.8152, 0.7575, 0.6665, 0.6484, 0.6188, 0.5897, 0.5598, 0.5400, 0.5792, 0.6347, 0.7026, 0.7463],
+    "lo":   [0.8118, 0.7500, 0.6329, 0.6029, 0.5766, 0.5516, 0.5237, 0.4972, 0.5316, 0.5835, 0.6729, 0.7439],
+    "hi":   [0.8173, 0.7648, 0.7067, 0.6952, 0.6622, 0.6296, 0.5990, 0.5838, 0.6281, 0.6897, 0.7284, 0.7489]
+  },
+
+  "apex": { "x": 0.6364, "y": 0.5400 },
+  "depth": 0.2408,
+
+  "core": {
+    "x": 0.6916, "y": 0.8116,
+    "xRange": [0.6074, 0.8112],
+    "yRange": [0.7414, 0.8915],
+    "rgb": [253, 253, 255],
+    "note": "never seen on the reference: a 1290x605 photograph starts at y531 and this core at y716 sits 185px inside it. On /v3 the app frame runs y626-1304 across x178-1262 and (0.692, 0.812) is x994 y731 — inside it too."
+  },
+
+  "breathMax": 0.1062,
+  "breathNote": "the crest moves at most 10.6 points across the whole 7s loop, and 0.3 points at each edge. IT IS ALMOST STILL. Every earlier version of this background moved far more, and that is most of why none of them read as this.",
+
+  "riseProfile": {
+    "_": "luminance below the crest as a fraction of the column's own maximum, by distance below it (fractions of the frame)",
+    "d":   [0.00, 0.03, 0.06, 0.10, 0.15, 0.20, 0.30],
+    "frac": [0.13, 0.33, 0.46, 0.66, 0.85, 0.93, 0.96]
+  },
+
+  "bottomRow": {
+    "_": "luminance along the bottom of the frame, left to right, normalised to the picture's maximum — the mass leans toward the flank the core is on, which is why there is no symmetric vignette in the shader",
+    "x":    [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    "frac": [0.58, 0.61, 0.63, 0.66, 0.86, 0.93, 0.96, 0.97, 0.98, 0.99, 1.00]
+  },
+
+  "meanLuminance": { "value255": 104, "constantTo": 2 },
+
+  "fit": {
+    "_": "the quintic in fluid.ts archAt(), least-squared onto crest.mean",
+    "coefficients": [0.82147, -1.32360, 5.26663, -14.00114, 16.88941, -6.90486],
+    "maxError": 0.0222,
+    "note": "the fit's largest error is 2.2 points against a curve that breathes by up to 10.6 — it sits INSIDE the measurement rather than beside it"
+  }
+}
