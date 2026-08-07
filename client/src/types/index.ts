@@ -1141,7 +1141,23 @@ export interface GitFile {
 
 export interface GitStatus {
   branch: string;
-  lastCommit: { hash: string; message: string; author: string; ago: string };
+  /**
+   * L'ultimo commit — `null` QUANDO NON C'È.
+   *
+   * Il tipo diceva che c'è sempre, e il server dice il contrario da sempre:
+   * `server/routes/files.ts` risponde `lastCommit: null` per una cartella che
+   * non è un repo, e un repo senza commit non ha un `git log -1` da cui
+   * ricavarlo. Il client si fidava della dichiarazione e leggeva
+   * `gitStatus.lastCommit.hash` diretto: misurato il 08/08, un
+   * `TypeError: Cannot read properties of undefined (reading 'hash')` che
+   * l'ErrorBoundary trasformava nella SPARIZIONE dell'intera finestra di
+   * progetto — cinque test rossi che accusavano il pannello dei processi, che
+   * non c'entrava niente: semplicemente non veniva mai montato.
+   *
+   * Dichiararlo annullabile non è una resa: è ciò che il filo porta davvero, e
+   * da qui in poi è il compilatore a trovare i punti che non lo gestiscono.
+   */
+  lastCommit: { hash: string; message: string; author: string; ago: string } | null;
   files: GitFile[];
   ahead: number;
   behind: number;

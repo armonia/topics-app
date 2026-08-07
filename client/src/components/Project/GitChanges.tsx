@@ -961,7 +961,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 quando `git log -1` esce non-zero, cioe' su un repo senza
                 commit, e un bottone che apre «Nessun commit» e' un bottone che
                 promette e non da'. */}
-            {hasData && gitStatus!.lastCommit.hash && (
+            {hasData && gitStatus!.lastCommit?.hash && (
               <button
                 ref={storiaBtnRef}
                 onClick={() => setShowStoria(v => !v)}
@@ -1227,7 +1227,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
             <CommitHistory
               projectPath={projectPath}
-              reloadKey={gitStatus?.lastCommit.hash}
+              reloadKey={gitStatus?.lastCommit?.hash}
               variant="popover"
             />
           </div>,
@@ -1404,15 +1404,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               </button>
             </div>
           </div>
-          {gitStatus.lastCommit.hash && (
+          {gitStatus.lastCommit?.hash && (
             <div className="text-[11px] text-app-text-muted space-y-0.5">
               <div className="flex items-center gap-1 truncate">
                 <Clock size={10} className="flex-shrink-0" />
-                <span className="truncate">{gitStatus.lastCommit.message}</span>
+                <span className="truncate">{gitStatus.lastCommit!.message}</span>
               </div>
               <div className="flex items-center gap-1">
                 <User size={10} className="flex-shrink-0" />
-                <span>{gitStatus.lastCommit.author} · {gitStatus.lastCommit.ago}</span>
+                <span>{gitStatus.lastCommit!.author} · {gitStatus.lastCommit!.ago}</span>
               </div>
             </div>
           )}
@@ -1567,7 +1567,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               passare per una tab, che una revisione non la sa portare.
               Stesso cancello della modalita' compatta: senza commit non c'e'
               una cronologia da offrire. */}
-          {gitStatus.lastCommit.hash && (
+          {gitStatus.lastCommit?.hash && (
             <CommitHistory
               projectPath={projectPath}
               reloadKey={gitStatus.lastCommit.hash}
@@ -1624,7 +1624,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   // fuori dall'indice. I conflitti non hanno un lato su cui
                   // agire per blocco, quindi si lascia indovinare.
                   side={diffSource.group === 'conflicted' ? undefined : diffSource.group}
-                  reloadKey={`${gitStatus.lastCommit.hash}:${voce.status}:${voce.unstaged?.added ?? 0}-${voce.unstaged?.removed ?? 0}`}
+                  // `?? ''`: senza commit — repo appena inizializzato, o cartella
+                  // che non è un repo — non c'è un hash da cui ripartire, e la
+                  // chiave vale la stringa vuota invece di far esplodere la resa.
+                  reloadKey={`${gitStatus.lastCommit?.hash ?? ''}:${voce.status}:${voce.unstaged?.added ?? 0}-${voce.unstaged?.removed ?? 0}`}
                   // Si rientra nello STESSO gruppo: senza, applicare un blocco
                   // da «Staged» riapriva il diff come se fosse «Changes», e la
                   // striscia si rileggeva su un altro lato.
