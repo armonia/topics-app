@@ -179,6 +179,48 @@ function motivoRifiutoSoggetto(
   }
 }
 
+/**
+ * A quale persona appartiene il dispositivo che si sta approvando.
+ *
+ * `deciso: false` vuol dire che lo schema non ha ancora le persone (più vecchio
+ * della 084) o che il chiamante non ha detto niente e non c'è un proprietario
+ * di default: in quel caso si ricade sul vecchio `role`, invece di inventare.
+ */
+function risolvePersonaPerAppaiamento(
+  db: { query: (sql: string) => { get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } },
+  personId: unknown,
+  personName: unknown,
+  now: number,
+): { deciso: boolean; personId: string | null; owner: boolean } {
+  const nulla = { deciso: false, personId: null, owner: false };
+  try {
+    if (typeof personId === "string" && personId) {
+      const p = db.query("SELECT revoked_at FROM people WHERE id = ?").get(personId) as { revoked_at: number | null } | undefined;
+      if (!p || p.revoked_at !== null) return nulla;
+      const owner = !!db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(personId);
+      return { deciso: true, personId, owner };
+    }
+    if (typeof personName === "string" && personName.trim()) {
+      // Una persona NUOVA non è proprietaria: chi arriva per la prima volta
+      // vede solo ciò che gli si condivide, e diventare proprietari è un gesto
+      // a parte. Il verso opposto — nuovo quindi proprietario — trasformerebbe
+      // un errore di battitura in un accesso pieno.
+      const id = crypto.randomUUID().replace(/-/g, "");
+      db.query(
+        "INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES (?,?,?,'local',1,?)",
+      ).run(id, personName.trim().slice(0, 60), now, now);
+      return { deciso: true, personId: id, owner: false };
+    }
+    // Niente detto: è il proprietario di default, se c'è.
+    const io = db.query("SELECT person_id FROM installation_owners ORDER BY is_default DESC LIMIT 1")
+      .get() as { person_id: string } | undefined;
+    if (!io) return nulla;
+    return { deciso: true, personId: io.person_id, owner: true };
+  } catch {
+    return nulla;
+  }
+}
+
 export function createAuthRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, db } = ctx as AppContext & { db: { query: (sql: string) => { all: (...a: unknown[]) => unknown[]; get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } } };
 
@@ -315,7 +357,9 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     }
 
     if (method === "POST" && (pathname === "/api/auth/pair/approve" || pathname === "/api/auth/pair/deny")) {
-      const body = await readJSON(req) as { requestId?: string; role?: unknown } | null;
+      const body = await readJSON(req) as {
+        requestId?: string; role?: unknown; personId?: unknown; personName?: unknown;
+      } | null;
       const entry = pending.get(body?.requestId ?? "");
       if (!entry) return json({ error: "richiesta scaduta o inesistente" }, 404);
 
@@ -327,15 +371,32 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
 
       const token = mintSessionToken();
       const deviceId = crypto.randomUUID();
-      // `owner` di default: il caso normale è il tuo secondo telefono, e un
-      // default `guest` renderebbe l'appaiamento normale una trappola in cui non
-      // si vede niente e non si capisce perché. Il prezzo è che il default è
-      // anche il più permissivo — per questo la scelta è esplicita nel cartello
-      // e il ruolo si legge nell'elenco, così un errore si vede e si corregge.
-      const role = body?.role === "guest" ? "guest" : "owner";
+
+      // ── DI CHI È questo dispositivo, e il ruolo che ne DISCENDE.
+      //
+      // Il cartello chiede la persona, non il ruolo: il ruolo è derivato, e
+      // chiederlo inviterebbe a contraddire il modello — si potrebbe dire
+      // «proprietario» di un dispositivo attribuito a un estraneo, e allora
+      // quale delle due frasi sarebbe quella vera?
+      //
+      // `personId` = una persona che c'è già. `personName` = una nuova, che è
+      // il caso «lo sto dando a qualcun altro». Nessuno dei due = il
+      // proprietario, che è il caso normale (il tuo secondo telefono).
+      const pers = risolvePersonaPerAppaiamento(db, body?.personId, body?.personName, now);
+      // `owner` DISCENDE dall'essere proprietari dell'installazione, non da una
+      // scelta a parte. `role` resta accettato come alias legacy finché la
+      // colonna esiste: un client non aggiornato continua a funzionare.
+      const role = pers.deciso
+        ? (pers.owner ? "owner" : "guest")
+        : (body?.role === "guest" ? "guest" : "owner");
       db.query(
         "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
       ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip, role);
+      if (pers.personId) {
+        try {
+          db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);
+        } catch { /* schema più vecchio della 084 */ }
+      }
       entry.state = "approved";
       entry.token = token;
       ctx.broadcast?.({ type: "auth:pair-resolved", requestId: entry.id, approved: true, deviceId });

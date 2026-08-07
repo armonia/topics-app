@@ -24,6 +24,8 @@ interface Richiesta {
 export function PairingApproval() {
   const [richieste, setRichieste] = useState<Richiesta[]>([]);
   const [inCorso, setInCorso] = useState<string | null>(null);
+  /** Chi sta scrivendo il nome di un'altra persona, e cosa ha scritto. */
+  const [altrui, setAltrui] = useState<{ id: string; nome: string } | null>(null);
 
   useEffect(() => {
     // Stato iniziale: una richiesta può essere arrivata mentre questa finestra
@@ -50,23 +52,42 @@ export function PairingApproval() {
   }, []);
 
   /**
-   * `role` viaggia SOLO all'approvazione, ed è l'unico momento in cui ha senso
-   * chiederlo: è la stessa occhiata in cui si confronta il codice.
+   * DI CHI È il dispositivo, ed è l'unico momento in cui ha senso chiederlo: è
+   * la stessa occhiata in cui si confronta il codice.
    *
-   * Finché questo cartello mandava il solo `requestId`, ogni dispositivo
-   * autorizzato dall'app nasceva proprietario e il ruolo `guest` era
-   * raggiungibile solo con `curl`. La condivisione ne restava irraggiungibile a
-   * cascata: `ShareControl` diceva sempre «Nessun ospite» e rimandava a un
-   * pannello che quella leva non ce l'aveva.
+   * Il ruolo NON si manda più. Discende dall'essere proprietari
+   * dell'installazione, e chiederlo a parte inviterebbe a contraddire il
+   * modello: si potrebbe dire «proprietario» di un dispositivo attribuito a un
+   * estraneo, e a quel punto quale delle due frasi sarebbe quella vera?
+   *
+   * Il passaggio precedente resta utile da ricordare. Finché questo cartello
+   * mandava il solo `requestId`, ogni dispositivo autorizzato dall'app nasceva
+   * proprietario e un ospite era raggiungibile solo con `curl`: la condivisione
+   * era irraggiungibile a cascata, perché `ShareControl` diceva per sempre
+   * «Nessun ospite».
    */
-  const rispondi = async (id: string, approva: boolean, role?: 'owner' | 'guest') => {
+  const rispondi = async (
+    id: string,
+    approva: boolean,
+    chi?: { personName: string } | { mio: true },
+  ) => {
     setInCorso(id);
     try {
+      // Si manda DI CHI È, non che ruolo ha: il ruolo discende dall'essere
+      // proprietari dell'installazione, e chiederlo a parte inviterebbe a
+      // contraddire il modello — si potrebbe dire «proprietario» di un
+      // dispositivo attribuito a un estraneo, e allora quale delle due frasi
+      // sarebbe quella vera?
+      const corpo = !approva
+        ? { requestId: id }
+        : chi && 'personName' in chi
+          ? { requestId: id, personName: chi.personName }
+          : { requestId: id };
       await fetch(`/api/auth/pair/${approva ? 'approve' : 'deny'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify(approva ? { requestId: id, role: role ?? 'owner' } : { requestId: id }),
+        body: JSON.stringify(corpo),
       });
       setRichieste((prev) => prev.filter((r) => r.id !== id));
     } finally {
@@ -93,12 +114,13 @@ export function PairingApproval() {
             Autorizza solo se questo codice è lo stesso mostrato su quel dispositivo.
           </p>
 
-          {/* DUE autorizzazioni, non una con un interruttore accanto.
-              La differenza fra «vede tutto» e «vede solo ciò che gli condivido»
-              è la cosa più importante di questo cartello, e un interruttore la
-              renderebbe una preferenza da notare invece di una scelta da fare.
-              Il pieno resta il bottone pieno: il caso normale è il tuo secondo
-              telefono. */}
+          {/* La domanda è «di chi è», e ha DUE risposte distinte invece di un
+              interruttore: la differenza fra il proprio telefono e quello di un
+              altro è la cosa più importante che questo cartello dice, e un
+              interruttore la renderebbe una preferenza da notare invece di una
+              scelta da fare. Il pieno resta «È mio», che è il caso normale.
+              Il ruolo non compare: una persona nuova non è proprietaria, e da
+              lì discende che veda solo ciò che le si condivide. */}
           <div className="mt-3 flex gap-2">
             <button
               disabled={inCorso === r.id}
@@ -109,23 +131,51 @@ export function PairingApproval() {
             </button>
             <button
               disabled={inCorso === r.id}
-              onClick={() => void rispondi(r.id, true, 'owner')}
+              onClick={() => void rispondi(r.id, true, { mio: true })}
               className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
               data-testid="pair-approve-owner"
             >
-              Autorizza
+              È mio
             </button>
           </div>
-          <button
-            disabled={inCorso === r.id}
-            onClick={() => void rispondi(r.id, true, 'guest')}
-            className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
-            data-testid="pair-approve-guest"
-          >
-            Autorizza come ospite
-          </button>
+
+          {altrui?.id === r.id ? (
+            <div className="mt-2 flex gap-1.5">
+              <input
+                autoFocus
+                value={altrui.nome}
+                onChange={(e) => setAltrui({ id: r.id, nome: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && altrui.nome.trim()) {
+                    void rispondi(r.id, true, { personName: altrui.nome });
+                    setAltrui(null);
+                  }
+                  if (e.key === 'Escape') setAltrui(null);
+                }}
+                placeholder="Di chi è?"
+                aria-label="Nome della persona"
+                className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-primary"
+              />
+              <button
+                disabled={inCorso === r.id || !altrui.nome.trim()}
+                onClick={() => { void rispondi(r.id, true, { personName: altrui.nome }); setAltrui(null); }}
+                className="flex-shrink-0 rounded-lg border border-app-border px-2.5 py-1.5 text-[12px] text-app-text hover:bg-app-bg disabled:opacity-50"
+                data-testid="pair-approve-guest"
+              >
+                Autorizza
+              </button>
+            </div>
+          ) : (
+            <button
+              disabled={inCorso === r.id}
+              onClick={() => setAltrui({ id: r.id, nome: '' })}
+              className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
+            >
+              È di un'altra persona
+            </button>
+          )}
           <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
-            Un ospite vede solo ciò che gli condividi, in sola lettura.
+            Un'altra persona vede solo ciò che le condividi, in sola lettura.
           </p>
         </div>
       ))}
