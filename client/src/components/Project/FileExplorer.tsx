@@ -8,6 +8,8 @@ import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useMobile } from '../../hooks/useMobile';
 import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
@@ -149,6 +151,10 @@ function getGitStatusLabel(status: string): string {
 }
 
 function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
+  // Il menu dei file esisteva solo col tasto destro: da telefono rinomina,
+  // duplica e cestina erano irraggiungibili. Stesso gesto del resto dell'app.
+  const { isTouch } = useMobile();
+  const nodeLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
@@ -234,6 +240,11 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
         style={{ paddingLeft: `${depth * 16 + 12}px` }}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        {...nodeLongPress.handlers}
+        data-pressing={nodeLongPress.pressed || undefined}
+        // «Tieni premuto» = lo STESSO menu del tasto destro (l'evento e'
+        // sintetizzato e bolla fino a questo handler). Senza, da telefono il
+        // menu dei file — rinomina, duplica, cestina — non esisteva.
         onContextMenu={e => onContextMenu(e, node)}
         draggable={!isRenaming}
         onDragStart={e => onDragStart(e, node)}

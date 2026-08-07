@@ -17,6 +17,8 @@ import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
@@ -194,6 +196,13 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
 }
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
+  // Il pannello git era di SOLA LETTURA su touch: stage, unstage e discard
+  // vivono in controlli `opacity-0 group-hover` e in un menu che si apriva
+  // solo col tasto destro. Stesso gesto del resto dell'app — `openContextMenuAt`
+  // sintetizza il `contextmenu` che gli handler qui sotto gia' ascoltano, quindi
+  // e' LO STESSO menu, non un secondo da tenere allineato.
+  const { isTouch } = useMobile();
+  const fileLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const tr = useT();
   const { gitStatus, loading, error, notGit, reload: loadStatus, fetchRemote } = useGitStatus({ projectPath });
   const toast = useToast();
@@ -1037,6 +1046,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     data-git-file={file.path}
                     data-git-group={group}
                     onClick={(e) => handleFileSelect(file.path, group === 'conflicted' ? 'unstaged' : group, e)}
+                    {...fileLongPress.handlers}
+                    data-pressing={fileLongPress.pressed || undefined}
+                    // «Tieni premuto» = lo STESSO menu del tasto destro. Il pannello git
+                    // era di SOLA LETTURA su touch: stage, unstage e discard vivono qui
+                    // dentro e in controlli che appaiono solo all'hover.
                     onContextMenu={(e) => handleContextMenu(e, file.path, group === 'conflicted' ? 'unstaged' : group)}
                   >
                     <span className={`${st.color} ${st.bg} text-[8px] font-bold px-0.5 py-[1px] rounded leading-none flex-shrink-0 min-w-[14px] text-center`}>
@@ -1298,6 +1312,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         data-git-file={file.path}
         data-git-group={group}
         onClick={(e) => handleFileSelect(file.path, group, e)}
+        {...fileLongPress.handlers}
+        data-pressing={fileLongPress.pressed || undefined}
+        // «Tieni premuto» = lo STESSO menu del tasto destro. Il pannello git
+        // era di SOLA LETTURA su touch: stage, unstage e discard vivono qui
+        // dentro e in controlli che appaiono solo all'hover.
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
         <span className={`${st.color} ${st.bg} text-[11px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
