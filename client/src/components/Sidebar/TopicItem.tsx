@@ -1,5 +1,5 @@
 import { useCallback, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MoreHorizontal, Cloud, Pin, AppWindow } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Cloud, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
@@ -358,12 +358,29 @@ export const TopicItem = memo(function TopicItem({
         />
       ) : (
         isTouch ? (
-          /* Touch, a riposo: il timestamp. Il «...» NON sta più qui dentro —
-             vedi sotto. */
-          <RelativeTime
-            at={topic.updatedAt}
-            className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-          />
+          /* Touch: il timestamp — MA se un'archiviazione è in corso, il cerchio
+             per ANNULLARLA. Senza questo ramo su touch non c'era: il ring viveva
+             solo nel ramo desktop, quindi archiviando una chat col dito partiva
+             il conto alla rovescia di 3 secondi e non esisteva modo di fermarlo.
+             Un'azione con un ripensamento previsto dal disegno, ma il
+             ripensamento raggiungibile solo col mouse. Il box è quello del
+             binario (36px sotto i 768px), non i 14 del glifo. */
+          pendingArchiveStatus ? (
+            <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 relative z-10">
+              <PendingActionRing
+                status={pendingArchiveStatus}
+                size={14}
+                boxClassName="w-9 h-9 md:w-6 md:h-6"
+                pendingTitle="Annulla archiviazione"
+                pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
+              />
+            </span>
+          ) : (
+            <RelativeTime
+              at={topic.updatedAt}
+              className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
+            />
+          )
         ) : (
           /* Desktop: timestamp at rest, ARCHIVE control on hover.
              For NOT-archived topics the hover control is an explicit Archive
@@ -436,24 +453,15 @@ export const TopicItem = memo(function TopicItem({
           vero — 36px (`w-9`) dentro una riga da 44 ci sta con 4px di aria per
           lato. Sopra i 768px il box torna a 24 (`md:w-6`), perché lì la riga è
           alta 34 e un box da 36 lo taglierebbe l'`overflow-hidden` della card. */}
-      {isTouch && (
-        <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-6 md:h-6 relative">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              const el = e.currentTarget;
-              const r = el.getBoundingClientRect();
-              openContextMenuAt({ element: el, x: e.clientX || r.left, y: e.clientY || r.bottom });
-            }}
-            className="tap-expand-y flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
-            title="Azioni"
-            aria-label={`Azioni per ${topic.name}`}
-            aria-haspopup="menu"
-          >
-            <MoreHorizontal size={12} />
-          </button>
-        </span>
-      )}
+      {/* IL «...» NON C'È PIÙ, ed è una decisione di Attilio (07/08): «da mobile
+          non c'è bisogno di mettere il menu a 3 puntini visto che c'è il long
+          press». In una passata precedente l'avevo tenuto argomentando che un
+          gesto nascosto non si scopre; ora «tieni premuto» è il gesto STANDARD
+          di tutta l'app — righe, tab, gruppi, tessere, messaggi, file, git — e
+          si impara una volta. Un promemoria stampato su ogni riga di un gesto
+          che già conosci è rumore, non affordance.
+          Il menu resta raggiungibile identico: `useLongPress` + `openContextMenuAt`
+          sulla riga qui sopra aprono LO STESSO `ContextMenu` del tasto destro. */}
       {/* Ripristina, per le sole righe archiviate. È l'unica voce che il menu
           contestuale NON ha (parla solo di «Archivia»), quindi qui serve un
           bottone suo — il gemello touch del controllo che su desktop compare

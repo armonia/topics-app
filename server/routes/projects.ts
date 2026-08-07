@@ -22,8 +22,9 @@ import { SlugConflictError, ProjectInUseError } from "../services/project-store"
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
-import { extname } from "node:path";
+import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
+import { knownProjectDirs } from "../services/known-project-dirs";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -39,6 +40,8 @@ function stripCtrl(input: unknown): string | null {
 // ── Project icon (favicon / web-manifest) resolution ─────────────────────
 // Lives in ../lib/project-icon.ts (pure fs helpers, unit-tested); this route
 // only gates access (allowlist + realpath containment) and serves the bytes.
+// L'allowlist è ../services/known-project-dirs.ts — condivisa con le rotte dei
+// file, non una copia: due copie sono due confini che divergono.
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;
@@ -89,54 +92,35 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // index.html files from anywhere on disk — arbitrary file access &
       // filesystem enumeration on our origin (which drives terminals + agents).
       //
-      // `projectStore` alone is too narrow: in this app most projects are opened
-      // ad-hoc (folder picker, Claude Code terminals) and never registered there,
-      // so the gate is the UNION of every server-known project dir — registered
-      // projects, topic project paths, worktree paths, and terminal-session cwds.
-      // An attacker can't add an entry to any of these by calling this endpoint,
-      // so the union is a real boundary, not arbitrary client input. Realpath'd
-      // for an exact match (symlink-safe). Cheap enough per request: sia la
-      // risposta con icona sia il 204 «non ne ha» portano un `max-age`, quindi
-      // la cache HTTP del browser tiene questo endpoint fuori dai cicli caldi.
-      // (Il client NON persiste i 'none' su disco — è un'invariante di
-      // ProjectFavicon.tsx: sono già bastati quattro bump di chiave.)
-      const allowedRealDirs = new Set<string>();
-      const addPath = (pth: unknown) => {
-        if (typeof pth !== "string" || !pth) return;
-        try { allowedRealDirs.add(realpathSync(pth)); } catch { /* gone/unreadable */ }
-      };
-      try { for (const p of projectStore.list({ archived: null as any })) addPath(p.path); } catch {}
-      try { for (const t of Object.values(ctx.loadTopics().topics)) addPath((t as { projectPath?: string }).projectPath); } catch {}
-      try { for (const w of ctx.worktreeStore.list()) addPath((w as { absPath?: string }).absPath); } catch {}
-      try {
-        for (const row of ctx.db.query("SELECT DISTINCT cwd FROM terminal_sessions").all() as Array<{ cwd?: string }>) {
-          addPath(row.cwd);
-        }
-      } catch {}
-      // Projects opened as WINDOWS (folder picker / sidebar) but never registered
-      // in projectStore, never linked to a topic, and with no terminal session in
-      // their dir are referenced ONLY in the client's persisted UI snapshots
-      // (sidebar `expandedNodes` + each window's project panes). Without this
-      // source the icon endpoint 403'd every such window, so its favicon never
-      // loaded — the "project icons no longer show" regression. Both encodings
-      // appear: pane ids encode the path (`project:%2FUsers%2F…`), sidebar
-      // expandedNodes store it raw (`project:/Users/…`); the token is realpath'd
-      // by addPath, so a non-existent match is dropped. Same boundary as the
-      // terminal-cwd source above — an attacker can't inject a ui_state row via
-      // this GET, so the union stays a real allowlist, not arbitrary client input.
-      try {
-        const projTokenRe = /project:((?:%2[Ff]|\/)[^"\\]*)/g;
-        for (const row of ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>) {
-          const v = row.value;
-          if (typeof v !== "string" || !v.includes("project:")) continue;
-          let m: RegExpExecArray | null;
-          while ((m = projTokenRe.exec(v)) !== null) {
-            let p = m[1];
-            try { p = decodeURIComponent(p); } catch { /* keep raw token */ }
-            addPath(p);
-          }
-        }
-      } catch {}
+      // Il confine è l'UNIONE delle dir note al server
+      // (`services/known-project-dirs.ts`), la STESSA che usano le rotte dei
+      // file: `projectStore` da solo è troppo stretto (qui i progetti si aprono
+      // al volo e non ci finiscono mai). Fino al 2026-08-07 questa rotta ne
+      // teneva una COPIA in linea, ed è divergente com'era prevedibile: la
+      // sesta sorgente — i progetti che il server enumera nel workspace, quelli
+      // che l'indice della board MOSTRA — esisteva solo di là, quindi
+      // `workspace/dashboard` e `workspace/dancerooms` si vedevano nella lista
+      // e prendevano 403 sulla favicon.
+      //
+      // Ricalcolata a ogni richiesta, MAI messa in cache: una cache che decide
+      // un DINIEGO cristallizza il diniego, e una cartella appena aperta è già
+      // legittima ([[project_project-allowlist-cache-denies]]). Costa due query
+      // e un `realpath` per voce, e non sta su un percorso caldo: sia l'icona
+      // sia il 204 «non ne ha» portano un `max-age`, quindi la cache HTTP del
+      // browser tiene fuori questo endpoint dai cicli caldi. (Il client NON
+      // persiste i 'none' su disco — è un'invariante di ProjectFavicon.tsx:
+      // sono già bastati quattro bump di chiave.)
+      //
+      // Corrispondenza ESATTA, non «dentro»: qui si chiede l'icona DI un
+      // progetto, non di una sua sottocartella — `isInsideKnownProject`
+      // aprirebbe ogni discendente all'enumerazione.
+      const allowedRealDirs = knownProjectDirs({
+        db: ctx.db,
+        loadTopics: ctx.loadTopics,
+        worktreeStore: ctx.worktreeStore,
+        projectStore,
+        workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
+      });
       if (!allowedRealDirs.has(realDir)) {
         console.log(`[icon] 403 (not in allowlist): ${realDir}`);
         return new Response(null, { status: 403 });

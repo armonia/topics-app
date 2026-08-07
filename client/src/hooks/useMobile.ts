@@ -181,11 +181,16 @@ function getInitialState(): MobileState {
   };
 }
 
-// Haptic feedback (iOS/Android)
-export function haptic(type: 'light' | 'medium' | 'heavy' = 'light') {
-  if ('vibrate' in navigator) {
-    const duration = type === 'light' ? 10 : type === 'medium' ? 20 : 30;
-    navigator.vibrate(duration);
-  }
-}
+/**
+ * La micro-vibrazione vive in `lib/haptics.ts`, non più qui: non è uno stato del
+ * dispositivo da leggere a ogni render come le cinque risposte di sopra, è una
+ * capacità della PIATTAFORMA con una storia lunga da raccontare (la Vibration
+ * API che su iOS non è mai esistita, e il trucco dello switch che Apple ha
+ * chiuso in iOS 26.5). Quella storia sta scritta là dentro, dove la trova chi
+ * apre il file cercando «perché su iPhone non vibra».
+ *
+ * Il ri-esporto resta perché il punto di ingresso non deve cambiare: il gesto la
+ * importa da `useMobile` da sempre.
+ */
+export { haptic } from '../lib/haptics';
 

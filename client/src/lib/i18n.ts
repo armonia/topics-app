@@ -152,6 +152,11 @@ const IT: Dict = {
   'sidebar.tree': 'Barra laterale',
   'sidebar.pinned': 'Fissato',
   'sidebar.moreOptions': 'Altre opzioni',
+  // Il «+» della riga di progetto su touch. NON è «altre opzioni»: quel bottone
+  // apre il menu di AGGIUNTA (nuova chat, terminale, browser…), non il menu
+  // contestuale — che col dito si apre tenendo premuto. Portava l'etichetta
+  // sbagliata insieme al glifo sbagliato.
+  'sidebar.newInProject': 'Aggiungi nel progetto',
   'sidebar.restoreProject': 'Ripristina il progetto',
   'sidebar.markAllRead': 'Segna tutto come letto',
   'sidebar.openAsProject': 'Apri come progetto',
@@ -278,6 +283,7 @@ const EN: Dict = {
   'sidebar.tree': 'Sidebar',
   'sidebar.pinned': 'Pinned',
   'sidebar.moreOptions': 'More options',
+  'sidebar.newInProject': 'Add in project',
   'sidebar.restoreProject': 'Restore project',
   'sidebar.markAllRead': 'Mark all as read',
   'sidebar.openAsProject': 'Open as project',

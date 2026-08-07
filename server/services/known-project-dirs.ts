@@ -1,4 +1,6 @@
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
+import { scanWorkspaceProjects } from "./project-path-resolver";
 
 /**
  * knownProjectDirs — l'UNIONE delle directory di progetto che il server già
@@ -14,7 +16,11 @@ import { realpathSync } from "node:fs";
  * confine vero e non input del client travestito.
  *
  * Estratta da `GET /api/projects/icon` (`server/routes/projects.ts`), dove
- * viveva in linea con tutte le sue cicatrici. La stessa lista serve ora anche
+ * viveva in linea con tutte le sue cicatrici — e dove per un po' è RIMASTA in
+ * linea, copiata: l'estrazione aveva convertito le rotte dei file e lasciato
+ * indietro la rotta dell'icona. Le due liste sono poi divergute davvero (la
+ * sorgente 6 esisteva solo nell'indice della board), che è esattamente il buco
+ * che questo modulo doveva chiudere. Ora la rotta dell'icona chiama QUESTA. La stessa lista serve ora anche
  * alle rotte dei FILE, che accettavano un `path` qualunque: `resolveProjectPath`
  * (`server/utils.ts`) fa un `resolve()` nudo, mentre il suo gemello
  * `resolveSafePath` la allowlist ce l'ha da sempre — e `/api/files/search`
@@ -34,6 +40,20 @@ export interface KnownProjectDirsCtx {
    *  archiviati» (`project-store.ts:149-153`: undefined significa SOLO gli
    *  attivi, quindi omettere l'opzione escluderebbe metà dei progetti). */
   projectStore?: { list(opts?: { archived?: boolean | null }): unknown[] };
+  /** Il workspace di OpenClaw (`<OPENCLAW_DIR>/workspace`). Omesso = si deduce
+   *  dall'ambiente con la STESSA regola di `server/utils.ts:133`, così anche i
+   *  chiamanti che non ce l'hanno sottomano (le rotte dei file) vedono la
+   *  sorgente 6 invece di ritrovarsi un confine più stretto degli altri. */
+  workspaceDir?: string;
+}
+
+/** La stessa risoluzione di `server/utils.ts:133` (`OPENCLAW_DIR`), a cui si
+ *  appende `workspace`. Duplicata qui e non importata perché quella vive dentro
+ *  la closure di `createUtils`, non è un export. */
+function defaultWorkspaceDir(): string {
+  const openclaw =
+    process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
+  return join(openclaw, "workspace");
 }
 
 /** Le dir note al server, realpath'd. Set vuoto = nessun accesso concesso. */
@@ -81,6 +101,23 @@ export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
       }
     }
   } catch { /* tabella assente */ }
+  // 6. I progetti che il server ENUMERA nel workspace di OpenClaw — figli
+  //    diretti con un marcatore (`scanWorkspaceProjects`). È la sorgente da cui
+  //    l'indice della board (`GET /api/all-boards/projects`) tira fuori i `path`,
+  //    e il path è l'UNICA cosa da cui nasce un'icona
+  //    ([[project_board-project-index-is-the-only-path-source]]). Mancava qui:
+  //    un progetto del workspace mai legato a un topic, mai aperto in una
+  //    finestra e senza terminale dentro compariva NELLA LISTA e prendeva 403
+  //    sulla favicon. Misurato il 2026-08-07 sui cinque progetti del workspace:
+  //    `open-carousel`/`match-compass`/`generale` erano coperti da ui_state o
+  //    dal projectPath di un topic (204 «nessuna icona», legittimo), mentre
+  //    `dashboard` e `dancerooms` non stavano in NESSUNA delle cinque sorgenti
+  //    → 403. Non alimentabile chiamando le rotte protette: per entrare qui
+  //    serve una cartella con un marcatore dentro il workspace, cioè un accesso
+  //    al disco che questo confine non concede.
+  try {
+    for (const p of scanWorkspaceProjects(ctx.workspaceDir ?? defaultWorkspaceDir())) add(p);
+  } catch { /* workspace assente/illeggibile */ }
 
   return out;
 }

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, BarChart3, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, BarChart3, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -75,7 +75,7 @@ import { resolvePaneSpace } from './state/pane/reducers/spaces';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { RESTING_SURFACE, ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
+import { RESTING_SURFACE, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -1048,16 +1048,16 @@ function App() {
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            {/* Close button on mobile */}
-            {isMobile && (
-              <button
-                onClick={() => setSidebarCollapsed(true)}
-                className="w-10 h-10 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag" {...NO_DRAG_REGION}
-                aria-label="Close sidebar"
-              >
-                <X size={22} aria-hidden="true" />
-              </button>
-            )}
+            {/* NIENTE «X» accanto al titolo. Il cassetto mobile si chiude da
+                solo appena apri qualcosa (`if (isMobile) setSidebarCollapsed(true)`,
+                una dozzina di punti in usePanelLifecycle) e con lo swipe verso
+                sinistra sulla colonna (`handleSidebarTouchEnd`, delta < −60,
+                useSidebarAndLayout) — quindi la crocetta non era l'uscita, era
+                una terza copia della stessa uscita, messa dove l'occhio cerca il
+                titolo. Costava anche la colonna: `w-10 -ml-1 mr-1` + il `gap-2`
+                del contenitore spingevano «Topics» a x=60, cioè 46px più a
+                destra del nome delle righe qui sotto (x=14). Tolta, il titolo
+                torna in colonna con loro. */}
             {/* Topics button - opens combined settings & tools menu */}
             <div className="app-no-drag" {...NO_DRAG_REGION} ref={topicsMenuRef}>
               <button
@@ -1069,7 +1069,16 @@ function App() {
                   }
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                // ROW_PX, non `px-1.5` scritto a mano: è lo stesso rientro
+                // interno di ogni riga della sidebar, e serve perché «Topics»
+                // e i nomi delle chat stiano sulla STESSA colonna. Misurato
+                // (390×844 e 1280×800): la card di una riga parte da
+                // ROW_INSET=6 e il suo testo da 6+8=14; il bottone parte da 6
+                // (il paddingLeft dell'header) e con px-1.5 il titolo cadeva a
+                // 12 — 2px a sinistra dei nomi sotto, il near-miss che si legge
+                // peggio di una differenza netta. Con ROW_PX il titolo va a 14
+                // e il rialzo dell'hover resta a filo col bordo delle card.
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 rounded-md transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -1815,34 +1815,24 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         // the loading spinner ~28px in from the edge — the "spinner non in
         // fondo" bug. Same hover-reveal pattern the project row already uses.
         <span className={`flex-shrink-0 items-center justify-center relative mr-1 ${isTouch ? 'w-9 h-9 md:w-6 md:h-6' : 'w-6 h-6'} ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
+          {/* IL «...» NON C'È PIÙ (decisione di Attilio, 07/08: col long-press non
+              serve). Ma toglierlo e basta lasciava la riga terminale SENZA
+              nessun comando di chiusura visibile: il suo slot su touch conteneva
+              solo quel bottone. Torna il cerchio di chiusura, sempre visibile
+              col dito — cioè esattamente la forma che la riga BROWSER già usa,
+              così le due righe sorelle non divergono di nuovo. Il menu (fissa,
+              apri come progetto, chiudi) resta identico tenendo premuto. */}
           {isTouch ? (
-            hasMenu && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Nessun menu suo: sintetizza il `contextmenu` che la riga già
-                  // ascolta, quindi apre il ContextMenuPortal qui sotto — lo
-                  // stesso del tasto destro e della pressione lunga. Prima qui
-                  // c'era un DropdownPortal con le stesse tre voci ricopiate a
-                  // mano a `px-3 py-1.5`: righe da ~24px col dito, mentre le
-                  // stesse voci col tasto destro (POPOVER_ITEM) ne fanno 44.
-                  const el = e.currentTarget;
-                  const r = el.getBoundingClientRect();
-                  openContextMenuAt({ element: el, x: e.clientX || r.left, y: e.clientY || r.bottom });
-                }}
-                // `tap-expand-y`: l'area cresce solo in ALTEZZA (44px, larghezza
-                // 100%), così non ruba pixel al glifo del pin e al badge che la
-                // precedono nel binario. In larghezza si recupera dal box vero:
-                // 36px (`w-9`) dentro la riga da 44 ci stanno; sopra i 768px la
-                // riga torna a 34 e il box a 24, o la card lo ritaglia.
-                className="tap-expand-y flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
-                title={tr('sidebar.moreOptions')}
-                aria-haspopup="menu"
-                aria-label={`Azioni per ${s.name}`}
-              >
-                <MoreHorizontal size={12} />
-              </button>
-            )
+            <span className="flex items-center justify-center w-full h-full">
+              <PendingActionRing
+                status={null}
+                size={14}
+                boxClassName="w-9 h-9 md:w-6 md:h-6"
+                onIdleClick={onCloseTerminal ? () => onCloseTerminal(s.id) : undefined}
+                idleTitle="Chiudi terminale"
+                idleAriaLabel={`Chiudi terminale ${s.name}`}
+              />
+            </span>
           ) : pendingClose ? (
             <span className="flex items-center justify-center w-full h-full relative z-10">
               <PendingActionRing
@@ -1978,9 +1968,9 @@ function TouchProjectAddMenu({ pp, allArchived, onNewTopicInProject, onAddProjec
         // (`w-9`) dentro la riga da 44. Sopra i 768px la riga torna a 34 e il
         // box a 24, o l'`overflow-hidden` della card lo taglia.
         className={`tap-expand-y flex-shrink-0 w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text transition-colors ${SIDEBAR_HOVER}`}
-        title={tr('sidebar.moreOptions')}
+        title={tr('sidebar.newInProject')}
       >
-        <MoreHorizontal size={14} />
+        <Plus size={14} />
       </button>
       <DropdownPortal open={open} anchorRef={overflowBtnRef} onClose={close}>
         {/* Add-pane rows: same shared component as the desktop "+" menu so a
@@ -2189,11 +2179,12 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         // accanto (`isTouch || pendingClose ? 'flex' : …`): senza hover la X
         // restava `hidden` per sempre e un browser aperto dalla sidebar non si
         // chiudeva più.
-        <span className={`flex-shrink-0 w-6 h-6 items-center justify-center mr-1 relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
+        <span className={`flex-shrink-0 ${isTouch ? 'w-9 h-9 md:w-6 md:h-6' : 'w-6 h-6'} items-center justify-center mr-1 relative z-10 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
           {pendingClose ? (
             <PendingActionRing
               status={pendingClose}
               size={14}
+              boxClassName="w-9 h-9 md:w-6 md:h-6"
               pendingTitle="Annulla chiusura"
               pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
             />
@@ -2202,6 +2193,9 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
               <PendingActionRing
                 status={null}
                 size={14}
+                // Il BOX del bottone viene dalle classi (36px sotto i 768px), il
+                // GLIFO resta 14: il bersaglio cresce, il disegno no.
+                boxClassName="w-9 h-9 md:w-6 md:h-6"
                 onIdleClick={() => onCloseBrowser(bc.id)}
                 idleTitle="Chiudi browser"
                 idleAriaLabel={`Chiudi browser ${itemName}`}

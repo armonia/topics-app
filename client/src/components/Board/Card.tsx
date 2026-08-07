@@ -8,6 +8,8 @@ import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useMobile } from '../../hooks/useMobile';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
@@ -136,6 +138,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
+  // telefono era irraggiungibile. `openContextMenuAt` apre lo stesso menu, non
+  // un secondo. NB: la board monta un `DndContext` con `TouchSensor` a 200ms
+  // (KanbanBoardPane), quindi qui i due gesti convivono — il sensore rivendica
+  // il tocco solo se il dito si MUOVE oltre la tolleranza, mentre il long-press
+  // scatta a 500ms su un dito fermo.
+  const { isTouch } = useMobile();
+  const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
   const confirm = useConfirm();
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   const wantDetail = isAgentReview || (task.status === 'review' && task.subtaskCount > 0);
@@ -231,6 +241,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       data-task-card={task.id}
       style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
+      {...cardLongPress.handlers}
+      data-pressing={cardLongPress.pressed || undefined}
+      // «Tieni premuto» = lo STESSO menu del tasto destro. Il gesto e' lo
+      // standard dell'app: `openContextMenuAt` sintetizza un `contextmenu`
+      // nativo che bolla fino all'`onContextMenu` qui accanto, quindi non
+      // esiste un secondo menu da tenere allineato — e' lo stesso.
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''}`}
     >
