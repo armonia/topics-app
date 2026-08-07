@@ -498,6 +498,40 @@ const streamToolUserInputRequiredSchema = z.looseObject({
   topicId: z.optional(z.string()),
 });
 
+/**
+ * Un permesso NON è una domanda, e ha il suo evento: `toolCallId` è la riga già
+ * a schermo, `request` dice cosa la CLI vuole poter fare. Prima passava per
+ * `tool_user_input_required` con uno schema di domande dentro, e la decisione
+ * tornava indietro come testo dentro una mappa di risposte.
+ */
+const streamToolPermissionRequiredSchema = z.looseObject({
+  type: z.literal('stream:tool_permission_required'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  toolCallId: z.string(),
+  request: z.looseObject({
+    toolName: z.string(),
+    requestedAt: z.number(),
+  }),
+});
+
+/**
+ * La decisione presa. Simmetrico a `…_required`, e non un `stream:tool_update`
+ * nudo: quell'evento porta solo `partialResult`, quindi un client che lo
+ * riceveva non aveva modo di sapere COSA era stato deciso — il pannello
+ * spariva e al suo posto non restava niente finché non ricaricavi.
+ */
+const streamToolPermissionResolvedSchema = z.looseObject({
+  type: z.literal('stream:tool_permission_resolved'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  toolCallId: z.string(),
+  outcome: z.looseObject({
+    decision: z.string(),
+    decidedAt: z.string(),
+  }),
+});
+
 // ---- Message cluster (legacy + new) ---------------------------------------
 
 const messageLegacySchema = z.looseObject({
@@ -1010,6 +1044,8 @@ const OUTBOUND_SCHEMAS = {
   'stream:tool_update': streamToolUpdateSchema,
   'stream:tool_usage': streamToolUsageSchema,
   'stream:tool_user_input_required': streamToolUserInputRequiredSchema,
+  'stream:tool_permission_required': streamToolPermissionRequiredSchema,
+  'stream:tool_permission_resolved': streamToolPermissionResolvedSchema,
   // Message cluster
   'message': messageLegacySchema,
   'message:new': messageNewSchema,

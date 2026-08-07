@@ -9,6 +9,7 @@
 import type { ToolCall } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { formatTokens as sharedFormatTokens } from '../../lib/formatTokens';
+import { isAwaitingHuman } from '../../../../shared/types';
 
 /** Runs shorter than this render as plain per-call rows (no group chrome). */
 export const GROUP_MIN = 3;
@@ -24,7 +25,7 @@ export type ToolGroupSegment =
  * Errors stay IN the aggregate; the summary surfaces their count instead.
  */
 export function isSoloTool(tc: ToolCall): boolean {
-  if (tc.status === 'waiting_for_input') return true;
+  if (isAwaitingHuman(tc.status)) return true;
   return resolveToolDetail(tc).type === 'sub_agent';
 }
 

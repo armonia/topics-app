@@ -26,7 +26,7 @@
 // ─── ToolCall status (chat message → tool call lifecycle) ──────────────
 
 /**
- * 5-state lifecycle of a tool call attached to a chat message. Emitted
+ * 6-state lifecycle of a tool call attached to a chat message. Emitted
  * by the provider boundary on stream events and read by both the
  * persisted message store (server) and the renderer (client).
  *
@@ -35,10 +35,75 @@
  *   waiting_for_input   — tool emitted a user-input form; stream is
  *                         suspended until the user submits via
  *                         POST /api/chat/tool-response
+ *   awaiting_permission — lo strumento non è ancora partito: la modalità di
+ *                         permessi della CLI chiede se può. Si risponde con
+ *                         POST /api/sessions/:key/permission-response
  *   success             — terminal, result available
  *   error               — terminal, with an error field
  */
-export type ToolCallStatus = 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
+export type ToolCallStatus =
+  | 'pending'
+  | 'running'
+  | 'waiting_for_input'
+  | 'awaiting_permission'
+  | 'success'
+  | 'error';
+
+/**
+ * La palla è dell'UMANO su questa riga?
+ *
+ * Due stati diversi, un fatto solo: `waiting_for_input` (una domanda a schermo)
+ * e `awaiting_permission` (un permesso da premere) sono cose distinte per chi
+ * deve rispondere, e la STESSA cosa per tutti gli altri — la riga resta aperta,
+ * il cronometro non scorre, il turno è vivo ma zitto, lo Stop resta disponibile,
+ * e un turno che finisce sotto uno dei due deve chiuderlo invece di lasciare a
+ * schermo un pannello che invita un click che non arriverà a nessuno.
+ *
+ * Esiste come funzione, e non come `x === 'a' || x === 'b'` sparso in sei posti,
+ * per la stessa ragione di `server/lib/human-hold.ts`: quando è arrivata la
+ * seconda sorgente, sei confronti scritti a mano sarebbero stati sei occasioni
+ * di dimenticarne uno — e il ramo dimenticato non dà un errore di compilazione,
+ * dà un pannello che gira per sempre.
+ */
+export function isAwaitingHuman(status: ToolCallStatus | undefined | null): boolean {
+  return status === 'waiting_for_input' || status === 'awaiting_permission';
+}
+
+/**
+ * PERCHÉ `awaiting_permission` è uno stato suo e non una domanda travestita.
+ *
+ * Il primo taglio riusava il pannello di `AskUserQuestion` (`kind: 'questions'`)
+ * per ereditare form inline, ambra della tab e sopravvivenza al reload. Ha
+ * funzionato, e ha lasciato la firma di una cosa messa nel posto sbagliato:
+ * dentro il form delle domande sono servite TRE eccezioni — spegnere «Altro»
+ * (il testo libero qui vale NEGA), cambiare l'etichetta del tasto, cambiare
+ * l'occhiello. Tre eccezioni sono il segnale che non è una domanda.
+ *
+ * E il contratto era PROSA: la decisione viaggiava come valore di una mappa
+ * `{ "Permesso richiesto — <tool>": "Consenti sempre" }`, riconosciuta per
+ * prefisso di stringa. Funziona finché nessuno tocca un'etichetta.
+ *
+ * Una domanda ha risposte aperte e le legge un modello. Un permesso ha TRE
+ * esiti esatti, li legge il server, e uno dei tre scrive una regola permanente.
+ * Sono due cose diverse e ora hanno due stati diversi.
+ */
+export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
+
+/** Cosa la CLI sta chiedendo di poter fare. Tipato: niente chiavi in prosa. */
+export interface ToolPermissionRequest {
+  /** Lo strumento per cui si chiede — `Write`, `mcp__gateway__kiwi__search-flight`. */
+  toolName: string;
+  /** Gli argomenti con cui verrebbe eseguito: un permesso senza il COSA è un pulsante. */
+  input?: Record<string, unknown>;
+  /** Quando è stata aperta (epoch ms) — la riga mostra da quanto aspetta. */
+  requestedAt: number;
+}
+
+/** La decisione presa, persistita sulla riga: chi ha risposto cosa, e quando. */
+export interface ToolPermissionOutcome {
+  decision: PermissionDecision;
+  decidedAt: string;
+}
 
 // ─── User-input request / response envelopes ───────────────────────────
 //
@@ -343,6 +408,14 @@ export interface ToolCall {
   args: Record<string, unknown>;
   /** Lifecycle status — see ToolCallStatus in shared/types.ts. */
   status?: ToolCallStatus;
+  /**
+   * Presente quando `status === 'awaiting_permission'`: cosa la CLI chiede di
+   * poter fare. Sostituisce l'uso di `userInputSchema` per i permessi — vedi
+   * la nota su `ToolPermissionRequest`.
+   */
+  permissionRequest?: ToolPermissionRequest;
+  /** La decisione presa. Resta sulla riga anche dopo, così si rilegge chi ha detto cosa. */
+  permissionOutcome?: ToolPermissionOutcome;
   result?: string;
   error?: string;
   contentOffset?: number;

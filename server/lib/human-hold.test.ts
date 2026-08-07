@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { beginAsk, endAsk } from "./ask-user-bridge";
-import { beginPermission, cancelPermissionsForSession, sessionHasPendingPermission } from "./permission-bridge";
+import { beginPermission, cancelPermissionsForSession, sessionHasPendingPermission, PERMISSION_TTL_MS } from "./permission-bridge";
 import { humanHoldAgeMs, isHumanHold, releaseHumanHold } from "./human-hold";
 
 const SK = "topic:test-hold";
@@ -64,5 +64,42 @@ describe("releaseHumanHold", () => {
     releaseHumanHold(SK, "turno interrotto");
     expect(isHumanHold(SK)).toBe(false);
     expect(sessionHasPendingPermission(SK)).toBe(false);
+  });
+});
+
+describe("il permesso smette di essere un'attesa dopo il suo TTL", () => {
+  /**
+   * IL FANTASMA DEL 7 AGOSTO. Le richieste vivono in memoria e si chiudono solo
+   * quando il bridge torna a pollare. Se il figlio CLI muore SOTTO un pannello
+   * aperto non arriva più nessuna gamba, niente scade, e questo predicato —
+   * che disarma watchdog, reaper e tetto di vita — giurerebbe per sempre che
+   * una persona sta per rispondere su una sessione dove non c'è più nessuno.
+   */
+  it("entro il TTL è un'attesa vera", () => {
+    clean();
+    const t0 = 9_000_000;
+    beginPermission(SK, "toolu_x", PERMISSION_TTL_MS, t0);
+    expect(isHumanHold(SK, t0 + 60_000)).toBe(true);
+    expect(humanHoldAgeMs(SK, t0 + 60_000)).toBe(60_000);
+    clean();
+  });
+
+  it("oltre il TTL le reti di sicurezza tornano ad avere i denti", () => {
+    clean();
+    const t0 = 9_000_000;
+    beginPermission(SK, "toolu_x", PERMISSION_TTL_MS, t0);
+    expect(isHumanHold(SK, t0 + PERMISSION_TTL_MS + 1)).toBe(false);
+    expect(humanHoldAgeMs(SK, t0 + PERMISSION_TTL_MS + 1)).toBeNull();
+    clean();
+  });
+
+  it("ma una DOMANDA resta senza scadenza: chi risponde la mattina dopo la ritrova", () => {
+    // Le due attese non hanno la stessa forma di morte, quindi non hanno lo
+    // stesso tetto. Vedi la nota in testa a isHumanHold.
+    clean();
+    const t0 = 9_000_000;
+    beginAsk(SK, 24 * 60 * 60 * 1000, t0);
+    expect(isHumanHold(SK, t0 + PERMISSION_TTL_MS * 3)).toBe(true);
+    clean();
   });
 });

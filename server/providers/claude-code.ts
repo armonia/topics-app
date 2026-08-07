@@ -6,7 +6,7 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
-import { permissionModeForAutonomy, permissionPromptArgs, permissionModeAsks } from "../lib/autonomy-mode";
+import { permissionModeForAutonomy, permissionPromptArgs } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
@@ -421,11 +421,7 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
  * sessionKey + base URL + gateway token as argv to call back into topics-app.
  */
-export function topicsMcpBridgeSpec(
-  sessionKey: string,
-  profile?: string,
-  opts?: { permissionChannel?: boolean },
-): { command: string; args: string[] } {
+export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
   return {
     command: process.execPath, // bun
     args: [
@@ -433,11 +429,6 @@ export function topicsMcpBridgeSpec(
       MCP_SERVER_SCRIPT,
       `--base-url=${topicsAppBaseUrl()}`,
       `--session-key=${sessionKey}`,
-      // Il canale di permesso si pubblica solo dove serve: senza questo flag il
-      // bridge non elenca `approval_prompt`, così in `bypassPermissions` — dove
-      // la CLI non lo designa e quindi non lo nasconderebbe — il modello non se
-      // lo ritrova fra gli strumenti.
-      ...(opts?.permissionChannel ? ["--permission-channel=1"] : []),
       // Tool profile: "dispatch" trims the bridge to what a board agent needs
       // (task tools + browser verification + processes) — fewer tool schemas
       // in the agent's per-call context. Absent = full toolset (interactive).
@@ -449,7 +440,7 @@ export function topicsMcpBridgeSpec(
 
 export function writeMcpConfigForSession(
   sessionKey: string,
-  opts?: { mcpPolicy?: string | null; permissionChannel?: boolean },
+  opts?: { mcpPolicy?: string | null },
 ): { path: string; strict: boolean } {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
@@ -461,13 +452,13 @@ export function writeMcpConfigForSession(
   // that works one task. Web research stays available via the CLI's built-in
   // WebSearch/WebFetch (not MCP). Per-board escape hatch: dispatch_mcp='inherit'.
   if (opts?.mcpPolicy === "bridge-only") {
-    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch", { permissionChannel: opts?.permissionChannel }) } };
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch") } };
     const path = mcpConfigPathForSession(sessionKey);
     writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
     try { chmodSync(path, 0o600); } catch { /* best-effort */ }
     return { path, strict: true };
   }
-  const topicsBridge = topicsMcpBridgeSpec(sessionKey, undefined, { permissionChannel: opts?.permissionChannel });
+  const topicsBridge = topicsMcpBridgeSpec(sessionKey);
   const inherited = resolveInheritedMcpServers();
   // strict ONLY when we scoped: the config then holds the full set the session
   // should see, so the CLI can safely ignore everything else. When scoping is
@@ -1812,10 +1803,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // file path goes into argv as `--mcp-config`; the file lifetime is
     // bounded by `killProcess` below. Dispatched board agents carry
     // topics.mcp_policy='bridge-only' → topics bridge only, dispatch profile.
-    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, {
-      mcpPolicy: overrides.mcpPolicy,
-      permissionChannel: permissionModeAsks(permissionMode),
-    });
+    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, { mcpPolicy: overrides.mcpPolicy });
 
     const args = [
       "--print",

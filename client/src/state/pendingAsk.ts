@@ -23,7 +23,6 @@
  */
 import type { ChatMessage, ToolCall, ToolUserResponse, UserInputSchema } from '../types';
 import { isPlanApprovalSchema } from '../../../shared/plan-decision';
-import { isPermissionSchema } from '../../../shared/permission-decision';
 
 export interface PendingAsk {
   toolCallId: string;
@@ -78,11 +77,6 @@ export function answerFromText(ask: PendingAsk, text: string): ToolUserResponse 
     // interpreteremmo noi, e fra «vai» e «no direi» un indovinello sbagliato
     // esegue un piano che volevi rifiutare. Vedi shared/plan-decision.ts.
     if (isPlanApprovalSchema(ask.schema)) return null;
-    // Stessa ragione, alzata di un grado: un permesso lo interpretiamo NOI, e
-    // fra «Consenti», «Consenti sempre» e «Nega» un «ok» scritto di getto è un
-    // indovinello che può concedere per sempre uno strumento che volevi negare
-    // una volta sola. Un permesso si preme.
-    if (isPermissionSchema(ask.schema)) return null;
     const questions = ask.schema.questions ?? [];
     // Più di una domanda ⇒ il pannello. Mettere lo stesso testo su tutte
     // risponderebbe a caso a quelle che non hai nemmeno letto.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  aliasPermission,
   beginPermission,
   cancelPermission,
   cancelPermissionsForSession,
@@ -7,7 +8,6 @@ import {
   endPermission,
   hasPendingPermission,
   pendingPermissionAgeMs,
-  pendingPermissionVerdict,
   PermissionWaitError,
   resolvePendingPermission,
   sessionHasPendingPermission,
@@ -67,21 +67,32 @@ describe("due richieste insieme — il motivo per cui la chiave non è la sessio
     cleanup();
   });
 
-  it("con due aperte il ripiego per sessione NON indovina", async () => {
+  it("un id sconosciuto non si risolve MAI, nemmeno con una sola aperta", () => {
+    // Qui c'era un'euristica: «se ce n'è una sola, il click è suo». Reggeva
+    // finché non ce n'era davvero una sola — poi mandava la decisione a un
+    // permesso che nessuno aveva guardato. Un sì dato al posto di un altro è il
+    // peggiore degli errori possibili qui dentro.
     cleanup();
     beginPermission(SK, T1);
-    beginPermission(SK, T2);
-    // Un id che non è nessuna delle due: preferisco non rispondere che
-    // rispondere a quella sbagliata.
     expect(resolvePendingPermission(SK, "toolu_ignoto")).toBeNull();
+    expect(resolvePendingPermission(SK, T1)).toBe(T1);
     cleanup();
   });
 
-  it("con UNA sola aperta il ripiego la trova", () => {
+  it("un alias SCRITTO invece si risolve — è la corrispondenza, non un indovinello", () => {
     cleanup();
     beginPermission(SK, T1);
-    expect(resolvePendingPermission(SK, "toolu_ignoto")).toBe(T1);
-    expect(resolvePendingPermission(SK, T1)).toBe(T1);
+    aliasPermission(SK, T1, "riga_diversa");
+    expect(resolvePendingPermission(SK, "riga_diversa")).toBe(T1);
+    cleanup();
+  });
+
+  it("e l'alias muore con la sua richiesta", () => {
+    cleanup();
+    beginPermission(SK, T1);
+    aliasPermission(SK, T1, "riga_diversa");
+    endPermission(SK, T1);
+    expect(resolvePendingPermission(SK, "riga_diversa")).toBeNull();
     cleanup();
   });
 });
@@ -153,27 +164,5 @@ describe("il TTL copre la RICHIESTA, non la gamba", () => {
   it("nessuna richiesta → età null", () => {
     cleanup();
     expect(pendingPermissionAgeMs(SK)).toBeNull();
-  });
-});
-
-describe("pendingPermissionVerdict — la regola dello spazzino, pura", () => {
-  it("niente aperto: regole normali", () => {
-    expect(pendingPermissionVerdict({ ageMs: null })).toBe("none");
-  });
-
-  it("pannello a schermo e figlio vivo: il silenzio È la richiesta", () => {
-    expect(pendingPermissionVerdict({ ageMs: 60_000, childAlive: true })).toBe("defer");
-  });
-
-  it("un provider che non sa dirlo vale VIVO — uccidere un turno sano è il guasto da evitare", () => {
-    expect(pendingPermissionVerdict({ ageMs: 60_000 })).toBe("defer");
-  });
-
-  it("figlio morto sotto il pannello: si chiude, o `defer` sarebbe eterno", () => {
-    expect(pendingPermissionVerdict({ ageMs: 60_000, childAlive: false })).toBe("close");
-  });
-
-  it("oltre il TTL si chiude comunque", () => {
-    expect(pendingPermissionVerdict({ ageMs: 10_000, ttlMs: 5_000, childAlive: true })).toBe("close");
   });
 });

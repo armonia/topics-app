@@ -393,6 +393,46 @@ const messagesRef = {
   },
 };
 
+/**
+ * Applica una patch a UNA riga di tool sull'ultimo messaggio assistant che la
+ * contiene, in ENTRAMBI i posti dove può vivere.
+ *
+ * Il difetto che chiude: i gestori scritti prima cercavano la riga dentro
+ * `msgs[i].toolCalls` e patchavano i blocchi solo dopo averla trovata lì. Ma un
+ * messaggio caricato dall'API può avere i `blocks` e non `toolCalls` — e in quel
+ * caso il ciclo non entrava nemmeno, quindi l'evento arrivava, il gestore girava
+ * e non succedeva niente. Visto il 7 agosto sul permesso: il frame nella spia
+ * del WebSocket, il pannello ancora a schermo.
+ */
+function patchToolCallInMessages(
+  msgs: ChatMessage[],
+  toolCallId: string,
+  patch: (tc: ToolCall) => ToolCall,
+): ChatMessage[] {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.role !== 'assistant') continue;
+    const inCalls = (m.toolCalls ?? []).some((t) => t.id === toolCallId);
+    const inBlocks = (m.blocks ?? []).some((b) => b.kind === 'tool' && b.toolCall.id === toolCallId);
+    if (!inCalls && !inBlocks) continue;
+    // Una sola applicazione della patch: i due contenitori devono finire con lo
+    // STESSO oggetto, o si rimette in piedi la divergenza che stiamo chiudendo.
+    const source =
+      (m.toolCalls ?? []).find((t) => t.id === toolCallId) ??
+      (m.blocks ?? []).flatMap((b) => (b.kind === 'tool' && b.toolCall.id === toolCallId ? [b.toolCall] : []))[0];
+    if (!source) continue;
+    const next = patch(source);
+    const nextCalls = m.toolCalls?.map((t) => (t.id === toolCallId ? next : t));
+    const nextBlocks = m.blocks?.map((b) =>
+      b.kind === 'tool' && b.toolCall.id === toolCallId ? { kind: 'tool' as const, toolCall: next } : b,
+    );
+    const out = msgs.slice();
+    out[i] = { ...m, ...(nextCalls ? { toolCalls: nextCalls } : {}), ...(nextBlocks ? { blocks: nextBlocks } : {}) };
+    return out;
+  }
+  return msgs;
+}
+
 export function useChat() {
   // I messaggi NON sono piu' stato di questo hook, e quindi non sono piu' stato
   // di `App`, che e' dove `useChat` viene chiamato. Vivono in uno store di
@@ -1225,6 +1265,46 @@ export function useChat() {
             }
             return { ...prev, [sessionKey]: msgs };
           });
+        }
+        break;
+
+      case 'stream:tool_permission_resolved':
+        // Qualcuno ha deciso — magari su un altro dispositivo. La riga torna a
+        // girare e l'esito RESTA visibile: senza questo evento il pannello
+        // spariva e della decisione non restava traccia fino al reload,
+        // perché `stream:tool_update` porta solo `partialResult`.
+        if (event.toolCallId) {
+          const id = event.toolCallId;
+          const outcome = event.outcome;
+          setMessages(prev => ({
+            ...prev,
+            [sessionKey]: patchToolCallInMessages([...(prev[sessionKey] || [])], id, (tc) => ({
+              ...tc,
+              status: 'running',
+              permissionOutcome: outcome,
+            })),
+          }));
+        }
+        break;
+
+      case 'stream:tool_permission_required':
+        // La CLI chiede se questo strumento può partire. Stesso trattamento del
+        // pannello delle domande per ciò che riguarda il turno (resta in volo,
+        // lo Stop resta disponibile), stato diverso per ciò che riguarda la
+        // riga: `awaiting_permission` + una richiesta tipizzata.
+        if (event.toolCallId) {
+          resetStreamTimeout(sessionKey);
+          const id = event.toolCallId;
+          const request = event.request;
+          setMessages(prev => ({
+            ...prev,
+            [sessionKey]: patchToolCallInMessages([...(prev[sessionKey] || [])], id, (tc) => ({
+              ...tc,
+              status: 'awaiting_permission',
+              permissionRequest: request,
+              permissionOutcome: undefined,
+            })),
+          }));
         }
         break;
 

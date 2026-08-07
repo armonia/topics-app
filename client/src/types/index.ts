@@ -58,7 +58,8 @@ export interface Message {
 // identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
 // fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
 export type { ToolCallDetail, ToolCall, ContentBlock } from '../../../shared/types';
-import type { ToolCall, ContentBlock } from '../../../shared/types';
+export type { PermissionDecision, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
+import type { ToolCall, ContentBlock, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 
 import type { TerminalSessionType } from '../../../shared/terminal-session-types';
 export interface ChatMessage extends Message {
@@ -611,6 +612,27 @@ export interface WSStreamToolUserInputRequiredMessage {
   schema: UserInputSchema;
 }
 /**
+ * La CLI chiede se questo strumento può partire. NON è una domanda: la riga va
+ * in `awaiting_permission`, il pannello ha tre esiti esatti, e la risposta
+ * torna su `POST /api/sessions/:key/permission-response` come enum — non come
+ * testo dentro una mappa di risposte.
+ */
+/** La decisione presa su un permesso: la riga torna a girare e l'esito resta. */
+export interface WSStreamToolPermissionResolvedMessage {
+  type: 'stream:tool_permission_resolved';
+  sessionKey: string;
+  topicId?: string;
+  toolCallId: string;
+  outcome: ToolPermissionOutcome;
+}
+export interface WSStreamToolPermissionRequiredMessage {
+  type: 'stream:tool_permission_required';
+  sessionKey: string;
+  topicId?: string;
+  toolCallId: string;
+  request: ToolPermissionRequest;
+}
+/**
  * Sent by the server when a client reconnects mid-stream. Carries the
  * accumulated buffer so the late joiner doesn't see a blank assistant
  * message until the next chunk arrives.
@@ -1017,6 +1039,8 @@ export type WSMessage =
   | WSStreamCompactionMessage
   | WSStreamContextMessage
   | WSStreamToolUserInputRequiredMessage
+  | WSStreamToolPermissionRequiredMessage
+  | WSStreamToolPermissionResolvedMessage
   | WSStreamCatchupMessage
   | WSTypingMessage
   | WSMessageNewMessage

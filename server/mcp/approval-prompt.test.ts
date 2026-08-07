@@ -154,29 +154,28 @@ describe("il tetto delle gambe sta SOPRA il TTL della richiesta", () => {
   });
 });
 
-describe("il canale non è uno strumento di lavoro: si pubblica solo dove serve", () => {
-  test("senza canale non compare in tools/list", () => {
-    // In `bypassPermissions` la CLI non lo designa e quindi non lo
-    // nasconderebbe: pubblicarlo lascerebbe al modello uno strumento interno,
-    // con il suo schema in contesto a ogni chiamata.
-    expect(toolsForProfile(undefined).map((t) => t.name)).not.toContain("approval_prompt");
-    expect(toolsForProfile("dispatch").map((t) => t.name)).not.toContain("approval_prompt");
+describe("il canale c'è SEMPRE, in ogni modalità e in ogni profilo", () => {
+  test("è pubblicato ovunque — un flag solo non può desincronizzarsi da sé stesso", () => {
+    // La versione a due flag (`--permission-prompt-tool` allo spawn +
+    // `--permission-channel=1` al bridge) si rompeva così: una configurazione
+    // senza il secondo, e la CLI rispondeva «MCP tool
+    // mcp__topics__approval_prompt (passed via --permission-prompt-tool) not
+    // found» su OGNI richiesta di permesso. Peggio del guasto che chiudevamo:
+    // prima moriva muto, così moriva rumoroso e su tutto.
+    expect(toolsForProfile(undefined).map((t) => t.name)).toContain("approval_prompt");
+    expect(toolsForProfile("dispatch").map((t) => t.name)).toContain("approval_prompt");
   });
 
-  test("col canale acceso c'è (e lì è la CLI a toglierlo dalla vista del modello)", () => {
-    expect(toolsForProfile(undefined, true).map((t) => t.name)).toContain("approval_prompt");
-    expect(toolsForProfile("dispatch", true).map((t) => t.name)).toContain("approval_prompt");
-  });
-
-  test("resta CHIAMABILE anche quando non è elencato — chi chiama è la CLI, non il modello", () => {
+  test("resta CHIAMABILE anche nel profilo ridotto — chi chiama è la CLI, non il modello", () => {
     expect(isToolAllowedForProfile("dispatch", "approval_prompt")).toBe(true);
     expect(isToolAllowedForProfile(undefined, "approval_prompt")).toBe(true);
   });
 
-  test("il flag arriva dal comando", () => {
-    const on = parseArgs(["--base-url=http://x", "--session-key=s", "--permission-channel=1"]);
-    expect(on.permissionChannel).toBe(true);
-    const off = parseArgs(["--base-url=http://x", "--session-key=s"]);
-    expect(off.permissionChannel).toBe(false);
+  test("e il modello non lo vede comunque: lo toglie la CLI, che lo designa in ogni modalità", () => {
+    // Verificato sul filo anche in `bypassPermissions`: l'evento `init` non lo
+    // elenca e il turno finisce regolarmente. Il costo di passarlo dove non
+    // serve è zero; il costo di dimenticarlo dove serve era tutto.
+    const args = parseArgs(["--base-url=http://x", "--session-key=s"]);
+    expect(args.sessionKey).toBe("s");
   });
 });
