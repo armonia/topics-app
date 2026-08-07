@@ -2,10 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.48 — 2026-08-07
+
+### Sotto il cofano
+- «Crea un link per chi è fuori rete», e la parola tunnel non si legge
+- Il vuoto attorno al ⌘N si misura sull'inchiostro, e i comandi smettono di gareggiare con la finestra
+
 ## 2.2.47 — 2026-08-07
 
 ### Sotto il cofano
 - Il comando prende il colore dalla piattaforma, e in tutta l'app resta una curva sola
+- 2.2.47 — il vetro, la curva, il passo
 
 ## 2.2.46 — 2026-08-07
 
