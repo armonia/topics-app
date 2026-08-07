@@ -38,8 +38,10 @@ sapere se il disegno regge prima di aprire un conto.
 - [x] 1.1 `shared/relay-protocol.ts`: registrazione, apertura di una sessione
   ospite, inoltro, chiusura. Puro, con un test — così il trasporto diventa
   sostituibile e la scelta di Cloudflare resta reversibile davvero.
-- [ ] 1.2 Il **contratto di cifratura**: chiave nel frammento, formato del
-  payload, rotazione, scadenza. Deciso qui, non quando serve.
+- [x] 1.2 Il **contratto di cifratura**: `shared/relay-crypto.ts`. AES-256-GCM
+  (cifra E autentica: senza, un relay ostile non leggerebbe ma potrebbe
+  SCRIVERE), IV casuale per busta che il chiamante non può passare, chiave nel
+  frammento del link. 16 casi, compresi manomissione e oracolo.
 - [x] 1.3 Un relay **finto in-process** per i test: due estremi, nessuna rete.
   È ciò che permette di provare RELAY-04 (arrivare non è essere autorizzati)
   senza dipendere da un servizio esterno.
