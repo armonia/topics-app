@@ -46,7 +46,7 @@ const UTILITY_ICONS: Record<string, LucideIcon> = {
  * tessera che sta annunciando è proprio il difetto che l'anteprima esiste per
  * non avere.
  */
-export const PINNED_TILE_H = 'h-8';
+export const PINNED_TILE_H = 'h-8 max-md:h-11';
 
 /**
  * Il contenitore che la tessera MISURA per decidere se è una riga o un
@@ -64,8 +64,20 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
  *  una condizione: `PINNED_TILE_H` = altezza del trigger + 2 × questo. Il
  *  trigger «pill» di `PaneAddMenu` è 24px (`w-6 h-6`), quindi 24 + 8 = 32 =
  *  `h-8`. Cambiare uno dei due senza l'altro rompe l'uguaglianza in silenzio:
- *  stanno scritti vicini per questo. */
+ *  stanno scritti vicini per questo.
+ *
+ *  SOTTO I 768px la tessera è `h-11` (44) — misurata col dito era 378×32, e i 32
+ *  sono il lato corto, cioè quello che conta per un pollice. L'uguaglianza vale
+ *  anche lì SOLO se l'inset segue: 44 = 24 + 2 × 10. È il motivo per cui questo
+ *  non è più un numero secco ma una coppia, e per cui va letto con
+ *  `pinnedTileActionInset(isMobile)` invece che direttamente: due costanti
+ *  scollegate sarebbero tornate a divergere alla prima modifica. */
 export const PINNED_TILE_ACTION_INSET = 4;
+export const PINNED_TILE_ACTION_INSET_MOBILE = 10;
+/** L'inset giusto per la larghezza corrente. Vedi il commento qui sopra. */
+export function pinnedTileActionInset(isMobile: boolean): number {
+  return isMobile ? PINNED_TILE_ACTION_INSET_MOBILE : PINNED_TILE_ACTION_INSET;
+}
 
 /** Il chevron di apertura — lo stesso delle righe dell'albero, stessa misura e
  *  stessa rotazione, così «si apre» si legge uguale ovunque. */

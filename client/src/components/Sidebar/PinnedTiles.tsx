@@ -4,7 +4,8 @@ import type { AttentionTier } from '../../types';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
-import { PinnedTile, PINNED_TILE_H, PINNED_TILE_ACTION_INSET, PINNED_TILE_CONTAINER } from './PinnedTile';
+import { PinnedTile, PINNED_TILE_H, pinnedTileActionInset, PINNED_TILE_CONTAINER } from './PinnedTile';
+import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,
   insertPinnedRow,
@@ -149,6 +150,10 @@ export function PinnedTiles({
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
+  // L'inset del «+» segue l'altezza della tessera: 4 sul desktop, 10 sotto i
+  // 768px dove la tessera è `h-11`. Vedi `pinnedTileActionInset` — i due numeri
+  // sono accoppiati da un'invariante, non scelti a occhio.
+  const { isMobile } = useMobile();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragKey, setDragKey] = useState<string | null>(null);
   // `fromThisRow` si decide all'EVENTO, non al render: `dragKey` è stato, e il
@@ -707,7 +712,7 @@ export function PinnedTiles({
                         // dal bordo alto e da quello basso — lì ci pensa
                         // `PINNED_TILE_H`, che è l'altezza del trigger più due
                         // volte questo. Tre distanze uguali, un numero solo.
-                        style={{ right: PINNED_TILE_ACTION_INSET }}
+                        style={{ right: pinnedTileActionInset(isMobile) }}
                       >
                         {actions}
                       </div>
