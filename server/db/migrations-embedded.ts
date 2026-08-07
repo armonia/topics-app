@@ -89,6 +89,7 @@ import m080 from "./migrations/081-autonomy-default-acts.sql" with { type: "text
 import m081 from "./migrations/082-task-shares.sql" with { type: "text" };
 import m082 from "./migrations/083-grants.sql" with { type: "text" };
 import m083 from "./migrations/084-people-orgs.sql" with { type: "text" };
+import m084 from "./migrations/085-share-links.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -182,4 +183,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 82, name: "082-task-shares.sql", sql: m081 },
   { version: 83, name: "083-grants.sql", sql: m082 },
   { version: 84, name: "084-people-orgs.sql", sql: m083 },
+  { version: 85, name: "085-share-links.sql", sql: m084 },
 ];
