@@ -1169,7 +1169,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 appoggiava a quel messaggio e tutto lo spazio restante finiva
                 SOTTO la cronologia — cioè lo stesso difetto di prima, ma nello
                 stato opposto. Col `flex-1` presente `mt-auto` non fa nulla. */}
-            <div className="flex flex-col min-h-0 mt-auto">
+            {/* `pb-1` perche' questo e' l'ULTIMO pezzo del pannello: senza,
+                l'intestazione della cronologia aveva 4px fra il testo e il
+                bordo inferiore (misurato: bottone a 763, pannello a 767) contro
+                gli 8px di ogni altra riga del piede, e si leggeva come una riga
+                schiacciata sul fondo. Con 4px di rientro l'ultima riga respira
+                come le sue sorelle, e come il bordo superiore del pannello. */}
+            <div className="flex flex-col min-h-0 mt-auto pb-1">
               {remotes.length === 0 && !showAddRemote ? (
                 <div className="px-3 py-2 border-t border-app-border">
                   <button
@@ -1197,7 +1203,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   compact
                 />
               )}
-              <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
+              {/* Niente commit, niente sezione. Un repo appena inizializzato
+                  mostrava un accordion «Cronologia» che, aperto, poteva solo
+                  dire «Nessun commit»: un controllo che promette qualcosa e non
+                  ha niente da dare. `lastCommit.hash` e' vuoto quando `git log
+                  -1` esce non-zero, cioe' esattamente quando non c'e' storia —
+                  si sa PRIMA di chiedere la lista. */}
+              {gitStatus!.lastCommit.hash && (
+                <CommitHistory projectPath={projectPath} reloadKey={gitStatus!.lastCommit.hash} />
+              )}
             </div>
           </>
         )}
@@ -1541,12 +1555,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
           {/* Qui le righe si aprono: il DiffViewer sta nella colonna accanto,
               quindi si può mostrare il file com'era a QUEL commit senza
-              passare per una tab, che una revisione non la sa portare. */}
-          <CommitHistory
-            projectPath={projectPath}
-            reloadKey={gitStatus.lastCommit.hash}
-            onOpenFile={handleHistoryFileClick}
-          />
+              passare per una tab, che una revisione non la sa portare.
+              Stesso cancello della modalita' compatta: senza commit non c'e'
+              una cronologia da offrire. */}
+          {gitStatus.lastCommit.hash && (
+            <CommitHistory
+              projectPath={projectPath}
+              reloadKey={gitStatus.lastCommit.hash}
+              onOpenFile={handleHistoryFileClick}
+            />
+          )}
         </div>
       </div>
 

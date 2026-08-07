@@ -549,8 +549,19 @@ export function ProjectSidebar({
             // colonna, lontanissimo dall'intestazione: la riga chiusa restava
             // senza linea, sospesa sopra il vuoto. Da aperta non serve, perché
             // sotto ci sono i file.
-            className={`w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files ${
-              expandedSections.files ? '' : 'border-b border-app-border'
+            //
+            // Il COLORE sta fuori dalla condizione, e non è pignoleria: si
+            // alterna solo `border-b`, cioè la LARGHEZZA. Con
+            // `border-b border-app-border` dentro il ramo, chiudendo la sezione
+            // il bordo lampeggiava scuro e poi sbiadiva — `transition-colors`
+            // anima anche `border-color`, la larghezza no. Il preflight di
+            // Tailwind v4 mette `border: 0 solid` senza colore, quindi il
+            // colore di partenza era `currentColor`, che qui è
+            // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
+            // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
+            // Tenendo il colore sempre acceso non c'è più niente da animare.
+            className={`w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files border-app-border ${
+              expandedSections.files ? '' : 'border-b'
             }`}
           >
             <FolderTree size={14} className="flex-shrink-0" />

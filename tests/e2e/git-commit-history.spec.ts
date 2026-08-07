@@ -160,7 +160,11 @@ test.describe("cronologia dei commit", () => {
     // E ogni pezzo comincia dove finisce quello prima, senza strisce vuote.
     expect(chiuse.remotes!.top).toBeCloseTo(chiuse.scroller!.bot, 0);
     expect(chiuse.cronologia!.top).toBeCloseTo(chiuse.remotes!.bot, 0);
-    expect(chiuse.cronologia!.bot).toBeCloseTo(chiuse.pannello!.bot, 0);
+    // L'ultimo pezzo NON si appoggia al bordo: 4px di rientro sotto il piede.
+    // Prima era a filo, e l'intestazione della cronologia aveva 4px fra il suo
+    // testo e il fondo del pannello contro gli 8px di ogni altra riga —
+    // si leggeva come una riga schiacciata sul fondo.
+    expect(chiuse.pannello!.bot - chiuse.cronologia!.bot).toBeCloseTo(4, 0);
 
     // ── Cronologia APERTA: scorre dentro di se', non sfonda il pannello ──────
     await storia.getByRole("button", { name: /Cronologia/ }).click();
@@ -208,7 +212,17 @@ test.describe("cronologia dei commit", () => {
       const b = (el: Element | null) => el ? { top: +el.getBoundingClientRect().top.toFixed(1), bot: +el.getBoundingClientRect().bottom.toFixed(1) } : null;
       return { pannello: b(root), cronologia: b(root.querySelector('[data-testid="commit-history"]')) };
     });
-    expect(g.cronologia!.bot).toBeCloseTo(g.pannello!.bot, 0);
+    expect(g.pannello!.bot - g.cronologia!.bot).toBeCloseTo(4, 0);
+
+    // E il TESTO della cronologia respira come le sue sorelle: 8px sotto, non
+    // 4. Misurato prima del fix: bottone a 763, pannello a 767.
+    const aria = await pannello.evaluate((root: HTMLElement) => {
+      const cron = root.querySelector('[data-testid="commit-history"]');
+      const bottone = cron?.querySelector("button");
+      if (!bottone) return null;
+      return +(root.getBoundingClientRect().bottom - bottone.getBoundingClientRect().bottom).toFixed(1);
+    });
+    expect(aria).toBeCloseTo(8, 0);
 
     // E l'icona di git non e' colorata: sta accanto alla pastiglia del
     // conteggio e alle frecce ahead/behind, che il colore ce l'hanno per dire
@@ -249,5 +263,39 @@ test.describe("cronologia dei commit", () => {
     await expect(iniziale).toBeVisible({ timeout: 10000 });
     await expect(iniziale).toContainText("+1");
     await expect(storia).not.toContainText(/Error|errore/i);
+  });
+
+  test("un repo SENZA commit non mostra affatto la sezione Cronologia", async ({ page, request }) => {
+    // Un accordion che, aperto, puo' solo dire «Nessun commit» e' un controllo
+    // che promette qualcosa e non ha niente da dare. E non serve chiedere la
+    // lista per saperlo: `lastCommit.hash` e' vuoto quando `git log -1` esce
+    // non-zero, cioe' esattamente quando la storia non c'e'.
+    const VUOTO = `/tmp/e2e-storia-vuota-${Date.now()}`;
+    mkdirSync(VUOTO, { recursive: true });
+    writeFileSync(`${VUOTO}/nuovo.txt`, "mai committato\n");
+    execFileSync("git", ["init", "-q", "."], { cwd: VUOTO, stdio: "pipe" });
+    execFileSync("git", ["config", "user.email", "t@t"], { cwd: VUOTO, stdio: "pipe" });
+    execFileSync("git", ["config", "user.name", "T"], { cwd: VUOTO, stdio: "pipe" });
+
+    try {
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, VUOTO);
+      await waitForPaneStoreQuiet(request);
+      await goToApp(page);
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+      const win = page.locator(`[data-testid="project-window"][data-project-path="${VUOTO}"]`);
+      const pannello = win.locator('[data-testid="git-changes"]');
+      await expect(pannello).toBeVisible({ timeout: 15000 });
+      const header = pannello.locator('[data-testid="project-sidebar-git"]');
+      if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+
+      // Il pannello c'e' e funziona: il file non tracciato si vede.
+      await expect(pannello.locator('[data-git-file="nuovo.txt"]').first()).toBeVisible({ timeout: 10000 });
+      // La cronologia no.
+      await expect(pannello.locator('[data-testid="commit-history"]')).toHaveCount(0);
+    } finally {
+      rmSync(VUOTO, { recursive: true, force: true });
+    }
   });
 });
