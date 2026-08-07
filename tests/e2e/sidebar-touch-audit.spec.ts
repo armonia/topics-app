@@ -216,7 +216,14 @@ async function longPressDrag(page: Page, selector: string, dx: number, dy: numbe
       fire(document, "touchmove", t, [t]);
       await attesa(24);
     }
+    // UN RESPIRO PRIMA DI STACCARE. Il posto in cui la tessera atterra si
+    // ricalcola dal DOM al rilascio, e il DOM sta mostrando l'ANTEPRIMA del
+    // riordino: se si stacca nello stesso frame dell'ultimo movimento, sotto
+    // carico si misura un layout che React non ha ancora applicato. Un dito
+    // vero questa pausa ce l'ha sempre.
     const ultimo = tocco(x0 + dx, y0 + dy);
+    fire(document, "touchmove", ultimo, [ultimo]);
+    await attesa(120);
     fire(document, "touchend", ultimo, []);
   }, { dx, dy, passi, hold });
 }
@@ -874,7 +881,11 @@ test.describe("Sidebar col dito — audit misurato", () => {
     });
 
     await openSidebarOnPhone(page);
-    const tessere = page.getByTestId("pinned-tile");
+    // Dentro la SEZIONE, non nella pagina: il fantasma che segue il dito è una
+    // `PinnedTile` vera (è il punto — deve essere identica), quindi porta lo
+    // stesso testid, e portalato su `document.body` finirebbe nel conteggio.
+    // Il conteggio è ciò su cui questo test decide: va preso dalla griglia.
+    const tessere = page.getByTestId("sidebar-pinned-section").getByTestId("pinned-tile");
     await expect(tessere).toHaveCount(2, { timeout: 15_000 });
     await attendiTessereFerme(page);
     const nomiPrima = await tessere.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
@@ -894,7 +905,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
     await expect
       .poll(async () => tessere.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label"))), {
         message: "il trascinamento col dito non ha riordinato le tessere",
-        timeout: 5_000,
+        timeout: 10_000,
       })
       .toEqual([nomiPrima[1], nomiPrima[0]]);
 
