@@ -10,12 +10,9 @@ import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
-import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing, useTerminalWatching } from '../../state/signals';
+import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
-import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
-import { AuraWave } from '../AuraWave';
-import { bumpAura } from '../../lib/auraActivity';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
 
@@ -262,32 +259,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     };
   }, [isActive]);
 
-  // "Working" glow — the Apple-Intelligence ring, the terminal twin of the one
-  // in ChatPanel. Uses `useTerminalWorkingRing`, a STRICTER signal than the
-  // sidebar dot's `useTerminalLoading`: for a claude-code session the ring lights
-  // ONLY on a confidently-active phase (running/tool-running), never on the
-  // pty-busy fallback — so the STARTUP BANNER of a freshly-created session (real
-  // visible text → pty busy while phase is still `starting`) and random idle pty
-  // blips can't flash the ring "appena creo la sessione". A plain shell has no
-  // phase machine so it still glows on pty activity. Gated behind the same
-  // `workingGlow` setting; rendered ONLY while working → zero idle cost.
-  const sessionType = sessionInfo?.type ?? lastInfoRef.current?.type;
-  const isClaudeCode = sessionType === 'claude-code' || sessionType === 'claude-code-team';
-  const isWorking = useTerminalWorkingRing(sessionId, isClaudeCode);
-  const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
-  useEffect(() => {
-    const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);
-    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
-    window.addEventListener('storage', reload);
-    return () => {
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
-      window.removeEventListener('storage', reload);
-    };
-  }, []);
-  // Suppress the ring while the "expired"/"reloading" overlays own the pane —
-  // those are their own state, and a glow around a dead pane would be noise.
-  const showWorkingRing = isWorking && workingGlowEnabled && !stale && !reloading && !dormantEmpty;
-  const isWatching = useTerminalWatching(sessionId);
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
 
@@ -475,10 +446,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     function connectWs() {
       const ws = new WebSocket(`${serverWsBase()}/ws/terminal/${sessionId}`);
       ws.binaryType = 'arraybuffer';
-      // Don't count the scrollback backlog (flushed before `replay-end`) as live
-      // activity — only real-time PTY output should drive the working aura's speed.
-      let replayed = false;
-
       // Update ref so onData/paste always use the current WS
       if (termRef.current) {
         termRef.current.ws = ws;
@@ -512,7 +479,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           try {
             const msg = JSON.parse(data);
             if (msg && msg.type === 'replay-end') {
-              replayed = true;
               // Zero output bytes at replay-end on a resumable (claude/codex)
               // session ⇒ its PTY is almost certainly gone (a live claude TUI
               // always replays its drawn full-screen frame). Arm a short grace;
@@ -548,14 +514,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           outputBytesRef.current += data.length;
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
-          if (replayed) bumpAura(sessionId, 0.2);
         } else if (data instanceof ArrayBuffer) {
           coalescer.push(new Uint8Array(data));
           outputBytesRef.current += data.byteLength;
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
-          // weight by chunk size so a fast, chatty session pushes the wave harder
-          if (replayed) bumpAura(sessionId, 0.15 + Math.min(0.4, data.byteLength / 2000));
         }
       };
 
@@ -945,14 +908,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
         />
-        {/* Apple-Intelligence "working" glow — a thin rotating ring hugging this
-            pane's edge while the Claude Code session works. Same CSS + perf
-            model as ChatPanel (transform-only, masked to a ~1.5px ring,
-            pointer-events:none, z-30, border-radius inherit). Absolutely
-            positioned over the xterm container, so it never touches xterm's
-            layout or fit. Rendered only when working → zero idle cost.
-            Muted when watching (Monitor armed). */}
-        {showWorkingRing && <AuraWave activityId={sessionId} muted={isWatching} />}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
