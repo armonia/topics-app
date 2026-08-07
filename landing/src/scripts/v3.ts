@@ -162,15 +162,15 @@ if (!reduceMotion) {
 /*
  * In every scene the actor and its context move at different rates, so the card
  * in front genuinely floats above the board it was taken from. That is the only
- * parallax on the page that carries an idea rather than an effect; the hero
- * screenshot gets a much smaller one so the crop at the fold feels like a
- * window rather than a picture.
+ * parallax on the page that carries an idea rather than an effect, and the
+ * float over the hero is the second: it drifts against a stage that does not
+ * move, because that stage is the live app and sliding a thing you can click is
+ * not depth, it is a moving target.
  *
  * One rAF, geometry read once per frame, custom properties written once.
  */
 if (!reduceMotion) {
   const scenes = $$<HTMLElement>('.scene');
-  const shot = $<HTMLElement>('.hero__shot');
   const float = $<HTMLElement>('.hero__float');
   let ticking = false;
 
@@ -185,19 +185,10 @@ if (!reduceMotion) {
       const p = ((r.top + r.height / 2) - vh / 2) / (vh / 2 + r.height / 2);
       s.style.setProperty('--par', (Math.max(-1, Math.min(1, p))).toFixed(3));
     }
-    /* Only where the stage actually crops. Below 700px the frame's height comes
-       from the image, so sliding the image inside it just lifts it away from
-       its own bottom edge — 42px of daylight under a window that is supposed to
-       be flush. The breakpoint is the one the stylesheet uses for the same
-       decision, so the two cannot disagree. */
-    if (shot) {
-      const y = innerWidth > 700 ? Math.min(scrollY, 700) * -0.06 : 0;
-      shot.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`;
-    }
-    /* The float drifts against the shot, not with it. Same scroll, opposite
-       sign and two and a half times the rate: that difference IS the depth —
-       matched rates would just be two things scrolling. Only the layer that
-       needs to look detached is allowed to move much. */
+    /* The float drifts against the stage, not with it: the stage holds the LIVE
+       app now, and an iframe you can click is not something to slide around
+       under the cursor. So the depth is carried entirely by the one layer that
+       is allowed to move — matched rates would just be two things scrolling. */
     if (float) {
       const y = Math.min(scrollY, 700) * 0.15;
       float.style.setProperty('--float-y', `${y.toFixed(1)}px`);
