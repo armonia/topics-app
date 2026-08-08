@@ -54,6 +54,15 @@ function firma(privata: KeyObject, carico: Partial<CaricoGettone> & { iid?: stri
   return `${p}.${s}`;
 }
 
+/** Firma un carico ARBITRARIO, anche uno che il tipo `CaricoGettone` non sa
+ *  esprimere (`v: 2`, un piano che non esiste). Serve a provare i rifiuti di
+ *  `leggiCarico`: senza, quei rami si potrebbero raggiungere solo con un gettone
+ *  non firmato, che verrebbe scartato prima per un altro motivo. */
+function firmaGrezza(privata: KeyObject, carico: Record<string, unknown>): string {
+  const p = Buffer.from(JSON.stringify(carico), "utf8").toString("base64url");
+  return `${p}.${sign(null, Buffer.from(p, "ascii"), privata).toString("base64url")}`;
+}
+
 const servizio = nuovaCoppia();
 const ENV_CHIAVE = { TOPICS_LICENSE_PUBKEYS: `k1:${servizio.pubblicaB64}` };
 const chiaviBuone = () => caricaChiavi(ENV_CHIAVE, []);
@@ -191,6 +200,46 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     expect(verificaGettone(g, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo).toBe("malformed");
   });
 
+  it("una VERSIONE o un PIANO che non conosciamo si rifiuta, non si reinterpreta", () => {
+    // `leggiCarico` costruisce il suo risultato con `v: 1` e `plan: "team"`
+    // scritti a mano: se i due controlli sparissero, un carico che dichiara
+    // `v: 2` o un piano che non esiste verrebbe letto COME SE fosse un team v1 —
+    // cioè un gettone emesso per un altro contratto aprirebbe questo. La firma
+    // qui è buona apposta: il rifiuto deve venire dal carico, non dalla
+    // crittografia.
+    const chiavi = chiaviBuone();
+    const base = { iid: IID, plan: "team", seats: 5, exp: 9e12 };
+    const v = (c: Record<string, unknown>) =>
+      verificaGettone(firmaGrezza(servizio.privata, c), { chiavi, installationId: IID, ora: 1 });
+    // Il canale di osservazione funziona: lo stesso carico con `v: 1` e il piano
+    // giusto passa. Senza questo, i due rifiuti sotto starebbero dicendo solo
+    // che `firmaGrezza` produce gettoni rotti.
+    expect(v({ ...base, v: 1 }).motivo).toBe("valid");
+    expect(v({ ...base, v: 2 }).motivo).toBe("malformed");
+    expect(v({ ...base, v: 1, plan: "enterprise" }).motivo).toBe("malformed");
+  });
+
+  it("un terzo segmento non si lascia cadere in silenzio", () => {
+    // La firma copre il SOLO segmento del carico: se si accettasse «due o più»
+    // segmenti, la coda in fondo verrebbe scartata dalla destrutturazione e il
+    // gettone verificherebbe lo stesso — cioè due stringhe diverse sarebbero lo
+    // stesso gettone valido.
+    const g = firma(servizio.privata, {});
+    expect(verificaGettone(g, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo).toBe("valid");
+    expect(verificaGettone(`${g}.spazzatura`, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+      .toBe("malformed");
+  });
+
+  it("una firma della lunghezza sbagliata è MALFORMATA, non «firmata male»", () => {
+    // I due motivi non sono intercambiabili (vedi il docstring del modulo):
+    // `bad_signature` dice «qualcuno ha provato a falsificare», `malformed` dice
+    // «questo non è nemmeno un gettone». Chi ha pagato e si ritrova una riga
+    // troncata dagli appunti deve leggere la seconda.
+    const [p] = firma(servizio.privata, {}).split(".") as [string, string];
+    expect(verificaGettone(`${p}.AAAA`, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+      .toBe("malformed");
+  });
+
   it("caratteri fuori dall'alfabeto base64url non si «ripuliscono»", () => {
     // `Buffer.from` li ignorerebbe, e due gettoni diversi si decodificherebbero
     // uguali: è la strada per cui una firma vale su un carico che non è quello.
@@ -252,6 +301,27 @@ describe("licenza · il servizio su disco", () => {
     expect(s.installa(firma(altro.privata, {}), 1_000).motivo).toBe("bad_signature");
     expect(existsSync(percorsoGettone(dir))).toBe(false);
     expect(s.stato().piano).toBe("free");
+  });
+
+  it("un gettone SCADUTO non si deposita, nemmeno se la firma è buona", () => {
+    // L'altro modo di non reggere, e l'unico che arriva fino in fondo a
+    // `installa`: firma buona, macchina giusta, data passata. Gli altri rifiuti
+    // (firma falsa, altra installazione, illeggibile) escono prima, quindi
+    // senza QUESTO caso il controllo sul disco non è fissato da niente.
+    const s = crea();
+    const e = s.installa(firma(servizio.privata, { exp: 500 }), 1_000);
+    expect(e.motivo).toBe("expired");
+    expect(e.piano).toBe("free");
+    expect(existsSync(percorsoGettone(dir))).toBe(false);
+    // La riga che conta: `no_token` e non `expired`. `expired` vorrebbe dire che
+    // il gettone è arrivato al disco o alla cache e ci è rimasto — una licenza
+    // «in attesa» che non diventerà mai valida, davanti a chi deve solo
+    // incollarne una nuova.
+    expect(s.stato(1_000).motivo).toBe("no_token");
+    // E il canale di osservazione funziona: sulla stessa cartella un gettone
+    // buono si deposita eccome.
+    expect(s.installa(firma(servizio.privata, { exp: 9e12 }), 1_000).piano).toBe("team");
+    expect(existsSync(percorsoGettone(dir))).toBe(true);
   });
 
   it("scade da solo mentre il server è su, senza riavvii", () => {
