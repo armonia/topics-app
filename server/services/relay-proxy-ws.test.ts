@@ -601,6 +601,85 @@ describe("il credito: chi produce troppo in fretta si deve poter fermare", () =>
 
     // …e torna quando il socket vero lo ha davvero ricevuto.
     expect(await fino(() => sk.credito() > 0)).toBe(true);
+    // Si aspetta il PROPRIO soggetto prima di leggerlo. Il credito torna
+    // appena la macchina ha chiamato `send()`, non quando i byte sono
+    // arrivati di sopra: fra le due cose c'è un salto, e leggere `ricevuti`
+    // dopo aver atteso il CREDITO è una corsa che sotto carico si perde.
+    expect(await fino(() => up.ricevuti.length === 1)).toBe(true);
     expect(up.ricevuti[0]).toBe("uno.");
+  });
+});
+
+describe("proxy ws · le due righe che nessun test reggeva", () => {
+  /**
+   * Trovate da una revisione avversariale il 2026-08-09, con il metodo che
+   * conta: CANCELLARE la riga e guardare se la suite se ne accorge. Non se ne
+   * accorgeva — 124 test verdi in entrambi i casi. Una riga portante senza
+   * nessuno che la regga è una riga che il prossimo refactoring toglie.
+   */
+
+  it("un ospite che chiude SENZA reset non consuma il tetto degli stream", async () => {
+    // `chiudiSocket` fa `sess.rias.dimentica(sk.sIn)`. Senza quella riga il
+    // canale in ENTRATA resta nel riassemblatore per sempre quando l'ospite
+    // chiude col solo `wsc` e non manda il proprio `reset` — cioè quando
+    // l'ospite non collabora. E l'ospite sta fuori dalla rete di casa: è
+    // esattamente la metà che deve reggere a chi non collabora.
+    //
+    // Il sintomo non è un errore: è che dopo 64 giri di apri-e-chiudi ogni
+    // socket nuovo viene rifiutato con `too-many-streams`. Un tetto che si
+    // CONSUMA è una scadenza travestita da limite.
+    const up = ascoltatore();
+    const t = proxyNudo({ porta: up.porta, maxSocket: 64 });
+
+    for (let i = 0; i < 64; i++) {
+      const sIn = 1 + i * 4;
+      t.apri(sIn);
+      expect(await fino(() => up.aperti.length === i + 1)).toBe(true);
+      // Solo il `wsc`: nessun `reset` dell'ospite, che è il caso scortese.
+      for (const fr of componiStream({
+        s: sIn + 2, k: GENERE_WS_CHIUSO,
+        h: scriviTestaWs({ w: sIn }),
+        dati: scriviChiusuraWs({ c: 1000, r: "" }),
+      })) t.p.riceviFrame(SID, fr);
+      expect(await fino(() => up.vivi() === 0)).toBe(true);
+    }
+
+    // Il controllo positivo: 64 giri sono davvero avvenuti. Senza, questo test
+    // passerebbe anche se il ciclo non avesse aperto niente.
+    expect(up.aperti.length).toBe(64);
+
+    const primaDelSessantacinquesimo = t.arrivati.length;
+    t.apri(1 + 64 * 4);
+    expect(await fino(() => up.aperti.length === 65)).toBe(true);
+    const rifiuti = t.arrivati.slice(primaDelSessantacinquesimo)
+      .filter((f) => f.f === "reset" && f.motivo === "too-many-streams");
+    expect(rifiuti, "il tetto si è consumato: gli stream chiusi non sono stati dimenticati").toEqual([]);
+  });
+
+  it("un codice di chiusura NON inviabile diventa 1000 sul percorso vero", async () => {
+    // `codiceInviabile` ha un test suo (`shared/relay-ws.test.ts`), ma niente
+    // ne reggeva l'USO qui: sostituire la guardia con `c: c.c` lasciava tutto
+    // verde. È la stessa forma del difetto già trovato per
+    // `intestazioniUpgrade` — un filtro provato a parte e mai sul percorso
+    // vero, che è come non averlo.
+    //
+    // 1006 significa «la connessione è caduta», e per protocollo NON si può
+    // mandare: passarlo pari pari a `close()` è un errore che uccide il
+    // socket vero invece di chiuderlo.
+    const up = ascoltatore();
+    const t = proxyNudo({ porta: up.porta });
+    t.apri(1);
+    expect(await fino(() => up.aperti.length === 1)).toBe(true);
+
+    for (const fr of componiStream({
+      s: 3, k: GENERE_WS_CHIUSO,
+      h: scriviTestaWs({ w: 1 }),
+      dati: scriviChiusuraWs({ c: 1006, r: "caduta" }),
+    })) t.p.riceviFrame(SID, fr);
+
+    // Il socket di sopra si chiude — e si chiude BENE, non con un errore.
+    expect(await fino(() => up.vivi() === 0)).toBe(true);
+    expect(await fino(() => up.chiusi.length === 1)).toBe(true);
+    expect(up.chiusi[0]!.code, "1006 non è inviabile: va tradotto in 1000").toBe(1000);
   });
 });
