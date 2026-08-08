@@ -535,7 +535,7 @@ export function CommandPalette({
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border flex-shrink-0">
-          <Search size={16} className="text-app-text-muted flex-shrink-0" />
+          <Search size={16} className="text-app-text-secondary flex-shrink-0" />
           <input
             ref={inputRef}
             type="text"

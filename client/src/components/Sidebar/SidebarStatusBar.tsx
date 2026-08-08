@@ -570,16 +570,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               title={deviceTitle}
             >
               {isMobile
-                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
-                : <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />}
+                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />
+                : <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />}
               {appMemMB !== null && (
-                <span className={`text-app-text-muted ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
+                <span className={`text-app-text-secondary ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
               )}
               {shellCpu !== null && (
-                <span className={`text-app-text-muted ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
+                <span className={`text-app-text-secondary ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
               )}
               {fps > 0 && (
-                <span className={`text-app-text-muted ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
+                <span className={`text-app-text-secondary ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
               )}
             </span>
           )}
@@ -589,12 +589,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               className="flex flex-shrink-0 items-center gap-1 tabular-nums"
               title={serverTitle}
             >
-              <Server size={10} className="flex-shrink-0 text-app-text-muted" />
+              <Server size={10} className="flex-shrink-0 text-app-text-secondary" />
               {serverSideMemMB !== null && (
-                <span className={`text-app-text-muted ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
+                <span className={`text-app-text-secondary ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
               )}
               {fleetCpu !== null && (
-                <span className={`text-app-text-muted ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
+                <span className={`text-app-text-secondary ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
               )}
             </span>
           )}
@@ -686,7 +686,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           </span>
         )}
 
-        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-secondary tabular-nums whitespace-nowrap">
           {appVersion && (
             <button
               data-version-anchor
@@ -885,8 +885,8 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       title="Apri l\u2019elenco dei dispositivi autorizzati"
     >
       {locale
-        ? <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />
-        : <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />}
+        ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
+        : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
       <span className="truncate">{session.name}</span>
       {altri && altri.totali > 0 && (
         <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">

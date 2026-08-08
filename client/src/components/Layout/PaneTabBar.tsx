@@ -1077,7 +1077,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   ? SELECTED_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
-                    : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
+                    // `-secondary`, non `-tertiary`: il TITOLO di una tab è il
+                    // nome della cosa che stai per aprire, non una didascalia.
+                    // In scuro il terziario è `#969ca6` contro il `#e6e8ec` del
+                    // testo pieno, e su una fila di tab spente il nome smetteva
+                    // di leggersi da lontano («vedo grigi nel titolo delle
+                    // tab», Attilio 08/08). Un gradino sotto il pieno basta a
+                    // dire «questa non è quella attiva».
+                    : `text-app-text-secondary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
             // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
             // Questa riga era già scritta a mano proprio qui, e il commento che
