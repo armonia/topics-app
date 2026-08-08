@@ -1,5 +1,20 @@
 /**
- * Un'installazione e i suoi ospiti, dentro un Durable Object.
+ * Un'installazione e le sue sessioni, dentro un Durable Object.
+ *
+ * ── UNA SESSIONE È UN CANALE, NON UN LINK ───────────────────────────────────
+ * Ogni capo che si aggancia riceve un identificatore, e su quello si consegna:
+ * l'installazione può averne addosso molte insieme — ospiti di link e
+ * dispositivi appaiati da un'altra rete — e nessuna aspetta le altre. Il RUOLO
+ * di ognuna nasce dal percorso da cui si è entrati (`worker.ts`) e viaggia
+ * nell'involucro: è la sola cosa che il relay aggiunge di suo, perché è la sola
+ * che sa senza guardare dentro niente.
+ *
+ * ── QUESTO FILE SI ESEGUE ───────────────────────────────────────────────────
+ * `relay-do.run.test.ts` istanzia questa classe e la guida come la guida il
+ * runtime — `fetch()` e poi i metodi — con un contorno finto (coppia di socket,
+ * tag, storage). Serve perché `relay-contract.test.ts` legge questo file come
+ * una STRINGA: presidia i due difetti che non hanno sintomi, ma approverebbe
+ * anche un instradamento sbagliato scritto con le parole giuste.
  *
  * ── L'IBERNAZIONE È UN REQUISITO, NON UN'OTTIMIZZAZIONE (RELAY-02) ──────────
  * Si usa `state.acceptWebSocket()` e MAI `ws.accept()`. La differenza non è di
@@ -22,13 +37,25 @@
  */
 import {
   leggiMessaggio, RELAY_PROTOCOL_VERSION,
-  type MessaggioRelay, type Rifiutato,
+  type MessaggioRelay, type Rifiutato, type RuoloSessione,
 } from "../../shared/relay-protocol";
 
 /** I tag identificano una socket DOPO l'ibernazione: sono l'unico stato che
  *  sopravvive allo sfratto dalla memoria. */
 const TAG_MACCHINA = "host";
-const tagOspite = (sid: string) => `guest:${sid}`;
+
+/**
+ * Due tag per ogni sessione, e non uno solo con dentro tutto.
+ *
+ * `s:<id>` è l'INDIRIZZO: è su questo che si consegna, ed è l'unica chiave che
+ * serve per instradare. `r:<ruolo>` è la porta da cui si è entrati. Tenerli
+ * separati vuol dire che consegnare non richiede di sapere che tipo di sessione
+ * sia — se fossero un tag solo (`guest:<id>`), aggiungere una seconda porta
+ * costringerebbe ogni consegna a provare tutte le forme, e la forma dimenticata
+ * sarebbe una sessione a cui non arriva più niente.
+ */
+const tagSessione = (sid: string) => `s:${sid}`;
+const tagRuolo = (r: RuoloSessione) => `r:${r}`;
 
 interface Stato {
   storage: DurableObjectStorage;
@@ -68,10 +95,14 @@ export class SessioneRelay {
           status: 503, headers: { "content-type": "application/json" },
         });
       }
+      // Il ruolo lo decide il PERCORSO, che è roba del relay: non si legge da
+      // niente che il capo abbia scritto. Tutto ciò che non è la porta dei
+      // dispositivi è un ospite — un valore inventato non promuove nessuno.
+      const sessione: RuoloSessione = ruolo === "device" ? "device" : "guest";
       const sid = crypto.randomUUID();
-      this.state.acceptWebSocket(mio, [tagOspite(sid)]);
+      this.state.acceptWebSocket(mio, [tagSessione(sid), tagRuolo(sessione)]);
       mio.send(JSON.stringify({ t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId: sid } satisfies MessaggioRelay));
-      host[0].send(JSON.stringify({ t: "guest-joined", sessionId: sid } satisfies MessaggioRelay));
+      host[0].send(JSON.stringify({ t: "guest-joined", sessionId: sid, ruolo: sessione } satisfies MessaggioRelay));
     }
 
     return new Response(null, { status: 101, webSocket: client });
@@ -79,11 +110,15 @@ export class SessioneRelay {
 
   /** Chi è questa socket, letto dai tag. L'unico modo: fra un messaggio e
    *  l'altro l'istanza può essere stata sfrattata dalla memoria. */
-  private chiE(ws: WebSocket): { host: true } | { sid: string } | null {
+  private chiE(ws: WebSocket): { host: true } | { sid: string; ruolo: RuoloSessione } | null {
     const tags = (this.state as unknown as { getTags(ws: WebSocket): string[] }).getTags(ws);
     if (tags.includes(TAG_MACCHINA)) return { host: true };
-    const g = tags.find((t) => t.startsWith("guest:"));
-    return g ? { sid: g.slice("guest:".length) } : null;
+    const g = tags.find((t) => t.startsWith("s:"));
+    if (!g) return null;
+    return {
+      sid: g.slice("s:".length),
+      ruolo: tags.includes(tagRuolo("device")) ? "device" : "guest",
+    };
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -101,7 +136,7 @@ export class SessioneRelay {
     if (!chi) return;
 
     if ("host" in chi && m.t === "to-guest") {
-      const dest = this.state.getWebSockets(tagOspite(m.to));
+      const dest = this.state.getWebSockets(tagSessione(m.to));
       // Una busta per un ospite che se n'è andato si lascia cadere in silenzio:
       // non è un errore della macchina, è il mondo che è cambiato.
       dest[0]?.send(raw);
@@ -137,6 +172,6 @@ export class SessioneRelay {
     }
 
     const host = this.state.getWebSockets(TAG_MACCHINA);
-    host[0]?.send(JSON.stringify({ t: "guest-left", sessionId: chi.sid } satisfies MessaggioRelay));
+    host[0]?.send(JSON.stringify({ t: "guest-left", sessionId: chi.sid, ruolo: chi.ruolo } satisfies MessaggioRelay));
   }
 }

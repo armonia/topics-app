@@ -83,6 +83,36 @@ describe("relay · si accetta solo ciò che si capisce davvero", () => {
     expect(leggiMessaggio({ t: "to-guest", to: "", payload: "x" })).toBeNull();
   });
 
+  it("il RUOLO di una sessione è una parola del vocabolario, o non passa", () => {
+    // Il ruolo decide la POSTURA di chi riceve: un dispositivo appaiato ha
+    // davanti l'installazione intera, un ospite di link una risorsa sola.
+    // Sceglierne uno a caso davanti a una parola sconosciuta è il modo in cui
+    // si finisce per trattare un estraneo come un dispositivo di casa.
+    expect(leggiMessaggio({ t: "guest-joined", sessionId: "s1", ruolo: "device" }))
+      .toEqual({ t: "guest-joined", sessionId: "s1", ruolo: "device" });
+    expect(leggiMessaggio({ t: "guest-left", sessionId: "s1", ruolo: "guest" }))
+      .toEqual({ t: "guest-left", sessionId: "s1", ruolo: "guest" });
+    expect(leggiMessaggio({ t: "guest-joined", sessionId: "s1", ruolo: "padrone" })).toBeNull();
+    expect(leggiMessaggio({ t: "guest-joined", sessionId: "s1", ruolo: 7 })).toBeNull();
+  });
+
+  it("un ruolo ASSENTE si accetta, e vuol dire ospite", () => {
+    // Un relay più vecchio non lo manda: pretenderlo vorrebbe dire smettere di
+    // parlare con un deploy che non è ancora stato aggiornato.
+    expect(leggiMessaggio({ t: "guest-joined", sessionId: "s1" }))
+      .toEqual({ t: "guest-joined", sessionId: "s1" });
+  });
+
+  it("l'involucro mostra il ruolo, che è instradamento, e mai il contenuto", () => {
+    // Il ruolo il relay lo sa perché è nel percorso da cui ci si aggancia:
+    // dichiararlo qui è la differenza fra «lo aggiunge lui» e «lo ha dedotto
+    // guardando dentro qualcosa».
+    expect(involucro({ t: "guest-joined", sessionId: "s1", ruolo: "device" }))
+      .toEqual({ t: "guest-joined", sessionId: "s1", ruolo: "device" });
+    expect(JSON.stringify(involucro({ t: "to-guest", to: "s1", payload: "SEGRETO" })))
+      .not.toContain("SEGRETO");
+  });
+
   it("un motivo di rifiuto inventato non passa", () => {
     // Il motivo è una parola del vocabolario, non una frase: chi la legge deve
     // poterci decidere sopra.
