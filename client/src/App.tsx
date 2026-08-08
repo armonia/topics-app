@@ -1277,6 +1277,11 @@ function App() {
             boardTaskCount={boardTaskCount}
             boardByStatus={boardByStatus}
             boardOpen={openPanels.includes('__board__')}
+            // Preferenza, non segnale: passa da qui (e non da un `loadSettings()`
+            // dentro l'albero) perché deve far RIDISEGNARE la sidebar quando si
+            // cambia l'interruttore — `appSettings` è già lo stato che si
+            // aggiorna sia dal server sia dalle altre schede.
+            showBoardRow={appSettings.showBoardRow}
             // La board sta ferma in cima alla sidebar, sopra i fissati e sopra
             // ogni gruppo — ma la sua TAB vive in un gruppo come tutte. Se è in
             // un altro, ci si porta prima la finestra: aprirla e basta la

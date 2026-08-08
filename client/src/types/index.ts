@@ -1447,6 +1447,22 @@ export interface AppSettings {
    * disallinearsi fra loro. Surfaced in Settings → Appearance.
    */
   chatMaxWidth: number;
+  /**
+   * La riga «Board generale» in cima alla sidebar. Accesa di serie.
+   *
+   * Esiste perché la riga aveva una condizione di comparsa — «c'è lavoro
+   * aperto, oppure la sua tab è aperta» — e quel predicato si valutava anche
+   * PRIMA che i task fossero arrivati dal server: a ogni ricarica la sidebar
+   * nasceva senza Board e la riga si infilava dentro un istante dopo, spostando
+   * in giù tutto il resto («quando aggiorno l'app, la board esce dopo»). Una
+   * riga di navigazione non è un segnale: c'è perché quella superficie esiste,
+   * non perché oggi ha qualcosa da dire. Chi non la vuole la spegne da
+   * Impostazioni → Aspetto, che è una decisione, non una corsa con la rete.
+   *
+   * Il conteggio e le pastiglie continuano a comparire e sparire col lavoro
+   * vero: lì il vuoto è informazione.
+   */
+  showBoardRow: boolean;
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli
