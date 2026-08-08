@@ -1121,7 +1121,7 @@ export function TopicTree({
                   />
                 )}
                 {(onNewTopicInProject || onAddProjectPane) && (
-                  <div className="relative hidden group-hover/proj:flex">
+                  <div className={`relative ${isExpanded ? 'flex' : 'hidden'}`}>
                     {/* Same canonical add-pane affordance as the top tab
                         bar's "+" — single component, single rendering
                         contract. Trigger button visibility is the only
@@ -1364,9 +1364,25 @@ export function TopicTree({
       // fissabile che contiene tab: un «+» su una chat fissata non avrebbe
       // niente da creare dentro. Su touch niente, come per la riga: lì il menu
       // arriva dalla pressione lunga.
-      renderActions={item => {
+      renderActions={(item, _apertaTessera) => {
         if (item.type !== 'project' || !item.projectPath) return null;
         if (isTouch || (!onNewTopicInProject && !onAddProjectPane)) return null;
+        /**
+         * QUI IL «+» RESTA anche a tessera chiusa, ed è una deroga MOTIVATA
+         * alla regola «solo quando aperto» che vale per la riga.
+         *
+         * Per una tessera «aperta» non vuol dire «espansa»: vuol dire
+         * `expanded ∧ apribili`, e `apribili` sono i progetti che hanno GIÀ
+         * delle tab aperte (`renderExpanded !== null`). Un progetto fissato con
+         * tutte le tab chiuse non è apribile per definizione — e quello è
+         * esattamente il caso in cui questo «+» è l'UNICA strada per creare la
+         * prima tab, perché a tab chiuse la riga nell'albero può non esserci
+         * (è la ragione per cui TILE-17 esiste). Gatarlo qui non lo
+         * nasconderebbe: lo spegnerebbe per sempre proprio dove serve.
+         *
+         * Il riposo resta comunque pulito: il «+» è rivelato dal passaggio del
+         * mouse, non sempre acceso.
+         */
         const pp = item.projectPath;
         return (
           <PaneAddMenu
