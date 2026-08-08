@@ -76,6 +76,31 @@ export function installationOrgId(db: Db): string | null {
 }
 
 /**
+ * Questa organizzazione ESISTE ancora?
+ *
+ * `true` esiste, `false` non c'è o è revocata, `null` lo schema è più vecchio
+ * della 084 e la tabella non c'è affatto — tre esiti e non due, perché «non
+ * disponibile su questo database» e «non esiste» sono due risposte diverse e
+ * chi le confonde risponde 404 a una macchina che semplicemente non è ancora
+ * stata migrata.
+ *
+ * Sta QUI e non dentro una rotta perché era una funzione locale a un solo
+ * blocco — quello dei membri — e le rotte che stavano fuori da quel blocco
+ * rispondevano ognuna a modo suo: la PATCH che rinomina non chiedeva affatto se
+ * il gruppo fosse vivo (e rinominava una riga revocata, con `ok: true`, mentre
+ * la DELETE sullo stesso id diceva «organizzazione sconosciuta»), la GET dei
+ * membri elencava la rubrica di un gruppo cancellato, e la DELETE si leggeva
+ * `revoked_at` da sé. Una domanda sola, una risposta sola.
+ */
+export function orgAlive(db: Db, orgId: string): boolean | null {
+  try {
+    return !!db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Quanti membri VIVI. «Vivo» vuol dire senza NESSUNA delle due revoche: quella
  * del piano di controllo (`revoked_at`) e quella decisa qui
  * (`local_blocked_at`). Sono due colonne diverse perché una sopravvive alla

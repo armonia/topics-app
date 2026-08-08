@@ -1138,6 +1138,43 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
     // rotte che guardano la stessa riga non possono dire una «non c'è» e
     // l'altra «fatto», o il secondo clic sembra riuscito.
     expect((await chiama(router, `/api/auth/orgs/${id}`, "DELETE"))?.status, "già revocato: non si revoca due volte").toBe(404);
+
+    // ── E RINOMINARE, che è lo stesso potere.
+    //
+    // Il ruolo da solo non basta: revocare un gruppo non tocca le sue righe in
+    // `org_members`, quindi `canAdministerOrg` restava `true` e la PATCH
+    // rispondeva `ok: true` scrivendo il nome DENTRO la riga revocata — mentre
+    // la DELETE e le tre rotte dei membri sullo stesso id dicevano
+    // «organizzazione sconosciuta». Lo stato è raggiungibile dalla UI vera:
+    // `IdentitySection` carica i gruppi una volta al montaggio, quindi una
+    // seconda finestra rinominava un gruppo cancellato altrove.
+    const prima = (db.query("SELECT name FROM orgs WHERE id = ?").get(id) as { name: string }).name;
+    expect((await chiama(router, `/api/auth/orgs/${id}`, "PATCH", { body: { name: "Resuscitato" } }))?.status).toBe(404);
+    expect((db.query("SELECT name FROM orgs WHERE id = ?").get(id) as { name: string }).name, "il nome non si scrive in una riga revocata").toBe(prima);
+
+    // La LETTURA dice la stessa cosa delle scritture. Era l'unica delle quattro
+    // rotte su `/members` a non chiederlo: rispondeva 200 con la rubrica intera
+    // di un gruppo che `GET /api/auth/orgs` non elencava nemmeno.
+    const g = await chiama(router, `/api/auth/orgs/${id}/members`);
+    expect(g?.status).toBe(404);
+    expect(JSON.stringify(await g!.json()), "e non la rubrica di un morto").not.toContain("Effimero");
+
+    // Il controllo POSITIVO: gli stessi tre gesti sul gruppo VIVO riescono, o
+    // tre 404 di fila sarebbero indistinguibili da rotte che rifiutano sempre.
+    const vivo = miaOrg(db);
+    expect((await chiama(router, `/api/auth/orgs/${vivo}`, "PATCH", { body: { name: "Ancora qui" } }))?.status).toBe(200);
+    expect((db.query("SELECT name FROM orgs WHERE id = ?").get(vivo) as { name: string }).name).toBe("Ancora qui");
+    expect((await chiama(router, `/api/auth/orgs/${vivo}/members`))?.status).toBe(200);
+  });
+
+  test("i membri di un gruppo che non è mai esistito sono un 404, non un elenco vuoto", async () => {
+    // «Non esiste» e «non ha membri» sono due risposte diverse, e la DELETE su
+    // un id inventato dice già 404: se la GET rispondesse 200 con `[]`, la
+    // stessa domanda avrebbe due risposte a seconda del verbo.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    expect((await chiama(router, "/api/auth/orgs/mai-esistito/members"))?.status).toBe(404);
+    expect((await chiama(router, `/api/auth/orgs/${miaOrg(db)}/members`))?.status, "e su un gruppo vero, 200").toBe(200);
   });
 
   test("su uno schema più vecchio della 084 le rotte tacciono invece di esplodere", async () => {
@@ -1149,5 +1186,13 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
     expect((await chiama(router, "/api/auth/orgs", "POST", { body: { name: "X" } }))?.status).toBe(400);
     expect((await chiama(router, "/api/auth/orgs/x", "DELETE"))?.status).toBe(400);
     expect((await chiama(router, "/api/auth/orgs/x/members", "PATCH", { body: { personId: "p", role: "admin" } }))?.status).toBe(400);
+    // Rinominare è una SCRITTURA e rifiuta come le altre — non 403 «non
+    // amministri», che su una macchina non ancora migrata è una diagnosi
+    // sbagliata: non è un permesso che manca, è la tabella.
+    expect((await chiama(router, "/api/auth/orgs/x", "PATCH", { body: { name: "Y" } }))?.status).toBe(400);
+    // Le LETTURE invece tacciono, come fa `GET /api/auth/orgs` qui sopra.
+    const m = await chiama(router, "/api/auth/orgs/x/members");
+    expect(m?.status).toBe(200);
+    expect(await m!.json()).toEqual({ members: [] });
   });
 });
