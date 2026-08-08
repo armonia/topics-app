@@ -850,6 +850,79 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     expect((db.query("SELECT COUNT(*) AS n FROM people").get() as { n: number }).n).toBe(1);
   });
 
+  test("riaggiungere NON cancella la revoca del piano di controllo", async () => {
+    // Le due revoche non sono intercambiabili: `local_blocked_at` è tua e la
+    // sincronizzazione non la tocca, `revoked_at` è della licenza. Azzerarle
+    // insieme — com'era — voleva dire che il gesto più innocuo
+    // dell'interfaccia, riaggiungere qualcuno, scavalcava in silenzio una
+    // revoca decisa altrove.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", {
+      body: { name: "Revocato dalla licenza" },
+    }))!.json() as { personId: string };
+
+    // Il piano di controllo lo revoca, e tu localmente lo togli.
+    db.run("UPDATE org_members SET revoked_at = 111 WHERE person_id = ?", [personId]);
+    await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE");
+
+    const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId } });
+    expect(await r!.json()).toEqual({ ok: true, personId, revocataAltrove: true });
+
+    const riga = db.query("SELECT revoked_at, local_blocked_at FROM org_members WHERE person_id = ?")
+      .get(personId) as { revoked_at: number | null; local_blocked_at: number | null };
+    expect(riga.revoked_at, "la revoca della licenza deve restare").toBe(111);
+    expect(riga.local_blocked_at, "il blocco locale invece si toglie").toBeNull();
+  });
+
+  test("chi hai tolto sparisce dalla rubrica dei destinatari", async () => {
+    // Il ramo delle organizzazioni guardava già il blocco locale, quello delle
+    // persone no: una persona aggiunta e poi tolta restava per sempre fra i
+    // destinatari, e condividere con lei sarebbe riuscito.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", {
+      body: { name: "Passato di qui" },
+    }))!.json() as { personId: string };
+
+    const rubrica = async () => JSON.stringify(await (await chiama(router, "/api/auth/subjects"))!.json());
+    expect(await rubrica(), "finché c'è, è un destinatario").toContain(personId);
+
+    await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE");
+    expect(await rubrica(), "tolto, non deve più comparire").not.toContain(personId);
+
+    // Ma chi non è in NESSUN gruppo resta un destinatario legittimo: è il caso
+    // della persona nata approvando un dispositivo con «è di un'altra persona».
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('senza','Senza gruppo',1,'local',1,1)");
+    expect(await rubrica(), "nessuna appartenenza non vuol dire esclusa").toContain("senza");
+  });
+
+  test("i membri si contano allo stesso modo dalle due rotte", async () => {
+    // Erano due definizioni diverse sulla stessa organizzazione: dopo aver
+    // tolto qualcuno, `/api/auth/me` diceva «siete in due» e la rubrica non
+    // offriva il gruppo, perché per lei eri di nuovo solo.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = orgDi(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", {
+      body: { name: "Uno di troppo" },
+    }))!.json() as { personId: string };
+
+    const contaMe = async () =>
+      ((await (await chiama(router, "/api/auth/me"))!.json()) as { org: { members: number } }).org.members;
+    const nellaRubrica = async () =>
+      JSON.stringify(await (await chiama(router, "/api/auth/subjects"))!.json()).includes(org);
+
+    expect(await contaMe()).toBe(2);
+    expect(await nellaRubrica(), "due membri: il gruppo si può nominare").toBe(true);
+
+    await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE");
+    expect(await contaMe(), "tolto uno, si torna a uno").toBe(1);
+    expect(await nellaRubrica(), "e il gruppo di uno non si nomina").toBe(false);
+  });
+
   test("su uno schema senza la 084 la rotta tace invece di esplodere", async () => {
     // Una installazione che non ha ancora fatto la migration non deve vedere un
     // 500: deve vedere che qui non c'è niente.
