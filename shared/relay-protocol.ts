@@ -440,6 +440,14 @@ export function leggiFramePayload(payload: string): FrameTubo | null {
 
 // ── Spezzare ───────────────────────────────────────────────────────────────
 
+/** Quanti byte si avanzano davvero per giro. `max` è un parametro pubblico —
+ *  sta su `componiStream` e su `CapoTuboOpts` — e una misura sotto l'uno
+ *  avanzerebbe di zero byte per volta: un ciclo che non finisce mai, che è
+ *  peggio di un errore perché non si vede. */
+function passoDiTaglio(max: number): number {
+  return Number.isFinite(max) && max >= 1 ? Math.floor(max) : 1;
+}
+
 /**
  * Spezza del testo in pezzi che stanno in `max` BYTE UTF-8.
  *
@@ -447,18 +455,32 @@ export function leggiFramePayload(payload: string): FrameTubo | null {
  * sequenza UTF-8 non dà un errore: dà un carattere sbagliato in mezzo al testo,
  * che è il tipo di guasto che si scopre mesi dopo su una lingua che nessuno
  * aveva provato.
+ *
+ * Quando `max` è più piccolo di UN carattere non esiste nessun taglio lecito, e
+ * l'unica scelta che non rovina il contenuto è SFORARE: si emette il carattere
+ * intero, al più tre byte oltre la misura. Il tetto vero è quello di chi riceve
+ * (`TUBO_DATI_MAX`, largo il triplo di quanto si emette), quindi tre byte non
+ * fanno rifiutare niente — mentre un carattere spezzato non torna più indietro.
  */
 export function dividiTesto(testo: string, max: number = TUBO_BYTE_PER_FRAME): string[] {
   if (testo.length === 0) return [];
   const byte = new TextEncoder().encode(testo);
   if (byte.length <= max) return [testo];
+  const passo = passoDiTaglio(max);
+  const continuazione = (n: number) => (byte[n]! & 0b1100_0000) === 0b1000_0000;
   const dec = new TextDecoder();
   const out: string[] = [];
   let i = 0;
   while (i < byte.length) {
-    let fine = Math.min(i + max, byte.length);
+    let fine = Math.min(i + passo, byte.length);
     // 10xxxxxx = byte di continuazione: si sta in mezzo a un carattere.
-    while (fine > i + 1 && fine < byte.length && (byte[fine]! & 0b1100_0000) === 0b1000_0000) fine--;
+    while (fine > i && fine < byte.length && continuazione(fine)) fine--;
+    if (fine === i) {
+      // Si è arretrato fino all'inizio: il carattere qui non ci sta in `max`.
+      // Si va avanti fino alla fine di QUESTO carattere invece di tagliarlo.
+      fine = i + 1;
+      while (fine < byte.length && continuazione(fine)) fine++;
+    }
     out.push(dec.decode(byte.subarray(i, fine)));
     i = fine;
   }
@@ -469,8 +491,9 @@ export function dividiTesto(testo: string, max: number = TUBO_BYTE_PER_FRAME): s
  *  da solo: rimetterli insieme è concatenare byte, non stringhe. */
 export function dividiBinario(b: Uint8Array, max: number = TUBO_BYTE_PER_FRAME): string[] {
   if (b.length === 0) return [];
+  const passo = passoDiTaglio(max);
   const out: string[] = [];
-  for (let i = 0; i < b.length; i += max) out.push(aBase64url(b.subarray(i, i + max)));
+  for (let i = 0; i < b.length; i += passo) out.push(aBase64url(b.subarray(i, i + passo)));
   return out;
 }
 
@@ -614,7 +637,14 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
       // istante e nessuno dei due ha sbagliato.
       if (f.f === "reset") {
         aperti.delete(f.s);
-        if (f.s > massimoVisto) massimoVisto = f.s;
+        // Il segnaposto vale solo per la corsia REMOTA. Pari e dispari stanno
+        // nello stesso spazio numerico, quindi alzarlo con un reset sulla corsia
+        // di QUESTO capo brucerebbe numeri che non sono suoi: il caso normale
+        // «chi riceve rinuncia» — l'ospite chiude la scheda mentre la macchina
+        // gli manda una risposta lunga — farebbe cadere ogni `open` remoto più
+        // basso, cioè il contrario di ciò che il tubo promette. Il reset resta
+        // accettato da tutte e due le parità: chiudere è sempre lecito.
+        if (latoDiStream(f.s) === opts.latoRemoto && f.s > massimoVisto) massimoVisto = f.s;
         return { esito: "chiuso", s: f.s, motivo: f.motivo };
       }
 

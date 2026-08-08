@@ -183,7 +183,10 @@ export interface CapoTuboOpts {
    *  trasporto. */
   invia(payload: string): void;
   /** Quanto grande può essere un pezzo. Abbassabile nei test, dove uno stream
-   *  spezzato in venti frame si scrive in una riga invece che in mezzo MiB. */
+   *  spezzato in venti frame si scrive in una riga invece che in mezzo MiB.
+   *  Sotto la misura di un singolo carattere il taglio SFORA invece di spaccarlo
+   *  (vedi `dividiTesto`): un pezzo un po' più largo si accetta, un carattere a
+   *  metà non torna più indietro. */
   max?: number;
   maxStream?: number;
   maxByteStream?: number;
