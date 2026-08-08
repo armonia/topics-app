@@ -14,7 +14,7 @@ import { useTerminalAttentionFill, useTopicAttentionFill } from '../../state/sig
 import { rememberDraggedPane } from '../../lib/dragPayload';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
-import { PINNED_TILE_H } from './pinnedTileMetrics';
+import { PINNED_TILE_ACTION_SLOT, PINNED_TILE_H } from './pinnedTileMetrics';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -115,6 +115,7 @@ export function PinnedTile({
   onTouchDragDrop,
   dragging,
   expandable,
+  hasActions,
 }: {
   item: SidebarItem;
   expanded: boolean;
@@ -143,6 +144,12 @@ export function PinnedTile({
    *  tessera porta il segno che si apre: metterlo su una che non si apre
    *  sarebbe una promessa che il click non mantiene. */
   expandable?: boolean;
+  /** Sopra questa tessera si appoggia un comando — il «+» che la griglia
+   *  disegna come FRATELLO in `position: absolute` (un bottone dentro un
+   *  bottone è HTML non valido). La tessera non lo rende e non lo può misurare:
+   *  deve solo sapere che c'è, per lasciargli uno slot invece di finirci sotto
+   *  con il nome. Vedi `PINNED_TILE_ACTION_SLOT`. */
+  hasActions?: boolean;
 }) {
   const projectPath = item.type === 'project' ? (item.projectPath ?? '') : '';
   const icon = useProjectIcon(projectPath);
@@ -228,9 +235,25 @@ export function PinnedTile({
       .join(', ');
   }, [sectorColors, tint]);
 
-  // Accesa SOLO da selezionata: a riposo una griglia di cornici colorate è
-  // rumore, e «acceso» smette di voler dire qualcosa se è sempre acceso.
-  const lit = focused || expanded;
+  /**
+   * QUANTO è accesa la cornice — e «accesa» vuol dire UNA cosa: sei qui.
+   *
+   * Era `focused || expanded`, cioè due stati diversi dipinti con lo stesso
+   * segnale al massimo. Il fuoco non può essere doppio (lo decide un confronto
+   * fra stringhe, uno solo vince), ma `expanded` è un INSIEME: apri la fascia
+   * di un progetto, poi porti il fuoco su un'altra tessera, e la prima torna a
+   * riposo nella superficie — che legge solo `focused` — mentre la CORNICE
+   * resta piena, perché la sua fascia è ancora aperta. Due tessere con lo
+   * stesso bordo pieno e una sola col fuoco: è il «cambio fuoco fra le pin e a
+   * volte resta illuminato il bordo», e il «a volte» sono proprio le tessere
+   * che si aprono, cioè i progetti con tab.
+   *
+   * Aperta-ma-non-a-fuoco resta comunque una cosa che vale la pena dire, e la
+   * si dice un GRADINO più in basso: la stessa cornice, smorzata. Che sia
+   * aperta lo dicono già il chevron ruotato e la fascia visibile sotto — questa
+   * è la conferma sul bordo, non un secondo «sei qui».
+   */
+  const rimLit = focused ? 'opacity-100' : expanded ? 'opacity-40' : 'opacity-0';
 
   // Gli stessi segnali delle righe, dagli stessi hook: una tessera non può
   // dire «tutto calmo» mentre la riga della stessa cosa è accesa.
@@ -350,7 +373,8 @@ export function PinnedTile({
           e non si capiva più quale delle due fosse accesa. La cornice resta, il
           bagliore no: `inset-0`, cioè esattamente sul bordo, non un pixel oltre.
 
-          Accesa SOLO da selezionata. Statica: l'animazione è il segnale di «sta
+          Piena SOLO da selezionata, smorzata su una tessera aperta che il fuoco
+          ha lasciato (vedi `rimLit`). Statica: l'animazione è il segnale di «sta
           lavorando», e due segnali sullo stesso canale non ne fanno uno più
           forte, ne fanno uno muto.
 
@@ -371,9 +395,9 @@ export function PinnedTile({
         // `::before` è il PRIMO figlio dell'albero di scatole, quindi fra due
         // elementi posizionati senza z-index vince questo, che viene dopo. La
         // cornice accesa copre il filo neutro, che è l'ordine giusto.
-        className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${
-          lit ? 'opacity-100' : 'opacity-0'
-        } ${projection ? '' : 'bg-black/[0.18] dark:bg-white/[0.22]'}`}
+        className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${rimLit} ${
+          projection ? '' : 'bg-black/[0.18] dark:bg-white/[0.22]'
+        }`}
         style={{
           ...(projection ? { background: projection } : null),
           padding: 1.5,
@@ -427,7 +451,7 @@ export function PinnedTile({
       </span>
 
       {/* IL NOME LO DECIDE LA FORMA DELLA TESSERA, NON IL CARICAMENTO.
-          Sotto i 72px la tessera è quasi un quadrato (è alta 32) e un titolo
+          Sotto i 72px la tessera è quasi un quadrato (è alta 36) e un titolo
           lì dentro sarebbe due caratteri e tre puntini: se c'è una favicon a
           reggere l'identità, il nome se ne va e resta l'icona sola, centrata.
           Sopra, la tessera è una riga e il titolo ci sta — troncato, ma
@@ -464,12 +488,42 @@ export function PinnedTile({
         // come il badge di un'icona (`pinned-tile-count`, che porta con sé
         // anche il `relative` del caso in riga).
         // Sparisce al passaggio del mouse perché lì, nello stesso posto,
-        // arriva il «+» — e due cose sovrapposte non si leggono.
+        // arriva il «+» — e due cose sovrapposte non si leggono. Vale ancora
+        // dal QUADRATO, dove il badge sta nell'angolo e il bottone gli finisce
+        // addosso; in riga adesso c'è lo slot qui sotto e non si toccherebbero
+        // più, ma si continua a nascondere entrambi allo stesso modo: un badge
+        // che sparisce solo a certe larghezze sarebbe una regola in più da
+        // ricordare per guadagnare sedici pixel.
         <NotificationBadge
           count={item.notificationCount}
           className={`flex-shrink-0 group-hover/cell:invisible ${
             hasRealIcon ? 'pinned-tile-count' : 'relative'
           }`}
+        />
+      )}
+
+      {/* LO SLOT DEL «+» — spazio VUOTO, e per una volta è il punto.
+          Il comando non è mai stato in fila con questo contenuto: la griglia lo
+          disegna come fratello assoluto sopra la tessera (un bottone dentro un
+          bottone è HTML non valido), quindi il nome — `flex-1 truncate` —
+          arrivava fino a 6px dal bordo e il bottone gli atterrava SOPRA. Sotto
+          la vibrancy, dove il suo fondo è un'alpha, il testo ci si leggeva
+          attraverso: metà del «tastino troppo stretto» era questo, non una
+          larghezza sbagliata.
+
+          Riservato SEMPRE, non solo mentre il mouse è sopra: uno slot che nasce
+          all'hover farebbe saltare il nome ogni volta che ci passi accanto.
+          E solo in forma RIGA — sotto i 72px la tessera è larga quanto il
+          bottone, e lì lo slot sarebbe tutto lo spazio che c'è.
+
+          Sta DOPO il badge di proposito: il conteggio resta al suo posto e lo
+          slot si apre oltre, così le due cose non si contendono lo stesso
+          angolo. */}
+      {hasActions && (
+        <span
+          aria-hidden="true"
+          data-testid="pinned-tile-action-slot"
+          className={`hidden flex-shrink-0 @min-[72px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
         />
       )}
     </button>
