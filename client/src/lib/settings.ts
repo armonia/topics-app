@@ -33,6 +33,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // tornando a capo — si vede appena la finestra è larga, cioè quasi sempre.
   // 0 = piena larghezza, per chi la preferisce com'era.
   chatMaxWidth: 820,
+  // La riga «Board generale» in cima alla sidebar: c'è perché la superficie
+  // esiste, non perché oggi ci sia lavoro aperto. Vedi AppSettings.
+  showBoardRow: true,
 };
 
 const STORAGE_KEY = 'app-settings';
