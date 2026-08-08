@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass, Smartphone, Monitor, Server } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { reloadAllWindows } from '@/lib/shell/app';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
@@ -18,6 +18,7 @@ import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/
 import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useAgentActivityCounts } from '@/state/signals';
+import { useMobile } from '@/hooks/useMobile';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 declare const __BUILD_TIME__: string;
@@ -156,6 +157,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // with a dozen live PTYs — re-rendered App, and with it PanelGrid and the
   // whole sidebar, for a chip in the corner. Nothing else ever read it.
   const agentCounts = useAgentActivityCounts(useTerminalSessions(), useTopics());
+  // Serve solo a scegliere il glifo del gruppo «dispositivo»: chi legge deve
+  // riconoscere a colpo d'occhio che quei numeri sono di QUESTO coso qui.
+  const { isMobile } = useMobile();
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();
@@ -216,70 +220,88 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // processi. Ricade sul numero a processo singolo dove `ps` non è usabile.
   const fleet = status?.server.fleet;
   const serverSideMemMB = fleet?.memoryMB ?? serverMemMB;
-  // Titolo = shell + lato server. Dal 2026-08-04 le due metà usano la STESSA
-  // metrica (`phys_footprint`, quella di Monitoraggio Attività): prima il lato
-  // server sommava `ps rss` e la somma univa due unità diverse — misurato,
-  // 2,07 GB di rss contro 1,17 di footprint sullo stesso albero. `memMetric`
-  // dice quale metrica è arrivata davvero, perché su una piattaforma senza
-  // `proc_pid_rusage` si ripiega ancora su rss e va detto invece che nascosto.
-  const totalMemMB = appMemMB !== null
-    ? appMemMB + (serverSideMemMB ?? 0)
-    : serverSideMemMB;
-  // Whole-app figures can legitimately be large, so the alarm sits where it was
-  // always meant to (>3 GB); a partial reading is shell-only and keeps its own
-  // much lower bar.
-  const memHigh = appMemMB !== null
-    ? (totalMemMB ?? 0) > (isPartialMem ? 1024 : 3072)
-    : (serverSideMemMB ?? 0) > 512;
-  const serverSideLine = fleet
-    ? `\n· lato server, ${fleet.processCount} processi: ${fleet.memoryMB} MB`
-      + (fleet.memMetric === 'footprint' ? '' : fleet.memMetric === 'mixed' ? ' (footprint parziale)' : ' (RSS, stima alta)')
-      + fleet.roots
-          .filter(r => r.kind !== 'server' && r.memoryMB > 0)
-          .map(r => `\n   · ${r.kind}: ${r.memoryMB} MB, ${r.processCount} proc.`)
-          .join('')
-    : `\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`;
-  const memTitle = appMemMB !== null
-    ? (isPartialMem
-        ? `Topics (processo shell): ${appMemMB} MB — ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
-        : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint — lo stesso valore di Activity Monitor\n· di cui in RAM adesso: ${residentMemMB ?? '—'} MB (il resto è compresso o in swap)`
-      ) + serverSideLine
-    : status
-      ? (fleet
-          ? `Lato server, ${fleet.processCount} processi: ${fleet.memoryMB} MB (RSS)\n· processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB)`
-            + fleet.roots
-                .filter(r => r.kind !== 'server' && r.memoryMB > 0)
-                .map(r => `\n· ${r.kind}: ${r.memoryMB} MB, ${r.processCount} proc.`)
-                .join('')
-            + `\n· la memoria della shell è disponibile solo nell'app desktop`
-          : `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria dell'app è disponibile solo nell'app desktop`)
-      : '';
-
-  // Stessa storia per la CPU: la cifra della shell da sola nasconde i sidecar, ed
-  // è lì che sta il carico (il solo bridge WebRTC ha misurato ~29% mentre
-  // streammava). Ma le due metà si sommano SENZA far ricadere un "non misurato"
-  // su zero: `null` significa che quella metà non ha una misura, e una somma di
-  // cui manca un pezzo non è il totale. Se mancano entrambe, non c'è niente da
-  // mostrare; se ne manca una, il tooltip dice quale.
+  /**
+   * DUE LETTURE, NON UNA SOMMA — «l'utilizzo del dispositivo che sto usando» e
+   * «l'utilizzo del server» (Attilio, 08/08).
+   *
+   * Era `totalMemMB = shell + lato server`, una cifra sola, e su due dispositivi
+   * rispondeva a due domande diverse senza dirlo:
+   *
+   *  · sul Mac, dentro l'app: shell Topics + server + tutti i sidecar;
+   *  · sul telefono: `usePerfMetrics` è `null` (non c'è introspezione dei
+   *    processi in web), quindi la somma degenera nel SOLO lato server — cioè
+   *    la RAM del Mac, mostrata sul telefono con la stessa etichetta di prima.
+   *
+   * «Vedo metriche diverse e mica si capisce»: non era un errore di misura, era
+   * una cifra che rispondeva a due domande. Adesso sono due gruppi, ciascuno col
+   * suo glifo: il dispositivo (questo, quello che hai in mano) e il server. Sul
+   * telefono il gruppo del dispositivo si riduce agli fps, che sono l'unica cosa
+   * misurata DI QUI — ed è esattamente l'informazione vera.
+   *
+   * Le due metà usano la STESSA metrica (`phys_footprint`, quella di
+   * Monitoraggio Attività): prima il lato server sommava `ps rss` e la somma
+   * univa due unità diverse — misurato, 2,07 GB di rss contro 1,17 di footprint
+   * sullo stesso albero. Sommarle non è più un problema perché non le sommiamo
+   * più, ma `memMetric` resta detto nel tooltip: su una piattaforma senza
+   * `proc_pid_rusage` si ripiega su rss, e va detto invece che nascosto.
+   */
+  const fmtMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`);
+  // L'allarme del dispositivo è quello di sempre (>3 GB per l'app intera, molto
+  // più basso per una lettura parziale che copre la sola shell).
+  const deviceMemHigh = appMemMB !== null && appMemMB > (isPartialMem ? 1024 : 3072);
+  /**
+   * La soglia del server NON è 512 MB, ed è una correzione, non una taratura.
+   *
+   * Prima la riga era `appMemMB !== null ? … : serverSide > 512`: sul telefono
+   * `appMemMB` è sempre `null`, quindi la condizione ricadeva su quel ramo — e
+   * il lato server sta normalmente sui 4 GB. Risultato: sul telefono il numero
+   * della memoria era **sempre** in ambra, cioè un allarme perenne, che è lo
+   * stesso che nessun allarme.
+   *
+   * 6 GB sta sopra il normale misurato (~4,3 GB su 32 processi) e sotto il
+   * patologico (14 GB di WKWebView orfane dopo una raffica di ⌘R), quindi si
+   * accende quando c'è davvero qualcosa da guardare.
+   */
+  const serverMemHigh = (serverSideMemMB ?? 0) > 6144;
+  // La CPU segue lo stesso taglio della memoria: `null` = non misurata, che non
+  // è zero (una pane appena aperta non ha ancora un delta). Non si sommano più
+  // le due metà — una somma di cui manca un pezzo non era il totale di niente.
   const shellCpu = perf?.cpu.total ?? null;
   const fleetCpu = fleet?.cpuPercent ?? null;
-  const totalCpu = shellCpu === null && fleetCpu === null
-    ? null
-    : (shellCpu ?? 0) + (fleetCpu ?? 0);
-  const cpuTitle = [
-    shellCpu !== null
+
+  /** QUESTO dispositivo: la shell e i suoi processi, più gli fps, che sono
+   *  l'unica misura presa DI QUA anche quando non c'è nessuna shell. */
+  const deviceTitle = [
+    isMobile ? 'Questo telefono' : 'Questo computer',
+    appMemMB !== null
       ? (isPartialMem
-          ? `CPU processo shell di Topics: ${formatCpuPercent(shellCpu)}% — non include i processi WKWebView dei pannelli`
-          : `CPU dei ${procCount ?? '?'} processi della shell: ${formatCpuPercent(shellCpu)}%`)
-      : 'CPU della shell: non ancora misurata (serve un secondo campione)',
-    fleetCpu !== null
-      ? `lato server, ${fleet?.processCount ?? '?'} processi: ${formatCpuPercent(fleetCpu)}%`
-      : 'lato server: non misurato',
-    'può superare 100% (per core)',
-    // Copertura parziale DENTRO la metà shell: alcuni pid sono appena comparsi.
-    perf && perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
-      ? `shell misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi — gli altri non hanno ancora un delta`
+          ? `Topics (processo shell): ${appMemMB} MB — ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
+          : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint — lo stesso valore di Monitoraggio Attività\n· di cui in RAM adesso: ${residentMemMB ?? '—'} MB (il resto è compresso o in swap)`)
+      : 'memoria e CPU non misurabili qui: il browser non espone i processi. Sono disponibili solo dentro l’app desktop.',
+    shellCpu !== null
+      ? `CPU: ${formatCpuPercent(shellCpu)}% — può superare 100% (per core)`
       : null,
+    perf && perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
+      ? `misurata su ${perf.cpu.sampled}/${perf.cpu.pids} processi — gli altri non hanno ancora un delta`
+      : null,
+    fps > 0 ? `${fps} fotogrammi al secondo, misurati in questa finestra` : null,
+  ].filter(Boolean).join('\n· ');
+
+  /** IL SERVER: il Mac che regge Topics, con tutto ciò che guida — pty-bridge,
+   *  CLI `claude`, server MCP, Chrome headless, ai-bridge, sidecar WebRTC. È
+   *  sempre la STESSA macchina, che tu stia guardando dal telefono o da qui. */
+  const serverTitle = [
+    'Il server',
+    fleet
+      ? `${fleet.processCount} processi: ${fleet.memoryMB} MB`
+        + (fleet.memMetric === 'footprint' ? ' di footprint' : fleet.memMetric === 'mixed' ? ' (footprint parziale)' : ' (RSS, stima alta)')
+      : `processo Bun: ${serverMemMB ?? '—'} MB` + (status ? ` (heap ${status.server.heapUsedMB} MB)` : ''),
+    fleetCpu !== null ? `CPU: ${formatCpuPercent(fleetCpu)}% — può superare 100% (per core)` : 'CPU: non misurata',
+    ...(fleet
+      ? fleet.roots
+          .filter(r => r.kind !== 'server' && r.memoryMB > 0)
+          .map(r => `${r.kind}: ${r.memoryMB} MB, ${r.processCount} proc.`)
+      : []),
   ].filter(Boolean).join('\n· ');
 
   // Chip = the CLIENT bundle version actually running. It moves on EVERY deploy,
@@ -472,31 +494,47 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               title={status ? 'Topics server reachable' : 'Topics server unreachable'}
             />
           )}
-          {totalMemMB !== null && (
+          {/* DUE GRUPPI, DUE GLIFI — vedi il blocco `deviceTitle`/`serverTitle`.
+              Il glifo non è decorazione: è ciò che dice DI CHI sono quei numeri,
+              ed è l'unica differenza che il telefono può vedere fra «4,3 GB sul
+              Mac» e «4,3 GB qui». Ciascun numero si mostra quando c'è UNA MISURA,
+              anche se vale zero: `null` è l'unico «non misurato», perché un gate
+              su `> 0` nascondeva l'app FERMA, cioè proprio quando «0%» è
+              l'informazione che serve. */}
+          {(appMemMB !== null || shellCpu !== null || fps > 0) && (
             <span
-              className={`flex-shrink-0 text-app-text-muted tabular-nums ${memHigh ? SEGNALE_ATTESA : ''}`}
-              title={memTitle}
+              data-testid="metrics-device"
+              className="flex flex-shrink-0 items-center gap-1 tabular-nums"
+              title={deviceTitle}
             >
-              {/* Whole-app footprint runs to several GB with many panes open;
-                  "6937MB" in a status bar is a wall of digits, so switch unit. */}
-              {totalMemMB >= 1024 ? `${(totalMemMB / 1024).toFixed(1)}GB` : `${totalMemMB}MB`}
+              {isMobile
+                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
+                : <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />}
+              {appMemMB !== null && (
+                <span className={`text-app-text-muted ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
+              )}
+              {shellCpu !== null && (
+                <span className={`text-app-text-muted ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
+              )}
+              {fps > 0 && (
+                <span className={`text-app-text-muted ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
+              )}
             </span>
           )}
-          {/* Si mostra quando c'è UNA MISURA — anche se vale zero. Il gate era
-              `> 0`, e nascondeva due casi diversi con lo stesso pretesto: "non
-              ho ancora una baseline" e "ho misurato, è quasi zero". Il secondo è
-              un'app FERMA, cioè proprio quando "0%" è l'informazione che serve, e
-              lì il contatore spariva. Ora `null` è l'unico "non misurato". */}
-          {totalCpu !== null && (
+          {(serverSideMemMB !== null || fleetCpu !== null) && (
             <span
-              className={`flex-shrink-0 text-app-text-muted tabular-nums ${totalCpu > 50 ? SEGNALE_ATTESA : ''}`}
-              title={cpuTitle}
+              data-testid="metrics-server"
+              className="flex flex-shrink-0 items-center gap-1 tabular-nums"
+              title={serverTitle}
             >
-              {formatCpuPercent(totalCpu)}%
+              <Server size={10} className="flex-shrink-0 text-app-text-muted" />
+              {serverSideMemMB !== null && (
+                <span className={`text-app-text-muted ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
+              )}
+              {fleetCpu !== null && (
+                <span className={`text-app-text-muted ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
+              )}
             </span>
-          )}
-          {fps > 0 && (
-            <span className={`flex-shrink-0 text-app-text-muted tabular-nums ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
           )}
         </button>
 
