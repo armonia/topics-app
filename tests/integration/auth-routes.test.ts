@@ -53,7 +53,7 @@ function dbFresco(): Database {
 
 /** Il minimo che `createAuthRouter` destruttura, più l'identità che il gate
  *  normalmente deposita per la richiesta. */
-function creaCtx(db: Database, opts: { deviceId?: string | null } = {}) {
+function creaCtx(db: Database, opts: { deviceId?: string | null; relay?: boolean } = {}) {
   const inviati: unknown[] = [];
   const ctx = {
     db,
@@ -68,6 +68,12 @@ function creaCtx(db: Database, opts: { deviceId?: string | null } = {}) {
     // dietro un proxy l'unico che sa da dove arriva davvero una richiesta è il
     // server, quindi il router lo CHIEDE invece di dedurlo.
     requestIp: (req: Request) => req.headers.get("x-test-ip"),
+    // Il relay ACCESO è il default qui perché è lo stato in cui i link hanno
+    // senso; `relay: false` è il caso «condivisione pubblica spenta».
+    relayConfig: () => ({
+      baseUrl: opts.relay === false ? null : "https://relay.esempio.test",
+      installationId: "inst-test",
+    }),
   } as never;
   return { ctx, inviati };
 }
@@ -584,6 +590,32 @@ describe("rotte auth · i link di condivisione", () => {
     db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
     return db;
   }
+
+  test("a relay SPENTO non si conia più, ma si può ancora revocare", async () => {
+    // Il buco che questo test chiude: `/api/auth/relay` diceva `enabled:false`
+    // e il bottone spariva, mentre la rotta continuava a produrre link validi.
+    // Un interruttore che nasconde il gesto senza toglierlo fa credere di aver
+    // spento una cosa che è ancora accesa.
+    const db = db085();
+    const acceso = createAuthRouter(creaCtx(db).ctx);
+    const creato = await (await chiama(acceso, "/api/auth/share-links", "POST", {
+      body: { resourceType: "task", resourceId: "t1" },
+    }))!.json() as { ref: string };
+
+    const spento = createAuthRouter(creaCtx(db, { relay: false }).ctx);
+    const rifiutato = await chiama(spento, "/api/auth/share-links", "POST", {
+      body: { resourceType: "task", resourceId: "t1" },
+    });
+    expect(rifiutato?.status).toBe(409);
+    expect((db.query("SELECT COUNT(*) AS n FROM share_links").get() as { n: number }).n).toBe(1);
+
+    // Elencare e revocare restano raggiungibili: chi ha appena spento è
+    // esattamente chi deve poter ritirare ciò che aveva già distribuito.
+    expect((await chiama(spento, "/api/auth/share-links?resourceType=task&resourceId=t1"))?.status).toBe(200);
+    expect((await chiama(spento, `/api/auth/share-links?ref=${creato.ref}`, "DELETE"))?.status).toBe(200);
+    expect((db.query("SELECT revoked_at FROM share_links WHERE ref = ?").get(creato.ref) as { revoked_at: number | null })
+      .revoked_at).not.toBeNull();
+  });
 
   test("la chiave esce UNA volta sola, e l'elenco non la ripropone", async () => {
     // Un endpoint che restituisce la chiave a richiesta trasformerebbe ogni
