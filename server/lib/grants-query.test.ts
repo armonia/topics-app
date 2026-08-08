@@ -133,11 +133,13 @@ describe("porta unica · tutte le ragioni, non la prima", () => {
     // si ferma alla prima non lo direbbe.
     const db = conSchema084(dbFresco());
     putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
-    putGrant(db, { kind: "person", id: "p1" }, "task", "t1", { viaType: "project", viaId: "prog-1", grantedAt: 2 });
+    putGrant(db, { kind: "person", id: "p1" }, "task", "t1", { grantedAt: 2 });
     const ragioni = reasonsFor(db, [{ kind: "device", id: "d1" }, { kind: "person", id: "p1" }], "task", "t1");
     expect(ragioni).toHaveLength(2);
-    expect(ragioni.map((r) => r.viaType)).toContain("project");
-    expect(ragioni.find((r) => r.viaType === "project")?.viaId).toBe("prog-1");
+    // E la ragione è il SOGGETTO: sono due righe diverse con due revoche
+    // diverse, non la stessa concessione contata due volte.
+    expect(ragioni.map((r) => `${r.subjectType}:${r.subjectId}`).sort())
+      .toEqual(["device:d1", "person:p1"]);
   });
 
   it("`subjectsOf` dice CHI è stato messo, indipendentemente da chi chiede", () => {
