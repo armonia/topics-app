@@ -239,6 +239,23 @@ export const ROW_PX = 'px-2';
  * the tab strip's left/right padding (PaneTabBar). Keep them all in step here.
  */
 export const ROW_INSET = 6;
+/**
+ * IL PASSO DELLA COLONNA, uno solo: la distanza fra due card è la stessa che le
+ * separa dal bordo.
+ *
+ * Ce n'erano due. Le tessere fissate stavano a `TILE_GAP = 6`, le righe a
+ * `my-px` — cioè 2px fra una card e l'altra: nella stessa colonna, due ritmi.
+ * «I pinhead hanno uno spazio tra di loro diverso» (Attilio, 08/08), ed era
+ * vero da entrambe le parti: a 2px due card col fondo si leggono quasi come una
+ * fascia continua, che è il difetto da cui veniamo.
+ *
+ * Sei, e non due, perché è il numero che la colonna già usa lateralmente
+ * (`ROW_INSET`): con lo stesso valore su tutti e quattro i lati l'aria attorno a
+ * una card è quadrata, e il ritmo si legge come una griglia invece che come una
+ * pila. Il valore vive qui e non in `PinnedTiles`, che ora lo importa: erano due
+ * numeri d'accordo per caso.
+ */
+export const COLUMN_GAP = 6;
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 
@@ -368,7 +385,22 @@ export const ROW_ACTION_GLYPH = 16;
  * Pass the row's selection state; returns the full set of state classes. Each
  * caller keeps its own height / padding-left (depth indent) / content.
  */
-export function sidebarRowCard({ focused, open, attention }: { focused?: boolean; open?: boolean; attention?: AttentionTier | null }): string {
+export function sidebarRowCard(
+  { focused, open, attention, nested }:
+  { focused?: boolean; open?: boolean; attention?: AttentionTier | null;
+    /**
+     * Riga ANNIDATA — una sotto-tab dentro un progetto aperto.
+     *
+     * Cambia una cosa sola: niente fondo del riposo. «Quando apri una tab
+     * pinnata che ha delle sotto-tab, quelle sono wrappate da card, forse si
+     * può togliere» (Attilio, 08/08) — e ha ragione: a quel punto le card sono
+     * due, una dentro l'altra, e la seconda non aggiunge niente perché
+     * l'indentazione ha già detto dove sta. La FORMA resta, così la riga
+     * selezionata o in hover si accende come le sorelle di primo livello: è il
+     * riposo a doversi zittire, non la selezione.
+     */
+    nested?: boolean },
+): string {
   // Card SHAPE (rounded, inset, spaced) is always on; the FILL follows the
   // color system — background only when selected (SELECTED_SURFACE), needing you
   // (attention fill) or on hover. At rest the card is transparent, so the sidebar
@@ -392,8 +424,8 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   // Sta nel `base` e non fra i rami del fill, quindi selezione, attenzione e
   // hover — che arrivano dopo nella stringa — lo coprono senza gare di
   // specificità.
-  const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative '
-    + 'max-md:bg-black/[0.05] dark:max-md:bg-white/[0.07]';
+  const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative'
+    + (nested ? '' : ' max-md:bg-black/[0.05] dark:max-md:bg-white/[0.07]');
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
