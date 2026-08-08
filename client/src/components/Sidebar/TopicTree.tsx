@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -1557,13 +1557,26 @@ export function TopicTree({
 
   return (
     <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
-      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
-          above the first row and below the last — the SAME 6px the cards keep
-          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
-          sidebar's padding reads identical on every axis. */}
+      {/* IL PRIMO SPAZIO È UNO SPAZIO COME GLI ALTRI: metà passo qui, metà dal
+          margine della card (`my-[3px]` in `sidebarRowCard`), e fanno
+          COLUMN_GAP — la stessa distanza che c'è fra due card, e la stessa che
+          le tiene staccate dai bordi laterali (ROW_INSET).
+
+          Era `ROW_INSET − 1`, cioè 5, e il commento diceva «+ il my-px della
+          card = 6». Quel conto è scaduto quando il margine delle card è passato
+          da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo):
+          da allora sopra la prima card c'erano 8px dove ovunque altro ce ne
+          sono 6. Non si notava finché sotto l'header c'era un filo — la doppia
+          separazione mascherava il mezzo passo di troppo. Tolto il filo
+          (App.tsx), resta solo lo spazio, e lo spazio dev'essere quello giusto.
+
+          Derivato, non scritto: se COLUMN_GAP cambia, questo lo segue, e a
+          tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
+          deve restare un letterale perché il JIT la trova nel sorgente) c'è
+          `selectionStyles.test.ts`. */}
       <div
         className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
-        style={{ paddingBlock: ROW_INSET - 1 }}
+        style={{ paddingBlock: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
         // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste

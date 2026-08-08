@@ -4,9 +4,11 @@ import {
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
   CHROME_ROW_CONTENT_H,
+  COLUMN_GAP,
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
   chromeRowInset,
+  sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -101,5 +103,40 @@ describe('la riga di chrome e il comando in coda', () => {
       expect(chromeRowInset(box)).toBeGreaterThan(0);
       expect(box).toBeLessThan(CHROME_ROW_CONTENT_H);
     }
+  });
+});
+
+/**
+ * IL PASSO DELLA COLONNA, PER LO STESSO MOTIVO DI SOPRA.
+ *
+ * `COLUMN_GAP` è un numero, ma la metà che tocca alle card è scritta come
+ * classe (`my-[3px]`) e deve restare un letterale — Tailwind legge il sorgente
+ * come testo. L'altra metà la mette il contenitore che scorre
+ * (`TopicTree`, `paddingBlock: COLUMN_GAP / 2`), che invece il numero lo
+ * importa. Due metà della stessa distanza, di cui una sola segue la costante:
+ * se qualcuno porta COLUMN_GAP a 8 e la classe resta 3, sopra la prima card
+ * restano 7px mentre fra due card ne passano 6, ed è di nuovo il near-miss che
+ * questo giro serviva a togliere.
+ */
+describe('il passo verticale della colonna', () => {
+  test('il margine della card è mezzo COLUMN_GAP, e sta scritto nella classe', () => {
+    const base = sidebarRowCard({});
+    const my = /(?:^|\s)my-\[(\d+)px\]/.exec(base);
+    expect(my).not.toBeNull();
+    expect(Number(my![1])).toBe(COLUMN_GAP / 2);
+  });
+
+  test('due card adiacenti distano esattamente COLUMN_GAP', () => {
+    // I margini verticali di due card che si toccano NON collassano: stanno in
+    // un contenitore che scorre (`overflow-y-auto`), che è un contesto di
+    // formattazione a sé. Quindi 3 + 3 = 6, non 3.
+    const my = Number(/my-\[(\d+)px\]/.exec(sidebarRowCard({}))![1]);
+    expect(my * 2).toBe(COLUMN_GAP);
+  });
+
+  test('mezzo passo è un numero intero di pixel', () => {
+    // Un COLUMN_GAP dispari darebbe mezzi pixel su entrambe le metà, e un bordo
+    // a 2,5px si vede come una riga sfocata.
+    expect(COLUMN_GAP % 2).toBe(0);
   });
 });
