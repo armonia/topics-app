@@ -500,7 +500,13 @@ export function PinnedTile({
         // È una container query e NON l'esito della sonda dell'icona: la regola
         // che vieta di commutare il layout su uno stato in volo resta intatta —
         // qui si commuta sulla LARGHEZZA, che è misurata.
-        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left text-[11px] text-app-text-secondary ${
+        // `text-app-text`, non `-secondary`: qui il nome È la scheda. Per chi
+        // non ha un'icona è l'unica identità che la tessera mostra, e leggerla
+        // in `#aab0ba` invece che in `#e6e8ec` la fa sembrare una didascalia di
+        // qualcos'altro — «le schede pinnate non sono effettivamente bianche»
+        // (Attilio, 08/08). Il secondo colore resta, ma per le cose meno
+        // importanti: non per il nome della cosa che stai guardando.
+        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left text-[11px] text-app-text ${
           hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >
