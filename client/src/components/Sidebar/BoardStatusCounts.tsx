@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
 import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
@@ -35,11 +35,15 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo'
  *  · lo slot dell'icona SEMPRE riservato (`w-3`, anche vuoto). `ProjectFavicon`
  *    non rende niente quando il progetto non ha un'icona vera — decisione dura
  *    e riconfermata: niente lettere, niente tessere generate — quindi senza lo
- *    slot il nome partiva 16px più a sinistra e il numero atterrava a una x
- *    diversa da pastiglia a pastiglia. La larghezza ESTERNA era già fissa; a
- *    saltare era il layout INTERNO;
- *  · il numero staccato per TONO oltre che per spazio (un gradino più tenue,
- *    `tabular-nums`), che è ciò che lo rende un numero e non una sillaba.
+ *    slot il nome partiva 16px più a sinistra e la pastiglia aveva un layout
+ *    INTERNO diverso dalle vicine pur avendo la stessa larghezza esterna;
+ *  · IL NUMERO È USCITO. Restava il difetto vero: su una riga da 244px la
+ *    pastiglia si degradava a solo-icona e diceva «31», due pastiglie più in là
+ *    i conteggi per colonna dicevano «8» e «36». Quattro numeri in fila, uno dei
+ *    quali senza glifo né nome accanto — «al momento si confondono i numeri»
+ *    (Attilio, 08/08). La pastiglia porta identità; il quanto sta nel `title`,
+ *    dove stava già per esteso, e i soli numeri della riga sono i conteggi, che
+ *    un glifo ce l'hanno.
  *
  * L'etichetta si taglia SENZA puntini (`overflow-hidden whitespace-nowrap`
  * invece di `truncate`): a 10px l'ellissi mangia ~6px dei 34 disponibili, cioè
@@ -64,7 +68,6 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
           {chip.name}
         </span>
       )}
-      <span className="ml-auto flex-shrink-0 tabular-nums text-app-text-muted">{chip.n}</span>
     </span>
   );
 }
@@ -83,9 +86,10 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
  * `StatusIcon` è il glifo che la board disegna sulle card e in cima alle
  * colonne: anello tratteggiato → anello vuoto → mezza torta → tre quarti →
  * disco spuntato. La stessa forma, quindi lo stesso significato, senza un
- * secondo codice da imparare. Reso a 14px e non a 12: il suo viewBox è 14, e
- * l'override che stava qui lo mandava a scala 0,857 — il tratteggio del backlog
- * diventava poltiglia (vedi `StatusIcon`).
+ * secondo codice da imparare. Reso alla SUA misura (nessun override di classe
+ * qui): il viewBox è 16 e a 16px una unità del disegno vale un pixel. Ogni
+ * riduzione lo rimanda a cavallo della griglia, ed è così che il tratteggio del
+ * backlog è già diventato poltiglia una volta (vedi `StatusIcon`).
  *
  * ── I progetti, in linea ────────────────────────────────────────────────────
  * I numeri per colonna dicono a che punto è il lavoro; non dicono DOVE. Con
@@ -115,13 +119,32 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
     [byStatus],
   );
 
-  const ref = useRef<HTMLDivElement>(null);
   // `null` = non ancora misurato, ed è un valore DIVERSO da 0. Zero è una
   // misura vera («qui non c'è spazio») e va annunciata col «+N»; null è
   // silenzio legittimo, il fotogramma prima che il layout esista.
   const [width, setWidth] = useState<number | null>(null);
-  useEffect(() => {
-    const el = ref.current;
+  const observer = useRef<ResizeObserver | null>(null);
+  /**
+   * L'OSSERVATORE SI AGGANCIA CON UNA REF-FUNZIONE, non con un effetto a
+   * dipendenze vuote. La differenza non è di stile: è la ragione per cui sul
+   * desktop le pastiglie non comparivano MAI.
+   *
+   * Questo componente esce con `return null` finché non c'è né un progetto né
+   * un conteggio — cioè al primo giro, prima che i task arrivino dal server. In
+   * quel giro il `<div>` misurato non esiste, quindi un `useEffect(…, [])`
+   * trovava `ref.current` a null, usciva subito, e non veniva più rieseguito:
+   * quando i dati atterravano il nodo nasceva senza nessuno che lo guardasse.
+   * `width` restava `null` per sempre e `fitProjectChips` — che a `null` tace di
+   * proposito — non disegnava niente. Sul telefono il difetto era invisibile
+   * perché il cassetto si monta DOPO i dati, quindi il primo giro aveva già i
+   * conteggi: lo stesso codice, due comportamenti, decisi da chi arriva prima.
+   *
+   * Una ref-funzione viene chiamata da React ogni volta che il nodo entra o
+   * esce, quindi l'aggancio non può perdersi qualunque sia l'ordine.
+   */
+  const measureRef = useCallback((el: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
     if (!el || typeof ResizeObserver === 'undefined') return;
     // La larghezza si legge dall'osservatore e basta: una lettura sincrona qui
     // dentro sarebbe una scrittura di stato in montaggio, e l'osservatore
@@ -131,7 +154,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
       setWidth((prev) => (prev !== null && Math.abs(prev - w) < 1 ? prev : w));
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    observer.current = ro;
   }, []);
 
   const fitted = fitBoardRow(width, chips, counts);
@@ -139,7 +162,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
   if (chips.length === 0 && counts.length === 0) return null;
 
   return (
-    <div ref={ref} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div ref={measureRef} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
       <div
         // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14
         // ancora la pastiglia con un locator a PREFISSO

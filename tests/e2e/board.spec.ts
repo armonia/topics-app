@@ -344,7 +344,13 @@ test.describe("Kanban board", () => {
     const chip = row.locator('[data-testid^="board-project-"]').first();
     await expect(chip, "nessun progetto sulla riga della board").toBeVisible({ timeout: 10000 });
     const box = (await chip.boundingBox())!;
-    expect(Math.round(box.width), "la pastiglia esiste ma è larga zero").toBeGreaterThan(20);
+    // 20 = `CHIP_W_ICON`, il PAVIMENTO dichiarato: la pastiglia più stretta che
+    // il layout ammette (padding + slot dell'icona, senza nome). Sotto quella
+    // misura non c'è un degrado, c'è un contenitore collassato. Era `> 20`
+    // quando l'icona sola ne valeva 36; da quando la pastiglia non porta più il
+    // conteggio (08/08) il pavimento È 20, e un `>` stretto renderebbe rosso
+    // proprio il caso limite che questo test deve accettare.
+    expect(Math.round(box.width), "la pastiglia esiste ma è larga zero").toBeGreaterThanOrEqual(20);
 
     // E sta DENTRO la riga, non le sborda a destra.
     const rowBox = (await row.boundingBox())!;

@@ -32,6 +32,7 @@
 import type { BoardProjectRef } from '../../lib/board';
 import type { BoardTask, TaskStatus } from '../../lib/board';
 import { resolveProjectRefs } from '../../lib/boardProjectsStore';
+import { STATUS_GLYPH_PX } from '../../lib/board';
 
 export interface BoardProjectChip {
   projectId: string;
@@ -79,31 +80,45 @@ export function boardProjectChips(
  * lei, a cose ferme. Il layout non si decide su uno stato asincrono: lo slot è
  * dichiarato e l'icona ci entra dentro, presente o assente che sia.
  *
- * · `CHIP_W_NAME` = 74 — 8 di padding + 12 di slot icona + 4 + 34 di nome + 4 +
- *   12 di numero (due cifre a 10px). I 34 sono la misura che rende il nome
- *   LEGGIBILE (sei-sette caratteri) invece di un moncone: a 52 ce ne entravano
- *   DUE, ma con ~22px di nome ciascuna, cioè due pastiglie che non dicono chi
- *   sono. «Mostra bene i progetti, quelli che non entrano mettili in +»
- *   (Attilio, 07/08).
- * · `CHIP_W_ICON` = 36 — la stessa pastiglia SENZA il nome: 8 + 12 + 4 + 12.
+ * ── LA PASTIGLIA NON PORTA PIÙ IL SUO NUMERO ────────────────────────────────
+ * Portava anche il conteggio dei task di quel progetto, e su una riga larga
+ * 244px il risultato misurato era questo: UNA pastiglia in modo solo-icona che
+ * diceva «31», poi «+6», poi i conteggi per colonna «8» e «36». Quattro numeri
+ * in fila, di cui uno senza nome né glifo accanto — «si confondono i numeri»
+ * (Attilio, 08/08), ed è letteralmente vero: 31 e 36 sono la stessa forma.
+ *
+ * Adesso la pastiglia porta IDENTITÀ (icona + nome) e basta, e i soli numeri
+ * della riga sono i conteggi per colonna, ognuno col suo glifo di stato. Il
+ * quanto non si perde: sta nel `title` della pastiglia, che è dove stava già la
+ * versione per esteso. Togliere le due cifre restringe la pastiglia da 74 a 58,
+ * quindi il nome compare anche dove prima si degradava a numero anonimo — cioè
+ * il difetto si corregge due volte.
+ *
+ * · `CHIP_W_NAME` = 58 — 8 di padding + 12 di slot icona + 4 + 34 di nome. I 34
+ *   sono la misura che rende il nome LEGGIBILE (sei-sette caratteri) invece di
+ *   un moncone: a 22 ce ne entravano DUE, ma nessuna delle due diceva chi era.
+ *   «Mostra bene i progetti, quelli che non entrano mettili in +» (Attilio,
+ *   07/08).
+ * · `CHIP_W_ICON` = 20 — la stessa pastiglia SENZA il nome: 8 + 12.
  *
  * La seconda è un DEGRADO, non una variante da scegliere: si accende solo
- * quando nemmeno una pastiglia col nome ci sta. Il motivo per cui non è mai il
- * default sta nel caso limite — un progetto che l'icona non ce l'ha (e non
- * l'avrà: niente monogrammi, niente tessere generate) diventa un numero
- * anonimo. Meglio un numero anonimo col suo tooltip che il vuoto, ma solo come
- * ultima spiaggia, e mai al posto di un nome che sarebbe entrato.
+ * quando nemmeno una pastiglia col nome ci sta, e adesso che non porta cifre è
+ * un degrado onesto — una tessera con l'icona del progetto, o (per chi un'icona
+ * non ce l'ha, e non l'avrà: niente monogrammi, niente tessere generate) una
+ * tessera vuota col suo tooltip. Muta, ma non ambigua.
  */
-export const CHIP_W_NAME = 74;
-export const CHIP_W_ICON = 36;
+export const CHIP_W_NAME = 58;
+export const CHIP_W_ICON = 20;
 /** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
 export const CHIP_GAP = 6;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
 export const MORE_W = 22;
 
-/** Il glifo di stato di un conteggio: 14px, cioè {@link StatusIcon} reso 1:1
- *  col suo viewBox — sotto quella misura il tratto cade fra due pixel. */
-const COUNT_GLYPH_W = 14;
+/** Il glifo di stato di un conteggio: {@link StatusIcon} reso 1:1 col suo
+ *  viewBox — sotto quella misura il tratto cade fra due pixel. Importato e non
+ *  riscritto: erano due numeri e sono già stati d'accordo per sbaglio una volta
+ *  di troppo. */
+const COUNT_GLYPH_W = STATUS_GLYPH_PX;
 /** `gap-1` fra il glifo e il suo numero. */
 const COUNT_GAP = 4;
 /** Una cifra a 10px, tabellare. Arrotondata per ECCESSO: una stima corta
