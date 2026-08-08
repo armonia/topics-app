@@ -20,14 +20,20 @@
  */
 import {
   RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
-  componiStream, creaContatoreStream, creaRiassemblatore, leggiFramePayload, scriviFrame,
-  type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream, type Rifiutato,
-  type RuoloSessione,
+  componiStream, creaCapoCanale, creaContatoreStream, creaRiassemblatore, leggiFramePayload,
+  ricaricaPer, scriviFrame,
+  type EsitoInvio, type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream,
+  type Rifiutato, type RuoloSessione,
 } from "./relay-protocol";
 import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, leggiTestaRisposta, scriviTesta,
   type Intestazioni,
 } from "./relay-http";
+import {
+  GENERE_WS, GENERE_WS_APERTO, GENERE_WS_CHIUSO, WS_APERTO,
+  WS_CHIUSURA_ANOMALA, WS_CHIUSURA_NORMALE,
+  leggiChiusuraWs, leggiTestaWsAperto, leggiTestaWsChiuso, scriviChiusuraWs, scriviTestaWs,
+} from "./relay-ws";
 
 type Invia = (m: MessaggioRelay) => void;
 
@@ -425,5 +431,183 @@ export function creaOspiteHttp(opts: OspiteHttpOpts) {
     },
 
     inAttesa: () => attese.size,
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// L'OSPITE che apre WEBSOCKET dentro il tubo
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Il capo OSPITE di un socket dentro il tubo.
+ *
+ * Esiste qui per la stessa ragione di `creaOspiteHttp`: **due implementazioni
+ * tengono onesto un formato**. Il proxy della macchina
+ * (`server/services/relay-client.ts`) è l'altra, e nessuna delle due può
+ * scivolare — la testa di apertura la scrive uno e la legge l'altro, il credito
+ * lo conta uno e lo restituisce l'altro. Il giorno in cui uno dei due
+ * cominciasse a dipendere da un campo che il formato non promette, questo
+ * smetterebbe di capirlo.
+ *
+ * È anche la forma che serve a un browser: un oggetto con `manda`, `chiudi` e
+ * tre richiami, cioè esattamente ciò su cui si appoggia un `WebSocket` finto —
+ * quattro socket veri dell'applicazione, ognuno con vita sua, sopra un tubo
+ * solo.
+ */
+export interface SocketOspite {
+  /** Il numero del canale dell'ospite: è il nome del socket per tutti e due i
+   *  capi. */
+  s: number;
+  manda(d: string | Uint8Array): EsitoInvio;
+  /** Chiude dichiarando un codice. Il codice arriva davvero al socket vero,
+   *  quando è un codice che si può mandare. */
+  chiudi(c?: number, r?: string): void;
+  stato(): "apertura" | "aperto" | "chiuso";
+  /** Quanta corsa resta a QUESTO capo. Serve ai test per vedere la finestra
+   *  stringersi, che è la sola prova che il «fermati» esiste. */
+  credito(): number;
+}
+
+export interface OspiteWsOpts {
+  invia(payload: string): void;
+  max?: number;
+  credito?: number;
+  arretratoMax?: number;
+}
+
+export interface AperturaWs {
+  h?: Intestazioni;
+  sp?: string[];
+  /** Il socket è collegato. `sp` è il sottoprotocollo scelto, se c'è. */
+  suAperto?(sp: string | undefined): void;
+  suMessaggio?(d: string | Uint8Array): void;
+  /** Fine. `stato` è lo stato dell'upgrade quando non è nemmeno partito
+   *  (`503`, `400`, `502`), e non c'è quando il socket era aperto: le due cose
+   *  si leggono diverse perché sono diverse. */
+  suChiuso?(c: number, r: string, stato?: number): void;
+}
+
+interface StatoSocketOspite {
+  s: number;
+  sOut: number | null;
+  stato: "apertura" | "aperto" | "chiuso";
+  canale: ReturnType<typeof creaCapoCanale>;
+  cb: AperturaWs;
+  /** Lo stato dell'upgrade quando è stato rifiutato: si consegna alla
+   *  chiusura, che è l'unico momento in cui chi ascolta se ne può fare
+   *  qualcosa. */
+  rifiuto: number | null;
+}
+
+export function creaOspiteWs(opts: OspiteWsOpts) {
+  const prossimo = creaContatoreStream("guest");
+  const rias = creaRiassemblatore({ latoRemoto: "host" });
+  /** I socket per canale dell'OSPITE (il loro nome) e per canale della
+   *  MACCHINA (da dove arrivano messaggi e credito). */
+  const perNome = new Map<number, StatoSocketOspite>();
+  const perCanale = new Map<number, StatoSocketOspite>();
+
+  const manda = (f: Parameters<typeof scriviFrame>[0]) => opts.invia(scriviFrame(f));
+
+  function spegni(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
+    if (sk.stato === "chiuso") return;
+    sk.stato = "chiuso";
+    perNome.delete(sk.s);
+    if (sk.sOut !== null) perCanale.delete(sk.sOut);
+    if (avvisa) sk.canale.chiudi("aborted");
+    sk.cb.suChiuso?.(c, r, sk.rifiuto ?? undefined);
+  }
+
+  return {
+    /** Apre un socket. Torna subito: il collegamento vero arriva col richiamo,
+     *  esattamente come un `WebSocket` del browser. */
+    apri(p: string, o: AperturaWs = {}): SocketOspite {
+      const s = prossimo();
+      const canale = creaCapoCanale({
+        s, invia: manda,
+        ...(opts.max !== undefined ? { max: opts.max } : {}),
+        ...(opts.credito !== undefined ? { credito: opts.credito } : {}),
+        ...(opts.arretratoMax !== undefined ? { arretratoMax: opts.arretratoMax } : {}),
+      });
+      const sk: StatoSocketOspite = { s, sOut: null, stato: "apertura", canale, cb: o, rifiuto: null };
+      perNome.set(s, sk);
+      canale.apri(GENERE_WS, scriviTestaWs({
+        p, ...(o.h !== undefined ? { h: o.h } : {}), ...(o.sp !== undefined ? { sp: o.sp } : {}),
+      }));
+      return {
+        s,
+        manda: (d) => (sk.stato === "chiuso" ? "troppo" : canale.manda(d)),
+        chiudi(c = WS_CHIUSURA_NORMALE, r = "") {
+          if (sk.stato === "chiuso") return;
+          // La chiusura viaggia su uno stream suo perché porta un codice: il
+          // `reset` del tubo ha solo il vocabolario del tubo.
+          for (const fr of componiStream({
+            s: prossimo(), k: GENERE_WS_CHIUSO,
+            h: scriviTestaWs({ w: s }), dati: scriviChiusuraWs({ c, r }),
+            ...(opts.max !== undefined ? { max: opts.max } : {}),
+          })) manda(fr);
+          spegni(sk, c, r, true);
+        },
+        stato: () => sk.stato,
+        credito: () => canale.creditoOra(),
+      };
+    },
+
+    /** Un `payload` in arrivo dalla macchina. */
+    ricevi(payload: string): EsitoTubo {
+      const fr = leggiFramePayload(payload);
+      if (!fr) return { esito: "errore", s: -1, motivo: "bad-frame" };
+      const e = rias.ricevi(fr);
+
+      if (e.esito === "aperto" && e.canale && e.k === GENERE_WS_APERTO) {
+        const t = leggiTestaWsAperto(e.h);
+        const sk = t ? perNome.get(t.re) : undefined;
+        if (!t || !sk) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return e; }
+        sk.sOut = e.s;
+        perCanale.set(e.s, sk);
+        if (t.s === WS_APERTO) { sk.stato = "aperto"; sk.cb.suAperto?.(t.sp); }
+        // Un upgrade rifiutato non è un socket che si chiude: si ricorda lo
+        // stato e lo si consegna quando la corsia muore, un istante dopo.
+        else sk.rifiuto = t.s;
+        return e;
+      }
+
+      if (e.esito === "messaggio") {
+        const sk = perCanale.get(e.s);
+        if (!sk) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return e; }
+        sk.cb.suMessaggio?.(e.dati);
+        // Il credito torna DOPO la consegna, e con la misura che ha contato
+        // chi riceve: due conti dello stesso numero prima o poi divergono.
+        manda(ricaricaPer(e.s, e.byte));
+        return e;
+      }
+
+      if (e.esito === "credito") {
+        perNome.get(e.s)?.canale.ricarica(e.c);
+        return e;
+      }
+
+      if (e.esito === "completo" && e.k === GENERE_WS_CHIUSO) {
+        const t = leggiTestaWsChiuso(e.h);
+        const c = leggiChiusuraWs(e.dati);
+        if (!t || !c) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return e; }
+        const sk = perNome.get(t.w);
+        // Un socket già morto non è un errore: i due capi possono chiudere
+        // nello stesso istante e nessuno dei due ha sbagliato.
+        if (sk) spegni(sk, c.c, c.r, true);
+        return e;
+      }
+
+      if (e.esito === "chiuso" || e.esito === "errore") {
+        const sk = perCanale.get(e.s);
+        // La corsia è morta senza che nessuno abbia dichiarato una chiusura:
+        // per il socket è una caduta, ed è esattamente ciò che vuol dire 1006.
+        if (sk) spegni(sk, WS_CHIUSURA_ANOMALA, "", false);
+        return e;
+      }
+
+      return e;
+    },
+
+    socketVivi: () => perNome.size,
   };
 }
