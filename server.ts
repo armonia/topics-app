@@ -3624,6 +3624,12 @@ const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
   installationId: relayCfg.installationId,
+  // Dove si rigioca ciò che arriva dal relay. `null` — cioè
+  // `TOPICS_TUNNEL_PORT` non impostata, che è il caso di default — fa rifiutare
+  // in modo dichiarato: senza l'ascoltatore dedicato l'unica porta a cui
+  // rigiocare sarebbe quella principale, dove ogni richiesta è LOCALE, cioè
+  // proprietaria senza credenziali.
+  portaTunnel: portaTunnel,
   trovaLink: (ref) => {
     try {
       const r = ctx.db.query(
