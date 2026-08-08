@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, SIDEBAR_L1_SURFACE, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -159,12 +159,14 @@ function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>):
  * Le viste della sidebar sono tre (a gruppi, a lista, per stato) e ognuna
  * impila righe di primo livello a modo suo. Avvolgerle tutte in questo
  * contenitore fa sì che la regola — sotto i 768px la riga a riposo prende una
- * superficie, vedi {@link SIDEBAR_L1_SURFACE} — stia in un posto solo, e che la
- * quarta vista nasca già giusta invece di ricopiare una classe.
+ * superficie — stia in un posto solo, e che la quarta vista nasca già giusta
+ * invece di ricopiare una classe. Dall'08/08 quel fondo vive dentro
+ * `sidebarRowCard` (la card, non la riga intera): questo contenitore resta
+ * perché è ancora il posto unico in cui impilare le righe di primo livello.
  */
 function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`${SIDEBAR_L1_SURFACE} ${className}`} {...rest}>
+    <div className={className} {...rest}>
       {children}
     </div>
   );
