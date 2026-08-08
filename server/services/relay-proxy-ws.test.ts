@@ -18,12 +18,16 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ServerWebSocket } from "bun";
-import { creaRelayClient } from "./relay-client";
+import { creaProxyTubo, creaRelayClient } from "./relay-client";
 import { creaOspiteWs } from "../../shared/relay-fake";
 import {
-  costoMessaggio, leggiFramePayload, leggiMessaggio, scriviFrame, type FrameTubo,
+  componiStream, costoMessaggio, creaRiassemblatore, leggiFramePayload, leggiMessaggio,
+  scriviFrame, type FrameTubo,
 } from "../../shared/relay-protocol";
-import { GENERE_WS, scriviTestaWs } from "../../shared/relay-ws";
+import {
+  GENERE_WS, GENERE_WS_APERTO, GENERE_WS_CHIUSO,
+  leggiChiusuraWs, scriviChiusuraWs, scriviTestaWs, type ChiusuraWs,
+} from "../../shared/relay-ws";
 
 const SID = "s1";
 
@@ -129,6 +133,44 @@ function ospiteSu(m: ReturnType<typeof macchina>, o: { credito?: number } = {}) 
     if (msg && msg.t === "to-guest") ospite.ricevi(msg.payload);
   };
   return ospite;
+}
+
+/** Il proxy NUDO, senza il client del relay attorno. Serve dove la cosa da
+ *  guardare è un'opzione che `creaRelayClient` non gira — il tetto dei socket —
+ *  e dove i frame che escono si vogliono leggere uno per uno. */
+function proxyNudo(opts: { porta: number; maxSocket?: number }) {
+  const arrivati: FrameTubo[] = [];
+  const p = creaProxyTubo({
+    portaTunnel: opts.porta,
+    ...(opts.maxSocket !== undefined ? { maxSocket: opts.maxSocket } : {}),
+    invia: (_sid, payload) => {
+      const fr = leggiFramePayload(payload);
+      if (fr) arrivati.push(fr);
+    },
+  });
+  daChiudere.push({ chiudi: () => p.chiudiTutto() });
+  const apri = (s: number, percorso = "/ws") => p.riceviFrame(SID, {
+    f: "open", s, n: 0, k: GENERE_WS, h: scriviTestaWs({ p: percorso }), c: true,
+  });
+  return { p, arrivati, apri };
+}
+
+/**
+ * La chiusura DICHIARATA dalla macchina, letta davvero.
+ *
+ * Non basta guardare che uno stream `wsc` esista: il codice è tutta la
+ * differenza fra «riprova più tardi» e «è rotto», e un frame che c'è non dice
+ * quale dei due. Si rimette insieme con un riassemblatore vero — cioè con la
+ * stessa strada che percorre un ospite — invece di sbirciare dentro il primo
+ * frame, che sarebbe una seconda regola per leggere lo stesso formato.
+ */
+function chiusuraDichiarata(frames: FrameTubo[]): ChiusuraWs | null {
+  const rias = creaRiassemblatore({ latoRemoto: "host" });
+  for (const f of frames) {
+    const e = rias.ricevi(f);
+    if (e.esito === "completo" && e.k === GENERE_WS_CHIUSO) return leggiChiusuraWs(e.dati);
+  }
+  return null;
 }
 
 async function fino(cond: () => boolean, quanto = 2000): Promise<boolean> {
@@ -286,6 +328,76 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
     expect(up.ricevuti[0]).toBe("subito");
   });
 
+  /**
+   * Un socket chiuso deve RESTITUIRE il suo canale, non consumarlo.
+   *
+   * I canali hanno un tetto (`maxStream`, 64), ed è giusto che ce l'abbiano. Ma
+   * un tetto che si consuma non è un tetto: è una scadenza. Aprire e chiudere
+   * è il gesto più normale che ci sia — un terminale per pannello, un pannello
+   * che si apre e si richiude — e dopo un pomeriggio di lavoro il sessantacin-
+   * quesimo socket non si aprirebbe più. Non con un errore: resterebbe in
+   * «apertura» per sempre, perché il rifiuto arriva su uno stream che nessuno
+   * sta più aspettando. È il modo peggiore di rompersi.
+   */
+  it("aprire e chiudere non consuma i canali: dopo il tetto se ne apre ancora uno", async () => {
+    const up = ascoltatore();
+    const m = macchina({ porta: up.porta });
+    const ospite = ospiteSu(m);
+
+    // Oltre il `maxStream` di serie del riassemblatore, che è 64.
+    const GIRI = 70;
+    let apertiDavvero = 0;
+    for (let i = 0; i < GIRI; i++) {
+      let aperto = false;
+      const sk = ospite.apri("/ws", { suAperto: () => { aperto = true; } });
+      if (!(await fino(() => aperto))) break;
+      apertiDavvero += 1;
+      sk.chiudi();
+      if (!(await fino(() => up.vivi() === 0))) break;
+    }
+
+    // Il conto è la misura: senza la restituzione si ferma a 64.
+    expect(apertiDavvero).toBe(GIRI);
+    // …e il controllo positivo che l'ascoltatore stava davvero guardando: ogni
+    // giro è stata una stretta di mano vera, non un richiamo chiamato a vuoto.
+    expect(up.aperti.length).toBe(GIRI);
+    expect(m.c.__socket(SID)).toBe(0);
+  }, 30_000);
+
+  /**
+   * L'altra metà della stessa cosa, guardata dal lato della MACCHINA.
+   *
+   * Il giro sopra si accontenterebbe che a pulire sia l'ospite: due capi, e
+   * basta che uno dei due si ricordi. Ma l'ospite finto è UNA implementazione,
+   * e quella vera — un browser, domani — ha solo ciò che il formato promette.
+   * Il canale è della macchina, e restituirlo è suo dovere: il `reset` è
+   * l'unica frase che dice «dimentica questo stream».
+   */
+  it("quando è l'ospite a chiudere, la macchina restituisce comunque il PROPRIO canale", async () => {
+    const up = ascoltatore();
+    const t = proxyNudo({ porta: up.porta });
+    t.apri(1);
+    expect(await fino(() => up.aperti.length === 1)).toBe(true);
+
+    // Controllo positivo: il canale della macchina è nato davvero, e ha un
+    // numero — è quello che va restituito.
+    const apertura = t.arrivati.find((f) => f.f === "open" && f.k === GENERE_WS_APERTO);
+    expect(apertura).toBeDefined();
+    const sOut = apertura!.s;
+
+    t.arrivati.length = 0;
+    for (const fr of componiStream({
+      s: 3, k: GENERE_WS_CHIUSO, h: scriviTestaWs({ w: 1 }),
+      dati: scriviChiusuraWs({ c: 1000, r: "finito" }),
+    })) t.p.riceviFrame(SID, fr);
+    expect(await fino(() => up.vivi() === 0)).toBe(true);
+
+    expect(t.arrivati).toContainEqual({ f: "reset", s: sOut, motivo: "aborted" });
+    // …e NIENTE sulla corsia dell'ospite: quella l'ha chiusa lui, e rispondergli
+    // con una seconda chiusura coprirebbe il codice che ha appena dichiarato.
+    expect(t.arrivati.some((f) => f.s === 1)).toBe(false);
+  });
+
   it("l'ospite che se ne va porta con sé il socket vero", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
@@ -339,6 +451,36 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
     const sk = ospite.apri("/altro", { suChiuso: (_c, _r, s) => { stato = s; } });
     expect(await fino(() => sk.stato() === "chiuso")).toBe(true);
     expect(stato).toBe(502);
+  });
+
+  /**
+   * Il tetto dei socket per sessione.
+   *
+   * Un socket aperto è un socket VERO contro l'ascoltatore del tunnel, e chi
+   * sta fuori rete può aprirne senza mai parlarci: senza un tetto, tenere
+   * occupata la macchina di qualcun altro non costa niente. È l'unico limite
+   * che c'è su quel numero, quindi va fissato qui — o si può cancellare senza
+   * che niente diventi rosso.
+   */
+  it("una sessione non può tenere più socket del suo tetto", async () => {
+    const up = ascoltatore();
+    const t = proxyNudo({ porta: up.porta, maxSocket: 3 });
+
+    // Gli stream dell'ospite sono i dispari: la parità è il capo che li apre.
+    for (let i = 0; i < 3; i++) t.apri(1 + i * 2);
+    // Controllo positivo: i primi tre arrivano fino all'ascoltatore davvero.
+    expect(await fino(() => up.aperti.length === 3)).toBe(true);
+    expect(t.p.__socket(SID)).toBe(3);
+
+    t.arrivati.length = 0;
+    t.apri(7);
+    // Il rifiuto è dichiarato sullo stream che ha chiesto, non silenzioso.
+    expect(t.arrivati).toEqual([{ f: "reset", s: 7, motivo: "too-many-streams" }]);
+    // …e nessun socket in più è nato: il tetto sta davanti alla stretta di
+    // mano, non dopo.
+    await Bun.sleep(80);
+    expect(up.aperti.length).toBe(3);
+    expect(t.p.__socket(SID)).toBe(3);
   });
 
   it("una testa illeggibile uccide QUEL canale e lascia in piedi la sessione", async () => {
@@ -423,7 +565,14 @@ describe("il credito: chi produce troppo in fretta si deve poter fermare", () =>
     expect(await fino(() => up.vivi() === 0)).toBe(true);
     expect(m.c.__socket(SID)).toBe(0);
     // …e all'ospite arriva la chiusura, con il codice che dice «riprova».
-    expect(o.arrivati.some((f) => f.f === "open" && f.k === "wsc")).toBe(true);
+    // `1013` e non `1011`: non è un guasto della macchina, è una rete che non
+    // ce la fa. Chi lo riceve deve poter decidere di riconnettersi, e «errore
+    // interno» lo manderebbe a cercare un guasto che non c'è. Che il frame
+    // esista non basta a dirlo: va letto.
+    const c = chiusuraDichiarata(o.arrivati);
+    expect(c).not.toBeNull();
+    expect(c?.c).toBe(1013);
+    expect(c?.r).toBe("backpressure");
   });
 
   it("il credito torna solo DOPO la consegna, non all'arrivo", async () => {
