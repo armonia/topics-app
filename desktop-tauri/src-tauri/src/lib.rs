@@ -1441,14 +1441,30 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
     let _ = (app, visible);
 }
 
-/// Set the NSWindow's appearance to match the app's resolved light/dark theme.
+/// Set the NSWindow's appearance to match the app's chosen light/dark theme.
 /// The traffic lights and — crucially — the per-region NSVisualEffectViews read
 /// the window's effective appearance, so a single setAppearance also re-tints the
 /// vibrancy material (light frost in light mode, dark frost in dark mode) with no
 /// per-view work. Electron does this via `nativeTheme.themeSource`; we set the
 /// NSAppearance directly since Tauri exposes no JS API for it. No-op off macOS.
+///
+/// `dark: None` = «TOGLI l'override», cioè `setAppearance: nil`, che rimette la
+/// finestra a EREDITARE da NSApp — ed è il caso che mancava.
+///
+/// Perché mancava è tutto il bug della modalità «Sistema». La WKWebView eredita
+/// l'effectiveAppearance dalla sua finestra, quindi appena si pinna Aqua o
+/// DarkAqua `prefers-color-scheme` dentro la pagina smette di riportare l'OS e
+/// riporta NOI. Il giro si chiudeva su sé stesso: tema salvato 'light' → al
+/// montaggio si pinna Aqua → l'utente sceglie «Sistema» → `matchMedia` legge
+/// Aqua, che è il nostro valore → resta chiaro. «Funzionava» solo passando da
+/// «Scuro», perché a quel punto il valore riletto era l'altro.
+///
+/// Rimesso a `nil`, il resto lo fa il listener che c'è già: quando
+/// l'effectiveAppearance cambia, WKWebView emette il `change` sulla media query
+/// e `useTheme` riallinea classe e meta. Il materiale della vibrancy segue
+/// l'effectiveAppearance da sé, quindi il frost non regredisce.
 #[cfg(target_os = "macos")]
-fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
+fn apply_appearance(window: &tauri::WebviewWindow, dark: Option<bool>) {
     use crate::mac::*;
 
     let ptr = match window.ns_window() {
@@ -1456,6 +1472,10 @@ fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
         Err(_) => return,
     };
     unsafe {
+        let Some(dark) = dark else {
+            let _: () = msg_send![ptr, setAppearance: nil];
+            return;
+        };
         let name = if dark {
             "NSAppearanceNameDarkAqua"
         } else {
@@ -1471,19 +1491,43 @@ fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
 }
 
 /// Client-driven: sync native chrome (window appearance + vibrancy tint) to the
-/// resolved theme ("dark" | "light"). Mirrors Electron's `theme.setResolved`.
+/// theme MODE chosen by the user ("dark" | "light" | "system") — gli stessi tre
+/// valori che accetta `nativeTheme.themeSource` di Electron.
+///
+/// Arriva la MODALITÀ, non il tema risolto, e la differenza è il bug: qualunque
+/// stringa diversa da "dark" veniva mappata su `dark=false`, quindi "system"
+/// pinnava Aqua. Il client risolveva `system` con `matchMedia` e ci passava il
+/// risultato — ma quel `matchMedia` legge l'appearance della finestra, che
+/// eravamo stati noi a fissare: si rileggeva addosso. Qui "system" è un caso a
+/// sé e vale «togli l'override» (vedi `apply_appearance`).
+///
+/// Itera sulle app-shell (`main` più le `detach-*`) e non su "main" e basta:
+/// con una sola finestra cablata, una pop-out non veniva mai pinnata, quindi con
+/// un tema FORZATO aveva traffic lights e frost sull'appearance del SISTEMA
+/// invece che sul tema scelto — la stessa regressione che questo codice era nato
+/// per chiudere, riaperta dalle finestre multiple. Le `browserpane-*` restano
+/// fuori: caricano il web aperto, non l'app.
 #[tauri::command]
 fn set_theme(app: tauri::AppHandle, theme: String) {
-    // Same multi-webview safety as `set_traffic_lights`: resolve the main window via
-    // the AppHandle, not a `WebviewWindow` param (rejected once browser panes mount).
+    // Same multi-webview safety as `set_traffic_lights`: resolve windows via the
+    // AppHandle, not a `WebviewWindow` param (rejected once browser panes mount).
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        let dark = theme == "dark";
+        let dark = match theme.as_str() {
+            "dark" => Some(true),
+            "light" => Some(false),
+            // "system" — e qualunque valore che non riconosciamo: non inventare
+            // un tema, lascia decidere l'OS.
+            _ => None,
+        };
         // no_abort: run_on_main_thread locks the window dispatcher — same
         // poisoned-mutex SIGABRT class (see no_abort doc).
         let _ = no_abort("set_theme", || {
-            if let Some(win) = app.get_webview_window("main") {
+            for (label, win) in app.webview_windows() {
+                if label != "main" && !label.starts_with("detach-") {
+                    continue;
+                }
                 let win2 = win.clone();
                 let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
             }

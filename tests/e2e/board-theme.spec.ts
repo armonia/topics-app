@@ -26,6 +26,8 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
+import { contrastOf, effectiveBgOf, contrastRatio, AA_TESTO, AA_GRAFICA } from "./helpers/contrast";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -82,81 +84,12 @@ async function openProjectBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-/**
- * Contrasto WCAG 2.1 fra il testo di un elemento e il primo sfondo OPACO
- * risalendo gli antenati (una card con `bg-surface` è opaca; un chip con
- * `bg-white/10` no, e allora conta quello che ha sotto).
- */
-async function contrastOf(page: Page, selector: string): Promise<{ ratio: number; color: string; bg: string }> {
-  return page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (!el) throw new Error(`nessun elemento per il selettore ${sel}`);
-
-    // Il colore lo normalizza il BROWSER, non una regex. `getComputedStyle`
-    // non restituisce sempre `rgb()`: per la palette interna di Tailwind v4
-    // torna `oklch(0.97 0 0)`, e una regex su `rgba?\(` lo leggeva come
-    // [0,0,0,0] — cioè nero trasparente. Risultato: il controllo con la
-    // palette vecchia dava 21:1 in chiaro (nero su bianco) invece di ~1:1
-    // (quasi-bianco su bianco), cioè il test giurava che la Board illeggibile
-    // fosse a posto. Un canvas 1×1 accetta qualunque sintassi CSS che il
-    // browser sappia parsare (oklch, color(), hsl, nomi) e restituisce RGBA
-    // veri, alpha compresa.
-    const probe = document.createElement("canvas");
-    probe.width = probe.height = 1;
-    const ctx = probe.getContext("2d", { willReadFrequently: true })!;
-    const parse = (s: string): [number, number, number, number] => {
-      ctx.clearRect(0, 0, 1, 1);
-      ctx.fillStyle = "#000";
-      ctx.fillStyle = s; // se `s` è impresentabile resta "#000": lo vediamo dal contrasto
-      ctx.fillRect(0, 0, 1, 1);
-      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-      return [r, g, b, a / 255];
-    };
-    // Composita gli sfondi traslucidi uno sull'altro finché non se ne trova uno
-    // opaco: è quello che l'occhio vede davvero sotto il testo.
-    const effectiveBg = (start: Element): [number, number, number] => {
-      const stack: [number, number, number, number][] = [];
-      let node: Element | null = start;
-      while (node) {
-        const [r, g, b, a] = parse(getComputedStyle(node).backgroundColor);
-        if (a > 0) {
-          stack.push([r, g, b, a]);
-          if (a >= 1) break;
-        }
-        node = node.parentElement;
-      }
-      // Nessuno sfondo opaco trovato: il fondo pagina fa da base.
-      let [br, bg_, bb] = [255, 255, 255];
-      for (let i = stack.length - 1; i >= 0; i--) {
-        const [r, g, b, a] = stack[i];
-        br = r * a + br * (1 - a);
-        bg_ = g * a + bg_ * (1 - a);
-        bb = b * a + bb * (1 - a);
-      }
-      return [br, bg_, bb];
-    };
-
-    const lum = (r: number, g: number, b: number) => {
-      const f = (c: number) => {
-        const s = c / 255;
-        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-      };
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-
-    const cs = getComputedStyle(el);
-    const [cr, cg, cb] = parse(cs.color);
-    const [br, bg_, bb] = effectiveBg(el);
-    const l1 = lum(cr, cg, cb);
-    const l2 = lum(br, bg_, bb);
-    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-    return {
-      ratio,
-      color: `rgb(${Math.round(cr)}, ${Math.round(cg)}, ${Math.round(cb)})${cs.color.startsWith("rgb") ? "" : ` [${cs.color}]`}`,
-      bg: `rgb(${Math.round(br)}, ${Math.round(bg_)}, ${Math.round(bb)})`,
-    };
-  }, selector);
-}
+/* La misura vive in `helpers/contrast.ts`: era scritta qui e RICOPIATA in
+ * `empty-state.spec.ts`, e adesso serve anche ai due blocchi in fondo a questo
+ * file. Due sorgenti per la stessa aritmetica sono il modo in cui un cancello
+ * smette in silenzio di misurare quello che crede — c'è già il precedente della
+ * regex su `rgba?\(` che leggeva `oklch()` come nero trasparente e dava 21:1 su
+ * una superficie illeggibile. */
 
 test.describe("Board — leggibilità nei due temi", () => {
   test.describe.configure({ timeout: 90_000 });
@@ -290,42 +223,8 @@ test.describe("Superfici rialzate — visibili nei due temi", () => {
         document.body.appendChild(root);
       }, CASES as unknown as { name: string; cls: string }[]);
 
-      // Sfondo composito effettivo (traslucido → primo opaco), stesso metodo del
-      // test Board. Torna [r,g,b] per il selettore dato.
-      const effectiveBg = (sel: string) =>
-        page.evaluate((s) => {
-          const el = document.querySelector(s);
-          if (!el) throw new Error(`nessun elemento per ${s}`);
-          const probe = document.createElement("canvas");
-          probe.width = probe.height = 1;
-          const ctx = probe.getContext("2d", { willReadFrequently: true })!;
-          const parse = (str: string): [number, number, number, number] => {
-            ctx.clearRect(0, 0, 1, 1);
-            ctx.fillStyle = "#000";
-            ctx.fillStyle = str;
-            ctx.fillRect(0, 0, 1, 1);
-            const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-            return [r, g, b, a / 255];
-          };
-          const stack: [number, number, number, number][] = [];
-          let node: Element | null = el;
-          while (node) {
-            const [r, g, b, a] = parse(getComputedStyle(node).backgroundColor);
-            if (a > 0) {
-              stack.push([r, g, b, a]);
-              if (a >= 1) break;
-            }
-            node = node.parentElement;
-          }
-          let [br, bgc, bb] = [255, 255, 255];
-          for (let i = stack.length - 1; i >= 0; i--) {
-            const [r, g, b, a] = stack[i];
-            br = r * a + br * (1 - a);
-            bgc = g * a + bgc * (1 - a);
-            bb = b * a + bb * (1 - a);
-          }
-          return [br, bgc, bb] as [number, number, number];
-        }, sel);
+      // Sfondo composito effettivo (traslucido → primo opaco): `helpers/contrast.ts`.
+      const effectiveBg = (sel: string) => effectiveBgOf(page, sel);
 
       const parentBg = await effectiveBg("#elev-harness");
       const deltaOf = (bg: number[]) =>
@@ -360,6 +259,240 @@ test.describe("Superfici rialzate — visibili nei due temi", () => {
         body: await page.locator("#elev-harness").screenshot(),
         contentType: "image/png",
       });
+    });
+  }
+});
+
+/**
+ * L'ALBERO DEI FILE SU UN REPO SPORCO — le tinte di stato git nei due temi.
+ *
+ * Il cancello del contrasto esisteva già, ma era ancorato a superfici che NON
+ * includevano quelle rotte: misurava la card della Board e un banco sintetico di
+ * rialzi, mentre il punto che si vedeva a occhio nudo — la colonna dei file di
+ * un progetto — non lo guardava nessuno.
+ *
+ * Cosa c'era: in `FileExplorer` le tinte di stato erano scritte NUDE, senza
+ * coppia `dark:`. `text-amber-400` su una superficie chiara misura 1,65:1 e in
+ * scuro 9,26:1 — lo STESSO pixel, sei volte meno leggibile in un tema che
+ * nell'altro. E lo stesso lavoro, nello stesso pannello, `GitChanges` lo faceva
+ * già con le coppie: era una dimenticanza, non una scelta.
+ *
+ * Qui si misurano i NODI VERI su un repo con stati git veri (M / U dal
+ * fixture condiviso), non un banco: il nome del file colorato dallo stato e la
+ * lettera accanto. Il banco resta solo per la banda d'errore, che ha bisogno di
+ * un guasto di rete per comparire e non si può pretendere da un test.
+ */
+test.describe("Albero dei file — le tinte di stato git nei due temi", () => {
+  test.describe.configure({ timeout: 90_000 });
+
+  let progetto: FileProject | undefined;
+
+  test.beforeAll(async ({ request }) => {
+    progetto = await seedFileProject(request, "theme");
+  });
+
+  test.afterAll(async ({ request }) => {
+    await cleanupFileProject(request, progetto);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (!progetto) return;
+    await resetPaneStore(request, []);
+    await resetProjectPanes(request, progetto.tmpDir);
+    await seedProjectPane(request, progetto.tmpDir);
+  });
+
+  async function apriAlbero(page: Page, projectPath: string) {
+    const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
+    if ((await projectsSection.count()) > 0) {
+      const expanded = await projectsSection.getAttribute("aria-expanded");
+      if (expanded === "false") await projectsSection.click();
+    }
+    const header = page.locator(`button[title="${projectPath}"]`);
+    await expect(header).toBeVisible({ timeout: 10000 });
+    await header.click();
+    await expect(page.locator('[data-testid="file-tree"]').first()).toBeVisible({ timeout: 15000 });
+  }
+
+  for (const scheme of ["dark", "light"] as const) {
+    test(`FILETREE-CONTRAST-01 (${scheme}): nomi e lettere di stato git sono leggibili`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      await apriAlbero(page, progetto!.tmpDir);
+
+      // Il fixture semina `newfile.txt` non tracciato: la sua riga porta sia il
+      // nome colorato sia la lettera. Si aspetta che almeno una compaia — lo
+      // stato git arriva dal watcher, non dal primo render dell'albero.
+      const lettere = page.locator('[data-testid="git-status-letter"]');
+      await expect(lettere.first()).toBeVisible({ timeout: 15000 });
+
+      const isDark = await page.evaluate(() => document.documentElement.classList.contains("dark"));
+      expect(isDark, `colorScheme=${scheme} deve produrre .dark=${scheme === "dark"}`).toBe(scheme === "dark");
+
+      // OGNI nodo colorato, non il primo: gli stati hanno tinte diverse e un
+      // controllo sul solo primo passerebbe con gli altri rotti.
+      for (const [sel, etichetta] of [
+        ['[data-testid="git-status-letter"]', "lettera di stato"],
+        ['[data-testid="file-node-name-git"]', "nome del file"],
+      ] as const) {
+        const quanti = await page.locator(sel).count();
+        expect(quanti, `${etichetta}: nessun nodo da misurare, il repo non risulta sporco`).toBeGreaterThan(0);
+        for (let i = 0; i < quanti; i++) {
+          const { ratio, color, bg } = await contrastOf(page, sel, i);
+          testInfo.annotations.push({
+            type: "contrasto",
+            description: `${scheme} · ${etichetta} #${i}: ${ratio.toFixed(2)}:1 — ${color} su ${bg}`,
+          });
+          expect(
+            ratio,
+            `${etichetta} #${i} in tema ${scheme} (${color} su ${bg}): sotto ${AA_TESTO}:1`,
+          ).toBeGreaterThanOrEqual(AA_TESTO);
+        }
+      }
+
+      await testInfo.attach(`file-tree-${scheme}.png`, {
+        body: await page.locator('[data-testid="file-tree"]').first().screenshot(),
+        contentType: "image/png",
+      });
+    });
+  }
+});
+
+/**
+ * I SEGNALI DEL CHROME — barra di stato e banda d'errore dell'albero.
+ *
+ * Il chrome chiaro (#eaecf0) è più SCURO di una superficie di contenuto, quindi
+ * una tinta che passa su una card lì può non passare: `text-amber-500` sul
+ * chrome misura 1,82:1, `text-emerald-500` 2,09:1. Erano i colori di «2,1GB» in
+ * allarme, del pallino del gateway, del badge `dev`.
+ *
+ * Il banco è montato DENTRO la sidebar vera, non su un `div` con una classe
+ * addosso: solo lì valgono sia il fondo del chrome sia le regole che il chrome
+ * si ritara per sé (index.css ritara terziario, bordi e — da questo giro — il
+ * blu di `text-primary`, che sul chrome chiaro stava a 4,09:1). Un banco
+ * appeso al body misurerebbe un'altra superficie e direbbe un altro numero.
+ *
+ * Le classi qui sotto DEVONO restare allineate alle costanti di
+ * `SidebarStatusBar.tsx` e alla banda d'errore di `FileExplorer.tsx`: sono
+ * scritte a mano perché una spec non importa dal sorgente del client, ed è lo
+ * stesso patto già in piedi in SURFACE-ELEV-01.
+ */
+test.describe("Chrome — i segnali di stato nei due temi", () => {
+  const TESTO = [
+    { nome: "ok", cls: "text-emerald-800 dark:text-emerald-400" },
+    { nome: "attesa", cls: "text-amber-800 dark:text-amber-400" },
+    { nome: "guasto", cls: "text-red-700 dark:text-red-400" },
+    { nome: "link-primary", cls: "text-primary" },
+  ] as const;
+  const GRAFICA = [
+    { nome: "pallino-ok", cls: "bg-emerald-600 dark:bg-emerald-400" },
+    { nome: "pallino-attesa", cls: "bg-amber-700 dark:bg-amber-400" },
+    { nome: "pallino-guasto", cls: "bg-red-500 dark:bg-red-400" },
+    { nome: "pallino-spento", cls: "bg-app-text-muted" },
+  ] as const;
+
+  for (const scheme of ["dark", "light"] as const) {
+    test(`CHROME-SIGNAL-01 (${scheme}): i segnali della barra di stato si leggono`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      const sidebar = page.locator('[role="navigation"][aria-label="Topics sidebar"]');
+      await expect(sidebar).toBeVisible({ timeout: 15000 });
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
+        .toBe(scheme === "dark");
+
+      await page.evaluate(({ testo, grafica }) => {
+        document.getElementById("chrome-harness")?.remove();
+        const sb = document.querySelector('[role="navigation"][aria-label="Topics sidebar"]');
+        if (!sb) throw new Error("sidebar non trovata: il banco deve stare dentro il chrome vero");
+        const root = document.createElement("div");
+        root.id = "chrome-harness";
+        root.style.cssText = "padding:8px;display:flex;gap:8px;align-items:center;";
+        for (const c of testo) {
+          const s = document.createElement("span");
+          s.setAttribute("data-segnale", c.nome);
+          s.className = c.cls;
+          s.textContent = c.nome;
+          root.appendChild(s);
+        }
+        for (const c of grafica) {
+          const s = document.createElement("span");
+          s.setAttribute("data-pallino", c.nome);
+          s.className = `${c.cls} rounded-full`;
+          s.style.cssText = "width:6px;height:6px;display:inline-block;";
+          root.appendChild(s);
+        }
+        sb.appendChild(root);
+      }, { testo: TESTO as unknown as { nome: string; cls: string }[], grafica: GRAFICA as unknown as { nome: string; cls: string }[] });
+
+      for (const c of TESTO) {
+        const { ratio, color, bg } = await contrastOf(page, `[data-segnale="${c.nome}"]`);
+        testInfo.annotations.push({
+          type: "contrasto",
+          description: `${scheme} · ${c.nome} (${c.cls}): ${ratio.toFixed(2)}:1 — ${color} su ${bg}`,
+        });
+        expect(
+          ratio,
+          `${c.nome} (${c.cls}) sul chrome in tema ${scheme}: ${color} su ${bg}, sotto ${AA_TESTO}:1`,
+        ).toBeGreaterThanOrEqual(AA_TESTO);
+      }
+
+      const fondoChrome = await effectiveBgOf(page, "#chrome-harness");
+      for (const c of GRAFICA) {
+        const tinta = await effectiveBgOf(page, `[data-pallino="${c.nome}"]`);
+        const ratio = contrastRatio(tinta, fondoChrome);
+        testInfo.annotations.push({
+          type: "contrasto grafica",
+          description: `${scheme} · ${c.nome} (${c.cls}): ${ratio.toFixed(2)}:1`,
+        });
+        // Un pallino è GRAFICA: WCAG chiede 3:1, non 4,5 — una forma si
+        // riconosce con meno contrasto di quanto ne serva a leggere una parola.
+        expect(
+          ratio,
+          `${c.nome} (${c.cls}) sul chrome in tema ${scheme}: sotto ${AA_GRAFICA}:1`,
+        ).toBeGreaterThanOrEqual(AA_GRAFICA);
+      }
+
+      await testInfo.attach(`chrome-signals-${scheme}.png`, {
+        body: await page.locator("#chrome-harness").screenshot(),
+        contentType: "image/png",
+      });
+    });
+
+    test(`CHROME-SIGNAL-02 (${scheme}): la banda d'errore dell'albero si legge`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
+        .toBe(scheme === "dark");
+
+      // La banda ha un fondo SUO (`amber-500/10`) sopra la superficie del
+      // pannello: il testo va misurato sul composito, non sul pannello nudo.
+      // Compare solo quando una lettura fallisce, quindi qui si replicano le
+      // sue classi su un genitore `bg-elevated` — la superficie su cui vive.
+      await page.evaluate(() => {
+        document.getElementById("banda-harness")?.remove();
+        const root = document.createElement("div");
+        root.id = "banda-harness";
+        root.className = "bg-elevated";
+        root.style.cssText = "position:fixed;top:0;left:0;z-index:99999;padding:8px;";
+        const banda = document.createElement("div");
+        banda.id = "banda-errore";
+        banda.className = "px-3 py-1 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-500/10";
+        banda.textContent = "Impossibile aggiornare l'elenco dei file";
+        root.appendChild(banda);
+        document.body.appendChild(root);
+      });
+
+      const { ratio, color, bg } = await contrastOf(page, "#banda-errore");
+      testInfo.annotations.push({
+        type: "contrasto",
+        description: `${scheme} · banda d'errore: ${ratio.toFixed(2)}:1 — ${color} su ${bg}`,
+      });
+      expect(
+        ratio,
+        `banda d'errore dell'albero in tema ${scheme} (${color} su ${bg}): sotto ${AA_TESTO}:1`,
+      ).toBeGreaterThanOrEqual(AA_TESTO);
     });
   }
 });

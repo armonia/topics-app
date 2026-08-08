@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import type { ThemeMode, WSMessage } from '../types';
 import { useServerState } from './useServerState';
 import { isTauri } from '../lib/shell';
@@ -47,19 +47,39 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     debounceMs: 300,
     onMessage,
   });
-  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => getEffectiveTheme(themeMode));
+  // (Qui c'era anche uno stato `effectiveTheme`, tenuto in sincrono a mano e
+  // restituito dall'hook. Nessuno lo leggeva — zero call-site in tutto il
+  // client — quindi era una seconda copia della verità che poteva solo divergere
+  // da quella vera, che è la classe `.dark` sul documentElement. Toglierlo si
+  // porta via anche il `setState` dentro l'effetto, e con esso la sua deroga
+  // lint.)
 
   useEffect(() => {
     const effective = getEffectiveTheme(themeMode);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging sync: resolves themeMode (incl. 'system' via matchMedia, which can't run in render) alongside the DOM/native side effects below; only re-runs when themeMode changes, never loops
-    setEffectiveTheme(effective);
     document.documentElement.classList.toggle('dark', effective === 'dark');
     syncThemeColorMeta();
     // Tauri native chrome: set the NSWindow appearance so the traffic lights and
     // the per-region vibrancy material re-tint to match light/dark (set_theme in
     // src-tauri/src/lib.rs). No-op off macOS / on web.
+    //
+    // Si passa `themeMode`, LA MODALITÀ, non `effective`. Passare il tema
+    // risolto chiudeva un anello: la WKWebView eredita l'effectiveAppearance
+    // dalla finestra, quindi appena il Rust pinna Aqua/DarkAqua la riga qui
+    // sopra — `matchMedia('(prefers-color-scheme: dark)')` — smette di leggere
+    // l'OS e legge il valore che ci siamo scritti da soli. Con «Sistema» il
+    // risultato era che il tema non seguiva mai il Mac: restava dov'era, e
+    // «funzionava» solo dopo essere passati da «Scuro» — cioè dopo aver messo
+    // noi il valore che poi rileggevamo. Con la modalità, "system" diventa in
+    // Rust `setAppearance: nil` e la finestra torna a ereditare.
+    //
+    // Niente `await` e nessuna ri-risoluzione dopo: `set_theme` non ritorna
+    // niente e dispaccia sul main thread, quindi la command torna PRIMA che
+    // `setAppearance:` sia stato eseguito — un `getEffectiveTheme` messo dopo
+    // leggerebbe ancora il valore vecchio. A rimettere le cose a posto è il
+    // listener sotto: quando l'appearance flippa davvero, la media query emette
+    // `change` e classe e meta si riallineano lì.
     if (isTauri) {
-      void tauriInvoke('set_theme', { theme: effective }).catch(() => {});
+      void tauriInvoke('set_theme', { theme: themeMode }).catch(() => {});
     }
   }, [themeMode]);
 
@@ -68,9 +88,14 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     if (themeMode !== 'system') return;
 
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    // È QUESTO il pezzo che fa funzionare «Sistema» sotto la shell desktop.
+    // La WKWebView eredita l'effectiveAppearance dalla finestra: appena il Rust
+    // toglie l'override (`setAppearance: nil`) e la finestra torna a ereditare
+    // da NSApp, la media query emette `change` e da qui riallineiamo classe e
+    // meta. Nessuna attesa, nessun polling: l'evento arriva quando il valore è
+    // davvero cambiato.
     const handler = () => {
       const effective = getEffectiveTheme('system');
-      setEffectiveTheme(effective);
       document.documentElement.classList.toggle('dark', effective === 'dark');
       syncThemeColorMeta();
     };
@@ -90,5 +115,5 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     setThemeMode(mode);
   }, [setThemeMode]);
 
-  return { themeMode, effectiveTheme, toggleTheme, setTheme };
+  return { themeMode, toggleTheme, setTheme };
 }

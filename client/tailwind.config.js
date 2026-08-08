@@ -41,29 +41,13 @@ export default {
         'app-spinner': 'var(--spinner-track)',
         'app-disabled': 'var(--disabled-bg)',
 
-        // Phase G · 3-layer token system. Components can opt in
-        // incrementally — `--app-*` classes still work alongside.
-        'dashboard-bg': 'hsl(var(--dashboard-bg-primary))',
-        'dashboard-surface-light': 'hsl(var(--dashboard-surface-light))',
-        'dashboard-surface-dark': 'hsl(var(--dashboard-surface-dark))',
-        'dashboard-input': 'hsl(var(--dashboard-input-surface))',
-        'dashboard-border': 'hsl(var(--dashboard-border))',
-        'dashboard-text': 'hsl(var(--dashboard-text-primary))',
-        'dashboard-text-secondary': 'hsl(var(--dashboard-text-secondary))',
-        'dashboard-text-muted': 'hsl(var(--dashboard-text-muted))',
-
-        'sidebar-bg': 'hsl(var(--sidebar-bg))',
-        'sidebar-fg': 'hsl(var(--sidebar-foreground))',
-        'sidebar-border-token': 'hsl(var(--sidebar-border))',
-        'sidebar-search-bg': 'hsl(var(--sidebar-search))',
-        'sidebar-hover-bg': 'hsl(var(--sidebar-hover))',
-        'sidebar-selected-bg': 'hsl(var(--sidebar-selected))',
-        'sidebar-footer-bg': 'hsl(var(--sidebar-footer-bg))',
-        'sidebar-tree-line': 'hsl(var(--sidebar-tree-line))',
-
-        'functional-positive': 'hsl(var(--color-functional-positive))',
-        'functional-warning': 'hsl(var(--color-functional-warning))',
-        'functional-negative': 'hsl(var(--color-functional-negative))',
+        // (Qui stavano diciannove alias — `dashboard-*`, `sidebar-*`,
+        // `functional-*` — verso altrettanti token di index.css. Erano rotti
+        // alla nascita: avvolgevano il token in `hsl(...)` mentre il token
+        // conteneva già `hsl(...)`, cioè generavano `hsl(hsl(0 0% 96%))`, che
+        // il browser scarta. Nessuno li usava — zero occorrenze in src — e i
+        // token che indicavano avevano il solo ramo chiaro. Cancellati insieme
+        // ai token: vedi la nota in `:root`, index.css.)
       },
       borderRadius: {
         DEFAULT: 'var(--radius)',
