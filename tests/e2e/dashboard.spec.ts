@@ -216,15 +216,14 @@ test.describe("Dashboard & Analytics", () => {
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
 
-    // Click "Settings & Tools" button in the sidebar header
-    const settingsBtn = page.locator('button[title="Settings & Tools"]');
-    await settingsBtn.click();
-
-    // Click "Statistics" in the dropdown
-    const statsBtn = page.locator(
-      'button:has-text("Statistics"):visible',
-    );
-    await statsBtn.click();
+    // Il menu «New» (⌘N) della sidebar è l'UNICO posto da cui si apre una pane:
+    // la riga si chiama «Dashboard», come la tab che apre. Prima era
+    // «Statistics» nel dropdown «Settings & Tools» — un secondo menu di
+    // creazione con nomi propri.
+    await page.locator('button[title="New (⌘N)"]').click();
+    const dashboardRow = page.getByTestId("pane-add-menu-dashboard");
+    await expect(dashboardRow).toBeVisible({ timeout: 5000 });
+    await dashboardRow.click();
 
     // Verify dashboard pane is visible with KPI grid
     await expect(dashboardPage.pane).toBeVisible({ timeout: 10_000 });

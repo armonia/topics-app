@@ -43,6 +43,8 @@ export type AddMenuItemId =
   | 'files'
   | 'kanban'
   | 'board'
+  | 'dashboard'
+  | 'cron'
   | 'open-project';
 
 export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
@@ -68,6 +70,14 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   files: 'F',
   kanban: 'D',
   board: 'D',
+  // Dashboard e Cron arrivano dal dropdown «Topics ▾», dove non avevano
+  // lettere. Entrambe le iniziali sono già di qualcun altro nello scope
+  // standalone — D è di Board, C di Claude Code — quindi vale il caso (b): la
+  // prima libera dell'etichetta, da sinistra. d-A-shboard → A, c-R-on → R.
+  // Nessuna delle due è l'iniziale riservata di un'altra voce, e restano
+  // dentro l'etichetta, quindi la sottolineatura resta possibile.
+  dashboard: 'A',
+  cron: 'R',
   // UNA riga sola per il progetto: «Apri» e «Crea» chiamavano la stessa
   // funzione (`openProjectPicker`) e il pannello di sistema si intitola gia'
   // «Apri / Crea progetto» — erano due voci per un solo comportamento.
@@ -76,8 +86,15 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
 
 /** Le righe che possono comparire insieme, per scope. Il test di unicità gira
  *  su questi insiemi, non sull'unione: `kanban` e `board` condividono la D
- *  proprio perché non si incontrano mai. */
+ *  proprio perché non si incontrano mai.
+ *
+ *  `cron` è elencata qui benché l'installazione possa non offrirla (richiede
+ *  OpenClaw, vedi `PaneConfig.requires`): l'insieme dichiara le righe POSSIBILI
+ *  in uno scope, ed è esattamente sul possibile che l'unicità va garantita —
+ *  una lettera che collide solo dove OpenClaw è configurato sarebbe un bug che
+ *  metà delle installazioni non vede mai. Stessa ragione per cui la mappa non
+ *  si calcola sul visibile (invariante 1 in testa al file). */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
   project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'open-project'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'dashboard', 'cron', 'open-project'],
 };

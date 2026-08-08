@@ -26,6 +26,8 @@ const LABELS: Record<AddMenuItemId, string> = {
   files: getPaneConfig('files').label,
   kanban: getPaneConfig('kanban').label,
   board: getPaneConfig('board').label,
+  dashboard: getPaneConfig('dashboard').label,
+  cron: getPaneConfig('cron').label,
   'open-project': 'Progetto…',
 };
 
@@ -82,6 +84,18 @@ describe('mnemonics del menu "New…"', () => {
     // N e non H: ⌘N apre il menu, e N è la lettera della cosa che ⌘N crea per
     // default. La H di c-H-at era corretta per la regola ma muta per la mano.
     expect(ADD_MENU_MNEMONICS['new-chat']).toBe('N');
+  });
+
+  it('Dashboard e Cron NON rubano la D e la C: prendono la prima libera dell\'etichetta', () => {
+    // Arrivano dal dropdown «Topics ▾», dove non avevano lettere, e le loro
+    // iniziali erano già assegnate nello scope in cui compaiono: D a Board, C
+    // a Claude Code. La regola dice caso (b) — prima libera dell'etichetta —
+    // e va pinnata perché la tentazione è dare D a Dashboard (è la sua
+    // iniziale) spostando Board, cioè rompere l'invariante 1.
+    expect(ADD_MENU_MNEMONICS.dashboard).toBe('A');
+    expect(ADD_MENU_MNEMONICS.cron).toBe('R');
+    expect(ADD_MENU_MNEMONICS.board).toBe('D');
+    expect(ADD_MENU_MNEMONICS['claude-code']).toBe('C');
   });
 
   it('ogni riga dichiarata negli scope esiste nella mappa, e viceversa', () => {
