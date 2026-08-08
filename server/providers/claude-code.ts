@@ -1917,16 +1917,18 @@ export class ClaudeCodeProvider implements AIProvider {
     // models don't support tool search» — e quindi escludeva dal deferral proprio
     // i topic bridge-only su haiku: misurato, haiku deferisce come gli altri.
     //
-    // ATTENZIONE, e vale più della guardia: questa env è in gran parte INERTE.
-    // Lo spawn passa `--setting-sources user,project,local` (poche righe sopra),
-    // e `~/.claude/settings.json` dell'utente porta già `ENABLE_TOOL_SEARCH`, che
-    // vince sull'ambiente di processo. Finché quel file dice qualcosa, questo
-    // ramo non cambia il comportamento: la leva vera sta lì, non qui. Lo si tiene
-    // perché è corretto e perché su un'installazione senza quel settaggio è
-    // l'unica cosa che accende il deferral.
-    if (overrides.mcpPolicy === "bridge-only") {
-      env.ENABLE_TOOL_SEARCH = env.ENABLE_TOOL_SEARCH ?? "auto";
-    }
+    // Il deferral NON si accende più da qui, e non perché sia una preferenza:
+    // da questo canale non si accendeva affatto. Lo spawn passa
+    // `--setting-sources user,project,local`, quindi il blocco `env` di
+    // `~/.claude/settings.json` VINCE sull'ambiente del processo figlio —
+    // misurato l'8/08/2026 forzando `ENABLE_TOOL_SEARCH=1` nell'ambiente: il
+    // prefisso è tornato BYTE-IDENTICO (cache_read pieno, zero creazione).
+    // E il valore che quel file porta, `"auto"`, non deferisce niente: 127.073
+    // token di prefisso contro i 36.167 con `"1"`.
+    //
+    // Ora la leva è `--settings` in `buildClaudeArgs` (opzione `toolSearch`,
+    // poche righe sopra): è l'unico canale che scavalca i settings dell'utente,
+    // e vale per OGNI chat, non solo per i topic bridge-only.
 
     // Resilience layer: a fresh `--session-id` spawn is normal for a brand-
     // new topic, but it's *also* what happens after `forgetClaudeSessionId`
