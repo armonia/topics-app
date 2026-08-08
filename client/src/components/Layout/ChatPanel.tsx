@@ -8,6 +8,7 @@ import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab, CompactionMarker } from '../../types';
 import { commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
+import { CHROME_ROW_ACTION_INSET_LEFT, RAISED_CONTROL } from '../../lib/selectionStyles';
 import { useConfirm } from '../../hooks/useConfirm';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 import { CommandMenu } from '../Shared/CommandMenu';
@@ -134,7 +135,11 @@ export function ChatPanel({
           {headerLeft ? (
             <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" {...NO_DRAG_REGION} onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
               {headerLeft}
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1" {...NO_DRAG_REGION}><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
+              {/* La coppia del «+» in coda alla riga: stesso box, stesso
+                  incasso derivato, stessa scatola rialzata. Era un 24px forzato
+                  con due `!important` a 4px dal bordo — «troppo piccolo», e
+                  fuori squadra rispetto al tasto di aggiunta. */}
+              {onToggleSidebar && <div className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET_LEFT} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`} {...NO_DRAG_REGION}><SidebarToggleButton onClick={onToggleSidebar} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} /></div>}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" {...NO_DRAG_REGION} draggable onDragStart={onDragStart}>

@@ -322,6 +322,64 @@ export const SIDEBAR_L1_DIVIDERS = 'max-md:divide-y max-md:divide-app-border/60'
 export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
 
 /**
+ * IL RESPIRO ATTORNO A UN COMANDO NELLA RIGA DI CHROME — e perché non è 6.
+ *
+ * Attilio, 08/08: «la spaziatura del tasto di aggiunta … a destra verso la fine
+ * della tabbar dovrebbe essere uguale a quella che ha sopra e sotto».
+ *
+ * Misurato prima di toccarlo, il «+» della barra delle tab stava così:
+ *   · desktop  sopra 5,5 · sotto 5,5 · a destra 6
+ *   · touch    sopra 1,5 · sotto 1,5 · a destra 6
+ * Lo spazio VERTICALE non è una scelta: cade fuori dall'aritmetica della riga
+ * — `h-10` meno il `border-b` fa 39px di contenuto, meno il box del comando,
+ * diviso due. Quello ORIZZONTALE invece era `ROW_INSET`, un 6 scritto a mano
+ * perché è l'incasso con cui le righe della sidebar stanno lontane dal bordo.
+ * Due numeri con due origini diverse per lo stesso bottone: su touch la
+ * differenza arriva a quattro pixel e mezzo, cioè il bottone galleggia lontano
+ * dal bordo mentre le tab accanto a lui ci stanno a filo.
+ *
+ * Adesso il numero è UNO e lo dice l'aritmetica. Non è una costante ma una
+ * funzione del box, perché il box cambia col breakpoint (28 desktop / 36
+ * touch): scriverlo come due numeri li rimetterebbe a poter divergere, che è
+ * esattamente il difetto da cui si esce.
+ */
+export const CHROME_ROW_CONTENT_H = 39;
+export function chromeRowInset(box: number): number {
+  return (CHROME_ROW_CONTENT_H - box) / 2;
+}
+/** I due box di {@link ROW_ACTION_BOX} in pixel, e il loro incasso. Espressi
+ *  qui perché servono in CLASSI (`md:`), non in uno stile in linea: il
+ *  breakpoint che decide il box deve essere lo STESSO che decide la riserva a
+ *  destra della strip, o su qualche dispositivo i due si disallineano — cosa
+ *  che un predicato JS (`isMobile` vale <768, ma <1024 se il puntatore è
+ *  grossolano) non garantirebbe. */
+export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
+
+/**
+ * L'incasso del comando in coda alla riga di chrome, sui tre lati esposti:
+ * `chromeRowInset(36)` = 1,5 col dito · `chromeRowInset(28)` = 5,5 col mouse.
+ *
+ * Le classi sono scritte PER ESTESO e non composte in un template: Tailwind
+ * genera le utility leggendo i sorgenti come TESTO, quindi un
+ * `right-[${n}px]` non produce nessuna regola e il bottone finirebbe
+ * semplicemente a `right: 0`. L'aritmetica non resta però appesa a un commento
+ * — la ricalcola `selectionStyles.test.ts`, che confronta questi letterali con
+ * `chromeRowInset` e fallisce appena i due si separano.
+ */
+export const CHROME_ROW_ACTION_INSET = 'right-[1.5px] md:right-[5.5px]';
+/** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
+ *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
+ *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
+ *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
+ *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
+export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[1.5px] md:left-[5.5px]';
+/** Lo spazio che la strip delle tab deve tenersi libero a destra: l'ingombro
+ *  del comando più il suo incasso (36+1,5 · 28+5,5). Una tab che ci passa sotto
+ *  a riposo — cioè prima ancora di scorrere — è il difetto che questa riserva
+ *  esiste per non fare. Letterali per la stessa ragione di qui sopra. */
+export const CHROME_ROW_ACTION_RESERVE = 'pr-[37.5px] md:pr-[33.5px]';
+
+/**
  * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
  * Era 14 dentro un box da 24: un pallino. A 16 dentro {@link ROW_ACTION_BOX}
  * resta un anello sottile con la sua aria attorno, e si vede cosa si sta per

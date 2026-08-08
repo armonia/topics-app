@@ -7,6 +7,7 @@ import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { CHROME_ROW_ACTION_INSET_LEFT, RAISED_CONTROL } from '../../lib/selectionStyles';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
@@ -755,8 +756,12 @@ export function StandaloneChatGroup({
         <div className="chrome-glass flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" {...DRAG_REGION} style={{ position: 'relative' }}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
           {onToggleSidebar && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1" {...NO_DRAG_REGION}>
-              <SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" />
+            // La coppia del «+» in coda alla riga: stesso box
+            // (`ROW_ACTION_BOX`), stesso incasso derivato, stessa scatola
+            // rialzata, e `raised-control-overlay` perché anche questo sta
+            // SOPRA la strip delle tab, che gli scorre sotto.
+            <div className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET_LEFT} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`} {...NO_DRAG_REGION}>
+              <SidebarToggleButton onClick={onToggleSidebar} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
             </div>
           )}
         </div>

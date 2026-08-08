@@ -26,7 +26,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -784,21 +784,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
-        // LA RISERVA A DESTRA È L'INGOMBRO DEL «+», non un numero tondo.
+        // LA RISERVA A DESTRA È L'INGOMBRO DEL «+», non un numero tondo: il suo
+        // box più il suo incasso, entrambi da `selectionStyles`
+        // (CHROME_ROW_ACTION_RESERVE). Erano 30px scritti a mano e non
+        // bastavano — l'ultima tab passava sotto il bottone anche a riposo,
+        // cioè prima ancora di scorrere.
         //
-        // Erano 30px scritti a mano, e non bastavano: il bottone è
-        // `ROW_ACTION_BOX` (28 sopra i 768px, 36 sotto) e sta a `ROW_INSET` (6)
-        // dal bordo, quindi occupa 34 — l'ultima tab passava 4px SOTTO di lui
-        // anche a riposo, cioè prima ancora di scorrere. Ora la riserva è
-        // quell'ingombro: 28+6=34 in larghezza piena, 36+6=42 col dito.
-        //
-        // Espressa in CLASSI e non nello stile in linea di proposito: il box
-        // del bottone lo decide il breakpoint `md:` di Tailwind, e usando lo
-        // STESSO breakpoint la riserva non può disallinearsi dal bottone su
-        // nessun dispositivo — cosa che un predicato JS (`isMobile` vale <768
-        // ma <1024 se touch) non garantirebbe. `pr-1.5` = 6 = ROW_INSET.
+        // Senza «+» la strip si ferma a `ROW_INSET`, che è l'incasso con cui la
+        // riga sta lontana dal bordo quando non c'è nessun comando a occuparlo.
         className={`flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
-          hasMenuItems ? 'pr-[42px] md:pr-[34px]' : 'pr-1.5'
+          hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         }`}
         // Left inset = ROW_INSET, the SAME edge inset the sidebar rows use, so
         // the tab list and the sidebar list line up at the sides (was 5px left
@@ -1325,8 +1320,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // passa sotto si legge attraverso il bottone. La variante non lo
           // rende opaco: sfoca ciò che gli passa sotto, così resta di vetro
           // senza diventare un velo. Vedi index.css.
-          className="raised-control-overlay absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
-          style={{ paddingRight: ROW_INSET }}
+          // L'incasso a destra è lo STESSO che il bottone ha sopra e sotto —
+          // `CHROME_ROW_ACTION_INSET`, che lo ricava dall'altezza della riga e
+          // dal box del comando invece di ripetere il 6 orizzontale delle
+          // righe di sidebar. Vedi selectionStyles: erano due numeri con due
+          // origini diverse per lo stesso bottone, e col dito la differenza
+          // arrivava a quattro pixel e mezzo.
+          className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
           {...NO_DRAG_REGION}
         >
           <PaneAddMenu
