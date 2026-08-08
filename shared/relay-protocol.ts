@@ -332,6 +332,25 @@ export interface ApriStream {
   d?: string;
   /** Non arriverà altro da questo capo per questo stream. */
   fin?: true;
+  /**
+   * Questo stream è un CANALE: molti messaggi, consegnati man mano, per tutta
+   * la vita di ciò che ci sta sopra.
+   *
+   * Serve perché uno stream normale è UNA cosa — si accumula fino a `fin` e si
+   * consegna intera — e un WebSocket non è una cosa: è una conversazione che
+   * dura, dove il messaggio numero tre deve arrivare quando arriva e non alla
+   * fine di tutto. Senza questa distinzione un socket dentro il tubo o non
+   * consegna mai, o va spezzato in uno stream per messaggio — e allora il
+   * credito per-stream, che è il solo modo per dire «fermati», non ha più
+   * niente a cui attaccarsi.
+   *
+   * Un canale nasce VUOTO e non nasce chiuso: niente `d`, niente `fin`, niente
+   * `m` sull'apertura. I dati arrivano come messaggi, e la fine è un `reset`.
+   * Una sola forma per finire vuol dire un solo posto dove sbagliare.
+   */
+  c?: true;
+  /** Questo frame chiude un MESSAGGIO. Solo sui canali (vedi `c`). */
+  m?: true;
 }
 
 /** Un pezzo. `n` cresce di uno per volta: un buco vuol dire che qualcosa si è
@@ -343,6 +362,45 @@ export interface DatiStream {
   e: CodificaTubo;
   d: string;
   fin?: true;
+  /**
+   * Fine di un MESSAGGIO, su un canale.
+   *
+   * È il bit `FIN` del WebSocket, e per lo stesso motivo: un messaggio più
+   * grande di un frame va spezzato, e chi riceve deve sapere dove finisce senza
+   * indovinarlo dalla misura. Non convive con `fin` — quella è la fine dello
+   * STREAM, e su un canale non esiste: i due significati in un campo solo sono
+   * il modo in cui due capi finiscono per intendere cose diverse.
+   */
+  m?: true;
+}
+
+/**
+ * «Ti restituisco `c` byte di corsa» — il credito, per UNO stream.
+ *
+ * ── PERCHÉ NON BASTA IL TRASPORTO ───────────────────────────────────────────
+ * Il relay consegna e basta: `dest[0]?.send(raw)`, nessun riscontro, e se il
+ * destinatario non c'è la busta cade in silenzio. Quindi un terminale che
+ * produce più in fretta di quanto un telefono su rete mobile consuma non ha
+ * NESSUN modo di sentirsi dire «fermati»: la coda cresce da qualche parte
+ * finché qualcosa si rompe, e il posto in cui si rompe non è quello che ha
+ * sbagliato.
+ *
+ * ── PERCHÉ IL CREDITO VIAGGIA FRA I DUE CAPI ────────────────────────────────
+ * Perché è l'unico punto in cui si sa davvero quanto è stato CONSUMATO. Un
+ * credito che si fermasse al relay direbbe «l'ho inoltrato», che è
+ * un'informazione su di lui e non su chi legge. E starebbe nell'involucro: il
+ * relay saprebbe quanto è grosso ogni stream e quanto scorre veloce, cioè
+ * avrebbe una descrizione del traffico che non gli spetta. Sta dentro
+ * `payload`, come tutto il resto del tubo.
+ *
+ * `c` è un INCREMENTO, non un totale: due ricariche che si incrociano si
+ * sommano, mentre due totali si sovrascrivono e quello che arriva secondo
+ * cancella il primo.
+ */
+export interface RicaricaCredito {
+  f: "credit";
+  s: number;
+  c: number;
 }
 
 /** «Questo stream muore qui.» Vale in tutti e due i sensi e in qualsiasi
@@ -353,7 +411,7 @@ export interface ChiudiStream {
   motivo: MotivoStream;
 }
 
-export type FrameTubo = ApriStream | DatiStream | ChiudiStream;
+export type FrameTubo = ApriStream | DatiStream | ChiudiStream | RicaricaCredito;
 
 // ── base64url, per i byte dentro il JSON ───────────────────────────────────
 // Sta qui e non importato da `relay-crypto` perché il tubo deve poter esistere
@@ -433,11 +491,22 @@ export function leggiFrame(raw: unknown): FrameTubo | null {
       if (m.n !== 0 || typeof m.k !== "string" || m.k.length === 0) return null;
       if ("h" in m && m.h !== undefined && typeof m.h !== "string") return null;
       if ("fin" in m && m.fin !== undefined && m.fin !== true) return null;
+      if ("c" in m && m.c !== undefined && m.c !== true) return null;
+      if ("m" in m && m.m !== undefined && m.m !== true) return null;
       if (!datiValidi(m)) return null;
+      const canale = m.c === true;
+      // Un canale nasce vuoto e non nasce chiuso: qui l'apertura SA di essere
+      // un canale, quindi le tre forme che non vogliono dire niente si fermano
+      // subito, invece di arrivare al riassemblatore travestite da dati.
+      if (canale && (m.d !== undefined || m.fin === true || m.m === true)) return null;
+      // Fuori da un canale i messaggi non esistono: un campo che non vuol dire
+      // niente qui è un campo che un giorno vuol dire cose diverse ai due capi.
+      if (!canale && m.m === true) return null;
       const f: ApriStream = { f: "open", s: m.s, n: 0, k: m.k };
       if (typeof m.h === "string") f.h = m.h;
       if (typeof m.d === "string") { f.e = m.e as CodificaTubo; f.d = m.d; }
       if (m.fin === true) f.fin = true;
+      if (canale) f.c = true;
       return f;
     }
     case "data": {
@@ -445,13 +514,27 @@ export function leggiFrame(raw: unknown): FrameTubo | null {
       if (typeof m.d !== "string" || (m.e !== "u" && m.e !== "b")) return null;
       if (m.d.length > TUBO_DATI_MAX) return null;
       if ("fin" in m && m.fin !== undefined && m.fin !== true) return null;
+      if ("m" in m && m.m !== undefined && m.m !== true) return null;
+      // Fine dello stream e fine di un messaggio nello stesso frame: uno dei
+      // due è di troppo per forza — su un canale `fin` non esiste, fuori da un
+      // canale `m` non esiste. Quale dei due sia lecito lo sa solo chi riceve,
+      // che conosce lo stream; qui si ferma la coppia, che non lo è mai.
+      if (m.fin === true && m.m === true) return null;
       const f: DatiStream = { f: "data", s: m.s, n: m.n, e: m.e, d: m.d };
       if (m.fin === true) f.fin = true;
+      if (m.m === true) f.m = true;
       return f;
     }
     case "reset":
       return typeof m.motivo === "string" && MOTIVI_STREAM.has(m.motivo)
         ? { f: "reset", s: m.s, motivo: m.motivo as MotivoStream }
+        : null;
+    case "credit":
+      // Zero non è una ricarica: è un frame che costa un messaggio e non
+      // sblocca niente, e un capo che ne mandasse a raffica terrebbe occupato
+      // l'altro senza far avanzare nulla.
+      return typeof m.c === "number" && Number.isInteger(m.c) && m.c > 0 && m.c <= Number.MAX_SAFE_INTEGER
+        ? { f: "credit", s: m.s, c: m.c }
         : null;
     default:
       return null;
@@ -584,10 +667,17 @@ export function latoDiStream(s: number): LatoTubo {
 // ── Riassemblare ───────────────────────────────────────────────────────────
 
 export type EsitoTubo =
-  | { esito: "aperto"; s: number; k: string; h?: string }
+  | { esito: "aperto"; s: number; k: string; h?: string; canale?: true }
   | { esito: "parziale"; s: number; byte: number }
   | { esito: "completo"; s: number; k: string; h?: string; e: "u"; dati: string }
   | { esito: "completo"; s: number; k: string; h?: string; e: "b"; dati: Uint8Array }
+  // Un messaggio su un canale: si consegna ORA, e il canale resta aperto per
+  // il prossimo. `byte` è la misura consumata — è quella che va restituita
+  // come credito, e va presa da qui e non ricontata a valle: due conti dello
+  // stesso numero sono due numeri che prima o poi divergono.
+  | { esito: "messaggio"; s: number; k: string; e: "u"; dati: string; byte: number }
+  | { esito: "messaggio"; s: number; k: string; e: "b"; dati: Uint8Array; byte: number }
+  | { esito: "credito"; s: number; c: number }
   | { esito: "chiuso"; s: number; motivo: MotivoStream }
   | { esito: "errore"; s: number; motivo: MotivoStream };
 
@@ -609,6 +699,9 @@ export interface OpzioniRiassemblatore {
 interface StatoStream {
   k: string;
   h?: string;
+  /** Canale: i pezzi si consegnano a messaggi finiti, e lo stream non muore
+   *  con il primo. */
+  canale: boolean;
   e: CodificaTubo | null;
   prossimo: number;
   byte: number;
@@ -655,16 +748,34 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
     return null;
   }
 
+  /** I byte accumulati, rimessi insieme una volta sola. */
+  function raccogli(st: StatoStream): Uint8Array {
+    const tot = new Uint8Array(st.byte);
+    let o = 0;
+    for (const p of st.binario) { tot.set(p, o); o += p.length; }
+    return tot;
+  }
+
   function completa(s: number, st: StatoStream): EsitoTubo {
     aperti.delete(s);
     const comune = { esito: "completo" as const, s, k: st.k, ...(st.h !== undefined ? { h: st.h } : {}) };
-    if (st.e === "b") {
-      const tot = new Uint8Array(st.byte);
-      let o = 0;
-      for (const p of st.binario) { tot.set(p, o); o += p.length; }
-      return { ...comune, e: "b", dati: tot };
-    }
+    if (st.e === "b") return { ...comune, e: "b", dati: raccogli(st) };
     return { ...comune, e: "u", dati: st.testo.join("") };
+  }
+
+  /** Un messaggio finito su un canale. Lo stream resta aperto e riparte
+   *  pulito: un canale può portare testo e poi byte, come un WebSocket vero. */
+  function messaggio(s: number, st: StatoStream): EsitoTubo {
+    const byte = st.byte;
+    const binario = st.e === "b";
+    const dati = binario ? raccogli(st) : st.testo.join("");
+    st.e = null;
+    st.byte = 0;
+    st.testo = [];
+    st.binario = [];
+    return binario
+      ? { esito: "messaggio", s, k: st.k, e: "b", dati: dati as Uint8Array, byte }
+      : { esito: "messaggio", s, k: st.k, e: "u", dati: dati as string, byte };
   }
 
   return {
@@ -685,6 +796,16 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
         return { esito: "chiuso", s: f.s, motivo: f.motivo };
       }
 
+      // Il credito cammina AL CONTRARIO dei dati: riguarda uno stream che ha
+      // aperto QUESTO capo, perché è a chi manda che serve sapere quanta corsa
+      // gli resta. Quindi qui la parità lecita è quella locale, ed è l'unico
+      // frame in cui è così — una ricarica sulla parità remota vorrebbe dire
+      // che l'altro capo si sta dando credito da solo.
+      if (f.f === "credit") {
+        if (latoDiStream(f.s) === opts.latoRemoto) return fallisci(f.s, "bad-frame");
+        return { esito: "credito", s: f.s, c: f.c };
+      }
+
       if (latoDiStream(f.s) !== opts.latoRemoto) return fallisci(f.s, "bad-frame");
 
       if (f.f === "open") {
@@ -693,8 +814,17 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
         if (aperti.size >= maxStream) return fallisci(f.s, "too-many-streams");
         const st: StatoStream = {
           k: f.k, ...(f.h !== undefined ? { h: f.h } : {}),
+          canale: f.c === true,
           e: null, prossimo: 1, byte: 0, testo: [], binario: [],
         };
+        if (st.canale) {
+          // `leggiFrame` non lascerebbe passare un canale con dei dati addosso,
+          // ma un frame costruito a mano sì — e qui il costo di fidarsi è
+          // un'apertura che consegna un messaggio che nessuno ha dichiarato.
+          if (f.d !== undefined || f.fin) return fallisci(f.s, "bad-frame");
+          aperti.set(f.s, st);
+          return { esito: "aperto", s: f.s, k: f.k, ...(f.h !== undefined ? { h: f.h } : {}), canale: true };
+        }
         if (f.d !== undefined) {
           // Dati senza codifica: `leggiFrame` non lo lascerebbe passare, ma un
           // frame costruito a mano sì — e un `!` qui sarebbe una promessa che
@@ -713,9 +843,15 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
       // finito. In tutti e due i casi non c'è niente a cui attaccarli.
       if (!st) return fallisci(f.s, "bad-frame");
       if (f.n !== st.prossimo) return fallisci(f.s, "bad-frame");
+      // I due bit non si scambiano di posto: su un canale la fine è un `reset`
+      // e mai un `fin`, fuori da un canale i messaggi non esistono. Accettarne
+      // uno al posto dell'altro vorrebbe dire che i due capi hanno due idee
+      // diverse di dove finisce la cosa che si stanno passando.
+      if (st.canale ? f.fin === true : f.m === true) return fallisci(f.s, "bad-frame");
       st.prossimo++;
       const male = accumula(st, f.e, f.d);
       if (male) return fallisci(f.s, male);
+      if (st.canale) return f.m ? messaggio(f.s, st) : { esito: "parziale", s: f.s, byte: st.byte };
       if (f.fin) return completa(f.s, st);
       return { esito: "parziale", s: f.s, byte: st.byte };
     },
@@ -724,4 +860,196 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
      *  memoria non lo fa arrivare. */
     dimentica(s: number) { aperti.delete(s); },
   };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// IL CANALE, dal lato di chi SCRIVE: spezzare a messaggi, e fermarsi
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Quanta corsa ha un canale appena aperto, senza aver chiesto niente.
+ *
+ * Serve una finestra iniziale, o il primo messaggio aspetterebbe un giro
+ * completo di rete per un permesso che nessuno ha motivo di negare. Mezzo MiB
+ * perché è abbastanza da non farsi sentire su una conversazione normale — una
+ * schermata di terminale sono chilobyte — e abbastanza poco da non lasciare
+ * accumulare megabyte prima che il primo «fermati» abbia effetto.
+ */
+export const CREDITO_INIZIALE = 512 * 1024;
+
+/**
+ * Quanto si tiene in coda quando la finestra è chiusa, prima di arrendersi.
+ *
+ * Una coda senza tetto non è controllo di flusso: è la stessa memoria che
+ * cresce, spostata di un pezzo. Oltre il tetto il canale si chiude con
+ * `overflow` — un guasto dichiarato è meglio di una macchina che rallenta
+ * senza che nessuno sappia perché.
+ */
+export const ARRETRATO_MAX = 4 * 1024 * 1024;
+
+/**
+ * Quanto costa un messaggio in credito.
+ *
+ * I byte più uno. L'uno non è superstizione: un messaggio vuoto è legittimo su
+ * un WebSocket e costa comunque un frame sul filo, quindi a costo zero mille
+ * messaggi vuoti passerebbero attraverso una finestra che non si stringe mai.
+ * Deve essere la STESSA funzione ai due capi — chi manda scala e chi riceve
+ * ricarica — perché due conti diversi dello stesso numero divergono, e una
+ * finestra che diverge si chiude per sempre senza che nessuno abbia sbagliato.
+ */
+export function costoMessaggio(byte: number): number {
+  return byte + 1;
+}
+
+export type EsitoInvio =
+  | "inviato"   // è partito
+  | "in-coda"   // la finestra è chiusa: parte quando arriva credito
+  | "troppo";   // la coda ha sfondato il tetto: il canale non regge
+
+export interface CapoCanaleOpts {
+  /** Lo stream di QUESTO capo. Lo apre lui, quindi la parità è la sua. */
+  s: number;
+  /** Dove finisce un frame. È il solo contatto col trasporto. */
+  invia(f: FrameTubo): void;
+  max?: number;
+  credito?: number;
+  arretratoMax?: number;
+  /**
+   * La finestra si è chiusa (false) o riaperta (true).
+   *
+   * È il «fermati» che deve arrivare fino a chi PRODUCE. Un capo che si limita
+   * ad accodare ha spostato il problema; questo lo dice a chi può smettere —
+   * un terminale che non legge più dal suo processo, un lettore che non tira
+   * altri pezzi. Chiamata solo sui cambi: un segnale ripetuto non è un segnale.
+   */
+  scorre?(puo: boolean): void;
+}
+
+/**
+ * Il capo che SCRIVE su un canale: apre, manda messaggi, chiude.
+ *
+ * Sta nel tubo e non nello strato del WebSocket perché non sa cosa trasporta:
+ * spezza, numera, tiene il conto del credito e si ferma quando è finito. Il
+ * giorno in cui un canale porta qualcos'altro — un file che scende, un flusso
+ * audio — non c'è niente da riscrivere.
+ */
+export function creaCapoCanale(opts: CapoCanaleOpts) {
+  const max = opts.max ?? TUBO_BYTE_PER_FRAME;
+  const arretratoMax = opts.arretratoMax ?? ARRETRATO_MAX;
+  let credito = opts.credito ?? CREDITO_INIZIALE;
+  let n = 0;
+  let aperto = false;
+  let chiuso = false;
+  /** I messaggi che aspettano credito, in ordine. */
+  const coda: Array<string | Uint8Array> = [];
+  let byteInCoda = 0;
+  let scorreva = true;
+
+  const misura = (d: string | Uint8Array) =>
+    typeof d === "string" ? new TextEncoder().encode(d).length : d.length;
+
+  function avvisa() {
+    const ora = credito > 0;
+    if (ora === scorreva) return;
+    scorreva = ora;
+    opts.scorre?.(ora);
+  }
+
+  /** Un messaggio sul filo, spezzato, con `m` sull'ultimo pezzo. */
+  function emetti(d: string | Uint8Array) {
+    const testo = typeof d === "string";
+    const e: CodificaTubo = testo ? "u" : "b";
+    const pezzi = testo ? dividiTesto(d, max) : dividiBinario(d, max);
+    // Un messaggio vuoto è lecito su un WebSocket, e deve restare distinguibile
+    // da «nessun messaggio»: un frame con dati vuoti lo dice, il silenzio no.
+    if (pezzi.length === 0) pezzi.push("");
+    // Si scala PRIMA di mandare, e non è un dettaglio: il trasporto può essere
+    // sincrono — due funzioni in memoria, o un capo che risponde dentro la
+    // stessa pila di chiamate — e allora la ricarica dell'altro capo rientra a
+    // metà di questo giro. Scalando dopo, quella ricarica verrebbe cancellata
+    // dal costo di un messaggio che era già stato pagato: la finestra si
+    // stringerebbe da sola a ogni scambio, fino a chiudersi per sempre.
+    //
+    // Può andare sotto zero, ed è voluto: un messaggio più grande della
+    // finestra intera non si spezza a metà per farcelo stare — si manda e si
+    // resta in debito finché non torna il credito. L'alternativa è un canale
+    // che si blocca per sempre sul primo messaggio grosso.
+    credito -= costoMessaggio(misura(d));
+    for (let i = 0; i < pezzi.length; i++) {
+      n += 1;
+      const f: DatiStream = { f: "data", s: opts.s, n, e, d: pezzi[i]! };
+      if (i === pezzi.length - 1) f.m = true;
+      opts.invia(f);
+    }
+  }
+
+  /** Sta svuotando: `emetti` può far rientrare `ricarica` da qui dentro
+   *  quando il trasporto è sincrono, e due cicli sulla stessa coda
+   *  emetterebbero lo stesso messaggio due volte. */
+  let svuotando = false;
+
+  function svuota() {
+    if (svuotando) return;
+    svuotando = true;
+    try {
+      while (coda.length > 0 && credito > 0) {
+        const d = coda.shift()!;
+        byteInCoda -= misura(d);
+        emetti(d);
+      }
+    } finally {
+      svuotando = false;
+    }
+    avvisa();
+  }
+
+  return {
+    /** Apre il canale. Va fatto una volta sola: il riassemblatore dall'altra
+     *  parte rifiuta un numero già visto. */
+    apri(k: string, h?: string): void {
+      if (aperto || chiuso) return;
+      aperto = true;
+      opts.invia({ f: "open", s: opts.s, n: 0, k, ...(h !== undefined ? { h } : {}), c: true });
+    },
+
+    manda(d: string | Uint8Array): EsitoInvio {
+      if (chiuso) return "troppo";
+      if (credito > 0 && coda.length === 0) { emetti(d); avvisa(); return "inviato"; }
+      const m = misura(d);
+      if (byteInCoda + m > arretratoMax) return "troppo";
+      coda.push(d);
+      byteInCoda += m;
+      avvisa();
+      return "in-coda";
+    },
+
+    /** È tornato del credito: quello che aspettava riparte, in ordine. */
+    ricarica(c: number): void {
+      if (chiuso || c <= 0) return;
+      credito += c;
+      svuota();
+    },
+
+    /** Fine del canale. Una forma sola per finire, in tutti e due i sensi. */
+    chiudi(motivo: MotivoStream = "aborted"): void {
+      if (chiuso) return;
+      chiuso = true;
+      coda.length = 0;
+      byteInCoda = 0;
+      opts.invia({ f: "reset", s: opts.s, motivo });
+    },
+
+    creditoOra: () => credito,
+    inCoda: () => coda.length,
+    byteInCoda: () => byteInCoda,
+    scorre: () => credito > 0,
+    eChiuso: () => chiuso,
+  };
+}
+
+/** Il frame con cui chi LEGGE restituisce corsa a chi scrive. Una funzione e
+ *  non un oggetto scritto a mano nei due capi: il costo di un messaggio lo
+ *  decide `costoMessaggio`, e deve deciderlo in un posto solo. */
+export function ricaricaPer(s: number, byte: number): RicaricaCredito {
+  return { f: "credit", s, c: costoMessaggio(byte) };
 }
