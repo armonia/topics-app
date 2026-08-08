@@ -64,6 +64,17 @@ const SLASH_COMMANDS = [
   { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 
+/**
+ * Il vestito della card del composer — bordo, fondo, ombra, angoli.
+ *
+ * Vive in una costante perché lo portano DUE elementi che non possono essere lo
+ * stesso: il campo di testo e, al suo posto, la barra rossa della
+ * registrazione. Scritto due volte, il giorno che cambia l'angolo ne cambia uno
+ * solo e la registrazione diventa un rettangolo con gli spigoli.
+ */
+const COMPOSER_CARD =
+  'rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface transition-colors';
+
 // ---- Add Menu (allegati + voce + comandi) ----
 //
 // Era il menu «⋯» in fondo a destra, e conteneva SOLO i comandi e la voce.
@@ -1181,14 +1192,20 @@ export function ChatInput({
         />
       )}
 
-      {/* Floating input card */}
+      {/* Il composer: LA CARD è solo il campo di testo, e i controlli stanno
+          FUORI, sotto. La card portava dentro anche loro, e finiva per
+          disegnare un riquadro attorno a due cose diverse — quello che scrivi e
+          gli interruttori della sessione — come se fossero la stessa. Il bordo
+          adesso recinta soltanto ciò in cui si scrive.
+          Il `<form>` resta il contenitore di entrambi (l'invio parte da lui) ma
+          non ha più nessun vestito: niente bordo, niente fondo, niente ombra. */}
       <form
         onSubmit={onSubmit}
         // @container: the action-bar row below keys its shrink/scroll
         // behavior off THIS element's width (the pane/tab), not the
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
-        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
+        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} flex-shrink-0 min-w-0 max-w-full`}
         // L'HOME INDICATOR LO SCAVALCA IL COMPOSER, non la pane.
         //
         // «Il bordo dell'input nelle chat tocca i bordi sull'iPhone»: il suo
@@ -1208,7 +1225,7 @@ export function ChatInput({
         style={{ maxWidth: '100%', marginBottom: 'max(var(--composer-gap), env(safe-area-inset-bottom, 0px))' }}
       >
         {isRecording ? (
-          <div className="flex gap-2 items-center p-3">
+          <div className={`${COMPOSER_CARD} flex gap-2 items-center p-3`}>
             <div className="flex-1 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl px-3 py-2.5">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               <span className="text-red-500 font-medium text-[12px]">Recording</span>
@@ -1220,6 +1237,7 @@ export function ChatInput({
           </div>
         ) : (
           <>
+          <div className={COMPOSER_CARD} data-testid="composer-card">
             {/* Row 0: Attachments preview (inside card) */}
             {hasAttachments && (
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
@@ -1306,16 +1324,9 @@ export function ChatInput({
               </div>
             )}
 
-            {/* IL TESTO SI PRENDE LA RIGA, i controlli stanno SOTTO.
-                Ci ho provato a tenerli di fianco, ed è la cosa sbagliata: il
-                gruppo è largo ~330px, quindi su una card da 800 al testo ne
-                restavano 390 e si incolonnava nella metà sinistra lasciando
-                vuota la destra. «Devono stare sotto le cose che ti ho indicato,
-                non affianco al testo.»
-                La riga singola è quella dell'INPUT: il campo nasce alto una riga
-                sola e cresce con quello che scrivi (fino a 140px, poi scorre).
-                Sotto, sempre uguale a sé stessa, la riga dei controlli: «+» in
-                testa, i permessi subito dopo, e invio in fondo a destra. */}
+            {/* Il campo, e con lui finisce la card. Nasce alto una riga e
+                cresce con quello che scrivi (fino a 140px, poi scorre): la
+                «riga sola» è la SUA, non quella della card. */}
             <textarea
               ref={textareaRef}
               data-testid="chat-message-input"
@@ -1332,8 +1343,12 @@ export function ChatInput({
               disabled={uploading}
             />
             <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+          </div>
 
-            <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {/* FUORI DALLA CARD: i controlli della sessione. Non sono il
+                messaggio, sono le condizioni con cui parte — «+» in testa, i
+                permessi subito dopo, e in coda microfono e invio. */}
+            <div className="flex items-center gap-1 px-0.5 pt-1.5">
               <AddMenu
                 onAttach={() => fileInputRef.current?.click()}
                 onExport={onExportConversation}
