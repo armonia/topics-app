@@ -3,6 +3,7 @@ import { E2E_BASE, E2E_TUNNEL_BASE } from "./helpers/test-server";
 import { createTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { goToApp, ensureTopicVisible } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { ospite, daOspite } from "./helpers/ospite";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
 
 hermetic(test);
@@ -34,45 +35,9 @@ hermetic(test);
  * lascerebbe l'API perfetta e il contenuto in chiaro sul filo.
  */
 
-/** Appaia un dispositivo e lo fa approvare dal proprietario come persona
- *  DIVERSA da sé: è il gesto che lo rende ospite, e non c'è altro modo. */
-async function ospite(
-  api: APIRequestContext,
-  nome: string,
-): Promise<{ cookie: string; deviceId: string }> {
-  // La richiesta viene da fuori — è il telefono che chiede, non il Mac.
-  const richiesta = await api.post(`${E2E_TUNNEL_BASE}/api/auth/pair/request`, {
-    data: { name: nome },
-  });
-  expect(richiesta.ok()).toBeTruthy();
-  // Il `claim` torna SOLO qui, a chi ha chiesto. Chi vede passare il
-  // `requestId` in un frame non ce l'ha, ed è per questo che non può incassare.
-  const { requestId, claim } = (await richiesta.json()) as { requestId: string; claim: string };
-
-  // L'approvazione viene dal proprietario, cioè da dentro. `personName` è il
-  // caso «è di un'altra persona»: è QUELLO che lo rende ospite — il ruolo
-  // discende dalla persona, non si sceglie.
-  const ok = await api.post(`${E2E_BASE}/api/auth/pair/approve`, {
-    data: { requestId, personName: `Persona ${nome}` },
-  });
-  expect(ok.ok(), "il proprietario deve poter approvare da loopback").toBeTruthy();
-  const approvato = (await ok.json()) as { deviceId: string; role: string };
-  expect(approvato.role, "una persona diversa dal proprietario deve dare un ospite").toBe("guest");
-
-  // Il token esce UNA volta sola, nel `Set-Cookie` dello status.
-  const stato = await api.get(
-    `${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${requestId}&claim=${claim}`,
-  );
-  const corpo = (await stato.json()) as { state: string };
-  expect(corpo.state).toBe("approved");
-  const setCookie = stato.headers()["set-cookie"] ?? "";
-  const cookie = setCookie.split(";")[0] ?? "";
-  expect(cookie, "lo status approvato deve consegnare il biscotto di sessione").toContain(`${SESSION_COOKIE}=`);
-
-  return { cookie, deviceId: approvato.deviceId };
-}
-
-const daOspite = (cookie: string) => ({ Cookie: cookie });
+// `ospite()` e `daOspite()` vivono in `helpers/ospite.ts`: li usa anche lo spec
+// che entra dal RELAY, e due riti di appaiamento da tenere d'accordo sarebbero
+// uno di troppo.
 
 test.describe("Confinamento dell'ospite", () => {
   test("GUEST-01: vede la topic condivisa e NON le altre", async ({ request }) => {
