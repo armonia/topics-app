@@ -336,7 +336,11 @@ export function PaneAddMenu({
   // pill adesso è 36px sotto i 768px (ROW_ACTION_BOX), e un «+» da 14 al centro
   // di 36 sembra un errore di misura. L'esclusione della pill era corretta
   // finché la pill era 24 e un glifo da 18 l'avrebbe riempita fino al bordo.
-  const triggerIconSize = isMobile ? 18 : 14;
+  // 16 e non 14, e il metro l'ha dato Attilio: «il +, confrontandolo con
+  // quello di WhatsApp, mi sembra più piccolo». In una scatola da 28 un glifo
+  // da 14 occupa metà larghezza e legge come mezzo comando; 16 la riempie
+  // senza toccarne i bordi. Col dito la scatola è 44, quindi il glifo sale a 20.
+  const triggerIconSize = isMobile ? 20 : 16;
 
   const menuItems = (
     <PaneAddMenuItems

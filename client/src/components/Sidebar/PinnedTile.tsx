@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -506,7 +506,7 @@ export function PinnedTile({
         // qualcos'altro — «le schede pinnate non sono effettivamente bianche»
         // (Attilio, 08/08). Il secondo colore resta, ma per le cose meno
         // importanti: non per il nome della cosa che stai guardando.
-        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left text-[11px] text-app-text ${
+        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left ${TAB_LABEL} ${
           hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >
