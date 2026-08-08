@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { primeWebNotificationPermission, webNotificationPermission } from "../lib/shell/app";
 
 const API_BASE = import.meta.env.DEV ? "http://localhost:3333" : "";
 
@@ -13,6 +14,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export type PushState = "unsupported" | "default" | "denied" | "granted" | "subscribed";
 
+/**
+ * Web Push per gli ALTRI dispositivi. Oggi nessuno monta questo hook (la UI è
+ * stata tolta per decisione di prodotto, vedi NotificationsSection), ma il
+ * permesso lo chiedeva comunque dall'API `Notification` nuda — cioè con la
+ * stessa trappola che faceva ripartire il prompt a ogni avvio sotto Tauri, in
+ * agguato per il giorno in cui l'hook torna montato. Ora passa dalla porta
+ * unica (`lib/shell/app`), che il guard nativo se lo porta dietro da sé.
+ */
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>("unsupported");
   const [loading, setLoading] = useState(false);
@@ -30,15 +39,18 @@ export function usePushNotifications() {
     // environment can still attempt to subscribe.
     (async () => {
       try {
-        const permission = Notification.permission;
+        const permission = webNotificationPermission();
         if (permission === "denied") { setState("denied"); return; }
+        // 'unsupported' = niente API `Notification` (o guscio nativo, dove i
+        // banner passano dal comando `notify`): non c'è niente da sottoscrivere.
+        if (permission === "unsupported") { setState("unsupported"); return; }
 
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
         setState(sub ? "subscribed" : permission === "granted" ? "granted" : "default");
       } catch (err) {
         console.error("[Push] init state check failed:", err);
-        setState(Notification.permission === "denied" ? "denied" : "default");
+        setState(webNotificationPermission() === "denied" ? "denied" : "default");
       }
     })();
   }, []);
@@ -47,7 +59,7 @@ export function usePushNotifications() {
     if (state === "unsupported" || state === "denied") return;
     setLoading(true);
     try {
-      const permission = await Notification.requestPermission();
+      const permission = await primeWebNotificationPermission();
       if (permission !== "granted") { setState("denied"); return; }
 
       const res = await fetch(`${API_BASE}/api/push/vapid-public-key`);

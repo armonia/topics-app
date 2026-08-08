@@ -64,7 +64,7 @@ describe('focus quiet-gate', () => {
 //
 // `supported: false` sul guscio nativo non è un dettaglio tecnico: vuol dire
 // che l'utente riceve banner durante un Focus senza sapere perché. Serve poterlo
-// dire — ma solo quando lo si sa davvero.
+// dire — ma solo quando lo si sa davvero, e solo quando c'è qualcosa da fare.
 describe('focusGateState', () => {
   beforeEach(() => { __resetFocusForTests(); });
 
@@ -73,8 +73,8 @@ describe('focusGateState', () => {
     expect(focusGateState()).toBe('unavailable');
   });
 
-  it('una lettura tornata con supported=true è il gate attivo', () => {
-    applyFocusStatus(false, true);
+  it('una lettura tornata con supported=true è il gate a posto', () => {
+    applyFocusStatus(false, true, 'ok');
     // Fuori da Tauri resta 'unavailable' per costruzione: lo stato si legge
     // solo dove il gate può esistere. È la parte che impedisce di mostrare un
     // avviso sul web, dove non c'è alcun permesso da concedere.
@@ -88,5 +88,47 @@ describe('focusGateState', () => {
     expect(isFocusSilencing()).toBe(true);
     __resetFocusForTests();
     expect(isFocusSilencing()).toBe(false);
+  });
+});
+
+// ── Il MOTIVO, e perché non basta `supported` ──────────────────────────────
+//
+// `supported=false` arrivava da due cause diverse fuse in un `.ok()?`: il
+// permesso TCC negato e il file delle asserzioni semplicemente inesistente. Il
+// pannello dava sempre la colpa al permesso e proponeva l'Accesso completo al
+// disco — su un Mac dove nessuno ha mai impostato un Focus, il permesso più
+// invasivo di macOS per una funzione che non ha niente da silenziare.
+//
+// `focusGateState` non è direttamente osservabile fuori da Tauri (torna sempre
+// 'unavailable', ed è giusto così), quindi qui si verifica il pezzo che decide:
+// come `applyFocusStatus` normalizza il motivo, incluso il guscio vecchio che
+// non lo manda.
+describe('il motivo della lettura', () => {
+  beforeEach(() => { __resetFocusForTests(); });
+
+  it('«file assente» non silenzia e non è un blocco: il gate funziona', () => {
+    applyFocusStatus(false, true, 'absent');
+    expect(isFocusSilencing()).toBe(false);
+  });
+
+  it('«negato» non silenzia mai — il default sicuro resta', () => {
+    // Nessun avviso può giustificare un banner perso: senza lettura non si tace.
+    applyFocusStatus(true, false, 'denied');
+    expect(isFocusSilencing()).toBe(false);
+  });
+
+  it('un guscio vecchio manda solo i due booleani: si torna alla vecchia regola', () => {
+    // Il bundle può essere più nuovo del .app installato. Senza motivo si
+    // DEDUCE (supported=false ⇒ bloccato): inventare «assente» su un dato che
+    // non abbiamo spegnerebbe una diagnosi vera.
+    applyFocusStatus(false, false);
+    expect(isFocusSilencing()).toBe(false);
+    applyFocusStatus(true, true);
+    expect(isFocusSilencing()).toBe(true);
+  });
+
+  it('un motivo sconosciuto non avvelena il gate', () => {
+    applyFocusStatus(true, true, 'qualcosa-che-non-esiste');
+    expect(isFocusSilencing()).toBe(true);
   });
 });
