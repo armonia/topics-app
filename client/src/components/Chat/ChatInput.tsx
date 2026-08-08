@@ -1410,6 +1410,15 @@ export function ChatInput({
                   l'icona da 16px in un box storto. Il contenitore prometteva
                   lo scroll e i figli non glielo lasciavano fare. */}
               <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hide">
+                {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
+                    decide se l'agente può toccare i tuoi file, ed è quindi la
+                    cosa da guardare prima di premere invio — non l'ultima
+                    pastiglia in fondo alla fila. Le altre tre dicono COME
+                    risponde (veloce, quale modello, quanto ci pensa) e stanno
+                    dietro, nell'ordine in cui le si cambia. */}
+                {onAutonomyChange && (
+                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+                )}
                 {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
                     stessa cosa: un interruttore in localStorage che iniettava
                     una RICHIESTA nel prompt («sei in plan mode, non toccare
@@ -1495,12 +1504,7 @@ export function ChatInput({
                 {/* The knobs you change MID conversation, in their own surface:
                     effort used to be buried under a "Provider & model" trigger,
                     and autonomy (the permission mode) was reachable only from
-                    the settings modal behind a tab right-click.
-                    L'ordine è quello di una frase: CHI risponde (il modello),
-                    quanto ci pensa (l'effort), quanto può fare da sé
-                    (l'autonomia). L'autonomia sta per ultima perché è l'unica
-                    che porta un'etichetta a parole — «Agisce», «Propone»,
-                    «Libero» — e in coda al gruppo non spezza in due le icone. */}
+                    the settings modal behind a tab right-click. */}
                 <SessionConfigPopover
                   effort={effort ?? null}
                   onEffortChange={onEffortChange}
@@ -1508,9 +1512,6 @@ export function ChatInput({
                   providerOverride={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
                 />
-                {onAutonomyChange && (
-                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
-                )}
               </div>
 
               {/* Invia, e basta. flex-shrink-0: Invia/Ferma non può MAI essere
