@@ -451,7 +451,7 @@ describe("relay-do eseguito · inoltra nei due versi e non capisce", () => {
     const disp = await s.collega("device");
     const sid = sessioneDi(disp);
 
-    const opaco = "  non-è-json { ][ 日本語 🙂";
+    const opaco = "\u0000\u0001 non-è-json { ][ 日本語 🙂";
     await s.parla(disp, { t: "to-host", payload: opaco });
     expect(host.mio.letti().at(-1)).toEqual({ t: "to-guest", to: sid, payload: opaco });
 
