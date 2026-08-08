@@ -37,6 +37,47 @@ const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION
 // an absolute build date in the version tooltip instead.
 const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';
 const BUILD_SHA = typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : '';
+
+/* I TRE SEGNALI DELLA BARRA, MISURATI SUL CHROME E NON SU UNA PANE.
+ *
+ * Questa riga vive sul chrome della sidebar (`--chrome-bg`: #eaecf0 in chiaro,
+ * #080a0e in scuro), che in chiaro è più SCURO di una superficie di contenuto.
+ * Le tinte qui erano scritte nude sulla scala 500 — `text-amber-500`,
+ * `text-emerald-500`, `text-red-500` — cioè tarate per il fondo scuro e basta.
+ * Misurato sulla palette vera (oklch → sRGB) sul chrome dei due temi:
+ *
+ *              chiaro   scuro
+ *   amber-500    1,82    9,22   ← «2,1GB» in rosso-allarme che non si legge
+ *   emerald-500  2,09    8,03
+ *   red-500      3,24    5,18
+ *
+ * Le coppie qui sotto sono la soluzione, non una scelta di gusto: sul chrome
+ * chiaro la scala 700 non basta per ambra e verde (4,28 e 4,19), quindi il
+ * TESTO scende alla 800 e in scuro risale alla 400.
+ *
+ *   emerald-800 / emerald-400   6,42 / 10,24
+ *   amber-800   / amber-400     6,04 / 11,52
+ *   red-700     / red-400       5,44 /  6,84
+ *
+ * I PALLINI sono grafica, non testo: la soglia è 3:1 e non 4,5:1, e a sei pixel
+ * una tinta troppo scura smette di leggersi come «verde» o «ambra» e diventa un
+ * puntino sporco. Restano quindi due gradini più su, dove passano lo stesso.
+ *
+ *   emerald-600 / emerald-400   3,10 / 10,24
+ *   amber-700   / amber-400     4,28 / 11,52
+ *   red-500     / red-400       3,24 /  6,84
+ *
+ * (Il pannello dei file, che sta su `--bg-elevated` — più chiaro — ha la SUA
+ * taratura in `lib/gitStatusColors.ts`, dove la scala 700 basta. Due superfici,
+ * due misure: è la stessa ragione per cui il chrome si ritara terziario e bordi
+ * in index.css.) */
+const SEGNALE_OK = 'text-emerald-800 dark:text-emerald-400';
+const SEGNALE_ATTESA = 'text-amber-800 dark:text-amber-400';
+const SEGNALE_GUASTO = 'text-red-700 dark:text-red-400';
+const PALLINO_OK = 'bg-emerald-600 dark:bg-emerald-400';
+const PALLINO_ATTESA = 'bg-amber-700 dark:bg-amber-400';
+const PALLINO_GUASTO = 'bg-red-500 dark:bg-red-400';
+
 function formatBuildDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' });
@@ -407,13 +448,13 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           {openclawAvailable ? (
             <>
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                gatewayOnline ? 'bg-emerald-500' : 'bg-red-500'
+                gatewayOnline ? PALLINO_OK : PALLINO_GUASTO
               }`} />
-              <Wifi size={10} className={gatewayOnline ? 'text-emerald-500' : 'text-red-500'} />
+              <Wifi size={10} className={gatewayOnline ? SEGNALE_OK : SEGNALE_GUASTO} />
               {/* The only elastic child: on a narrow sidebar THIS is what gives
                   way, with an ellipsis, so the numeric readouts to its right
                   (MB / CPU / fps) stay whole instead of being cut mid-digit. */}
-              <span className={`min-w-0 truncate ${gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}`}>
+              <span className={`min-w-0 truncate ${gatewayOnline ? 'text-app-text-secondary' : SEGNALE_GUASTO}`}>
                 {gatewayOnline ? 'Online' : 'Offline'}
               </span>
               {/* Latency lives only in the dropdown Gateway row, next to its
@@ -422,13 +463,18 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             </>
           ) : (
             <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status ? 'bg-emerald-500' : 'bg-app-text-muted/40'}`}
+              /* Lo stato «server irraggiungibile» si dice col COLORE, non con
+                 l'opacità: `bg-app-text-muted/40` sul chrome chiaro composita a
+                 un grigio che non si distingue dal fondo, e un indicatore di
+                 guasto che sparisce non è un indicatore. Grigio pieno contro
+                 verde: sono due tinte, e si vedono entrambe. */
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status ? PALLINO_OK : 'bg-app-text-muted'}`}
               title={status ? 'Topics server reachable' : 'Topics server unreachable'}
             />
           )}
           {totalMemMB !== null && (
             <span
-              className={`flex-shrink-0 text-app-text-muted tabular-nums ${memHigh ? 'text-amber-500' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted tabular-nums ${memHigh ? SEGNALE_ATTESA : ''}`}
               title={memTitle}
             >
               {/* Whole-app footprint runs to several GB with many panes open;
@@ -443,14 +489,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               lì il contatore spariva. Ora `null` è l'unico "non misurato". */}
           {totalCpu !== null && (
             <span
-              className={`flex-shrink-0 text-app-text-muted tabular-nums ${totalCpu > 50 ? 'text-amber-500' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted tabular-nums ${totalCpu > 50 ? SEGNALE_ATTESA : ''}`}
               title={cpuTitle}
             >
               {formatCpuPercent(totalCpu)}%
             </span>
           )}
           {fps > 0 && (
-            <span className={`flex-shrink-0 text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
+            <span className={`flex-shrink-0 text-app-text-muted tabular-nums ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
           )}
         </button>
 
@@ -484,13 +530,13 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
             ].filter(Boolean).join('\n')}
           >
             {agentCounts.working > 0 && (
-              <span className="flex items-center gap-0.5 text-emerald-500">
+              <span className={`flex items-center gap-0.5 ${SEGNALE_OK}`}>
                 <Bot size={12} className="animate-pulse" />
                 {agentCounts.working}
               </span>
             )}
             {agentCounts.awaitingInput > 0 && (
-              <span data-testid="agent-count-input" className="flex items-center gap-0.5 text-amber-500">
+              <span data-testid="agent-count-input" className={`flex items-center gap-0.5 ${SEGNALE_ATTESA}`}>
                 <Hourglass size={10} />
                 {agentCounts.awaitingInput}
               </span>
@@ -513,12 +559,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           <span
             data-testid="ws-connection-status"
             className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
-              wsStatus === 'offline' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'
+              wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA
             }`}
             title="Stato connessione realtime al server Topics"
           >
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${
-              wsStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'
+              wsStatus === 'offline' ? PALLINO_GUASTO : PALLINO_ATTESA
             }`} />
             <span className="truncate">
               {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
@@ -532,10 +578,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         {wsStatus === 'connected' && dataNotice && (
           <span
             data-testid="data-notice"
-            className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 min-w-0 overflow-hidden"
+            className={`flex items-center gap-1.5 text-[11px] ${SEGNALE_ATTESA} min-w-0 overflow-hidden`}
             title={dataNotice}
           >
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-500" />
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PALLINO_ATTESA}`} />
             <span className="truncate">{dataNotice}</span>
           </span>
         )}
@@ -557,7 +603,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               sidebar width. */}
           {isDev && (
             <span
-              className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-[10px] leading-tight"
+              className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-[10px] leading-tight`}
               title={`Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.${lastChangeTime ? ` Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa.` : ''}`}
             >
               dev{lastChangeTime ? ` · ${formatBuildTime(lastChangeTime)}` : ''}
@@ -570,7 +616,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               isDev (the amber `dev` already implies live reload). */}
           {!isDev && status?.server?.devReload && (
             <span
-              className="flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 text-emerald-500 font-medium text-[10px] leading-tight"
+              className={`flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 ${SEGNALE_OK} font-medium text-[10px] leading-tight`}
               title="Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)"
             >
               <RefreshCw size={9} />
@@ -725,7 +771,16 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       // Il filo sta dalla parte da cui la riga si stacca dal resto: sotto la
       // barra quando la barra è in cima (o si sommerebbe a quello dell'header),
       // sopra quando la barra è in fondo.
-      className="flex w-full items-center gap-1.5 border-t border-app-border bg-app-bg text-left text-[11px] text-app-text-secondary min-h-6 max-md:min-h-9 hover:bg-app-hover disabled:hover:bg-transparent"
+      // NIENTE `bg-app-bg`, e l'hover è quello del chrome. Questa riga sta
+      // DENTRO la sidebar, che è chrome: dipingerci sopra il colore della
+      // PAGINA la faceva leggere come una superficie estranea incollata in
+      // fondo alla colonna, e sotto Tauri/mac quel colore è opaco mentre il
+      // chrome è vetro — una striscia solida in mezzo alla vibrancy.
+      // L'hover andava nello stesso verso sbagliato: `--bg-hover` è tarato per
+      // una pane di contenuto e in tema chiaro è più CHIARO del chrome, cioè la
+      // riga SCHIARIVA passandoci sopra mentre ogni altra riga della colonna
+      // scurisce (è il caso descritto per esteso su SIDEBAR_HOVER).
+      className={`flex w-full items-center gap-1.5 border-t border-app-border text-left text-[11px] text-app-text-secondary min-h-6 max-md:min-h-9 ${SIDEBAR_HOVER} disabled:hover:bg-transparent`}
       style={{ paddingInline: ROW_INSET }}
       title="Apri l\u2019elenco dei dispositivi autorizzati"
     >
@@ -735,7 +790,7 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       <span className="truncate">{session.name}</span>
       {altri && altri.totali > 0 && (
         <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
-          {altri.connessi > 0 && <span className="h-1.5 w-1.5 rounded-full bg-green-500" />}
+          {altri.connessi > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_OK}`} />}
           {altri.connessi > 0 ? `${altri.connessi}/${altri.totali}` : `${altri.totali}`}
         </span>
       )}

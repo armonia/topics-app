@@ -6,6 +6,7 @@ import { filesApi } from '../../lib/api';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
+import { gitStatusTextClass, gitStatusLabel } from '../../lib/gitStatusColors';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -126,29 +127,13 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
   );
 }
 
-// The git watcher stores the raw 2-char porcelain XY code (e.g. "A ", " D",
-// "M ", "MM"). Trim before classifying — otherwise staged-added ("A ") and
-// deleted (" D"/"D ") never match the single-char cases and fall through to
-// the amber/'M' fallback, mislabeling adds & deletes as Modified. Mirrors
-// GitChanges.statusLabel.
-function getGitStatusColor(status: string): string {
-  const s = status.trim();
-  if (s === '??' || s === 'A' || s === 'AM') return 'text-green-400';
-  if (s === 'M' || s === 'MM') return 'text-amber-400';
-  if (s === 'D') return 'text-red-400';
-  if (s === 'R' || s.startsWith('R')) return 'text-blue-400';
-  return 'text-amber-400'; // fallback for other statuses
-}
-
-function getGitStatusLabel(status: string): string {
-  const s = status.trim();
-  if (s === '??') return 'U';
-  if (s === 'A' || s === 'AM') return 'A';
-  if (s === 'D') return 'D';
-  if (s === 'R' || s.startsWith('R')) return 'R';
-  if (s === 'M' || s === 'MM') return 'M';
-  return 'M';
-}
+// (Qui stavano `getGitStatusColor` e `getGitStatusLabel`, la copia locale di un
+// lavoro che GitChanges — il pannello che sta nella STESSA colonna — faceva
+// già. Le due copie divergevano dove costa: qui le tinte erano NUDE
+// (`text-amber-400` senza `dark:`), cioè in tema chiaro l'albero dipingeva col
+// colore pensato per il fondo scuro — 1,65:1 contro i 10 del tema scuro, lo
+// stesso pixel sei volte meno leggibile. Ora la classificazione e le coppie
+// stanno in `lib/gitStatusColors.ts`, misurate.)
 
 function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
   // Il menu dei file esisteva solo col tasto destro: da telefono rinomina,
@@ -277,14 +262,34 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
           />
         ) : (
           <>
-            <span className={`truncate ${isDir ? 'font-medium' : ''} ${
-              !isSelected && !isMultiSelected && gitStatus ? getGitStatusColor(gitStatus)
-              : !isSelected && !isMultiSelected && dirHasChanges ? 'text-amber-400'
-              : ''
-            }`}>{node.name}</span>
+            <span
+              data-testid={gitStatus && !isSelected && !isMultiSelected ? 'file-node-name-git' : 'file-node-name'}
+              className={`truncate ${isDir ? 'font-medium' : ''} ${
+                !isSelected && !isMultiSelected && gitStatus ? gitStatusTextClass(gitStatus) : ''
+              }`}
+            >{node.name}</span>
+            {/* LA CARTELLA-ANTENATA NON PRENDE LA TINTA PIENA.
+                Prima il nome di ogni cartella che CONTIENE modifiche veniva
+                dipinto di ambra come se fosse essa stessa modificata: su un
+                repo sporco mezzo albero diventa giallo, e un colore che
+                accende metà schermo ha smesso di essere un segnale. Il fatto
+                da dire è binario — «là sotto c'è qualcosa» — e un pallino lo
+                dice per intero senza rubare la leggibilità del nome. Neutro di
+                proposito: l'antenata non SA cosa sia cambiato là sotto, e
+                fingere di saperlo con l'ambra del modificato è una bugia. */}
+            {isDir && dirHasChanges && !isSelected && !isMultiSelected && (
+              <span
+                aria-hidden
+                data-testid="dir-has-changes"
+                className="ml-1 h-1 w-1 rounded-full bg-app-text-muted flex-shrink-0"
+              />
+            )}
             {gitStatus && !isSelected && (
-              <span className={`text-[11px] flex-shrink-0 ml-1 ${getGitStatusColor(gitStatus)}`}>
-                {getGitStatusLabel(gitStatus)}
+              <span
+                data-testid="git-status-letter"
+                className={`text-[11px] flex-shrink-0 ml-1 ${gitStatusTextClass(gitStatus)}`}
+              >
+                {gitStatusLabel(gitStatus)}
               </span>
             )}
             {node.size !== undefined && !isDir && !gitStatus && (
@@ -316,8 +321,14 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
           {showNewItemInput && (
             <InlineInput
               depth={depth + 1}
+              /* L'icona della cartella nuova è NEUTRA (le tre occorrenze in
+                 questo file). Era `text-amber-400`, cioè esattamente la tinta
+                 con cui l'albero segna «modificato»: un'icona che non ha nessuno
+                 stato git indossava il colore di uno stato git, e in tema chiaro
+                 quel giallo misura 1,65:1 — un evidenziatore che non si legge.
+                 Le icone cartella non sono semantica di stato. */
               icon={newItemType === 'dir'
-                ? <Folder size={14} className="text-amber-400" />
+                ? <Folder size={14} className="text-app-text-tertiary" />
                 : (() => { const d = getFileIconDef(''); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()
               }
               onSubmit={onNewItemSubmit}
@@ -1430,7 +1441,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const bandaErrore = error ? (
     <div
       data-testid="file-tree-error-banner"
-      className="px-3 py-1 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
+      /* `amber-800` in chiaro, non `amber-600`: la banda ha un fondo suo
+         (`amber-500/10`), e su quel fondo composto — #faf0e1 in chiaro —
+         amber-600 misura 2,84:1 e amber-700 si ferma a 4,49:1, cioè manca il
+         4,5 di WCAG AA per un capello. amber-800 dà 6,34:1 in chiaro e
+         amber-400 7,78:1 in scuro. È la stessa lettura che serve a chi legge
+         un errore, nei due temi. */
+      className="px-3 py-1 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
     >
       <span className="truncate">{error}</span>
       <button onClick={loadFiles} className="text-[11px] text-primary hover:underline flex-shrink-0">Riprova</button>
@@ -1456,7 +1473,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             <InlineInput
               depth={0}
               icon={newItemType === 'dir'
-                ? <Folder size={14} className="text-amber-400" />
+                ? <Folder size={14} className="text-app-text-tertiary" />
                 : (() => { const d = getFileIconDef(''); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()
               }
               onSubmit={handleNewItemSubmit}
@@ -1533,7 +1550,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             <InlineInput
               depth={0}
               icon={newItemType === 'dir'
-                ? <Folder size={14} className="text-amber-400" />
+                ? <Folder size={14} className="text-app-text-tertiary" />
                 : (() => { const d = getFileIconDef(''); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()
               }
               onSubmit={handleNewItemSubmit}
