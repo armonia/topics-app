@@ -139,7 +139,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     getTopicBySessionKey, saveSingleTopic,
     appendLocalMessage,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, discardIfEmptyTurn, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
-    startStream, updateStreamContent, endStream, isStreaming,
+    startStream, updateStreamContent, updateStreamActivity, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
   const {
@@ -1647,6 +1647,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // input — the UI's duration covers generation + execution.
                 startedAt: Date.now(),
               };
+              // IL TURNO È VIVO. `lastActivity` lo scriveva SOLO
+              // `updateStreamContent`, cioè prosa e thinking: un turno che
+              // macina tool senza dire una frase era indistinguibile da un
+              // processo morto, e lo spazzino degli stream fermi lo uccideva a
+              // tre minuti. È il guasto dell'8 agosto 2026 — 17 tool eseguiti,
+              // zero caratteri di testo, e in chat «⚠️ Risposta interrotta:
+              // nessuna attività per 3 minuti» mentre il figlio girava ancora.
+              // Con gli schemi MCP deferiti (ToolSearch → mount → tool) quei
+              // tratti muti si sono allungati, quindi il difetto è passato da
+              // raro a quotidiano. Una tool call È attività: si dichiara qui.
+              updateStreamActivity(sessionKey);
               trackedToolCallIds.push(toolCallId);
               addToolCallToLastMessage(sessionKey, toolCall);
               appendToolBlock(toolCall);
