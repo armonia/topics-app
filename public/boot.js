@@ -15,15 +15,46 @@
   var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   if (dark) document.documentElement.classList.add('dark');
 
-  // Keep the iOS/Android status-bar tint in lock-step with the resolved theme so
-  // the safe-area zone reads as one continuous surface. Questi hex sono il
-  // CHROME, non la pagina: la fascia di sistema è il bordo dell'app e deve
-  // leggersi come la sidebar. MUST match `--chrome-bg` in index.css
-  // (light #eaecf0 / dark #080a0e) e il manifest.
-  try {
-    var tc = document.querySelector('meta[name="theme-color"]');
-    if (tc) tc.setAttribute('content', dark ? '#080a0e' : '#eaecf0');
-  } catch (e) {}
+  // Tinta della barra di sistema (Android/Chrome) in lock-step col tema
+  // risolto: quella fascia è il BORDO dell'app e deve leggersi come la sidebar,
+  // quindi il colore è il CHROME, non la pagina.
+  //
+  // Il valore si LEGGE da `--chrome-bg`, non si ricopia. Qui c'erano due hex
+  // scritti a mano — la quarta e quinta copia dello stesso colore — e restavano
+  // allineati solo per disciplina: `syncThemeColorMeta` in `useTheme.ts` aveva
+  // già smesso di copiarli proprio per questo.
+  //
+  // Non può essere sincrono, e il motivo è l'ordine dell'`<head>`: questo file
+  // è uno <script> classico che il parser esegue PRIMA di incontrare il
+  // <link rel=stylesheet>, quindi al momento in cui gira nessun token esiste
+  // ancora. Si riprova a ogni frame finché il foglio non è in piedi (di solito
+  // il primo), più una rete su DOMContentLoaded. Fino ad allora vale il
+  // `content` statico di index.html, e la parola definitiva ce l'ha comunque
+  // `syncThemeColorMeta` al montaggio di React. Sotto la shell desktop il
+  // token porta l'alpha della vibrancy: un `hsl(… / .5)` non è un colore
+  // valido per theme-color, quindi lo si lascia stare (stessa guardia del
+  // gemello in useTheme.ts).
+  // Torna true quando non c'è più niente da fare — scritto, oppure non c'è
+  // nessuna meta da scrivere; false solo se il token non è ancora leggibile.
+  var scriviThemeColor = function () {
+    try {
+      var tc = document.querySelector('meta[name="theme-color"]');
+      if (!tc) return true;
+      var v = getComputedStyle(document.documentElement).getPropertyValue('--chrome-bg').trim();
+      if (!v || v.indexOf('/') !== -1) return false;
+      tc.setAttribute('content', v);
+      return true;
+    } catch (e) { return true; }
+  };
+  if (!scriviThemeColor()) {
+    var tentativi = 0;
+    var riprova = function () {
+      if (scriviThemeColor() || ++tentativi > 20) return;
+      requestAnimationFrame(riprova);
+    };
+    requestAnimationFrame(riprova);
+    document.addEventListener('DOMContentLoaded', function () { scriviThemeColor(); });
+  }
 
   // Desktop on macOS: tag <html> so the app can let native window vibrancy show
   // through the chrome. Set before first paint so the opaque base never masks the
