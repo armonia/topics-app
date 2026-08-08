@@ -6,7 +6,7 @@ import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
-  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON,
+  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON, contaLeggibile,
   type BoardProjectChip, type ChipMode,
 } from './boardProjectChips';
 
@@ -105,16 +105,12 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       <span className="flex flex-shrink-0 justify-center" style={{ width: ICON_SLOT_W }}>
         <ProjectFavicon path={chip.path} size={STATUS_GLYPH_PX} width={ICON_SLOT_W} />
       </span>
-      {/* IL NUMERO SI MOSTRA SOLO SE CI STA TUTTO.
-          La pastiglia prenota 14px, cioè DUE cifre tabellari a 11px: con tre
-          (un progetto oltre i 99 task aperti) il terzo carattere finiva sotto
-          l'`overflow-hidden` del ritaglio e si vedeva una cifra MOZZATA — «tipo
-          guido non esce il conteggio, viene tagliato; in quel caso non
-          dovremmo farlo vedere proprio» (Attilio, 08/08). Un numero tagliato non
-          è un numero approssimato: è un numero SBAGLIATO, e «104» che si legge
-          «10» mente. Senza, resta l'icona — che dice comunque «qui c'è del
-          lavoro» — e il totale vero sta nei conteggi di stato accanto. */}
-      {mode === 'icon-count' && String(chip.n).length <= 2 && (
+      {/* Il numero c'è SEMPRE, perché una pastiglia che non può mostrarlo non
+          arriva fin qui: il filtro sta a monte, in `BoardRowSummary`, e usa lo
+          stesso `contaLeggibile` che dimensiona questa scatola. Prima il
+          controllo era qui e lasciava passare l'icona da sola — che accanto a
+          pastiglie complete si legge come un progetto con zero task. */}
+      {(
         // NIENTE DIVISORE. Serviva a staccare il numero dal NOME, quando il
         // nome c'era: due testi dello stesso corpo a 4px di distanza si
         // leggevano come una parola sola. Senza nome non c'è niente da cui
@@ -195,7 +191,15 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
    * la riga nasce già composta invece di ricomporsi sotto gli occhi.
    */
   const conIcona = useProjectIconsPresent(useMemo(() => tutti.map((c) => c.path), [tutti]));
-  const chips = useMemo(() => tutti.filter((c) => c.path && conIcona.has(c.path)), [tutti, conIcona]);
+  const chips = useMemo(
+    // DUE condizioni, non una: serve l'icona (è l'unica identità che la
+    // pastiglia mostra) E un conteggio che ci stia per intero. «Non dovremmo
+    // mostrare un'icona se non si riesce a vedere completamente il suo
+    // conteggio» — un'icona senza numero non dice ciò per cui questa riga
+    // esiste, e accanto a pastiglie complete si legge come «zero task».
+    () => tutti.filter((c) => c.path && conIcona.has(c.path) && contaLeggibile(c.n)),
+    [tutti, conIcona],
+  );
   /** Quelli tolti dal filtro: il «+N» li deve contare, o la riga direbbe che i
    *  progetti con lavoro aperto sono meno di quanti sono. */
   const senzaIcona = tutti.length - chips.length;
