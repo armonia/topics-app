@@ -353,9 +353,22 @@ test.describe("Kanban board", () => {
     // Almeno una pastiglia di progetto, con una larghezza VERA: un contenitore
     // collassato renderebbe gli elementi «presenti» ma larghi zero, che è
     // esattamente il modo in cui il difetto era invisibile.
-    const chip = row.locator('[data-testid^="board-project-"]').first();
+    // `:not([data-testid="board-project-more"])`: il «+N» condivide il PREFISSO
+    // e `.first()` poteva cadere su di lui — misurando un elemento che non è una
+    // pastiglia. E il rettangolo si POLLA invece di leggerlo una volta: le
+    // pastiglie compaiono quando la sonda dell'icona atterra (dall'08/08 la riga
+    // mostra solo i progetti con un'icona), quindi fra il controllo di
+    // visibilità e la misura l'elemento può staccarsi — `boundingBox()` torna
+    // null e il test muore su un difetto che non esiste.
+    const chip = row
+      .locator('[data-testid^="board-project-"]:not([data-testid="board-project-more"])')
+      .first();
     await expect(chip, "nessun progetto sulla riga della board").toBeVisible({ timeout: 10000 });
-    const box = (await chip.boundingBox())!;
+    let box: { x: number; y: number; width: number; height: number } | null = null;
+    await expect
+      .poll(async () => { box = await chip.boundingBox(); return box?.width ?? 0; }, { timeout: 10000 })
+      .toBeGreaterThan(0);
+    box = box!;
     // 28 = `CHIP_W_ICON`, il PAVIMENTO dichiarato: la pastiglia più stretta che
     // il layout ammette — 8 di padding più i 20 dello slot dell'icona. Sotto
     // quella misura non c'è un degrado, c'è un contenitore collassato.
