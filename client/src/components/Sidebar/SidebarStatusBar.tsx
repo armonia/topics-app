@@ -467,7 +467,23 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         data-testid="sidebar-status-bar"
         className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
         style={{
-          paddingInline: ROW_INSET,
+          /**
+           * PIÙ RIENTRO DOVE C'È L'ANGOLO TONDO.
+           *
+           * Sei pixel bastano su un bordo dritto; su un iPhone questa riga sta
+           * SUL fondo, dove lo schermo curva con un raggio di ~55px, e i suoi
+           * estremi finiscono dentro l'arco. Il conto: alla quota del contenuto
+           * (~22px dal fondo) l'arco mangia 11px per lato, e al bordo INFERIORE
+           * del contenuto (~10px) ne mangia 23. Sedici è il compromesso — copre
+           * la quota che conta e non sposta la riga in mezzo alla colonna — e
+           * peggiora accorciando la riga, che è esattamente il motivo per cui va
+           * messo adesso e non dopo.
+           *
+           * `--sal`/`--sar` restano il pavimento: in orizzontale il notch mangia
+           * da un lato solo, e lì il numero giusto lo dice il sistema.
+           */
+          paddingLeft: isMobile ? 'max(16px, var(--sal))' : ROW_INSET,
+          paddingRight: isMobile ? 'max(16px, var(--sar))' : ROW_INSET,
           // `var(--sab)` e non `env(...)` diretto: `env()` non si può
           // sovrascrivere, quindi con la chiamata cruda questa riga era
           // IMPOSSIBILE da provare fuori da un iPhone vero — e infatti l'ho
@@ -476,17 +492,25 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           // produzione il valore è identico, ma una sonda può forzarla e
           // misurare il risultato.
           //
-          // METÀ FASCIA, non tutta. Misurato con `--sab: 34px`:
-          //  · con la fascia INTERA la riga diventa alta 78 e il contenuto sta
-          //    a 25,5 dall'alto e 24,5 dal basso. È centrato, ma la riga si è
-          //    solo INGRASSATA: sopra il contenuto c'è 25px di niente — «hai
-          //    semplicemente alzato spazio sopra la status riga», ed è vero;
-          //  · con `paddingBottom` (la versione ancora prima) il contenuto
-          //    stava a 56px dal bordo, cioè la fascia era spazio morto;
-          //  · con METÀ la riga è alta 61, il contenuto sta a ~30px dal fondo e
-          //    il suo bordo inferiore a ~18: la fascia è ABITATA, e l'home
-          //    indicator — che vive negli ultimi ~10px — non ci finisce sotto.
-          minHeight: `calc(${isMobile ? 44 : 28}px + var(--sab) / 2)`,
+          /**
+           * LA FASCIA SI ASSORBE, NON SI SOMMA — terza e ultima versione, e le
+           * prime due erano sbagliate in due modi opposti (misurate con
+           * `--sab: 34px`):
+           *
+           *  · `paddingBottom`  → riga 78, contenuto a 56px dal bordo: la fascia
+           *    era spazio MORTO sotto la riga.
+           *  · `+ var(--sab)`   → riga 78, contenuto centrato (25,5 sopra / 24,5
+           *    sotto): centrato sì, ma la riga si era solo INGRASSATA — «hai
+           *    semplicemente alzato spazio sopra la status riga».
+           *  · `+ var(--sab)/2` → riga 61: meglio, ancora alta per niente.
+           *
+           * `max()` invece di una somma: l'altezza è quella di sempre, e la
+           * fascia la ALLARGA solo se da sola sarebbe più alta. Con 34px di
+           * inset la riga resta 44 — la stessa di un telefono senza notch —
+           * e il contenuto, centrato, cade a 22px dal fondo: dentro la fascia,
+           * sopra l'home indicator (ultimi ~10px). Niente altezza inventata.
+           */
+          minHeight: `max(${isMobile ? 44 : 28}px, calc(var(--sab) + 10px))`,
         }}
       >
         {/* Gateway status */}
