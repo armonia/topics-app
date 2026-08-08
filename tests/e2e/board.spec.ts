@@ -112,6 +112,18 @@ test.describe("Kanban board", () => {
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-board" }, null, 2));
+    // Una favicon VERA, perché dall'08/08 la riga della board mostra soltanto i
+    // progetti che ne hanno una (niente nome, niente monogrammi: l'icona È
+    // l'identità, e chi non ce l'ha finisce nel «+N»). Senza questo file BOARD-14
+    // non avrebbe nessuna pastiglia da misurare — e sarebbe rosso per il setup,
+    // non per la regola. PNG 1×1 valido, il più piccolo che decodifica davvero.
+    writeFileSync(
+      `${PROJECT_PATH}/favicon.png`,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    );
     const topic = await createTopic(request, "E2E-Board", { projectPath: PROJECT_PATH });
     projectTopicId = topic.id;
   });
@@ -344,13 +356,17 @@ test.describe("Kanban board", () => {
     const chip = row.locator('[data-testid^="board-project-"]').first();
     await expect(chip, "nessun progetto sulla riga della board").toBeVisible({ timeout: 10000 });
     const box = (await chip.boundingBox())!;
-    // 20 = `CHIP_W_ICON`, il PAVIMENTO dichiarato: la pastiglia più stretta che
-    // il layout ammette (padding + slot dell'icona, senza nome). Sotto quella
-    // misura non c'è un degrado, c'è un contenitore collassato. Era `> 20`
-    // quando l'icona sola ne valeva 36; da quando la pastiglia non porta più il
-    // conteggio (08/08) il pavimento È 20, e un `>` stretto renderebbe rosso
-    // proprio il caso limite che questo test deve accettare.
-    expect(Math.round(box.width), "la pastiglia esiste ma è larga zero").toBeGreaterThanOrEqual(20);
+    // 28 = `CHIP_W_ICON`, il PAVIMENTO dichiarato: la pastiglia più stretta che
+    // il layout ammette — 8 di padding più i 20 dello slot dell'icona. Sotto
+    // quella misura non c'è un degrado, c'è un contenitore collassato.
+    expect(Math.round(box.width), "la pastiglia esiste ma è larga zero").toBeGreaterThanOrEqual(28);
+    // E porta l'ICONA, che dall'08/08 è l'unica identità che la pastiglia
+    // mostra: se questa <img> non c'è, il progetto non aveva titolo di stare
+    // sulla riga e la pastiglia è un guscio.
+    await expect(
+      chip.locator('img[src*="/api/projects/icon"]'),
+      "la pastiglia non porta l'icona del progetto",
+    ).toBeVisible({ timeout: 10000 });
 
     // E sta DENTRO la riga, non le sborda a destra.
     const rowBox = (await row.boundingBox())!;

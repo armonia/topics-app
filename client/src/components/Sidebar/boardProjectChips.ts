@@ -72,58 +72,44 @@ export function boardProjectChips(
 }
 
 /**
- * LE TRE LARGHEZZE DI UNA PASTIGLIA, e perché sono tre e non una elastica.
+ * LE DUE LARGHEZZE DI UNA PASTIGLIA — e perché il nome non c'è più.
  *
- * Fisse, non «quanto serve»: l'icona di un progetto arriva da una richiesta di
- * rete, quindi una pastiglia che si adatta al contenuto cambierebbe misura
- * quando l'icona atterra — e il numero di pastiglie visibili cambierebbe con
- * lei, a cose ferme. Il layout non si decide su uno stato asincrono: lo slot è
- * dichiarato e l'icona ci entra dentro, presente o assente che sia.
+ * «Sarebbe ancora più figo mostrare solo quelli che hanno delle icone, senza
+ * mettere la label relativa. Così si vede al volo che ci sono n progetti con n
+ * task da revisionare, senza scrivere testo e senza il divisore verticale»
+ * (Attilio, 08/08). È una riga da COLPO D'OCCHIO, non un inventario: il nome
+ * scritto a 11px troncato a cinque caratteri non è identità, è rumore che
+ * occupa 38px. L'icona è già l'identità del progetto, e chi non ce l'ha non ha
+ * niente da mostrare qui — finisce nel «+N», che è dove va tutto ciò che questa
+ * riga non dice.
  *
- * ── IL NUMERO È USCITO, E POI È RIENTRATO DALLA PORTA GIUSTA ────────────────
- * Portava il conteggio dei task di quel progetto, e su una riga larga 244px il
- * risultato misurato era: UNA pastiglia in modo solo-icona che diceva «31», poi
- * «+6», poi i conteggi per colonna «8» e «36». Quattro numeri in fila, di cui
- * uno senza nome né glifo accanto — «si confondono i numeri» (Attilio, 08/08),
- * ed è letteralmente vero: 31 e 36 sono la stessa forma. Quindi il numero è
- * stato tolto.
+ * Il passaggio precedente (nome + divisore + numero, 84px) risolveva un problema
+ * vero — «si confondono i numeri»: una cifra nuda accanto ai conteggi di stato
+ * si legge come uno di loro, e 31 e 36 sono la stessa forma. La risposta di
+ * allora era dare al numero un nome accanto e una scatola sua. La risposta
+ * adesso è più netta e costa meno: il numero ha accanto un'ICONA, che è un
+ * discriminante più forte di un nome troncato e non si può confondere con un
+ * glifo di stato.
  *
- * Poi: «non vedo cmq il conteggio task nelle chip». Le due richieste non si
- * contraddicono, ma insieme dicono una cosa precisa: il numero deve ESSERCI e
- * non deve poter essere letto come uno dei conteggi di stato. Rimetterlo dentro
- * la pastiglia da 58 lo farebbe comparire subito — misurato, non taglia niente —
- * ma il nome scenderebbe da 34px a 16, cioè due caratteri: si baratta l'identità
- * per il numero, e la confusione torna da un'altra porta.
+ * · `CHIP_W_ICON_COUNT` = 46 — 8 di padding + 20 di slot icona + 4 + 14 di
+ *   numero (due cifre tabellari a 11px).
+ * · `CHIP_W_ICON` = 28 — solo icona: 8 + 20. Il gradino di emergenza, quando
+ *   nemmeno una da 46 ci sta.
  *
- * Il posto l'ha liberato la CODA: `todo` e `backlog` sono usciti dal riassunto
- * (vedi `SUMMARY_STATUSES`), i conteggi sono passati da 63px a 25-56, e le
- * pastiglie da 90,84 a 97-129. In quello spazio la pastiglia ci sta col nome E
- * col numero. Il numero ha una scatola sua, tono e peso diversi, e sta accanto
- * al nome del progetto a cui appartiene: non è più un numero che galleggia.
- *
- * · `CHIP_W_NAME_COUNT` = 84 — 8 di padding + 20 di slot icona + 4 + 34 di nome
- *   + 4 + 14 di numero (due cifre tabellari a 11px).
- * · `CHIP_W_NAME` = 66 — la stessa senza il numero: 8 + 20 + 4 + 34. I 34 sono
- *   cinque-sei caratteri a 11px: un troncamento, non un moncone.
- * · `CHIP_W_ICON` = 28 — solo icona: 8 + 20.
+ * Fisse, non «quanto serve»: una pastiglia che si adatta al contenuto
+ * cambierebbe misura quando l'icona atterra, e con lei cambierebbe il NUMERO di
+ * pastiglie visibili, a cose ferme. Lo slot è dichiarato e l'icona ci entra
+ * dentro.
  *
  * LO SLOT È 20 E NON 12, ed è una decisione presa coi numeri sul tavolo: in un
  * quadrato da 12 un logo-scritta (`acquapub` 256×119, `edm-contratto` 3235×1224)
  * rende 4-5px di inchiostro, cioè niente. In 20×12 si vede. Lo pagano anche i
- * loghi quadrati, che restano 12×12 centrati con 4px di aria per lato. Otto
- * pixel per pastiglia si potevano permettere solo dopo che `backlog` è uscito dal
- * riassunto: con i vecchi conteggi da 63px la pastiglia da 84 non ci stava e la
- * riga sarebbe tornata muta.
+ * loghi quadrati, che restano 12×12 centrati con 4px di aria per lato.
  *
- * SONO UNA SCALA, non tre varianti da scegliere: si prova la più ricca e si
- * scende solo quando non ne entra NEMMENO UNA. Il secondo e il terzo gradino
- * sono degradi onesti — un nome senza numero dice ancora chi; un'icona sola dice
- * chi a chi ha un'icona, e per chi non ce l'ha (niente monogrammi, niente
- * tessere generate) resta una tessera muta col suo tooltip. Muta, ma non
- * ambigua: è la cifra anonima che era il difetto, non il silenzio.
+ * SONO UNA SCALA, non due varianti da scegliere: si prova la più ricca e si
+ * scende solo quando non ne entra NEMMENO UNA.
  */
-export const CHIP_W_NAME_COUNT = 84;
-export const CHIP_W_NAME = 66;
+export const CHIP_W_ICON_COUNT = 46;
 export const CHIP_W_ICON = 28;
 /** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
 export const CHIP_GAP = 6;
@@ -150,13 +136,12 @@ export function countWidth(n: number): number {
 }
 
 /** Come si disegnano le pastiglie, dalla più ricca alla più povera. */
-export type ChipMode = 'name-count' | 'name' | 'icon';
+export type ChipMode = 'icon-count' | 'icon';
 
 /** La scala dei gradini, con la sua larghezza. L'ordine È la priorità, e vive
  *  qui una volta sola: `fitProjectChips` la scorre, e il test la rilegge. */
 export const CHIP_MODES: readonly { mode: ChipMode; w: number }[] = [
-  { mode: 'name-count', w: CHIP_W_NAME_COUNT },
-  { mode: 'name', w: CHIP_W_NAME },
+  { mode: 'icon-count', w: CHIP_W_ICON_COUNT },
   { mode: 'icon', w: CHIP_W_ICON },
 ];
 

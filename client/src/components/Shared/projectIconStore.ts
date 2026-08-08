@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
 /**
  * Lo STORE dell'icona di progetto: cache persistita, sonda single-flight per
@@ -86,8 +86,29 @@ const inflight = new Set<string>();
 
 const endpointUrl = (path: string) => `/api/projects/icon?path=${encodeURIComponent(path)}`;
 
+/**
+ * Un contatore di VERSIONE dello store intero, per chi guarda PIÙ path insieme.
+ *
+ * `subscribe(path)` serve chi disegna una icona sola. Chi invece deve decidere
+ * quali progetti mostrare (la riga della board) ha bisogno di sapere che
+ * QUALCOSA è cambiato, senza iscriversi a ogni path uno per uno e senza
+ * ricostruire l'iscrizione ogni volta che la lista cambia. Un intero che sale a
+ * ogni transizione è la forma che `useSyncExternalStore` sa leggere: lo snapshot
+ * è un numero, quindi è stabile per definizione e non può innescare il loop
+ * «snapshot nuovo a ogni chiamata» che un Set restituito al volo produce.
+ */
+let storeVersion = 0;
+const anyListeners = new Set<() => void>();
+function subscribeAny(cb: () => void): () => void {
+  anyListeners.add(cb);
+  return () => { anyListeners.delete(cb); };
+}
+function getStoreVersion(): number { return storeVersion; }
+
 function notify(path: string): void {
+  storeVersion++;
   listeners.get(path)?.forEach((cb) => cb());
+  anyListeners.forEach((cb) => cb());
 }
 function setResolved(path: string, r: Resolved): void {
   state.set(path, r);
@@ -202,6 +223,55 @@ export function reportImgError(path: string, failedSrc: string): void {
   inflight.add(path);
   setResolved(path, PROBING);
   settleViaFetch(path);
+}
+
+/**
+ * QUALI di questi progetti hanno un'icona vera — la domanda al plurale.
+ *
+ * Serve a chi deve DECIDERE COSA MOSTRARE e non solo come disegnarlo: la riga
+ * della board mostra i progetti con l'icona e basta, quindi la lista dei
+ * candidati va filtrata PRIMA dell'aritmetica del ritaglio, altrimenti si
+ * prenoterebbe spazio per pastiglie che poi non si disegnano.
+ *
+ * Due proprietà, ed entrambe sono il punto:
+ *
+ *  · **il primo fotogramma è già giusto** per ogni progetto che la cache
+ *    persistita conosce — `getSnapshot` idrata in modo sincrono (vedi sopra),
+ *    quindi al ricarico la riga nasce con le sue pastiglie invece di
+ *    ricomporsi sotto gli occhi. È la stessa regola per cui la tessera fissata
+ *    non decide più il layout su uno stato in volo;
+ *  · **la sonda parte da qui**. Se il filtro escludesse i path non ancora noti
+ *    e nessuno li sondasse, quei progetti resterebbero esclusi per sempre —
+ *    l'esclusione si autoconfermerebbe. Chiedere l'icona è quindi parte del
+ *    domandare chi ce l'ha.
+ */
+export function useProjectIconsPresent(paths: readonly string[]): ReadonlySet<string> {
+  // La chiave unisce i path con un NUL, non con uno spazio: un percorso può
+  // contenere spazi («Il mio progetto») e con lo spazio la chiave si
+  // spezzerebbe in path inesistenti — che poi verrebbero pure SONDATI. `\0` non
+  // può comparire in un path POSIX, quindi è l'unico separatore sicuro.
+  // (Attenzione se lo cerchi: un NUL nel sorgente è invisibile a grep.)
+  const key = paths.join('\u0000');
+  const version = useSyncExternalStore(subscribeAny, getStoreVersion, getStoreVersion);
+  useEffect(() => {
+    for (const p of key.split('\u0000')) if (p) ensureProbe(p);
+  }, [key]);
+  return useMemo(() => {
+    // `version` NON si legge per il suo valore: si legge perché è il segnale di
+    // invalidazione. Lo stato vero sta in `getSnapshot`, che è una funzione del
+    // modulo e non una dipendenza che React possa vedere; senza questa riga la
+    // regola `exhaustive-deps` la classifica come dipendenza inutile e chi la
+    // togliesse congelerebbe il Set al primo giro — le pastiglie non
+    // comparirebbero mai per i progetti sondati dopo il primo render.
+    void version;
+    const presenti = new Set<string>();
+    for (const p of key.split('\u0000')) {
+      if (p && getSnapshot(p).s === 'has') presenti.add(p);
+    }
+    return presenti;
+    // `version` non si legge nel corpo: è la dipendenza che dice «lo store si è
+    // mosso, ricalcola». Senza, il Set resterebbe quello del primo giro.
+  }, [key, version]);
 }
 
 /**
