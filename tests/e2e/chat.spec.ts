@@ -254,12 +254,16 @@ test.describe.serial("Chat", () => {
     await goToApp(page);
     await openTestChat(page);
 
-    // Il composer è UNA riga: «+», il testo, e i controlli che si leggono a
-    // colpo d'occhio. La graffetta e il microfono non sono più due bottoni
-    // sciolti — stanno nel «+», che è l'unico posto da cui si aggiunge
-    // qualcosa alla conversazione.
+    // Il testo si prende la riga; sotto, la riga dei controlli: «+», i
+    // permessi, e in coda microfono e invio. La graffetta non è più un bottone
+    // sciolto — sta nel «+», che è l'unico posto da cui si aggiunge qualcosa
+    // alla conversazione. Il microfono sì: è la seconda strada per riempire il
+    // campo, e sta dove il campo finisce di riempirsi.
     const addMenu = page.getByRole("button", { name: "Tools & commands" });
     await expect(addMenu).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("button", { name: /Record voice/ })
+    ).toBeVisible({ timeout: 5_000 });
     // Il piano non è più un interruttore accanto alla graffetta: è un LIVELLO
     // di autonomia, e questo è il controllo che lo porta. C'erano due modi di
     // chiederlo — un flag di prompt in localStorage e questo, che passa
@@ -271,13 +275,10 @@ test.describe.serial("Chat", () => {
       page.getByRole("button", { name: /Send message/ })
     ).toBeVisible({ timeout: 5_000 });
 
-    // …e dentro il «+» ci sono davvero, con le loro scorciatoie.
+    // …e la graffetta è dentro il «+», con la sua scorciatoia.
     await addMenu.click();
     await expect(
       page.getByRole("button", { name: /Attach file/ })
-    ).toBeVisible({ timeout: 5_000 });
-    await expect(
-      page.getByRole("button", { name: /Record voice/ })
     ).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press("Escape");
   });
