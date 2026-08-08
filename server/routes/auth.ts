@@ -8,11 +8,12 @@ import {
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
+import { resolvePrincipals } from "../lib/principals";
 import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
-  grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
+  grantedByType, subjectsOf, putGrant, dropGrant, type SubjectKind,
 } from "../lib/grants-query";
 import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
@@ -528,7 +529,19 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       const ident = ctx.requestIdentity?.(req) ?? null;
       const subj = ident?.deviceId;
       if (!subj) return json({ tasks: [], topics: [] });
-      const { task: idTask, topic: idTopic } = grantedByType(db as never, deviceP(subj));
+      // TUTTI i principali, non il solo ferro: sé stesso, la sua persona, le
+      // organizzazioni vive di quella persona. È lo STESSO insieme con cui il
+      // cancello (`server.ts`) decide se lasciar passare `/api/topics/:id`, e
+      // deve esserlo — la domanda è una sola, e due risposte diverse alla stessa
+      // domanda sono un difetto per costruzione.
+      //
+      // Il verso della divergenza era quello cattivo: la rubrica di
+      // `/api/auth/subjects` offre la PERSONA quando il dispositivo ne ha una —
+      // che è sempre, perché «è di un'altra persona» è il gesto che crea un
+      // ospite — quindi ogni condivisione fatta dall'interfaccia atterrava su un
+      // soggetto che il cancello onorava e l'inventario non vedeva. La chat era
+      // leggibile per id e invisibile nell'unico elenco che un ospite ha.
+      const { task: idTask, topic: idTopic } = grantedByType(db as never, resolvePrincipals(db as never, subj).list);
       const segna = (n: number) => Array(n).fill("?").join(",");
       const tasks = idTask.length
         ? db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask)

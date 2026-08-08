@@ -285,9 +285,19 @@ export function dropGrant(
   ).run(subject.kind, subject.id, resourceType, resourceId);
 }
 
-/** Il principale di un dispositivo. Esiste per non far scrivere
- *  `{kind:'device', id}` a mano in giro: oggi è l'unico soggetto, e proprio per
- *  questo è il punto da cui si vedrà cosa cambia. */
+/**
+ * Il SOLO principale-ferro di un dispositivo — scorciatoia per non scrivere
+ * `{kind:'device', id}` a mano.
+ *
+ * NON è la risposta a «cosa può vedere questo dispositivo?»: quella è
+ * `resolvePrincipals(db, deviceId).list`, che aggiunge la persona e le sue
+ * organizzazioni vive. Usare questo al suo posto produce un sottoinsieme
+ * silenzioso — è già successo, in `/api/auth/shared` e nell'elenco delle schede
+ * di un ospite: il cancello concedeva una risorsa condivisa con la PERSONA e i
+ * due elenchi non la mostravano, cioè «te l'ho condivisa» / «io non vedo
+ * niente». Da qui in poi resta un aiuto per i test, dove il soggetto è scelto a
+ * mano ed è esattamente il dispositivo.
+ */
 export function deviceP(deviceId: string): Principal[] {
   return [{ kind: "device", id: deviceId }];
 }

@@ -6,10 +6,11 @@ import type { Topic, UpdateTopicRequest, Worktree, AutonomyLevel } from '../../t
 /** Le tre voci, descritte per quello che FANNO. Il nome da solo non basta:
  *  «yolo» non dice a nessuno che quella chat può cancellarti un file. */
 const AUTONOMY_CHOICES: { value: AutonomyLevel; label: string; blurb: string }[] = [
-  { value: 'ask', label: 'Chiede prima', blurb: 'Propone un piano e aspetta il tuo ok: non tocca file né esegue comandi.' },
-  { value: 'auto-apply', label: 'Applica le modifiche', blurb: 'Scrive sui file da sé, il resto lo propone.' },
-  { value: 'yolo', label: 'Fa tutto', blurb: 'Nessuna domanda. È il comportamento di sempre.' },
+  { value: 'ask', label: 'Asks first', blurb: 'Proposes a plan and waits for your go-ahead: touches no file, runs no command.' },
+  { value: 'auto-apply', label: 'Applies edits', blurb: 'Writes to files on its own; everything else it proposes.' },
+  { value: 'yolo', label: 'Does everything', blurb: 'No questions asked. This is the long-standing behaviour.' },
 ];
+import { ShareControl } from '../Share/ShareControl';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
@@ -187,9 +188,28 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
-          <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Condividere una CHAT, con lo stesso controllo con cui si condivide
+                una scheda (`TaskDetail`) — non una seconda interfaccia che dice
+                la stessa cosa in un altro modo. Il modello sotto è una tabella
+                `grants` sola, generica sul tipo di risorsa: due pannelli diversi
+                sarebbero esattamente la divergenza che quel modello esiste per
+                evitare.
+
+                Sta QUI e non nella riga di chrome della pane perché la riga di
+                chrome è la barra delle TAB — appartiene al gruppo, non alla
+                singola chat — mentre questo modale è la superficie che parla di
+                UNA topic, ed è raggiungibile allo stesso modo da ogni layout
+                (gruppo standalone, cella solo, finestra di progetto).
+
+                Non sulle BOZZE: una `draft:` non ha ancora una riga sul server,
+                quindi la concessione atterrerebbe su un id che sta per essere
+                buttato — un permesso verso il nulla, che poi resta nell'elenco. */}
+            {!topic.id.startsWith('draft:') && <ShareControl resourceType="topic" resourceId={topic.id} />}
+            <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -228,7 +248,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             <label className="block text-[13px] font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <BellOff size={14} />
-                Notifiche
+                Notifications
               </span>
             </label>
             <button
@@ -240,8 +260,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             >
               <span className="text-[12px] text-app-text-muted">
                 {muted
-                  ? 'Muto: nessun banner né suono a fine turno (conta comunque nel badge).'
-                  : 'Attive: banner e suono quando un agente finisce in questa topic.'}
+                  ? 'Muted: no banner and no sound at the end of a turn (it still counts in the badge).'
+                  : 'On: banner and sound when an agent finishes in this topic.'}
               </span>
               <span className={`relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors ${muted ? 'bg-primary' : 'bg-app-border'}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${muted ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -300,14 +320,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             <label className="block text-[13px] font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck size={14} />
-                Autonomia
+                Autonomy
               </span>
             </label>
             <p className="text-[11px] text-app-text-muted mb-2">
-              Quanto può fare da sé questa chat prima di fermarsi a chiederti qualcosa.
-              {!autonomy && ' Non hai ancora scelto: per ora fa tutto senza chiedere.'}
+              How much this chat may do on its own before stopping to ask you something.
+              {!autonomy && ' You have not chosen yet: for now it does everything without asking.'}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Livello di autonomia">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Autonomy level">
               {AUTONOMY_CHOICES.map((c) => {
                 // Nessun livello scelto ⇒ nessuno evidenziato. Illuminare «Fa
                 // tutto» sarebbe mentire due volte: dice che qualcuno ha scelto,
