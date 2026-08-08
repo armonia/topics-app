@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Check, AlertCircle } from 'lucide-react';
+import { Bell, BellOff, Check, AlertCircle, Moon } from 'lucide-react';
 import type { AppSettings } from '../../types';
 import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
 import { describeNativeNotifications } from '../../lib/notificationStatus';
@@ -64,21 +64,30 @@ function NativeBannerStatus() {
 }
 
 /**
- * Il gate Focus/Non disturbare, e cosa fare quando è spento.
+ * Il gate Focus/Non disturbare, quando c'è qualcosa da dire.
  *
  * Su macOS 26 il gate legge lo stato del Focus da `~/Library/DoNotDisturb/DB/`,
  * che è protetto da TCC: senza Full Disk Access la lettura fallisce, il gate
  * resta trasparente (default sicuro — si notifica sempre) e l'utente riceve
- * banner durante un Focus **senza sapere perché**. La funzione sembra
- * semplicemente non esistere.
+ * banner durante un Focus **senza sapere perché**.
  *
- * Qui la si nomina e si offre l'unica azione utile. Il bottone apre il pannello
- * di sistema: concedere il permesso è un gesto che deve restare dell'utente,
- * l'app può solo portarcelo davanti.
+ * Due cose sono cambiate, e vanno lette insieme.
  *
- * Tre stati, tre risposte diverse: fuori dal guscio nativo non si disegna nulla
- * (non c'è niente da concedere), in attesa nemmeno (una diagnosi che poi si
- * smentisce è peggio del nulla), e solo `blocked` merita l'avviso.
+ * Il ramo «va tutto bene» NON si disegna più. Diceva «i banner restano zitti
+ * mentre è attivo» e occupava una riga permanente per confermare che una
+ * funzione fa il suo mestiere: una funzione che va non merita una riga.
+ *
+ * Il ramo «bloccato» scende da avviso ambra a riga muta. È un avviso
+ * PERMANENTE per una funzione OPZIONALE — tacere i banner durante un Focus — e
+ * il rapporto costo/beneficio era rovesciato: chiedeva il permesso più invasivo
+ * di macOS con l'urgenza di un errore. L'azione resta, in linea; concedere il
+ * permesso è un gesto che deve restare dell'utente, l'app può solo portarcelo
+ * davanti.
+ *
+ * E `blocked` ora arriva SOLO da un permesso davvero negato: il caso «nessun
+ * Focus è mai stato impostato» (file inesistente) non è più confuso con quello
+ * (vedi `focus_status` lato Rust). Prima erano lo stesso `None`, e su un Mac
+ * pulito questa riga chiedeva l'accesso completo al disco per niente.
  */
 function FocusGateStatus() {
   const [state, setState] = useState<FocusGateState>(() => focusGateState());
@@ -93,38 +102,83 @@ function FocusGateStatus() {
     return () => clearInterval(t);
   }, [state]);
 
-  if (state === 'unavailable' || state === 'pending') return null;
-
-  if (state === 'active') {
-    return (
-      <div className="flex items-start gap-2 mb-3 text-[11.5px]">
-        <Check size={13} className="shrink-0 mt-px text-app-text-muted" />
-        <div className="text-app-text-muted">
-          Focus / Non disturbare: i banner restano zitti mentre è attivo.
-        </div>
-      </div>
-    );
-  }
+  if (state !== 'blocked') return null;
 
   return (
-    <div className="flex items-start gap-2 mb-3 text-[11.5px]">
-      <AlertCircle size={13} className="shrink-0 mt-px text-amber-500" />
+    <div className="flex items-start gap-2 mb-3 text-[11.5px] text-app-text-muted">
+      <Moon size={13} className="shrink-0 mt-px" />
       <div className="min-w-0">
-        <div className="text-amber-500">Focus / Non disturbare: non lo vediamo</div>
-        <div className="text-app-text-muted mt-0.5">
-          Topics non riesce a leggere lo stato del Focus, quindi i banner arrivano
-          anche mentre è attivo. Su macOS quel dato è protetto e serve concedere
-          l'accesso completo al disco.
-        </div>
+        Non riusciamo a leggere lo stato del Focus / Non disturbare, quindi i
+        banner arrivano anche mentre è attivo: su macOS quel dato è protetto.{' '}
         <button
           onClick={() => openExternalOnce(FULL_DISK_ACCESS_URL)}
-          className="mt-1.5 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text hover:bg-white/20"
-        >Apri Accesso completo al disco</button>
-        <div className="text-app-text-muted mt-1">
-          Dopo averlo concesso serve riavviare Topics: il permesso si legge
-          all'avvio del processo.
-        </div>
+          className="underline underline-offset-2 hover:text-app-text transition-colors"
+        >Concedi l'accesso completo al disco</button>
+        , poi riavvia Topics — il permesso si legge all'avvio del processo.
       </div>
+    </div>
+  );
+}
+
+/** Il nome che si legge nella sidebar: l'ultimo segmento del path. */
+function projectName(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path;
+}
+
+/**
+ * I progetti che hai silenziato, e il gesto per riaccenderli.
+ *
+ * `mutedProjects` cresceva solo dal menu contestuale della sidebar, e l'unica
+ * traccia era un'icona su quella riga. Archivia il progetto o passa a un altro
+ * dispositivo e la regola continua a valere: le notifiche smettono di arrivare e
+ * non c'è nessun posto dove chiedersi perché. È lo stesso scenario dei permessi
+ * degli strumenti — un interruttore permanente premuto di corsa, in un posto, e
+ * rileggibile in nessuno.
+ *
+ * Nessuna persistenza nuova: si legge e si riscrive lo stesso campo di
+ * `AppSettings`, che è già sincronizzato lato server. Quando non c'è niente da
+ * elencare il blocco non si disegna — un elenco vuoto è rumore.
+ *
+ * Solo i PROGETTI: il silenziamento della singola chat ha già la sua icona
+ * sulla riga della chat, che è dove la si va a cercare.
+ */
+function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
+  const muted = settings.mutedProjects ?? [];
+  if (muted.length === 0) return null;
+
+  return (
+    <div className="space-y-2" data-testid="settings-muted-projects">
+      <div>
+        <h3 className="text-[13px] font-medium text-app-text mb-1">Silenziati</h3>
+        <p className="text-[12px] leading-snug text-app-text-muted">
+          Questi progetti non fanno arrivare banner né suono quando un agente
+          finisce. Contano lo stesso nel badge dell'app: a sparire è
+          l'interruzione, non il conteggio.
+        </p>
+      </div>
+      <ul className="space-y-1">
+        {muted.map((path) => (
+          <li
+            key={path}
+            className="flex items-center gap-2 rounded-md border border-app-border px-2.5 py-2"
+            data-testid={`muted-project-${path}`}
+          >
+            <BellOff size={14} className="shrink-0 text-app-text-muted" />
+            <div className="min-w-0 flex-1" title={path}>
+              <div className="truncate text-[12px] text-app-text">{projectName(path)}</div>
+              <div className="truncate font-mono text-[10.5px] text-app-text-muted">{path}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onChange('mutedProjects', muted.filter((p) => p !== path))}
+              title="Riattiva le notifiche per questo progetto"
+              className="shrink-0 rounded p-1.5 text-app-text-muted hover:bg-app-hover hover:text-app-text transition-colors"
+            >
+              <Bell size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -179,6 +233,10 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
           />
         </div>
       </div>
+
+      {/* Le eccezioni vanno DOPO gli interruttori: prima la regola generale,
+          poi chi ne è escluso. */}
+      <MutedProjects settings={settings} onChange={onChange} />
     </div>
   );
 }

@@ -3,8 +3,7 @@ import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMes
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
-import { notifyNative } from '../lib/shell/app';
-import { shellKind } from '../lib/shell';
+import { notifyNative, primeWebNotificationPermission } from '../lib/shell/app';
 import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
 import { decideTerminalBanner, statusBody, isTerminalPaneSelected, isTabActivelyVisible, isRealPhaseTransition } from '../lib/notify/terminalNotify';
 import { useProjectFocusStore } from '../state/projectFocus';
@@ -134,19 +133,13 @@ export function useCompletionNotifier({
   // Prime OS-notification permission once on mount. In a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
   //
-  // NOT under Tauri: there the native `notify` command owns delivery AND its own
-  // UNUserNotification authorization — the WKWebView web Notification permission
-  // is never used for delivery, and (unlike a real browser) its `permission`
-  // does NOT persist across launches, so requesting it re-raised the prompt on
-  // EVERY app start for nothing. That spurious repeat is the "chiede sempre i
-  // permessi" symptom; skip the web prompt entirely in the native shell.
+  // Il guard nativo — sotto Tauri il permesso web NON si chiede — non vive più
+  // qui: sta dentro `primeWebNotificationPermission`, con la sua motivazione.
+  // Stava qui, ed era l'unica copia guardata di tre; le altre due chiedevano lo
+  // stesso permesso senza guard, che è esattamente come è nato il bug dei prompt
+  // a ogni avvio.
   useEffect(() => {
-    if (shellKind === 'tauri') return;
-    try {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch { /* ignore — notifications simply won't show */ }
+    void primeWebNotificationPermission();
   }, []);
 
   // Arm the Focus/DND gate. Installs the push hook the native watcher calls and

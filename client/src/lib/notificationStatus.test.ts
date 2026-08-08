@@ -3,14 +3,15 @@
  * al posto della vecchia promessa.
  *
  * Prima c'era scritto, sempre e comunque, "Toast in-window + native macOS
- * notification when an agent finishes". Su una build non firmata da Apple è
- * falso: macOS 26 nega l'autorizzazione senza nemmeno chiedere, l'app non
- * compare in Impostazioni di sistema → Notifiche, e la catena cade in silenzio
- * in tre punti diversi (fuori dal bundle / non autorizzati / nessun carrier di
- * ripiego). Da fuori è indistinguibile da "non c'era niente da notificare".
+ * notification when an agent finishes". Può essere falso: la catena cade in
+ * silenzio in tre punti diversi (fuori dal bundle / non autorizzati / nessun
+ * carrier di ripiego), e da fuori è indistinguibile da "non c'era niente da
+ * notificare".
  *
- * Questi test inchiodano che ognuno dei tre punti ha una frase SUA, e che
- * nessuno di essi finisce per dire che va tutto bene.
+ * Questi test inchiodano che ognuno dei tre punti ha una frase SUA, e — la
+ * parte che conta di più — che `health` risponde a UNA domanda sola: **i banner
+ * arrivano?** Non «siamo autorizzati». Un canale che consegna non prende
+ * un'icona d'allarme solo perché consegna per vie traverse.
  */
 import { describe, test, expect } from 'bun:test';
 import { describeNativeNotifications } from './notificationStatus';
@@ -33,12 +34,19 @@ describe('describeNativeNotifications', () => {
     expect(v.hint).toBe(null);
   });
 
-  test('non autorizzati ma col carrier → degradato, NON "ok"', () => {
+  // Questo caso diceva «degradato, NON ok», e la motivazione era: non siamo
+  // autorizzati, quindi qualcosa non va. Era la domanda sbagliata. I banner
+  // ARRIVANO — li consegna il carrier — e un'icona ambra permanente su un
+  // canale che funziona insegna solo a ignorare le icone ambra. Il dettaglio
+  // resta, ma come spiegazione: nel testo, non nel tono.
+  test('non autorizzati ma col carrier → «ok»: i banner arrivano davvero', () => {
     const v = describeNativeNotifications(mac({ helper: '/opt/homebrew/bin/terminal-notifier' }));
-    expect(v.health).toBe('degraded');
-    expect(v.headline).toContain('terminal-notifier');
-    // Deve spiegare PERCHÉ Topics non compare in Impostazioni di sistema:
-    // è la domanda che uno si fa guardando il banner col nome sbagliato.
+    expect(v.health).toBe('ok');
+    expect(v.headline).toContain('arrivano');
+    expect(v.headline).not.toContain('NON arrivano');
+    // Il perché va detto lo stesso: spiega il nome sbagliato sul banner e
+    // l'assenza di Topics dal pannello di sistema. Ma sta nell'hint.
+    expect(v.hint).toContain('terminal-notifier');
     expect(v.hint).toContain('Impostazioni di sistema');
   });
 
@@ -50,10 +58,25 @@ describe('describeNativeNotifications', () => {
     expect(v.hint).toContain('toast in finestra');
   });
 
-  test('negato esplicitamente → indica il pannello di sistema, non la firma', () => {
+  test('negato esplicitamente → indica il pannello di sistema', () => {
     const v = describeNativeNotifications(mac({ authState: 'denied' }));
     expect(v.health).toBe('broken');
     expect(v.hint).toContain('negate');
+    expect(v.hint).toContain('Impostazioni di sistema');
+  });
+
+  // Il ramo che il pannello sbagliava davvero. `notDetermined` significa che
+  // macOS non ha MAI deciso: l'app in Impostazioni di sistema → Notifiche non
+  // compare proprio (`defaults read com.apple.ncprefs apps` non ne ha traccia),
+  // quindi mandarci l'utente è un consiglio impossibile da seguire.
+  test('non ancora deciso → NON manda in un pannello dove l’app non c’è', () => {
+    for (const authState of ['notDetermined', 'pending'] as const) {
+      const v = describeNativeNotifications(mac({ authState }));
+      expect(v.health).toBe('broken');
+      expect(v.hint).not.toContain('Impostazioni di sistema');
+      expect(v.hint).not.toContain('negate');
+      expect(v.hint).toContain('toast in finestra');
+    }
   });
 
   test('fuori dal bundle → lo dice, e chiarisce che riguarda solo lo sviluppo', () => {
@@ -76,15 +99,19 @@ describe('describeNativeNotifications', () => {
     }
   });
 
-  test('nessuno stato dichiara "ok" senza essere autorizzato', () => {
-    const nonAutorizzati: NativeNotificationStatus[] = [
+  // Il contrario del test di prima («nessuno dichiara ok senza autorizzazione»),
+  // e per una ragione: l'autorizzazione non è la domanda. La domanda è se esiste
+  // una via d'uscita. Senza nessuna, «ok» non si dice mai.
+  test('nessuno stato SENZA una via d’uscita dichiara «ok»', () => {
+    const senzaConsegna: NativeNotificationStatus[] = [
       mac(),
-      mac({ helper: '/usr/local/bin/terminal-notifier' }),
+      mac({ authState: 'notDetermined' }),
       mac({ authState: 'denied' }),
       mac({ bundled: false }),
-      mac({ platform: 'windows' }),
+      // Il carrier non salva una build fuori dal bundle: lì non si posta nulla.
+      mac({ bundled: false, helper: '/usr/local/bin/terminal-notifier' }),
     ];
-    for (const s of nonAutorizzati) {
+    for (const s of senzaConsegna) {
       expect(describeNativeNotifications(s).health).not.toBe('ok');
     }
   });

@@ -76,6 +76,69 @@ export function notifyNative(
   }
 }
 
+/**
+ * Il permesso web `Notification` visto da qui — SENZA mai chiederlo.
+ *
+ * `'unsupported'` copre i due casi che al chiamante interessano allo stesso
+ * modo: l'API non esiste (contesto non sicuro, WebView spartana), oppure siamo
+ * sotto Tauri — dove quel permesso non governa niente, perché la consegna passa
+ * dal comando nativo `notify` (vedi `notifyNative`).
+ */
+export function webNotificationPermission(): NotificationPermission | 'unsupported' {
+  if (shellKind === 'tauri') return 'unsupported';
+  try {
+    return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/** La richiesta in corso (o già risolta): si chiede UNA volta per finestra. */
+let webPermissionPrimed: Promise<NotificationPermission | 'unsupported'> | null = null;
+
+/**
+ * Chiede il permesso dei banner web — una volta sola, e solo dove serve.
+ *
+ * Questa è la PORTA UNICA: nessun altro modulo parla con `Notification`. Non è
+ * pignoleria, è la forma del bug che ha causato «le tre spuntine da riaggiungere
+ * a ogni avvio». La regola vera è una sola — sotto Tauri il permesso web non va
+ * MAI chiesto — ma era scritta in un solo punto (`useCompletionNotifier`) e
+ * dimenticata negli altri due (`usePanelLifecycle`, `usePushNotifications`).
+ * Chiusa qui dentro, una quarta copia non può nascere senza portarsela dietro.
+ *
+ * Perché sotto Tauri non si chiede: in WKWebView `Notification.permission` NON
+ * sopravvive al rilancio dell'app, quindi la richiesta ripartiva a ogni avvio; e
+ * `usePanelLifecycle` è montato una volta PER FINESTRA, quindi con i gruppi
+ * staccati partivano N prompt insieme. Il permesso, per giunta, non serviva a
+ * niente: `notifyNative` instrada su `tauriInvoke('notify')` e la web API non la
+ * tocca mai.
+ *
+ * Non lancia mai: un permesso negato vuol dire soltanto niente banner web.
+ */
+export function primeWebNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
+  const current = webNotificationPermission();
+  // 'granted' / 'denied' / 'unsupported': la risposta c'è già, e ri-chiedere un
+  // 'denied' non riapre nessun prompt — lo fa solo sembrare possibile.
+  if (current !== 'default') return Promise.resolve(current);
+  if (!webPermissionPrimed) {
+    try {
+      // La promessa resta in cache anche quando l'utente chiude il prompt senza
+      // decidere (esito 'default'): quello è un «non ora», e ri-proporlo dentro
+      // la stessa sessione è esattamente il fastidio da cui nasce questa porta.
+      webPermissionPrimed = Promise.resolve(Notification.requestPermission())
+        .catch(() => webNotificationPermission());
+    } catch {
+      webPermissionPrimed = Promise.resolve(webNotificationPermission());
+    }
+  }
+  return webPermissionPrimed;
+}
+
+/** Azzera la memoria della richiesta. Solo per i test. */
+export function __resetWebNotificationPrimeForTests(): void {
+  webPermissionPrimed = null;
+}
+
 /** Stato REALE della catena dei banner nativi (solo Tauri). */
 export interface NativeNotificationStatus {
   platform: 'macos' | 'windows' | 'linux';
@@ -83,7 +146,16 @@ export interface NativeNotificationStatus {
   bundled: boolean;
   /** Il sistema ci autorizza a postare a NOSTRO nome. */
   authorized: boolean;
-  authState: 'pending' | 'granted' | 'denied' | 'unknown';
+  /**
+   * `pending` = nessuna lettura ancora tornata · `notDetermined` = macOS non ha
+   * ancora deciso (nessun prompt andato a buon fine) · `granted` / `denied` =
+   * risposta definitiva del sistema.
+   *
+   * `notDetermined` e `denied` NON sono la stessa cosa e non vanno confusi: il
+   * secondo si risolve in Impostazioni di sistema → Notifiche, il primo no —
+   * lì l'app non compare nemmeno.
+   */
+  authState: 'pending' | 'notDetermined' | 'granted' | 'denied' | 'unknown';
   /** Carrier di ripiego risolto (terminal-notifier), o null: null + non
    *  autorizzati = nessun banner nativo, punto. */
   helper: string | null;

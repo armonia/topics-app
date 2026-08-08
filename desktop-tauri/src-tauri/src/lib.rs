@@ -1610,10 +1610,22 @@ mod macos_notifications {
     /// indistinguibile da "nessuna notifica da mostrare", e l'utente resta
     /// convinto che il pannello Impostazioni dica il vero. Qui si tiene l'ultimo
     /// stato noto perché `notification_status` possa dirlo alla UI.
+    ///
+    /// `NOT_DETERMINED` è distinto da `DENIED` e la differenza NON è accademica:
+    /// il pannello, su «negato», consiglia di riaccendere le notifiche in
+    /// Impostazioni di Sistema → Notifiche. Se lo stato vero è «non ancora
+    /// deciso», lì dentro Topics non compare proprio, e il consiglio manda
+    /// l'utente a cercare una voce che non esiste.
     static AUTH_STATE: AtomicU8 = AtomicU8::new(AUTH_PENDING);
+    /// Nessuna lettura è ancora tornata (istanti dopo il boot).
     const AUTH_PENDING: u8 = 0;
     const AUTH_GRANTED: u8 = 1;
+    /// SOLO `UNAuthorizationStatus::Denied`. Un `requestAuthorization` fallito
+    /// non basta: vedi `install()`.
     const AUTH_DENIED: u8 = 2;
+    /// macOS non ha ancora deciso: né concesso né negato. È lo stato di una
+    /// build a cui il prompt non è mai riuscito.
+    const AUTH_NOT_DETERMINED: u8 = 3;
 
     /// Fotografia dello stato reale della catena delle notifiche native.
     /// Sola lettura: nessun campo qui cambia il comportamento, servono a NON
@@ -1626,8 +1638,11 @@ mod macos_notifications {
         /// firmata Apple è `false` per progetto — macOS 26 rifiuta senza
         /// nemmeno chiedere.
         pub authorized: bool,
-        /// "pending" | "granted" | "denied": `authorized=false` con "pending"
-        /// è ancora in volo, con "denied" è definitivo.
+        /// "pending" | "notDetermined" | "granted" | "denied". `authorized=false`
+        /// con "pending" è ancora in volo; con "notDetermined" macOS non ha mai
+        /// deciso (e in Impostazioni di Sistema l'app NON compare); con "denied"
+        /// c'è un rifiuto esplicito, ed è l'unico caso in cui ha senso mandare
+        /// l'utente in quel pannello.
         pub auth_state: &'static str,
         /// Il carrier di ripiego, se risolto. `None` = niente banner nativi,
         /// punto: né come noi né via helper.
@@ -1670,8 +1685,15 @@ mod macos_notifications {
                 // in Impostazioni di Sistema si veda. E `UN_AUTHORIZED=false`
                 // non spegne i banner: manda `post` sull'helper firmato, che è
                 // esattamente quello che serve quando a nostro nome verrebbero
-                // buttati in silenzio. `NotDetermined` (prompt ancora aperto)
-                // non tocca niente.
+                // buttati in silenzio.
+                //
+                // `NotDetermined` ora si REGISTRA (prima veniva ignorato, e il
+                // pannello restava con il "denied" inventato da `install()` —
+                // che mandava a cercare Topics in un pannello dove non c'è).
+                // Non tocca `UN_AUTHORIZED`, però: quello è instradamento di
+                // consegna, e mentre il prompt è ancora aperto l'altro callback
+                // può arrivare con un `granted` — spegnerlo qui sarebbe una
+                // corsa contro la sola via che consegna davvero.
                 if status == UNAuthorizationStatus::Authorized
                     || status == UNAuthorizationStatus::Provisional
                 {
@@ -1680,6 +1702,8 @@ mod macos_notifications {
                 } else if status == UNAuthorizationStatus::Denied {
                     UN_AUTHORIZED.store(false, Ordering::Relaxed);
                     AUTH_STATE.store(AUTH_DENIED, Ordering::Relaxed);
+                } else if status == UNAuthorizationStatus::NotDetermined {
+                    AUTH_STATE.store(AUTH_NOT_DETERMINED, Ordering::Relaxed);
                 }
                 diag(&format!(
                     "settings → authorizationStatus={:?} alertSetting={:?}",
@@ -1717,6 +1741,7 @@ mod macos_notifications {
         let auth_state = match AUTH_STATE.load(Ordering::Relaxed) {
             AUTH_GRANTED => "granted",
             AUTH_DENIED => "denied",
+            AUTH_NOT_DETERMINED => "notDetermined",
             _ => "pending",
         };
         NotificationStatus {
@@ -1895,8 +1920,16 @@ mod macos_notifications {
     /// is a weak property, so somebody must hold a strong ref for the app's
     /// lifetime. Authorization asks for `.alert` only — the completion tone is
     /// played client-side (WebAudio), an OS sound would double it. Fire-and-forget:
-    /// a denial just means no banners (same silent contract as before), but the app
-    /// is now listed in System Settings → Notifications and can be re-enabled.
+    /// una richiesta fallita vuol dire solo niente banner a nostro nome — si passa
+    /// dal carrier di ripiego (`post_via_helper`).
+    ///
+    /// L'esito di questa richiesta NON è lo stato del sistema, e non va scritto
+    /// come tale: qui si registra solo il `granted`. Chi vuole sapere come stiamo
+    /// davvero chiede a `refresh_auth_state`. La riga che prometteva «l'app ora
+    /// compare in Impostazioni di Sistema → Notifiche» è stata tolta perché non è
+    /// vera: con la richiesta che fallisce (`UNErrorDomain error 1`, lo stato
+    /// resta `NotDetermined`) Topics in quel pannello non compare affatto —
+    /// `defaults read com.apple.ncprefs apps` non ne ha traccia.
     pub fn install(app: &tauri::AppHandle) {
         if !is_bundled() {
             return;
@@ -1916,16 +1949,18 @@ mod macos_notifications {
             if granted.as_bool() {
                 UN_AUTHORIZED.store(true, Ordering::Relaxed);
                 AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
-            } else {
-                // Un rifiuto è DEFINITIVO solo se non ci ha già autorizzati
-                // l'altro callback (i due corrono in parallelo).
-                let _ = AUTH_STATE.compare_exchange(
-                    AUTH_PENDING,
-                    AUTH_DENIED,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                );
             }
+            // Un `granted=false` NON diventa "negato", e prima invece lo
+            // diventava. L'esito di `requestAuthorization` è l'esito di UNA
+            // richiesta — qui è quasi sempre `UNErrorDomain error 1`, cioè la
+            // richiesta stessa non è andata a buon fine — non lo stato del
+            // sistema. La sola fonte autorevole è `getNotificationSettings`
+            // (`refresh_auth_state`), che su questa macchina risponde
+            // `NotDetermined`: mai `Denied`. Scriverlo qui produceva un
+            // "denied" inventato che nessuna lettura successiva correggeva più
+            // (`refresh_auth_state` non toccava `NotDetermined`), e il pannello
+            // finiva per consigliare Impostazioni di Sistema → Notifiche, dove
+            // Topics non è mai comparso.
             diag(&format!(
                 "requestAuthorization → granted={} error={}",
                 granted.as_bool(),
@@ -2026,15 +2061,51 @@ mod macos_focus {
             .map(|h| PathBuf::from(h).join("Library/DoNotDisturb/DB/Assertions.json"))
     }
 
-    /// `Some(true)` = a Focus/DND is asserted; `Some(false)` = readable and none
-    /// asserted; `None` = state could not be determined (treat as "notify").
-    pub fn is_active() -> Option<bool> {
-        let raw = std::fs::read_to_string(assertions_path()?).ok()?;
+    /// Esito della lettura del Focus. I tre casi vanno TENUTI SEPARATI, perché
+    /// chiedono all'utente cose diverse — e prima erano un solo `None`.
+    ///
+    /// `read_to_string(...).ok()?` collassava in «non lo so» sia il permesso TCC
+    /// negato sia il file semplicemente inesistente. Il pannello dava sempre la
+    /// colpa al permesso e proponeva l'Accesso completo al disco: su un Mac dove
+    /// nessuno ha mai impostato un Focus il file NON c'è, e l'app chiedeva il
+    /// permesso più invasivo di macOS per una funzione che non aveva niente da
+    /// fare.
+    pub enum FocusRead {
+        /// Letto: `true` = c'è un Focus attivo, `false` = nessuno.
+        State(bool),
+        /// Non possiamo leggerlo: TCC. È l'unico caso in cui chiedere
+        /// l'Accesso completo al disco ha senso.
+        Denied,
+        /// Nessun file: macOS non l'ha mai scritto perché nessun Focus è mai
+        /// stato impostato. Il gate funziona, non c'è niente da silenziare.
+        Absent,
+    }
+
+    pub fn read_focus() -> FocusRead {
+        // HOME assente: non c'è un file da leggere né un permesso da chiedere.
+        let Some(path) = assertions_path() else {
+            return FocusRead::Absent;
+        };
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(r) => r,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FocusRead::Absent,
+            // Su macOS 26 il diniego TCC su questa cartella arriva come EPERM
+            // («Operation not permitted») ⇒ `PermissionDenied`. Gli altri errori
+            // di I/O finiscono qui con lui: non sappiamo leggerlo, e l'unica
+            // leva che l'utente ha in mano resta il permesso.
+            Err(_) => return FocusRead::Denied,
+        };
         // Empty file is a legitimate "no focus" state macOS leaves behind.
         if raw.trim().is_empty() {
-            return Some(false);
+            return FocusRead::State(false);
         }
-        let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        // JSON illeggibile: il file c'è e lo leggiamo, siamo noi a non capirne
+        // la forma. Non è un problema di permessi e mandare l'utente nel
+        // pannello TCC sarebbe una diagnosi sbagliata; `false` mantiene il
+        // default sicuro (non si silenzia mai su un'ipotesi).
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return FocusRead::State(false);
+        };
         // Shape: { "data": [ { "storeAssertionRecords": [ {...}, ... ] } ] }
         let records = json
             .get("data")
@@ -2042,39 +2113,54 @@ mod macos_focus {
             .and_then(|a| a.first())
             .and_then(|e| e.get("storeAssertionRecords"));
         match records {
-            Some(serde_json::Value::Array(a)) => Some(!a.is_empty()),
+            Some(serde_json::Value::Array(a)) => FocusRead::State(!a.is_empty()),
             // Parsed fine, no records key ⇒ definitely no active assertion.
-            _ => Some(false),
+            _ => FocusRead::State(false),
+        }
+    }
+
+    /// `(supported, active, reason)` — la forma che va sul filo verso il client.
+    /// `supported` risponde a «del gate ci si può fidare?»: vero anche quando il
+    /// file non c'è, perché «nessun Focus impostato» è una risposta, non un buco.
+    pub fn snapshot() -> (bool, bool, &'static str) {
+        match read_focus() {
+            FocusRead::State(active) => (true, active, "ok"),
+            FocusRead::Absent => (true, false, "absent"),
+            FocusRead::Denied => (false, false, "denied"),
         }
     }
 }
 
 /// Read the current Focus / Do-Not-Disturb state. Shape is
-/// `{ supported: bool, active: bool }`: `supported=false` means the host can't
-/// tell (web, non-macOS, or no read access) and the client falls back to its
-/// safe default (notify normally). See `macos_focus`.
+/// `{ supported: bool, active: bool, reason: "ok" | "denied" | "absent" }`:
+/// `supported=false` means the host can't tell and the client falls back to its
+/// safe default (notify normally).
+///
+/// `reason` esiste perché `supported=false` da solo non basta a dire cosa fare.
+/// Solo `"denied"` (TCC) è un problema che l'utente può risolvere; `"absent"`
+/// (nessun Focus mai impostato) è il gate che funziona e non ha nulla da fare, e
+/// merita silenzio, non un avviso. Fuori da macOS `"absent"`: non c'è nessun
+/// permesso da concedere, quindi non c'è niente da segnalare. See `macos_focus`.
 #[tauri::command]
 fn focus_status() -> serde_json::Value {
     #[cfg(target_os = "macos")]
-    {
-        match macos_focus::is_active() {
-            Some(active) => serde_json::json!({ "supported": true, "active": active }),
-            None => serde_json::json!({ "supported": false, "active": false }),
-        }
-    }
+    let (supported, active, reason) = macos_focus::snapshot();
     #[cfg(not(target_os = "macos"))]
-    {
-        serde_json::json!({ "supported": false, "active": false })
-    }
+    let (supported, active, reason) = (false, false, "absent");
+    serde_json::json!({ "supported": supported, "active": active, "reason": reason })
 }
 
 /// Background poller that PUSHES Focus changes to the webview so the completion
 /// notifier reacts within a couple of seconds of the user toggling a Focus,
 /// instead of only on its next on-demand query. Follows the shell's eval-hook
 /// convention (no `@tauri-apps/event` dependency on the client): it calls
-/// `window.__topicsFocusChanged(active, supported)`; the client installs that hook
-/// and updates its cache. Emits only on a real change, and only while a `main`
-/// webview exists. No-op off macOS.
+/// `window.__topicsFocusChanged(active, supported, reason)`; the client installs
+/// that hook and updates its cache. Emits only on a real change, and only while a
+/// `main` webview exists. No-op off macOS.
+///
+/// `reason` viaggia con la spinta, non solo con la query iniziale: il permesso
+/// TCC si può concedere a app aperta, e senza il motivo l'interfaccia resterebbe
+/// con la diagnosi del boot.
 #[cfg(target_os = "macos")]
 fn spawn_focus_watcher(app: tauri::AppHandle) {
     use tauri::Manager;
@@ -2083,20 +2169,20 @@ fn spawn_focus_watcher(app: tauri::AppHandle) {
         .spawn(move || {
             // `None` = "not yet sampled": the first read always pushes so the
             // client's optimistic default gets corrected even if Focus is off.
-            let mut last: Option<Option<bool>> = None;
+            let mut last: Option<(bool, bool, &'static str)> = None;
             loop {
-                let current = macos_focus::is_active();
-                if last.as_ref() != Some(&current) {
+                let current = macos_focus::snapshot();
+                if last != Some(current) {
                     last = Some(current);
-                    let (active, supported) = match current {
-                        Some(a) => (a, true),
-                        None => (false, false),
-                    };
+                    let (supported, active, reason) = current;
                     let app = app.clone();
                     let _ = app.clone().run_on_main_thread(move || {
                         if let Some(w) = app.get_webview_window("main") {
+                            // `reason` è una costante nostra (`ok`/`denied`/
+                            // `absent`), mai un dato di fuori: inlinarla fra
+                            // apici non apre nessuna superficie d'iniezione.
                             let _ = w.eval(&format!(
-                                "window.__topicsFocusChanged && window.__topicsFocusChanged({active}, {supported});"
+                                "window.__topicsFocusChanged && window.__topicsFocusChanged({active}, {supported}, '{reason}');"
                             ));
                         }
                     });
