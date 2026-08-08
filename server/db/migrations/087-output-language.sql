@@ -1,0 +1,30 @@
+-- 087: la lingua in cui il MODELLO risponde.
+--
+-- Il selettore «Lingua» esisteva già, ma era una preferenza di sola facciata:
+-- muoveva le stringhe della UI già convertite (client/src/lib/i18n.ts) e si
+-- fermava lì. Il valore attraversava il filo — finiva in `ui_state` insieme al
+-- resto di `AppSettings` — ma nessuno lo leggeva dall'altra parte, quindi non
+-- raggiungeva nessuna delle tre bocche che parlano al modello: il prompt di
+-- sistema di chat/terminale (`TOPICS_AGENT_SYSTEM_PROMPT`, scritto in inglese),
+-- il kickoff della board (scritto in italiano) e il contesto assemblato per
+-- codex/openai/acp (dove non c'era niente). Risultato misurabile: la lingua
+-- dell'agente non era la scelta di nessuno, era quella della costante più
+-- vicina — e mettere la UI in inglese non spostava né l'una né l'altra.
+--
+-- La casa giusta è `app_settings`: è già il posto dei knob globali, e ha già il
+-- pattern del resolver (`resolveClaudeModel`, `resolveClaudeEffort`, …). Il
+-- client tiene la sua copia in localStorage perché `t()` è SINCRONO e non può
+-- aspettare la rete per dipingere il primo frame, ma la verità — quella che il
+-- server legge quando costruisce un prompt — è questa riga.
+--
+-- Una colonna sola, NULLABLE, senza UPDATE di massa: NULL significa «auto»,
+-- cioè nessuna direttiva e il modello sceglie come ha sempre fatto. Chi non
+-- tocca il selettore non cambia comportamento di un byte — la stessa regola di
+-- ogni altra colonna di questa tabella (vedi 054-app-settings.sql).
+--
+-- Valori: 'auto' | 'it' | 'en'. Non c'è CHECK perché l'insieme ammesso vive
+-- nell'union TypeScript `OutputLanguage` (shared/types.ts) e nella validazione
+-- della rotta: un CHECK qui sarebbe una terza copia da tenere allineata a mano,
+-- ed è precisamente il modo in cui i vincoli SQLite di questo repo sono già
+-- andati in deriva una volta.
+ALTER TABLE app_settings ADD COLUMN output_language TEXT;

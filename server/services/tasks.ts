@@ -1462,6 +1462,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchModel: r?.dispatch_model ?? "auto",
+        language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
         dispatchFanOut: Math.max(1, r?.dispatch_fanout ?? 1),
@@ -1510,6 +1511,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // string pins the board to that model id. No allowlist here — the model set is
       // provider-driven (see /api/claude/models); an unknown id simply fails at spawn.
       if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
+      if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che
       // occupa uno slot del tetto globale.

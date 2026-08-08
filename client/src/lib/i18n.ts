@@ -340,3 +340,68 @@ export function missingKeys(locale: Locale): string[] {
   const all = new Set([...Object.keys(IT), ...Object.keys(EN)]);
   return [...all].filter((k) => !(k in (DICTS[locale] ?? {}))).sort();
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// La stessa scelta, dall'altra parte del filo
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * «Lingua» è UNA preferenza sola: governa le stringhe qui sopra E la lingua in
+ * cui il modello risponde. Ma i due lati hanno bisogni incompatibili — `t()` è
+ * SINCRONA e deve dipingere il primo frame senza aspettare la rete, quindi la
+ * copia dell'interfaccia vive in localStorage; il server invece deve poterla
+ * leggere quando costruisce un prompt, e localStorage non ce l'ha.
+ *
+ * Da qui le due scritture: `AppSettings.language` (localStorage + `ui_state`,
+ * per la UI) e la riga `app_settings.output_language` (migration 087, per il
+ * modello). La verità è la seconda: è quella che chat, terminale, kanban e
+ * contesto assemblato leggono.
+ *
+ * Non passa da `appSettingsApi` per una ragione sola e temporanea: quel modulo
+ * non è nella proprietà di questa modifica, quindi il tipo `AppBehaviorSettings`
+ * non conosce ancora `outputLanguage`. La chiamata è identica a quella che
+ * farebbe `request()` (stessa base `/api`, stesso verbo, stesso corpo) — quando
+ * il campo entrerà nel tipo, queste due funzioni diventano due righe che
+ * chiamano `appSettingsApi`.
+ */
+/**
+ * Cosa dice il server sulla lingua. TRE stati e non due, perché due non
+ * bastano: «la riga è vuota» e «non sono riuscito a leggerla» portano a
+ * decisioni opposte. Chi riallinea i due depositi scrive la preferenza locale
+ * SOLO sul primo — trattare un errore di rete come «vuoto» significherebbe
+ * sovrascrivere con il localStorage di questa finestra una scelta appena fatta
+ * da un'altra, proprio nel momento in cui non se ne sa niente.
+ */
+export type ServerLanguage =
+  | { known: true; value: LocalePreference | null }
+  | { known: false };
+
+export async function fetchOutputLanguage(): Promise<ServerLanguage> {
+  try {
+    const res = await fetch('/api/app-settings');
+    if (!res.ok) return { known: false };
+    const body = (await res.json()) as { settings?: { outputLanguage?: string | null } };
+    const raw = body.settings?.outputLanguage;
+    if (raw === 'it' || raw === 'en' || raw === 'auto') return { known: true, value: raw };
+    if (raw == null) return { known: true, value: null };
+    // Valore fuori scala (riga scritta a mano, DB di un'altra versione): il
+    // server c'è e ha risposto, ma quello che dice non si sa leggere.
+    return { known: false };
+  } catch {
+    return { known: false };
+  }
+}
+
+/** Scrive la scelta nella riga `app_settings`. Best-effort: un fallimento non
+ *  deve poter bloccare il selettore, che ha già aggiornato la UI. */
+export async function pushOutputLanguage(pref: LocalePreference): Promise<void> {
+  try {
+    await fetch('/api/app-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outputLanguage: pref }),
+    });
+  } catch {
+    /* la UI resta com'è: la prossima scelta riprova */
+  }
+}

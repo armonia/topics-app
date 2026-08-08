@@ -19,6 +19,12 @@ import { join } from "path";
 import type { AppContext, StoredMessage, Topic, TopicsData } from "../types";
 import { assembleTopicContext } from "./assemble";
 import { replaceSteps, setGoal } from "../services/goals";
+import { initDatabase, closeDatabase } from "../db";
+import { updateAppSettings } from "../services/app-settings";
+import { languageDirective } from "../lib/topics-agent-prompt";
+
+/** La radice del repo: `initDatabase` legge da lì `server/db/migrations`. */
+const PROJECT_ROOT_FOR_MIGRATIONS = join(import.meta.dir, "..", "..");
 
 /**
  * Un DB vero, ma solo con lo schema che serve: `pushGoalBlock` interroga
@@ -762,5 +768,69 @@ describe("assembleTopicContext — blocco obiettivo", () => {
     const env = assemble(new Database(":memory:"));
     expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
     expect(env.systemBlocks.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Il blocco della lingua — e soprattutto DOVE sta.
+ *
+ * La direttiva arriva a claude-code e ai PTY da `--append-system-prompt`, ma
+ * codex, openai e gli agenti ACP quella via non ce l'hanno: per loro il blocco
+ * sintetico è l'UNICA. Il rischio concreto della modifica era infilarlo dentro
+ * il cancello `providerHasControlTools` insieme alle istruzioni del browser —
+ * dove sarebbe stato saltato proprio dai provider che ne hanno bisogno, e
+ * nessun test lo avrebbe notato perché su `claude` funziona. Quindi la prova
+ * gira su un provider SENZA control tool.
+ */
+describe("assembleTopicContext — la lingua delle risposte", () => {
+  const baseDir = join(ROOT, "lang", "base");
+  const openclawDir = join(ROOT, "lang", "openclaw");
+  const topic = makeTopic({ id: "topic-lang", sessionKey: "topic:lang" });
+
+  beforeAll(() => {
+    mkdirSync(join(baseDir, "memory"), { recursive: true });
+    mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+    // Serve il DB VERO: la lingua vive in `app_settings` (migration 087) e il
+    // blocco la legge da lì. Con il modulo db non inizializzato il servizio
+    // ripiega su una riga tutta null — cioè 'auto' — e il test proverebbe solo
+    // il ramo «nessun blocco».
+    process.env.DATA_DIR = join(ROOT, "lang", "data");
+    initDatabase(PROJECT_ROOT_FOR_MIGRATIONS);
+  });
+
+  afterAll(() => {
+    try { closeDatabase(); } catch { /* già chiuso */ }
+    delete process.env.DATA_DIR;
+  });
+
+  /** `providerName` deliberatamente senza control tool: è il caso che conta. */
+  const assemble = () =>
+    assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic, messages: [] }),
+      { sessionKey: topic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
+    );
+
+  it("«auto» non emette NIENTE: un blocco vuoto sembrerebbe rotto", () => {
+    updateAppSettings({ outputLanguage: null });
+    expect(assemble().systemBlocks.map((b) => b.id)).not.toContain("synthetic:output-language");
+    updateAppSettings({ outputLanguage: "auto" });
+    expect(assemble().systemBlocks.map((b) => b.id)).not.toContain("synthetic:output-language");
+  });
+
+  it("una lingua scelta arriva a un provider SENZA control tool (il punto della modifica)", () => {
+    updateAppSettings({ outputLanguage: "it" });
+    const block = assemble().systemBlocks.find((b) => b.id === "synthetic:output-language");
+    expect(block).toBeDefined();
+    // Il testo è quello di `languageDirective`, non una copia scritta qui: se
+    // divergessero, chat e contesto direbbero due cose diverse allo stesso
+    // modello.
+    expect(block!.content).toBe(languageDirective("it"));
+    expect(block!.injectedByTopicsApp).toBe(true);
+  });
+
+  it("cambiare lingua cambia il blocco senza riavviare niente", () => {
+    updateAppSettings({ outputLanguage: "en" });
+    const block = assemble().systemBlocks.find((b) => b.id === "synthetic:output-language")!;
+    expect(block.content).toBe(languageDirective("en"));
   });
 });
