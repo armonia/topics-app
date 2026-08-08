@@ -27,7 +27,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -1070,21 +1070,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // leggere la tab come una superficie rialzata anche quando NON è
             // selezionata. È lo stesso trattamento del «+», del cerca e delle
             // tessere fissate: un elemento arrotondato che flotta lo porta.
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
                   ? SELECTED_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
-                    // `-secondary`, non `-tertiary`: il TITOLO di una tab è il
-                    // nome della cosa che stai per aprire, non una didascalia.
-                    // In scuro il terziario è `#969ca6` contro il `#e6e8ec` del
-                    // testo pieno, e su una fila di tab spente il nome smetteva
-                    // di leggersi da lontano («vedo grigi nel titolo delle
-                    // tab», Attilio 08/08). Un gradino sotto il pieno basta a
-                    // dire «questa non è quella attiva».
-                    : `text-app-text-secondary hover:text-app-text ${RESTING_SURFACE}`
+                    // NESSUN colore qui: il testo lo porta `TAB_LABEL` ed è
+                    // pieno per tutte. A dire quale tab è quella corrente ci
+                    // pensa la superficie — spegnere anche il testo lo diceva
+                    // due volte, e la seconda male.
+                    : RESTING_SURFACE
             } ${isDragged ? 'opacity-40' : ''}`}
             // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
             // Questa riga era già scritta a mano proprio qui, e il commento che

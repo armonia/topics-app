@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -1036,8 +1036,12 @@ export function TopicTree({
                 if (!isExpanded) toggleProject(item.id);
               }
             }}
-            className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-              projOnFill ? `${ON_FILL_TEXT} font-semibold` : isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+            className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left ${TAB_LABEL} transition-colors ${
+              // Il colore di base lo porta `TAB_LABEL` (pieno). Qui restano solo le
+              // DEROGHE vere: il testo su un fill di attenzione, e un progetto
+              // tutto archiviato — che è l'unico caso in cui spegnere il nome
+              // dice qualcosa invece di ripetere la superficie.
+              projOnFill ? `${ON_FILL_TEXT} font-semibold` : allArchived ? 'text-app-text-muted' : ''
             }`}
             title={pp}
             aria-label={`${item.name} project`}
