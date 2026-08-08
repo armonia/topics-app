@@ -2661,6 +2661,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const stored = loadLocalMessages(sessionKey);
         const decision = shouldHonorClearMessages(stored);
         if (decision.shouldWipe) {
+          // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
+          // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
+          // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
+          // l'unica traccia era un `resetSession` a due righe di distanza.
+          console.log(
+            `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
+          );
           saveLocalMessages(sessionKey, []);
           clearedForReal = true;
           // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
@@ -2675,7 +2682,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           }
         } else {
           console.warn(
-            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages, not first-message`
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
+            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro" : ", not first-message")
           );
           // Fall through to the normal finalize path so we don't lose the
           // partial assistant content the user was about to abort.
