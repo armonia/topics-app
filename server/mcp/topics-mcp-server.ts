@@ -25,6 +25,7 @@ import { createInterface } from "readline";
 import {
   mcpBrowserTools,
   BRIDGED_BROWSER_ENDPOINTS,
+  type McpToolAnnotations,
 } from "../browser-tool-spec";
 
 interface JsonRpcRequest {
@@ -54,6 +55,48 @@ interface JsonRpcNotification {
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 
+/**
+ * L'annotazione dei tool che LEGGONO e basta.
+ *
+ * Non è cosmesi: `readOnlyHint` è la riga che la CLI guarda in
+ * `--permission-mode plan` per decidere se un tool MCP può girare. Senza,
+ * una chat impostata su «ask» — cioè quella che deve chiedere prima di agire —
+ * non può nemmeno GUARDARE la board: `list_tasks` e `get_task` tornavano
+ * «Cannot call … while in plan mode». Era il difetto del task `46480579`, di
+ * cui la prima passata aveva coperto solo il pannello domande.
+ *
+ * `openWorldHint: false` perché questi tool non escono da Topics: leggono la
+ * board, i processi, le tab e le chat di questa installazione. I `browser_*`
+ * leggono invece il web vivo e dichiarano `true` (vedi `mcpBrowserTools`).
+ */
+const SOLA_LETTURA = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const satisfies McpToolAnnotations;
+
+/**
+ * L'altra metà: i tool che cambiano qualcosa.
+ *
+ * `readOnlyHint: false` è scritto a mano di proposito. Un'annotazione ASSENTE
+ * e una che dice «no» sembrano equivalenti alla CLI — entrambe negano in plan
+ * mode — ma non lo sono per chi legge: l'assenza è una riga che nessuno ha
+ * scritto, e il test `ogni tool dichiara se è di sola lettura` pretende il
+ * booleano esplicito proprio per non far passare una dimenticanza per una
+ * decisione.
+ *
+ * Le eccezioni si scrivono per differenza: `openWorldHint: true` quando il
+ * tool esce da Topics, `destructiveHint: true` quando toglie qualcosa che
+ * c'era (una pane, un processo, un sotto-agente).
+ */
+const MODIFICA = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const satisfies McpToolAnnotations;
+
 const TOOLS = [
   {
     name: "open_browser_pane",
@@ -70,6 +113,7 @@ const TOOLS = [
       },
       required: ["url"],
     },
+    annotations: { ...MODIFICA, openWorldHint: true },
   },
   {
     name: "close_browser_pane",
@@ -85,12 +129,14 @@ const TOOLS = [
         },
       },
     },
+    annotations: { ...MODIFICA, destructiveHint: true },
   },
   {
     name: "browser_list_tabs",
     description:
       "List EVERY live browser tab/pane in the app (all topics, terminals, windows), not just this session's own. Returns for each: contextId, url, title, a friendly label, kind (topic|terminal|other), and isOwn. Use a returned contextId as the optional `contextId` argument of any browser_* tool (or close_browser_pane / browser_focus_tab) to work with THAT tab. This is how you inspect or drive a pane the user opened elsewhere.",
     inputSchema: { type: "object", properties: {}, required: [] },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "browser_focus_tab",
@@ -107,6 +153,7 @@ const TOOLS = [
       },
       required: [],
     },
+    annotations: MODIFICA,
   },
   {
     name: "import_chrome",
@@ -122,6 +169,7 @@ const TOOLS = [
       },
       required: [],
     },
+    annotations: { ...MODIFICA, openWorldHint: true },
   },
   // Ref-based browser interaction/read tools — projected from the single source
   // of truth (server/browser-tool-spec.ts) so MCP, passthrough, and REST stay
@@ -138,12 +186,14 @@ const TOOLS = [
       },
       required: ["script"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "list_processes",
     description:
       "List dev scripts started via run_script (running + recent) with status, processId, pid, and any listening ports.",
     inputSchema: { type: "object", properties: {} },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "read_process_output",
@@ -157,6 +207,7 @@ const TOOLS = [
       },
       required: ["process_id"],
     },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "stop_process",
@@ -168,6 +219,7 @@ const TOOLS = [
       },
       required: ["process_id"],
     },
+    annotations: { ...MODIFICA, destructiveHint: true },
   },
   {
     name: "list_tasks",
@@ -180,6 +232,7 @@ const TOOLS = [
         scope: { type: "string", description: "'project' (default — this session's project) or 'all' (every project)." },
       },
     },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "create_task",
@@ -197,6 +250,7 @@ const TOOLS = [
       },
       required: ["text"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "get_task",
@@ -208,6 +262,7 @@ const TOOLS = [
       },
       required: ["task_id"],
     },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "update_task",
@@ -226,6 +281,7 @@ const TOOLS = [
       },
       required: ["task_id"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "wait_for_condition",
@@ -240,6 +296,7 @@ const TOOLS = [
       },
       required: ["task_id", "reason"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "comment_task",
@@ -256,6 +313,7 @@ const TOOLS = [
       },
       required: ["task_id", "content"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "ask_user_question",
@@ -304,13 +362,7 @@ const TOOLS = [
     // chat impostata su «chiedi prima» era l'unica che non poteva chiedere
     // (topic:ed2070df, 4 agosto). `openWorldHint: false` perché non esce da
     // Topics: la domanda va alla persona che ha la chat aperta.
-    annotations: {
-      title: "Chiedi all'umano (pannello in chat)",
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
+    annotations: { ...SOLA_LETTURA, title: "Chiedi all'umano (pannello in chat)" },
   },
   {
     // IL CANALE DI PERMESSO. Non lo chiama il modello: lo chiama la CLI, al
@@ -337,11 +389,10 @@ const TOOLS = [
       required: ["tool_name", "input"],
     },
     annotations: {
+      ...SOLA_LETTURA,
       title: "Permesso (pannello in chat)",
-      readOnlyHint: true,
-      destructiveHint: false,
+      // Ogni richiesta è la SUA: concedere due volte non è concedere una volta.
       idempotentHint: false,
-      openWorldHint: false,
     },
   },
   {
@@ -355,6 +406,7 @@ const TOOLS = [
       },
       required: ["project_path"],
     },
+    annotations: MODIFICA,
   },
   // --- Sub-agent orchestration --------------------------------------------
   // Spawn and drive OTHER interactive Claude sessions as sub-agents, visible to
@@ -373,6 +425,7 @@ const TOOLS = [
       },
       required: ["prompt"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "send_to_agent",
@@ -386,6 +439,7 @@ const TOOLS = [
       },
       required: ["agent_id", "input"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "read_agent",
@@ -399,12 +453,14 @@ const TOOLS = [
       },
       required: ["agent_id"],
     },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "list_agents",
     description:
       "List the sub-agents you spawned (agentId, name, cwd, whether currently busy).",
     inputSchema: { type: "object", properties: {} },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "stop_agent",
@@ -416,6 +472,7 @@ const TOOLS = [
       },
       required: ["agent_id"],
     },
+    annotations: { ...MODIFICA, destructiveHint: true },
   },
   // --- Topic / project control (tool-shaped successors to the legacy markers) --
   {
@@ -427,6 +484,7 @@ const TOOLS = [
       properties: { topic_id: { type: "string", description: "Target topic id." } },
       required: ["topic_id"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "new_topic",
@@ -437,6 +495,7 @@ const TOOLS = [
       properties: { title: { type: "string", description: "Title for the new topic." } },
       required: ["title"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "create_project",
@@ -447,6 +506,7 @@ const TOOLS = [
       properties: { name: { type: "string", description: "Project name (alphanumeric / -_)." } },
       required: ["name"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "open_project",
@@ -457,6 +517,7 @@ const TOOLS = [
       properties: { ref: { type: "string", description: "Project name, slug, or a known path." } },
       required: ["ref"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "send_chat_message",
@@ -470,6 +531,7 @@ const TOOLS = [
       },
       required: ["topic_id", "message"],
     },
+    annotations: MODIFICA,
   },
   {
     name: "read_chat_messages",
@@ -483,6 +545,7 @@ const TOOLS = [
       },
       required: ["topic_id"],
     },
+    annotations: SOLA_LETTURA,
   },
   {
     name: "resolve_tab",
@@ -498,6 +561,7 @@ const TOOLS = [
       },
       required: ["ref"],
     },
+    annotations: SOLA_LETTURA,
   },
 ];
 
