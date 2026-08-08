@@ -535,19 +535,19 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-[11px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
-          <span className="text-[11px] text-gray-500">{lineCount} lines</span>
+          <span className="text-[11px] text-gray-400">{lineCount} lines</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowLineNumbers(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title="Toggle line numbers"
           >
             #
           </button>
           <button
             onClick={() => setWordWrap(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title="Toggle word wrap"
           >
             ↩

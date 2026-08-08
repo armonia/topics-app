@@ -10,6 +10,7 @@
  * Tabs are rounded pills and add their own `rounded-md`; sidebar rows apply
  * these classes full-width. The shared part is the fill + ring + shadow + text.
  */
+import type { CSSProperties } from 'react';
 import type { AttentionTier } from '../types';
 // A clean FILL only — no ring/shadow. On full-width sidebar rows a ring+shadow
 // bled onto neighbours (focused folder + its active child read as "overlapping"
@@ -346,19 +347,30 @@ export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
  *   · desktop  sopra 5,5 · sotto 5,5 · a destra 6
  *   · touch    sopra 1,5 · sotto 1,5 · a destra 6
  * Lo spazio VERTICALE non è una scelta: cade fuori dall'aritmetica della riga
- * — `h-10` meno il `border-b` fa 39px di contenuto, meno il box del comando,
- * diviso due. Quello ORIZZONTALE invece era `ROW_INSET`, un 6 scritto a mano
- * perché è l'incasso con cui le righe della sidebar stanno lontane dal bordo.
- * Due numeri con due origini diverse per lo stesso bottone: su touch la
- * differenza arriva a quattro pixel e mezzo, cioè il bottone galleggia lontano
- * dal bordo mentre le tab accanto a lui ci stanno a filo.
+ * — `h-10` meno il box del comando, diviso due. Quello ORIZZONTALE invece era
+ * `ROW_INSET`, un 6 scritto a mano perché è l'incasso con cui le righe della
+ * sidebar stanno lontane dal bordo. Due numeri con due origini diverse per lo
+ * stesso bottone: su touch la differenza arriva a quattro pixel e mezzo, cioè
+ * il bottone galleggia lontano dal bordo mentre le tab accanto a lui ci stanno
+ * a filo.
  *
  * Adesso il numero è UNO e lo dice l'aritmetica. Non è una costante ma una
  * funzione del box, perché il box cambia col breakpoint (28 desktop / 36
  * touch): scriverlo come due numeri li rimetterebbe a poter divergere, che è
  * esattamente il difetto da cui si esce.
+ *
+ * ED È 40, NON PIÙ 39, da quando la riga non porta il `border-b`.
+ *
+ * Quel pixel di bordo mangiava l'altezza del contenuto, e mangiandola rompeva
+ * la divisione: (39 − 28)/2 = 5,5 sopra e sotto contro i 6 di lato — cioè
+ * mezzo pixel di scarto fra il respiro verticale e quello orizzontale dello
+ * STESSO bottone, e un incasso che cadeva a metà di un pixel fisico. Con la
+ * barra diventata vetro (`.pane-chrome-bar`) il bordo non c'è più, il
+ * contenuto vale 40 e l'aritmetica restituisce 6: gli stessi 6 di ROW_INSET,
+ * su tutti e quattro i lati. Era la «doppia spaziatura» del bordo — tolto il
+ * filo, il conto torna da solo.
  */
-export const CHROME_ROW_CONTENT_H = 39;
+export const CHROME_ROW_CONTENT_H = 40;
 export function chromeRowInset(box: number): number {
   return (CHROME_ROW_CONTENT_H - box) / 2;
 }
@@ -372,7 +384,7 @@ export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
 
 /**
  * L'incasso del comando in coda alla riga di chrome, sui tre lati esposti:
- * `chromeRowInset(36)` = 1,5 col dito · `chromeRowInset(28)` = 5,5 col mouse.
+ * `chromeRowInset(36)` = 2 col dito · `chromeRowInset(28)` = 6 col mouse.
  *
  * Le classi sono scritte PER ESTESO e non composte in un template: Tailwind
  * genera le utility leggendo i sorgenti come TESTO, quindi un
@@ -381,18 +393,44 @@ export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
  * — la ricalcola `selectionStyles.test.ts`, che confronta questi letterali con
  * `chromeRowInset` e fallisce appena i due si separano.
  */
-export const CHROME_ROW_ACTION_INSET = 'right-[1.5px] md:right-[5.5px]';
+export const CHROME_ROW_ACTION_INSET = 'right-[2px] md:right-[6px]';
 /** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
  *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
  *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
  *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
  *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
-export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[1.5px] md:left-[5.5px]';
+export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[2px] md:left-[6px]';
 /** Lo spazio che la strip delle tab deve tenersi libero a destra: l'ingombro
- *  del comando più il suo incasso (36+1,5 · 28+5,5). Una tab che ci passa sotto
+ *  del comando più il suo incasso (36+2 · 28+6). Una tab che ci passa sotto
  *  a riposo — cioè prima ancora di scorrere — è il difetto che questa riserva
  *  esiste per non fare. Letterali per la stessa ragione di qui sopra. */
-export const CHROME_ROW_ACTION_RESERVE = 'pr-[37.5px] md:pr-[33.5px]';
+export const CHROME_ROW_ACTION_RESERVE = 'pr-[38px] md:pr-[34px]';
+
+/**
+ * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.
+ *
+ * Era la stessa stringa ricopiata in cinque punti (quattro rami di
+ * `GroupLayout`, uno in `StandaloneChatGroup`). Finché era «una riga con un
+ * filo sotto» la copia costava poco; adesso porta anche il posizionamento
+ * `absolute` di `.pane-chrome-bar`, e un ramo che se lo scorda non è una
+ * differenza estetica: è una barra che torna dentro il flusso e spinge giù la
+ * pane di 40px mentre le sorelle no.
+ *
+ * Chi la monta deve fare DUE cose, e nessuna delle due è opzionale:
+ *  1. dare `relative` alla card che la contiene (senza, la barra si ancora al
+ *     primo antenato posizionato, che è un'altra cella);
+ *  2. dichiarare {@link CHROME_BAR_H_VAR} sulla stessa card — da lì la leggono
+ *     sia il rientro delle pane che NON passano sotto (`paneCellTopInset`) sia
+ *     il varco in cima alla conversazione (l'`Header` di Virtuoso).
+ */
+export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 flex-shrink-0 overflow-hidden min-w-0';
+
+/** L'altezza della riga di chrome come variabile CSS, da mettere sulla card che
+ *  possiede la barra. `h-10` = 40: il valore vive qui perché sia UN numero e non
+ *  tre, e {@link CHROME_ROW_CONTENT_H} è lo stesso numero visto dall'aritmetica
+ *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
+export const CHROME_BAR_H = 40;
+export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
 
 /**
  * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
