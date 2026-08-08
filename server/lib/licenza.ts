@@ -46,7 +46,7 @@
  * domanda cominciano a divergere.
  */
 import { createPublicKey, verify as verificaFirmaEd25519, type KeyObject } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,9 +458,18 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
   let caricoCache: CaricoGettone | null = null;
   let motivoCache: MotivoLicenza = "no_token";
   let primaVolta = true;
+  /**
+   * Il gettone VALIDO che non si è potuto scrivere sul disco, e che quindi vale
+   * finché questo processo vive. Sta SOTTO al disco e sotto alla variabile
+   * d'ambiente — un gettone che poi arriva davvero lo scavalca — ed esiste per
+   * una ragione sola: senza, `stato()` rileggerebbe una cartella dove il file
+   * non c'è e risponderebbe `no_token`, cioè negherebbe un acquisto già andato
+   * a buon fine perché una directory non era scrivibile.
+   */
+  let soloInMemoria: string | null = null;
 
   function aggiorna(): void {
-    const grezzo = leggiGettoneGrezzo(o.env, o.stateDir);
+    const grezzo = leggiGettoneGrezzo(o.env, o.stateDir) ?? soloInMemoria;
     if (!primaVolta && grezzo === grezzoCache) return;
     primaVolta = false;
     grezzoCache = grezzo;
@@ -480,7 +489,14 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
   return {
     stato,
     installa(gettone, ora = orologio()) {
-      const e = verificaGettone(gettone, { chiavi, installationId: o.installationId, ora });
+      const g = gettone.trim();
+      // Si verifica una volta sola e si tiene il CARICO, non solo l'esito: è
+      // ciò che permette, se il disco rifiuta, di rispondere con la licenza
+      // appena verificata invece di andarla a ricercare dove non è stata
+      // scritta.
+      const r = verificaCarico(g, { chiavi, installationId: o.installationId });
+      if ("motivo" in r) return pianoGratuito(o.installationId, r.motivo);
+      const e = daCarico(r.carico, o.installationId, ora);
       // Un gettone che non regge non si scrive sul disco: conservarlo darebbe
       // all'interfaccia una licenza «in attesa» che non diventerà mai valida, e
       // la macchina somiglierebbe a una che ha pagato e non funziona.
@@ -488,11 +504,26 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
       const f = percorsoGettone(o.stateDir);
       try {
         mkdirSync(dirname(f), { recursive: true });
-        writeFileSync(f, gettone.trim() + "\n", { mode: 0o600 });
+        writeFileSync(f, g + "\n", { mode: 0o600 });
+        // Il `mode` di `writeFileSync` vale solo alla CREAZIONE: su un file che
+        // c'era già — il gettone precedente, o un file lasciato lì a 0644 — non
+        // tocca i permessi. Senza questa riga «leggibile solo dal proprietario»
+        // sarebbe vero al primo acquisto e falso a ogni rinnovo.
+        chmodSync(f, 0o600);
       } catch {
-        // Disco non scrivibile: la licenza vale per questa esecuzione e basta.
-        // Meglio di un errore che nega un acquisto già andato a buon fine.
+        // Il disco non ha accettato la scrittura: la licenza vale per QUESTA
+        // esecuzione e basta. Si SEMINA la cache col carico appena verificato
+        // invece di rileggere il disco — rileggerlo direbbe `no_token`, cioè un
+        // rifiuto su un acquisto già andato a buon fine, ed è esattamente il
+        // verso in cui questo modulo non deve mai sbagliare.
+        soloInMemoria = g;
+        grezzoCache = g;
+        caricoCache = r.carico;
+        motivoCache = "valid";
+        primaVolta = false;
+        return e;
       }
+      soloInMemoria = null;
       primaVolta = true;
       return stato(ora);
     },
@@ -500,6 +531,9 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
       try {
         unlinkSync(percorsoGettone(o.stateDir));
       } catch { /* non c'era: l'esito voluto è già quello */ }
+      // Anche la copia in memoria se ne va, o togliere la licenza da una
+      // cartella non scrivibile non toglierebbe niente.
+      soloInMemoria = null;
       primaVolta = true;
       grezzoCache = null;
       caricoCache = null;

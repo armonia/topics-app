@@ -9,7 +9,7 @@
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLicenseRouter } from "./license";
@@ -33,6 +33,10 @@ function firma(privata: KeyObject, carico: Partial<CaricoGettone> = {}): string 
 }
 
 const servizio = nuovaCoppia();
+
+/** `root` scrive anche dove i permessi dicono di no: lì il caso «cartella non
+ *  scrivibile» non si riproduce, e si salta invece di dichiararlo verde. */
+const itSenzaRoot = (typeof process.getuid === "function" && process.getuid() === 0) ? it.skip : it;
 
 function creaCtx(stateDir: string | null) {
   // UN'istanza sola, come in `server.ts`: se ogni chiamata ne creasse una nuova
@@ -112,6 +116,27 @@ describe("rotta licenza · leggere non fallisce mai", () => {
     expect(corpo.reason).toBe("other_installation");
     // E la macchina resta sul gratuito, non in un limbo «in attesa».
     expect((await (await chiama(router))!.json() as EntitlementSulFilo).reason).toBe("no_token");
+  });
+
+  itSenzaRoot("una cartella di stato non scrivibile NON è un gettone rifiutato", async () => {
+    // Il `409` sbagliato: gettone perfetto, macchina giusta, pagamento andato a
+    // buon fine — e un `token_refused` perché la directory non accetta
+    // scritture. Chi lo riceve va a cercare il problema nel gettone, che è
+    // l'unico posto dove non c'è.
+    chmodSync(dir, 0o500);
+    try {
+      const router = createLicenseRouter(creaCtx(dir));
+      const r = await chiama(router, "PUT", { token: firma(servizio.privata, { seats: 3 }) });
+      expect(r?.status).toBe(200);
+      expect(await r!.json() as EntitlementSulFilo).toMatchObject({
+        plan: "team", seats: 3, remoteAccess: true, reason: "valid",
+      });
+      // E la lettura successiva dice la stessa cosa: una risposta buona seguita
+      // da un `GET` che torna al gratuito sarebbe la stessa bugia, spostata.
+      expect((await (await chiama(router))!.json() as EntitlementSulFilo).plan).toBe("team");
+    } finally {
+      chmodSync(dir, 0o700);
+    }
   });
 
   it("un corpo senza gettone è una richiesta sbagliata, non un rifiuto di licenza", async () => {
