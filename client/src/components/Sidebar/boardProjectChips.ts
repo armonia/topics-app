@@ -91,28 +91,55 @@ export function boardProjectChips(
  * discriminante più forte di un nome troncato e non si può confondere con un
  * glifo di stato.
  *
- * · `CHIP_W_ICON_COUNT` = 46 — 8 di padding + 20 di slot icona + 4 + 14 di
- *   numero (due cifre tabellari a 11px).
- * · `CHIP_W_ICON` = 28 — solo icona: 8 + 20. Il gradino di emergenza, quando
- *   nemmeno una da 46 ci sta.
+ * · `CHIP_W_ICON_COUNT` = 42 — 24 di slot icona + 4 + 14 di numero (due cifre
+ *   tabellari a 11px). Niente padding: la pastiglia non ha più una superficie
+ *   da riempire.
+ * · `CHIP_W_ICON` = 24 — solo icona. Il gradino di emergenza, quando nemmeno
+ *   una da 42 ci sta.
  *
  * Fisse, non «quanto serve»: una pastiglia che si adatta al contenuto
  * cambierebbe misura quando l'icona atterra, e con lei cambierebbe il NUMERO di
  * pastiglie visibili, a cose ferme. Lo slot è dichiarato e l'icona ci entra
  * dentro.
  *
- * LO SLOT È 20 E NON 12, ed è una decisione presa coi numeri sul tavolo: in un
- * quadrato da 12 un logo-scritta (`acquapub` 256×119, `edm-contratto` 3235×1224)
- * rende 4-5px di inchiostro, cioè niente. In 20×12 si vede. Lo pagano anche i
- * loghi quadrati, che restano 12×12 centrati con 4px di aria per lato.
+ * LO SLOT È 24×14, e le due misure rispondono a due cose diverse.
+ * L'ALTEZZA è 14 perché è quella standard dell'app — lo stesso `ROW_GLYPH` dei
+ * glifi di stato che le stanno accanto: «le icone a volte sono troppo
+ * piccoline, facciamole normali come tutte le altre icone dell'app» (Attilio,
+ * 08/08). La LARGHEZZA è quasi il doppio perché `object-contain` scala per il
+ * lato vincolante: un logo-scritta (`acquapub` 256×119, `edm-contratto`
+ * 3235×1224) in un quadrato da 14 renderebbe 5-6px di inchiostro, cioè si
+ * legge come «l'icona non c'è». In 24×14 rende 24×9. I loghi quadrati restano
+ * 14×14 centrati con 5px di aria per lato.
+ *
+ * Perché 24 e non 28: a 28 la pastiglia sale a 46 e sulla colonna desktop —
+ * misurata, 160px di riga utile — la seconda pastiglia non ci sta più per TRE
+ * pixel. Ventiquattro tiene l'altezza standard e il secondo progetto.
  *
  * SONO UNA SCALA, non due varianti da scegliere: si prova la più ricca e si
  * scende solo quando non ne entra NEMMENO UNA.
  */
-export const CHIP_W_ICON_COUNT = 46;
-export const CHIP_W_ICON = 28;
-/** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
+export const CHIP_W_ICON_COUNT = 42;
+export const CHIP_W_ICON = 24;
+/** Lo spazio fra due BLOCCHI della riga — pastiglie, «+N», conteggi
+ *  (`gap-1.5`, lo stesso passo del resto della sidebar). */
 export const CHIP_GAP = 6;
+/**
+ * Lo spazio fra due PASTIGLIE, che è il doppio di quello fra i blocchi — e non
+ * è una preferenza, è ciò che tiene in piedi il raggruppamento adesso che la
+ * pastiglia non ha più una superficie.
+ *
+ * «Che abbiano bene le spaziature intorno e che non sembrino cliccabili»
+ * (Attilio, 08/08). Il fondo (`bg-black/[0.05]`) e gli angoli tondi erano ciò
+ * che diceva «bottone»: tolti quelli, a legare l'icona col SUO numero resta
+ * solo la distanza. Dentro la pastiglia i due pezzi stanno a 4px, fuori a 12:
+ * un rapporto di tre, che è la soglia oltre la quale l'occhio raggruppa senza
+ * bisogno di un contorno (legge della vicinanza). Con i 6px di prima il numero
+ * di una pastiglia e l'icona della successiva erano quasi equidistanti dal
+ * proprio partner, ed è esattamente il modo in cui una fila di coppie si legge
+ * come una fila di elementi sciolti.
+ */
+export const CHIP_SPACING = 12;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
 export const MORE_W = 22;
 
@@ -239,7 +266,11 @@ export function fitProjectChips<T>(width: number | null, chips: readonly T[]): F
   if (chips.length === 0) return zero();
   if (width === null) return zero();
   const tryMode = (mode: ChipMode, cw: number): FittedChips<T> | null => {
-    const span = (n: number) => n * cw + (n - 1) * CHIP_GAP;
+    // Fra le pastiglie corre `CHIP_SPACING`, non `CHIP_GAP`: sono due passi
+    // diversi da quando la pastiglia ha perso la superficie e il
+    // raggruppamento lo fa la distanza. Il «+N» invece è un altro BLOCCO della
+    // riga, quindi da lì in poi si torna a `CHIP_GAP`.
+    const span = (n: number) => n * cw + (n - 1) * CHIP_SPACING;
     let n = chips.length;
     while (n > 0 && span(n) > width) n--;
     if (n === chips.length) return { shown: [...chips], hidden: 0, mode };

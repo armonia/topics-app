@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
-import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
-  boardProjectChips, fitBoardRow, CHIP_MODES,
+  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_W_ICON,
   type BoardProjectChip, type ChipMode,
 } from './boardProjectChips';
 
@@ -17,6 +17,10 @@ import {
 const CHIP_W: Record<ChipMode, number> = Object.fromEntries(
   CHIP_MODES.map(({ mode, w }) => [mode, w]),
 ) as Record<ChipMode, number>;
+
+/** La scatola dell'icona: `CHIP_W_ICON` meno niente, perché senza superficie la
+ *  pastiglia non ha più padding — lo slot È la pastiglia, nel gradino povero. */
+const ICON_SLOT_W = CHIP_W_ICON;
 
 /**
  * Gli stati riassunti sulla riga: chi aspetta te, e chi sta lavorando.
@@ -80,14 +84,21 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       // l'unico posto in cui la pastiglia dice di chi è, e senza di esso
       // un'icona sconosciuta sarebbe un enigma invece di una scorciatoia.
       title={`${chip.name}: ${chip.n} task aperti`}
-      className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
+      // NIENTE SUPERFICIE. Aveva fondo e angoli tondi, cioè la forma di un
+      // bottone — «che non sembrino cliccabili» (Attilio, 08/08), ed era vero:
+      // in una sidebar dove ogni cosa con un fondo si preme, una pastiglia con
+      // un fondo promette un click che non c'è. Il raggruppamento lo fa adesso
+      // la distanza (`CHIP_SPACING` doppio del gap fra i blocchi), che è come si
+      // raggruppa senza disegnare un contorno.
+      className="flex min-w-0 flex-shrink-0 items-center gap-1 text-[11px]"
       style={{ width: CHIP_W[mode] }}
     >
-      {/* Lo slot è 20×12, non 12×12: un logo-scritta in un quadrato da 12 rende
-          4-5px di inchiostro (misurato), cioè si legge come «l'icona non c'è».
-          Vedi `CHIP_W_*` e il parametro `width` di ProjectFavicon. */}
-      <span className="flex w-5 flex-shrink-0 justify-center">
-        <ProjectFavicon path={chip.path} size={12} width={20} />
+      {/* Lo slot è 24×14 — l'altezza è quella standard dell'app, la larghezza
+          serve ai logo-scritta. Le misure e il perché stanno accanto a
+          `CHIP_W_ICON`, che è anche il numero che l'aritmetica del ritaglio
+          prenota: qui si LEGGE quella costante invece di riscriverla. */}
+      <span className="flex flex-shrink-0 justify-center" style={{ width: ICON_SLOT_W }}>
+        <ProjectFavicon path={chip.path} size={STATUS_GLYPH_PX} width={ICON_SLOT_W} />
       </span>
       {mode === 'icon-count' && (
         // NIENTE DIVISORE. Serviva a staccare il numero dal NOME, quando il
@@ -242,7 +253,15 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         // cioè il ritaglio delle pastiglie si leggerebbe come parte dei numeri
         // di stato. Lo spazio che avanza se lo prende il `ml-auto` dei
         // conteggi, così il «+N» resta attaccato a ciò che sta ritagliando.
-        className="flex min-w-0 items-center gap-1.5 overflow-hidden"
+        // Il passo fra le pastiglie viene dalla COSTANTE, non da una classe
+        // Tailwind: è lo stesso numero che `fitProjectChips` usa per decidere
+        // quante ce ne stanno, e due copie divergerebbero — la riga si
+        // disegnerebbe con un passo diverso da quello prenotato, cioè
+        // sborderebbe o lascerebbe un buco. (Tailwind scansiona il sorgente come
+        // TESTO, quindi una classe composta da una variabile non genererebbe
+        // nemmeno il CSS.)
+        className="flex min-w-0 items-center overflow-hidden"
+        style={{ gap: CHIP_SPACING }}
       >
         {fitted.chips.shown.map((chip) => (
           <ProjectChip key={chip.projectId} chip={chip} mode={fitted.chips.mode} />
