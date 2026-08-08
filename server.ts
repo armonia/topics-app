@@ -112,7 +112,16 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
-import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, hasPendingAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
+// sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
+// entrambi i silenzi.
+import { pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// La porta unica di «questo turno aspetta una PERSONA». Le due sorgenti di
+// silenzio legittimo sono una domanda a schermo E una richiesta di permesso a
+// schermo: qui dentro tre punti ne conoscevano solo la prima, che è esattamente
+// la deriva che `human-hold.ts` è stato scritto per impedire — e che la sua
+// docstring nomina, elencando «lo spazzino degli stream fermi» fra i sei posti.
+import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
@@ -642,8 +651,8 @@ async function runHeadlessTurn(
   let timedOut = false;
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
-    isWaitingForHuman: () => hasPendingAsk(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    isWaitingForHuman: () => isHumanHold(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
@@ -684,8 +693,8 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   let timedOut = false;
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
-    isWaitingForHuman: () => hasPendingAsk(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    isWaitingForHuman: () => isHumanHold(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
@@ -2900,7 +2909,15 @@ const staleStreamTimer = setInterval(() => {
     // domanda, non un "per sempre" — e vale solo finché il provider giura che
     // il figlio è VIVO: se muore mentre il pannello è su, nessuna gamba di
     // poll arriva più e niente, dentro il bridge, se ne accorgerebbe.
-    const askAge = pendingAskAgeMs(sessionKey);
+    // `humanHoldAgeMs`, non `pendingAskAgeMs`: i silenzi legittimi sono DUE —
+    // una domanda a schermo e una richiesta di PERMESSO a schermo — e questo
+    // spazzino conosceva solo il primo. È il difetto che ha ucciso il turno
+    // dell'8 agosto sotto un pannello di permesso aperto, ed è nominato per
+    // nome nella docstring di `human-hold.ts`, che elenca proprio «lo spazzino
+    // degli stream fermi» fra i sei posti che devono interrogare UNA cosa sola.
+    // Il tetto resta a tempo e resta condizionato al «figlio VIVO»: un pannello
+    // su una sessione morta non deve disarmare niente.
+    const askAge = humanHoldAgeMs(sessionKey);
     if (askAge !== null) {
       const askProv = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       const verdict = pendingAskVerdict({
