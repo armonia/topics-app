@@ -11,9 +11,24 @@ import {
   DEFAULT_PERMISSION_MODE,
   planModeFor,
   permissionModeAsks,
-  permissionPromptArgs,
   PERMISSION_PROMPT_TOOL,
 } from "./autonomy-mode";
+import { buildClaudeArgs } from "../providers/claude/args";
+
+/**
+ * Il resto dell'argv non c'entra con questo cancello: qui interessa una flag
+ * sola, e la base serve solo perché `buildClaudeArgs` è totale sui suoi input.
+ */
+const SPAWN_BASE = {
+  permissionMode: "acceptEdits",
+  model: "claude-opus-5",
+  mcpConfigPath: "/tmp/mcp.json",
+  mcpStrict: true,
+  permissionPromptTool: PERMISSION_PROMPT_TOOL,
+  appendSystemPrompt: "sys",
+  claudeSessionId: "00000000-0000-4000-8000-000000000000",
+  isNewSession: true,
+};
 
 /**
  * Le sei modalità che la CLI accetta (`--permission-mode <mode>` in `--help`,
@@ -95,8 +110,7 @@ describe("planModeFor — il piano ha una leva sola", () => {
 });
 
 /**
- * L'INVARIANTE di questo lavoro, e la ragione per cui `permissionPromptArgs`
- * è una funzione invece di uno spread in mezzo all'argv.
+ * L'INVARIANTE di questo lavoro.
  *
  * Il guasto del 7 agosto: `auto-apply` → `acceptEdits`, che in headless CHIEDE
  * il permesso per ogni tool MCP e per ogni scrittura fuori dalla cwd. Nessuno
@@ -120,15 +134,24 @@ describe("nessuna modalità che chiede può partire senza il canale", () => {
     // secondo la CLI risponde «MCP tool … not found» su OGNI richiesta. Passarlo
     // sempre costa zero (in `bypassPermissions` non lo chiama nessuno) e non
     // può desincronizzarsi da sé stesso.
+    //
+    // L'asserzione guarda `buildClaudeArgs`, cioè l'argv VERO dello spawn: una
+    // funzione `permissionPromptArgs()` a parte proverebbe solo sé stessa —
+    // resterebbe verde anche il giorno che lo spawn smette di chiamarla.
     for (const mode of CLI_MODES) {
-      expect(permissionPromptArgs(mode)).toEqual(["--permission-prompt-tool", PERMISSION_PROMPT_TOOL]);
+      const args = buildClaudeArgs({ ...SPAWN_BASE, permissionMode: mode });
+      const i = args.indexOf("--permission-prompt-tool");
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(args[i + 1]).toBe(PERMISSION_PROMPT_TOOL);
     }
   });
 
   test("e vale attraverso la mappatura, che è la strada vera", () => {
     for (const level of ["ask", "auto-apply", "yolo", "livello-inventato", null, undefined]) {
       const mode = permissionModeForAutonomy(level as string | null | undefined);
-      expect(permissionPromptArgs(mode)).toHaveLength(2);
+      const args = buildClaudeArgs({ ...SPAWN_BASE, permissionMode: mode });
+      expect(args).toContain("--permission-prompt-tool");
+      expect(args).toContain(PERMISSION_PROMPT_TOOL);
     }
   });
 

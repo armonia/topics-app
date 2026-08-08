@@ -137,7 +137,11 @@ async function handleRequest(method: string, params: Record<string, unknown>): P
   switch (method) {
     case "initialize":
       return {
-        protocolVersion: 1,
+        // Di norma 1. `FAKE_ACP_PROTOCOL_VERSION` serve a UN caso solo: l'agente
+        // che risponde con una versione più alta di quella chiesta, cioè il
+        // ramo in cui il client DEVE chiudere. Dall'env e non dal testo del
+        // prompt perché `initialize` arriva prima di qualunque prompt.
+        protocolVersion: Number(process.env.FAKE_ACP_PROTOCOL_VERSION ?? 1),
         agentCapabilities: { loadSession: true, promptCapabilities: { image: false } },
       };
     case "session/new": {

@@ -32,6 +32,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
+import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
 import { contextTokensFromUsage } from "../usage/usage-update";
 
 // ============ Config ============
@@ -331,31 +332,14 @@ export class CodexProvider implements AIProvider {
     const explicitModel = options?.model ?? this.config.model;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
-    // `codex exec --json` is the canonical non-interactive entrypoint.
-    // We pass the prompt via stdin to avoid argv length limits.
-    // Only forward --model when explicitly requested; otherwise let the CLI
-    // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
-    // (e.g. gpt-5-codex is rejected for ChatGPT-account auth).
-    const args = ["exec", "--json", "--skip-git-repo-check"];
-    if (explicitModel) args.push("--model", explicitModel);
-    // Sandbox: full-access opts into the dangerous bypass; otherwise workspace-write.
-    // `--approval` is not a valid `codex exec` flag in current CLI versions.
-    if (this.config.approvalMode === "full-access") {
-      args.push("--dangerously-bypass-approvals-and-sandbox");
-    } else {
-      args.push("--sandbox", "workspace-write");
-    }
-
     // Wire the topics-app MCP bridge into `codex exec` so a codex session can
     // drive topics (open browser pane, switch/create topic, open/create project)
-    // through the SAME tools claude-code uses — no markers. Codex reads
-    // `mcp_servers.*` from config; we inject it per-invocation via `-c` overrides
-    // (the value portion is parsed as TOML, so JSON.stringify gives a valid TOML
-    // string / string-array). sessionKey resolves to this topic server-side.
+    // through the SAME tools claude-code uses — no markers. sessionKey resolves
+    // to this topic server-side. Un bridge che non si monta è un degrado, non un
+    // guasto: il turno parte comunque, senza i tool di Topics.
+    let bridge: { command: string; args: string[] } | null = null;
     try {
-      const bridge = topicsMcpBridgeSpec(sessionKey);
-      args.push("-c", `mcp_servers.topics.command=${JSON.stringify(bridge.command)}`);
-      args.push("-c", `mcp_servers.topics.args=${JSON.stringify(bridge.args)}`);
+      bridge = topicsMcpBridgeSpec(sessionKey);
     } catch (err) {
       console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
     }
@@ -367,9 +351,19 @@ export class CodexProvider implements AIProvider {
     // this never downgrades an explicit user choice; null (disabled or
     // unrecognised tier) means no override at all.
     const reasoningEffort = resolveCodexReasoningEffort();
-    if (reasoningEffort) {
-      args.push("-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
-    }
+
+    // L'elenco delle flag vive in `codex/args.ts`, funzione pura sotto snapshot:
+    // è la superficie che si rompe a ogni release della CLI. Qui restano le
+    // decisioni (quale modello, quale sandbox, quale tier) — incluso il fatto
+    // che `--model` si passa SOLO se qualcuno l'ha scelto: senza, la CLI pesca
+    // da `~/.codex/config.toml`, ed è l'unico modo perché funzionino gli account
+    // ChatGPT (che rifiutano `gpt-5-codex` passato a mano).
+    const args = buildCodexArgs({
+      model: explicitModel,
+      approvalMode: this.config.approvalMode,
+      bridge,
+      reasoningEffort,
+    });
 
     const child = spawn(bin, args, {
       cwd: workspace,
@@ -690,8 +684,7 @@ export class CodexProvider implements AIProvider {
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
     // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
-    const args = ["exec"];
-    if (this.config.model) args.push("--model", this.config.model);
+    const args = buildCodexOneshotArgs({ model: this.config.model });
 
     return new Promise<CompletionResult>((resolve, reject) => {
       const child = spawn(bin, args, {
@@ -816,5 +809,15 @@ export class CodexProvider implements AIProvider {
     // Empty list signals "use whatever the CLI has configured" — picker shows
     // the provider but no model rows; user can still trigger via no-override.
     return [];
+  }
+
+  /**
+   * Lo stesso tier che finisce in `-c model_reasoning_effort` a ogni turno:
+   * stesso resolver, così il badge del picker non racconta un'altra storia.
+   * Dichiarato dal provider invece che indovinato dal nome dentro lo snapshot
+   * manager (vedi `AIProvider.effortTier`).
+   */
+  effortTier(): string | undefined {
+    return resolveCodexReasoningEffort() ?? undefined;
   }
 }

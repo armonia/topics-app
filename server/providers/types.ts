@@ -555,6 +555,19 @@ export interface AIProvider {
   listModels?(): Promise<string[]>;
 
   /**
+   * Il tier di effort/reasoning che Topics FORZA allo spawn per le sessioni di
+   * questo provider — lo stesso che risolve il percorso di spawn, così il badge
+   * del picker dice quello che una sessione NUOVA otterrebbe davvero.
+   *
+   * Lo dichiara il provider, e non è un dettaglio: prima erano due `if`
+   * cablati su `claude-code` e `codex` dentro lo snapshot manager, cioè un
+   * provider nuovo restava senza badge finché qualcuno non andava ad
+   * aggiungere il terzo `if` in un file che non è il suo. Chi non forza
+   * nessun tier semplicemente non implementa il metodo.
+   */
+  effortTier?(): string | undefined;
+
+  /**
    * Il modello su cui parte una sessione che NON ha scelto niente.
    *
    * Senza questo la UI tirava a indovinare — mostrava `models[0]` — e indovinava

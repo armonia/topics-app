@@ -73,6 +73,14 @@ export type { AcpProviderConfig };
 /** Versione di protocollo che sappiamo parlare. ACP v1 è quella stabile. */
 export const ACP_PROTOCOL_VERSION = 1;
 
+/**
+ * Il prefisso con cui muore una connessione verso un agente che parla una
+ * versione che non sappiamo parlare. Prefisso e non messaggio libero perché è
+ * la stessa convenzione di `PROCESS_DIED_*`: `classifyTurnError` instrada per
+ * prefisso, e il testo che segue è il numero che l'agente ha dichiarato.
+ */
+export const ACP_VERSION_UNSUPPORTED = "ACP_VERSION_UNSUPPORTED";
+
 const CLIENT_INFO = { name: "topics", title: "Topics", version: "1" };
 
 /**
@@ -138,6 +146,14 @@ export class AcpProvider implements AIProvider {
   private agentCapabilities: Record<string, unknown> = {};
   private stopped = false;
   private binaryMissingLogged = false;
+  /**
+   * L'agente ha risposto con una versione di protocollo che non sappiamo
+   * parlare. Non è uno stato transitorio da riprovare: finché il binario resta
+   * quello, ogni `initialize` risponderà lo stesso numero. Si tiene qui perché
+   * deve spegnere il provider (`connected`), fermare i tentativi di
+   * riconnessione e comparire nel `diagnose()` con dentro il numero visto.
+   */
+  private versionMismatch: { agentVersion: number; reason: string } | null = null;
 
   /** sessionKey → stato. */
   private readonly sessions = new Map<string, AcpSessionState>();
@@ -157,6 +173,10 @@ export class AcpProvider implements AIProvider {
    */
   get connected(): boolean {
     if (this.stopped) return false;
+    // Un peer che parla una versione che non sappiamo parlare non è «connesso a
+    // metà»: è inservibile. Dirlo qui lo toglie dalla graduatoria del default e
+    // impedisce che una chat ci finisca contro per poi morire in modo opaco.
+    if (this.versionMismatch) return false;
     if (this.child) return this.child.exitCode === null && !this.child.killed;
     return this.resolveBinary() !== null;
   }
@@ -165,6 +185,12 @@ export class AcpProvider implements AIProvider {
 
   start(): void {
     this.stopped = false;
+    // Un `start()` è l'unico modo per riprovare dopo un rifiuto di versione: lo
+    // fa chi ri-registra il provider, cioè chi ha appena cambiato il binario o
+    // la configurazione. Riprovare da soli, senza che nulla sia cambiato,
+    // significherebbe rispawnare l'agente a ogni turno per riottenere lo stesso
+    // numero.
+    this.versionMismatch = null;
     if (!this.resolveBinary() && !this.binaryMissingLogged) {
       this.binaryMissingLogged = true;
       console.warn(`[ACP:${this.name}] eseguibile "${this.config.command}" non trovato nel PATH`);
@@ -208,6 +234,11 @@ export class AcpProvider implements AIProvider {
    * sessioni del primo.
    */
   private ensureConnection(): Promise<JsonRpcPeer> {
+    // Rifiuto di versione già accertato: si fallisce SUBITO, con lo stesso
+    // motivo della prima volta. Rispawnare l'agente per farsi ridire lo stesso
+    // numero costerebbe un processo per turno e nasconderebbe la causa dietro
+    // un timeout.
+    if (this.versionMismatch) return Promise.reject(new Error(this.versionMismatch.reason));
     if (this.peer && !this.peer.isClosed) return Promise.resolve(this.peer);
     if (this.connecting) return this.connecting;
     this.connecting = this.connect().catch((err) => {
@@ -277,6 +308,33 @@ export class AcpProvider implements AIProvider {
       capabilities: CLIENT_CAPABILITIES,
       info: CLIENT_INFO,
     })) ?? {};
+
+    // LA VERSIONE CHE L'AGENTE HA SCELTO, non quella che abbiamo chiesto.
+    //
+    // La spec è esplicita: se l'agente non supporta la versione richiesta
+    // risponde con l'ULTIMA che supporta, e un client che non la supporta
+    // dovrebbe chiudere e dirlo. Finora `result.protocolVersion` veniva
+    // buttato via — quindi il giorno che un agente risponde `2` continuavamo a
+    // parlare v1 su un peer v2. Non un errore netto: una `session/new` che
+    // risponde storto e una chat che muore senza motivo leggibile.
+    //
+    // Un numero PIÙ BASSO (o assente) non è un problema: è retro-compatibilità,
+    // l'agente sta dicendo «parliamo la tua». Solo un numero più alto significa
+    // che non ha potuto scendere fino a noi.
+    const negotiated = result.protocolVersion;
+    if (typeof negotiated === "number" && Number.isFinite(negotiated) && negotiated > ACP_PROTOCOL_VERSION) {
+      const reason = `${ACP_VERSION_UNSUPPORTED}_${negotiated}`;
+      this.versionMismatch = { agentVersion: negotiated, reason };
+      console.warn(
+        `[ACP:${this.name}] l'agente parla ACP v${negotiated}, noi v${ACP_PROTOCOL_VERSION}: chiudo la connessione`,
+      );
+      // `teardown` chiude il peer con questo motivo, quindi le richieste in volo
+      // (non ce ne sono a questo punto, ma la strada è una sola) muoiono con lo
+      // stesso testo che l'utente legge nel diagnose.
+      this.teardown(reason);
+      throw new Error(reason);
+    }
+
     this.agentCapabilities =
       (result.agentCapabilities as Record<string, unknown>) ??
       (result.capabilities as Record<string, unknown>) ??
@@ -571,15 +629,26 @@ export class AcpProvider implements AIProvider {
         present: !!this.peer && !this.peer.isClosed,
         hint: this.peer ? undefined : "Si negozia al primo messaggio",
       },
+      {
+        key: `${this.name}-protocol`,
+        label: `Protocollo ACP v${ACP_PROTOCOL_VERSION}`,
+        present: !this.versionMismatch,
+        hint: this.versionMismatch
+          ? `L'agente parla ACP v${this.versionMismatch.agentVersion}: aggiorna Topics o installa una versione dell'agente che parli v${ACP_PROTOCOL_VERSION}`
+          : undefined,
+      },
     ];
     return {
       name: this.name,
       // L'handshake avviene al primo turno: non averlo ancora fatto non è un
-      // guasto. Conta solo l'eseguibile.
-      status: bin ? "ready" : "unavailable",
+      // guasto. Conta solo l'eseguibile — e la versione, quando l'agente ne ha
+      // già dichiarata una che non sappiamo parlare: lì l'eseguibile c'è ed è
+      // proprio il motivo per cui non serve a niente.
+      status: this.versionMismatch ? "unavailable" : bin ? "ready" : "unavailable",
       binaryPath: probe.path ?? bin ?? undefined,
       version: probe.version,
       requirements,
+      lastError: this.versionMismatch?.reason,
     };
   }
 

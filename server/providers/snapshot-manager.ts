@@ -12,7 +12,6 @@
 import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
-import { resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
@@ -38,16 +37,13 @@ export function labelFor(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-/**
- * Effort/reasoning tier Topics forces at spawn for this provider's sessions —
- * the same resolvers the spawn paths call, so the badge always matches what a
- * NEW session would actually get.
- */
-function effortTierFor(name: string): string | undefined {
-  if (name === "claude-code") return resolveClaudeEffort() ?? undefined;
-  if (name === "codex") return resolveCodexReasoningEffort() ?? undefined;
-  return undefined;
-}
+// Il tier di effort NON si decide più qui.
+//
+// C'erano due `if` cablati su `claude-code` e `codex`: una tabella travestita
+// da funzione, in un file che di quei due provider non sa niente. Il costo era
+// il solito degli specchi — un provider nuovo restava senza badge finché
+// qualcuno non veniva a scrivere il terzo `if` — quindi ora il tier lo
+// DICHIARA il provider (`AIProvider.effortTier()`), e qui si legge e basta.
 
 export class ProviderSnapshotManager extends EventEmitter {
   private entries = new Map<string, ProviderSnapshotEntry>();
@@ -154,7 +150,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         fastMode: (provider as { fastMode?: () => ProviderSnapshotEntry["fastMode"] | null }).fastMode?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
-        effortTier: effortTierFor(name),
+        effortTier: provider.effortTier?.(),
         fetchedAt: new Date().toISOString(),
       };
     } catch (err) {
