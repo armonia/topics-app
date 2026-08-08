@@ -132,24 +132,6 @@ const BOARD_ICON = getPaneConfig('board').icon;
 const BoardGlyph = UTILITY_ROW_ICONS[BOARD_ICON] ?? Kanban;
 
 /**
- * LA BOARD HA UNA RIGA TUTTA SUA? — un predicato, letto da entrambe le parti.
- *
- * Fissata, la board vive come tessera nella griglia; non fissata, come riga in
- * cima. Mai in due posti. Ma quella riga esiste solo se c'è qualcosa da dire —
- * lavoro aperto, o la sua tab aperta — e quindi la TESSERA deve sapere se, una
- * volta sfissata, la board ha un posto in cui tornare: se non ce l'ha, la
- * tessera si marca `pinOnly` e sfissarla la toglie e basta invece di farla
- * sparire lasciando credere che sia finita altrove.
- *
- * Le due condizioni erano scritte due volte, a settecento righe di distanza,
- * con un commento che dichiarava l'accoppiamento — cioè la forma peggiore di
- * invariante: vera finché qualcuno se la ricorda. Adesso è una funzione sola.
- */
-function boardHasOwnRow(boardTaskCount: number, boardOpen: boolean): boolean {
-  return boardTaskCount > 0 || boardOpen;
-}
-
-/**
  * L'ITEM della board come riga di sidebar, da una parte sola.
  *
  * Ne servono tre — la tessera fissata, l'anteprima di trascinamento, e la riga
@@ -325,6 +307,30 @@ export interface TopicTreeProps {
   /** True while the Board generale tab is open — makes the row tab-aware (it is
    *  the ONLY sidebar row for the board, so it must show selection like a tab). */
   boardOpen?: boolean;
+  /**
+   * LA RIGA «BOARD GENERALE» C'È? — una preferenza, e nient'altro.
+   *
+   * Accesa di serie (Impostazioni → Aspetto); spenta, la board resta
+   * raggiungibile dal «+» e dalla sua tab. È anche il predicato che dice alla
+   * TESSERA fissata se, una volta sfissata, la board ha un posto in cui
+   * tornare: se non ce l'ha si marca `pinOnly`, e sfissarla la toglie e basta
+   * invece di farla sparire lasciando credere che sia finita altrove.
+   *
+   * ── PRIMA ERA UNA CORSA CON LA RETE ───────────────────────────────────────
+   * La condizione era «c'è lavoro aperto, oppure la tab è aperta»
+   * (`boardTaskCount > 0 || boardOpen`), e il primo termine vale ZERO finché i
+   * task non sono arrivati dal server: a ogni ricarica la sidebar nasceva senza
+   * Board e la riga si infilava dentro qualche centinaio di millisecondi dopo,
+   * spingendo in giù tutto il resto — «quando aggiorno l'app, la board esce
+   * dopo» (Attilio, 08/08). Non era un difetto di tempismo da smussare con
+   * un'attesa: una riga di NAVIGAZIONE c'è perché quella superficie esiste, non
+   * perché oggi abbia qualcosa da dire. Una preferenza, al primo fotogramma,
+   * vale già quello che varrà dopo.
+   *
+   * Ciò che continua a comparire e sparire col lavoro vero sono il conteggio e
+   * le pastiglie DENTRO la riga: lì il vuoto è informazione, non un salto.
+   */
+  showBoardRow?: boolean;
   /** Opens the global board pane (the '__board__' utility tab). */
   onOpenBoard?: () => void;
   /** True quando esiste almeno un gruppo (o siamo in una finestra-gruppo): la
@@ -385,6 +391,7 @@ export function TopicTree({
   boardTaskCount = 0,
   boardByStatus,
   boardOpen = false,
+  showBoardRow = true,
   onOpenBoard,
   spaceScoped = false,
   paneSpaceById,
@@ -583,11 +590,11 @@ export function TopicTree({
       if (q === '' || BOARD_LABEL.toLowerCase().includes(q)) {
         byId.set(BOARD_ID, boardSidebarItem(boardTaskCount, {
           pinned: true,
-          // Senza una riga in cui tornare (`boardHasOwnRow`, lo STESSO predicato
-          // che decide `boardRow` più sotto), sfissarla non la riporta in lista:
-          // la fa sparire e basta — quindi la tessera si marca `pinOnly` e il
-          // menu offre «togli», non «rimetti in lista».
-          ...(boardHasOwnRow(boardTaskCount, boardOpen) ? {} : { pinOnly: true }),
+          // Senza una riga in cui tornare (`showBoardRow`, lo STESSO valore che
+          // decide `boardRow` più sotto), sfissarla non la riporta in lista: la
+          // fa sparire e basta — quindi la tessera si marca `pinOnly` e il menu
+          // offre «togli», non «rimetti in lista».
+          ...(showBoardRow ? {} : { pinOnly: true }),
         }));
       }
     }
@@ -595,7 +602,7 @@ export function TopicTree({
       const item = byId.get(id);
       return item ? [item] : [];
     });
-  }, [filteredItems, pinnedItems, boardTaskCount, boardOpen, searchQuery]);
+  }, [filteredItems, pinnedItems, boardTaskCount, showBoardRow, searchQuery]);
   const unpinnedItems = useMemo(
     () => filteredItems.filter(i => !i.pinned),
     [filteredItems]
@@ -1450,7 +1457,7 @@ export function TopicTree({
   // Fissata, la board NON ha una riga: vive come tessera nella griglia (vedi
   // `pinnedBlock`). La stessa cosa in due posti non è una scorciatoia, è un
   // doppione — la regola che vale già per le righe dentro le card dei gruppi.
-  const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && boardHasOwnRow(boardTaskCount, boardOpen) ? (
+  const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && showBoardRow ? (
           <button
             key="board-row"
             type="button"

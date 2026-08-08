@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Type, AlignJustify, Rows3, Sun, Moon, Monitor, LayoutGrid, Keyboard, ChevronRight } from 'lucide-react';
+import { Type, AlignJustify, Rows3, Sun, Moon, Monitor, LayoutGrid, Kanban, Keyboard, ChevronRight } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { isDesktop } from '../../lib/shell';
 import { ToggleRow } from './ToggleRow';
@@ -206,6 +206,25 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           />
         </div>
       )}
+
+      {/* La riga «Board generale» in cima alla sidebar. Sta fra le preferenze e
+          non fra i segnali di proposito: prima compariva da sé quando c'era
+          lavoro aperto, cioè un istante DOPO ogni ricarica, e nel frattempo
+          tutto il resto della colonna si spostava (vedi TopicTree,
+          `showBoardRow`). Chi non la vuole la spegne qui — la board resta
+          raggiungibile dal «+» e dalla sua tab. */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <Kanban size={14} />
+          Board
+        </label>
+        <ToggleRow
+          label="Mostra la Board nella sidebar"
+          description="Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato."
+          value={settings.showBoardRow}
+          onChange={(v) => onChange('showBoardRow', v)}
+        />
+      </div>
 
       {/* Lingua — UNA preferenza, due effetti. Le etichette restano bilingui
           perché questo è l'unico posto che si deve poter leggere anche quando
