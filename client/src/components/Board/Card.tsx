@@ -340,7 +340,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={`${STATUS_LABEL[s.status]} — apri il sottotask`}
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
-              <StatusIcon status={s.status} className="h-3 w-3" />
+              <StatusIcon status={s.status} />
               <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
             </button>
           ))}
