@@ -91,7 +91,7 @@ export function boardProjectChips(
  * discriminante più forte di un nome troncato e non si può confondere con un
  * glifo di stato.
  *
- * · `CHIP_W_ICON_COUNT` = 38 — 20 di slot icona + 4 + 14 di numero (due cifre
+ * · `CHIP_W_ICON_COUNT` = 36 — 20 di slot icona + 2 + 14 di numero (due cifre
  *   tabellari a 11px). Niente padding: la pastiglia non ha più una superficie
  *   da riempire.
  * · `CHIP_W_ICON` = 20 — solo icona. Il gradino di emergenza.
@@ -120,10 +120,11 @@ export function boardProjectChips(
  * SONO UNA SCALA, non due varianti da scegliere: si prova la più ricca e si
  * scende solo quando non ne entra NEMMENO UNA.
  */
-export const CHIP_W_ICON_COUNT = 38;
+export const CHIP_W_ICON_COUNT = 36;
 export const CHIP_W_ICON = 20;
-/** Lo spazio fra due BLOCCHI della riga — pastiglie, «+N», conteggi
- *  (`gap-1.5`, lo stesso passo del resto della sidebar). */
+/** Lo spazio fra due CONTEGGI DI STATO, dentro il loro gruppo (`gap-1.5`, lo
+ *  stesso passo del resto della sidebar). Fra i GRUPPI corre `GROUP_SPACING`,
+ *  fra due pastiglie `CHIP_SPACING`: tre passi, tre livelli di parentela. */
 export const CHIP_GAP = 6;
 /**
  * Lo spazio fra due PASTIGLIE, che è il doppio di quello fra i blocchi — e non
@@ -141,6 +142,25 @@ export const CHIP_GAP = 6;
  * come una fila di elementi sciolti.
  */
 export const CHIP_SPACING = 12;
+/**
+ * Il vuoto DENTRO una pastiglia, fra l'icona e il suo numero.
+ *
+ * Due, non quattro: la scatola dell'icona è più larga dell'inchiostro (serve ai
+ * logo-scritta), quindi un logo quadrato si porta dietro ~3px di aria per lato
+ * che il `gap` non vede ma l'occhio sì. Con 4 la distanza VERA era 7; con 2
+ * scende a 5, ed è il minimo prima che la cifra tocchi il glifo.
+ */
+export const CHIP_INNER_GAP = 2;
+/**
+ * Il vuoto fra i TRE GRUPPI della riga: etichetta della board, pastiglie dei
+ * progetti, conteggi di stato.
+ *
+ * Venti, cioè più dei 12 che separano due pastiglie, e la gerarchia è il punto:
+ * 2 dentro una coppia, 12 fra due coppie, 20 fra due gruppi. Con gruppi e
+ * pastiglie allo stesso passo — com'era un minuto fa — le pastiglie si leggevano
+ * come parte dei conteggi, che è il difetto originale in un'altra forma.
+ */
+export const GROUP_SPACING = 20;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
 export const MORE_W = 22;
 
@@ -267,15 +287,14 @@ export function fitProjectChips<T>(width: number | null, chips: readonly T[]): F
   if (chips.length === 0) return zero();
   if (width === null) return zero();
   const tryMode = (mode: ChipMode, cw: number): FittedChips<T> | null => {
-    // Fra le pastiglie corre `CHIP_SPACING`, non `CHIP_GAP`: sono due passi
-    // diversi da quando la pastiglia ha perso la superficie e il
-    // raggruppamento lo fa la distanza. Il «+N» invece è un altro BLOCCO della
-    // riga, quindi da lì in poi si torna a `CHIP_GAP`.
+    // Tre passi, e ognuno dice una cosa diversa: `CHIP_INNER_GAP` (2) lega
+    // un'icona al suo numero, `CHIP_SPACING` (12) separa due pastiglie,
+    // `GROUP_SPACING` (20) separa i gruppi della riga — e il «+N» è un gruppo.
     const span = (n: number) => n * cw + (n - 1) * CHIP_SPACING;
     let n = chips.length;
     while (n > 0 && span(n) > width) n--;
     if (n === chips.length) return { shown: [...chips], hidden: 0, mode };
-    while (n > 0 && span(n) + CHIP_GAP + MORE_W > width) n--;
+    while (n > 0 && span(n) + GROUP_SPACING + MORE_W > width) n--;
     return n > 0 ? { shown: chips.slice(0, n), hidden: chips.length - n, mode } : null;
   };
   for (const { mode, w } of CHIP_MODES) {
@@ -314,10 +333,14 @@ export function fitBoardRow(
   // senza poter dire quante ne mancano, risponde ZERO. È il difetto di prima
   // spostato di due pixel, non risolto.
   const chipFloor = chips.length > 0
-    ? CHIP_W_ICON + CHIP_GAP + (chips.length > 1 ? MORE_W + CHIP_GAP : 0)
+    ? CHIP_W_ICON + GROUP_SPACING + (chips.length > 1 ? MORE_W + GROUP_SPACING : 0)
     : 0;
   const fittedCounts = fitStatusCounts(width, chipFloor, counts);
   const used = countsSpan(fittedCounts);
-  const chipSpace = Math.max(0, width - (used > 0 ? used + CHIP_GAP : 0));
+  // `GROUP_SPACING` e non `CHIP_GAP`: fra il blocco delle pastiglie e quello dei
+  // conteggi corre il passo dei GRUPPI. Prenotarne sei mentre il layout ne
+  // disegna venti è il modo esatto in cui l'ultima pastiglia torna a essere
+  // tagliata — l'aritmetica deve conoscere i numeri veri del disegno.
+  const chipSpace = Math.max(0, width - (used > 0 ? used + GROUP_SPACING : 0));
   return { chips: fitProjectChips(chipSpace, chips), counts: fittedCounts };
 }
