@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, ChevronDown, BarChart3, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -17,7 +17,6 @@ import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
-import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
@@ -50,7 +49,7 @@ import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId } from './state/pane/adapters';
+import { useClosedTabs, createPaneId, isProjectPaneId, getProjectPathFromPaneId, setPaneCapability } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { groupChromeActive, isDetachedWindow, firstOtherLiveSpace } from './components/Layout/spaceHelpers';
@@ -134,11 +133,15 @@ const BOOT_TAB_PERMALINK = (() => {
 })();
 const BOOT_DEEP_LINK = bootDeepLinkTarget();
 
-const TOPICS_MENU_PAGES = [
-  { id: 'board' as const, icon: LayoutGrid, label: 'Board' },
-  { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
-  { id: 'cron' as const, icon: Timer, label: 'Cron Jobs' },
-];
+// Le tre voci-PAGINA del dropdown «Topics ▾» (Board, «Statistics», «Cron Jobs»)
+// stavano qui. Erano il menu «+» con altri nomi: aprire una pagina È aprire una
+// pane, e il «+» (⌘N) è il posto che quel mestiere ce l'ha già. Board vi
+// compariva DUE volte — aveva già `addableScopes: ['standalone']` — mentre
+// Dashboard e Cron esistevano solo lì, con etichette che nessun'altra
+// superficie usava. Ora le tre pane hanno `addableScopes` in PANE_CONFIG e si
+// aprono da un posto solo, col nome che portano nella tab e nella sidebar.
+// Il dropdown resta quello che è davvero: stato della vista, azioni di layout,
+// e la porta per Settings.
 
 // Phase 30 PANE-01: persistence for open panels is owned by the pane-store
 // middleware. Component reads/writes happen via the panel-lifecycle hook
@@ -368,9 +371,14 @@ function App() {
   // moved into <PaneAddMenu> when we unified, so we only need the
   // current value here for the spawn arg.
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
-  // Re-apply the user's saved Claude Code model preference once the providers
-  // snapshot is available; resets each session unless localStorage has been set.
-  useClaudeCodeModelSync();
+  // Qui c'era `useClaudeCodeModelSync()`: al boot rileggeva da localStorage il
+  // modello di Claude Code e lo ri-applicava al server. Era il default salvato
+  // nel posto sbagliato — per-DISPOSITIVO, quindi un altro browser vedeva un
+  // altro default — e la ri-applicazione passava da `registerProvider`, che
+  // ferma il provider e con lui i processi CLI vivi. Adesso il modello di
+  // default è un campo di `app_settings` scritto dalla card del provider: il
+  // server è la fonte, cross-device di conseguenza, e nessun boot uccide più
+  // una chat in corso.
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -479,6 +487,19 @@ function App() {
   // badge surfaces across the tab bar and the sidebar.
   const { sessions: claudeSessions } = useClaudeSessionState({ onWSMessage });
   const openclawAvailable = useOpenClawAvailable();
+  // Cron è l'unica pane che richiede OpenClaw, e il suo gate vive in PANE_CONFIG
+  // (`requires: 'openclaw'`), non nel menu che la apre: prima era un `.filter`
+  // scritto a mano nel dropdown «Topics ▾», cioè un gate valido su UNA
+  // superficie. Da qui vale per ogni menu di creazione, presente e futuro.
+  //
+  // In RENDER e non in un effetto, di proposito: App renderizza prima dei suoi
+  // figli, quindi il «+» costruito nello stesso passo vede già il valore nuovo.
+  // Un effetto scriverebbe DOPO il commit, e siccome la Set non è stato di
+  // React nessuno pianificherebbe il render che la rilegge — la riga Cron
+  // resterebbe assente fino al prossimo render capitato per altri motivi.
+  // La scrittura è idempotente (StrictMode renderizza due volte) e non tocca
+  // stato React, quindi non innesca cicli.
+  setPaneCapability('openclaw', openclawAvailable);
   // Feed the unified signals store from every raw input in one place
   // (Claude attention / live stream / hydrated mid-reply / server pty
   // activity). Consumers only read the facade (usePaneLoading / getBadgeCount).
@@ -646,8 +667,14 @@ function App() {
       handleQuickCreateTerminal(normalizeTerminalAgent(subType), claudeSkipPermissions);
     } else if (type === 'browser') {
       openBrowserPane(`new-${Date.now()}`);
-    } else if (type === 'board') {
-      handleOpenAsPage('board');
+    } else if (type === 'board' || type === 'dashboard' || type === 'cron') {
+      // Le tre pane UTILITY: id fisso (`__board__`, `__dashboard__`, `__cron__`)
+      // e quindi non `createPaneId`, che ne sorteggerebbe uno nuovo a ogni
+      // apertura — la seconda tab della stessa pagina. `handleOpenAsPage` è
+      // l'unica porta che conosce quella forma. Il ramo era il solo `board`
+      // finché le altre due si aprivano dal dropdown «Topics ▾»; ora che sono
+      // righe del «+» passano da qui, o la riga sarebbe muta.
+      handleOpenAsPage(type);
     }
   }, [handleQuickCreateTerminal, claudeSkipPermissions, openBrowserPane, handleOpenAsPage]);
 
@@ -1517,18 +1544,10 @@ function App() {
             <Grid2x2 size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
-          {TOPICS_MENU_PAGES
-            .filter(({ id }) => id !== 'cron' || openclawAvailable)
-            .map(({ id, icon: Icon, label }) => (
-              <button
-                key={id}
-                onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
-              >
-                <Icon size={isMobile ? 18 : 14} />
-                <span className="flex-1 text-left">{label}</span>
-              </button>
-            ))}
+          {/* Board / Dashboard / Cron stavano qui e ora stanno nel «+» (⌘N) —
+              vedi il commento al posto di TOPICS_MENU_PAGES, in testa al file.
+              Settings invece RESTA: è raggiungibile anche da ⌘K e da ⌘, ma
+              sono tre porte per la stessa stanza, non tre stanze. */}
           <button
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); }}
             className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
