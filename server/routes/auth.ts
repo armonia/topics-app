@@ -16,7 +16,7 @@ import {
 } from "../lib/grants-query";
 import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
-  actingPersonId, isOrgRole, type OrgRole,
+  actingPersonId, isOrgRole, orgAlive, type OrgRole,
 } from "../lib/orgs";
 
 /**
@@ -749,11 +749,15 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     if (method === "DELETE" && /^\/api\/auth\/orgs\/[^/]+$/.test(pathname)) {
       const id = decodeURIComponent(pathname.slice("/api/auth/orgs/".length));
       try {
-        const org = db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
         // Già revocato = sconosciuto, la STESSA risposta che dà la POST dei
         // membri: due rotte che guardano la stessa riga non possono dire una
-        // «non c'è» e l'altra «fatto», o il secondo clic sembra riuscito.
-        if (!org || org.revoked_at !== null) return json({ error: "organizzazione sconosciuta" }, 404);
+        // «non c'è» e l'altra «fatto», o il secondo clic sembra riuscito. E la
+        // domanda si fa con la funzione che la fanno tutte — era una SELECT
+        // scritta a mano qui e una closure là dentro, cioè due copie in attesa
+        // di separarsi.
+        const viva = orgAlive(db as never, id);
+        if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
+        if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
         if (id === installationOrgId(db as never)) {
           return json({ error: "il gruppo di questa installazione non si cancella" }, 400);
         }
@@ -796,6 +800,18 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // sono la porta più debole delle due. Le PERSONE restano fuori — chi si
       // rinomina rinomina sé stesso, e non è un potere dentro un gruppo.
       if (!persona) {
+        // ESISTE, prima del ruolo. Il ruolo da solo non basta: `canAdministerOrg`
+        // guarda `org_members`, e revocare un gruppo NON tocca le sue righe di
+        // appartenenza — quindi su un gruppo cancellato restava `true` e questa
+        // rotta scriveva il nome dentro la riga revocata rispondendo `ok: true`,
+        // mentre DELETE e le tre rotte dei membri sullo stesso id dicevano
+        // «organizzazione sconosciuta». È uno stato che si raggiunge dalla UI
+        // vera: `IdentitySection` carica i gruppi una volta al montaggio e non
+        // ha un invalidamento via WS, quindi una seconda finestra che mostra
+        // ancora un gruppo cancellato altrove rinominava un morto.
+        const viva = orgAlive(db as never, id);
+        if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
+        if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
         const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
         if (!canAdministerOrg(db as never, id, io)) {
           return json({ error: "non amministri questo gruppo" }, 403);
@@ -836,13 +852,23 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       /** L'organizzazione esiste? Prima del ruolo, o «non esiste» diventerebbe
        *  «non ti è permesso» — due risposte diverse che nascondono l'una
        *  l'altra. */
-      const orgViva = () => {
-        try { return !!db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId); }
-        catch { return null; }  // schema più vecchio della 084
-      };
+      const orgViva = () => orgAlive(db as never, orgId);
 
       if (method === "GET") {
         try {
+          // La LETTURA fa la stessa domanda delle tre scritture su questo
+          // percorso. Era l'unica delle quattro a non farla: su un gruppo
+          // revocato rispondeva 200 con la rubrica intera, mentre POST, PATCH e
+          // DELETE sullo stesso id rispondevano 404 e `GET /api/auth/orgs` quel
+          // gruppo non lo elencava nemmeno. Una schermata che legge da qui
+          // mostrava dei membri e poi falliva su ogni gesto, senza mai dire
+          // perché.
+          const viva = orgViva();
+          // Schema più vecchio della 084: si tace come fa `GET /api/auth/orgs`,
+          // che risponde `{orgs: []}` invece di un errore. Le letture degradano,
+          // le scritture rifiutano — ed è la stessa regola su entrambe le rotte.
+          if (viva === null) return json({ members: [] });
+          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
           const righe = db.query(`
             SELECT p.id, p.display_name AS name, p.email, m.role, m.joined_at,
                    m.revoked_at, m.local_blocked_at,

@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import {
   installationOrgId, liveMemberCount, liveOwnerCount, orgRole,
-  canAdministerOrg, actingPersonId, isOrgRole, ORG_ROLES,
+  canAdministerOrg, actingPersonId, isOrgRole, orgAlive, ORG_ROLES,
 } from "./orgs";
 
 const RADICE = join(import.meta.dir, "..", "..");
@@ -86,6 +86,41 @@ describe("orgs · qual è l'organizzazione di questa installazione", () => {
 
   test("su uno schema più vecchio della 084 non esplode: non c'è organizzazione", () => {
     expect(installationOrgId(new Database(":memory:"))).toBeNull();
+  });
+});
+
+describe("orgs · esiste ancora questo gruppo", () => {
+  test("tre esiti, e il terzo non è «non esiste»", () => {
+    // Sono TRE e non due: «non c'è» e «questa macchina non è ancora migrata»
+    // sono due cose diverse, e confonderle fa rispondere 404 a un database che
+    // la tabella non ce l'ha proprio. Le rotte lo usano per distinguere il 404
+    // dal 400.
+    const db = db084();
+    creaOrg(db, "viva", "Viva");
+    creaOrg(db, "morta", "Morta");
+    db.run("UPDATE orgs SET revoked_at = 99 WHERE id = 'morta'");
+
+    expect(orgAlive(db, "viva")).toBe(true);
+    expect(orgAlive(db, "morta"), "revocata = non c'è").toBe(false);
+    expect(orgAlive(db, "mai-esistita")).toBe(false);
+
+    const vecchio = new Database(":memory:");
+    expect(orgAlive(vecchio, "viva"), "schema più vecchio della 084").toBeNull();
+  });
+
+  test("la revoca del GRUPPO non tocca le sue appartenenze — ed è perché il ruolo da solo non basta", () => {
+    // La trappola in una riga: `canAdministerOrg` resta `true` su un gruppo
+    // cancellato, perché guarda `org_members` e la revoca sta su `orgs`. Chi
+    // controlla solo il ruolo crede di poter amministrare un morto — è così che
+    // la PATCH che rinomina scriveva dentro una riga revocata.
+    const db = db084();
+    const io = proprietario(db);
+    creaOrg(db, "morta", "Morta");
+    metti(db, "morta", io, "owner");
+    db.run("UPDATE orgs SET revoked_at = 99 WHERE id = 'morta'");
+
+    expect(canAdministerOrg(db, "morta", io), "il ruolo sopravvive alla revoca del gruppo").toBe(true);
+    expect(orgAlive(db, "morta"), "e non basta: la domanda giusta è un'altra").toBe(false);
   });
 });
 
