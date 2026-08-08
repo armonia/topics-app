@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, SIDEBAR_L1_DIVIDERS, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, SIDEBAR_L1_SURFACE, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -153,17 +153,18 @@ function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>):
 }
 
 /**
- * UNA LISTA DI RIGHE DI PRIMO LIVELLO — il posto in cui vivono i separatori.
+ * UNA LISTA DI RIGHE DI PRIMO LIVELLO — il posto in cui si decide come si
+ * separano.
  *
  * Le viste della sidebar sono tre (a gruppi, a lista, per stato) e ognuna
  * impila righe di primo livello a modo suo. Avvolgerle tutte in questo
- * contenitore fa sì che la regola dei separatori — presenti solo sotto i 768px,
- * vedi {@link SIDEBAR_L1_DIVIDERS} — stia in un posto solo, e che la quarta
- * vista nasca già giusta invece di ricopiare una classe.
+ * contenitore fa sì che la regola — sotto i 768px la riga a riposo prende una
+ * superficie, vedi {@link SIDEBAR_L1_SURFACE} — stia in un posto solo, e che la
+ * quarta vista nasca già giusta invece di ricopiare una classe.
  */
 function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`${SIDEBAR_L1_DIVIDERS} ${className}`} {...rest}>
+    <div className={`${SIDEBAR_L1_SURFACE} ${className}`} {...rest}>
       {children}
     </div>
   );

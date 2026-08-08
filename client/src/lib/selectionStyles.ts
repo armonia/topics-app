@@ -301,7 +301,7 @@ export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-cente
  * figlio-diretto: lì l'indentazione fa già il lavoro, e una fila di card
  * trasformerebbe un albero in una tabella.
  */
-export const SIDEBAR_L1_DIVIDERS = 'sidebar-l1-rows';
+export const SIDEBAR_L1_SURFACE = 'sidebar-l1-rows';
 
 /**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
