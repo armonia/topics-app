@@ -6,7 +6,7 @@ import { watchGitDir } from "../git-watcher";
 import { watchProjectFiles } from "../file-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
-import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
+import { STATUS_ARGS, gitRead, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
 import { attachNumstats, readNumstats } from "../lib/git-numstat";
 import { moveToTrash } from "../lib/trash";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
@@ -541,10 +541,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "diff", "--", filePath], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = Bun.spawn(gitRead("diff", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const diff = await new Response(proc.stdout).text();
         if (!diff.trim()) {
-          const cachedProc = Bun.spawn(["git", "diff", "--cached", "--", filePath], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const cachedProc = Bun.spawn(gitRead("diff", "--cached", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           return new Response(await new Response(cachedProc.stdout).text(), { headers: { "Content-Type": "text/plain; charset=utf-8" } });
         }
         return new Response(diff, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -567,8 +567,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         const args = staged
-          ? ["git", "diff", "--cached", "--", filePath]
-          : ["git", "diff", "--", filePath];
+          ? gitRead("diff", "--cached", "--", filePath)
+          : gitRead("diff", "--", filePath);
         const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
         const diff = await new Response(proc.stdout).text();
         await proc.exited;
@@ -594,8 +594,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         //   discard  albero→indice, al contrario sull'ALBERO (tocca il file)
         const daIndice = azione === "unstage";
         const diffArgs = daIndice
-          ? ["git", "diff", "--cached", "--", filePath]
-          : ["git", "diff", "--", filePath];
+          ? gitRead("diff", "--cached", "--", filePath)
+          : gitRead("diff", "--", filePath);
         const diffProc = Bun.spawn(diffArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
         const diff = await new Response(diffProc.stdout).text();
         await diffProc.exited;
@@ -820,7 +820,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         // Get diff stat for staged + unstaged
-        const statProc = Bun.spawn(["git", "diff", "--stat", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statProc = Bun.spawn(gitRead("diff", "--stat", "HEAD"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statText = (await new Response(statProc.stdout).text()).trim();
         // Get status porcelain for changed files (untracked included as "??")
         const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
@@ -915,7 +915,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const failed: string[] = [];
         for (const file of files) {
-          const statusProc = Bun.spawn(["git", "status", "--porcelain", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const statusProc = Bun.spawn(gitRead("status", "--porcelain", "--", file), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const statusOut = (await new Response(statusProc.stdout).text()).trim();
           if (statusOut.startsWith("??")) {
             // Scartare un file NON TRACCIATO non è come scartare uno tracciato:
@@ -1411,9 +1411,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // La mappa completa (costa poco anche su venti file) più il diff
         // ripartito nel budget. Vedi `lib/commit-message.ts` per il perché
         // «i primi 4000 caratteri» era il criterio peggiore a parità di spesa.
-        const statProc = Bun.spawn(["git", "diff", "--cached", "--stat"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statProc = Bun.spawn(gitRead("diff", "--cached", "--stat"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statText = await new Response(statProc.stdout).text();
-        const diffProc = Bun.spawn(["git", "diff", "--cached", "--unified=1"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const diffProc = Bun.spawn(gitRead("diff", "--cached", "--unified=1"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const diffText = await new Response(diffProc.stdout).text();
 
         const fallback = rulesFallback(staged);
@@ -1589,7 +1589,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "diff", "HEAD", "--", filePath], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const proc = Bun.spawn(gitRead("diff", "HEAD", "--", filePath), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const diff = await new Response(proc.stdout).text();
         await proc.exited;
 

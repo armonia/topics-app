@@ -43,10 +43,12 @@ export interface Numstat {
   binary?: boolean;
 }
 
+import { gitRead } from "./git-porcelain";
+
 /** Albero di lavoro contro indice: le modifiche NON staged. */
-export const NUMSTAT_ARGS = ["git", "diff", "--numstat", "-z", "--"];
+export const NUMSTAT_ARGS = gitRead("diff", "--numstat", "-z", "--");
 /** Indice contro HEAD: le modifiche staged. */
-export const NUMSTAT_CACHED_ARGS = ["git", "diff", "--cached", "--numstat", "-z", "--"];
+export const NUMSTAT_CACHED_ARGS = gitRead("diff", "--cached", "--numstat", "-z", "--");
 
 /**
  * `git diff --numstat -z` → mappa path → conteggi.
