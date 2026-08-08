@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,
-  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, MORE_W, CHIP_MODES,
+  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, CHIP_SPACING, MORE_W, CHIP_MODES,
   type BoardCount, type BoardProjectChip,
 } from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
@@ -72,7 +72,11 @@ describe('fitProjectChips', () => {
    *  costanti, non ricopiato: la larghezza è già cambiata due volte e con i
    *  numeri scritti a mano questi test sarebbero diventati rossi mentre la
    *  regola restava intatta. */
-  const spanW = (w: number, n: number) => n * w + (n - 1) * CHIP_GAP;
+  // Fra le pastiglie corre `CHIP_SPACING` (12), non `CHIP_GAP` (6): sono due
+  // passi diversi da quando la pastiglia ha perso la superficie e a raggruppare
+  // è rimasta la distanza. Il «+N» resta un blocco a sé, quindi lì sotto si
+  // continua a sommare `CHIP_GAP`.
+  const spanW = (w: number, n: number) => n * w + (n - 1) * CHIP_SPACING;
   const spanRicco = (n: number) => spanW(RICCO.w, n);
   const spanIcon = (n: number) => spanW(CHIP_W_ICON, n);
 
