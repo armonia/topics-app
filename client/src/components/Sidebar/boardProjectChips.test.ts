@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,
-  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, CHIP_SPACING, MORE_W, CHIP_MODES,
+  CHIP_W_ICON, CHIP_GAP, CHIP_SPACING, MORE_W, CHIP_MODES, contaLeggibile,
   type BoardCount, type BoardProjectChip,
 } from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
@@ -79,7 +79,6 @@ describe('fitProjectChips', () => {
   // `CHIP_GAP` (6) resta solo dentro i conteggi di stato.
   const spanW = (w: number, n: number) => n * w + (n - 1) * CHIP_SPACING;
   const spanRicco = (n: number) => spanW(RICCO.w, n);
-  const spanIcon = (n: number) => spanW(CHIP_W_ICON, n);
 
   test('non ancora misurato (null) tace del tutto, e non è la stessa cosa di zero', () => {
     // Un «+5» che compare e sparisce al primo layout è peggio del vuoto di un
@@ -112,52 +111,38 @@ describe('fitProjectChips', () => {
       .toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: RICCO.mode });
   });
 
-  test('la scala scende UN gradino alla volta, e solo quando non ne entra nemmeno una', () => {
-    // Fra i due gradini c'è una fascia in cui il ricco non entra e il successivo
-    // sì: lì il modo deve essere il SECONDO, non l'ultimo. Un `??` che salta
-    // direttamente in fondo (era la forma di prima, con due soli gradini) qui
-    // darebbe 'icon' e nessuno se ne accorgerebbe dal risultato — le pastiglie
-    // ci sarebbero comunque, solo mute.
-    const secondo = CHIP_MODES[1]!;
-    const serveSecondo = secondo.w + CHIP_SPACING + MORE_W;
-    const serveRicco = RICCO.w + CHIP_SPACING + MORE_W;
-    expect(serveSecondo).toBeLessThan(serveRicco);
-    for (const w of [serveSecondo, serveRicco - 1]) {
-      const f = fitProjectChips(w, chips);
-      expect(f.mode, `a ${w}px`).toBe(secondo.mode);
-      expect(f.shown.length, `a ${w}px`).toBeGreaterThanOrEqual(1);
-      expect(f.shown.length + f.hidden).toBe(chips.length);
-    }
-    // E un pixel sopra la soglia del ricco, il ricco torna.
-    expect(fitProjectChips(serveRicco, chips).mode).toBe(RICCO.mode);
+  test('o la coppia si vede intera, o la pastiglia non si disegna', () => {
+    // LA SCALA HA UN GRADINO SOLO, e non è una semplificazione di comodo: il
+    // ripiego «solo icona» è stato tolto perché un'icona senza il suo numero
+    // non dice ciò per cui questa riga esiste, e accanto a pastiglie complete
+    // si legge come un progetto con ZERO task. «Non dovremmo mostrare un'icona
+    // se non si riesce a vedere completamente il suo conteggio» (Attilio,
+    // 08/08).
+    //
+    // Sotto la soglia quindi non si degrada: si tace, e il «+N» dice quanti
+    // sono i progetti che la riga non sta nominando. Il conto torna sempre —
+    // `shown + hidden === chips.length` — perché tacere non è perdere.
+    expect(CHIP_MODES).toHaveLength(1);
+    const serveUna = RICCO.w + CHIP_SPACING + MORE_W;
+    const f = fitProjectChips(serveUna - 1, chips);
+    expect(f.shown, 'sotto la soglia non si disegna nessuna pastiglia').toEqual([]);
+    expect(f.hidden).toBe(chips.length);
+    expect(f.mode).toBe(RICCO.mode);
+    // E un pixel sopra, la prima compare intera.
+    const g = fitProjectChips(serveUna, chips);
+    expect(g.shown).toEqual(['a']);
+    expect(g.shown.length + g.hidden).toBe(chips.length);
   });
 
-  test('quando col numero non ne entra NEMMENO UNA si scende a solo-icona', () => {
-    // Il degrado è progressivo, non uno stato scelto: il numero ha la
-    // precedenza finché ce n'è uno che ci sta, perché è metà dell'informazione
-    // che questa riga esiste per dare («n progetti con n task»).
-    // Un pixel meno di quanto serve a una pastiglia col numero PIÙ il suo «+N»
-    // (che serve, visto che cinque non ci stanno): col numero non ne entra
-    // nessuna, a sole icone sì.
-    const stretta = CHIP_W_ICON_COUNT + CHIP_SPACING + MORE_W - 1;
-    expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + CHIP_SPACING + MORE_W);
-    const fitted = fitProjectChips(stretta, chips);
-    expect(fitted.mode).toBe('icon');
-    // QUANTE ne entrano si CALCOLA, non si ricopia: il numero dipende dal
-    // rapporto fra le due larghezze, e ricopiarlo lega il test a quel rapporto
-    // invece che alla regola. (Successo l'08/08: tolto il numero dalla
-    // pastiglia, `CHIP_W_ICON` è sceso da 36 a 20 e qui era rosso un «1» che
-    // non diceva niente di sbagliato.)
-    let entrano = chips.length;
-    while (entrano > 0 && spanIcon(entrano) + CHIP_SPACING + MORE_W > stretta) entrano--;
-    expect(entrano).toBeGreaterThan(0);
-    expect(fitted.shown).toEqual(chips.slice(0, entrano));
-    expect(fitted.hidden).toBe(chips.length - entrano);
-  });
-
-  test('col numero ne entra una: si resta col numero anche se a sole icone ne entrerebbero di più', () => {
-    const w = spanRicco(1) + CHIP_SPACING + MORE_W;
-    expect(fitProjectChips(w, chips)).toEqual({ shown: ['a'], hidden: 4, mode: RICCO.mode });
+  test('un conteggio a tre cifre non è leggibile nella scatola prenotata', () => {
+    // La pastiglia riserva due cifre: `contaLeggibile` è il predicato che
+    // decide, ed è lo STESSO che il componente usa per filtrare. Due copie
+    // divergerebbero, e si prenoterebbe spazio per una pastiglia che poi non si
+    // disegna — il modo esatto in cui tornava fuori una pastiglia tagliata.
+    expect(contaLeggibile(0)).toBe(true);
+    expect(contaLeggibile(99)).toBe(true);
+    expect(contaLeggibile(100)).toBe(false);
+    expect(contaLeggibile(1234)).toBe(false);
   });
 
   test('una colonna troppo stretta perfino per un\'icona non disegna niente, ma lo dice', () => {

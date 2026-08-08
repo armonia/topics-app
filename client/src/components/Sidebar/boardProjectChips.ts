@@ -94,7 +94,9 @@ export function boardProjectChips(
  * · `CHIP_W_ICON_COUNT` = 36 — 20 di slot icona + 2 + 14 di numero (due cifre
  *   tabellari a 11px). Niente padding: la pastiglia non ha più una superficie
  *   da riempire.
- * · `CHIP_W_ICON` = 20 — solo icona. Il gradino di emergenza.
+ * · `CHIP_W_ICON` = 20 — la sola SCATOLA DELL'ICONA, che il componente legge
+ *   per dimensionare lo slot. Non è più un gradino della scala: una pastiglia
+ *   senza il suo numero non si disegna affatto (vedi `CHIP_MODES`).
  *
  * Fisse, non «quanto serve»: una pastiglia che si adatta al contenuto
  * cambierebbe misura quando l'icona atterra, e con lei cambierebbe il NUMERO di
@@ -155,12 +157,13 @@ export const CHIP_INNER_GAP = 2;
  * Il vuoto fra i TRE GRUPPI della riga: etichetta della board, blocco dei
  * progetti (pastiglie + «+N»), conteggi di stato.
  *
- * Venti, cioè più dei 12 che separano due pastiglie, e la gerarchia è il punto:
- * 2 dentro una coppia, 12 fra due coppie, 20 fra due gruppi. Con gruppi e
- * pastiglie allo stesso passo — com'era un minuto fa — le pastiglie si leggevano
- * come parte dei conteggi, che è il difetto originale in un'altra forma.
+ * Ventotto, cioè più del doppio dei 12 che separano due pastiglie, e la
+ * gerarchia è il punto: 2 dentro una coppia, 12 fra due coppie, 28 fra due
+ * gruppi. Con gruppi e pastiglie allo stesso passo le pastiglie si leggevano
+ * come parte dei conteggi, che è il difetto originale in un'altra forma; a 20
+ * lo stacco c'era ma non si imponeva.
  */
-export const GROUP_SPACING = 20;
+export const GROUP_SPACING = 28;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
 export const MORE_W = 22;
 
@@ -183,15 +186,44 @@ export function countWidth(n: number): number {
   return COUNT_GLYPH_W + COUNT_GAP + DIGIT_W * String(n).length;
 }
 
-/** Come si disegnano le pastiglie, dalla più ricca alla più povera. */
-export type ChipMode = 'icon-count' | 'icon';
+/**
+ * Come si disegna una pastiglia — e adesso c'è UN MODO SOLO.
+ *
+ * C'era un gradino di ripiego, `icon`: quando la pastiglia col numero non ci
+ * stava, si mostrava la sola icona. «Non dovremmo mostrare un'icona se non si
+ * riesce a vedere completamente il suo conteggio dei task aperti» (Attilio,
+ * 08/08), ed è la regola giusta: un'icona senza il suo numero non dice quello
+ * per cui questa riga esiste — «n progetti con n task» — dice solo «questo
+ * progetto esiste», che si sapeva già. Peggio: accanto a pastiglie complete si
+ * legge come un progetto con zero task.
+ *
+ * Quindi o la coppia si vede intera, o il progetto va nel «+N» insieme a tutti
+ * gli altri che questa riga non sta nominando. La scala resta una scala (una
+ * voce sola) perché l'aritmetica del ritaglio la scorre: aggiungere un gradino
+ * domani non vuol dire riscrivere `fitProjectChips`.
+ */
+export type ChipMode = 'icon-count';
 
-/** La scala dei gradini, con la sua larghezza. L'ordine È la priorità, e vive
- *  qui una volta sola: `fitProjectChips` la scorre, e il test la rilegge. */
 export const CHIP_MODES: readonly { mode: ChipMode; w: number }[] = [
   { mode: 'icon-count', w: CHIP_W_ICON_COUNT },
-  { mode: 'icon', w: CHIP_W_ICON },
 ];
+
+/**
+ * Il numero ci sta nella scatola che gli è stata prenotata?
+ *
+ * La pastiglia riserva 14px, cioè DUE cifre tabellari a 11px. Con tre — un
+ * progetto oltre i 99 task aperti — il terzo carattere finiva sotto
+ * l'`overflow-hidden` e si vedeva una cifra MOZZATA, che non è un numero
+ * approssimato ma un numero SBAGLIATO: «104» che si legge «10» mente.
+ *
+ * Sta qui, nel modulo puro, perché è la stessa domanda che decide se il
+ * progetto entra nella riga o nel «+N»: chi filtra e chi disegna devono usare
+ * lo STESSO predicato, o si prenota spazio per una pastiglia che poi non si
+ * disegna.
+ */
+export function contaLeggibile(n: number): boolean {
+  return String(n).length <= 2;
+}
 
 export interface FittedChips<T> {
   shown: T[];
@@ -334,7 +366,7 @@ export function fitBoardRow(
   // senza poter dire quante ne mancano, risponde ZERO. È il difetto di prima
   // spostato di due pixel, non risolto.
   const chipFloor = chips.length > 0
-    ? CHIP_W_ICON + (chips.length > 1 ? CHIP_SPACING + MORE_W : 0) + GROUP_SPACING
+    ? CHIP_W_ICON_COUNT + (chips.length > 1 ? CHIP_SPACING + MORE_W : 0) + GROUP_SPACING
     : 0;
   const fittedCounts = fitStatusCounts(width, chipFloor, counts);
   const used = countsSpan(fittedCounts);
