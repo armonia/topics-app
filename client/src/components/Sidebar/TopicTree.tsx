@@ -995,7 +995,7 @@ export function TopicTree({
             aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
             aria-expanded={isExpanded}
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={14} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
           {/* Name button:
               - not selected → FOCUS the project + EXPAND it (show children).
