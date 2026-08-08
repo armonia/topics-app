@@ -472,11 +472,17 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     // dentro il riassemblatore per tutta la sessione, e i canali hanno un
     // tetto.
     sess.rias.dimentica(sk.sIn);
-    if (opts.avvisa !== false) {
-      if (opts.chiusura) dichiaraChiusura(sid, sess, sk.sIn, opts.chiusura);
-      sk.canale.chiudi("aborted");
-      manda(sid, { f: "reset", s: sk.sIn, motivo: "aborted" });
-    }
+    if (opts.avvisa !== false && opts.chiusura) dichiaraChiusura(sid, sess, sk.sIn, opts.chiusura);
+    // Il canale della MACCHINA si chiude SEMPRE, anche quando è l'ospite ad
+    // aver chiuso per primo e non c'è più niente da avvisare. Il `reset` non
+    // serve a raccontare la chiusura — quella l'ha dichiarata lui — serve a
+    // dire all'altro capo di DIMENTICARE questo stream. Senza, il canale resta
+    // nel suo riassemblatore per tutta la sessione, e i canali hanno un tetto:
+    // dopo `maxStream` aperture e chiusure ogni socket nuovo si vedrebbe
+    // rifiutare l'apertura. Un tetto che si consuma non è un tetto, è una
+    // scadenza.
+    sk.canale.chiudi("aborted");
+    if (opts.avvisa !== false) manda(sid, { f: "reset", s: sk.sIn, motivo: "aborted" });
     try {
       if (opts.chiudiSu) sk.su?.close(opts.chiudiSu.c, opts.chiudiSu.r);
       else sk.su?.close();
