@@ -20,7 +20,8 @@
  */
 import {
   RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
-  type MessaggioRelay, type Rifiutato,
+  componiStream, creaContatoreStream, creaRiassemblatore, leggiFramePayload, scriviFrame,
+  type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream, type Rifiutato,
 } from "./relay-protocol";
 
 type Invia = (m: MessaggioRelay) => void;
@@ -153,5 +154,83 @@ export function creaRelayFinto(opts: RelayFintoOpts = {}) {
     visto,
     macchineCollegate: () => macchine.size,
     ospitiCollegati: () => ospiti.size,
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// IL TUBO, dal lato dei CAPI
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Un capo che parla il tubo — la busta interna — sopra un `payload` qualsiasi.
+ *
+ * Sta qui accanto al relay finto e non dentro il client vero per lo stesso
+ * motivo per cui il relay finto esiste: **due implementazioni tengono onesto un
+ * protocollo**. Finché questo capo e quello di produzione spezzano, numerano e
+ * rimettono insieme gli stream nello stesso modo, il formato ha una definizione
+ * fuori da chi lo usa. Il giorno in cui il client vero dipendesse da un ordine
+ * o da un campo che il protocollo non promette, questo smetterebbe di capirlo.
+ *
+ * Non sa niente di come il `payload` arriva dall'altra parte, e non deve: il
+ * tubo è indipendente dal trasporto. Chi lo usa lo attacca a un relay finto, a
+ * un WebSocket vero o a due funzioni in memoria — e in tutti e tre i casi il
+ * comportamento atteso è identico.
+ */
+export interface CapoTuboOpts {
+  /** Da che capo si sta: decide i numeri che si aprono (pari la macchina,
+   *  dispari l'ospite) e la parità che ci si aspetta di ricevere. */
+  lato: LatoTubo;
+  /** Dove finisce ogni frame già serializzato. È il solo contatto col
+   *  trasporto. */
+  invia(payload: string): void;
+  /** Quanto grande può essere un pezzo. Abbassabile nei test, dove uno stream
+   *  spezzato in venti frame si scrive in una riga invece che in mezzo MiB. */
+  max?: number;
+  maxStream?: number;
+  maxByteStream?: number;
+}
+
+export function creaCapoTubo(opts: CapoTuboOpts) {
+  const prossimo = creaContatoreStream(opts.lato);
+  const rias = creaRiassemblatore({
+    latoRemoto: opts.lato === "host" ? "guest" : "host",
+    ...(opts.maxStream !== undefined ? { maxStream: opts.maxStream } : {}),
+    ...(opts.maxByteStream !== undefined ? { maxByteStream: opts.maxByteStream } : {}),
+  });
+
+  return {
+    /**
+     * Apre uno stream e ci manda tutto quello che c'è, spezzato. Torna il
+     * numero: è la sola cosa che serve per annullarlo o per riconoscere la
+     * risposta.
+     */
+    manda(k: string, dati?: string | Uint8Array, h?: string): number {
+      const s = prossimo();
+      for (const f of componiStream({
+        s, k,
+        ...(h !== undefined ? { h } : {}),
+        ...(dati !== undefined ? { dati } : {}),
+        ...(opts.max !== undefined ? { max: opts.max } : {}),
+      })) opts.invia(scriviFrame(f));
+      return s;
+    },
+
+    /** Rinuncia. Vale anche su uno stream che l'altro capo ha già chiuso: due
+     *  capi possono mollare nello stesso istante e nessuno dei due ha
+     *  sbagliato. */
+    annulla(s: number, motivo: MotivoStream = "aborted"): void {
+      opts.invia(scriviFrame({ f: "reset", s, motivo }));
+    },
+
+    /**
+     * Un `payload` in arrivo. Un JSON storto non diventa un'eccezione a metà di
+     * un `onmessage`: diventa un errore su UNO stream, e gli altri continuano.
+     */
+    ricevi(payload: string): EsitoTubo {
+      const f = leggiFramePayload(payload);
+      if (!f) return { esito: "errore", s: -1, motivo: "bad-frame" };
+      return rias.ricevi(f);
+    },
+
+    apertiOra: rias.apertiOra,
   };
 }
