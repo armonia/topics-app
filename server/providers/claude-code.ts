@@ -6,7 +6,7 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
-import { permissionModeForAutonomy, permissionPromptArgs } from "../lib/autonomy-mode";
+import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autonomy-mode";
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
@@ -26,6 +26,24 @@ import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
+import { buildClaudeArgs, buildClaudeOneshotArgs } from "./claude/args";
+import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
+// La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
+// un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
+import {
+  classifyStreamLine,
+  decodePartialStreamEvent,
+  parseToolInputBuffer,
+  readAssistantCallUsage,
+  readAssistantContextTokens,
+  readEventContent,
+  readParentToolUseId,
+  readResultErrorText,
+  readResultUsage,
+  splitCallUsage,
+  type AssistantBlock,
+  type CallUsage,
+} from "./claude/events";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -39,7 +57,6 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
-import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { cachedClaudeModels, discoverClaudeModels, newestOfFamily, FALLBACK_MODELS } from "./claude-models";
@@ -1114,6 +1131,13 @@ export class ClaudeCodeProvider implements AIProvider {
   private started = false;
   /** Unsubscribe for the broker reconnect hook armed in start(). */
   private unsubscribeReconnect: (() => void) | null = null;
+  /**
+   * Il verdetto sulla versione della CLI installata (vedi `claude/cli-compat.ts`).
+   * Si calcola nel probe di `diagnose()` e in un probe di `start()`, e serve a
+   * due cose sole: una riga di log all'avvio e il motivo dentro il diagnose.
+   * NON è un cancello — nessuno spawn lo consulta.
+   */
+  private cliCompat: ClaudeCliCompat | null = null;
 
   constructor(config: ClaudeCodeProviderConfig) {
     this.config = config;
@@ -1127,6 +1151,19 @@ export class ClaudeCodeProvider implements AIProvider {
 
   start(): void {
     this.started = true;
+    // Alla registrazione si guarda una volta la versione del binario: senza,
+    // una CLI che ha perso una delle flag critiche si scopre a turno morto, con
+    // un errore di argomento sconosciuto che nessuno collega all'aggiornamento
+    // della settimana prima. Fire-and-forget e MAI bloccante: il provider parte
+    // comunque, il verdetto resta nel diagnose.
+    void probeBinaryPath(resolveCliPath())
+      .then((probe) => {
+        this.cliCompat = checkClaudeCliCompat(probe.version);
+        if (this.cliCompat.reason) {
+          console.warn(`[claude-code] compatibilità CLI: ${this.cliCompat.reason}`);
+        }
+      })
+      .catch(() => { /* probe fallito: nessuna informazione, nessun verdetto */ });
     // A dropped broker socket takes every attachment with it (the daemon wipes
     // the closed socket from each session's `attached` map). The children keep
     // running and keep writing to their stores, so nothing looks wrong — the
@@ -1472,35 +1509,16 @@ export class ClaudeCodeProvider implements AIProvider {
     // zero servers. Falls back to legacy (no scoping) only if the temp write
     // fails; the file is removed when the process exits (cleanup below).
     const oneshotKey = `oneshot-${crypto.randomUUID()}`;
-    let oneshotMcpArgs: string[] = [];
+    let emptyMcpConfigPath: string | null = null;
     try {
       mkdirSync(MCP_CONFIG_DIR, { recursive: true });
       const p = mcpConfigPathForSession(oneshotKey);
       writeFileSync(p, JSON.stringify({ mcpServers: {} }, null, 2), { encoding: "utf-8", mode: 0o600 });
-      oneshotMcpArgs = ["--mcp-config", p, "--strict-mcp-config"];
+      emptyMcpConfigPath = p;
     } catch { /* fall back to no scoping */ }
 
-    const args = [
-      "--print",
-      "--permission-mode", permissionMode,
-      // NO --verbose here: with --output-format json it switches stdout to the
-      // full EVENT ARRAY and the single result object disappears — that's how
-      // complete() ended up returning raw stream JSON as "the completion".
-      "--model", model,
-      "--setting-sources", "user,project,local",
-      ...oneshotMcpArgs,
-      // Stesso ragionamento del config MCP vuoto qui sopra, portato fino in fondo:
-      // spenti i server esterni restavano comunque gli schemi di TUTTI i tool
-      // built-in (Bash, Edit, Read, WebFetch, Task…) in testa al prompt. Questi
-      // completamenti — autoname, digest, fallback SSE, edit, scelta del modello —
-      // producono una riga di testo e un tool non lo chiamano mai.
-      // Misurato su CLI 2.1.220, prompt "say ok": 40.566 → 9.292 token di prefisso
-      // (-77%), stessa risposta.
-      // `--tools` è variadico e si mangerebbe un prompt posizionale, ma qui il
-      // prompt entra da stdin (`proc.stdin.write` più sotto), quindi è innocuo.
-      "--tools", "",
-      "--output-format", "json",
-    ];
+    // Le flag (e il perché di ognuna) stanno in `claude/args.ts`, sotto snapshot.
+    const args = buildClaudeOneshotArgs({ permissionMode, model, emptyMcpConfigPath });
 
     const env = buildSafeEnv();
 
@@ -1672,6 +1690,11 @@ export class ClaudeCodeProvider implements AIProvider {
       hint: probe.available ? undefined : "Install from https://docs.claude.com/claude-code or run: npm i -g @anthropic-ai/claude-code",
     });
 
+    // Il numero di versione lo leggevamo già e lo mostravamo soltanto: nessuna
+    // decisione lo consultava. Ora c'è un verdetto, e lo si ricorda perché
+    // `start()` lo scrive nel log una volta sola.
+    this.cliCompat = checkClaudeCliCompat(probe.version);
+
     // Claude Code uses `claude login` (OAuth) — no env key required.
     // Check for a credentials directory under ~/.claude as a best-effort signal.
     const claudeHome = join(process.env.HOME || "", ".claude");
@@ -1685,7 +1708,20 @@ export class ClaudeCodeProvider implements AIProvider {
       hint: hasSession ? undefined : "Run in terminal: claude login",
     });
 
+    // Il verdetto di compatibilità si conta PRIMA di aggiungere la sua riga:
+    // è una diagnosi, non un cancello. Una CLI vecchia o con una flag caduta
+    // resta `ready` e prova lo stesso — un falso negativo che spegne Claude
+    // Code sarebbe peggio del sintomo che evita — ma porta il motivo con sé,
+    // così quando muore davvero la causa è già scritta accanto.
     const allOk = requirements.every((r) => r.present);
+    if (this.cliCompat?.reason) {
+      requirements.push({
+        key: "claude-cli-flags",
+        label: "Flag della CLI compatibili",
+        present: false,
+        hint: this.cliCompat.reason,
+      });
+    }
     return {
       name: this.name,
       // Missing requirement (CLI not installed, no API key) = unavailable, not error.
@@ -1694,6 +1730,7 @@ export class ClaudeCodeProvider implements AIProvider {
       binaryPath: probe.path,
       version: probe.version,
       requirements,
+      lastError: this.cliCompat?.reason ?? undefined,
     };
   }
 
@@ -1718,6 +1755,16 @@ export class ClaudeCodeProvider implements AIProvider {
   /** Lo stesso id che userebbe uno spawn adesso: vedi `defaultChatModel()`. */
   defaultModel(): string {
     return this.config.model ?? defaultChatModel();
+  }
+
+  /**
+   * Lo stesso tier che userebbe uno spawn adesso — stesso resolver che chiama
+   * `spawnPersistentProcess`, senza override di topic (il badge parla di una
+   * sessione NUOVA). Dichiarato dal provider invece che indovinato dal nome
+   * dentro lo snapshot manager.
+   */
+  effortTier(): string | undefined {
+    return resolveClaudeEffort() ?? undefined;
   }
 
   // ============ Process Pool Internals ============
@@ -1805,53 +1852,31 @@ export class ClaudeCodeProvider implements AIProvider {
     // topics.mcp_policy='bridge-only' → topics bridge only, dispatch profile.
     const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, { mcpPolicy: overrides.mcpPolicy });
 
-    const args = [
-      "--print",
-      "--permission-mode", permissionMode,
-      "--verbose",
-      "--model", model,
+    // L'elenco delle flag vive in `claude/args.ts`, funzione pura, sotto uno
+    // snapshot test: era il punto che si rompe a ogni release della CLI e non
+    // aveva una riga di copertura. Qui restano le DECISIONI (modello, modalità,
+    // effort, file MCP), che è esattamente ciò che quel modulo non deve sapere.
+    const args = buildClaudeArgs({
+      permissionMode,
+      model,
       // Effort tier: a per-topic override (migration 033, set via the picker's
       // effort selector) wins; otherwise match the Warp default ("ultracode" =
       // xhigh). Without this the spawn falls back to settings.json effortLevel
       // (low). Resolved fresh per spawn, so a change respawn picks up the tier.
-      ...((): string[] => { const e = resolveClaudeEffort(overrides.effort); return e ? ["--effort", e] : []; })(),
-      "--setting-sources", "user,project,local",
-      "--mcp-config", mcpConfigPath,
-      // When we scoped the global fleet into the config above, tell the CLI to
-      // use ONLY that set (drops the per-session chrome-devtools Chrome etc.).
-      ...(mcpStrict ? ["--strict-mcp-config"] : []),
-      // IL CANALE DI PERMESSO.
-      //
-      // Ogni modalità che non sia `bypassPermissions` si ferma a chiedere prima
-      // di eseguire ciò che non copre — e in `--print` non c'è nessun prompt
-      // interattivo a cui chiedere. Senza questo flag la richiesta diventava un
-      // NO MUTO: «Claude requested permissions to use X, but you haven't
-      // granted it yet», cioè un permesso che invita a concederlo e che nessuno
-      // può chiedere. Con `auto-apply` (515 topic su 518, il default) morivano
-      // così TUTTI i tool MCP e ogni scrittura fuori dalla cwd.
-      //
-      // Il flag non è più in `--help` dalla 2.1.224 ma è accettato e funziona:
-      // verificato sul filo, con il canale la CLI chiede SOLO le due cose che
-      // la modalità non copre, e un «nega» torna indietro col nostro messaggio.
-      // Il tool è quello del bridge che Topics attacca già a ogni sessione, e la
-      // CLI lo toglie dall'elenco che il modello vede — quindi non costa
-      // contesto e il modello non può chiamarlo per auto-concedersi qualcosa.
-      ...permissionPromptArgs(permissionMode),
+      effort: resolveClaudeEffort(overrides.effort),
+      mcpConfigPath,
+      mcpStrict,
+      // Il NOME del tool resta dichiarato accanto alla mappatura autonomia →
+      // modalità (`lib/autonomy-mode.ts`): è la stessa decisione. Qui si passa
+      // il nome, non la coppia di argomenti — l'invariante «il flag c'è in ogni
+      // modalità» vive ora in `buildClaudeArgs`, dove è sotto snapshot.
+      permissionPromptTool: PERMISSION_PROMPT_TOOL,
       // Nudge the agent to launch dev servers via mcp__topics__run_script so they
       // appear in the Processes panel instead of leaking into the bare shell.
-      "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,
-      "--input-format", "stream-json",
-      "--output-format", "stream-json",
-      // Emit `stream_event` lines (content_block_start/delta/stop) in addition
-      // to the cumulative assistant snapshots. Without this, a tool_use is only
-      // announced AFTER the model finished writing its input — the UI's
-      // "running" window covered just the execution (ms for a Read) while the
-      // longest phase (input generation, 10-30s for a big Edit) was invisible.
-      // handlePartialStreamEvent announces the tool at content_block_start so
-      // the visible running state matches the tool's real usage window.
-      "--include-partial-messages",
-      ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
-    ];
+      appendSystemPrompt: TOPICS_AGENT_SYSTEM_PROMPT,
+      claudeSessionId,
+      isNewSession,
+    });
 
     console.log(
       `[claude-code] Spawning ${isNewSession ? 'new' : 'resumed'} session for ${sessionKey} (claude_session_id=${claudeSessionId})`
@@ -2491,11 +2516,14 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private handleStreamEvent(pp: PersistentProcess, event: any): void {
     const handler = pp.streamHandler;
+    // Che cosa è questa riga. La decodifica sta in `claude/events.ts`, puro:
+    // qui restano solo le decisioni che hanno bisogno dello stato del processo.
+    const line = classifyStreamLine(event);
 
     // Compaction boundary (CHAT-COMPACT-01): lift it out BEFORE the generic
     // `system` drop below. Skip during reattach replay (replayMute scan /
     // replaySilent fold) so re-reading the store never double-fires the marker.
-    if (event.type === "system" && event.subtype === "compact_boundary") {
+    if (line.kind === "compaction") {
       if (!pp.replayMute && !pp.replaySilent) {
         const marker = parseCompactBoundary(event);
         if (marker) {
@@ -2513,11 +2541,11 @@ export class ClaudeCodeProvider implements AIProvider {
     this.observeFastMode(event);
 
     // Filter noise
-    if (event.type === "system" || event.type === "rate_limit_event") return;
+    if (line.kind === "noise") return;
 
     // Reattach SCAN pass: record the store's tail shape, emit nothing.
     if (pp.replayMute) {
-      if (event.type === "result") {
+      if (line.kind === "result") {
         const rt = event.result ?? "";
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
@@ -2538,18 +2566,18 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.lastEventAt = Date.now();
     // E COSA era: solo per il log del watchdog, che senza questo non puo'
     // distinguere un figlio piantato da uno che taceva per un motivo.
-    pp.lastEventKind = event.subtype ? `${event.type}/${event.subtype}` : String(event.type ?? "?");
+    pp.lastEventKind = line.label;
 
     // Partial-message stream events (`--include-partial-messages`). Only the
     // tool_use lifecycle is consumed here — text/thinking keep flowing
     // through the cumulative snapshots below, so nothing double-counts.
-    if (event.type === "stream_event") {
+    if (line.kind === "partial") {
       this.handlePartialStreamEvent(pp, event, handler);
       return;
     }
 
     // Result event: stream is done for this turn
-    if (event.type === "result") {
+    if (line.kind === "result") {
       // Turn over — drop any leftover partial-input buffers (a block that
       // never got its stop event would otherwise pin its JSON forever).
       pp.streamingToolInputs?.clear();
@@ -2559,10 +2587,8 @@ export class ClaudeCodeProvider implements AIProvider {
       // forgotten instead of retried forever. Gated inside the helper to resumed
       // sessions only; the missing-session regex avoids false positives on any
       // other error result.
-      if (event.is_error === true || event.subtype === "error_during_execution") {
-        const errText = [event.subtype, ...(Array.isArray(event.errors) ? event.errors : [])].join(" ");
-        if (looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
-      }
+      const errText = readResultErrorText(event);
+      if (errText !== null && looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
       const resultText = event.result ?? "";
       if (!resultText || resultText === "waiting for message") return;
 
@@ -2570,21 +2596,12 @@ export class ClaudeCodeProvider implements AIProvider {
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
         // il dispatcher lo deduceva dalla durata («probabile timeout»).
         const turnEnd = classifyResultEvent(event);
-        const usage = event.usage ?? {};
-        const cacheCreation = usage.cache_creation_input_tokens ?? 0;
-        // Il TTL sta SCRITTO nell'usage: una scrittura a un'ora costa 2×, una a
-        // cinque minuti 1.25×. Tariffarle tutte al ribasso sottostimava il turno.
-        const cacheCreation1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-        const cacheRead = usage.cache_read_input_tokens ?? 0;
         handler.onDone({
           result: resultText,
-          usage: {
-            inputTokens: (usage.input_tokens ?? 0) + cacheCreation + cacheRead,
-            outputTokens: usage.output_tokens ?? 0,
-            cacheCreation: cacheCreation || undefined,
-            cacheCreation1h: cacheCreation1h || undefined,
-            cacheRead: cacheRead || undefined,
-          },
+          // AGGREGATO del turno (somma di ogni chiamata), non la dimensione del
+          // contesto: leggerlo come tale è ciò che faceva dichiarare al divider
+          // di compattazione un'esplosione subito dopo un dimezzamento.
+          usage: readResultUsage(event),
           durationMs: event.duration_ms,
           costUsd: event.total_cost_usd,
           turnEnd,
@@ -2620,21 +2637,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // event fires the finalize-loop in the route handler, so cascading tools
     // all show a spinner long after they actually finished. The dedup via
     // `pp.settledToolCalls` keeps re-deliveries idempotent.
-    // Block shapes the Claude CLI emits inside `message.content`. Marked as
-    // discriminated union so the loop below narrows on `type` instead of
-    // riding through with `any`.
-    type AssistantBlock =
-      | { type: "text"; text: string }
-      | { type: "thinking"; thinking: string }
-      | { type: "tool_use"; id?: string; name: string; input: unknown }
-      | { type: "tool_result"; tool_use_id?: string; content: unknown; is_error?: boolean }
-      | { type: string; [k: string]: unknown };
-    const eventContent: AssistantBlock[] | null =
-      (event.type === "assistant" || event.type === "user")
-        ? (Array.isArray(event.message?.content) ? (event.message.content as AssistantBlock[])
-            : Array.isArray(event.content) ? (event.content as AssistantBlock[])
-            : null)
-        : null;
+    // La forma dei blocchi (`message.content` con ripiego su `content`) la
+    // conosce `claude/events.ts`, che la legge difensivamente per entrambe.
+    const eventContent: AssistantBlock[] | null = readEventContent(event);
 
     // ── Sub-agent (Task tool) sidechain detection ──
     // Claude Code marks events emitted by a sub-agent with a top-level
@@ -2646,17 +2651,12 @@ export class ClaudeCodeProvider implements AIProvider {
     // forwarded to onTextDelta/onToolStart — they belong to a different
     // logical agent and would otherwise pollute the parent's text and
     // double-count tool calls.
-    const parentToolUseId =
-      typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id
-        ? event.parent_tool_use_id
-        : null;
+    const parentToolUseId = readParentToolUseId(event);
 
     // L'usage di QUESTA chiamata, tenuto da parte per attribuirlo alle azioni
     // che ha deciso (i tool_use nuovi di questo evento) nel loop più sotto.
     // Resta null per gli eventi senza usage o delle sotto-sessioni (Trappola 2).
-    let perCallUsageForActions:
-      | { inputTokens: number; outputTokens: number; cacheRead: number; cacheCreation: number; cacheCreation1h: number; model?: string }
-      | null = null;
+    let perCallUsageForActions: CallUsage | null = null;
 
     // Per-call context size. Each `assistant` event carries the usage of the ONE
     // model call that produced it, so `input + cache_read + cache_creation` is
@@ -2668,38 +2668,18 @@ export class ClaudeCodeProvider implements AIProvider {
     // nascono dallo stesso evento ma servono ascoltatori diversi (onContextSize,
     // onCallUsage, onToolUsage). Legarlo a onContextSize spegneva il consumo per
     // chi ascolta solo la bolletta.
-    if (event.type === "assistant" && !parentToolUseId && handler) {
-      const msg = event.message as { usage?: Record<string, unknown>; model?: unknown } | undefined;
-      const mu = msg?.usage;
-      if (mu) {
-        const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-        // Quali token contano come contesto lo decide `contextTokensFromUsage`,
-        // non questo provider: la stessa regola vale per Codex e per chiunque
-        // arrivi dopo (3.1). Qui si traduce solo il vocabolario della CLI.
-        const size = contextTokensFromUsage({
-          inputTokens: n(mu.input_tokens),
-          cacheRead: n(mu.cache_read_input_tokens),
-          cacheCreation: n(mu.cache_creation_input_tokens),
-        });
-        // The model comes from the SAME event as the usage: it is the model
-        // that actually served this call, which is what sizes the window.
-        const model = typeof msg?.model === "string" && msg.model ? msg.model : undefined;
-        if (size > 0) handler.onContextSize?.(size, model);
+    if (!parentToolUseId && handler) {
+      const callUsage = readAssistantCallUsage(event);
+      if (callUsage) {
+        // Il modello viene dallo STESSO evento dell'usage: è quello che ha
+        // davvero servito la chiamata, cioè quello che dimensiona la finestra.
+        const size = readAssistantContextTokens(event);
+        if (size > 0) handler.onContextSize?.(size, callUsage.model);
         // Lo stesso evento porta anche il CONSUMO di questa chiamata, che finora
         // buttavamo: `onContextSize` misura il serbatoio (sale e scende con le
         // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula —
         // il `result` finale somma già tutte le chiamate, quindi non si somma due
         // volte.
-        const callUsage = {
-          inputTokens: n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens),
-          outputTokens: n(mu.output_tokens),
-          cacheRead: n(mu.cache_read_input_tokens),
-          cacheCreation: n(mu.cache_creation_input_tokens),
-          // Il TTL sta scritto nell'usage, non si deduce: una scrittura a un'ora
-          // costa 2×, una a cinque minuti 1.25×.
-          cacheCreation1h: n((mu.cache_creation as Record<string, unknown> | undefined)?.ephemeral_1h_input_tokens),
-          ...(model ? { model } : {}),
-        };
         handler.onCallUsage?.(callUsage);
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
@@ -2831,16 +2811,7 @@ export class ClaudeCodeProvider implements AIProvider {
           // un evento cumulativo non ri-attribuisce (Trappola 1).
           if (perCallUsageForActions && handler.onToolUsage && newActionCount > 0 && !attributed.has(toolId)) {
             attributed.add(toolId);
-            const k = newActionCount;
-            const u = perCallUsageForActions;
-            handler.onToolUsage(toolId, {
-              inputTokens: Math.floor(u.inputTokens / k),
-              outputTokens: Math.floor(u.outputTokens / k),
-              cacheRead: Math.floor(u.cacheRead / k),
-              cacheCreation: Math.floor(u.cacheCreation / k),
-              cacheCreation1h: Math.floor(u.cacheCreation1h / k),
-              ...(u.model ? { model: u.model } : {}),
-            });
+            handler.onToolUsage(toolId, splitCallUsage(perCallUsageForActions, newActionCount));
           }
           continue;
         } else if (block.type === "tool_result") {
@@ -2945,26 +2916,24 @@ export class ClaudeCodeProvider implements AIProvider {
    * are skipped: child tools aggregate from the sidechain's own snapshots.
    */
   private handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null): void {
-    if (typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id) return;
-    const ev = event.event;
-    if (!ev || typeof ev !== "object") return;
-    const index: number = typeof ev.index === "number" ? ev.index : -1;
-    if (ev.type === "content_block_start") {
-      const block = ev.content_block;
-      if (!block || block.type !== "tool_use" || typeof block.id !== "string" || !block.id) return;
-      const toolName = String(block.name ?? "");
-      (pp.streamingToolInputs ??= new Map()).set(index, { id: block.id, name: toolName, buf: "" });
-      if (pp.activeToolCalls.has(block.id) || pp.settledToolCalls?.has(block.id)) return;
-      pp.activeToolCalls.add(block.id);
+    // La forma sul filo (`stream_event` → `content_block_*`) la decodifica
+    // `claude/events.ts`: qui resta l'applicazione allo stato del processo.
+    const partial = decodePartialStreamEvent(event);
+    if (!partial) return;
+    const index = partial.index;
+    if (partial.kind === "tool_start") {
+      const toolName = partial.name;
+      (pp.streamingToolInputs ??= new Map()).set(index, { id: partial.id, name: toolName, buf: "" });
+      if (pp.activeToolCalls.has(partial.id) || pp.settledToolCalls?.has(partial.id)) return;
+      pp.activeToolCalls.add(partial.id);
       // Task parents register immediately (empty input, back-filled by
       // finalizeToolArgs) so early sidechain child events find their parent.
-      if (toolName === "Task") pp.sidechain.registerParent(block.id, {});
-      handler?.onToolStart(block.id, toolName, {});
-    } else if (ev.type === "content_block_delta") {
-      if (ev.delta?.type !== "input_json_delta" || typeof ev.delta.partial_json !== "string") return;
+      if (toolName === "Task") pp.sidechain.registerParent(partial.id, {});
+      handler?.onToolStart(partial.id, toolName, {});
+    } else if (partial.kind === "input_delta") {
       const entry = pp.streamingToolInputs?.get(index);
       if (!entry) return;
-      entry.buf += ev.delta.partial_json;
+      entry.buf += partial.chunk;
       // The input is actively streaming — the turn is NOT stalled. Two things,
       // throttled: (1) keep the ROUTE's stream timer alive so a minutes-long
       // Write/Edit input doesn't trip the false "stream slow" annotation
@@ -2984,26 +2953,14 @@ export class ClaudeCodeProvider implements AIProvider {
           }
         }
       }
-    } else if (ev.type === "content_block_stop") {
+    } else if (partial.kind === "block_stop") {
       const entry = pp.streamingToolInputs?.get(index);
       if (!entry) return;
       pp.streamingToolInputs?.delete(index);
-      // An empty buffer is a REAL empty input (zero-arg tools stream no
-      // deltas). A non-empty buffer that doesn't parse to an object is a
-      // truncated/odd stream — leave finalization to the snapshot fallback.
-      let args: Record<string, unknown> | null = null;
-      if (!entry.buf) {
-        args = {};
-      } else {
-        try {
-          const parsed = JSON.parse(entry.buf);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            args = parsed as Record<string, unknown>;
-          }
-        } catch {
-          /* cumulative snapshot finalizes instead */
-        }
-      }
+      // Buffer vuoto = input DAVVERO vuoto (i tool senza argomenti non emettono
+      // delta). Buffer che non si legge come oggetto = flusso troncato/strano:
+      // null, e finalizza lo snapshot cumulativo.
+      const args = parseToolInputBuffer(entry.buf);
       if (args) this.finalizeToolArgs(pp, handler, entry.id, entry.name, args);
     }
   }
