@@ -422,7 +422,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!activePaneId || !container) return;
     const el = container.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
     if (el) {
-      const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'auto';
+      // `prefers-reduced-motion` vale anche qui, e questa e' l'unica strada per
+      // farglielo rispettare: le tre media query in `index.css` spengono le
+      // transizioni CSS, ma uno scroll animato in JS non le vede — chi ha
+      // chiesto al sistema di ridurre il movimento se lo prendeva lo stesso,
+      // ogni volta che cambiava tab.
+      //
+      // Nessuna spec lo esercita, e non per dimenticanza: accendere
+      // `contextOptions.reducedMotion` nella config di Playwright fa cadere
+      // `reopen-closed-tab` (misurato l'08/08 — un `raised-control-overlay`
+      // finisce a coprire l'angolo del tab bar e intercetta il click). E' un
+      // difetto vero del percorso «movimento ridotto», ha il suo task, e finche'
+      // non e' chiuso la suite non puo' girare in quella modalita'.
+      const riduciMovimento =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const behavior: ScrollBehavior =
+        didInitialScrollRef.current && !riduciMovimento ? 'smooth' : 'auto';
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       if (elRect.left < containerRect.left) {
