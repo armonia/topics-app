@@ -79,7 +79,9 @@ import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
 import { creaRelayClient } from "./server/services/relay-client";
-import { leggiRelayConfig } from "./server/services/relay-config";
+import { leggiRelayConfig, leggiInstallationId } from "./server/services/relay-config";
+import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
+import { createLicenseRouter } from "./server/routes/license";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -462,6 +464,21 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const authRouter = createAuthRouter(ctx);
+
+// ── LA LICENZA: cosa è concesso su QUESTA installazione.
+//
+// Nasce presto e senza rete: il gettone è firmato e si verifica con la sola
+// chiave pubblica, quindi non c'è nessun momento dell'avvio in cui la macchina
+// aspetta una risposta da fuori per sapere cosa può fare. Senza gettone —
+// il caso normale — è il piano gratuito pieno, e nessuna riga di qui in poi
+// può renderlo meno di così (`server/lib/licenza.ts`).
+const licenzaSvc = creaServizioLicenza({
+  stateDir: ctx.STATE_DIR,
+  env: process.env,
+  installationId: leggiInstallationId(ctx.STATE_DIR),
+});
+ctx.licenza = () => licenzaSvc;
+const licenseRouter = createLicenseRouter(ctx);
 
 /**
  * L'identita' risolta per una richiesta, deposta dal gate e letta dalle rotte.
@@ -2038,6 +2055,7 @@ const opzioniServer = {
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
+        || await licenseRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -3546,6 +3564,20 @@ const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS
 //
 // Il link e' una CAPACITA' su una cosa sola: qui non si proietta nessuna
 // sessione e nessun ruolo. Chi arriva non diventa nessuno.
+//
+// ── E IL RELAY È LA COSA CHE SI PAGA ────────────────────────────────────────
+// Il confine del listino è quello di ORG-08: gratis tutto il locale e tutta la
+// rete di casa, per sempre e senza account; si paga l'essere trovati da
+// un'ALTRA rete. Quindi il cancello sta QUI e in nessun altro punto — la
+// domanda «questa installazione ha un relay?» ha già un solo lettore, e
+// `/api/auth/relay` e la POST che conia i link passano entrambe di lì. Metterne
+// una seconda copia nelle rotte vorrebbe dire due risposte alla stessa
+// domanda, che è il modo in cui un interruttore finisce per nascondere un
+// gesto senza toglierlo.
+//
+// Cade verso il locale per costruzione: senza licenza `baseUrl` è `null`, cioè
+// esattamente lo stato «relay non configurato» che l'app sa già gestire da
+// sempre, e non uno stato d'errore nuovo.
 const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
@@ -3581,9 +3613,25 @@ const relay = creaRelayClient({
   },
   log: (m) => console.log(m),
 });
-ctx.relayConfig = () => relayCfg;
+ctx.relayConfig = () => ({
+  baseUrl: baseUrlConcesso(relayCfg.baseUrl, licenzaSvc.stato()),
+  installationId: relayCfg.installationId,
+});
 ctx.relayConnected = () => relay.collegato();
-if (relayCfg.baseUrl) relay.avvia();
+
+// Si accende e si spegne da solo: la logica delle transizioni sta in
+// `creaInterruttoreLicenza`, dove è provata. Sessanta secondi sono la
+// granularità giusta per le due cose che accadono senza che nessuno chiami
+// niente — una licenza installata mentre il server è su, e una che scade.
+const interruttoreRelay = creaInterruttoreLicenza({
+  disponibile: () => !!relayCfg.baseUrl,
+  stato: () => licenzaSvc.stato(),
+  richiesta: { tipo: "accesso_remoto" },
+  avvia: () => relay.avvia(),
+  ferma: () => relay.ferma(),
+});
+interruttoreRelay.riconcilia();
+const relayLicenzaTimer = setInterval(() => interruttoreRelay.riconcilia(), 60_000);
 
 ctx.requestIp = (req: Request) =>
   clientIpOf(req, (serverTunnel?.requestIP(req) ?? server.requestIP(req))?.address ?? null);
@@ -3690,6 +3738,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(worktreeGcTimer);
   clearTimeout(landingAuditBoot);
   clearInterval(landingAuditTimer);
+  clearInterval(relayLicenzaTimer);
   taskDispatcher.shutdown();
   void previewManager?.teardownAll(); // kill any live preview servers
   stopUiStateBackup();
