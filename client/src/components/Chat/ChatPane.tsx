@@ -378,6 +378,33 @@ function ChatPaneComponent({
   });
   const effortRef = useRef(effort);
   useEffect(() => { effortRef.current = effort; }, [effort]);
+
+  // Livello di autonomia — STESSO pattern di provider/model, Fast Mode ed effort,
+  // ed era l'unico dei quattro selettori del composer a non averlo. Leggeva
+  // `topic.autonomyLevel` diretto e faceva PATCH incondizionata: su una chat
+  // NUOVA il topic è sintetico (`draft:<uuid>`, coniato in
+  // `state/pane/adapters/paneConfig.ts`) e sul server non esiste, quindi la PATCH
+  // non poteva che fallire — e l'utente vedeva «Non sono riuscito a cambiare
+  // l'autonomia» a ogni tentativo di scegliere prima di scrivere il primo
+  // messaggio. Misurato nel log di prod: `PATCH /api/topics/draft:a7bfeee2-…`.
+  const [autonomy, setAutonomy] = useState<import('../../types').AutonomyLevel | null>(() => {
+    if (topic.autonomyLevel) return topic.autonomyLevel;
+    if (topic.id.startsWith('draft:')) {
+      try {
+        const raw = localStorage.getItem(`autonomy:${topic.id}`);
+        if (raw === 'ask' || raw === 'auto-apply' || raw === 'yolo') return raw;
+      } catch { /* storage negato: si resta sul default */ }
+    }
+    return null;
+  });
+  const autonomyRef = useRef(autonomy);
+  useEffect(() => { autonomyRef.current = autonomy; }, [autonomy]);
+  // Il topic reale può cambiare autonomia da un'ALTRA finestra (broadcast
+  // `topic:updated`): la fonte di verità resta il server, il locale è solo la
+  // scelta fatta qui e non ancora persistita.
+  useEffect(() => {
+    if (topic.autonomyLevel) setAutonomy(topic.autonomyLevel);
+  }, [topic.autonomyLevel]);
   // Keep local effort in sync when the server row updates (cross-window sync,
   // or our own PATCH echoed back via topic:updated).
   useEffect(() => {
@@ -431,6 +458,17 @@ function ChatPaneComponent({
         try {
           localStorage.setItem(`effort:${topic.id}`, effortRef.current);
           localStorage.removeItem(`effort:${prevId}`);
+        } catch {}
+      }
+      // Stessa migrazione per l'autonomia. Senza, una scelta fatta sulla bozza
+      // («Libero» prima di scrivere) veniva persa alla promozione e la chat
+      // partiva sul default — cioè il selettore prometteva qualcosa che il
+      // primo turno non rispettava.
+      if (autonomyRef.current) {
+        void onUpdateTopic(topic.id, { autonomyLevel: autonomyRef.current });
+        try {
+          localStorage.setItem(`autonomy:${topic.id}`, autonomyRef.current);
+          localStorage.removeItem(`autonomy:${prevId}`);
         } catch {}
       }
       return;
@@ -790,6 +828,10 @@ function ChatPaneComponent({
     }
     try {
       await topicsApi.update(topic.id, { autonomyLevel: 'auto-apply' });
+      // Il selettore deve mostrare il livello VERO subito: approvare un piano
+      // alza l'autonomia e ci resta, e leggerlo dal `topic` significherebbe
+      // aspettare il giro di broadcast.
+      setAutonomy('auto-apply');
     } catch {
       // Se l'autonomia non si è alzata, mandare il messaggio farebbe ripartire
       // il turno nella stessa trappola: meglio dirlo e non fingere.
@@ -823,12 +865,23 @@ function ChatPaneComponent({
    *  sessione CLI (`--permission-mode` è un flag di spawn), quindi la scelta
    *  vale dal turno successivo — è il server a occuparsene. */
   const handleAutonomyChange = useCallback(async (level: import('../../types').AutonomyLevel) => {
+    setAutonomy(level);
+    if (isDraftTopic) {
+      // Nessuna riga sul server da PATCHare: la bozza esiste solo qui. Si
+      // persiste device-locale come provider/model, Fast Mode ed effort, e
+      // l'effetto di promozione qui sopra la porta sul topic vero.
+      try { localStorage.setItem(`autonomy:${topic.id}`, level); } catch { /* storage negato */ }
+      return;
+    }
     try {
       await topicsApi.update(topic.id, { autonomyLevel: level });
     } catch {
+      // Il locale torna indietro: lasciarlo avanti mostrerebbe un livello che
+      // il prossimo turno non userà.
+      setAutonomy(topic.autonomyLevel ?? null);
       toast.error('Non sono riuscito a cambiare l\'autonomia.');
     }
-  }, [topic.id, toast]);
+  }, [isDraftTopic, topic.id, topic.autonomyLevel, toast]);
 
   const handleRetry = useCallback(() => {
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
@@ -1096,7 +1149,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput autonomy={topic.autonomyLevel ?? null} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre
