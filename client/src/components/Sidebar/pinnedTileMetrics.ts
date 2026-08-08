@@ -51,7 +51,7 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
  * leggeva attraverso. Uno slot vero toglie il caso: il nome finisce prima, e
  * il bottone si appoggia su niente.
  *
- * Solo sopra i 72px, la stessa soglia della container query che decide se la
+ * Solo sopra la soglia della container query che decide se la
  * tessera è una riga o un quadrato: sotto, la tessera è larga quanto il
  * bottone e riservargli uno slot vorrebbe dire non lasciare niente al nome.
  *

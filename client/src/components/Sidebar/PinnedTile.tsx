@@ -77,8 +77,9 @@ const TINT_SURFACE = 0.1;
  * Un progetto che spedisce una favicon si riconosce da QUELLA, e quando la
  * tessera è stretta il titolo se ne va: a 40px di larghezza sarebbe due
  * caratteri e tre puntini, cioè ingombro senza informazione. Appena la tessera
- * è larga abbastanza da essere una riga (72px, vedi sotto) il titolo torna, e
- * due progetti con la stessa icona tornano distinguibili. Un progetto senza
+ * è larga abbastanza da tenere una parola (104px, misurati — vedi sotto) il
+ * titolo torna, e due progetti con la stessa icona tornano distinguibili. Un
+ * progetto senza
  * icona mostra il nome a QUALSIASI larghezza — mai un'iniziale o una tessera
  * generata: «solo icona reale o zero ingombro» è una decisione già presa, e un
  * monogramma è già stato rifiutato una volta. Chat, terminali e browser
@@ -341,7 +342,7 @@ export function PinnedTile({
         // Centra ciò che è NEL FLUSSO: perché il centro sia quello dell'icona
         // e non quello del gruppo, chevron e conteggio ne escono — vedi
         // `pinned-tile-lead` / `pinned-tile-count` in `index.css`.
-        'justify-center @min-[72px]/tile:justify-start',
+        'justify-center @min-[104px]/tile:justify-start',
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
         'transition-colors duration-100',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
@@ -451,7 +452,8 @@ export function PinnedTile({
       </span>
 
       {/* IL NOME LO DECIDE LA FORMA DELLA TESSERA, NON IL CARICAMENTO.
-          Sotto i 72px la tessera è quasi un quadrato (è alta 36) e un titolo
+          Sotto la soglia la tessera è troppo stretta perché il titolo dica
+          qualcosa: sarebbe una lettera e tre puntini, e un titolo
           lì dentro sarebbe due caratteri e tre puntini: se c'è una favicon a
           reggere l'identità, il nome se ne va e resta l'icona sola, centrata.
           Sopra, la tessera è una riga e il titolo ci sta — troncato, ma
@@ -464,7 +466,18 @@ export function PinnedTile({
           da nessuno stato asincrono: era proprio la dipendenza dall'icona a far
           lampeggiare il titolo a ogni refresh, disegnato nel frame in cui
           l'icona non era ancora risolta e tolto in quello dopo.
-          I 72px stanno scritti a mano nella classe perché Tailwind legge il
+
+          LA SOGLIA È 104, ed è misurata. Era 72, cioè «la tessera non è più un
+          quadrato» — ma una tessera larga 90 non è un quadrato e il titolo lì
+          dentro era comunque «e…»: misurato, a 90px il box del nome vale
+          SEDICI pixel per una stringa che ne chiede 76. Fra icona, rientri,
+          conteggio e slot del comando la tessera si mangia 74px prima di
+          arrivare al nome, quindi la domanda giusta non è «è una riga?» ma «ci
+          sta una parola?». 74 + 30 (cinque caratteri a 11px, il minimo
+          leggibile dell'app) = 104. Sotto, resta l'icona sola e centrata —
+          «se non ci entra la parola e c'è già l'icona, togliamola» (Attilio,
+          08/08).
+          I 104px stanno scritti a mano nella classe perché Tailwind legge il
           sorgente: una variabile qui non genererebbe nessuna regola.
 
           Senza favicon il nome resta SEMPRE, a qualsiasi larghezza: lì il
@@ -475,7 +488,7 @@ export function PinnedTile({
       <span
         data-testid="pinned-tile-name"
         className={`relative min-w-0 flex-1 truncate-tight text-left text-[11px] text-app-text-secondary ${
-          hasRealIcon ? 'hidden @min-[72px]/tile:block' : ''
+          hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >
         {item.name}
@@ -513,7 +526,7 @@ export function PinnedTile({
 
           Riservato SEMPRE, non solo mentre il mouse è sopra: uno slot che nasce
           all'hover farebbe saltare il nome ogni volta che ci passi accanto.
-          E solo in forma RIGA — sotto i 72px la tessera è larga quanto il
+          E solo in forma RIGA — sotto la soglia la tessera è larga quanto il
           bottone, e lì lo slot sarebbe tutto lo spazio che c'è.
 
           Sta DOPO il badge di proposito: il conteggio resta al suo posto e lo
@@ -523,7 +536,7 @@ export function PinnedTile({
         <span
           aria-hidden="true"
           data-testid="pinned-tile-action-slot"
-          className={`hidden flex-shrink-0 @min-[72px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
+          className={`hidden flex-shrink-0 @min-[104px]/tile:block ${PINNED_TILE_ACTION_SLOT}`}
         />
       )}
     </button>
