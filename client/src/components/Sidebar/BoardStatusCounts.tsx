@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
 import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardProjectChips, fitProjectChips, CHIP_W } from './boardProjectChips';
+import {
+  boardProjectChips, fitBoardRow, CHIP_W_ICON, CHIP_W_NAME,
+  type BoardProjectChip, type ChipMode,
+} from './boardProjectChips';
 
 /**
  * Gli stati riassunti sulla riga, nell'ordine in cui contano per chi guarda:
@@ -11,13 +15,62 @@ import { boardProjectChips, fitProjectChips, CHIP_W } from './boardProjectChips'
  *
  * Non è l'ordine del kanban da sinistra a destra — quello è una pipeline, e qui
  * la riga ha spazio per tre o quattro numeri: i primi devono essere quelli che
- * cambiano una decisione. `done` resta fuori, come per il conteggio della riga:
- * la board si annuncia per il lavoro APERTO.
+ * cambiano una decisione. È anche l'ordine in cui la CODA si arrotola quando lo
+ * spazio finisce (vedi `fitStatusCounts`): si perde il backlog, mai il review.
+ * `done` resta fuori, come per il conteggio della riga: la board si annuncia
+ * per il lavoro APERTO.
  */
 const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo', 'backlog'];
 
 /**
- * Il conteggio per stato, sulla riga stessa.
+ * UNA PASTIGLIA DI PROGETTO — e adesso è davvero una pastiglia.
+ *
+ * Erano tre `<span>` nudi in fila: nessuna superficie, nessun padding, nessun
+ * confine fra il nome e il numero — stesso corpo, stesso colore, 4px in mezzo.
+ * Con un nome tagliato a ~34px il numero si leggeva come l'ultima sillaba del
+ * nome («il numero si confonde con i progetti», Attilio). Tre correzioni, tutte
+ * nello stesso pezzo:
+ *
+ *  · una SUPERFICIE con la sua forma, così i pezzi si leggono come UNA unità;
+ *  · lo slot dell'icona SEMPRE riservato (`w-3`, anche vuoto). `ProjectFavicon`
+ *    non rende niente quando il progetto non ha un'icona vera — decisione dura
+ *    e riconfermata: niente lettere, niente tessere generate — quindi senza lo
+ *    slot il nome partiva 16px più a sinistra e il numero atterrava a una x
+ *    diversa da pastiglia a pastiglia. La larghezza ESTERNA era già fissa; a
+ *    saltare era il layout INTERNO;
+ *  · il numero staccato per TONO oltre che per spazio (un gradino più tenue,
+ *    `tabular-nums`), che è ciò che lo rende un numero e non una sillaba.
+ *
+ * L'etichetta si taglia SENZA puntini (`overflow-hidden whitespace-nowrap`
+ * invece di `truncate`): a 10px l'ellissi mangia ~6px dei 34 disponibili, cioè
+ * un carattere intero, per dire una cosa che il tooltip dice meglio. Il
+ * `leading-tight` è l'antidoto al taglio delle code: la riga eredita
+ * `leading-none` dal bottone della board, e `leading-none` + `overflow-hidden`
+ * insieme tranciano le discendenti di g, p, q.
+ */
+function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode }) {
+  return (
+    <span
+      data-testid={`board-project-${chip.projectId}`}
+      title={`${chip.name}: ${chip.n} task aperti`}
+      className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[10px] dark:bg-white/[0.07]"
+      style={{ width: mode === 'name' ? CHIP_W_NAME : CHIP_W_ICON }}
+    >
+      <span className="flex w-3 flex-shrink-0 justify-center">
+        <ProjectFavicon path={chip.path} size={12} />
+      </span>
+      {mode === 'name' && (
+        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap leading-tight text-app-text-secondary">
+          {chip.name}
+        </span>
+      )}
+      <span className="ml-auto flex-shrink-0 tabular-nums text-app-text-muted">{chip.n}</span>
+    </span>
+  );
+}
+
+/**
+ * IL RIASSUNTO DELLA RIGA «BOARD»: di chi sono i task, e a che punto stanno.
  *
  * ── Perché non una fascia che si apre ───────────────────────────────────────
  * Un accordion chiede un gesto per dire una cosa che sta in quattro numeri, e
@@ -27,131 +80,127 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo'
  * possono dire cose diverse.
  *
  * ── Le icone sono QUELLE DELLA KANBAN ───────────────────────────────────────
- * Erano pallini pieni: stesso colore della colonna, ma una forma che la board
- * non usa da nessuna parte. Il colore da solo dice «rosso» — non dice «review»,
- * e nemmeno se una colonna viene prima o dopo un'altra. `StatusIcon` è il
- * glifo Linear-style che la board disegna sulle card e in cima alle colonne:
- * anello tratteggiato → anello vuoto → mezza torta → tre quarti → disco
- * spuntato. La stessa forma, quindi lo stesso significato, senza un secondo
- * codice da imparare (Attilio, 07/08: «utilizzare le icone coerenti con la
- * kanban per quanto riguarda lo stato»).
- */
-export function BoardStatusCounts({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
-  const counts = SUMMARY_STATUSES
-    .map(status => ({ status, n: byStatus?.[status]?.length ?? 0 }))
-    .filter(c => c.n > 0);
-
-  if (counts.length === 0) return null;
-
-  return (
-    <span className="flex items-center gap-1.5 flex-shrink-0" data-testid="board-status-counts">
-      {counts.map(({ status, n }) => (
-        <span
-          key={status}
-          data-testid={`board-count-${status}`}
-          title={`${STATUS_LABEL[status]}: ${n}`}
-          className="flex items-center gap-1 text-[10px] leading-none tabular-nums text-app-text-secondary"
-        >
-          <StatusIcon status={status} className="h-3 w-3" />
-          {n}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/**
- * DI CHI SONO QUEI TASK — in linea, sulla riga della board.
+ * `StatusIcon` è il glifo che la board disegna sulle card e in cima alle
+ * colonne: anello tratteggiato → anello vuoto → mezza torta → tre quarti →
+ * disco spuntato. La stessa forma, quindi lo stesso significato, senza un
+ * secondo codice da imparare. Reso a 14px e non a 12: il suo viewBox è 14, e
+ * l'override che stava qui lo mandava a scala 0,857 — il tratteggio del backlog
+ * diventava poltiglia (vedi `StatusIcon`).
  *
+ * ── I progetti, in linea ────────────────────────────────────────────────────
  * I numeri per colonna dicono a che punto è il lavoro; non dicono DOVE. Con
- * task su cinque progetti «3 in review» è un numero che non si può agire: prima
- * di aprire la board si vuole sapere se quei tre sono tutti sullo stesso
- * progetto o sparsi. Le pastiglie lo dicono con l'identità che il progetto ha
- * già — la sua icona — più il nome, che è ciò che resta a un progetto che
- * un'icona non ce l'ha (la stessa regola delle tessere fissate: mai un
- * monogramma, mai un glifo finto).
+ * task su cinque progetti «3 in review» è un numero che non si può agire. Le
+ * pastiglie lo dicono con l'identità che il progetto ha già — la sua icona —
+ * più il nome, che è ciò che resta a chi un'icona non ce l'ha. In linea e non
+ * su una seconda riga («meglio mettere tutto inline», Attilio 07/08): la board
+ * è UNA riga della sidebar, e una riga alta il doppio delle vicine si legge
+ * come una sezione.
  *
- * ── Quante ne stanno ────────────────────────────────────────────────────────
- * Si MISURA (`fitProjectChips`), non si decide a priori: la sidebar cambia
- * larghezza col trascinamento del bordo, e sotto i 768px è larga tutto lo
- * schermo. Il ritaglio è dichiarato — «+2» — invece di lasciar sparire in
- * silenzio dei progetti dietro un `overflow: hidden`.
- *
- * ── IN LINEA, non sotto ─────────────────────────────────────────────────────
- * Il primo taglio le metteva su una seconda riga, come la subline di una chat.
- * «Figo, ma meglio mettere tutto inline» (Attilio, 07/08), ed è la scelta
- * giusta: la board è UNA riga della sidebar, non un blocco, e una riga alta il
- * doppio delle sue vicine si legge come una sezione. In linea la larghezza è
- * contesa — il nome «Board» ne prende una fetta e i conteggi un'altra — ma è
- * esattamente ciò che `fitProjectChips` esiste per gestire: si misura lo spazio
- * RIMASTO e si mostra quello che ci sta — che a colonna stretta vuol dire una o
- * due pastiglie più il «+N», ed è la risposta onesta a «quelli che ci entrano
- * effettivamente nello spazio».
+ * ── UN SOLO MISURATO, E IL «+N» FUORI DAL RITAGLIO ──────────────────────────
+ * Il contenitore esterno è l'unico elemento elastico (`flex-1 min-w-0`): la sua
+ * larghezza è lo spazio RIMASTO e non dipende da cosa ci disegniamo dentro,
+ * che è la condizione perché `fitBoardRow` non entri in retroazione con sé
+ * stesso. Dentro, l'unico pezzo che il browser può tagliare sono le pastiglie;
+ * il «+N» e i conteggi stanno FUORI da quel ritaglio, di proposito: un elemento
+ * clippato a larghezza zero ha comunque un rettangolo, quindi Playwright lo
+ * direbbe «visibile» mentre l'utente non vede niente.
  */
-export function BoardProjectChips({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
+export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
   const index = useBoardProjects();
   const chips = useMemo(() => boardProjectChips(byStatus, index), [byStatus, index]);
+  const counts = useMemo(
+    () => SUMMARY_STATUSES
+      .map((status) => ({ status, n: byStatus?.[status]?.length ?? 0 }))
+      .filter((c) => c.n > 0),
+    [byStatus],
+  );
 
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  // `null` = non ancora misurato, ed è un valore DIVERSO da 0. Zero è una
+  // misura vera («qui non c'è spazio») e va annunciata col «+N»; null è
+  // silenzio legittimo, il fotogramma prima che il layout esista.
+  const [width, setWidth] = useState<number | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     // La larghezza si legge dall'osservatore e basta: una lettura sincrona qui
     // dentro sarebbe una scrittura di stato in montaggio, e l'osservatore
     // consegna comunque la prima misura appena il layout è pronto.
-    const ro = new ResizeObserver(entries => {
+    const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 0;
-      setWidth(prev => (Math.abs(prev - w) < 1 ? prev : w));
+      setWidth((prev) => (prev !== null && Math.abs(prev - w) < 1 ? prev : w));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const { shown, hidden } = fitProjectChips(width, chips);
+  const fitted = fitBoardRow(width, chips, counts);
+  const { rolled } = fitted.counts;
+  if (chips.length === 0 && counts.length === 0) return null;
 
-  // Il contenitore si rende SEMPRE (anche a zero pastiglie): è lui che va
-  // misurato, e un elemento che nasce solo quando c'è qualcosa da mostrare non
-  // può dire quanto spazio ha.
   return (
-    <div
-      ref={ref}
-      data-testid="board-project-chips"
-      // `flex-1 min-w-0`: è LUI l'elemento elastico della riga, e senza il
-      // `flex-1` collassava a zero — `fitProjectChips(0)` risponde «nessuna, e
-      // niente da annunciare», quindi le pastiglie SPARIVANO del tutto («non
-      // dovevi togliere i progetti dalla riga board», Attilio). Il difetto è
-      // nato passando da due piani a uno: sulla subline la larghezza gliela
-      // dava il genitore a tutta riga, in linea se la deve prendere.
-      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
-    >
-      {shown.map(chip => (
-        <span
-          key={chip.projectId}
-          data-testid={`board-project-${chip.projectId}`}
-          title={`${chip.name}: ${chip.n} task aperti`}
-          className="flex min-w-0 items-center gap-1 text-[10px] leading-none text-app-text-tertiary"
-          style={{ width: CHIP_W, flexShrink: 0 }}
-        >
-          {/* Icona E nome, sempre. `ProjectFavicon` non occupa niente se il
-              progetto non ne ha una — quando arriva, il nome si stringe di
-              quei 12px e nient'altro si muove, perché la pastiglia ha una
-              larghezza FISSA. È l'unico modo di non far dipendere il layout
-              (quante pastiglie ci stanno) dall'esito di una richiesta di rete.
-              Solo icona non basterebbe: chi non ne ha resterebbe un numero
-              anonimo, e un monogramma inventato è già stato escluso. */}
-          <ProjectFavicon path={chip.path} size={12} />
-          <span className="min-w-0 flex-1 truncate">{chip.name}</span>
-          <span className="tabular-nums">{chip.n}</span>
-        </span>
-      ))}
-      {hidden > 0 && (
+    <div ref={ref} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
+      <div
+        // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14
+        // ancora la pastiglia con un locator a PREFISSO
+        // (`[data-testid^="board-project-"]`) e prende il primo in ordine di
+        // DOM. Finché il contenitore si chiamava `board-project-chips` il primo
+        // era LUI — un elastico largo per costruzione — quindi il test misurava
+        // la scatola invece del contenuto e sarebbe rimasto verde con zero
+        // pastiglie dentro. Chiamandolo altrimenti, `.first()` cade sulla
+        // pastiglia vera, e a zero pastiglie cade sul «+N» (largo ~16px), che è
+        // sotto la soglia del test: il rosso c'è davvero.
+        data-testid="board-chips-clip"
+        // L'unico pezzo tagliabile della riga, e comunque già dimensionato
+        // dall'aritmetica: l'`overflow-hidden` qui è la rete, non il piano.
+        //
+        // NON `flex-1`: l'elastico è il contenitore ESTERNO, e se lo fosse anche
+        // questo si allargherebbe fino a spingere il «+N» contro i conteggi —
+        // cioè il ritaglio delle pastiglie si leggerebbe come parte dei numeri
+        // di stato. Lo spazio che avanza se lo prende il `ml-auto` dei
+        // conteggi, così il «+N» resta attaccato a ciò che sta ritagliando.
+        className="flex min-w-0 items-center gap-1.5 overflow-hidden"
+      >
+        {fitted.chips.shown.map((chip) => (
+          <ProjectChip key={chip.projectId} chip={chip} mode={fitted.chips.mode} />
+        ))}
+      </div>
+      {/* Il ritaglio è DICHIARATO — «+2» — invece di lasciar sparire dei
+          progetti dietro un `overflow: hidden`. Lo spazio se lo prende sempre
+          `fitProjectChips` (secondo passaggio), quindi comparire non sposta
+          nulla; l'elemento invece esiste solo quando ha qualcosa da dire. */}
+      {fitted.chips.hidden > 0 && (
         <span
           data-testid="board-project-more"
-          title={`Altri ${hidden} progetti con task aperti`}
-          className="flex-shrink-0 text-[10px] leading-none tabular-nums text-app-text-tertiary"
+          title={`Altri ${fitted.chips.hidden} progetti con task aperti`}
+          className="flex-shrink-0 tabular-nums text-[10px] text-app-text-tertiary"
         >
-          +{hidden}
+          +{fitted.chips.hidden}
+        </span>
+      )}
+      {(fitted.counts.shown.length > 0 || rolled) && (
+        <span className="ml-auto flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
+          {fitted.counts.shown.map(({ status, n }) => (
+            <span
+              key={status}
+              data-testid={`board-count-${status}`}
+              title={`${STATUS_LABEL[status]}: ${n}`}
+              className="flex items-center gap-1 tabular-nums text-[10px] text-app-text-secondary"
+            >
+              <StatusIcon status={status} />
+              {n}
+            </span>
+          ))}
+          {rolled && (
+            <span
+              data-testid="board-count-rest"
+              title={rolled.statuses.map((s) => `${STATUS_LABEL[s]}: ${counts.find((c) => c.status === s)?.n ?? 0}`).join(' · ')}
+              className="flex items-center gap-1 tabular-nums text-[10px] text-app-text-tertiary"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {rolled.n}
+            </span>
+          )}
         </span>
       )}
     </div>
