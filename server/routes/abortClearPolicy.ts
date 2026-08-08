@@ -34,6 +34,9 @@ export interface ClearMessagesDecision {
    *  tool call, blocchi, media). È il motivo di rifiuto che il conteggio da
    *  solo non vedeva. */
   assistantDidWork: boolean;
+  /** Righe della sessione che il ramo attivo NON contiene — e che una
+   *  cancellazione butterebbe comunque. Diverso da zero ⇒ rifiuto. */
+  hiddenRows: number;
 }
 
 /**
@@ -65,6 +68,18 @@ export interface ClearMessagesDecision {
  */
 export function shouldHonorClearMessages(
   storedMessages: readonly StoredMessage[],
+  /**
+   * Righe della sessione INTERA, rami abbandonati compresi. Omesso = si assume
+   * che il ramo attivo sia tutto (comportamento storico).
+   *
+   * Perché serve: `storedMessages` è il RAMO ATTIVO (`loadActiveThread`), ma la
+   * cancellazione è `saveLocalMessages(sessionKey, [])`, che fa
+   * `DELETE FROM messages WHERE session_key = ?` — cioè butta anche i rami che
+   * il predicato non ha mai guardato. Decidere sul sottoinsieme e distruggere
+   * l'insieme è come contare le stanze di un piano e demolire il palazzo.
+   * Misurato al momento del fix: 9 sessioni avevano righe fuori dal ramo attivo.
+   */
+  sessionRowCount?: number,
 ): ClearMessagesDecision {
   let userCount = 0;
   let assistantCount = 0;
@@ -76,10 +91,13 @@ export function shouldHonorClearMessages(
       if (!isEmptyAssistantTurn(msg as AssistantTurnShape)) assistantDidWork = true;
     }
   }
+  const hiddenRows =
+    sessionRowCount === undefined ? 0 : Math.max(0, sessionRowCount - storedMessages.length);
   return {
-    shouldWipe: userCount <= 1 && assistantCount <= 1 && !assistantDidWork,
+    shouldWipe: userCount <= 1 && assistantCount <= 1 && !assistantDidWork && hiddenRows === 0,
     userCount,
     assistantCount,
     assistantDidWork,
+    hiddenRows,
   };
 }
