@@ -517,6 +517,69 @@ describe("handleMessage", () => {
     expect(option.required).toEqual(["label"]);
   });
 
+  // IL CANCELLO DI `readOnlyHint` (task 46480579).
+  //
+  // In `--permission-mode plan` — cioè in ogni chat impostata su «ask» — la CLI
+  // lascia passare SOLO i tool che si dichiarano di sola lettura. Finché la
+  // dichiarazione stava sul solo pannello domande, una chat in «ask» non poteva
+  // nemmeno GUARDARE la board: `list_tasks` tornava «Cannot call
+  // mcp__topics__list_tasks while in plan mode».
+  //
+  // Il test non si limita a contare le annotazioni presenti: pretende che
+  // l'unione delle due liste qui sotto sia ESATTAMENTE l'elenco dei tool
+  // pubblicati. Un tool nuovo non può quindi restare senza classificazione —
+  // finisce rosso finché qualcuno non decide da che parte sta. È l'unico modo
+  // di avere un cancello che fallisce anche su ciò che ancora non esiste.
+  test("ogni tool dichiara se è di sola lettura, e nessuno resta senza classificazione", async () => {
+    const SOLA_LETTURA = [
+      // Leggono la pagina viva, senza toccarla.
+      "browser_observe", "browser_extract", "browser_get_text", "browser_screenshot",
+      "browser_read_screen", "browser_console", "browser_network", "browser_status",
+      // Leggono lo stato di Topics.
+      "browser_list_tabs", "list_processes", "read_process_output",
+      "list_tasks", "get_task", "read_agent", "list_agents",
+      "read_chat_messages", "resolve_tab",
+      // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
+      "ask_user_question", "approval_prompt",
+    ].sort();
+    const MODIFICANO = [
+      // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,
+      // topic, progetti, chat. `browser_focus_tab` è qui di proposito: portare
+      // una tab in primo piano cambia ciò che la persona ha davanti.
+      "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
+      "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
+      "browser_upload",
+      "run_script", "stop_process",
+      "create_task", "update_task", "comment_task", "wait_for_condition",
+      "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
+      "switch_topic", "new_topic", "create_project", "open_project",
+      "send_chat_message",
+    ].sort();
+
+    const resp = await handleMessage({ jsonrpc: "2.0", id: 9, method: "tools/list" }, ARGS);
+    const tools = (resp!.result as any).tools as Array<{
+      name: string;
+      annotations?: { readOnlyHint?: boolean };
+    }>;
+
+    // 1. Nessun tool sfugge alla classificazione, in nessuna delle due direzioni.
+    expect([...SOLA_LETTURA, ...MODIFICANO].sort()).toEqual([...tools.map((t) => t.name)].sort());
+
+    // 2. Ogni tool porta un `readOnlyHint` ESPLICITO: `undefined` non è «false»,
+    //    è una riga che nessuno ha scritto, e la CLI la tratta come un no.
+    for (const t of tools) {
+      expect(typeof t.annotations?.readOnlyHint).toBe("boolean");
+    }
+
+    // 3. E il valore corrisponde alla lista, tool per tool.
+    for (const name of SOLA_LETTURA) {
+      expect(tools.find((t) => t.name === name)!.annotations!.readOnlyHint).toBe(true);
+    }
+    for (const name of MODIFICANO) {
+      expect(tools.find((t) => t.name === name)!.annotations!.readOnlyHint).toBe(false);
+    }
+  });
+
   test("tools/list under --profile=dispatch drops the orchestration/nav tools", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 3, method: "tools/list" },
