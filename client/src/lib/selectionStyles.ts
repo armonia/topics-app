@@ -269,41 +269,6 @@ export const ROW_GLYPH = 14;
 export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';
 
 /**
- * LE RIGHE DI PRIMO LIVELLO SOTTO I 768px: una SUPERFICIE, non una linea.
- *
- * Questo file VIETA le hairline fra righe impilate: «fra righe adiacenti i due
- * capelli di un bordo si leggono come LINEE divisorie, esattamente ciò che
- * stiamo togliendo». La card — fondo, angoli, rientro — è ciò che separa una
- * riga dall'altra.
- *
- * Sotto i 768px quel fondo però non c'era: la sidebar diventa un cassetto a
- * tutta larghezza, le tre superfici collassano in una e una riga a riposo è
- * trasparente su un fondo praticamente uguale. La prima risposta è stata un
- * `divide-y`, cioè proprio la cosa vietata, come deroga dichiarata. Ha retto
- * un giorno: «è brutto ora che il pinned è diverso dal separatore chat»
- * (Attilio, 08/08), e aveva ragione — nella stessa colonna convivevano due
- * grammatiche, le tessere fissate separate da una SUPERFICIE (`RESTING_SURFACE`
- * ha da sempre un rialzo `max-md:` proprio per questo) e le righe separate da
- * un FILO.
- *
- * Adesso la grammatica è una sola: sotto i 768px anche la riga a riposo prende
- * un rialzo, e il filo sparisce. Stessa unità — la card — per tutta la colonna.
- *
- * Il rialzo vive in `index.css` dentro `@layer components`, agganciato alla
- * classe che questo contenitore porta, e NON qui come utility. È deliberato: in
- * Tailwind v4 il layer `utilities` batte `components` a prescindere dalla
- * specificità, quindi qualunque `bg-*` che la riga porti già — selezione,
- * attenzione, hover — vince da sé. Scritto come utility sul contenitore
- * (`[&>*]:bg-…`) pareggerebbe invece la specificità di `SELECTED_SURFACE` e
- * l'esito lo deciderebbe l'ordine nel foglio, cioè il caso.
- *
- * Vale per le righe di PRIMO livello e mai per i figli — il selettore è
- * figlio-diretto: lì l'indentazione fa già il lavoro, e una fila di card
- * trasformerebbe un albero in una tabella.
- */
-export const SIDEBAR_L1_SURFACE = 'sidebar-l1-rows';
-
-/**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
  *
  * Attilio, 07/08: «il tasto per poter spuntare una tab e chiuderla è troppo
@@ -413,7 +378,22 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   // ((40 − 28)/2), so the side gap reads identical to the vertical one. The
   // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
   // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
-  const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
+  // Sotto i 768px la card porta anche il FONDO DEL RIPOSO, e i valori sono
+  // quelli di `RESTING_SURFACE` (ramo `max-md:`): nella stessa colonna una
+  // tessera fissata e una riga devono essere la stessa cosa, ed era la loro
+  // differenza a far sembrare «brutto» il filetto separatore che c'era prima.
+  //
+  // Ci è arrivato per due strade sbagliate: prima un `divide-y` (una linea fra
+  // le righe), poi una regola CSS che dipingeva la riga INTERA da bordo a bordo
+  // — «sono full width i progetti invece di essere card». Il posto giusto è
+  // qui, sulla scatola che è già rientrata e arrotondata: stesso colore, ma
+  // disegnato dove c'è una card e non una fascia.
+  //
+  // Sta nel `base` e non fra i rami del fill, quindi selezione, attenzione e
+  // hover — che arrivano dopo nella stringa — lo coprono senza gare di
+  // specificità.
+  const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative '
+    + 'max-md:bg-black/[0.05] dark:max-md:bg-white/[0.07]';
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
