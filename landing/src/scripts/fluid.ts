@@ -149,7 +149,12 @@ float archAt(float x){
      deepens the arch without moving the picture up or down, and the number is
      the one that made the RENDERING match — 1.20 puts the peak within 1.8 points
      and both corners within 1.5. Check it with check:field, never by eye. */
-  return 0.6549 + (y - 0.6549) * 1.20;
+  /* AND LIFTED BY 2.5 POINTS, for the same reason and from the same kind of
+     measurement: once the body became pale the rise got steeper, the 15%-of-
+     range contour moved down with it, and the whole rendered arch sat two and a
+     half points below the reference's at every one of the twelve samples. A
+     constant, because the error was a constant. */
+  return 0.6549 + (y - 0.6549) * 1.20 - 0.025;
 }
 
 void main(){
@@ -206,14 +211,17 @@ void main(){
      within a few points of that the whole way down. */
   float lit = smoothstep(-0.085, 0.245, sy - crest);
 
-  /* ── AND IT LEANS ─────────────────────────────────────────────────────────
-     The reference is not an even wash under its arch. Along its bottom row,
-     left to right: 0.58 0.61 0.63 0.66 0.86 0.93 0.96 0.97 0.98 0.99 1.00 — the
-     mass is half again as bright on the flank the core is on. That asymmetry is
-     most of why the picture reads as a light source and not as a gradient, and
-     it is also why there is no symmetric vignette here: one would fight the
-     brightest corner the reference has. */
-  float hg = 0.58 + 0.42 * smoothstep(0.28, 0.55, ax);
+  /* ── AND IT LEANS, BUT LESS THAN THE FILE SAYS ────────────────────────────
+     The reference is not an even wash under its arch: it is brighter on the
+     flank the core is on. Measured on the whole 4:3 file its bottom row runs
+     0.58 to 1.00 — and that number is wrong for this page, because the browser
+     never shows the whole file. Cropped the way object-fit cover crops it, the
+     same row runs 0.66 0.74 0.75 0.86 0.91 0.95 0.98 0.99 0.99 1.00 1.00: the
+     darkest part of that lean is in the corner the crop throws away.
+     Built to 0.58 the left third of our frame sat at 39% of the picture's range
+     against their 66%, and a mass that fades out toward one side reads as a
+     shadow of something rather than as the thing. */
+  float hg = 0.72 + 0.28 * smoothstep(0.15, 0.50, ax);
 
   /* ── THE CHANNEL ──────────────────────────────────────────────────────────
      The reading column runs down the middle of this page, so a light brightest
@@ -225,9 +233,13 @@ void main(){
      first section below the fold, and the gate measured 1.37x there.
      It multiplies a whole COLUMN evenly, so it cannot move the crest: the shape
      gate and this term are independent by construction. */
-  float column  = smoothstep(0.40, 0.07, abs(sx - 0.5));
+  /* Deeper than it was, because the body it has to open a channel THROUGH is
+     no longer a ramp. A mass that is nearly uniform inside its own edge does not
+     dim the way a gradient does: at 0.80 the same term that used to leave the
+     column at 0.63 of the gutters left it at 0.78, over the gate's 0.75. */
+  float column  = smoothstep(0.44, 0.07, abs(sx - 0.5));
   float opened  = smoothstep(0.035, 0.105, s);
-  float channel = 1.0 - column * opened * 0.80;
+  float channel = 1.0 - column * opened * 0.88;
 
   float mass = lit * hg * channel;
 
@@ -243,7 +255,33 @@ void main(){
      At 0.70 the brightest pixel lands at L 0.080, about 2.2x the composite's
      ceiling: far enough in to use the roll-off, near enough out that the
      gradient underneath it survives. */
-  vec3 col = GROUND + BLUE * mass * 0.70;
+  /* ── A SOLID, NOT A RAMP ──────────────────────────────────────────────────
+     This is what "sembra un'ombra e non un solido fluido" turned out to mean,
+     and it is a distribution rather than a brightness. Measured against the
+     reference, both pictures are silky — high-frequency noise 0.19% of the mean
+     for theirs, 0.32% for ours — but the LIT AREA is spent completely
+     differently. Fraction of the frame above a given share of its own range:
+
+                       20%     35%     50%     70%
+         reference    48.9    45.5    41.6    32.1
+         ours (was)   30.8    25.2    18.6    11.6
+
+     Theirs barely falls: once you are inside the mass you are already at the top
+     of its range, and only the crest is intermediate. That is what a body of
+     light looks like. Ours fell by two and a half times, which is the signature
+     of a long ramp toward one hot point — a shadow with a lamp in it.
+
+     The cause was the colour, not the cap. The mass was Topics blue everywhere
+     with a small pale core, and a saturated blue is DARK: its luminance is
+     0.121, and the roll-off then spends most of its range on the approach.
+     The reference's flanks are lavender, 185,181,239 — the whole body is pale,
+     and only the very heart is white.
+     So paleness rises with density here, and the core adds the last of it. The
+     mass is a colour that gets lighter toward its middle, which is what a
+     volume of lit smoke actually is. */
+  float dense = mass;
+  float pale  = clamp(smoothstep(0.22, 0.95, dense) * 0.62, 0.0, 1.0);
+  vec3  col   = GROUND + mix(BLUE, PALE, pale) * dense * 0.92;
 
   /* ── THE CORE ─────────────────────────────────────────────────────────────
      The reference's is near-white (253,253,255) and it is NEVER SEEN: a
@@ -268,8 +306,8 @@ void main(){
      around it stays the brand's blue. White and Topics blue, which is the brief. */
   vec2  cp   = vec2(0.692 - drift, 0.812);
   float cd   = length(vec2((sx - cp.x) * wide, sy - cp.y));
-  float core = exp(-cd * 3.9) * lit * channel;
-  col = mix(col, PALE, core * 0.62);
+  float core = exp(-cd * 3.4) * lit * channel;
+  col = mix(col, PALE, core * 0.34);
 
   col += BLUE * lamp * 0.05 * channel;
 
@@ -364,7 +402,12 @@ void main(){
      single fraction that ended at the hero on a desktop was still two thirds
      open a screen further down on a phone. check:painted found it there and
      nowhere else. uHero counts viewport heights. */
-  float ceilY = mix(0.170, 0.036, clamp(uHero, 0.0, 1.0));
+  /* 0.160 in the hero, and the last digit is not taste either: at 0.170 the one
+     remaining failure on the whole page was the word "telemetry" at 390, near-
+     white on rgb(81 111 164) — 4.46:1 against a bar of 4.5. The ceiling is the
+     honest instrument for that, because it is the quantity the requirement is
+     actually about. */
+  float ceilY = mix(0.160, 0.036, clamp(uHero, 0.0, 1.0));
   float mapped = ceilY * (1.0 - exp(-lumY / ceilY));
   lin *= mapped / max(lumY, 0.00001);
 
