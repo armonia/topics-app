@@ -138,15 +138,19 @@ export const CHIP_GAP = 6;
  * che diceva «bottone»: tolti quelli, a legare l'icona col SUO numero resta
  * solo la distanza — dentro la pastiglia i due pezzi stanno a 2px.
  *
- * OTTO, sceso da 12. Il rapporto con i 2 interni resta 4:1, ben oltre la soglia
- * a cui l'occhio raggruppa senza bisogno di un contorno; ma le pastiglie ora si
- * stringono in un BLOCCO, e un blocco compatto si distingue dai conteggi di
- * stato — che stanno a 28 — molto meglio di una fila larga. «Non si capisce la
- * differenza fra l'icona di stato e i progetti» (Attilio, 08/08): il problema
- * non era lo stacco dai conteggi, era che i progetti non si leggevano come una
- * cosa sola.
+ * SEI, sceso da 12 e poi da 8. Il problema non era lo stacco DAI conteggi —
+ * quello è 28 — ma che i progetti non si leggevano come UNA cosa: a 12px l'uno
+ * dall'altro erano elementi sparsi, e un elemento sparso in più (il conteggio
+ * di stato) non si distingue da loro. Stretti diventano un blocco, e un blocco
+ * si stacca da ciò che gli sta a 28 molto meglio di una fila larga.
+ *
+ * Sei è anche il passo della colonna (`ROW_INSET`, `COLUMN_GAP`), quindi la
+ * riga smette di avere un ritmo tutto suo. È il PAVIMENTO: il rapporto con i
+ * 2px interni alla coppia scende a 3:1, che è la soglia sotto la quale l'icona
+ * di una pastiglia e il numero della precedente tornano a essere quasi
+ * equidistanti dai rispettivi partner — cioè il difetto da cui veniamo.
  */
-export const CHIP_SPACING = 8;
+export const CHIP_SPACING = 6;
 /**
  * Il vuoto DENTRO una pastiglia, fra l'icona e il suo numero.
  *
