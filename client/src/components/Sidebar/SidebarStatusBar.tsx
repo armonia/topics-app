@@ -472,18 +472,22 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
            *
            * Sei pixel bastano su un bordo dritto; su un iPhone questa riga sta
            * SUL fondo, dove lo schermo curva con un raggio di ~55px, e i suoi
-           * estremi finiscono dentro l'arco. Il conto: alla quota del contenuto
-           * (~22px dal fondo) l'arco mangia 11px per lato, e al bordo INFERIORE
-           * del contenuto (~10px) ne mangia 23. Sedici è il compromesso — copre
-           * la quota che conta e non sposta la riga in mezzo alla colonna — e
-           * peggiora accorciando la riga, che è esattamente il motivo per cui va
-           * messo adesso e non dopo.
+           * estremi finiscono dentro l'arco. Il conto, con R=55 e x = R −
+           * √(R² − (R−y)²): alla quota del CENTRO del contenuto (y≈22px dal
+           * fondo) l'arco mangia 11px per lato; al suo bordo INFERIORE (y≈10)
+           * ne mangia 23.
+           *
+           * Ventiquattro, non sedici. Sedici copriva solo la quota centrale, e
+           * dal vivo si vedeva: «sono ancora troppo vicini ai lati» (Attilio,
+           * 08/08). Ventiquattro copre il punto PEGGIORE — il bordo basso del
+           * contenuto, che è quello che entra per primo nella curva — quindi il
+           * numero non viene da un gusto ma dalla geometria dello schermo.
            *
            * `--sal`/`--sar` restano il pavimento: in orizzontale il notch mangia
            * da un lato solo, e lì il numero giusto lo dice il sistema.
            */
-          paddingLeft: isMobile ? 'max(16px, var(--sal))' : ROW_INSET,
-          paddingRight: isMobile ? 'max(16px, var(--sar))' : ROW_INSET,
+          paddingLeft: isMobile ? 'max(24px, var(--sal))' : ROW_INSET,
+          paddingRight: isMobile ? 'max(24px, var(--sar))' : ROW_INSET,
           // `var(--sab)` e non `env(...)` diretto: `env()` non si può
           // sovrascrivere, quindi con la chiamata cruda questa riga era
           // IMPOSSIBILE da provare fuori da un iPhone vero — e infatti l'ho
