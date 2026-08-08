@@ -27,10 +27,34 @@ export const STATUS_LABELS: Record<ProviderStatus, string> = {
   unavailable: 'not set up',
 };
 
-/** Il valore sentinella della tendina dei default di comportamento: «Auto»
- *  non è una scelta, è l'assenza di override — cancella il valore salvato e
- *  lascia vincere la env var (o il default interno). */
+/** Il valore sentinella delle tendine della scheda: «Auto» non è una scelta, è
+ *  l'assenza di override — cancella il valore salvato e lascia vincere la env
+ *  var (o il default interno). */
 export const AUTO = '__auto__';
+
+/** I campi di `app_settings` che portano il modello di default di un provider. */
+export type ProviderModelField = 'claudeModel' | 'openaiModel' | 'codexModel';
+
+/**
+ * Quale campo di `app_settings` è il «modello di default» di ogni provider.
+ *
+ * È la tabella che rende il modello un controllo della RIGA del provider invece
+ * che un'impostazione globale senza padrone. Chi non è qui dentro non ha una
+ * colonna (openclaw e gli agenti ACP): il modello lo decide l'altro capo, e una
+ * tendina che scrive su una colonna inesistente sarebbe una scrittura morta.
+ *
+ * `claude` e `claude-code` puntano allo STESSO campo, e non è una svista: sul
+ * server `resolveClaudeModel` (services/app-settings.ts) e `resolveClaudeCodeModel`
+ * (providers/index.ts) leggono entrambi `settings.claudeModel` — è la colonna
+ * canonica dietro `CLAUDE_MODEL`. Quando tutti e due i provider sono registrati
+ * la scheda lo DICE, invece di lasciar credere che siano due tendine separate.
+ */
+export const PROVIDER_MODEL_FIELD: Record<string, ProviderModelField> = {
+  claude: 'claudeModel',
+  'claude-code': 'claudeModel',
+  openai: 'openaiModel',
+  codex: 'codexModel',
+};
 
 /** «2m ago» — la freschezza dello snapshot come DISTANZA, che è come la si
  *  legge: un timestamp assoluto obbligherebbe a fare la sottrazione a mente. */

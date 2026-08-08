@@ -481,6 +481,19 @@ function ChatPaneComponent({
     void onUpdateTopic(topic.id, { effort: next });
   }, [isDraftTopic, onUpdateTopic, topic.id]);
 
+  // Da cosa EREDITA questa chat quando non c'è un override completo. Il caso
+  // che conta è stretto ma reale: `providerOverride` esiste solo se il topic ha
+  // provider E model, quindi qui resta il topic che ha scelto il provider e non
+  // il modello (lo fanno il dispatcher e il bridge MCP) — il picker risolve
+  // allora il modello di default di QUEL provider invece del primo pronto.
+  //
+  // Sopra questo gradino c'è il default dell'app, e NON si passa da qui: il
+  // picker e il SessionConfigPopover sono già abbonati allo stesso snapshot e
+  // `resolveEffectiveProvider` ripiega da sé sulla riga con `isDefault`, che è
+  // lo stesso valore di `snapshot.defaultProvider`. Passarlo come prop sarebbe
+  // la stessa informazione presa due volte, al prezzo di un abbonamento allo
+  // snapshot dentro ChatPane — che si ridisegnerebbe a ogni push (lo stato
+  // della fast mode ne manda uno a ogni inizio e fine turno).
   const defaultProviderLabel = topic.provider ?? undefined;
 
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(m), [toast]));

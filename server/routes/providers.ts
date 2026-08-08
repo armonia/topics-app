@@ -139,10 +139,18 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // POST /api/providers/claude-code/configure — pick the model used by the
-    // claude-code CLI provider. Re-registers the provider so the next spawned
-    // child uses the new --model flag. Persistent processes from the previous
-    // model are killed by `registerProvider` (existing.stop()).
+    // POST /api/providers/claude-code/configure — REGISTRA (o ri-registra) il
+    // provider claude-code a runtime con un modello esplicito. È la gemella di
+    // `claude/configure` e `openai/configure`: serve a far esistere il provider
+    // su un server che non l'ha rilevato all'avvio (i test E2E la usano così).
+    //
+    // NON è la superficie del «modello di default»: quello è
+    // `app_settings.claudeModel`, scritto dalla card del provider in
+    // Impostazioni. La differenza non è di stile — qui si passa da
+    // `registerProvider`, che fa `existing.stop()`: cambiare un default da
+    // questa rotta AMMAZZA i processi CLI vivi di claude-code, cioè le chat in
+    // corso. Il campo in `app_settings` invece entra alla prossima costruzione
+    // del provider e non tocca niente di vivo.
     if (method === "POST" && pathname === "/api/providers/claude-code/configure") {
       try {
         const body = await req.json();

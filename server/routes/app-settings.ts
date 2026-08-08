@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
-import { recomputeDefault, getDefaultProviderName } from "../providers";
+import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
 
 /**
@@ -12,18 +12,42 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
  * clears the override (revert to env/default). Changing the default provider
  * re-picks it live so the picker reflects it without a restart; model/token
  * changes apply to providers created on the next init/session.
+ *
+ * Chi scrive `aiProvider` da qui, in pratica, è UN caso solo: la card del
+ * provider quando toglie il default (`{aiProvider: null}` → «scegli
+ * automaticamente»). La scelta POSITIVA passa da `PUT /api/providers/default`,
+ * che valida contro il registro prima di scrivere la stessa colonna — e da oggi
+ * anche questa rotta valida contro il registro, così le due non possono più
+ * dare risposte diverse sullo stesso nome.
  */
 
 const EFFORT_CLAUDE = new Set<string>(EFFORT_TIERS);
 const EFFORT_CODEX = new Set<string>(CODEX_REASONING_EFFORTS);
-const PROVIDERS = new Set(["claude", "claude-code", "openai", "codex", "openclaw"]);
 const APPROVAL = new Set(["auto", "full-access"]);
+
+/**
+ * I nomi ammessi per `aiProvider`: quelli REGISTRATI adesso, non una lista
+ * scritta a mano.
+ *
+ * Erano cinque nomi cablati, e la lista sbagliava da entrambi i lati. Da un
+ * lato accettava un provider non registrato: la riga finiva in DB, ma
+ * `recomputeDefault()` non trovava il nome nel registro, usciva dal ramo
+ * esplicito e ripiegava sull'ordine di preferenza — quindi la scelta era
+ * scritta e ignorata insieme. Dall'altro rifiutava gli agenti ACP, che
+ * `PUT /api/providers/default` invece accetta e scrive nella STESSA colonna:
+ * un default `gemini` impostato di là tornava indietro come 400 di qua.
+ * Ora le due rotte hanno la stessa idea di cosa sia un provider valido.
+ */
+function registeredProviderNames(): Set<string> {
+  return new Set(listProviders().map((p) => p.name));
+}
 
 type ValidationError = { field: string; message: string };
 
-/** Come si valida UN campo: stringa (con eventuale allow-set), intero, booleano. */
+/** Come si valida UN campo: stringa (con eventuale allow-set, fisso o risolto
+ *  al momento della richiesta), intero, booleano. */
 type FieldRule =
-  | { kind: "string"; allow?: Set<string> }
+  | { kind: "string"; allow?: Set<string>; allowFrom?: () => Set<string> }
   | { kind: "int" }
   | { kind: "bool" };
 
@@ -38,7 +62,7 @@ type FieldRule =
  * `Record<keyof AppSettings, string>`.)
  */
 const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
-  aiProvider: { kind: "string", allow: PROVIDERS },
+  aiProvider: { kind: "string", allowFrom: registeredProviderNames },
   claudeModel: { kind: "string" },
   claudeMaxTokens: { kind: "int" },
   claudeEffort: { kind: "string", allow: EFFORT_CLAUDE },
@@ -68,7 +92,12 @@ function parsePatch(body: Record<string, unknown>): {
     }
     const val = v.trim();
     if (allow && !allow.has(val)) {
-      errors.push({ field: key, message: `expected one of: ${[...allow].join(", ")}` });
+      errors.push({
+        field: key,
+        message: allow.size === 0
+          ? "no value is currently accepted for this field"
+          : `expected one of: ${[...allow].join(", ")}`,
+      });
       return;
     }
     (patch as any)[key] = val;
@@ -93,7 +122,7 @@ function parsePatch(body: Record<string, unknown>): {
     if (!(key in body)) continue;
     const v = body[key];
     switch (rule.kind) {
-      case "string": str(key, v, rule.allow); break;
+      case "string": str(key, v, rule.allow ?? rule.allowFrom?.()); break;
       case "int": int(key, v); break;
       case "bool": bool(key, v); break;
     }

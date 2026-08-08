@@ -50,6 +50,7 @@ import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
+import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
@@ -1752,9 +1753,12 @@ export class ClaudeCodeProvider implements AIProvider {
     return [preferred, ...rest];
   }
 
-  /** Lo stesso id che userebbe uno spawn adesso: vedi `defaultChatModel()`. */
+  /** Lo stesso id che userebbe uno spawn adesso — e «adesso» va preso alla
+   *  lettera: legge l'impostazione viva, non la copia congelata alla
+   *  costruzione, altrimenti il picker direbbe di ereditare da un modello che
+   *  lo spawn non userebbe. */
   defaultModel(): string {
-    return this.config.model ?? defaultChatModel();
+    return resolveClaudeCodeModel() ?? this.config.model ?? defaultChatModel();
   }
 
   /**
@@ -1821,7 +1825,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // are spawn-time CLI flags, so the PATCH handler forces a respawn via
     // refreshSessionConfig when either changes.
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
-    const model = overrides.model ?? this.config.model ?? defaultChatModel();
+    // Il modello si RILEGGE a ogni spawn, come l'effort: `this.config.model` è
+    // congelato alla costruzione del provider, quindi da solo faceva valere la
+    // scelta fatta in Impostazioni solo dal riavvio del server dopo.
+    const model = overrides.model ?? resolveClaudeCodeModel() ?? this.config.model ?? defaultChatModel();
     // Il LIVELLO DI AUTONOMIA della chat decide la modalità di permessi.
     //
     // Esisteva nel modello dati e non era collegato a niente: ogni chat partiva

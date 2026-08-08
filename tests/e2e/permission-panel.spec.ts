@@ -267,7 +267,11 @@ test.describe.serial("Pannello di permesso", () => {
     await page.keyboard.press("Meta+Comma");
     const settings = page.locator('[data-testid="settings-panel"]');
     await expect(settings).toBeVisible({ timeout: 5_000 });
-    await settings.getByText("Permessi", { exact: true }).click();
+    // I consensi non hanno più una voce di nav propria: stanno in fondo alla
+    // scheda «AI Providers». Un pannello che di default è vuoto non merita un
+    // posto fisso in navigazione — ma deve restare raggiungibile, ed è
+    // esattamente ciò che questo test difende.
+    await settings.getByRole("button", { name: "AI Providers" }).click();
 
     const row = settings.locator(`[data-testid="tool-grant-${TOOL}"]`);
     await expect(row).toBeVisible({ timeout: 5_000 });
