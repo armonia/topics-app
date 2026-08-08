@@ -23,11 +23,44 @@ export interface JsonSchema {
   required?: string[];
 }
 
+/**
+ * Le annotazioni MCP di un tool (`tools/list` → `annotations`).
+ *
+ * `readOnlyHint` è la sola che cambia il comportamento della CLI: in
+ * `--permission-mode plan` passano SOLO i tool che si dichiarano di sola
+ * lettura. Le altre tre sono descrittive e viaggiano insieme perché un
+ * client che le legge non debba indovinarle.
+ */
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface BrowserToolSpec {
   name: string;
   description: string;
   schema: JsonSchema;
   surfaces: { passthrough: boolean; mcp: boolean };
+  /**
+   * Il tool GUARDA e basta, senza cambiare la pagina né lo stato dell'app.
+   *
+   * Non è documentazione: è la riga che la CLI legge in `--permission-mode
+   * plan` per decidere se un tool MCP può girare. Senza, una chat in «ask»
+   * (= plan) non può nemmeno LEGGERE — è il difetto del task `46480579`.
+   * Proiettato in `annotations.readOnlyHint` da `mcpBrowserTools()`.
+   *
+   * Il campo è OBBLIGATORIO di proposito: un tool nuovo non può restare muto
+   * e finire di default nella metà sbagliata. Chi lo aggiunge decide.
+   *
+   * Nota su `screenshot`/`read_screen`: scrivono un file di cattura, ma non
+   * toccano né la pagina né lo stato dell'app — l'artefatto È il modo in cui
+   * l'osservazione torna indietro (un base64 in contesto sarebbe inusabile).
+   * Restano osservazione, quindi read-only.
+   */
+  readOnly: boolean;
 }
 
 export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
@@ -47,6 +80,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["url"],
     },
     surfaces: { passthrough: true, mcp: false },
+    readOnly: false,
   },
   {
     name: "browser_observe",
@@ -69,6 +103,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_act",
@@ -110,6 +145,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["action"],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
   },
   {
     name: "browser_extract",
@@ -128,6 +164,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_get_text",
@@ -142,6 +179,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_screenshot",
@@ -155,6 +193,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_read_screen",
@@ -169,6 +208,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_console",
@@ -183,6 +223,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_network",
@@ -199,6 +240,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_eval",
@@ -212,6 +254,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["expression"],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
   },
   {
     name: "browser_save_state",
@@ -225,6 +268,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["handle"],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
   },
   {
     name: "browser_load_state",
@@ -239,6 +283,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["handle"],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
   },
   {
     name: "browser_point",
@@ -252,6 +297,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["description"],
     },
     surfaces: { passthrough: true, mcp: false },
+    readOnly: false,
   },
   {
     name: "browser_import_chrome",
@@ -268,6 +314,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: [],
     },
     surfaces: { passthrough: true, mcp: false },
+    readOnly: false,
   },
   {
     name: "browser_status",
@@ -275,6 +322,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       "Report the pane's current state: { url, title, viewport: {width,height}, loading, lastDialog? }. `lastDialog` appears when an alert/confirm/prompt showed up: it is auto-closed (an unhandled dialog freezes every later event on the page) but reported here, so 'nothing happens after I click' has an answer instead of a silence. Use to confirm where the pane is, read its REAL viewport size (e.g. before responsive checks), or poll whether a navigation has finished.",
     schema: { type: "object", properties: {}, required: [] },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: true,
   },
   {
     name: "browser_upload",
@@ -289,6 +337,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       required: ["path"],
     },
     surfaces: { passthrough: true, mcp: true },
+    readOnly: false,
   },
 ];
 
@@ -321,15 +370,25 @@ export const BRIDGED_BROWSER_ENDPOINTS: Record<string, string> = Object.fromEntr
 
 /** Project to the MCP `tools/list` shape (name, description, inputSchema).
  *  Every MCP tool gets the optional `contextId` arg injected (CONTEXT_ID_PROP)
- *  so it can target any tab; `required` is untouched (contextId is optional). */
+ *  so it can target any tab; `required` is untouched (contextId is optional).
+ *  `readOnly` diventa `annotations.readOnlyHint`: è ciò che permette a una chat
+ *  in «ask» (= `--permission-mode plan`) di GUARDARE una pagina senza poterla
+ *  toccare. `openWorldHint` è true perché questi tool leggono il web vivo. */
 export function mcpBrowserTools(): Array<{
   name: string;
   description: string;
   inputSchema: JsonSchema;
+  annotations: McpToolAnnotations;
 }> {
   return BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp).map((s) => ({
     name: s.name,
     description: s.description,
+    annotations: {
+      readOnlyHint: s.readOnly,
+      destructiveHint: false,
+      idempotentHint: s.readOnly,
+      openWorldHint: true,
+    },
     inputSchema: {
       ...s.schema,
       properties: { ...s.schema.properties, contextId: CONTEXT_ID_PROP },
