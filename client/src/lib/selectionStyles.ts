@@ -269,34 +269,39 @@ export const ROW_GLYPH = 14;
 export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';
 
 /**
- * I SEPARATORI DI PRIMO LIVELLO, e perché esistono SOLO sotto i 768px.
+ * LE RIGHE DI PRIMO LIVELLO SOTTO I 768px: una SUPERFICIE, non una linea.
  *
- * Questo file VIETA le hairline fra righe impilate, e il divieto resta: «fra
- * righe adiacenti i due capelli di un bordo si leggono come LINEE divisorie,
- * esattamente ciò che stiamo togliendo». La card — fondo, angoli, rientro —
- * è ciò che separa una riga dall'altra, e una linea sarebbe una terza cosa che
- * ripete quello che fill e gap dicono già.
+ * Questo file VIETA le hairline fra righe impilate: «fra righe adiacenti i due
+ * capelli di un bordo si leggono come LINEE divisorie, esattamente ciò che
+ * stiamo togliendo». La card — fondo, angoli, rientro — è ciò che separa una
+ * riga dall'altra.
  *
- * Sotto i 768px però quel fill NON C'È: la sidebar diventa un cassetto a tutta
- * larghezza, le tre superfici collassano in una e una riga a riposo è
- * trasparente su un fondo praticamente uguale. Lì la card non separa più nulla,
- * e senza un tratto le righe di primo livello si leggono come un blocco unico.
- * È una DEROGA dichiarata, non un ripensamento: vale per i separatori fra i
- * BLOCCHI e fra le righe di PRIMO livello dentro un blocco, mai fra i figli —
- * lì l'indentazione fa già il lavoro, e una linea trasformerebbe un albero in
- * una tabella.
+ * Sotto i 768px quel fondo però non c'era: la sidebar diventa un cassetto a
+ * tutta larghezza, le tre superfici collassano in una e una riga a riposo è
+ * trasparente su un fondo praticamente uguale. La prima risposta è stata un
+ * `divide-y`, cioè proprio la cosa vietata, come deroga dichiarata. Ha retto
+ * un giorno: «è brutto ora che il pinned è diverso dal separatore chat»
+ * (Attilio, 08/08), e aveva ragione — nella stessa colonna convivevano due
+ * grammatiche, le tessere fissate separate da una SUPERFICIE (`RESTING_SURFACE`
+ * ha da sempre un rialzo `max-md:` proprio per questo) e le righe separate da
+ * un FILO.
  *
- * Il filo sta sul FIGLIO (`divide-y`), non sul contenitore: così rientra di
- * ROW_INSET da sé — è il margine della card — e segue la forma della card
- * invece di attraversarne gli angoli. La card resta l'unità; il filo la cita.
- * E NON va messo dove un confine c'è già: la card di un gruppo ha un bordo
- * tutt'attorno, e un filo in mezzo sarebbe una seconda linea sopra la prima.
+ * Adesso la grammatica è una sola: sotto i 768px anche la riga a riposo prende
+ * un rialzo, e il filo sparisce. Stessa unità — la card — per tutta la colonna.
  *
- * `md:` la spegne da tablet in su. Una costante sola, applicata dal contenitore
- * (`SidebarRowList` in TopicTree): così la quarta vista che qualcuno aggiungerà
- * nasce già giusta invece di dover ricordarsi la regola.
+ * Il rialzo vive in `index.css` dentro `@layer components`, agganciato alla
+ * classe che questo contenitore porta, e NON qui come utility. È deliberato: in
+ * Tailwind v4 il layer `utilities` batte `components` a prescindere dalla
+ * specificità, quindi qualunque `bg-*` che la riga porti già — selezione,
+ * attenzione, hover — vince da sé. Scritto come utility sul contenitore
+ * (`[&>*]:bg-…`) pareggerebbe invece la specificità di `SELECTED_SURFACE` e
+ * l'esito lo deciderebbe l'ordine nel foglio, cioè il caso.
+ *
+ * Vale per le righe di PRIMO livello e mai per i figli — il selettore è
+ * figlio-diretto: lì l'indentazione fa già il lavoro, e una fila di card
+ * trasformerebbe un albero in una tabella.
  */
-export const SIDEBAR_L1_DIVIDERS = 'max-md:divide-y max-md:divide-app-border/60';
+export const SIDEBAR_L1_DIVIDERS = 'sidebar-l1-rows';
 
 /**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
