@@ -44,7 +44,13 @@ afterEach(() => {
   while (daChiudere.length > 0) daChiudere.pop()?.chiudi();
 });
 
-interface DatiSocket { percorso: string; cookie: string }
+/** `xff`, `host` e `chiave` non servono al proxy: servono a GUARDARE cosa è
+ *  arrivato davvero alla stretta di mano locale, cioè quali intestazioni un
+ *  ospite che sta fuori dalla rete di casa è riuscito a farsi scrivere
+ *  addosso. */
+interface DatiSocket {
+  percorso: string; cookie: string; xff: string; host: string; chiave: string;
+}
 
 /** L'ascoltatore del tunnel, in piccolo: accetta gli upgrade sotto `/ws` e
  *  rifiuta tutto il resto — come fa il vero quando il percorso non esiste. */
@@ -65,6 +71,9 @@ function ascoltatore() {
       const dati: DatiSocket = {
         percorso: u.pathname + u.search,
         cookie: req.headers.get("cookie") ?? "",
+        xff: req.headers.get("x-forwarded-for") ?? "",
+        host: req.headers.get("host") ?? "",
+        chiave: req.headers.get("sec-websocket-key") ?? "",
       };
       if (server.upgrade(req, { data: dati })) return undefined;
       return new Response("serve un upgrade", { status: 426 });
@@ -141,7 +150,14 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
     let aperto = false;
     const chiusure: Array<{ c: number; r: string }> = [];
     const sk = ospite.apri("/ws/terminal/t1?modo=vivo", {
-      h: [["Cookie", "topics_session=abc"]],
+      // Le ultime tre l'ospite se le è scritte da sé: sono la parte che NON
+      // deve arrivare in fondo.
+      h: [
+        ["Cookie", "topics_session=abc"],
+        ["X-Forwarded-For", "9.9.9.9"],
+        ["Host", "bugiardo.example"],
+        ["Sec-WebSocket-Key", "chiave-inventata-dall-ospite"],
+      ],
       suAperto: () => { aperto = true; },
       suMessaggio: (d) => { messaggi.push(d); },
       suChiuso: (c, r) => { chiusure.push({ c, r }); },
@@ -153,6 +169,24 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
     // dell'appaiamento con lui: senza, tutto questo finisce su un login.
     expect(up.aperti[0]?.percorso).toBe("/ws/terminal/t1?modo=vivo");
     expect(up.aperti[0]?.cookie).toBe("topics_session=abc");
+    // …e sul percorso VERO, non solo dentro il filtro provato a parte:
+    // l'indirizzo se lo sceglie chi apre il socket, non chi bussa da fuori —
+    // altrimenti il tetto di tre tentativi sull'appaiamento non esiste più,
+    // perché basta un `x-forwarded-for` nuovo per avere un secchio nuovo.
+    expect(up.aperti[0]?.xff).not.toBe("9.9.9.9");
+    // `host` è l'altra metà della stessa famiglia: chi bussa da fuori non
+    // sceglie quale macchina crede di stare chiamando.
+    expect(up.aperti[0]?.host).not.toBe("bugiardo.example");
+    // La chiave della stretta di mano è quella generata QUI: 16 byte in
+    // base64. È anche il controllo positivo — se l'ascoltatore non stesse
+    // guardando davvero le intestazioni questa sarebbe vuota, e la forma
+    // rifiuterebbe comunque la stringa che l'ospite si è scritto da sé.
+    //
+    // Misurato: il client WebSocket di Bun rigenera i `sec-websocket-*` a
+    // prescindere, quindi su questo percorso una riga «non è quella
+    // dell'ospite» non potrebbe fallire; il filtro di quel prefisso resta
+    // fissato dal suo test in `shared/relay-ws.test.ts`.
+    expect(up.aperti[0]?.chiave).toMatch(/^[A-Za-z0-9+/]{22}==$/);
 
     sk.manda("ls -la\n");
     expect(await fino(() => up.ricevuti.length === 1)).toBe(true);

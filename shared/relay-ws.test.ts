@@ -21,8 +21,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   ARRETRATO_MAX, costoMessaggio, creaCapoCanale, creaRiassemblatore, involucro,
-  leggiFrame, scriviFrame,
-  type EsitoTubo, type FrameTubo,
+  leggiFrame, ricaricaPer, scriviFrame,
+  type EsitoInvio, type EsitoTubo, type FrameTubo,
 } from "./relay-protocol";
 import {
   WS_CHIUSURA_ANOMALA, WS_CHIUSURA_NORMALE,
@@ -351,5 +351,44 @@ describe("un giro completo fra due capi, senza rete", () => {
 
     capoHost.chiudi("aborted");
     expect(versoGuest.at(-1)).toEqual({ esito: "chiuso", s: 0, motivo: "aborted" });
+  });
+
+  it("con un trasporto sincrono la finestra non si stringe da sola", () => {
+    // Il caso che il codice di `emetti` dichiara e che nessun altro test
+    // tocca: chi riceve RICARICA dentro `opts.invia`, cioè a metà del giro di
+    // chi manda. Se il costo si scalasse DOPO aver mandato i pezzi, quella
+    // ricarica finirebbe sotto un valore calcolato prima — pagata due volte —
+    // e la finestra si chiuderebbe da sé dopo tre scambi, per sempre.
+    //
+    // Il credito iniziale è stretto apposta: tre messaggi. Se il conto fosse
+    // sbagliato, dal quarto in poi resterebbero in coda senza che nulla li
+    // sblocchi più.
+    const rias = creaRiassemblatore({ latoRemoto: "guest" });
+    const arrivati: string[] = [];
+    const iniziale = costoMessaggio(5) * 3;
+    let capo: ReturnType<typeof creaCapoCanale>;
+    capo = creaCapoCanale({
+      s: 1,
+      credito: iniziale,
+      invia: (f) => {
+        const e = rias.ricevi(f);
+        if (e.esito !== "messaggio") return;
+        arrivati.push(String(e.dati));
+        capo.ricarica(ricaricaPer(e.s, e.byte).c);
+      },
+    });
+    capo.apri("ws");
+
+    const esiti: EsitoInvio[] = [];
+    for (let i = 0; i < 10; i++) esiti.push(capo.manda("12345"));
+
+    // Il controllo positivo: i messaggi sono passati DAVVERO dal riassemblatore
+    // — senza, le due righe sotto passerebbero anche su un canale morto.
+    expect(arrivati).toEqual(Array<string>(10).fill("12345"));
+    expect(esiti.every((e) => e === "inviato")).toBe(true);
+    // E la finestra è larga come all'inizio: ogni messaggio è costato una
+    // volta sola.
+    expect(capo.creditoOra()).toBe(iniziale);
+    expect(capo.inCoda()).toBe(0);
   });
 });
