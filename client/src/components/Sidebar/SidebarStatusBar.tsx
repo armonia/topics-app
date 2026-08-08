@@ -449,12 +449,26 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           bersagli fra 24 e 28px di altezza, ed è il punto della sidebar dove il
           pollice arriva peggio. Sul desktop restano 28, dove il mouse è preciso
           e lo spazio verticale vale. */}
+      {/* LA SAFE-AREA SI ABITA, NON SI LASCIA VUOTA.
+          Era `paddingBottom: env(safe-area-inset-bottom)`, cioè la riga stava
+          sopra la fascia e sotto restava una striscia morta alta 34px — su un
+          iPhone un terzo dell'altezza di questa riga, spesa per non dire
+          niente. «Metti lì sotto nella safe area la riga della status bar con
+          tutto» (Attilio, 08/08): adesso la fascia è ALTEZZA della riga, non
+          spazio sprecato sotto di lei, e `items-center` centra il contenuto
+          nella banda intera. Col dito il contenuto finisce a ~39px dal bordo,
+          quindi ben sopra l'home indicator, che ne occupa gli ultimi otto.
+          `env()` si azzera da sé dove non c'è inset, quindi sul desktop questa
+          riga resta esattamente la stessa di prima — nessun ramo, nessuna
+          media query. L'altezza base viene da `isMobile` e non da `min-h-*`
+          perché un `minHeight` in linea scavalcherebbe comunque la classe: due
+          fonti per la stessa misura sono due fonti che divergono. */}
       <div
         data-testid="sidebar-status-bar"
-        className="flex items-center gap-2 min-h-7 max-md:min-h-11 flex-shrink-0 border-t border-app-border"
+        className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
         style={{
           paddingInline: ROW_INSET,
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          minHeight: `calc(${isMobile ? 44 : 28}px + env(safe-area-inset-bottom, 0px))`,
         }}
       >
         {/* Gateway status */}

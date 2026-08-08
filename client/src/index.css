@@ -269,7 +269,7 @@
    * piano INTERMEDIO — o stava col chrome o spariva nel bianco. In scuro sono
    * 1,076 e 1,061, cioè due gradini pari. La pagina scende a 96% di lightness:
    * chrome↔pagina 1,075:1 (lo scuro fa 1,076) e pagina↔pane 1,098:1. */
-  --bg: hsl(220 16% 96%);
+  --bg: hsl(220 5.6% 96%);
   --bg-surface: #ffffff;
   /* IL CHROME — la superficie della NAVIGAZIONE (sidebar: header, albero,
    * barra di stato). Un gradino SOTTO la pagina, non sopra: il chrome
@@ -283,19 +283,19 @@
    * Sotto Tauri/mac lo stesso token diventa translucido (vedi §vibrancy in
    * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il
    * materiale nativo. UNA tinta, due gradi di opacità — mai due tinte. */
-  --chrome-bg: hsl(220 16% 93%);
-  --bg-elevated: hsl(220 14% 98.1%);
-  --bg-hover: hsl(220 14% 96.3%);
+  --chrome-bg: hsl(220 5.6% 93%);
+  --bg-elevated: hsl(220 4.9% 98.1%);
+  --bg-hover: hsl(220 4.9% 96.3%);
   /* Le superfici del CODICE stanno nella stessa famiglia fredda del resto del
    * tema — hue 220, saturazione bassa — non in una loro. Misurato: erano a hue
    * 215/240 con il 28% di saturazione, il DOPPIO della palette dell'app, e in
    * tema chiaro leggevano come due riquadri blu notte in mezzo al bianco. La
    * scelta di tenerle SCURE resta (una fence si stacca dal testo), quella di
    * tenerle BLU no: era solo un residuo. */
-  --bg-code: hsl(220 12% 13%);
+  --bg-code: hsl(220 4.2% 13%);
   --bg-panel: #1e1e1e;
-  --bg-input: hsl(220 14% 98.1%);
-  --bg-inset: hsl(220 14% 97.4%);
+  --bg-input: hsl(220 4.9% 98.1%);
+  --bg-inset: hsl(220 4.9% 97.4%);
   /* La bolla dei TUOI messaggi.
    * Grigio di sistema, non il blu del marchio: in questa app il blu è
    * l'accento delle AZIONI e del caricamento, e un messaggio non è un'azione.
@@ -309,32 +309,32 @@
    * Il valore è RITARATO quando la pagina è scesa a 96%: #e2e5ea, che su
    * #f8f9fa dava i suoi 1,20:1, sulla pagina nuova si chiudeva a 1,15:1. Lo
    * stacco che il disegno DICHIARA è il numero, non l'hex. */
-  --bg-user-bubble: hsl(220 14% 88.5%);
-  --text: hsl(220 10% 10.6%);
-  --text-secondary: hsl(220 8% 36.4%);
-  --text-tertiary: hsl(220 8% 45.3%);
-  --text-muted: hsl(220 8% 43.2%);
-  --text-placeholder: hsl(220 8% 59.2%);
-  --text-heading: hsl(220 9% 20.7%);
-  --text-body: hsl(220 9% 27.6%);
-  --text-faint: hsl(220 8% 55.4%);
-  --text-hover: hsl(220 8% 34.3%);
-  --border: hsl(220 14% 91.4%);
-  --border-light: hsl(220 14% 88.5%);
-  --border-subtle: hsl(220 14% 94.4%);
-  --border-input: hsl(220 14% 88.5%);
-  --spinner-track: hsl(220 10% 80.7%);
+  --bg-user-bubble: hsl(220 4.9% 88.5%);
+  --text: hsl(220 3.5% 10.6%);
+  --text-secondary: hsl(220 2.8% 36.4%);
+  --text-tertiary: hsl(220 2.8% 45.3%);
+  --text-muted: hsl(220 2.8% 43.2%);
+  --text-placeholder: hsl(220 2.8% 59.2%);
+  --text-heading: hsl(220 3.1% 20.7%);
+  --text-body: hsl(220 3.1% 27.6%);
+  --text-faint: hsl(220 2.8% 55.4%);
+  --text-hover: hsl(220 2.8% 34.3%);
+  --border: hsl(220 4.9% 91.4%);
+  --border-light: hsl(220 4.9% 88.5%);
+  --border-subtle: hsl(220 4.9% 94.4%);
+  --border-input: hsl(220 4.9% 88.5%);
+  --spinner-track: hsl(220 3.5% 80.7%);
   --resize-handle: #e5e7eb;
   --skeleton-from: #e5e7eb;
   --skeleton-mid: #f3f4f6;
-  --code-bg: hsl(220 12% 17%);
+  --code-bg: hsl(220 4.2% 17%);
   --code-text: #f9fafb;
   --code-inline-bg: #f3f4f6;
   --code-inline-text: #374151;
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
-  --disabled-bg: hsl(220 10% 80.7%);
+  --disabled-bg: hsl(220 3.5% 80.7%);
   /* (I grigi qui sopra che restano in esadecimale — `#e5e7eb`, `#f3f4f6`,
    * `#d1d5db`, `#6b7280`, `#374151`, `#9ca3af` — sono la scala `gray` di
    * Tailwind, che è GIÀ fredda: stanno nella famiglia, non fuori. Quelli che ne
@@ -412,8 +412,8 @@
    * coi numeri, accanto a `color-scheme: light` sopra. */
   color-scheme: dark;
 
-  --bg: hsl(222 16% 8.5%);
-  --bg-surface: hsl(222 14% 11%);
+  --bg: hsl(222 5.6% 8.5%);
+  --bg-surface: hsl(222 4.9% 11%);
   /* Il chrome in dark è il GEMELLO OPACO del vetro che l'app desktop mostra
    * già da sempre (`hsl(224 26% 4.5% / .55)` più sotto): stessa tinta, senza
    * alpha perché sul web e in PWA non c'è nessuna vibrancy dietro cui stare.
@@ -421,18 +421,18 @@
    * stato iOS, così su iPhone status bar e sidebar si leggono come una cosa
    * sola invece di fare due gradini. */
   --chrome-bg: hsl(224 26% 4.5%);
-  --bg-elevated: hsl(220 13% 14%);
-  --bg-hover: hsl(220 12% 17%);
-  --bg-code: hsl(220 12% 9%);
-  --bg-panel: hsl(222 14% 11.5%);
-  --bg-input: hsl(220 13% 13%);
-  --bg-inset: hsl(222 15% 10%);
+  --bg-elevated: hsl(220 4.5% 14%);
+  --bg-hover: hsl(220 4.2% 17%);
+  --bg-code: hsl(220 4.2% 9%);
+  --bg-panel: hsl(222 4.9% 11.5%);
+  --bg-input: hsl(220 4.5% 13%);
+  --bg-inset: hsl(222 5.2% 10%);
   /* In dark il gradino va nell'altro verso: la bolla è più CHIARA della
    * pagina. Sopra `--bg-hover` (17%) così si distingue anche da una riga in
    * hover, e sulla stessa tinta fredda del resto del tema.
    * Misurato: 1,57:1 dalla pagina, 1,23:1 da una riga in hover (a 20% erano
    * 1,10:1 — indistinguibile), testo a 9,6:1. */
-  --bg-user-bubble: hsl(220 12% 23%);
+  --bg-user-bubble: hsl(220 4.2% 23%);
   --text: #e6e8ec;
   --text-secondary: #aab0ba;
   --text-tertiary: #969ca6;
@@ -442,17 +442,17 @@
   --text-body: #bbbec5;
   --text-faint: #7d838d;
   --text-hover: #ccced4;
-  --border: hsl(220 11% 18%);
-  --border-light: hsl(220 10% 24%);
-  --border-subtle: hsl(220 12% 15%);
-  --border-input: hsl(220 10% 21%);
+  --border: hsl(220 3.8% 18%);
+  --border-light: hsl(220 3.5% 24%);
+  --border-subtle: hsl(220 4.2% 15%);
+  --border-input: hsl(220 3.5% 21%);
   --spinner-track: #555555;
   --resize-handle: #374151;
   --skeleton-from: #374151;
   --skeleton-mid: #4b5563;
-  --code-bg: hsl(220 12% 11%);
+  --code-bg: hsl(220 4.2% 11%);
   --code-text: #f9fafb;
-  --code-inline-bg: hsl(220 12% 26%);
+  --code-inline-bg: hsl(220 4.2% 26%);
   --code-inline-text: #e5e7eb;
   --blockquote-border: #4b5563;
   --blockquote-text: #9ca3af;
@@ -485,9 +485,9 @@
  * escono in un portale alla radice del body e restano sui token normali.
  *
  * Valori scelti sul numero, non a occhio (script in scratchpad/solve.mjs):
- *   terziario hsl(220 8% 42%)  = #636874 → 4,72:1   (era 4,19)
- *   bordo     hsl(220 14% 84%) = #d0d4dc → 1,256:1  (era 1,036)
- *   sottile   hsl(220 14% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
+ *   terziario hsl(220 2.8% 42%)  = #636874 → 4,72:1   (era 4,19)
+ *   bordo     hsl(220 4.9% 84%) = #d0d4dc → 1,256:1  (era 1,036)
+ *   sottile   hsl(220 4.9% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
  * La tinta è fredda come il chrome: un grigio neutro su un fondo blu-grigio
  * si legge sporco.
  *
@@ -502,9 +502,9 @@
 [role="navigation"][aria-label="Topics sidebar"],
 [data-testid="project-sidebar"],
 [data-testid="project-sidebar-rail"] {
-  --text-tertiary: hsl(220 8% 42%);
-  --border: hsl(220 14% 84%);
-  --border-subtle: hsl(220 14% 88%);
+  --text-tertiary: hsl(220 2.8% 42%);
+  --border: hsl(220 4.9% 84%);
+  --border-subtle: hsl(220 4.9% 88%);
 }
 /* Il gemello scuro NON è ridondante: la regola qui sopra ha specificità (0,2,1)
    e batterebbe il blocco `.dark` (0,1,0), quindi senza questa riga il tema
@@ -514,8 +514,8 @@
 .dark [data-testid="project-sidebar"],
 .dark [data-testid="project-sidebar-rail"] {
   --text-tertiary: #969ca6;
-  --border: hsl(220 11% 18%);
-  --border-subtle: hsl(220 12% 15%);
+  --border: hsl(220 3.8% 18%);
+  --border-subtle: hsl(220 4.2% 15%);
 }
 
 /* SU UN TELEFONO C'È UNA SUPERFICIE SOLA, E QUINDI UN COLORE SOLO.
@@ -557,13 +557,13 @@
      * più vicino all'occhio. Il valore chiaro sta qui perché è anche il
      * FALLBACK: se un giorno sparisse il blocco scuro, un popover troppo chiaro
      * si vede, uno invisibile no. */
-    --popover-bg: hsl(220 16% 88%);
+    --popover-bg: hsl(220 5.6% 88%);
     /* DUE TOKEN RITARATI, e non per gusto: MISURATI sul fondo nuovo.
      * · La bolla dei tuoi messaggi era #e2e5ea, un gradino sotto #f8f9fa. Sul
      *   fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      *   bolla SPARIVA. Riportata al distacco che il disegno dichiara (~1,20:1,
-     *   vedi il commento del token in :root): hsl(220 14% 85%) → 1,221:1.
-     * · Il placeholder #949494 cadeva a 2,56:1. hsl(220 8% 50%) → 3,55:1.
+     *   vedi il commento del token in :root): hsl(220 4.9% 85%) → 1,221:1.
+     * · Il placeholder #949494 cadeva a 2,56:1. hsl(220 2.8% 50%) → 3,55:1.
      * È la stessa regola della sidebar: un layer che si sposta si ritara i token
      * che gli stanno sopra, invece di trascinarli dietro rotti. */
   }
@@ -587,13 +587,13 @@
     /* La bolla dei tuoi messaggi era #e2e5ea, un gradino sotto #f8f9fa. Sul
      * fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      * bolla SPARIVA. Riportata al distacco che il disegno dichiara: 1,221:1. */
-    --bg-user-bubble: hsl(220 14% 85%);
+    --bg-user-bubble: hsl(220 4.9% 85%);
     /* #949494 cadeva a 2,56:1 → 3,55:1. */
-    --text-placeholder: hsl(220 8% 50%);
-    --text-tertiary: hsl(220 8% 42%);
-    --border: hsl(220 14% 84%);
-    --border-light: hsl(220 14% 80%);
-    --border-subtle: hsl(220 14% 88%);
+    --text-placeholder: hsl(220 2.8% 50%);
+    --text-tertiary: hsl(220 2.8% 42%);
+    --border: hsl(220 4.9% 84%);
+    --border-light: hsl(220 4.9% 80%);
+    --border-subtle: hsl(220 4.9% 88%);
   }
 
   /* IL PIANO CHE FLOTTA. Popover, menu, modali e composer stanno SOPRA la
@@ -618,8 +618,8 @@
    * placeholder, che era a 3,98:1 — sotto il 4,5, e questo è il fondo di TUTTA
    * la schermata, non di un angolo. */
   html.dark:not(.electron-mac) {
-    --popover-bg: hsl(222 14% 13%);
-    --text-placeholder: hsl(220 8% 48%);
+    --popover-bg: hsl(222 4.9% 13%);
+    --text-placeholder: hsl(220 2.8% 48%);
     /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
      *
      * Attilio, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
@@ -639,11 +639,11 @@
      * guadagno è un guadagno (1,24 → 1,42 su un capello che era debole), e il
      * commento del blocco chiaro qui sopra lo registra già come tale. Un bordo
      * vuole staccare; una superficie vuole stare al suo piano. */
-    --bg-elevated: hsl(220 13% 8.9%);
-    --bg-hover: hsl(220 12% 12.7%);
-    --bg-input: hsl(220 13% 7.5%);
-    --bg-inset: hsl(222 15% 6.2%);
-    --bg-user-bubble: hsl(220 12% 19.3%);
+    --bg-elevated: hsl(220 4.5% 8.9%);
+    --bg-hover: hsl(220 4.2% 12.7%);
+    --bg-input: hsl(220 4.5% 7.5%);
+    --bg-inset: hsl(222 5.2% 6.2%);
+    --bg-user-bubble: hsl(220 4.2% 19.3%);
   }
 }
 
@@ -2224,15 +2224,15 @@ html.electron-mac .chrome-glass .chrome-glass {
  * collassato su `--chrome-bg`) e ricopiarli darebbe il distacco sbagliato.
  * Misurati sul fondo di QUI:
  *   · chiaro  #f0f1f4 su #ffffff → 1,17:1
- *   · scuro   hsl(222 14% 17%) su hsl(222 14% 11%) → 1,19:1
+ *   · scuro   hsl(222 4.9% 17%) su hsl(222 4.9% 11%) → 1,19:1
  * Il valore mobile scuro (13%) darebbe 1,05:1, cioè quasi niente.
  *
  * Solo `.glass-surface`: `.native-occlude` e il form del pannello stanno su un
  * velo scuro e il distacco ce l'hanno già — includerli sarebbe una regressione.
  * E la regola resta sotto `html.electron-mac .glass-surface`, che ha più peso:
  * la vibrancy del Mac non si tocca. */
-:root { --popover-bg: hsl(220 14% 95%); }
-.dark { --popover-bg: hsl(222 14% 17%); }
+:root { --popover-bg: hsl(220 4.9% 95%); }
+.dark { --popover-bg: hsl(222 4.9% 17%); }
 .glass-surface { background-color: var(--popover-bg, var(--bg-surface)); }
 /* L'hover di una `.glass-surface` cliccabile, e va scritto QUI.
  *
