@@ -62,7 +62,18 @@ export function initGitRepo(dir: string, message = "init"): void {
       ["-c", "user.name=e2e", "-c", "user.email=e2e@test", "-c", "commit.gpgsign=false", ...args],
       { cwd: dir, stdio: "pipe" },
     );
-  git("init");
+  // `-b main` e non `git init` liscio: il nome del ramo iniziale lo decide
+  // `init.defaultBranch`, cioe' la CONFIG DELLA MACCHINA. Su un portatile che
+  // ce l'ha impostato nasce `main` e le spec che leggono l'etichetta del ramo
+  // passano; sul runner, che non ha nessuna config globale, nasce `master` e la
+  // stessa asserzione cade — con un errore che parla di un locator, non di git.
+  // Misurato l'08/08 su `git-untracked-folder`: lo screenshot del runner mostra
+  // il pannello CORRETTO, «Non tracciata dal repo «e2e-host-repo-…»», ma senza
+  // « · main» accanto, e l'unica asserzione a cadere era quella sull'etichetta.
+  // Stessa famiglia dell'identita' passata con `-c` qui sopra: il test non deve
+  // dipendere da come e' configurata la macchina che lo esegue.
+  // `worktree-domain.spec.ts` e `board-diff-review.spec.ts` lo facevano gia'.
+  git("init", "-b", "main");
   git("add", "-A");
   git("commit", "-m", message);
 }

@@ -98,7 +98,18 @@ test.describe("@reopen-closed-tab reopen-closed-tab-history", () => {
     const { tabBar, tabs } = await closeLastTab(page);
 
     // Focus a neutral spot so the chord isn't swallowed by a text input.
-    await tabBar.click({ position: { x: 5, y: 5 } });
+    //
+    // `force: true` perche' questo click NON sta verificando niente: serve solo
+    // a togliere il fuoco da un campo di testo. Senza, Playwright pretende che
+    // il punto (5, 5) sia davvero raggiungibile, e li' sopra passa il
+    // `raised-control-overlay` (`absolute left-[1.5px] md:left-[5.5px]
+    // top-1/2`): quando lo copre, il click viene ritentato finche' il test
+    // muore a 30 s — ed e' la firma che il runner ha mostrato tre volte su tre
+    // l'08/08 (`waiting for element to be visible, enabled and stable`), mentre
+    // in locale passava. Due righe sopra, `closeLastTab` usa gia' `force` per
+    // lo stesso motivo. Un'attesa che non prova nulla non deve poter far
+    // fallire un test.
+    await tabBar.click({ position: { x: 5, y: 5 }, force: true });
     await page.waitForTimeout(100); // no observable post-focus signal to poll
     await page.keyboard.press("Meta+Shift+T");
 
