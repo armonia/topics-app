@@ -44,6 +44,20 @@ function proprietario(db: Database): { id: string; display_name: string } {
      ORDER BY io.is_default DESC LIMIT 1`).get() as { id: string; display_name: string };
 }
 
+/** Una persona della rubrica che NON è il proprietario: è il caso di chi era
+ *  stato aggiunto a mano prima che esistessero gli account. */
+function aggiungiPersona(db: Database, nome: string, email: string | null): string {
+  const id = `p-${nome.toLowerCase()}`;
+  db.query(`INSERT INTO people (id, display_name, email, created_at, revoked_at, origin, rev, updated_at)
+            VALUES (?,?,?,?,NULL,'local',0,?)`).run(id, nome, email, 1000, 1000);
+  return id;
+}
+
+function rigaPersona(db: Database, id: string): { email: string | null; remote_id: string | null } {
+  return db.query("SELECT email, remote_id FROM people WHERE id = ?")
+    .get(id) as { email: string | null; remote_id: string | null };
+}
+
 function risposta(status: number, corpo: unknown): Response {
   return new Response(JSON.stringify(corpo), { status, headers: { "content-type": "application/json" } });
 }
@@ -148,7 +162,10 @@ describe("attivazione · codice via email", () => {
     expect(v?.status).toBe(200);
     const b = await v!.json() as StatoSulFilo;
     expect(b.ok).toBe(true);
-    expect(b.reconciled).toBe("acting");
+    // Sul filo esce lo STATO e nient'altro: `reconciled` non c'è più, perché
+    // nessuna superficie lo leggeva — e un campo che nessuno legge è una
+    // promessa di compatibilità presa senza motivo.
+    expect(b.reconciled).toBeUndefined();
     expect(b.linked).toBe(true);
     expect(b.accountId).toBe("acct-77");
     expect(b.personId).toBe(io.id);
@@ -185,6 +202,79 @@ describe("attivazione · codice via email", () => {
     const r = await chiama(rotta, "POST", "/api/auth/account/code", { email: EMAIL });
     expect(r?.status).toBe(409);
     expect(await r!.json()).toEqual({ ok: false, code: "not_configured" });
+  });
+});
+
+describe("i tre verbi parlano della STESSA persona", () => {
+  let db: Database;
+  beforeEach(() => { db = dbFresco(); });
+
+  /**
+   * Il guasto che questo blocco tiene chiuso è invisibile a occhio: l'attivazione
+   * risponde `ok`, e il pannello — che subito dopo rilegge lo stato — torna a
+   * dire «nessun account collegato». Succedeva quando `verify` agganciava
+   * l'identità alla riga che porta quell'INDIRIZZO mentre `GET` e `DELETE`
+   * rispondevano di chi sta AGENDO: due persone diverse, tre verbi che non
+   * parlano più della stessa. E il danno non era solo cosmetico — `DELETE`
+   * cadeva sul ramo idempotente («questa persona non ha account, va bene lo
+   * stesso») e l'aggancio restava sulla riga altrui, senza nessun gesto per
+   * toglierlo.
+   */
+  test("l'indirizzo di UN'ALTRA riga si rifiuta invece di agganciarsi lì", async () => {
+    const rotta = createAccountRouter(creaCtx(db), {
+      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioBuono().f, now: () => 4242,
+    });
+    const io = proprietario(db);
+    // Mircea era in rubrica con QUELL'indirizzo, e non è chi sta agendo.
+    const mircea = aggiungiPersona(db, "Mircea", EMAIL);
+
+    const v = await chiama(rotta, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
+    expect(v?.status).toBe(409);
+    expect(await v!.json()).toEqual({ ok: false, code: "belongs_to_other_person" });
+
+    // Niente si è agganciato, né alla riga altrui né alla mia.
+    expect(rigaPersona(db, mircea).remote_id).toBeNull();
+    expect(rigaPersona(db, io.id).remote_id).toBeNull();
+
+    const s = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    expect(s.linked).toBe(false);
+    expect(s.personId).toBe(io.id);
+  });
+
+  test("quando l'indirizzo è GIÀ il mio: si collega, e GET e DELETE parlano di me", async () => {
+    // ── CONTROLLO POSITIVO del test qui sopra: lo STESSO servizio e lo STESSO
+    //    codice devono poter riuscire, altrimenti «si rifiuta» passerebbe anche
+    //    con una verifica rotta in ogni caso.
+    const rotta = createAccountRouter(creaCtx(db), {
+      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioBuono().f, now: () => 4242,
+    });
+    const io = proprietario(db);
+    // La mia riga porta quell'indirizzo da prima: è il ramo `email`, quello che
+    // riconosce chi era in rubrica prima di avere un account.
+    db.query("UPDATE people SET email = ? WHERE id = ?").run(EMAIL, io.id);
+
+    const v = await chiama(rotta, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
+    expect(v?.status).toBe(200);
+    const b = await v!.json() as StatoSulFilo;
+    expect(b.ok).toBe(true);
+    expect(b.linked).toBe(true);
+    expect(b.personId).toBe(io.id);
+
+    // La GET dice la stessa cosa della verifica: stessa persona, stesso account.
+    const dopo = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    expect(dopo.linked).toBe(true);
+    expect(dopo.accountId).toBe("acct-77");
+    expect(dopo.personId).toBe(b.personId);
+
+    // E staccare arriva DAVVERO alla riga che portava l'account: il ramo
+    // idempotente di `scollegaAccount` risponde `ok` anche quando non c'era
+    // niente da togliere, quindi la prova è la colonna, non lo stato.
+    const d = await chiama(rotta, "DELETE", "/api/auth/account");
+    expect(d?.status).toBe(200);
+    expect(((await d!.json()) as StatoSulFilo).linked).toBe(false);
+    expect(rigaPersona(db, io.id).remote_id).toBeNull();
+    // L'indirizzo resta: era un'etichetta della rubrica da prima dell'account.
+    expect(rigaPersona(db, io.id).email).toBe(EMAIL);
   });
 });
 
