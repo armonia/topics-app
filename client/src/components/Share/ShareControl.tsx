@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { componiLink } from '../../../../shared/relay-crypto';
 import { Share2, X, UserPlus, Globe, Copy, Check } from 'lucide-react';
+import { useT } from '../../hooks/useT';
+import { chiaveErroreAuth } from '../../lib/authErrors';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -70,6 +72,7 @@ const OGGETTO_LINK: Record<ResourceType, string> = {
 };
 
 export function ShareControl({ resourceType, resourceId }: { resourceType: ResourceType; resourceId: string }) {
+  const t = useT();
   const [aperto, setAperto] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
   const [soggetti, setSoggetti] = useState<Subject[]>([]);
@@ -124,7 +127,10 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
           subjectType: sog.subjectType, subjectId: sog.subjectId,
         }),
       });
-      if (!r.ok) setErrore(((await r.json()) as { error?: string }).error ?? 'Failed.');
+      // Il server manda un CODICE (`shared/auth-codes.ts`), non una frase: qui
+      // c'era `setErrore(body.error)`, che stampava la prosa italiana del
+      // server sotto un titolo inglese.
+      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
       await carica();
     } finally { setInCorso(false); }
   };
@@ -146,7 +152,7 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
         credentials: 'same-origin',
         body: JSON.stringify({ resourceType, resourceId }),
       });
-      if (!r.ok) { setErrore(((await r.json()) as { error?: string }).error ?? 'Failed.'); return; }
+      if (!r.ok) { setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error))); return; }
       const { ref, key } = await r.json() as { ref: string; key: string };
       setAppenaCreato(componiLink(relay.baseUrl, relay.installationId, ref, key));
       setCopiato(false);

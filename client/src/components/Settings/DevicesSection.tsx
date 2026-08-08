@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Smartphone, Trash2, Check, X as XIcon, Pencil, Monitor } from 'lucide-react';
+import { useT, useLocale } from '../../hooks/useT';
+import { chiaveErroreAuth } from '../../lib/authErrors';
 
 /**
  * I dispositivi autorizzati, e il gesto per toglierne uno.
@@ -48,20 +50,25 @@ interface Persona {
   owner: boolean;
 }
 
-function quando(ms: number | null): string {
-  if (!ms) return 'mai';
+/** Il `t` arriva da fuori: queste frasi sono interfaccia come le altre, e
+ *  lasciarle qui in chiaro voleva dire un pannello met\u00e0 tradotto. La data
+ *  lunga segue la lingua scelta, non un `it-IT` fisso. */
+function quando(ms: number | null, t: (k: string, v?: Record<string, string | number>) => string, locale: string): string {
+  if (!ms) return t('devices.when.never');
   const diff = Date.now() - ms;
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'adesso';
-  if (min < 60) return `${min} min fa`;
+  if (min < 1) return t('devices.when.now');
+  if (min < 60) return t('devices.when.min', { n: min });
   const ore = Math.floor(min / 60);
-  if (ore < 24) return `${ore} h fa`;
+  if (ore < 24) return t('devices.when.hours', { n: ore });
   const giorni = Math.floor(ore / 24);
-  if (giorni < 30) return `${giorni} g fa`;
-  return new Date(ms).toLocaleDateString('it-IT');
+  if (giorni < 30) return t('devices.when.days', { n: giorni });
+  return new Date(ms).toLocaleDateString(locale === 'it' ? 'it-IT' : 'en-GB');
 }
 
 export function DevicesSection() {
+  const t = useT();
+  const locale = useLocale();
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [computer, setComputer] = useState<{ name: string; current: boolean } | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -90,10 +97,10 @@ export function DevicesSection() {
       // montaggio: un guasto di due secondi diventava permanente, e l'unico
       // rimedio era riavviare l'app. Ora si riprova da soli, e comunque c'è un
       // bottone: un errore senza un gesto per uscirne è un vicolo cieco.
-      setErrore('Non riesco a leggere l’elenco dei dispositivi.');
+      setErrore(t('devices.loadFailed'));
       setDevices([]);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void carica(); }, [carica]);
 
@@ -165,7 +172,9 @@ export function DevicesSection() {
         credentials: 'same-origin',
         body: JSON.stringify({ personId }),
       });
-      if (!r.ok) setErrore(((await r.json()) as { error?: string }).error ?? 'Non riuscito.');
+      // Il server manda un CODICE (`shared/auth-codes.ts`); prima questa riga
+      // stampava la sua prosa italiana tale e quale.
+      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
       await carica();
     } finally {
       setInCorso(null);
@@ -192,10 +201,9 @@ export function DevicesSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[13px] font-semibold text-app-text">Dispositivi autorizzati</h3>
+        <h3 className="text-[13px] font-semibold text-app-text">{t('devices.title')}</h3>
         <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
-          Ogni dispositivo diverso da questo computer deve essere autorizzato una volta.
-          Il pallino verde segna chi è connesso adesso.
+          {t('devices.blurb')}
         </p>
       </div>
 
@@ -206,17 +214,16 @@ export function DevicesSection() {
             onClick={() => { setErrore(null); void carica(); }}
             className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
           >
-            Riprova
+            {t('devices.retry')}
           </button>
         </div>
       )}
 
-      {devices === null && <p className="text-[12px] text-app-text-muted">Carico…</p>}
+      {devices === null && <p className="text-[12px] text-app-text-muted">{t('devices.loading')}</p>}
 
       {devices !== null && attivi.length === 0 && !errore && (
         <p className="rounded-lg border border-app-border bg-app-hover/30 px-3 py-2.5 text-[12px] text-app-text-secondary">
-          Nessun altro dispositivo autorizzato. Apri Topics dal telefono sulla stessa rete
-          e comparirà qui una richiesta da approvare.
+          {t('devices.none')}
         </p>
       )}
 
@@ -233,12 +240,12 @@ export function DevicesSection() {
                 <span className="truncate text-[12.5px] text-app-text">{computer.name}</span>
                 {computer.current && (
                   <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
-                    stai qui
+                    {t('devices.youAreHere')}
                   </span>
                 )}
               </div>
               <div className="text-[11px] text-app-text-muted">
-                l’accesso non passa da una sessione
+                {t('devices.thisComputerNote')}
               </div>
             </div>
           </li>
@@ -250,7 +257,7 @@ export function DevicesSection() {
                 {d.connected && (
                   <span
                     className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-green-500"
-                    aria-label="connesso adesso"
+                    aria-label={t('devices.connectedNow')}
                   />
                 )}
               </span>
@@ -266,19 +273,19 @@ export function DevicesSection() {
                       if (e.key === 'Escape') setRinomina(null);
                     }}
                     onBlur={() => void salvaNome()}
-                    aria-label={`Nuovo nome per ${d.name}`}
+                    aria-label={t('devices.newNameFor', { nome: d.name })}
                     className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-[12.5px] text-app-text outline-none focus:border-primary"
                   />
                 ) : (
                   <button
                     onClick={() => setRinomina({ id: d.id, valore: d.name })}
                     className="group flex max-w-full items-center gap-1 text-left"
-                    title="Rinomina"
+                    title={t('devices.rename')}
                   >
                     <span className="truncate text-[12.5px] text-app-text">{d.name}</span>
                     {d.current && (
                       <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
-                        stai qui
+                        {t('devices.youAreHere')}
                       </span>
                     )}
                     {/* Solo l'ospite si marca. Un'etichetta su ogni riga
@@ -287,22 +294,22 @@ export function DevicesSection() {
                     {d.role === 'guest' && (
                       <span
                         className="flex-shrink-0 rounded bg-app-hover px-1.5 py-px text-[10px] text-app-text-secondary"
-                        title="Vede solo ciò che gli è stato condiviso, in sola lettura"
+                        title={t('devices.guestTitle')}
                         data-testid="device-role-guest"
                       >
-                        ospite
+                        {t('devices.guest')}
                       </span>
                     )}
                     <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
                   </button>
                 )}
                 <div className="text-[11px] text-app-text-muted">
-                  {d.connected ? 'connesso adesso' : `visto ${quando(d.lastSeenAt)}`}
-                  {d.firstIp && ` · da ${d.firstIp.replace(/^::ffff:/, '')}`}
+                  {d.connected ? t('devices.connectedNow') : t('devices.seen', { quando: quando(d.lastSeenAt, t, locale) })}
+                  {d.firstIp && ` · ${t('devices.fromIp', { ip: d.firstIp.replace(/^::ffff:/, '') })}`}
                   {/* DI CHI è. Si mostra solo se ci sono davvero più persone:
                       a un utente solo, «di Proprietario» su ogni riga è rumore
                       che non distingue niente. */}
-                  {persone.length > 1 && d.person && ` · di ${d.person.name}`}
+                  {persone.length > 1 && d.person && ` · ${t('devices.ofPerson', { nome: d.person.name })}`}
                 </div>
 
                 {/* Spostare il dispositivo su un'altra persona: la correzione
@@ -311,7 +318,7 @@ export function DevicesSection() {
                 {persone.length > 1 && (
                   sposta === d.id ? (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <span className="text-[11px] text-app-text-secondary">Di chi è?</span>
+                      <span className="text-[11px] text-app-text-secondary">{t('devices.whose')}</span>
                       {persone.map((p) => (
                         <button
                           key={p.id}
@@ -323,14 +330,14 @@ export function DevicesSection() {
                               : 'border-app-border text-app-text hover:bg-app-hover'
                           }`}
                         >
-                          {p.name}{p.owner ? ' (tu)' : ''}
+                          {p.name}{p.owner ? ` ${t('devices.you')}` : ''}
                         </button>
                       ))}
                       <button
                         onClick={() => setSposta(null)}
                         className="rounded px-1.5 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
                       >
-                        annulla
+                        {t('devices.cancel')}
                       </button>
                     </div>
                   ) : (
@@ -339,7 +346,7 @@ export function DevicesSection() {
                       data-testid="device-move-person"
                       className="mt-0.5 text-[11px] text-app-text-tertiary underline decoration-dotted underline-offset-2 hover:text-app-text"
                     >
-                      è di un'altra persona
+                      {t('devices.otherPerson')}
                     </button>
                   )
                 )}
@@ -347,9 +354,9 @@ export function DevicesSection() {
 
               {conferma === d.id ? (
                 <div className="flex flex-shrink-0 items-center gap-1">
-                  <span className="mr-1 text-[11px] text-app-text-secondary">Revocare?</span>
+                  <span className="mr-1 text-[11px] text-app-text-secondary">{t('devices.revokeQuestion')}</span>
                   <button
-                    aria-label="Conferma revoca"
+                    aria-label={t('devices.confirmRevoke')}
                     disabled={inCorso === d.id}
                     onClick={() => void revoca(d.id)}
                     className="rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
@@ -357,7 +364,7 @@ export function DevicesSection() {
                     <Check size={13} />
                   </button>
                   <button
-                    aria-label="Annulla"
+                    aria-label={t('devices.cancelLabel')}
                     onClick={() => setConferma(null)}
                     className="rounded p-1 text-app-text-tertiary hover:bg-app-hover"
                   >
@@ -366,10 +373,10 @@ export function DevicesSection() {
                 </div>
               ) : (
                 <button
-                  aria-label={`Revoca ${d.name}`}
+                  aria-label={t('devices.revokeName', { nome: d.name })}
                   onClick={() => setConferma(d.id)}
                   className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-red-500"
-                  title="Revoca l'accesso a questo dispositivo"
+                  title={t('devices.revokeTitle')}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -381,14 +388,14 @@ export function DevicesSection() {
       {revocati.length > 0 && (
         <div>
           <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-            Revocati
+            {t('devices.revokedHeading')}
           </h4>
           <ul className="space-y-1" data-testid="devices-revoked">
             {revocati.map((d) => (
               <li key={d.id} className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-app-text-muted">
                 <Smartphone size={12} className="flex-shrink-0 opacity-50" />
                 <span className="truncate line-through">{d.name}</span>
-                <span className="ml-auto flex-shrink-0 text-[11px]">revocato {quando(d.revokedAt)}</span>
+                <span className="ml-auto flex-shrink-0 text-[11px]">{t('devices.revokedWhen', { quando: quando(d.revokedAt, t, locale) })}</span>
               </li>
             ))}
           </ul>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { User, Pencil, Plus, X, Trash2, Lock } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { chiaveErroreAuth } from '../../lib/authErrors';
 import { useConfirm } from '../../hooks/useConfirm';
 
 /**
@@ -103,6 +104,8 @@ export function IdentitySection() {
   const [rifiuto, setRifiuto] = useState<'noSeats' | 'generico' | null>(null);
   const [nuovoGruppo, setNuovoGruppo] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
+  /** La chiave della frase se l'ultima cancellazione è stata rifiutata. */
+  const [rifiutoCancella, setRifiutoCancella] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     try {
@@ -126,10 +129,11 @@ export function IdentitySection() {
     try {
       const r = await fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { members?: Membro[] } : null;
-      // Chi è stato tolto resta nel database — serve perché il blocco locale
-      // sopravviva a una sincronizzazione — ma non ha motivo di stare in un
-      // elenco di chi c'è.
-      setMembri((b?.members ?? []).filter((m) => !m.blocked));
+      // I TOLTI restano nell'array, non nell'elenco di chi c'è: si separano
+      // sotto (`tolti`). Buttarli via qui era il motivo per cui una persona
+      // invitata per sbaglio diventava irraggiungibile — fuori da ogni
+      // schermata e dentro il database per sempre.
+      setMembri(b?.members ?? []);
     } catch { setMembri([]); }
   }, []);
 
@@ -219,6 +223,37 @@ export function IdentitySection() {
     await ricarica();
   };
 
+  /**
+   * Cancellare una persona dalla RUBRICA, che non è toglierla dal gruppo.
+   *
+   * Sono due gesti e restano due: togliere è reversibile — la si rimette
+   * dentro — cancellare no. Prima questo secondo gesto non esisteva affatto, e
+   * `people.revoked_at` era una colonna letta in otto punti che nessuna
+   * schermata poteva scrivere: una persona invitata per sbaglio restava lì per
+   * sempre.
+   */
+  const cancellaPersona = async (m: Membro) => {
+    if (!await conferma({
+      title: t('identity.deletePerson', { nome: m.name }),
+      body: t('identity.deletePersonConfirm', { nome: m.name }),
+      confirmLabel: t('identity.deletePerson', { nome: m.name }),
+    })) return;
+    setInCorso(true);
+    try {
+      const r = await fetch(`/api/auth/people/${encodeURIComponent(m.id)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      });
+      // Il server manda un CODICE: la frase la sceglie qui l'interfaccia.
+      if (!r.ok) {
+        const corpo = await r.json().catch(() => null) as { error?: string } | null;
+        setRifiutoCancella(chiaveErroreAuth(corpo?.error));
+        return;
+      }
+      setRifiutoCancella(null);
+      await ricarica();
+    } finally { setInCorso(false); }
+  };
+
   const cambiaRuolo = async (m: Membro, ruolo: Ruolo) => {
     if (!scelto || ruolo === m.role) return;
     setInCorso(true);
@@ -271,7 +306,10 @@ export function IdentitySection() {
   // una sezione vuota che sembra rotta.
   if (!io?.person) return null;
 
-  const soloTu = membri.length <= 1;
+  // I due elenchi. `tolti` esiste per un gesto solo: cancellare davvero.
+  const presenti = membri.filter((m) => !m.blocked);
+  const tolti = membri.filter((m) => m.blocked);
+  const soloTu = presenti.length <= 1;
   const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary';
 
   return (
@@ -359,7 +397,7 @@ export function IdentitySection() {
           </div>
         )}
 
-        {membri.map((m) => (
+        {presenti.map((m) => (
           <div key={m.id} className="group border-b border-app-border px-3 py-2 last:border-b-0">
             {modifica?.tipo === 'persona' && modifica.id === m.id ? (
               <div className="space-y-1.5">
@@ -510,6 +548,41 @@ export function IdentitySection() {
           </div>
         )}
       </div>
+
+      {/* ── I TOLTI, e il gesto che li cancella davvero.
+          Coda separata e in sordina, come i «Revocati» dei dispositivi: sono
+          usciti dal gruppo, non dalla schermata. Esiste perché senza di lei una
+          persona invitata per sbaglio non era raggiungibile da nessun posto —
+          `people.revoked_at` era letta in otto punti e scrivibile da nessuno. */}
+      {amministra && tolti.length > 0 && (
+        <div>
+          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+            {t('identity.removedHeading')}
+          </h4>
+          <ul className="space-y-1" data-testid="identity-removed">
+            {tolti.map((m) => (
+              <li key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text-muted">
+                <User size={12} className="flex-shrink-0 opacity-50" />
+                <span className="min-w-0 flex-1 truncate line-through">{m.name}</span>
+                <button
+                  disabled={inCorso}
+                  onClick={() => void cancellaPersona(m)}
+                  title={t('identity.deletePerson', { nome: m.name })}
+                  aria-label={t('identity.deletePerson', { nome: m.name })}
+                  className="flex-shrink-0 rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {/* Il rifiuto DICE cosa fare prima: «ha ancora un dispositivo» è una
+              condizione da sciogliere, non un divieto. */}
+          {rifiutoCancella && (
+            <p className="mt-1 px-3 text-[11px] leading-snug text-app-text-secondary">{t(rifiutoCancella)}</p>
+          )}
+        </div>
+      )}
 
       {nuovoGruppo === null ? (
         <button
