@@ -153,21 +153,36 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     expect(rigaPersona(db, io.id).display_name).toBe(io.display_name);
   });
 
-  test("riattivare lo stesso account ritrova la stessa riga per `remote_id`", () => {
+  test("riattivare lo stesso account sulla propria riga è idempotente e la ritrova", () => {
     const io = proprietario(db);
     collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
     const prima = quantePersone(db);
 
-    // Stavolta chi agisce è un ALTRO: senza il passo 1 finirebbe su di lui.
-    const altro = aggiungiPersona(db, "Ospite", null);
-    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: altro, now: 9000 });
+    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 9000 });
+    // `remote_id` e non `acting`: la riga portava GIÀ questo account, ed è
+    // l'unico modo per distinguere una riattivazione da una prima attivazione.
     expect(e).toEqual({ ok: true, personId: io.id, come: "remote_id" });
-    expect(quantePersone(db)).toBe(prima + 1); // solo quella aggiunta a mano qui sopra
-    expect(rigaPersona(db, altro).remote_id).toBeNull();
+    expect(quantePersone(db)).toBe(prima);
     expect(rigaPersona(db, io.id).synced_at).toBe(9000);
   });
 
-  test("chi era in rubrica per indirizzo È quella persona: non se ne crea una seconda", () => {
+  test("chi era in rubrica CON QUELL'INDIRIZZO viene riconosciuto, non duplicato", () => {
+    // La riga di chi agisce porta l'indirizzo da prima che esistesse un account:
+    // è il caso di chi era stato aggiunto a mano alla rubrica.
+    const io = proprietario(db);
+    db.query("UPDATE people SET email = ? WHERE id = ?").run("attilio@esempio.test", io.id);
+    const prima = quantePersone(db);
+
+    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
+    expect(e).toEqual({ ok: true, personId: io.id, come: "email" });
+    expect(quantePersone(db)).toBe(prima);
+    expect(rigaPersona(db, io.id).remote_id).toBe("acct-77");
+  });
+
+  test("un indirizzo che è di UN'ALTRA riga si rifiuta, invece di agganciarsi lì", () => {
+    // Il guasto che questo chiude: l'identità finiva sulla riga trovata per
+    // indirizzo, che NON è chi agisce — e da lì in poi «ho un account?» aveva
+    // due risposte, con `DELETE` incapace di raggiungere l'aggancio.
     const io = proprietario(db);
     const invitato = aggiungiPersona(db, "Mircea", "mircea@esempio.test");
     const prima = quantePersone(db);
@@ -177,11 +192,26 @@ describe("aggancio · non nasce mai una persona nuova", () => {
       actingPersonId: io.id,
       now: 7000,
     });
-    expect(e).toEqual({ ok: true, personId: invitato, come: "email" });
+    expect(e).toEqual({ ok: false, codice: "belongs_to_other_person" });
     expect(quantePersone(db)).toBe(prima);
-    expect(rigaPersona(db, invitato).remote_id).toBe("acct-9");
-    // Il proprietario resta intatto: l'account non è suo.
+    expect(rigaPersona(db, invitato).remote_id).toBeNull();
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
+  });
+
+  test("un account che è di UN'ALTRA riga si rifiuta: l'indice unico lo direbbe comunque, ma peggio", () => {
+    const io = proprietario(db);
+    collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
+    const prima = quantePersone(db);
+
+    // Un secondo dispositivo, un'altra persona alla tastiera, lo stesso account.
+    const altro = aggiungiPersona(db, "Ospite", null);
+    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: altro, now: 9000 });
+    expect(e).toEqual({ ok: false, codice: "belongs_to_other_person" });
+    expect(quantePersone(db)).toBe(prima + 1); // solo quella aggiunta a mano qui sopra
+    expect(rigaPersona(db, altro).remote_id).toBeNull();
+    // E la riga che l'account ce l'ha davvero non è stata toccata.
+    expect(rigaPersona(db, io.id).synced_at).toBe(7000);
+    expect(rigaPersona(db, io.id).rev).toBe(1);
   });
 
   test("chi porta già un ALTRO account non se lo vede sostituire in silenzio", () => {
@@ -216,11 +246,32 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
   });
 
+  test("un ACCOUNT che appartiene a una persona REVOCATA si dichiara, non si aggira", () => {
+    // Come per l'indirizzo: `idx_people_remote` è UNIQUE e le righe revocate non
+    // le esclude, quindi riscrivere quel valore altrove salterebbe comunque.
+    const io = proprietario(db);
+    const uscito = aggiungiPersona(db, "Uscito", "uscito@esempio.test", true);
+    db.query("UPDATE people SET remote_id = ? WHERE id = ?").run("acct-77", uscito);
+    const prima = quantePersone(db);
+
+    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
+    expect(e).toEqual({ ok: false, codice: "person_revoked" });
+    expect(quantePersone(db)).toBe(prima);
+    expect(rigaPersona(db, io.id).remote_id).toBeNull();
+  });
+
   test("senza nessuna persona a cui agganciarsi si rifiuta, e non se ne inventa una", () => {
     const prima = quantePersone(db);
-    const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: null, now: 7000 });
-    expect(e).toEqual({ ok: false, codice: "no_person" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: null, now: 7000 }))
+      .toEqual({ ok: false, codice: "no_person" });
+    expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: "mai-esistita", now: 7000 }))
+      .toEqual({ ok: false, codice: "no_person" });
+    // E una riga revocata non si resuscita agganciandole un account.
+    const uscito = aggiungiPersona(db, "Uscito", null, true);
+    expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: uscito, now: 7000 }))
+      .toEqual({ ok: false, codice: "no_person" });
+    expect(rigaPersona(db, uscito).remote_id).toBeNull();
+    expect(quantePersone(db)).toBe(prima + 1); // solo `Uscito`
   });
 
   test("un carico senza account o senza indirizzo non si interpreta", () => {

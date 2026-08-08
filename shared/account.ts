@@ -41,6 +41,13 @@ export const CODICI_ACCOUNT = [
   /** Quella persona porta GIÀ un altro account: sovrascriverlo in silenzio
    *  sposterebbe un'identità senza che nessuno l'abbia chiesto. */
   'already_linked_other',
+  /** L'account o l'indirizzo che stai attivando vivono su un'ALTRA riga della
+   *  rubrica di questa macchina. Un solo codice per le due direzioni perché è
+   *  lo stesso fatto visto da due chiavi, e il rimedio è uno: quella riga.
+   *  Agganciarsi lì comunque sarebbe il guasto peggiore di tutti — l'attivazione
+   *  risponderebbe «fatto» su una persona diversa da quella di cui `GET` e
+   *  `DELETE` parlano, e l'aggancio resterebbe senza nessun gesto per toglierlo. */
+  'belongs_to_other_person',
   /** La riga che quell'account o quell'indirizzo indicano è REVOCATA.
    *  Agganciarcisi la resusciterebbe; scrivere quei valori su un'altra riga
    *  sbatte contro gli indici unici di `people(remote_id)` e `people(email)`,
