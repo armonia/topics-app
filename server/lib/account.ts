@@ -17,19 +17,29 @@
  * l'unico gesto ammesso: si TROVA la persona giusta e le si scrive addosso
  * l'identità remota.
  *
- * ── COME SI TROVA «LA PERSONA GIUSTA», IN QUEST'ORDINE ──────────────────────
- *   1. `remote_id = accountId` — l'identità remota è la chiave più forte, e
- *      sopravvive a un cambio di indirizzo. È il caso della RIATTIVAZIONE: chi
- *      rifà l'attivazione sulla stessa macchina ritrova la propria riga.
- *   2. `email` — lo stesso essere umano, conosciuto qui per indirizzo. È il
- *      caso di chi era stato aggiunto a mano alla rubrica prima di avere un
- *      account: quella riga è già lui, e crearne una seconda sarebbe uno
- *      sdoppiamento che poi nessuno sa più smontare.
- *   3. la persona che sta AGENDO (`actingPersonId`) — la prima attivazione, il
- *      caso normale: il proprietario dell'installazione si prende il proprio
- *      account.
+ * ── «LA PERSONA GIUSTA» È SEMPRE CHI STA AGENDO ─────────────────────────────
+ * L'identità atterra sulla riga di `actingPersonId` o su NESSUNA. Non è una
+ * semplificazione: è l'unica scelta che tiene d'accordo i tre verbi della rotta
+ * (`server/routes/account.ts`), che alla domanda «chi sono» rispondono tutti
+ * con la persona che agisce. Quando `verify` agganciava invece la riga trovata
+ * per indirizzo, l'attivazione rispondeva «fatto» su una persona e la lettura
+ * subito dopo diceva «nessun account collegato» su un'altra — con `DELETE` che
+ * cadeva sul proprio ramo idempotente e lasciava l'aggancio dov'era, senza più
+ * un gesto per toglierlo. È la stessa ORG-02 di sopra, arrivata per un'altra
+ * strada: due «te», e nessuna domanda con una sola risposta.
  *
- * Su UNA SECONDA INSTALLAZIONE il passo 3 è quello che scatta, e va letto bene:
+ * Le altre due chiavi restano, ma come CONTROLLI e non come bersagli:
+ *   - `remote_id = accountId` su un'altra riga → si rifiuta. `idx_people_remote`
+ *     è UNIQUE: scrivere quel valore qui salterebbe comunque, a runtime.
+ *   - `email` su un'altra riga → si rifiuta, per lo stesso indice su
+ *     `people(email)`. È il caso di chi era stato aggiunto a mano alla rubrica:
+ *     quella riga va sistemata dall'umano (è lui? è un altro?), e finché non lo
+ *     è, un `belongs_to_other_person` dice cosa c'è di mezzo. Sceglierlo per
+ *     conto suo vorrebbe dire spostare un'identità che non è nostra.
+ * Ciò che resta è il RICONOSCIMENTO (`ComeRiconciliato`): la riga di chi agisce
+ * portava già questo account, o già quell'indirizzo, o nessuno dei due.
+ *
+ * Su UNA SECONDA INSTALLAZIONE è la prima attivazione a scattare, e va letta bene:
  * il DB è un altro, la riga è un'altra, ma dopo l'attivazione le DUE righe
  * portano lo STESSO `remote_id`. È esattamente ciò che «riconciliare sulla
  * stessa persona» significa in un sistema in cui ogni installazione ha il
@@ -161,9 +171,19 @@ export function statoAccount(db: Db, personId: string | null, configured: boolea
 // L'AGGANCIO
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Da quale delle tre strade è uscita la persona. Esce sul filo perché
- *  «riconciliato con una riga che c'era» e «preso il proprietario» sono due
- *  fatti diversi, e l'interfaccia deve poterli raccontare diversamente. */
+/**
+ * Da COSA la riga di chi agisce è stata riconosciuta — non «quale riga è stata
+ * scelta», che è sempre e solo quella di chi agisce (vedi `collegaAccount`):
+ *   - `remote_id`: portava già QUESTO account. È una riattivazione.
+ *   - `email`: portava già quell'indirizzo, da prima che ci fosse un account.
+ *   - `acting`: né l'uno né l'altro. È la prima attivazione.
+ *
+ * NON esce sul filo. C'era, e nessuna superficie lo leggeva: un campo che
+ * nessuno legge è una promessa di compatibilità presa senza motivo, e il giorno
+ * in cui una schermata vorrà dire «bentornato» lo si rimette insieme al suo
+ * lettore. Qui resta perché è l'unico modo, per un test, di vedere QUALE dei
+ * tre riconoscimenti è scattato: senza, i tre casi si somigliano tutti.
+ */
 export type ComeRiconciliato = "remote_id" | "email" | "acting";
 
 export type EsitoCollega =
@@ -204,54 +224,45 @@ export function collegaAccount(
   const accountId = o.identita.accountId.trim();
   if (!accountId) return { ok: false, codice: "bad_response" };
 
-  let bersaglio: string | null = null;
-  let come: ComeRiconciliato = "acting";
-
   try {
-    // 1. L'identità remota. Include le righe revocate di proposito: se questo
-    //    account era già agganciato a una persona che poi è stata revocata,
-    //    riattivarlo su un'ALTRA riga creerebbe due righe con lo stesso
-    //    `remote_id` — e `idx_people_remote` è UNIQUE, quindi salterebbe a
-    //    runtime nel punto peggiore. Meglio dirlo.
+    // 1. IL BERSAGLIO È CHI STA AGENDO. Sempre, senza eccezioni: è ciò che tiene
+    //    d'accordo i tre verbi della rotta, che alla domanda «chi sono» rispondono
+    //    tutti con `actingPersonId`. Agganciare l'identità a una riga diversa
+    //    faceva rispondere «fatto» a `verify` e «nessun account» alla `GET`
+    //    subito dopo, con `DELETE` che cadeva sul proprio ramo idempotente e
+    //    lasciava l'aggancio dov'era, irraggiungibile.
+    if (!o.actingPersonId) return { ok: false, codice: "no_person" };
+    const io = db.query(
+      "SELECT id, remote_id, revoked_at FROM people WHERE id = ?",
+    ).get(o.actingPersonId) as RigaPersona | undefined;
+    if (!io || io.revoked_at !== null) return { ok: false, codice: "no_person" };
+
+    // 2. LE DUE CHIAVI UNICHE, prima di scrivere. `idx_people_remote` e l'indice
+    //    su `people(email)` sono UNIQUE e NON escludono le righe revocate:
+    //    scrivere un valore che vive su un'altra riga salterebbe comunque, a
+    //    runtime, nel punto peggiore. Qui si dichiara invece di scoprirlo.
     const perRemote = db.query(
       "SELECT id, remote_id, revoked_at FROM people WHERE remote_id = ?",
     ).get(accountId) as RigaPersona | undefined;
-    if (perRemote) {
-      if (perRemote.revoked_at !== null) return { ok: false, codice: "person_revoked" };
-      bersaglio = perRemote.id;
-      come = "remote_id";
+    if (perRemote && perRemote.id !== io.id) {
+      return { ok: false, codice: perRemote.revoked_at !== null ? "person_revoked" : "belongs_to_other_person" };
+    }
+    const perEmail = db.query(
+      "SELECT id, remote_id, revoked_at FROM people WHERE lower(email) = ?",
+    ).get(email) as RigaPersona | undefined;
+    if (perEmail && perEmail.id !== io.id) {
+      return { ok: false, codice: perEmail.revoked_at !== null ? "person_revoked" : "belongs_to_other_person" };
     }
 
-    // 2. L'indirizzo. Anche qui le revocate contano: l'indice unico su
-    //    `people(email)` non le esclude, quindi scrivere quell'indirizzo su
-    //    un'altra riga fallirebbe comunque.
-    if (!bersaglio) {
-      const perEmail = db.query(
-        "SELECT id, remote_id, revoked_at FROM people WHERE lower(email) = ?",
-      ).get(email) as RigaPersona | undefined;
-      if (perEmail) {
-        if (perEmail.revoked_at !== null) return { ok: false, codice: "person_revoked" };
-        if (perEmail.remote_id && perEmail.remote_id !== accountId) {
-          return { ok: false, codice: "already_linked_other" };
-        }
-        bersaglio = perEmail.id;
-        come = "email";
-      }
+    // 3. E se la mia riga porta GIÀ un altro account, non glielo si sostituisce
+    //    in silenzio: sposterebbe un'identità senza che nessuno l'abbia chiesto.
+    if (io.remote_id && io.remote_id !== accountId) {
+      return { ok: false, codice: "already_linked_other" };
     }
 
-    // 3. Chi sta agendo. È la prima attivazione, ed è il caso normale.
-    if (!bersaglio) {
-      if (!o.actingPersonId) return { ok: false, codice: "no_person" };
-      const attuale = db.query(
-        "SELECT id, remote_id, revoked_at FROM people WHERE id = ?",
-      ).get(o.actingPersonId) as RigaPersona | undefined;
-      if (!attuale || attuale.revoked_at !== null) return { ok: false, codice: "no_person" };
-      if (attuale.remote_id && attuale.remote_id !== accountId) {
-        return { ok: false, codice: "already_linked_other" };
-      }
-      bersaglio = attuale.id;
-      come = "acting";
-    }
+    const bersaglio = io.id;
+    const come: ComeRiconciliato =
+      io.remote_id === accountId ? "remote_id" : perEmail ? "email" : "acting";
 
     const nome = (o.identita.displayName ?? "").trim();
     // `rev` sale e `updated_at` si muove perché questa riga è appena diventata

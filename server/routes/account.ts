@@ -112,12 +112,11 @@ export function createAccountRouter(ctx: AppContext, deps: DipendenzeAccount = {
 
       // Lo stato esce dalla STESSA funzione della `GET`, e non ricomposto a
       // mano: due forme della stessa risposta sono due risposte che col tempo
-      // si allontanano, e la seconda nessuno la rilegge.
-      return json({
-        ok: true,
-        reconciled: agganciato.come,
-        ...statoAccount(db as never, agganciato.personId, true),
-      });
+      // si allontanano, e la seconda nessuno la rilegge. E parla della stessa
+      // persona: `collegaAccount` aggancia l'identità a chi agisce o a nessuno,
+      // quindi `agganciato.personId` è la persona di cui rispondono anche la
+      // `GET` e la `DELETE` qui sotto.
+      return json({ ok: true, ...statoAccount(db as never, agganciato.personId, true) });
     }
 
     // ── Staccarsi. Gesto LOCALE: funziona senza rete, e deve — altrimenti un

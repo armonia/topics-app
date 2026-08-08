@@ -238,6 +238,7 @@ const IT: Dict = {
   'account.err.bad_code': 'Codice sbagliato o scaduto.',
   'account.err.no_person': 'Non c’è una persona a cui intestare l’account su questa installazione.',
   'account.err.already_linked_other': 'Questa persona ha già un altro account. Scollegalo prima.',
+  'account.err.belongs_to_other_person': 'Quell’indirizzo è già di un’altra persona della rubrica di questa macchina. Sistema quella scheda in Persone, poi riprova.',
   'account.err.person_revoked': 'Quell’indirizzo appartiene a una persona che è stata rimossa da qui.',
   'account.err.unavailable': 'Gli account non sono disponibili su questo database.',
   // Qui c'erano quattro `settings.language*`: nessuna superficie le ha mai
@@ -433,6 +434,7 @@ const EN: Dict = {
   'account.err.bad_code': 'Wrong or expired code.',
   'account.err.no_person': 'There is no person to attach the account to on this installation.',
   'account.err.already_linked_other': 'This person already has another account. Unlink it first.',
+  'account.err.belongs_to_other_person': 'That address already belongs to another person in this machine’s address book. Fix that entry under People, then try again.',
   'account.err.person_revoked': 'That address belongs to a person who was removed from here.',
   'account.err.unavailable': 'Accounts are not available on this database.',
 };
