@@ -461,8 +461,19 @@
  *   bordo     hsl(220 14% 84%) = #d0d4dc → 1,256:1  (era 1,036)
  *   sottile   hsl(220 14% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
  * La tinta è fredda come il chrome: un grigio neutro su un fondo blu-grigio
- * si legge sporco. */
-[role="navigation"][aria-label="Topics sidebar"] {
+ * si legge sporco.
+ *
+ * LA BARRA DEI PROGETTI STA NELLA STESSA LISTA, e ci è entrata dopo: fino
+ * all'08/08 dipingeva `bg-elevated` (#fafafa in chiaro), cioè era la superficie
+ * più CHIARA della finestra — più della pagina — mentre dichiarava di essere
+ * chrome con la classe `.chrome-glass`. La contraddizione non si vedeva dal Mac
+ * perché lì è la vibrancy a dipingere; si vedeva sul web e su Windows/Linux.
+ * Portata sul token giusto, si porta dietro la stessa ritaratura: stesso fondo,
+ * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
+ * come erano tornati qui. */
+[role="navigation"][aria-label="Topics sidebar"],
+[data-testid="project-sidebar"],
+[data-testid="project-sidebar-rail"] {
   --text-tertiary: hsl(220 8% 42%);
   --border: hsl(220 14% 84%);
   --border-subtle: hsl(220 14% 88%);
@@ -471,7 +482,9 @@
    e batterebbe il blocco `.dark` (0,1,0), quindi senza questa riga il tema
    scuro erediterebbe i valori CHIARI dentro la sidebar. I valori sono quelli
    di `.dark`, ripetuti solo per rivincere. */
-.dark [role="navigation"][aria-label="Topics sidebar"] {
+.dark [role="navigation"][aria-label="Topics sidebar"],
+.dark [data-testid="project-sidebar"],
+.dark [data-testid="project-sidebar-rail"] {
   --text-tertiary: #969ca6;
   --border: hsl(220 11% 18%);
   --border-subtle: hsl(220 12% 15%);
@@ -636,7 +649,9 @@
  * nudo: fuori dalla colonna il fondo è bianco e lì `--primary` va bene com'è.
  * Solo la proprietà `color`: `bg-primary` resta #0066ff, perché lì il problema
  * è il bianco SOPRA e su un blu più scuro migliora, non peggiora. */
-html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary {
+html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary,
+html:not(.dark) [data-testid="project-sidebar"] .text-primary,
+html:not(.dark) [data-testid="project-sidebar-rail"] .text-primary {
   color: var(--primary-ink-chrome);
 }
 
