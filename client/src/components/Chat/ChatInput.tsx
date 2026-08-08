@@ -1343,12 +1343,11 @@ export function ChatInput({
               disabled={uploading}
             />
             <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
-          </div>
 
-            {/* FUORI DALLA CARD: i controlli della sessione. Non sono il
-                messaggio, sono le condizioni con cui parte — «+» in testa, i
-                permessi subito dopo, e in coda microfono e invio. */}
-            <div className="flex items-center gap-1 px-0.5 pt-1.5">
+            {/* DENTRO la card, con il testo: i tre gesti che agiscono sul
+                MESSAGGIO — aggiungere («+»), dettare, spedire. Sono la stessa
+                cosa del testo, quindi stanno nello stesso recinto. */}
+            <div className="flex items-center gap-1 px-1.5 pb-1.5">
               <AddMenu
                 onAttach={() => fileInputRef.current?.click()}
                 onExport={onExportConversation}
@@ -1370,121 +1369,9 @@ export function ChatInput({
                 }}
               />
 
-              {/* I controlli di sessione. min-w-0 li lascia stringere sotto la
-                  loro larghezza naturale; overflow-x-auto li fa SCORRERE invece
-                  di tagliarli (o di spingere Invia fuori riga) quando la pane
-                  non li tiene tutti.
-                  Perche' scorra davvero, i bottoni dentro devono essere
-                  `flex-shrink-0`: senza, il default `flex-shrink: 1` li
-                  SCHIACCIAVA invece di farli traboccare — a 390px di viewport
-                  i quadrati da 32px misuravano 20.9px (misurato da
-                  `chat-layout-audit`, sotto il minimo WCAG 2.2 di 24px), con
-                  l'icona da 16px in un box storto. Il contenitore prometteva
-                  lo scroll e i figli non glielo lasciavano fare. */}
-              <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
-                {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
-                    decide se l'agente può toccare i tuoi file, ed è quindi la
-                    cosa da guardare prima di premere invio — non l'ultima
-                    pastiglia in fondo alla fila. Le altre tre dicono COME
-                    risponde (veloce, quale modello, quanto ci pensa) e stanno
-                    dietro, nell'ordine in cui le si cambia. */}
-                {onAutonomyChange && (
-                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
-                )}
-                {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
-                    stessa cosa: un interruttore in localStorage che iniettava
-                    una RICHIESTA nel prompt («sei in plan mode, non toccare
-                    niente») e che nessuno faceva rispettare, a quattro bottoni
-                    di distanza dal selettore di autonomia — stessa icona, colore
-                    diverso — che invece passa `--permission-mode plan` alla CLI
-                    e i file non li fa proprio scrivere. Potevano contraddirsi,
-                    e non si sincronizzava fra dispositivi.
-                    La leva ora è una: «Propone prima» nel selettore qui accanto.
-                    Il blocco di prompt non è andato perso — lo inietta la route
-                    quando l'autonomia è `ask` (routes/chat.ts), così il piano
-                    esce nel formato di sempre. */}
-                {onToggleFastMode && fastUi && (
-                  <button
-                    type="button"
-                    onClick={onToggleFastMode}
-                    className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
-                      fastUi.pressed
-                        ? 'text-amber-500 bg-amber-500/10'
-                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                    }`}
-                    title={fastUi.title}
-                    aria-label="Toggle fast mode"
-                    aria-pressed={fastUi.pressed}
-                    data-testid="chat-input-fast-mode"
-                  >
-                    {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
-                        Ne aveva dieci, di significati: il modello, l'autonomia
-                        «Agisce», la corsa di tool, i processi del progetto, un
-                        cron armato, un KPI, `/status`, la pane morta. Tre di
-                        quelli stavano in QUESTA riga insieme a questo, quindi il
-                        lampo non insegnava niente a nessuno. Adesso resta qui e
-                        nella sezione «Prestazioni» del changelog — stessa cosa,
-                        detta due volte. Prima di metterne un altro: dice
-                        «veloce»? Se no, non è questo il glifo.
-                        PIENO quando è acceso: in una riga tutta di contorni il
-                        solo colore ambra non bastava a dire «attivo». */}
-                    <Zap size={fastUi.costMultiplier ? 14 : 16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
-                    {/* Quanto costa: 2× lo stesso modello a velocità normale, dal
-                        listino che la CLI scrive nei suoi stessi documenti
-                        (10$/50$ contro 5$/25$ per 1M). «Più veloce» da solo non
-                        è un'informazione finché non dici quanto costa.
-                        Non interattivo: un badge che entrasse nel conteggio dei
-                        bersagli tattili sarebbe un secondo bottone da 12px dentro
-                        il primo. */}
-                    {fastUi.costMultiplier && (
-                      <span
-                        className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
-                        data-testid="fast-mode-cost"
-                      >{fastUi.costMultiplier}×</span>
-                    )}
-                  </button>
-                )}
-                {!isDraftTopic && (
-                  <button
-                    ref={contextBtnRef}
-                    type="button"
-                    onClick={handleContextRingClick}
-                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
-                      showContextPopover
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                    }`}
-                    title={ringTitle}
-                    aria-label="Toggle context inspector"
-                    aria-haspopup="dialog"
-                    aria-expanded={showContextPopover}
-                    data-testid="chat-input-context-ring"
-                    data-context-percent={ringPercent}
-                    data-context-source={realContext ? 'model' : 'envelope'}
-                  >
-                    <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
-                  </button>
-                )}
-                {onProviderOverrideChange && (
-                  <ProviderModelPicker
-                    override={providerOverride ?? null}
-                    defaultProviderLabel={defaultProviderLabel}
-                    onChange={onProviderOverrideChange}
-                    onOpenSettings={onOpenSettings}
-                  />
-                )}
-                {/* The knobs you change MID conversation, in their own surface:
-                    effort used to be buried under a "Provider & model" trigger,
-                    and autonomy (the permission mode) was reachable only from
-                    the settings modal behind a tab right-click. */}
-                <SessionConfigPopover
-                  effort={effort ?? null}
-                  onEffortChange={onEffortChange}
-                  effortSupported={!!onEffortChange}
-                  providerOverride={providerOverride ?? null}
-                  defaultProviderLabel={defaultProviderLabel}
-                />
-              </div>
+              {/* Lo spazio fra il «+» e la coppia microfono+invio. Vuoto e
+                  basta: i controlli della sessione non stanno più qui dentro. */}
+              <div className="flex-1 min-w-0" />
 
               {/* Invia, e basta. flex-shrink-0: Invia/Ferma non può MAI essere
                   quello che si stringe in una pane stretta — a cedere è il
@@ -1587,6 +1474,125 @@ export function ChatInput({
                   );
                 })()}
               </div>
+            </div>
+          </div>
+
+            {/* FUORI DALLA CARD: le condizioni con cui il messaggio parte.
+                Non sono il messaggio — chi risponde, quanto può fare da sé,
+                quanto ci pensa — quindi non stanno nel recinto di quello che
+                scrivi. Dentro la card restano i tre gesti che agiscono su di
+                lui: aggiungere, dettare, spedire.
+                min-w-0 le lascia stringere sotto la loro larghezza naturale e
+                overflow-x-auto le fa SCORRERE invece di tagliarle quando la
+                pane non le tiene tutte. Perché scorra davvero, i bottoni
+                dentro devono essere `flex-shrink-0`: senza, il default
+                `flex-shrink: 1` li SCHIACCIAVA invece di farli traboccare — a
+                390px di viewport i quadrati da 32px misuravano 20.9px
+                (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
+                24px), con l'icona da 16px in un box storto. */}
+            <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
+              {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
+                  decide se l'agente può toccare i tuoi file, ed è quindi la
+                  cosa da guardare prima di premere invio — non l'ultima
+                  pastiglia in fondo alla fila. Le altre tre dicono COME
+                  risponde (veloce, quale modello, quanto ci pensa) e stanno
+                  dietro, nell'ordine in cui le si cambia. */}
+              {onAutonomyChange && (
+                <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+              )}
+              {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
+                  stessa cosa: un interruttore in localStorage che iniettava
+                  una RICHIESTA nel prompt («sei in plan mode, non toccare
+                  niente») e che nessuno faceva rispettare, a quattro bottoni
+                  di distanza dal selettore di autonomia — stessa icona, colore
+                  diverso — che invece passa `--permission-mode plan` alla CLI
+                  e i file non li fa proprio scrivere. Potevano contraddirsi,
+                  e non si sincronizzava fra dispositivi.
+                  La leva ora è una: «Propone prima» nel selettore qui accanto.
+                  Il blocco di prompt non è andato perso — lo inietta la route
+                  quando l'autonomia è `ask` (routes/chat.ts), così il piano
+                  esce nel formato di sempre. */}
+              {onToggleFastMode && fastUi && (
+                <button
+                  type="button"
+                  onClick={onToggleFastMode}
+                  className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
+                    fastUi.pressed
+                      ? 'text-amber-500 bg-amber-500/10'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={fastUi.title}
+                  aria-label="Toggle fast mode"
+                  aria-pressed={fastUi.pressed}
+                  data-testid="chat-input-fast-mode"
+                >
+                  {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
+                      Ne aveva dieci, di significati: il modello, l'autonomia
+                      «Agisce», la corsa di tool, i processi del progetto, un
+                      cron armato, un KPI, `/status`, la pane morta. Tre di
+                      quelli stavano in QUESTA riga insieme a questo, quindi il
+                      lampo non insegnava niente a nessuno. Adesso resta qui e
+                      nella sezione «Prestazioni» del changelog — stessa cosa,
+                      detta due volte. Prima di metterne un altro: dice
+                      «veloce»? Se no, non è questo il glifo.
+                      PIENO quando è acceso: in una riga tutta di contorni il
+                      solo colore ambra non bastava a dire «attivo». */}
+                  <Zap size={fastUi.costMultiplier ? 14 : 16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
+                  {/* Quanto costa: 2× lo stesso modello a velocità normale, dal
+                      listino che la CLI scrive nei suoi stessi documenti
+                      (10$/50$ contro 5$/25$ per 1M). «Più veloce» da solo non
+                      è un'informazione finché non dici quanto costa.
+                      Non interattivo: un badge che entrasse nel conteggio dei
+                      bersagli tattili sarebbe un secondo bottone da 12px dentro
+                      il primo. */}
+                  {fastUi.costMultiplier && (
+                    <span
+                      className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
+                      data-testid="fast-mode-cost"
+                    >{fastUi.costMultiplier}×</span>
+                  )}
+                </button>
+              )}
+              {!isDraftTopic && (
+                <button
+                  ref={contextBtnRef}
+                  type="button"
+                  onClick={handleContextRingClick}
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
+                    showContextPopover
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={ringTitle}
+                  aria-label="Toggle context inspector"
+                  aria-haspopup="dialog"
+                  aria-expanded={showContextPopover}
+                  data-testid="chat-input-context-ring"
+                  data-context-percent={ringPercent}
+                  data-context-source={realContext ? 'model' : 'envelope'}
+                >
+                  <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
+                </button>
+              )}
+              {onProviderOverrideChange && (
+                <ProviderModelPicker
+                  override={providerOverride ?? null}
+                  defaultProviderLabel={defaultProviderLabel}
+                  onChange={onProviderOverrideChange}
+                  onOpenSettings={onOpenSettings}
+                />
+              )}
+              {/* The knobs you change MID conversation, in their own surface:
+                  effort used to be buried under a "Provider & model" trigger,
+                  and autonomy (the permission mode) was reachable only from
+                  the settings modal behind a tab right-click. */}
+              <SessionConfigPopover
+                effort={effort ?? null}
+                onEffortChange={onEffortChange}
+                effortSupported={!!onEffortChange}
+                providerOverride={providerOverride ?? null}
+                defaultProviderLabel={defaultProviderLabel}
+              />
             </div>
 
             {/* Popover menus (anchored to form) */}
