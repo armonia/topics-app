@@ -65,6 +65,22 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 /**
+ * La misura a cui va reso il glifo di stato (`StatusIcon`), in pixel.
+ *
+ * Vive QUI — nel modulo puro che sia il glifo sia l'aritmetica della riga
+ * «Board» in sidebar importano già — e non accanto al disegno, perché serve a
+ * due parti che non si vedono fra loro: chi disegna (`viewBox="0 0 16 16"`) e
+ * chi deve riservargli spazio (`countWidth` in `boardProjectChips`). Erano due
+ * numeri scritti a mano in due file, e sono già stati d'accordo per sbaglio una
+ * volta di troppo: quando il glifo è passato da 12 a 14 l'aritmetica è rimasta
+ * indietro, e la riga ha sbordato finché qualcuno non l'ha misurata.
+ *
+ * Il perché di 16 (e non 14) sta su `StatusIcon`: è la griglia PARI su cui i
+ * bordi del disegno cadono sui confini dei pixel a 1x.
+ */
+export const STATUS_GLYPH_PX = 16;
+
+/**
  * Perché il sistema ha portato in review un task che l'agente non ha consegnato.
  * Cause diverse = decisioni diverse per il reviewer — perciò testi diversi e non
  * un generico "chiuso dal sistema".

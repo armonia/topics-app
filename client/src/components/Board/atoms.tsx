@@ -24,17 +24,24 @@ export function TaskIdChip({ id }: { id: string }) {
   );
 }
 
-/** Il centro del glifo, e i tre raggi che lo compongono. Numeri INTERI, e non
- *  per estetica: reso 1:1 (viewBox 14 ⇒ 14px, vedi {@link StatusIcon}) una
- *  unità vale un pixel, quindi un bordo a 5 o a 7 cade sul confine di un pixel
- *  invece che a metà. L'anello ha tratto 2 centrato su r=6 ⇒ bordi esatti a 5 e
- *  a 7; il settore si ferma a 4, cioè UN pixel pieno di fessura dal bordo
- *  interno dell'anello (prima erano quattro decimi, e a 1x si leggevano come un
- *  alone); il disco di `done` arriva a 7, dove finiva il bordo esterno
+/** Il centro del glifo e i due raggi che lo compongono. Numeri INTERI su una
+ *  griglia PARI: reso 1:1 (viewBox 16 ⇒ 16px, vedi {@link StatusIcon}) una
+ *  unità vale un pixel, quindi ogni bordo cade sul confine di un pixel invece
+ *  che a metà.
+ *
+ *  L'anello ha tratto 2 centrato su r=7 ⇒ bordi esatti a 6 e a 8, cioè il
+ *  bordo del riquadro. Il settore si ferma a 6, cioè ESATTAMENTE sul bordo
+ *  interno dell'anello: è la differenza che conta rispetto al taglio a 14, dove
+ *  fra torta e anello restava una fessura da un pixel. A quella misura la
+ *  fessura non era un dettaglio — era il terzo dettaglio in sette pixel di
+ *  raggio, e il primo a diventare poltiglia a 1x. Senza fessura restano DUE
+ *  forme, e il «tre quarti» smette di essere un pac-man dentro un cerchio e
+ *  diventa un disco pieno con un morso netto («è tre quarti, ma non preciso»,
+ *  Attilio 08/08). Il disco di `done` arriva a 8, dove finiva il bordo esterno
  *  dell'anello — il pieno occupa esattamente il posto del vuoto. */
-const GLYPH_C = 7;
-const GLYPH_R_RING = 6;
-const GLYPH_R_SECTOR = 4;
+const GLYPH_C = 8;
+const GLYPH_R_RING = 7;
+const GLYPH_R_SECTOR = 6;
 
 /**
  * Un SETTORE vero — non un cerchio tratteggiato spesso.
@@ -70,23 +77,41 @@ function sectorPath(pct: number): string {
  * the eye reads progress at a glance: il colore da solo direbbe «rosso», non
  * direbbe «review» né in che ordine vengono le colonne.
  *
- * ── VA RESO A 14px, NON A 12 ────────────────────────────────────────────────
- * Il viewBox è 14 e il default lo rende a 14 (`h-3.5`): a quel punto una unità
- * del disegno VALE un pixel e ogni misura qui sotto cade dove è scritta. A 12
- * — l'override che la sidebar si portava dietro — la scala è 0,857 e il tratto
- * dell'anello finisce a cavallo di due pixel: su uno schermo 1x il tratteggio
- * del backlog diventa poltiglia. Sulle card della board era già 1:1, ed è per
- * questo che lì si vedeva e nella sidebar no. Chi lo usa NON deve rimpicciolirlo.
+ * ── VA RESO A 16px, NON MENO ────────────────────────────────────────────────
+ * Il viewBox è 16 e il default lo rende a 16 (`h-4`): a quel punto una unità
+ * del disegno VALE un pixel e ogni misura qui sopra cade dove è scritta.
+ * Rimpicciolirlo riporta i bordi a cavallo di due pixel, ed è così che il
+ * tratteggio del backlog torna poltiglia su uno schermo 1x. `STATUS_GLYPH_PX`
+ * (in `lib/board`) è quella misura, in un posto solo, per chi deve riservargli
+ * spazio.
+ *
+ * L'UNICA riduzione ammessa è `h-3 w-3` (12px) nelle righe dense — elenco dei
+ * sottotask, cronologia dei cambi di stato — e vale perché 12/16 fa ESATTAMENTE
+ * 0,75: il tratto da 2 diventa 1,5 e i raggi cadono su quarti di pixel, non su
+ * frazioni qualunque. Ogni altra misura intermedia (14, 15) rimette i bordi a
+ * cavallo di due pixel ed è il difetto da cui questo taglio esce.
+ *
+ * ── PERCHÉ 16 E NON 14 ──────────────────────────────────────────────────────
+ * Misurato a 1x, il taglio a 14 aveva tre difetti che vengono tutti dalla
+ * stessa causa — troppe forme in troppo pochi pixel:
+ *   · il tratteggio del backlog erano DIECI trattini da 1,9px: specchi grigi,
+ *     non un anello;
+ *   · fra la torta (r=4) e l'anello (interno a 5) restava un pixel di fessura,
+ *     che l'antialiasing riempiva di alone;
+ *   · il «tre quarti» aveva raggi lunghi 4px, cioè un morso da 4×4: illeggibile
+ *     come frazione.
+ * A 16 con la torta a filo dell'anello restano due forme sole, i raggi del
+ * morso passano a 6px e il tratteggio a CINQUE trattini da 4,5px.
  *
  * `shape-rendering="geometricPrecision"` perché il default (`auto`) lascia al
  * motore la libertà di aggrapparsi alla griglia: su archi e tratteggi quel
  * ritocco sposta gli estremi di mezzo pixel ciascuno, che è proprio ciò che
  * qui sopra si è appena finito di allineare a mano.
  */
-export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: TaskStatus; className?: string }) {
+export function StatusIcon({ status, className = 'h-4 w-4' }: { status: TaskStatus; className?: string }) {
   return (
     <svg
-      viewBox="0 0 14 14"
+      viewBox="0 0 16 16"
       aria-hidden
       shapeRendering="geometricPrecision"
       className={`${className} shrink-0 ${STATUS_ICON_COLOR[status]}`}
@@ -94,18 +119,19 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: Task
       {status === 'done' ? (
         <>
           <circle cx={GLYPH_C} cy={GLYPH_C} r={GLYPH_C} fill="currentColor" />
-          <path d="M4.3 7.3l1.8 1.8 3.6-3.9" fill="none" stroke="#171717" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4.9 8.2l2.1 2.1 4.1-4.4" fill="none" stroke="#171717" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : (
         <>
           <circle
             cx={GLYPH_C} cy={GLYPH_C} r={GLYPH_R_RING} fill="none" stroke="currentColor" strokeWidth="2"
-            // `pathLength={40}` con tratti «2 2»: DIECI trattini esatti, chiusi
-            // sul giro. La circonferenza vera (37,699) non è multipla del passo
-            // 2,4+2,6 di prima, quindi il pattern si richiudeva su sé stesso con
-            // un trattino tronco — e i cappucci tondi allungavano ogni tratto di
-            // 0,8 per lato fino a saldarli fra loro. Cappucci netti, passo esatto.
-            {...(status === 'backlog' ? { pathLength: 40, strokeDasharray: '2 2' } : {})}
+            // `pathLength={20}` con tratti «2 2»: CINQUE trattini esatti, chiusi
+            // sul giro, da 4,5px l'uno. `pathLength` normalizza la circonferenza
+            // vera (43,98) a 20, quindi il passo è esatto e il pattern non si
+            // richiude con un trattino tronco. Il numero è misurato, non scelto:
+            // a 8 e a 10 trattini il tratto scende sotto i 3px e a 1x diventa
+            // una fila di specchi; a 4 l'anello si legge come quattro tacche.
+            {...(status === 'backlog' ? { pathLength: 20, strokeDasharray: '2 2' } : {})}
           />
           {status === 'in_progress' && <path d={sectorPath(50)} fill="currentColor" />}
           {status === 'review' && <path d={sectorPath(75)} fill="currentColor" />}

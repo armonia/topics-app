@@ -1096,7 +1096,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => changeStatus(s)}
               className={`${POPOVER_ITEM} disabled:opacity-40`}
             >
-              <StatusIcon status={s} className="h-3.5 w-3.5" />
+              <StatusIcon status={s} />
               <span className="min-w-0 flex-1">{STATUS_LABEL[s]}</span>
               {s === task?.status && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
