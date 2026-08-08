@@ -6,7 +6,7 @@ import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
-  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_W_ICON,
+  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON,
   type BoardProjectChip, type ChipMode,
 } from './boardProjectChips';
 
@@ -90,8 +90,8 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       // un fondo promette un click che non c'è. Il raggruppamento lo fa adesso
       // la distanza (`CHIP_SPACING` doppio del gap fra i blocchi), che è come si
       // raggruppa senza disegnare un contorno.
-      className="flex min-w-0 flex-shrink-0 items-center gap-1 text-[11px]"
-      style={{ width: CHIP_W[mode] }}
+      className="flex min-w-0 flex-shrink-0 items-center text-[11px]"
+      style={{ width: CHIP_W[mode], gap: CHIP_INNER_GAP }}
     >
       {/* Lo slot è 20×14 — l'altezza è quella standard dell'app, la larghezza
           serve ai logo-scritta. Le misure e il perché stanno accanto a
@@ -262,7 +262,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
       // «Teniamo spaziatura uniforme fra board, conteggio progetti e conteggi
       // stati» (Attilio, 08/08).
       className="flex min-w-0 flex-1 items-center"
-      style={{ gap: CHIP_SPACING }}
+      style={{ gap: GROUP_SPACING }}
     >
       <div
         // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14

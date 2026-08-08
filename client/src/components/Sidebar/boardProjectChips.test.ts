@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,
-  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, CHIP_SPACING, MORE_W, CHIP_MODES,
+  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, CHIP_SPACING, GROUP_SPACING, MORE_W, CHIP_MODES,
   type BoardCount, type BoardProjectChip,
 } from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
@@ -72,10 +72,11 @@ describe('fitProjectChips', () => {
    *  costanti, non ricopiato: la larghezza è già cambiata due volte e con i
    *  numeri scritti a mano questi test sarebbero diventati rossi mentre la
    *  regola restava intatta. */
-  // Fra le pastiglie corre `CHIP_SPACING` (12), non `CHIP_GAP` (6): sono due
-  // passi diversi da quando la pastiglia ha perso la superficie e a raggruppare
-  // è rimasta la distanza. Il «+N» resta un blocco a sé, quindi lì sotto si
-  // continua a sommare `CHIP_GAP`.
+  // TRE PASSI, e i test li tengono distinti perché il layout li tiene distinti:
+  // `CHIP_INNER_GAP` (2) lega un'icona al suo numero, `CHIP_SPACING` (12)
+  // separa due pastiglie, `GROUP_SPACING` (20) separa i gruppi della riga — e
+  // il «+N» è un gruppo, quindi si prenota con quello. `CHIP_GAP` (6) resta
+  // solo dentro i conteggi di stato.
   const spanW = (w: number, n: number) => n * w + (n - 1) * CHIP_SPACING;
   const spanRicco = (n: number) => spanW(RICCO.w, n);
   const spanIcon = (n: number) => spanW(CHIP_W_ICON, n);
@@ -107,7 +108,7 @@ describe('fitProjectChips', () => {
     // l'ultima pastiglia e il «+N» si contendono gli stessi pixel.
     expect(fitProjectChips(spanRicco(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2, mode: RICCO.mode });
     // E la soglia esatta: con lo spazio di quattro PIÙ il «+N», quattro tornano.
-    expect(fitProjectChips(spanRicco(4) + CHIP_GAP + MORE_W, chips))
+    expect(fitProjectChips(spanRicco(4) + GROUP_SPACING + MORE_W, chips))
       .toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: RICCO.mode });
   });
 
@@ -118,8 +119,8 @@ describe('fitProjectChips', () => {
     // darebbe 'icon' e nessuno se ne accorgerebbe dal risultato — le pastiglie
     // ci sarebbero comunque, solo mute.
     const secondo = CHIP_MODES[1]!;
-    const serveSecondo = secondo.w + CHIP_GAP + MORE_W;
-    const serveRicco = RICCO.w + CHIP_GAP + MORE_W;
+    const serveSecondo = secondo.w + GROUP_SPACING + MORE_W;
+    const serveRicco = RICCO.w + GROUP_SPACING + MORE_W;
     expect(serveSecondo).toBeLessThan(serveRicco);
     for (const w of [serveSecondo, serveRicco - 1]) {
       const f = fitProjectChips(w, chips);
@@ -138,8 +139,8 @@ describe('fitProjectChips', () => {
     // Un pixel meno di quanto serve a una pastiglia col numero PIÙ il suo «+N»
     // (che serve, visto che cinque non ci stanno): col numero non ne entra
     // nessuna, a sole icone sì.
-    const stretta = CHIP_W_ICON_COUNT + CHIP_GAP + MORE_W - 1;
-    expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + CHIP_GAP + MORE_W);
+    const stretta = CHIP_W_ICON_COUNT + GROUP_SPACING + MORE_W - 1;
+    expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + GROUP_SPACING + MORE_W);
     const fitted = fitProjectChips(stretta, chips);
     expect(fitted.mode).toBe('icon');
     // QUANTE ne entrano si CALCOLA, non si ricopia: il numero dipende dal
@@ -148,14 +149,14 @@ describe('fitProjectChips', () => {
     // pastiglia, `CHIP_W_ICON` è sceso da 36 a 20 e qui era rosso un «1» che
     // non diceva niente di sbagliato.)
     let entrano = chips.length;
-    while (entrano > 0 && spanIcon(entrano) + CHIP_GAP + MORE_W > stretta) entrano--;
+    while (entrano > 0 && spanIcon(entrano) + GROUP_SPACING + MORE_W > stretta) entrano--;
     expect(entrano).toBeGreaterThan(0);
     expect(fitted.shown).toEqual(chips.slice(0, entrano));
     expect(fitted.hidden).toBe(chips.length - entrano);
   });
 
   test('col numero ne entra una: si resta col numero anche se a sole icone ne entrerebbero di più', () => {
-    const w = spanRicco(1) + CHIP_GAP + MORE_W;
+    const w = spanRicco(1) + GROUP_SPACING + MORE_W;
     expect(fitProjectChips(w, chips)).toEqual({ shown: ['a'], hidden: 4, mode: RICCO.mode });
   });
 
@@ -281,7 +282,7 @@ describe('fitBoardRow', () => {
     // la riga vera non ci arriva comunque (a colonna 180px lo spazio elastico
     // è ~78px).
     const totale = counts.reduce((a, c) => a + c.n, 0);
-    const minimoGarantito = countWidth(totale) + CHIP_GAP + MORE_W;
+    const minimoGarantito = countWidth(totale) + GROUP_SPACING + MORE_W;
     for (let w = 0; w <= 400; w += 1) {
       const { chips: c, counts: k } = fitBoardRow(w, chips, counts);
       const chipW = CHIP_MODES.find((m) => m.mode === c.mode)!.w;
