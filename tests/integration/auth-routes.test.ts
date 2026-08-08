@@ -933,3 +933,221 @@ describe("rotte auth · i membri dell'organizzazione", () => {
     expect(await r!.json()).toEqual({ members: [] });
   });
 });
+
+describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda", () => {
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    return db;
+  }
+  const miaOrg = (db: Database) => (db.query("SELECT org_id AS id FROM installation").get() as { id: string }).id;
+  const io = (db: Database) =>
+    (db.query("SELECT person_id AS id FROM installation_owners WHERE is_default = 1").get() as { id: string }).id;
+
+  type Gruppo = { id: string; name: string; members: number; role: string | null; installation: boolean };
+  const elenco = async (router: ReturnType<typeof createAuthRouter>) =>
+    ((await (await chiama(router, "/api/auth/orgs"))!.json()) as { orgs: Gruppo[] }).orgs;
+
+  test("`/api/auth/me` segue `installation`, non la riga più vecchia della tabella", async () => {
+    // La trappola prima di qualunque seconda organizzazione: `ORDER BY
+    // created_at LIMIT 1` risponde giusto per caso finché ce n'è una, e alla
+    // seconda l'installazione cambia identità in silenzio — altro nome
+    // nell'intestazione, altri membri, nessun errore da nessuna parte.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('vecchia','Arrivata prima',1,'local',0,1)");
+
+    const me = await (await chiama(router, "/api/auth/me"))!.json() as { org: { id: string; name: string } };
+    expect(me.org.id).toBe(miaOrg(db));
+    expect(me.org.name).not.toBe("Arrivata prima");
+  });
+
+  test("si crea un gruppo, e nasce con un proprietario VIVO dentro", async () => {
+    // Un gruppo senza nessun proprietario è un gruppo che nessuno può
+    // amministrare, e da cui si esce solo con una UPDATE a mano.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+
+    const r = await chiama(router, "/api/auth/orgs", "POST", { body: { name: "Studio" } });
+    expect(r?.status).toBe(200);
+    const { id } = await r!.json() as { id: string };
+
+    const g = (await elenco(router)).find((x) => x.id === id)!;
+    expect(g.name).toBe("Studio");
+    expect(g.role, "chi lo crea lo amministra").toBe("owner");
+    expect(g.members).toBe(1);
+    expect(g.installation, "non è il gruppo dell'installazione: quello resta uno").toBe(false);
+    expect((await elenco(router)).find((x) => x.installation)!.id).toBe(miaOrg(db));
+
+    expect((db.query("SELECT role FROM org_members WHERE org_id = ?").get(id) as { role: string }).role).toBe("owner");
+  });
+
+  test("senza nome non si crea un gruppo senza nome", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    expect((await chiama(router, "/api/auth/orgs", "POST", { body: { name: "   " } }))?.status).toBe(400);
+    expect((db.query("SELECT COUNT(*) AS n FROM orgs").get() as { n: number }).n).toBe(1);
+  });
+
+  test("cancellare SCRIVE `revoked_at`, e il gruppo sparisce da elenco e rubrica", async () => {
+    // La colonna era letta in quattro punti e scritta da nessuno: un
+    // interruttore di sicurezza che nessun gesto poteva premere.
+    const db = db084();
+    const { ctx } = creaCtx(db);
+    const chiuse: string[] = [];
+    (ctx as { closeDeviceSockets?: (id: string) => void }).closeDeviceSockets = (id) => { chiuse.push(id); };
+    const router = createAuthRouter(ctx);
+
+    const { id } = await (await chiama(router, "/api/auth/orgs", "POST", { body: { name: "Da chiudere" } }))!.json() as { id: string };
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${id}/members`, "POST", { body: { name: "Socio" } }))!.json() as { personId: string };
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role, person_id) VALUES ('d-socio','Telefono','h',1,'guest',?)", [personId]);
+
+    expect(JSON.stringify(await (await chiama(router, "/api/auth/subjects"))!.json()), "in due, il gruppo si può nominare").toContain(id);
+
+    const r = await chiama(router, `/api/auth/orgs/${id}`, "DELETE");
+    expect(r?.status).toBe(200);
+    expect((db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(id) as { revoked_at: number | null }).revoked_at).not.toBeNull();
+    expect((await elenco(router)).some((x) => x.id === id)).toBe(false);
+    expect(JSON.stringify(await (await chiama(router, "/api/auth/subjects"))!.json())).not.toContain(id);
+    // Una socket aperta porta i principali timbrati all'upgrade e non li
+    // rilegge: senza chiuderla la revoca vale sull'HTTP e non su ciò che
+    // continua ad arrivare dal vivo.
+    expect(chiuse, "i dispositivi dei membri vanno staccati").toContain("d-socio");
+  });
+
+  test("il gruppo dell'installazione non si cancella", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const r = await chiama(router, `/api/auth/orgs/${miaOrg(db)}`, "DELETE");
+    expect(r?.status).toBe(400);
+    expect((db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(miaOrg(db)) as { revoked_at: number | null }).revoked_at).toBeNull();
+  });
+
+  test("cancellare un gruppo che non c'è è un 404, non un ok silenzioso", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    expect((await chiama(router, "/api/auth/orgs/nonesiste", "DELETE"))?.status).toBe(404);
+  });
+
+  test("PATCH sui MEMBRI cambia il ruolo — non finisce nel ramo che rinomina il gruppo", async () => {
+    // L'ordine delle rotte: `startsWith('/api/auth/orgs/')` non sa dove finisce
+    // un id, quindi la PATCH ai membri cadeva nel ramo del rinomina, che faceva
+    // una UPDATE su `orgs` con id `<id>/members` — zero righe toccate e un
+    // `ok: true` in risposta. Il gesto non faceva niente e diceva di sì.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const nomePrima = (db.query("SELECT name FROM orgs WHERE id = ?").get(org) as { name: string }).name;
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: "Da promuovere" } }))!.json() as { personId: string };
+
+    const r = await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId, role: "admin", name: "NOME RUBATO" } });
+    expect(r?.status).toBe(200);
+    expect((db.query("SELECT role FROM org_members WHERE person_id = ?").get(personId) as { role: string }).role).toBe("admin");
+    expect((db.query("SELECT name FROM orgs WHERE id = ?").get(org) as { name: string }).name, "il nome del gruppo non si tocca da qui").toBe(nomePrima);
+
+    // E il ruolo esce anche dalla rotta che lo legge: una colonna scritta che
+    // nessuno rilegge è indistinguibile da una non scritta.
+    const m = await (await chiama(router, `/api/auth/orgs/${org}/members`))!.json() as { members: Array<{ id: string; role: string }> };
+    expect(m.members.find((x) => x.id === personId)!.role).toBe("admin");
+  });
+
+  test("un ruolo che il database non conosce si rifiuta prima di provarci", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: "X" } }))!.json() as { personId: string };
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId, role: "superuser" } }))?.status).toBe(400);
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId: "chi?", role: "admin" } }))?.status).toBe(404);
+    expect((db.query("SELECT role FROM org_members WHERE person_id = ?").get(personId) as { role: string }).role).toBe("member");
+  });
+
+  test("l'ULTIMO proprietario non si retrocede; il penultimo sì", async () => {
+    // Zero proprietari vivi = gruppo immodificabile per chiunque. Il controllo
+    // positivo accanto serve a dimostrare che il rifiuto è la REGOLA e non
+    // l'incapacità della rotta di promuovere chicchessia.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const me = io(db);
+
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId: me, role: "member" } }))?.status).toBe(400);
+    expect((db.query("SELECT role FROM org_members WHERE person_id = ?").get(me) as { role: string }).role).toBe("owner");
+
+    const { personId } = await (await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: "Secondo padrone" } }))!.json() as { personId: string };
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId, role: "owner" } }))?.status).toBe(200);
+    expect((await chiama(router, `/api/auth/orgs/${org}/members`, "PATCH", { body: { personId: me, role: "member" } }))?.status).toBe(200);
+    expect((db.query("SELECT role FROM org_members WHERE person_id = ?").get(me) as { role: string }).role).toBe("member");
+  });
+
+  test("un `member` non amministra il gruppo di qualcun altro, e nel proprio sì", async () => {
+    // È l'unico potere che `org_members.role` ha, ed è quello che la 084 le
+    // assegna. Con una sola organizzazione «proprietario della macchina» e
+    // «proprietario del gruppo» coincidevano per caso: alla seconda, no.
+    //
+    // Il controllo positivo in coda non è cortesia: senza, tre 403 di fila
+    // sarebbero indistinguibili da una rotta che rifiuta sempre.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const me = io(db);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('estraneo','Estraneo',1,'local',0,1)");
+    db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('altrui','Gruppo altrui',9,'local',0,9)");
+    db.run("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('altrui','estraneo','owner',9,0,9)");
+    db.run("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('altrui',?,'member',9,0,9)", [me]);
+
+    expect((await chiama(router, "/api/auth/orgs/altrui/members", "POST", { body: { name: "Intruso" } }))?.status).toBe(403);
+    expect((await chiama(router, "/api/auth/orgs/altrui/members?personId=estraneo", "DELETE"))?.status).toBe(403);
+    expect((await chiama(router, "/api/auth/orgs/altrui/members", "PATCH", { body: { personId: "estraneo", role: "member" } }))?.status).toBe(403);
+    expect((await chiama(router, "/api/auth/orgs/altrui", "PATCH", { body: { name: "Mio adesso" } }))?.status).toBe(403);
+    expect((await chiama(router, "/api/auth/orgs/altrui", "DELETE"))?.status).toBe(403);
+
+    expect((db.query("SELECT name FROM orgs WHERE id = 'altrui'").get() as { name: string }).name).toBe("Gruppo altrui");
+    expect((db.query("SELECT COUNT(*) AS n FROM org_members WHERE org_id = 'altrui'").get() as { n: number }).n).toBe(2);
+    expect((db.query("SELECT revoked_at FROM orgs WHERE id = 'altrui'").get() as { revoked_at: number | null }).revoked_at).toBeNull();
+
+    // E nel PROPRIO gruppo gli stessi gesti riescono.
+    const mio = miaOrg(db);
+    expect((await chiama(router, `/api/auth/orgs/${mio}/members`, "POST", { body: { name: "Benvenuto" } }))?.status).toBe(200);
+    expect((await chiama(router, `/api/auth/orgs/${mio}`, "PATCH", { body: { name: "Casa mia" } }))?.status).toBe(200);
+    expect((db.query("SELECT name FROM orgs WHERE id = ?").get(mio) as { name: string }).name).toBe("Casa mia");
+  });
+
+  test("chi è stato TOLTO dal gruppo non lo amministra più", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('estraneo','Estraneo',1,'local',0,1)");
+    db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('altrui','Gruppo altrui',9,'local',0,9)");
+    db.run("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('altrui','estraneo','owner',9,0,9)");
+    db.run("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('altrui',?,'admin',9,0,9)", [io(db)]);
+
+    expect((await chiama(router, "/api/auth/orgs/altrui/members", "POST", { body: { name: "Uno" } }))?.status, "da admin si invita").toBe(200);
+    db.run("UPDATE org_members SET local_blocked_at = 7 WHERE org_id = 'altrui' AND person_id = ?", [io(db)]);
+    expect((await chiama(router, "/api/auth/orgs/altrui/members", "POST", { body: { name: "Due" } }))?.status, "tolto, non più").toBe(403);
+  });
+
+  test("un gruppo revocato non si amministra più", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const { id } = await (await chiama(router, "/api/auth/orgs", "POST", { body: { name: "Effimero" } }))!.json() as { id: string };
+    expect((await chiama(router, `/api/auth/orgs/${id}`, "DELETE"))?.status).toBe(200);
+    expect((await chiama(router, `/api/auth/orgs/${id}/members`, "POST", { body: { name: "Tardi" } }))?.status).toBe(404);
+    // Già revocato = sconosciuto, la stessa risposta della POST sui membri: due
+    // rotte che guardano la stessa riga non possono dire una «non c'è» e
+    // l'altra «fatto», o il secondo clic sembra riuscito.
+    expect((await chiama(router, `/api/auth/orgs/${id}`, "DELETE"))?.status, "già revocato: non si revoca due volte").toBe(404);
+  });
+
+  test("su uno schema più vecchio della 084 le rotte tacciono invece di esplodere", async () => {
+    const db = dbFresco();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const r = await chiama(router, "/api/auth/orgs");
+    expect(r?.status).toBe(200);
+    expect(await r!.json()).toEqual({ orgs: [] });
+    expect((await chiama(router, "/api/auth/orgs", "POST", { body: { name: "X" } }))?.status).toBe(400);
+    expect((await chiama(router, "/api/auth/orgs/x", "DELETE"))?.status).toBe(400);
+    expect((await chiama(router, "/api/auth/orgs/x/members", "PATCH", { body: { personId: "p", role: "admin" } }))?.status).toBe(400);
+  });
+});
