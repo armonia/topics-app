@@ -1298,12 +1298,18 @@ input[type="range"]::-webkit-slider-thumb {
  *
  * `> *` è figlio DIRETTO: le righe annidate dell'albero non lo prendono, dove
  * l'indentazione separa già e una fila di card farebbe una tabella. */
-@layer components {
-  @media (width < 48rem) {
-    .sidebar-l1-rows > * { background-color: color-mix(in srgb, #000 8%, transparent); }
-    .dark .sidebar-l1-rows > * { background-color: color-mix(in srgb, #fff 10%, transparent); }
-  }
-}
+/* IL FONDO STA SULLA CARD, NON SULLA RIGA — correzione dell'08/08.
+ *
+ * Queste due regole dipingevano il figlio DIRETTO del contenitore di primo
+ * livello, cioè la riga INTERA, da bordo a bordo. Il risultato era una fascia a
+ * tutta larghezza: «sono full width i progetti invece di essere card... hanno
+ * uno sfondo forse la riga» (Attilio). Vero, ed era il contrario di ciò che
+ * servivano a fare — nascevano per togliere i filetti separatori, e hanno
+ * sostituito una linea con una banda.
+ *
+ * Il riposo adesso vive dentro `sidebarRowCard`, che è la scatola giusta:
+ * rientrata di 6px e arrotondata, quindi si legge come una tab. Stessi valori,
+ * un contenitore in meno. */
 
 .tap-expand-y { position: relative; }
 @media (pointer: coarse) {
