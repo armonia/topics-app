@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { boardProjectChips, fitProjectChips, CHIP_W, CHIP_GAP, MORE_W } from './boardProjectChips';
+import {
+  boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,
+  CHIP_W_NAME, CHIP_W_ICON, CHIP_GAP, MORE_W,
+  type BoardCount, type BoardProjectChip,
+} from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
 
 function task(projectId: string, status: TaskStatus): BoardTask {
@@ -57,40 +61,192 @@ describe('boardProjectChips', () => {
 
 describe('fitProjectChips', () => {
   const chips = ['a', 'b', 'c', 'd', 'e'];
-  /** Lo spazio che occupano `n` pastiglie affiancate. Derivato dalle costanti,
-   *  non ricopiato: la larghezza è già cambiata una volta (68 → 52, passando da
-   *  due piani a uno) e con i numeri scritti a mano questi test sarebbero
-   *  diventati rossi mentre la regola restava intatta. */
-  const span = (n: number) => n * CHIP_W + (n - 1) * CHIP_GAP;
+  /** Lo spazio che occupano `n` pastiglie affiancate, per modo. Derivato dalle
+   *  costanti, non ricopiato: la larghezza è già cambiata due volte e con i
+   *  numeri scritti a mano questi test sarebbero diventati rossi mentre la
+   *  regola restava intatta. */
+  const spanName = (n: number) => n * CHIP_W_NAME + (n - 1) * CHIP_GAP;
+  const spanIcon = (n: number) => n * CHIP_W_ICON + (n - 1) * CHIP_GAP;
 
-  test('prima della prima misura non si disegna e non si annuncia niente', () => {
+  test('non ancora misurato (null) tace del tutto, e non è la stessa cosa di zero', () => {
     // Un «+5» che compare e sparisce al primo layout è peggio del vuoto di un
-    // frame: `hidden` resta 0 finché non si sa quanto spazio c'è.
-    expect(fitProjectChips(0, chips)).toEqual({ shown: [], hidden: 0 });
+    // frame: finché non si sa quanto spazio c'è, `hidden` resta 0.
+    expect(fitProjectChips(null, chips)).toEqual({ shown: [], hidden: 0, mode: 'name' });
   });
 
-  test('se ci stanno tutte non c\'è nessun «+N»', () => {
-    expect(fitProjectChips(span(5), chips)).toEqual({ shown: chips, hidden: 0 });
-    expect(fitProjectChips(span(5) + 500, chips)).toEqual({ shown: chips, hidden: 0 });
+  test('misurato ZERO si ANNUNCIA: nessuna pastiglia, ma il «+N» dice che mancano', () => {
+    // È il caso che rende il difetto visibile invece che muto. Appiccicare
+    // l'ultima larghezza buona (`if (w > 0) setWidth(w)`) rimetterebbe il
+    // silenzio, ed è esattamente ciò che BOARD-14 blocca.
+    expect(fitProjectChips(0, chips)).toEqual({ shown: [], hidden: 5, mode: 'name' });
+  });
+
+  test('se ci stanno tutte col nome non c\'è nessun «+N»', () => {
+    expect(fitProjectChips(spanName(5), chips)).toEqual({ shown: chips, hidden: 0, mode: 'name' });
+    expect(fitProjectChips(spanName(5) + 500, chips)).toEqual({ shown: chips, hidden: 0, mode: 'name' });
   });
 
   test('il «+N» si prende il suo posto PRIMA di contare quante ne restano', () => {
     // Un pixel meno del necessario per cinque: ne entrerebbero quattro, e con
     // quattro mostrate serve anche il «+1» — che qui ci sta.
-    expect(fitProjectChips(span(5) - 1, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1 });
+    expect(fitProjectChips(spanName(5) - 1, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: 'name' });
     // Esattamente lo spazio di quattro: il «+1» NON ci sta più, quindi si
     // scende a tre. È il passaggio che di solito manca, e senza il quale
     // l'ultima pastiglia e il «+N» si contendono gli stessi pixel.
-    expect(fitProjectChips(span(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2 });
+    expect(fitProjectChips(spanName(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2, mode: 'name' });
     // E la soglia esatta: con lo spazio di quattro PIÙ il «+N», quattro tornano.
-    expect(fitProjectChips(span(4) + CHIP_GAP + MORE_W, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1 });
+    expect(fitProjectChips(spanName(4) + CHIP_GAP + MORE_W, chips))
+      .toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: 'name' });
   });
 
-  test('una colonna troppo stretta per una sola pastiglia non ne disegna nessuna', () => {
-    expect(fitProjectChips(CHIP_W - 1, chips)).toEqual({ shown: [], hidden: 5 });
+  test('quando col nome non ne entra NEMMENO UNA si scende a solo-icona', () => {
+    // Il degrado è progressivo, non uno stato scelto: il nome ha la precedenza
+    // finché ce n'è uno che ci sta, perché una pastiglia solo-icona per un
+    // progetto senza icona è un numero anonimo.
+    // Un pixel meno di quanto serve a una pastiglia col nome PIÙ il suo «+N»
+    // (che serve, visto che cinque non ci stanno): col nome non ne entra
+    // nessuna, a icone sì.
+    const stretta = CHIP_W_NAME + CHIP_GAP + MORE_W - 1;
+    expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + CHIP_GAP + MORE_W);
+    expect(fitProjectChips(stretta, chips)).toEqual({ shown: ['a'], hidden: 4, mode: 'icon' });
+  });
+
+  test('col nome ne entra una: si resta col nome anche se a icone ne entrerebbero di più', () => {
+    const w = spanName(1) + CHIP_GAP + MORE_W;
+    expect(fitProjectChips(w, chips)).toEqual({ shown: ['a'], hidden: 4, mode: 'name' });
+  });
+
+  test('una colonna troppo stretta perfino per un\'icona non disegna niente, ma lo dice', () => {
+    expect(fitProjectChips(CHIP_W_ICON - 1, chips)).toEqual({ shown: [], hidden: 5, mode: 'name' });
   });
 
   test('nessun progetto, nessuna riga', () => {
-    expect(fitProjectChips(500, [])).toEqual({ shown: [], hidden: 0 });
+    expect(fitProjectChips(500, [])).toEqual({ shown: [], hidden: 0, mode: 'name' });
+  });
+});
+
+describe('fitStatusCounts', () => {
+  const counts: BoardCount[] = [
+    { status: 'review', n: 2 },
+    { status: 'in_progress', n: 1 },
+    { status: 'todo', n: 3 },
+    { status: 'backlog', n: 4 },
+  ];
+  const span = (ws: number[]) => ws.reduce((a, b) => a + b, 0) + (ws.length - 1) * CHIP_GAP;
+
+  test('se ci stanno tutti non si arrotola niente', () => {
+    const w = span(counts.map(c => countWidth(c.n)));
+    expect(fitStatusCounts(w, 0, counts)).toEqual({ shown: counts, rolled: null });
+  });
+
+  test('la CODA si arrotola, la testa resta: si perde il backlog, mai il review', () => {
+    // Spazio per tre elementi esatti ⇒ due conteggi più il rollup.
+    const w = span([countWidth(2), countWidth(1), countWidth(7)]);
+    expect(fitStatusCounts(w, 0, counts)).toEqual({
+      shown: [counts[0], counts[1]],
+      rolled: { statuses: ['todo', 'backlog'], n: 7 },
+    });
+  });
+
+  test('il pavimento delle pastiglie viene tolto PRIMA: sono i conteggi a cedere', () => {
+    // Questo è il difetto di prima, in un'asserzione: con lo spazio giusto per
+    // tutti e quattro i conteggi, il pavimento di una pastiglia solo-icona li
+    // costringe comunque ad arrotolarsi — invece di prendersi la riga intera e
+    // lasciare a zero l'unica cosa che dice DOVE sta quel lavoro.
+    const w = span(counts.map(c => countWidth(c.n)));
+    const fitted = fitStatusCounts(w, CHIP_W_ICON + CHIP_GAP, counts);
+    expect(fitted.rolled).not.toBeNull();
+    expect(countsSpan(fitted)).toBeLessThanOrEqual(w - (CHIP_W_ICON + CHIP_GAP));
+  });
+
+  test('un conteggio solo non si arrotola MAI, nemmeno se non ci sta', () => {
+    // Un rollup di uno è lo stesso numero con un glifo che dice meno, e il
+    // segnale primario può stringersi ma non sparire.
+    const uno: BoardCount[] = [{ status: 'review', n: 9 }];
+    expect(fitStatusCounts(0, 0, uno)).toEqual({ shown: uno, rolled: null });
+  });
+
+  test('spazio per nessuno: resta il solo rollup', () => {
+    expect(fitStatusCounts(1, 0, counts)).toEqual({
+      shown: [],
+      rolled: { statuses: ['review', 'in_progress', 'todo', 'backlog'], n: 10 },
+    });
+  });
+
+  test('nessuna colonna aperta, nessun conteggio', () => {
+    expect(fitStatusCounts(500, 0, [])).toEqual({ shown: [], rolled: null });
+  });
+});
+
+describe('fitBoardRow', () => {
+  const chips: BoardProjectChip[] = [
+    { projectId: 'p1', name: 'topics', path: '/x/topics', n: 4 },
+    { projectId: 'p2', name: 'quadra', path: '/x/quadra', n: 2 },
+    { projectId: 'p3', name: 'landing', path: '', n: 1 },
+  ];
+  const counts: BoardCount[] = [
+    { status: 'review', n: 2 },
+    { status: 'in_progress', n: 1 },
+    { status: 'todo', n: 3 },
+    { status: 'backlog', n: 1 },
+  ];
+
+  test('prima della misura i conteggi si vedono INTERI e le pastiglie tacciono', () => {
+    // I conteggi non dipendono da una misura per esistere; le pastiglie sì.
+    const fitted = fitBoardRow(null, chips, counts);
+    expect(fitted.counts).toEqual({ shown: counts, rolled: null });
+    expect(fitted.chips).toEqual({ shown: [], hidden: 0, mode: 'name' });
+  });
+
+  /**
+   * IL DIFETTO, IN UN NUMERO SOLO.
+   *
+   * 158px è lo spazio elastico vero della riga a colonna 256 (244 di card, 228
+   * di contenuto, meno glifo, nome e spazi). Prima, con quattro colonne aperte,
+   * i conteggi si prendevano tutto e alle pastiglie restava meno di una: ZERO
+   * progetti sulla riga, senza nemmeno un «+N» a dirlo.
+   */
+  test('a 158px con quattro colonne aperte resta comunque almeno un progetto, e il resto è dichiarato', () => {
+    const fitted = fitBoardRow(158, chips, counts);
+    expect(fitted.chips.shown.length).toBeGreaterThanOrEqual(1);
+    expect(fitted.chips.shown.length + fitted.chips.hidden).toBe(chips.length);
+    // E i conteggi hanno ceduto qualcosa invece di prendersi tutto.
+    expect(fitted.counts.rolled).not.toBeNull();
+  });
+
+  test('niente pastiglie da mostrare ⇒ nessun pavimento riservato, i conteggi si prendono la riga', () => {
+    const fitted = fitBoardRow(158, [], counts);
+    expect(fitted.counts).toEqual({ shown: counts, rolled: null });
+    expect(fitted.chips.shown).toEqual([]);
+  });
+
+  test('a colonna larga ci stanno tutti e due i lati per intero', () => {
+    const fitted = fitBoardRow(600, chips, counts);
+    expect(fitted.counts).toEqual({ shown: counts, rolled: null });
+    expect(fitted.chips).toEqual({ shown: chips, hidden: 0, mode: 'name' });
+  });
+
+  test('quello che si disegna non sborda MAI dallo spazio misurato', () => {
+    // La proprietà che tiene insieme tutto il resto: qualunque larghezza, la
+    // somma di ciò che si rende sta dentro. È l'asserzione che il ritaglio a
+    // due priorità (conteggi + pastiglie) può rompere in silenzio.
+    //
+    // Sotto il MINIMO GARANTITO la riga non può onorare tutto, e sfora di
+    // proposito: il rollup dei conteggi e il «+N» delle pastiglie sono le due
+    // cose che non spariscono mai — sparire in silenzio è il difetto, non la
+    // soluzione. Il minimo è quel rollup più quel «+N», e sotto quella soglia
+    // la riga vera non ci arriva comunque (a colonna 180px lo spazio elastico
+    // è ~78px).
+    const totale = counts.reduce((a, c) => a + c.n, 0);
+    const minimoGarantito = countWidth(totale) + CHIP_GAP + MORE_W;
+    for (let w = 0; w <= 400; w += 1) {
+      const { chips: c, counts: k } = fitBoardRow(w, chips, counts);
+      const chipW = c.mode === 'name' ? CHIP_W_NAME : CHIP_W_ICON;
+      let used = c.shown.length * chipW + Math.max(0, c.shown.length - 1) * CHIP_GAP;
+      if (c.hidden > 0) used += (c.shown.length > 0 ? CHIP_GAP : 0) + MORE_W;
+      const kw = countsSpan(k);
+      if (kw > 0 && used > 0) used += CHIP_GAP;
+      expect(used + kw, `sborda a ${w}px`).toBeLessThanOrEqual(Math.max(w, minimoGarantito));
+    }
   });
 });

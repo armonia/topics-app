@@ -245,6 +245,58 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     if (isMobile) setSidebarCollapsed(true);
   }
 
+  /**
+   * LA LARGHEZZA DA APERTA, ricordata a parte dallo stato «chiusa».
+   *
+   * Chiudere la colonna TRASCINANDO il bordo fino in fondo scriveva — e
+   * persisteva — `sidebarWidth: 180`, cioè il minimo del trascinamento; e
+   * riaprire (bottone, doppio clic, swipe dal bordo) rimette solo
+   * `sidebarCollapsed`, mai la larghezza. Risultato: chi stava a 320 e chiudeva
+   * trascinando riapriva a 180 PER SEMPRE — senza aver mai chiesto una colonna
+   * stretta: aveva chiesto di chiuderla.
+   *
+   * Sono due fatti diversi e stanno in due posti diversi: `sidebarWidth` è
+   * quanto la colonna misura ADESSO, `sidebarWidthExpanded` è la misura scelta
+   * a mano, quella a cui la riapertura torna. Il ref è la copia che legge il
+   * gestore del mouse, che vive in un effetto montato una volta sola e di uno
+   * stato vedrebbe il valore del primo giro.
+   */
+  const sidebarExpandedWidth = useRef(appSettings.sidebarWidthExpanded ?? sidebarWidth);
+  useEffect(() => {
+    if (!sidebarCollapsed) sidebarExpandedWidth.current = sidebarWidth;
+  }, [sidebarCollapsed, sidebarWidth]);
+
+  /**
+   * RIAPRIRE LA RIMETTE DOV'ERA — e la regola sta in UN posto.
+   *
+   * Le porte che riaprono la colonna sono tre (il bottone, il doppio clic sul
+   * bordo, lo swipe dal bordo su touch), e nessuna di esse ha a che fare con la
+   * larghezza: ripetere il ripristino in tutte e tre vorrebbe dire un
+   * invariante vero finché tutte e tre se lo ricordano — che è la forma in cui
+   * si rompono. Qui reagisce alla TRANSIZIONE chiusa→aperta, qualunque porta
+   * l'abbia prodotta.
+   *
+   * È un aggiustamento IN RESA e non un effetto: React lo prescrive per «uno
+   * stato che deve cambiare quando ne cambia un altro» — riparte subito, senza
+   * dipingere il fotogramma alla larghezza sbagliata (vedi `wasMobile` sopra).
+   *
+   * La misura si legge da `appSettings` e NON dal ref qui sopra: un ref è un
+   * valore che la resa non deve guardare — non fa ripartire niente quando
+   * cambia, e leggerlo qui è proprio il caso che la regola `react-hooks/refs`
+   * vieta. Il ref serve al gestore del mouse (che vive fuori dalla resa e di
+   * uno stato vedrebbe il valore stantio del primo giro); qui vale lo stato,
+   * che `onUp` aggiorna nello stesso batch in cui chiude la colonna.
+   */
+  const [wasCollapsed, setWasCollapsed] = useState(sidebarCollapsed);
+  if (sidebarCollapsed !== wasCollapsed) {
+    setWasCollapsed(sidebarCollapsed);
+    const target = appSettings.sidebarWidthExpanded ?? 0;
+    // In finestra staccata non si persiste niente, quindi `appSettings` non
+    // descrive QUESTA finestra: ripristinare da lì imporrebbe la larghezza di
+    // un'altra. Lì la colonna resta dov'è.
+    if (!sidebarCollapsed && !isDetached && target > 0 && target !== sidebarWidth) setSidebarWidth(target);
+  }
+
   const sidebarResizing = useRef(false);
   const sidebarStartX = useRef(0);
   const sidebarStartWidth = useRef(0);
@@ -362,10 +414,21 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       const delta = e.clientX - sidebarStartX.current;
       const finalWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
       const collapsed = finalWidth <= 180 && delta < -20;
-      setSidebarWidth(collapsed ? 180 : finalWidth);
+      // Chiudere NON cancella la misura scelta a mano: `finalWidth` è 180
+      // perché quello è il minimo del trascinamento, non perché qualcuno voglia
+      // una colonna stretta. La larghezza da aperta resta com'era e viene
+      // persistita a parte — è quella che la riapertura ripristina.
+      const expanded = collapsed ? (sidebarExpandedWidth.current || finalWidth) : finalWidth;
+      sidebarExpandedWidth.current = expanded;
+      setSidebarWidth(finalWidth);
       setSidebarCollapsed(collapsed);
       if (!isDetached) {
-        const newSettings = { ...loadSettings(), sidebarWidth: collapsed ? 180 : finalWidth, sidebarCollapsed: collapsed };
+        const newSettings = {
+          ...loadSettings(),
+          sidebarWidth: finalWidth,
+          sidebarCollapsed: collapsed,
+          sidebarWidthExpanded: expanded,
+        };
         saveSettings(newSettings);
         setAppSettings(newSettings);
       }
