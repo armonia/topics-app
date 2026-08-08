@@ -3,6 +3,7 @@ import { User, Pencil, Plus, X, Trash2, Lock } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { useConfirm } from '../../hooks/useConfirm';
+import { membriDaRisposta, splitMembri, type Membro, type Ruolo } from './membri';
 
 /**
  * Chi sei, e con chi condividi. UN elenco solo.
@@ -62,8 +63,6 @@ interface Io {
   org: { id: string; name: string; members: number } | null;
 }
 
-type Ruolo = 'owner' | 'admin' | 'member';
-
 interface Gruppo {
   id: string;
   name: string;
@@ -74,20 +73,64 @@ interface Gruppo {
   installation: boolean;
 }
 
-interface Membro {
-  id: string;
-  name: string;
-  email: string | null;
-  role: Ruolo;
-  devices: number;
-  owner: boolean;
-  blocked: boolean;
-}
-
 /** Cosa si sta modificando: una persona (per id) o il nome del gruppo. */
 type InModifica = { tipo: 'persona'; id: string } | { tipo: 'gruppo' } | null;
 
 const RUOLI: Ruolo[] = ['owner', 'admin', 'member'];
+
+/** `t()` passato come dato: è ciò che rende `TolliQueue` una funzione di props. */
+type Traduci = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * La coda dei TOLTI, e il gesto che li cancella davvero.
+ *
+ * Coda separata e in sordina, come i «Revocati» dei dispositivi: sono usciti dal
+ * gruppo, non dalla schermata. Esiste perché senza di lei `people.revoked_at`
+ * resta una colonna letta in cinque punti e scrivibile da nessuno.
+ *
+ * Niente hook e niente accesso al documento — `t` arriva come prop — così la si
+ * chiama e si guarda l'albero che restituisce, senza un renderer DOM che il
+ * progetto non ha.
+ */
+export function TolliQueue({ tolti, onDelete, inCorso, rifiuto, t }: {
+  tolti: Membro[];
+  onDelete: (m: Membro) => void;
+  inCorso: boolean;
+  /** La chiave della frase se l'ultima cancellazione è stata rifiutata. */
+  rifiuto: string | null;
+  t: Traduci;
+}) {
+  if (tolti.length === 0) return null;
+  return (
+    <div>
+      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+        {t('identity.removedHeading')}
+      </h4>
+      <ul className="space-y-1" data-testid="identity-removed">
+        {tolti.map((m) => (
+          <li key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text-muted">
+            <User size={12} className="flex-shrink-0 opacity-50" />
+            <span className="min-w-0 flex-1 truncate line-through">{m.name}</span>
+            <button
+              disabled={inCorso}
+              onClick={() => onDelete(m)}
+              title={t('identity.deletePerson', { nome: m.name })}
+              aria-label={t('identity.deletePerson', { nome: m.name })}
+              className="flex-shrink-0 rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
+            >
+              <Trash2 size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {/* Il rifiuto DICE cosa fare prima: «ha ancora un dispositivo» è una
+          condizione da sciogliere, non un divieto. */}
+      {rifiuto && (
+        <p className="mt-1 px-3 text-[11px] leading-snug text-app-text-secondary">{t(rifiuto)}</p>
+      )}
+    </div>
+  );
+}
 
 export function IdentitySection() {
   const t = useT();
@@ -129,11 +172,8 @@ export function IdentitySection() {
     try {
       const r = await fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { members?: Membro[] } : null;
-      // I TOLTI restano nell'array, non nell'elenco di chi c'è: si separano
-      // sotto (`tolti`). Buttarli via qui era il motivo per cui una persona
-      // invitata per sbaglio diventava irraggiungibile — fuori da ogni
-      // schermata e dentro il database per sempre.
-      setMembri(b?.members ?? []);
+      // I TOLTI restano nell'array: si separano sotto, con `splitMembri`.
+      setMembri(membriDaRisposta(b));
     } catch { setMembri([]); }
   }, []);
 
@@ -307,8 +347,7 @@ export function IdentitySection() {
   if (!io?.person) return null;
 
   // I due elenchi. `tolti` esiste per un gesto solo: cancellare davvero.
-  const presenti = membri.filter((m) => !m.blocked);
-  const tolti = membri.filter((m) => m.blocked);
+  const { presenti, tolti } = splitMembri(membri);
   const soloTu = presenti.length <= 1;
   const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary';
 
@@ -549,39 +588,15 @@ export function IdentitySection() {
         )}
       </div>
 
-      {/* ── I TOLTI, e il gesto che li cancella davvero.
-          Coda separata e in sordina, come i «Revocati» dei dispositivi: sono
-          usciti dal gruppo, non dalla schermata. Esiste perché senza di lei una
-          persona invitata per sbaglio non era raggiungibile da nessun posto —
-          `people.revoked_at` era letta in otto punti e scrivibile da nessuno. */}
-      {amministra && tolti.length > 0 && (
-        <div>
-          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-            {t('identity.removedHeading')}
-          </h4>
-          <ul className="space-y-1" data-testid="identity-removed">
-            {tolti.map((m) => (
-              <li key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text-muted">
-                <User size={12} className="flex-shrink-0 opacity-50" />
-                <span className="min-w-0 flex-1 truncate line-through">{m.name}</span>
-                <button
-                  disabled={inCorso}
-                  onClick={() => void cancellaPersona(m)}
-                  title={t('identity.deletePerson', { nome: m.name })}
-                  aria-label={t('identity.deletePerson', { nome: m.name })}
-                  className="flex-shrink-0 rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </li>
-            ))}
-          </ul>
-          {/* Il rifiuto DICE cosa fare prima: «ha ancora un dispositivo» è una
-              condizione da sciogliere, non un divieto. */}
-          {rifiutoCancella && (
-            <p className="mt-1 px-3 text-[11px] leading-snug text-app-text-secondary">{t(rifiutoCancella)}</p>
-          )}
-        </div>
+      {/* I TOLTI: solo chi amministra li vede, perché solo lui può cancellarli. */}
+      {amministra && (
+        <TolliQueue
+          tolti={tolti}
+          onDelete={(m) => void cancellaPersona(m)}
+          inCorso={inCorso}
+          rifiuto={rifiutoCancella}
+          t={t}
+        />
       )}
 
       {nuovoGruppo === null ? (

@@ -13,17 +13,18 @@
  * l'interfaccia direbbe «non è riuscito» senza sapere perché.
  */
 export { CODICI_AUTH } from '../../../shared/auth-codes';
-export type { CodiceAuth } from '../../../shared/auth-codes';
-import { CODICI_AUTH } from '../../../shared/auth-codes';
+import { isCodiceAuth } from '../../../shared/auth-codes';
 
 /**
  * Un codice sconosciuto — un server più nuovo dell'interfaccia — cade su una
  * frase generica invece che su un pannello muto: un rifiuto silenzioso chi
  * guarda lo legge come un clic che non ha fatto niente.
+ *
+ * La domanda «è un codice che conosco?» la fa `isCodiceAuth`, dove l'elenco
+ * vive: era riscritta qui a mano — `(CODICI_AUTH as readonly string[]).includes`
+ * — cioè due risposte alla stessa domanda, che è esattamente ciò che questo
+ * modulo esiste per togliere.
  */
 export function chiaveErroreAuth(codice: string | null | undefined): string {
-  if (!codice) return 'auth.err.generic';
-  return (CODICI_AUTH as readonly string[]).includes(codice)
-    ? `auth.err.${codice}`
-    : 'auth.err.generic';
+  return isCodiceAuth(codice) ? `auth.err.${codice}` : 'auth.err.generic';
 }
