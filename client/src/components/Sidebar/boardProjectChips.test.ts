@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   boardProjectChips, fitProjectChips, fitStatusCounts, fitBoardRow, countWidth, countsSpan,
-  CHIP_W_NAME, CHIP_W_ICON, CHIP_GAP, MORE_W, CHIP_MODES,
+  CHIP_W_ICON_COUNT, CHIP_W_ICON, CHIP_GAP, MORE_W, CHIP_MODES,
   type BoardCount, type BoardProjectChip,
 } from './boardProjectChips';
 import type { BoardProjectRef, BoardTask, TaskStatus } from '../../lib/board';
@@ -127,14 +127,14 @@ describe('fitProjectChips', () => {
     expect(fitProjectChips(serveRicco, chips).mode).toBe(RICCO.mode);
   });
 
-  test('quando col nome non ne entra NEMMENO UNA si scende a solo-icona', () => {
-    // Il degrado è progressivo, non uno stato scelto: il nome ha la precedenza
-    // finché ce n'è uno che ci sta, perché una pastiglia solo-icona per un
-    // progetto senza icona è un numero anonimo.
-    // Un pixel meno di quanto serve a una pastiglia col nome PIÙ il suo «+N»
-    // (che serve, visto che cinque non ci stanno): col nome non ne entra
-    // nessuna, a icone sì.
-    const stretta = CHIP_W_NAME + CHIP_GAP + MORE_W - 1;
+  test('quando col numero non ne entra NEMMENO UNA si scende a solo-icona', () => {
+    // Il degrado è progressivo, non uno stato scelto: il numero ha la
+    // precedenza finché ce n'è uno che ci sta, perché è metà dell'informazione
+    // che questa riga esiste per dare («n progetti con n task»).
+    // Un pixel meno di quanto serve a una pastiglia col numero PIÙ il suo «+N»
+    // (che serve, visto che cinque non ci stanno): col numero non ne entra
+    // nessuna, a sole icone sì.
+    const stretta = CHIP_W_ICON_COUNT + CHIP_GAP + MORE_W - 1;
     expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + CHIP_GAP + MORE_W);
     const fitted = fitProjectChips(stretta, chips);
     expect(fitted.mode).toBe('icon');
@@ -150,7 +150,7 @@ describe('fitProjectChips', () => {
     expect(fitted.hidden).toBe(chips.length - entrano);
   });
 
-  test('col nome ne entra una: si resta col nome anche se a icone ne entrerebbero di più', () => {
+  test('col numero ne entra una: si resta col numero anche se a sole icone ne entrerebbero di più', () => {
     const w = spanRicco(1) + CHIP_GAP + MORE_W;
     expect(fitProjectChips(w, chips)).toEqual({ shown: ['a'], hidden: 4, mode: RICCO.mode });
   });
