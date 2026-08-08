@@ -174,6 +174,29 @@
 
 /* Font stack */
 :root {
+  /* CIÒ CHE NON DIPINGIAMO NOI, e per cui il tema andava DICHIARATO.
+   *
+   * Misurato l'08/08: `getComputedStyle(html).colorScheme` valeva `normal` in
+   * ogni combinazione di tema e sistema — cioè `color-scheme` non era dichiarato
+   * da nessuna parte, né qui, né in `index.html`, né in `boot.js`. Il difetto è
+   * che una parte della finestra NON la dipinge il nostro CSS, e senza questa
+   * riga il browser la disegna CHIARA anche sopra un'app scura:
+   *   · le barre di scorrimento;
+   *   · i controlli nativi (`select`, `input[type=date]`, checkbox, spinner);
+   *   · la tela che il motore mette DIETRO la pagina, che si vede nel rimbalzo
+   *     dell'overscroll — su iOS a ogni gesto;
+   *   · il colore di selezione e il caret di sistema.
+   * Un'app scura con quei pezzi chiari è esattamente ciò che si legge come
+   * «dark slavato»: non è una tinta sbagliata nei nostri token, è il contorno
+   * che non segue.
+   *
+   * Sta nel CSS e non in JS di proposito: `boot.js` mette `.dark` su <html>
+   * prima del primo paint, quindi la coppia di regole è già risolta al primo
+   * fotogramma e non c'è un istante in cui la tela è dell'altro tema. Un
+   * `theme-color` non copre niente di tutto questo: quello è la fascia di
+   * sistema, questo è l'interno della finestra. */
+  color-scheme: light;
+
   /* Un solo token di raggio, più la scala a tre gradini per i componenti. */
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 2px);
@@ -384,6 +407,11 @@
  * Pure neutral darks read "warm/muddy" on most displays; a faint cool cast gives
  * the premium near-black look (Linear/Vercel/Raycast) and kills the brownish feel. */
 .dark {
+  /* Il gemello della dichiarazione su `:root`: barre di scorrimento, controlli
+   * nativi, tela dietro la pagina e caret passano al tema scuro. Vedi il perché,
+   * coi numeri, accanto a `color-scheme: light` sopra. */
+  color-scheme: dark;
+
   --bg: hsl(222 16% 8.5%);
   --bg-surface: hsl(222 14% 11%);
   /* Il chrome in dark è il GEMELLO OPACO del vetro che l'app desktop mostra
