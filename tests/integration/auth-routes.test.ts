@@ -113,7 +113,7 @@ describe("rotte auth · appaiamento", () => {
     const { ctx } = creaCtx(db);
     const r = await chiama(createAuthRouter(ctx), "/api/auth/pair/request", "POST");
     expect(r?.status).toBe(200);
-    const b = await r!.json() as { requestId: string; code: string; expiresInMs: number };
+    const b = await r!.json() as { requestId: string; code: string; claim: string; expiresInMs: number };
     expect(b.requestId).toBeTruthy();
     // Sei simboli di un alfabeto senza coppie confondibili (niente B/8, I/1,
     // O/0, S/5, L), spezzati a gruppi di tre: si legge da uno schermo e si
@@ -125,8 +125,8 @@ describe("rotte auth · appaiamento", () => {
   test("finché nessuno conferma, lo stato resta in attesa", async () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
-    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}`);
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
+    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}&claim=${req.claim}`);
     expect((await st!.json() as { state: string }).state).toBe("pending");
     // E nessun dispositivo è nato: l'attesa non crea niente.
     expect(db.query("SELECT COUNT(*) c FROM devices").get()).toEqual({ c: 0 });
@@ -135,12 +135,12 @@ describe("rotte auth · appaiamento", () => {
   test("l'approvazione crea il dispositivo e consegna il cookie UNA volta sola", async () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
 
     const ok = await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: req.requestId } });
     expect(ok?.status).toBe(200);
 
-    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}`);
+    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}&claim=${req.claim}`);
     const corpo = await st!.json() as { state: string };
     expect(corpo.state).toBe("approved");
 
@@ -164,9 +164,9 @@ describe("rotte auth · appaiamento", () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
 
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
-    const b = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const b = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: b.requestId, role: "guest" } });
 
     const ruoli = (db.query("SELECT role FROM devices ORDER BY created_at").all() as Array<{ role: string }>)
@@ -178,9 +178,9 @@ describe("rotte auth · appaiamento", () => {
   test("un rifiuto non lascia nessuna riga dietro", async () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/deny", "POST", { body: { requestId: req.requestId } });
-    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}`);
+    const st = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}&claim=${req.claim}`);
     expect((await st!.json() as { state: string }).state).toBe("denied");
     expect(db.query("SELECT COUNT(*) c FROM devices").get()).toEqual({ c: 0 });
   });
@@ -204,7 +204,7 @@ describe("rotte auth · dispositivi", () => {
   async function conDispositivo(role: "owner" | "guest" = "owner") {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: req.requestId, role } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
     return { db, router, id };
@@ -233,6 +233,55 @@ describe("rotte auth · dispositivi", () => {
   });
 });
 
+describe("rotte auth · il segreto di ritiro", () => {
+  // Il `requestId` GIRA: `auth:pair-requested` lo porta alle socket perché il
+  // cartello di approvazione compaia. Il gettone no. Tenere separate le due
+  // cose è ciò che impedisce a chi ha visto passare il primo di incassare il
+  // secondo — la scalata provata in `guest-confinement.spec.ts` (GUEST-05).
+  test("senza il segreto non si ritira, e sbagliarlo è indistinguibile dal non esistere", async () => {
+    const db = dbFresco();
+    const { ctx } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as
+      { requestId: string; claim: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: req.requestId } });
+
+    // Senza segreto, e con quello sbagliato: la stessa risposta di un
+    // riferimento inventato. Distinguerli direbbe «questo esiste», che è metà
+    // del lavoro di chi prova.
+    for (const q of [
+      `requestId=${req.requestId}`,
+      `requestId=${req.requestId}&claim=sbagliato`,
+      `requestId=non-esiste&claim=${req.claim}`,
+    ]) {
+      const r = await chiama(router, `/api/auth/pair/status?${q}`);
+      expect(await r!.json()).toEqual({ state: "expired" });
+      expect(r!.headers.get("set-cookie"), `${q} non deve consegnare niente`).toBeNull();
+    }
+
+    // E il legittimo incassa ancora: il tappo non ha chiuso la porta di casa.
+    const ok = await chiama(router, `/api/auth/pair/status?requestId=${req.requestId}&claim=${req.claim}`);
+    expect((await ok!.json() as { state: string }).state).toBe("approved");
+    expect(ok!.headers.get("set-cookie")).toContain("topics_device=");
+  });
+
+  test("il segreto NON esce nel frame che annuncia l'appaiamento", async () => {
+    // È l'invariante che regge tutto il resto: se un giorno qualcuno aggiunge
+    // `claim` a quel broadcast «per comodità», la separazione muore in silenzio
+    // e nessun'altra riga se ne accorge.
+    const db = dbFresco();
+    const { ctx, inviati } = creaCtx(db);
+    const router = createAuthRouter(ctx);
+    const req = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as
+      { requestId: string; claim: string };
+
+    const annuncio = inviati.find((f) => (f as { type?: string }).type === "auth:pair-requested");
+    expect(annuncio, "il cartello di approvazione ha bisogno di questo frame").toBeTruthy();
+    expect(JSON.stringify(annuncio)).toContain(req.requestId);
+    expect(JSON.stringify(annuncio), "il segreto di ritiro non deve viaggiare").not.toContain(req.claim);
+  });
+});
+
 describe("rotte auth · condivisione", () => {
   async function scena() {
     const db = dbFresco();
@@ -242,9 +291,9 @@ describe("rotte auth · condivisione", () => {
     db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c1','La chat condivisa',1)");
     db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c2','La chat PRIVATA',2)");
 
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
-    const b = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const b = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: b.requestId, role: "guest" } });
 
     const righe = db.query("SELECT id, role FROM devices").all() as Array<{ id: string; role: string }>;
@@ -349,7 +398,7 @@ describe("rotte auth · la rubrica dei destinatari", () => {
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
     for (const role of ["owner", "guest"] as const) {
-      const r = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+      const r = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
       await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: r.requestId, role } });
     }
     const b = await (await chiama(router, "/api/auth/subjects"))!.json() as {
@@ -376,7 +425,7 @@ describe("rotte auth · condividere con un soggetto che non è un dispositivo", 
     const db = dbFresco();
     const router = createAuthRouter(creaCtx(db).ctx);
     db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
 
@@ -473,7 +522,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p2','Altra',1,'local',1,1)");
     db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','x','todo')");
 
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, role: "guest" } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
 
@@ -490,7 +539,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
   test("una persona che non esiste è rifiutata", async () => {
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
 
@@ -502,7 +551,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);
     db.run("INSERT INTO people (id, display_name, created_at, revoked_at, origin, rev, updated_at) VALUES ('px','Via',1,999,'local',1,1)");
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
     const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: "px" } });
@@ -512,7 +561,7 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
   test("rinominare continua a funzionare: i due gesti non si sono pestati", async () => {
     const db = db084();
     const router = createAuthRouter(creaCtx(db).ctx);
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
     const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
     const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { name: "Telefono di Luca" } });
@@ -536,7 +585,7 @@ describe("rotte auth · il ruolo DISCENDE dalla persona", () => {
   }
 
   async function approva(router: ReturnType<typeof createAuthRouter>, corpo: Record<string, unknown>) {
-    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
     await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, ...corpo } });
   }
 

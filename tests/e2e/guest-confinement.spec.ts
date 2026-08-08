@@ -44,7 +44,9 @@ async function ospite(
     data: { name: nome },
   });
   expect(richiesta.ok()).toBeTruthy();
-  const { requestId } = (await richiesta.json()) as { requestId: string };
+  // Il `claim` torna SOLO qui, a chi ha chiesto. Chi vede passare il
+  // `requestId` in un frame non ce l'ha, ed è per questo che non può incassare.
+  const { requestId, claim } = (await richiesta.json()) as { requestId: string; claim: string };
 
   // L'approvazione viene dal proprietario, cioè da dentro. `personName` è il
   // caso «è di un'altra persona»: è QUELLO che lo rende ospite — il ruolo
@@ -57,7 +59,9 @@ async function ospite(
   expect(approvato.role, "una persona diversa dal proprietario deve dare un ospite").toBe("guest");
 
   // Il token esce UNA volta sola, nel `Set-Cookie` dello status.
-  const stato = await api.get(`${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${requestId}`);
+  const stato = await api.get(
+    `${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${requestId}&claim=${claim}`,
+  );
   const corpo = (await stato.json()) as { state: string };
   expect(corpo.state).toBe("approved");
   const setCookie = stato.headers()["set-cookie"] ?? "";
@@ -227,6 +231,72 @@ test.describe("Confinamento dell'ospite", () => {
         testo.includes(nascosta.id),
         "l'id di una topic NON condivisa non deve comparire in nessun frame consegnato all'ospite",
       ).toBe(false);
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+test.describe("Confinamento dell'ospite · scalata di privilegio", () => {
+  test("GUEST-05: un ospite non vede passare un appaiamento altrui, e non ne ruba il gettone", async ({ request, browser }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-05" });
+    // LA CATENA, quando era aperta:
+    //  1. `ctx.broadcast` manda `auth:pair-requested` con `requestId` e `code`
+    //     a OGNI socket, e a differenza di `broadcastToAll` non consulta il
+    //     filtro degli ospiti;
+    //  2. `/api/auth/pair/status` è esente dall'identità, e il gate
+    //     corto-circuita PRIMA di costruirla — quindi su quel percorso il
+    //     confinamento non gira affatto;
+    //  3. quella rotta consegna il gettone a CHIUNQUE presenti il `requestId`,
+    //     una volta sola.
+    // Un ospite con un permesso di lettura su una scheda diventava il
+    // dispositivo appena approvato — proprietario, se avevi risposto «è mio».
+    const stamp = Date.now();
+    const { cookie } = await ospite(request, `guest-05-${stamp}`);
+
+    const eq = cookie.indexOf("=");
+    const ctx = await browser.newContext({ baseURL: E2E_TUNNEL_BASE });
+    await ctx.addCookies([{ name: cookie.slice(0, eq), value: cookie.slice(eq + 1), url: E2E_TUNNEL_BASE }]);
+    const page = await ctx.newPage();
+
+    try {
+      await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
+
+      // La socket la si tiene aperta A MANO, dentro la pagina. Ascoltare quella
+      // dell'app non serve: un ospite non monta l'applicazione, quindi la sua
+      // socket si chiude subito dopo la stretta di mano e un test che guardasse
+      // lì sarebbe verde perché non è arrivato NIENTE — non perché il filtro
+      // funziona. È la differenza fra provare una cosa e non poterla vedere.
+      await page.evaluate(() => {
+        const w = window as unknown as { __frame: string[] };
+        w.__frame = [];
+        const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws`);
+        ws.addEventListener("message", (e) => w.__frame.push(String(e.data)));
+      });
+      const frames = () => page.evaluate(() => (window as unknown as { __frame: string[] }).__frame);
+      // Viva, non solo creata.
+      await expect.poll(async () => (await frames()).some((f) => f.includes('"welcome"')), { timeout: 10_000 }).toBe(true);
+
+      // Un terzo dispositivo chiede di entrare.
+      const terzo = await request.post(`${E2E_TUNNEL_BASE}/api/auth/pair/request`, { data: { name: `vittima-${stamp}` } });
+      const { requestId } = await terzo.json() as { requestId: string };
+
+      // 1. L'ospite non deve vedere passare né il codice né il riferimento.
+      await page.waitForTimeout(2500);
+      const visto = (await frames()).join("\n");
+      expect(visto.includes(requestId), "il riferimento dell'appaiamento non deve raggiungere un ospite").toBe(false);
+      expect(visto.includes("auth:pair-requested"), "l'ospite non deve nemmeno sapere che qualcuno sta entrando").toBe(false);
+
+      // 2. E anche conoscendolo, non deve poterne ritirare il gettone. Il
+      //    proprietario approva; poi l'ospite prova a incassare per primo.
+      await request.post(`${E2E_BASE}/api/auth/pair/approve`, { data: { requestId } });
+      const furto = await request.get(`${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${requestId}`, {
+        headers: daOspite(cookie),
+      });
+      expect(
+        (furto.headers()["set-cookie"] ?? ""),
+        "il gettone non deve uscire verso chi non ha fatto la richiesta",
+      ).not.toContain(`${SESSION_COOKIE}=`);
     } finally {
       await ctx.close();
     }

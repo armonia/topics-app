@@ -34,6 +34,17 @@ import {
 interface PendingPairing {
   id: string;
   code: string;
+  /**
+   * Il segreto di RITIRO, e non è la stessa cosa del `requestId`.
+   *
+   * Il riferimento gira: `auth:pair-requested` lo porta alle socket del
+   * proprietario perché il cartello di approvazione possa comparire. Il gettone
+   * invece esce una volta sola, e deve uscire verso CHI HA CHIESTO — non verso
+   * chiunque abbia visto passare il riferimento. Tenerli separati è ciò che
+   * rende innocuo il primo: nasce qui, torna solo nella risposta alla richiesta,
+   * e non compare in nessun frame.
+   */
+  claim: string;
   name: string;
   ip: string | null;
   createdAt: number;
@@ -318,10 +329,16 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       const id = crypto.randomUUID();
       const entry: PendingPairing = {
         id, code: mintPairingCode(), name, ip, createdAt: now, state: "pending", token: null,
+        // 256 bit: non è un codice da leggere ad alta voce, è un segreto da
+        // rimandare indietro.
+        claim: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
       };
       pending.set(id, entry);
+      // Il frame porta il riferimento e il codice — servono al cartello di
+      // approvazione — ma NON il `claim`, che è l'unica cosa capace di ritirare
+      // il gettone. È la separazione che rende innocuo il resto.
       ctx.broadcast?.({ type: "auth:pair-requested", requestId: id, code: entry.code, name, ip });
-      return json({ requestId: id, code: entry.code, name, expiresInMs: PAIRING_CODE_TTL_MS });
+      return json({ requestId: id, code: entry.code, claim: entry.claim, name, expiresInMs: PAIRING_CODE_TTL_MS });
     }
 
     // ── Il dispositivo nuovo attende. Alla conferma riceve il cookie, UNA volta.
@@ -330,7 +347,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/auth/pair/status") {
       const id = url.searchParams.get("requestId") ?? "";
       const entry = pending.get(id);
-      if (!entry) return json({ state: "expired" });
+      // Riferimento sconosciuto e segreto sbagliato danno la STESSA risposta:
+      // distinguerli direbbe a chi prova «questo riferimento esiste», che è
+      // metà del lavoro.
+      if (!entry || entry.claim !== (url.searchParams.get("claim") ?? "")) return json({ state: "expired" });
       if (entry.state === "denied") { pending.delete(id); return json({ state: "denied" }); }
       if (entry.state !== "approved" || !entry.token) return json({ state: "pending" });
       // Consegna unica: il token esce dalla memoria appena tocca il filo.
