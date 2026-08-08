@@ -243,6 +243,62 @@ export const ROW_INSET = 6;
 export const SIDEBAR_INDENT_STEP = 16;
 
 /**
+ * IL GLIFO IN TESTA A UNA RIGA — una misura sola, e uno slot che non balla.
+ *
+ * Era scritto a mano in quattro punti, e il numero scelto era il peggiore
+ * possibile: 13. Lucide disegna dentro un riquadro da 24 con tratto 2, quindi a
+ * 13px il tratto vale 1,083px — non cade su un pixel — mentre a 14 vale 1,167 e
+ * a 12 esattamente 1. E in una riga alta 34 un glifo da 13 lascia (34−13)/2 =
+ * 10,5px sopra e sotto: MEZZO pixel, contro i 10 esatti dei vicini che stanno
+ * già a 14 (il progetto, il browser). Un glifo fuori asse di mezzo pixel
+ * rispetto a quello sopra e a quello sotto è esattamente ciò che fa sembrare
+ * storta una colonna senza che si riesca a dire perché.
+ *
+ * {@link ROW_GLYPH_SLOT} è l'altra metà: un contenitore di larghezza FISSA che
+ * centra qualunque glifo ci finisca dentro. Senza, ogni riga faceva partire il
+ * proprio nome da una x diversa — la board a 27px dal bordo della card, un
+ * progetto a 48, una chat a 8 — cioè tre colonne per la stessa cosa. Con lo
+ * slot, board, utility, terminali e browser condividono UNA colonna del nome, e
+ * un glifo che cambia misura (l'icona di Claude contro quella di un terminale)
+ * non la sposta.
+ *
+ * 18px e non 14: i due px di aria per lato tengono dentro anche i glifi che
+ * lucide disegna più larghi dell'inchiostro nominale, senza toccare la colonna.
+ */
+export const ROW_GLYPH = 14;
+export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';
+
+/**
+ * I SEPARATORI DI PRIMO LIVELLO, e perché esistono SOLO sotto i 768px.
+ *
+ * Questo file VIETA le hairline fra righe impilate, e il divieto resta: «fra
+ * righe adiacenti i due capelli di un bordo si leggono come LINEE divisorie,
+ * esattamente ciò che stiamo togliendo». La card — fondo, angoli, rientro —
+ * è ciò che separa una riga dall'altra, e una linea sarebbe una terza cosa che
+ * ripete quello che fill e gap dicono già.
+ *
+ * Sotto i 768px però quel fill NON C'È: la sidebar diventa un cassetto a tutta
+ * larghezza, le tre superfici collassano in una e una riga a riposo è
+ * trasparente su un fondo praticamente uguale. Lì la card non separa più nulla,
+ * e senza un tratto le righe di primo livello si leggono come un blocco unico.
+ * È una DEROGA dichiarata, non un ripensamento: vale per i separatori fra i
+ * BLOCCHI e fra le righe di PRIMO livello dentro un blocco, mai fra i figli —
+ * lì l'indentazione fa già il lavoro, e una linea trasformerebbe un albero in
+ * una tabella.
+ *
+ * Il filo sta sul FIGLIO (`divide-y`), non sul contenitore: così rientra di
+ * ROW_INSET da sé — è il margine della card — e segue la forma della card
+ * invece di attraversarne gli angoli. La card resta l'unità; il filo la cita.
+ * E NON va messo dove un confine c'è già: la card di un gruppo ha un bordo
+ * tutt'attorno, e un filo in mezzo sarebbe una seconda linea sopra la prima.
+ *
+ * `md:` la spegne da tablet in su. Una costante sola, applicata dal contenitore
+ * (`SidebarRowList` in TopicTree): così la quarta vista che qualcuno aggiungerà
+ * nasce già giusta invece di dover ricordarsi la regola.
+ */
+export const SIDEBAR_L1_DIVIDERS = 'max-md:divide-y max-md:divide-app-border/60';
+
+/**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
  *
  * Attilio, 07/08: «il tasto per poter spuntare una tab e chiuderla è troppo

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, SIDEBAR_L1_DIVIDERS, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -45,8 +45,9 @@ import { useMobile } from '@/hooks/useMobile';
 import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/useSidebarState';
 import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
-import { BoardProjectChips, BoardStatusCounts } from './BoardStatusCounts';
+import { BoardRowSummary } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
+import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { SpaceGroupCard } from './SpaceGroups';
 import { useSpaceCards } from './useSpaceCards';
@@ -118,7 +119,73 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
  *  apertura — questa stringa è la STESSA fra sessioni e fra device, che è
  *  esattamente ciò che rende la board fissabile. */
 const BOARD_ID = utilityPanelId('board');
-const BOARD_LABEL = 'Board';
+/** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la
+ *  stessa fonte da cui la barra delle tab e il builder pescano i propri. La
+ *  copia a mano che stava qui aveva già DERIVATO — diceva `LayoutGrid` mentre
+ *  la config dice `Kanban`, cioè due glifi per la stessa cosa nella stessa
+ *  finestra, uno che dice «board» e uno che dice «griglia». */
+const BOARD_LABEL = getPaneConfig('board').label;
+const BOARD_ICON = getPaneConfig('board').icon;
+/** Lo stesso glifo risolto una volta, per la riga: la tessera fissata e la riga
+ *  utility lo risolvono già dal NOME (`UTILITY_ROW_ICONS`), e passare da lì
+ *  significa che la riga non può mostrarne uno diverso dalla tessera. */
+const BoardGlyph = UTILITY_ROW_ICONS[BOARD_ICON] ?? Kanban;
+
+/**
+ * LA BOARD HA UNA RIGA TUTTA SUA? — un predicato, letto da entrambe le parti.
+ *
+ * Fissata, la board vive come tessera nella griglia; non fissata, come riga in
+ * cima. Mai in due posti. Ma quella riga esiste solo se c'è qualcosa da dire —
+ * lavoro aperto, o la sua tab aperta — e quindi la TESSERA deve sapere se, una
+ * volta sfissata, la board ha un posto in cui tornare: se non ce l'ha, la
+ * tessera si marca `pinOnly` e sfissarla la toglie e basta invece di farla
+ * sparire lasciando credere che sia finita altrove.
+ *
+ * Le due condizioni erano scritte due volte, a settecento righe di distanza,
+ * con un commento che dichiarava l'accoppiamento — cioè la forma peggiore di
+ * invariante: vera finché qualcuno se la ricorda. Adesso è una funzione sola.
+ */
+function boardHasOwnRow(boardTaskCount: number, boardOpen: boolean): boolean {
+  return boardTaskCount > 0 || boardOpen;
+}
+
+/**
+ * L'ITEM della board come riga di sidebar, da una parte sola.
+ *
+ * Ne servono tre — la tessera fissata, l'anteprima di trascinamento, e la riga
+ * vera — e finché erano tre letterali potevano divergere sul nome, sul glifo o
+ * sul conteggio senza che niente lo segnalasse (ed erano già divergenti dalla
+ * config, vedi `BOARD_LABEL`).
+ */
+function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>): SidebarItem {
+  return {
+    id: BOARD_ID,
+    type: 'utility',
+    name: BOARD_LABEL,
+    icon: BOARD_ICON,
+    lastActivity: 0,
+    notificationCount: boardTaskCount,
+    archived: false,
+    ...extra,
+  };
+}
+
+/**
+ * UNA LISTA DI RIGHE DI PRIMO LIVELLO — il posto in cui vivono i separatori.
+ *
+ * Le viste della sidebar sono tre (a gruppi, a lista, per stato) e ognuna
+ * impila righe di primo livello a modo suo. Avvolgerle tutte in questo
+ * contenitore fa sì che la regola dei separatori — presenti solo sotto i 768px,
+ * vedi {@link SIDEBAR_L1_DIVIDERS} — stia in un posto solo, e che la quarta
+ * vista nasca già giusta invece di ricopiare una classe.
+ */
+function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`${SIDEBAR_L1_DIVIDERS} ${className}`} {...rest}>
+      {children}
+    </div>
+  );
+}
 
 /**
  * L'ALTEZZA DI UNA RIGA D'ALBERO, in un posto solo.
@@ -514,20 +581,14 @@ export function TopicTree({
     if (pinnedItems.includes(BOARD_ID)) {
       const q = searchQuery.trim().toLowerCase();
       if (q === '' || BOARD_LABEL.toLowerCase().includes(q)) {
-        byId.set(BOARD_ID, {
-          id: BOARD_ID,
-          type: 'utility',
-          name: BOARD_LABEL,
-          icon: 'LayoutGrid',
-          lastActivity: 0,
-          notificationCount: boardTaskCount,
-          archived: false,
+        byId.set(BOARD_ID, boardSidebarItem(boardTaskCount, {
           pinned: true,
-          // La riga dedicata alla Board esiste solo con task attivi o con la
-          // sua tab aperta (`boardRow`, più sotto): senza nessuna delle due,
-          // sfissarla non la riporta in lista — la fa sparire e basta.
-          ...(boardTaskCount > 0 || boardOpen ? {} : { pinOnly: true }),
-        });
+          // Senza una riga in cui tornare (`boardHasOwnRow`, lo STESSO predicato
+          // che decide `boardRow` più sotto), sfissarla non la riporta in lista:
+          // la fa sparire e basta — quindi la tessera si marca `pinOnly` e il
+          // menu offre «togli», non «rimetti in lista».
+          ...(boardHasOwnRow(boardTaskCount, boardOpen) ? {} : { pinOnly: true }),
+        }));
       }
     }
     return pinnedItems.flatMap(id => {
@@ -664,7 +725,9 @@ export function TopicTree({
         // seconda scrittura a mano della stessa cosa (`px-1.5` contro ROW_PX,
         // `rounded-md` contro `rounded-lg`, `12px` che è ROW_INSET × 2 scritto in
         // cifre), quindi divergeva dal contratto a ogni ritocco della card vera.
-        className={`flex items-center gap-1.5 ${ROW_PX} ${ROW_H} select-none ${
+        // `gap-2` e glifo nello slot condiviso: stessa colonna del nome della
+        // riga board, dei terminali e dei browser (vedi ROW_GLYPH_SLOT).
+        className={`flex items-center gap-2 ${ROW_PX} ${ROW_H} select-none ${
           sidebarRowCard({ focused: isFocused })
         }`}
         style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
@@ -674,7 +737,9 @@ export function TopicTree({
             il colore dice uno STATO — attenzione, selezione — non un'identità.
             Questo `text-emerald-400` era l'ultimo verde rimasto, e su una riga
             accanto alla board ormai grigia leggeva come «questa è speciale». */}
-        <Icon size={13} className="flex-shrink-0 text-app-text-secondary" />
+        <span className={ROW_GLYPH_SLOT}>
+          <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
+        </span>
         <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
         {/* Was missing entirely: the row rendered no badge at all, so an agents
             pane could light up its TAB (pinned by tab-notifications.spec.ts
@@ -1162,11 +1227,12 @@ export function TopicTree({
             <NotificationBadge count={totalUnread} />
           </div>
         </div>
-        {/* Section content */}
+        {/* Section content — le righe di PRIMO livello della sezione, quindi
+            separate fra loro sotto i 768px come quelle di ogni altra vista. */}
         {!isCollapsed && (
-          <div>
+          <SidebarRowList>
             {items.map(item => renderItem(item))}
-          </div>
+          </SidebarRowList>
         )}
       </div>
     );
@@ -1307,12 +1373,7 @@ export function TopicTree({
       // sotto-agenti, che sono righe come le altre ma non stanno al livello
       // superiore. E la board, che una riga nell'albero non ce l'ha.
       resolveItem={key => {
-        if (key === BOARD_ID) {
-          return {
-            id: BOARD_ID, type: 'utility', name: BOARD_LABEL, icon: 'LayoutGrid',
-            lastActivity: 0, notificationCount: boardTaskCount, archived: false,
-          };
-        }
+        if (key === BOARD_ID) return boardSidebarItem(boardTaskCount);
         const stack = [...filteredItems];
         while (stack.length > 0) {
           const item = stack.pop()!;
@@ -1389,7 +1450,7 @@ export function TopicTree({
   // Fissata, la board NON ha una riga: vive come tessera nella griglia (vedi
   // `pinnedBlock`). La stessa cosa in due posti non è una scorciatoia, è un
   // doppione — la regola che vale già per le righe dentro le card dei gruppi.
-  const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && (boardTaskCount > 0 || boardOpen) ? (
+  const boardRow = onOpenBoard && !pinnedIds.has(BOARD_ID) && boardHasOwnRow(boardTaskCount, boardOpen) ? (
           <button
             key="board-row"
             type="button"
@@ -1423,7 +1484,19 @@ export function TopicTree({
             // dei fissati porta i suoi 6px (TILE_GAP) — e sommare i due margini
             // fa 7px dove il ritmo ne vuole 6 (lo blocca `sidebar-pinned-tiles`
             // TILE-14).
-            className={`flex items-center gap-1.5 ${ROW_PX} ${ROW_H} select-none ${
+            // `gap-2` e non `gap-1.5`: è il passo che ogni altra riga con un
+            // glifo usa fra l'icona e il nome, e sei px contro otto erano una
+            // colonna del nome diversa da tutte le vicine.
+            //
+            // `leading-none` sul BOTTONE, non sui figli: «Board» è a 12px senza
+            // leading (scatola ~18) mentre pastiglie e conteggi stanno a 10, e
+            // `items-center` centra le SCATOLE — non le baseline, che restavano
+            // sfalsate di circa un pixel (i numeri cavalcavano sopra la parola).
+            // Ereditandolo, ogni pezzo della riga ha la scatola alta quanto il
+            // suo corpo e le baseline tornano in fila. Chi TRONCA se ne sfila
+            // (`leading-tight` sul nome di una pastiglia): `leading-none` e
+            // `overflow-hidden` insieme tranciano le code di g, p, q.
+            className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
               sidebarRowCard({ focused: boardOpen })
             }`}
             style={{ width: `calc(100% - ${ROW_INSET * 2}px)`, marginBottom: 0 }}
@@ -1431,22 +1504,24 @@ export function TopicTree({
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
                 uno STATO (attenzione, selezione), non a un'identità. Qui sotto
-                il colore torna, ma per dire proprio uno stato: la colonna. */}
-            <LayoutGrid size={13} className="flex-shrink-0 text-app-text-secondary" />
+                il colore torna, ma per dire proprio uno stato: la colonna.
+                `Kanban` e non `LayoutGrid`: è il glifo che `PANE_CONFIG` assegna
+                alla board (e che la tab già mostra), e dice «board» invece di
+                «griglia». Nello slot condiviso, così il nome parte dalla stessa
+                x delle righe utility, dei terminali e dei browser. */}
+            <span className={ROW_GLYPH_SLOT}>
+              <BoardGlyph size={ROW_GLYPH} className="text-app-text-secondary" />
+            </span>
             {/* TUTTO IN LINEA: nome, progetti, conteggi — una riga sola, alta
                 come le sue vicine («meglio mettere tutto inline», Attilio
                 07/08; il primo taglio le metteva su una subline sotto il nome).
-                Il nome NON è più l'elemento elastico: si prende quello che gli
-                serve e cede il resto alle pastiglie, che sono la parte che
-                cresce e che va misurata. Senza `min-w-0` l'elastico non si
-                stringerebbe mai sotto il suo contenuto e il ritaglio non
-                scatterebbe. */}
+                Il nome NON è l'elemento elastico: si prende quello che gli serve
+                e cede il resto al riassunto, che è la parte che cresce e che va
+                misurata. */}
             <span className="flex-shrink-0 text-[12px] font-medium">{BOARD_LABEL}</span>
-            <BoardProjectChips byStatus={boardByStatus} />
-            {/* Quanti, e in quale colonna — sulla riga, senza aprire niente.
-                Sostituisce sia il badge col totale (un numero solo non dice se
-                stai aspettando tu o un agente) sia la fascia che si apriva. */}
-            <BoardStatusCounts byStatus={boardByStatus} />
+            {/* Di CHI sono quei task e a che punto stanno, con una sola misura e
+                una sola scala di priorità: vedi `BoardRowSummary`. */}
+            <BoardRowSummary byStatus={boardByStatus} />
           </button>
   ) : null;
 
@@ -1560,6 +1635,11 @@ export function TopicTree({
                 <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />
               </>
             )}
+            {/* NIENTE separatori fra le card dei gruppi: quelle un bordo ce
+                l'hanno già tutt'attorno (`SpaceGroupCard`), e un filo in mezzo
+                sarebbe una seconda linea sopra la prima. I blocchi qui sono già
+                delimitati; a mancare è il confine fra le RIGHE dentro la card,
+                ed è lì che il separatore va (vedi sotto). */}
             <div data-testid="sidebar-groups">
             {spaceCards.map(card => {
               const rows = bySpace.get(card.id) ?? [];
@@ -1570,10 +1650,9 @@ export function TopicTree({
                   expanded={!collapsedGroups.has(card.id)}
                   onToggle={() => toggleGroup(card.id)}
                 >
-                  {rows.map(item => renderItem(item))}
-                  {rows.length === 0 && (
-                    <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>
-                  )}
+                  {rows.length > 0
+                    ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
+                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">Nessuna tab</div>}
                 </SpaceGroupCard>
               );
             })}
@@ -1592,7 +1671,7 @@ export function TopicTree({
                 {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
               </>
             )}
-            {withUnpinPreview(unpinnedItems)}
+            <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
           </>
         ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
@@ -1622,20 +1701,24 @@ export function TopicTree({
                 stateGroups.awaiting.length === 0 && stateGroups.working.length === 0;
               if (soloIlResto) {
                 return (
-                  <div data-testid="sidebar-state-section-rest">
+                  <SidebarRowList data-testid="sidebar-state-section-rest">
                     {withUnpinPreview(stateGroups.rest)}
-                  </div>
+                  </SidebarRowList>
                 );
               }
-              return STATE_SECTIONS.map(({ key, icon, label }) => {
-                const items = stateGroups[key];
-                if (items.length === 0) return null;
-                return (
-                  <div key={key} data-testid={`sidebar-state-section-${key}`}>
-                    {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
-                  </div>
-                );
-              });
+              return (
+                <SidebarRowList>
+                  {STATE_SECTIONS.map(({ key, icon, label }) => {
+                    const items = stateGroups[key];
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={key} data-testid={`sidebar-state-section-${key}`}>
+                        {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
+                      </div>
+                    );
+                  })}
+                </SidebarRowList>
+              );
             })()}
           </>
         )}
@@ -1855,11 +1938,16 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
         title={`${s.name} — ${s.cwd}`}
       >
-        {s.type === 'claude-code'
-          ? <ClaudeIcon size={13} className="flex-shrink-0 text-[#D97757]" />
-          : s.type === 'codex'
-            ? <CodexIcon size={13} className="flex-shrink-0" />
-            : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
+        {/* Nello slot condiviso: tre glifi diversi per lo stesso posto, e senza
+            un contenitore fisso il nome partiva da una x diversa a seconda di
+            CHI gira dentro quel terminale. */}
+        <span className={ROW_GLYPH_SLOT}>
+          {s.type === 'claude-code'
+            ? <ClaudeIcon size={ROW_GLYPH} className="text-[#D97757]" />
+            : s.type === 'codex'
+              ? <CodexIcon size={ROW_GLYPH} />
+              : <TerminalSquare size={ROW_GLYPH} className="text-app-text-tertiary" />}
+        </span>
         {/* Name + live "what it's doing" subline (self-hides when idle). */}
         {/* `gap-[3px]` invece di `mt-[3px]` sulla subline: vedi TopicItem —
             `truncate-tight` usa il margine verticale, e un `mt` sul figlio glielo
@@ -2265,7 +2353,13 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      <Globe size={14} className="flex-shrink-0 mr-2 opacity-60" />
+      {/* `mr-2` resta sullo SLOT e non sul glifo: questa riga non ha un `gap`
+          (i comandi in coda contano sul suo assenza), quindi lo spazio verso il
+          nome se lo porta il contenitore — che è anche ciò che mette il glifo
+          nella stessa colonna delle righe qui sopra. */}
+      <span className={`${ROW_GLYPH_SLOT} mr-2`}>
+        <Globe size={ROW_GLYPH} className="opacity-60" />
+      </span>
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
