@@ -274,7 +274,9 @@ test.describe("cronologia dei commit", () => {
     const VUOTO = `/tmp/e2e-storia-vuota-${Date.now()}`;
     mkdirSync(VUOTO, { recursive: true });
     writeFileSync(`${VUOTO}/nuovo.txt`, "mai committato\n");
-    execFileSync("git", ["init", "-q", "."], { cwd: VUOTO, stdio: "pipe" });
+    // `-b main`: senza, il ramo iniziale lo decide `init.defaultBranch` della
+    // macchina — `main` dove qualcuno l'ha configurato, `master` sul runner.
+    execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: VUOTO, stdio: "pipe" });
     execFileSync("git", ["config", "user.email", "t@t"], { cwd: VUOTO, stdio: "pipe" });
     execFileSync("git", ["config", "user.name", "T"], { cwd: VUOTO, stdio: "pipe" });
 
