@@ -22,6 +22,11 @@ const CHIP_W: Record<ChipMode, number> = Object.fromEntries(
  *  pastiglia non ha più padding — lo slot È la pastiglia, nel gradino povero. */
 const ICON_SLOT_W = CHIP_W_ICON;
 
+/** Il `gap-2` del bottone della riga «Board», dove questo riassunto è un
+ *  fratello dell'etichetta. Serve a sapere quanto manca per arrivare a
+ *  `GROUP_SPACING`: è l'unico numero che questo file non controlla. */
+const BOARD_ROW_GAP = 8;
+
 /**
  * Gli stati riassunti sulla riga: chi aspetta te, e chi sta lavorando.
  *
@@ -262,8 +267,21 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
       // «Teniamo spaziatura uniforme fra board, conteggio progetti e conteggi
       // stati» (Attilio, 08/08).
       className="flex min-w-0 flex-1 items-center"
-      style={{ gap: GROUP_SPACING }}
+      // IL MARGINE SINISTRO NON È UN VEZZO: l'etichetta «Board» sta FUORI da
+      // questo contenitore — è un fratello, dentro il bottone della riga, che
+      // ha il suo `gap-2`. Spaziare qui dentro non poteva quindi allontanare i
+      // progetti dall'etichetta, ed è per questo che «ancora non c'è spazio fra
+      // board, progetti e status»: due dei tre gruppi non erano nemmeno nello
+      // stesso flex. Il margine recupera la differenza fino a `GROUP_SPACING`,
+      // così il primo stacco vale quanto il secondo.
+      style={{ gap: GROUP_SPACING, marginLeft: GROUP_SPACING - BOARD_ROW_GAP }}
     >
+      {/* IL GRUPPO DEI PROGETTI: le pastiglie e il loro «+N».
+          Il «+N» stava fuori, a `GROUP_SPACING` dalle pastiglie — «il conteggio
+          dei progetti che non si vedono è troppo distante» (Attilio, 08/08), e
+          giustamente: parla DI LORO, quindi appartiene al loro gruppo e sta al
+          loro passo. Fuori resta solo il confine col gruppo dei conteggi. */}
+      <div className="flex min-w-0 items-center" style={{ gap: CHIP_SPACING }}>
       <div
         // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14
         // ancora la pastiglia con un locator a PREFISSO
@@ -310,6 +328,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
           +{nascosti}
         </span>
       )}
+      </div>
       {(fitted.counts.shown.length > 0 || rolled) && (
         <span className="flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
           {fitted.counts.shown.map(({ status, n }) => (

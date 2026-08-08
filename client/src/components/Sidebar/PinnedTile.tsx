@@ -487,7 +487,20 @@ export function PinnedTile({
           scende nemmeno per far entrare una parola in più. */}
       <span
         data-testid="pinned-tile-name"
-        className={`relative min-w-0 flex-1 truncate-tight text-left text-[11px] text-app-text-secondary ${
+        // CENTRATO DA STRETTO, a sinistra da largo — «in queste condizioni»
+        // (Attilio, 08/08), e le condizioni sono la GRIGLIA.
+        //
+        // In una fila di tessere strette le icone stanno centrate e il nome di
+        // chi l'icona non ce l'ha («panea») stava a sinistra: due allineamenti
+        // nella stessa fila si leggono come un errore, non come una variante.
+        // Ma una tessera SOLA su una riga è larga quanto la colonna, e lì il
+        // nome centrato galleggia in mezzo al vuoto — «winfleet» a 180px dal
+        // bordo. La soglia separa i due casi: sotto i 200px si è in griglia.
+        //
+        // È una container query e NON l'esito della sonda dell'icona: la regola
+        // che vieta di commutare il layout su uno stato in volo resta intatta —
+        // qui si commuta sulla LARGHEZZA, che è misurata.
+        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left text-[11px] text-app-text-secondary ${
           hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >
