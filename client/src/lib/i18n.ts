@@ -193,6 +193,11 @@ const IT: Dict = {
   'identity.cancel': 'Annulla',
   'identity.add': 'Aggiungi',
   'identity.addPerson': 'Aggiungi una persona',
+  // Il rifiuto DICE cosa si può ancora fare, e non solo cosa no: condividere
+  // con quella persona resta possibile sul piano gratuito — quello che serve
+  // pagare è metterla nel GRUPPO, cioè condividere con tutti in un colpo.
+  'identity.noSeats': 'Il piano gratuito ha un posto solo, e sei tu. Per mettere qualcuno nel gruppo serve un piano a pagamento — ma puoi già condividere con lui autorizzando un suo dispositivo.',
+  'identity.addFailed': 'Non è riuscito. Riprova.',
   'identity.nameLabel': 'Nome',
   'identity.emailLabel': 'Email',
   'identity.emailPlaceholder': 'Email (facoltativa)',
@@ -356,6 +361,8 @@ const EN: Dict = {
   'identity.cancel': 'Cancel',
   'identity.add': 'Add',
   'identity.addPerson': 'Add a person',
+  'identity.noSeats': 'The free plan has one seat, and it is yours. Putting someone in the group needs a paid plan — but you can already share with them by authorising one of their devices.',
+  'identity.addFailed': 'That did not work. Try again.',
   'identity.nameLabel': 'Name',
   'identity.emailLabel': 'Email',
   'identity.emailPlaceholder': 'Email (optional)',

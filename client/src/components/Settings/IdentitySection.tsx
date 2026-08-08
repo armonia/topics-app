@@ -99,6 +99,8 @@ export function IdentitySection() {
   const [bozzaNome, setBozzaNome] = useState('');
   const [bozzaEmail, setBozzaEmail] = useState('');
   const [nuovo, setNuovo] = useState<{ nome: string; email: string } | null>(null);
+  /** Perché l'ultimo tentativo non è passato. `null` = nessun tentativo fallito. */
+  const [rifiuto, setRifiuto] = useState<'noSeats' | 'generico' | null>(null);
   const [nuovoGruppo, setNuovoGruppo] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
@@ -187,15 +189,26 @@ export function IdentitySection() {
     const nome = (nuovo?.nome ?? '').trim();
     if (!scelto || !nome) { setNuovo(null); return; }
     setInCorso(true);
+    setRifiuto(null);
     try {
-      await fetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
+      const r = await fetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ name: nome, email: (nuovo?.email ?? '').trim() || null }),
       });
+      // La risposta si LEGGE. Prima non si guardava: il tetto dei posti
+      // rispondeva 403, il modulo si chiudeva, e non compariva niente — un
+      // fallimento muto, che è il peggiore perché somiglia a un guasto invece
+      // che a un limite.
+      if (!r.ok) {
+        const corpo = await r.json().catch(() => null) as { error?: string } | null;
+        setRifiuto(corpo?.error === 'no_seats_left' ? 'noSeats' : 'generico');
+        return; // il modulo resta aperto: il nome digitato non si butta via
+      }
       await ricarica();
-    } finally { setInCorso(false); setNuovo(null); }
+      setNuovo(null);
+    } finally { setInCorso(false); }
   };
 
   const togli = async (m: Membro) => {
@@ -445,7 +458,7 @@ export function IdentitySection() {
           </div>
         ) : nuovo === null ? (
           <button
-            onClick={() => setNuovo({ nome: '', email: '' })}
+            onClick={() => { setNuovo({ nome: '', email: '' }); setRifiuto(null); }}
             className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-[12.5px] text-app-text-secondary hover:bg-app-hover"
           >
             <Plus size={13} className="flex-shrink-0 text-app-text-tertiary" />
@@ -479,12 +492,21 @@ export function IdentitySection() {
                 {t('identity.add')}
               </button>
               <button
-                onClick={() => setNuovo(null)}
+                onClick={() => { setNuovo(null); setRifiuto(null); }}
                 className="rounded px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
               >
                 {t('identity.cancel')}
               </button>
             </div>
+            {/* Il motivo sta ATTACCATO al modulo, non altrove: chi ha appena
+                premuto guarda qui, e un avviso in fondo alla pagina non lo
+                vedrebbe. Il nome digitato resta, così riprovare non vuol dire
+                riscrivere. */}
+            {rifiuto && (
+              <p className="text-[11px] leading-snug text-app-text-secondary">
+                {t(rifiuto === 'noSeats' ? 'identity.noSeats' : 'identity.addFailed')}
+              </p>
+            )}
           </div>
         )}
       </div>
