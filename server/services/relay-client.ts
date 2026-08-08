@@ -25,7 +25,7 @@ import {
   leggiMessaggio, leggiFramePayload, scriviFrame,
   componiStream, creaContatoreStream, creaRiassemblatore, creaCapoCanale, dividiBinario, ricaricaPer,
   RELAY_PROTOCOL_VERSION, TUBO_BYTE_PER_FRAME,
-  type FrameTubo, type MessaggioRelay, type MotivoStream,
+  type FrameTubo, type MessaggioRelay, type MotivoStream, type RuoloSessione,
 } from "../../shared/relay-protocol";
 import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, intestazioniRichiesta, intestazioniRisposta,
@@ -141,6 +141,17 @@ const MAX_IN_VOLO = 32;
  *  che ne inventasse infinite farebbe crescere questa mappa per sempre. */
 const MAX_SESSIONI = 64;
 /**
+ * Quanti posti restano comunque a un DISPOSITIVO appaiato.
+ *
+ * Non è un privilegio: è che i due ruoli non hanno lo stesso costo per chi
+ * arriva. Un ospite di link è anonimo e se ne aggancia quanti se ne vuole —
+ * basta il link, e il link gira nelle chat. Un dispositivo si è appaiato, ed è
+ * la strada con cui il PADRONE di casa entra da fuori rete. Con un tetto solo,
+ * chi ha in mano un link condiviso può riempirlo e chiudere fuori proprio lui:
+ * il tetto smetterebbe di essere una difesa e diventerebbe l'arma.
+ */
+const RISERVA_DEVICE = 8;
+/**
  * Quanti WebSocket può tenere aperti UNA sessione ospite.
  *
  * Il client ne apre quattro generi — l'applicazione, un terminale per pannello,
@@ -210,6 +221,11 @@ export interface ProxyTuboDeps {
   maxByteStream?: number;
   maxInVolo?: number;
   maxSocket?: number;
+  /** Quante sessioni si tengono, e quante di quelle restano ai dispositivi.
+   *  Abbassabili nei test: un tetto che si prova aprendo sessantaquattro
+   *  sessioni è un test che nessuno legge. */
+  maxSessioni?: number;
+  riservaDevice?: number;
   /** Quanti byte si tengono in coda per un socket che non riceve credito. */
   arretratoMax?: number;
   /** La finestra iniziale di un canale. Abbassabile nei test, dove un
@@ -245,6 +261,9 @@ interface SocketProxy {
 }
 
 interface SessioneOspite {
+  /** Da quale porta del relay è entrata. Non si legge da niente che il capo
+   *  abbia scritto: lo dichiara il relay, che lo sa dall'URL. */
+  ruolo: RuoloSessione;
   rias: ReturnType<typeof creaRiassemblatore>;
   prossimo: () => number;
   /** Le richieste in volo, per stream della RICHIESTA: è quello che l'ospite
@@ -262,6 +281,11 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
   const max = deps.max ?? TUBO_BYTE_PER_FRAME;
   const maxInVolo = deps.maxInVolo ?? MAX_IN_VOLO;
   const maxSocket = deps.maxSocket ?? MAX_SOCKET;
+  const maxSessioni = deps.maxSessioni ?? MAX_SESSIONI;
+  // La riserva non può mangiarsi il tetto intero: se lo facesse, nessun ospite
+  // entrerebbe mai più e la condivisione di un link smetterebbe di funzionare
+  // per una costante scritta storta.
+  const riservaDevice = Math.min(Math.max(deps.riservaDevice ?? RISERVA_DEVICE, 0), Math.max(maxSessioni - 1, 0));
   const log = deps.log ?? (() => {});
   const f = deps.fetchLocale ?? fetch;
   const apriSocketLocale = deps.apriSocketLocale ?? apriSocketLocaleVero;
@@ -269,8 +293,23 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
 
   const manda = (sid: string, fr: FrameTubo) => deps.invia(sid, scriviFrame(fr));
 
-  function nuovaSessione(): SessioneOspite {
+  /**
+   * C'è posto per un'altra sessione di questo ruolo?
+   *
+   * Il conto è sul TOTALE e non sui pari-ruolo, di proposito: la promessa è
+   * «restano sempre `riservaDevice` posti raggiungibili da un dispositivo», e
+   * quella la mantiene solo un tetto più basso per gli ospiti. Contare i soli
+   * ospiti lascerebbe che a riempire siano i dispositivi — che però sono quelli
+   * appaiati, cioè il caso in cui il tetto ha già fatto il suo lavoro.
+   */
+  function cePosto(ruolo: RuoloSessione): boolean {
+    if (sessioni.size >= maxSessioni) return false;
+    return ruolo === "device" || sessioni.size < maxSessioni - riservaDevice;
+  }
+
+  function nuovaSessione(ruolo: RuoloSessione): SessioneOspite {
     return {
+      ruolo,
       rias: creaRiassemblatore({
         latoRemoto: "guest",
         ...(deps.maxStream !== undefined ? { maxStream: deps.maxStream } : {}),
@@ -625,6 +664,41 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     try { c.abort(); } catch { /* già fermato */ }
   }
 
+  /**
+   * Un capo si è agganciato al relay: qui comincia la sua sessione.
+   *
+   * ── PERCHÉ ENTRARE È UN EVENTO, E NON IL PRIMO FRAME ──────────────────────
+   * Perché il relay tiene una socket aperta per ogni capo agganciato, e quella
+   * costa da subito — anche a chi non dice niente. Aspettare il primo frame per
+   * accorgersene vorrebbe dire che il tetto conta gli OPEROSI e non gli
+   * agganciati: cento sessioni mute passerebbero sotto, e la prima che parla
+   * troverebbe la macchina già occupata da loro.
+   *
+   * ── PERCHÉ IL RUOLO ARRIVA DA QUI ─────────────────────────────────────────
+   * Perché è l'unica cosa che il relay aggiunge di suo, e la sa senza guardare
+   * dentro niente: da quale porta ci si è agganciati. Un ospite di link e un
+   * dispositivo appaiato non hanno lo stesso costo per chi arriva, e questa è
+   * la sola occasione in cui si può distinguerli.
+   *
+   * Assente vuol dire `guest` — il meno che si possa essere: un relay più
+   * vecchio che non lo manda non promuove nessuno.
+   */
+  function ospiteEntrato(sid: string, ruolo: RuoloSessione = "guest"): void {
+    // Lo stesso identificatore che torna è una sessione NUOVA, non la vecchia
+    // che continua: il relay lo assegna a chi si aggancia. Tenersi quella di
+    // prima vorrebbe dire consegnare a questo capo i socket di un altro, e
+    // lasciare al vecchio dei socket veri che nessuno chiuderà più.
+    if (sessioni.has(sid)) ospiteUscito(sid);
+    if (!cePosto(ruolo)) {
+      // Non si crea niente, e non c'è nessuna corsia su cui rispondere: il
+      // frame che arriverà troverà lo stesso tetto e si vedrà dire di no là,
+      // dove esiste uno stream a cui il rifiuto può essere appeso.
+      log(`[relay] sessione ${ruolo} rifiutata: ${sessioni.size} sessioni gia' aperte`);
+      return;
+    }
+    sessioni.set(sid, nuovaSessione(ruolo));
+  }
+
   function ospiteUscito(sid: string): void {
     const sess = sessioni.get(sid);
     if (!sess) return;
@@ -642,11 +716,16 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     riceviFrame(sid: string, fr: FrameTubo): void {
       let sess = sessioni.get(sid);
       if (!sess) {
-        if (sessioni.size >= MAX_SESSIONI) {
+        // Un frame per una sessione che non si è annunciata: si serve lo
+        // stesso — è il relay a garantire il mittente, e un `guest-joined`
+        // perso non deve rompere il lavoro — ma come OSPITE, che è il meno
+        // che si possa essere. Prendere il ruolo da chi non lo ha dichiarato
+        // sarebbe il solo modo per promuoversi da soli.
+        if (!cePosto("guest")) {
           manda(sid, { f: "reset", s: fr.s, motivo: "too-many-streams" });
           return;
         }
-        sess = nuovaSessione();
+        sess = nuovaSessione("guest");
         sessioni.set(sid, sess);
       }
 
@@ -714,6 +793,9 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       }
     },
 
+    /** Un capo si è agganciato: la sua sessione comincia qui, col suo ruolo. */
+    ospiteEntrato,
+
     /** L'ospite se n'è andato: ciò che stava aspettando non lo aspetta più. */
     ospiteUscito,
 
@@ -727,6 +809,9 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     __inVolo: (sid: string) => sessioni.get(sid)?.inVolo.size ?? 0,
     /** Test-only: quanti socket sono vivi per una sessione. */
     __socket: (sid: string) => sessioni.get(sid)?.socket.size ?? 0,
+    /** Test-only: con che ruolo è registrata una sessione, o `null` se non
+     *  esiste. */
+    __ruolo: (sid: string): RuoloSessione | null => sessioni.get(sid)?.ruolo ?? null,
   };
 }
 
@@ -781,6 +866,10 @@ export function creaRelayClient(deps: RelayDeps) {
   });
 
   async function gestisci(m: MessaggioRelay): Promise<void> {
+    // Un capo si è agganciato. Il relay lo dice PRIMA di girare qualunque suo
+    // frame — è la stessa socket, quindi l'ordine è garantito — e questa è la
+    // sola occasione in cui si sa da quale porta è entrato.
+    if (m.t === "guest-joined") { proxy.ospiteEntrato(m.sessionId, m.ruolo ?? "guest"); return; }
     // L'ospite se n'è andato: chi stava servendo la sua richiesta lo deve
     // sapere, o continua a leggere un corpo che non ha più dove andare.
     if (m.t === "guest-left") { proxy.ospiteUscito(m.sessionId); return; }
@@ -867,5 +956,7 @@ export function creaRelayClient(deps: RelayDeps) {
     __sessioni: () => proxy.sessioniAperte(),
     /** Test-only: i socket vivi di una sessione. */
     __socket: (sid: string) => proxy.__socket(sid),
+    /** Test-only: il ruolo con cui una sessione è registrata. */
+    __ruolo: (sid: string) => proxy.__ruolo(sid),
   };
 }
