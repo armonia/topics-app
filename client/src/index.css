@@ -1567,6 +1567,18 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
   [data-pressing] { transform: none; }
 }
 
+/* Il composer che scende dal centro al fondo quando la chat smette di essere
+   vuota (ChatPane). Solo `transform`: nessun layout, nessuna rimisura della
+   lista virtualizzata: il compositore lo muove senza toccare il main thread.
+   La curva è quella delle superfici di sistema — parte decisa, arriva senza
+   rimbalzo. */
+.composer-dock-slide {
+  transition: transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-dock-slide { transition: none; }
+}
+
 /* Mobile drawer animation */
 @keyframes slideInLeft {
   from {

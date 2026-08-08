@@ -30,6 +30,7 @@
  * happen via stable callbacks or pure helpers.
  */
 
+import { findEmptyDraftPane, forgetDraft, isDraftPaneEmpty, draftTextKey } from '../state/draftPane';
 import {
   useCallback,
   useEffect,
@@ -417,6 +418,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     useShallow((s) => filterVisiblePaneIds(openPanels, s.panes, s.spaces, s.activeSpaceId)),
   );
   const visiblePanels = isDetached ? openPanels : visibleFromStore;
+  // Mirrorata per i callback stabili (la «nuova chat» che riusa una bozza
+  // vuota già davanti): leggere `visiblePanels` da dentro un useCallback
+  // significherebbe leggerne la copia del primo render.
+  const visiblePanelsRef = useRefMirror(visiblePanels);
 
   // Finestra-GRUPPO (`?space=<id>`): lo Spazio lo decide la query, e va
   // RI-affermato. Al boot la registry può non contenerlo ancora (il gruppo
@@ -1579,11 +1584,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [openPanel]);
 
   // handleClosePanel (stable identity via ref-backed impl)
-  const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
+  const handleClosePanelRef = useRef<(topicId: string, opts?: { silent?: boolean }) => void>(() => {});
   // Intentional ref-backed stable-callback pattern: handleClosePanel (below, deps [])
   // stays stable while .current always holds the latest closure; only invoked from
   // event handlers / undo, never read during render.
-  handleClosePanelRef.current = (topicId: string) => {
+  handleClosePanelRef.current = (topicId: string, opts?: { silent?: boolean }) => {
     // Dedup rapid double-invokes: a fast double-click on a tab's close button
     // fires two discrete click events, and React flushes the first close between
     // them. openPanelsRef is a render-time mirror, so by the second call topicId
@@ -1670,12 +1675,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       return next;
     });
     if (isDraftPaneId(topicId)) {
+      forgetDraft(topicId);
       setDraftMeta(prev => {
         const next = { ...prev };
         delete next[topicId];
         return next;
       });
     }
+    // Chiusure che l'utente non ha chiesto (la bozza vuota che si congeda
+    // quando cambi tab) non entrano nella pila dell'annulla: ⌘Z deve disfare
+    // l'ultima cosa FATTA, non resuscitare un foglio bianco.
+    if (opts?.silent) return;
     pushUndo({
       description: `Close panel`,
       undo: () => {
@@ -2007,11 +2017,49 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return topic;
     }
+    // Una chat nuova alla volta. Chiedere «nuova chat» mentre un foglio bianco
+    // è già aperto non ne apre un secondo: riporta il fuoco su quello. Erano
+    // tab identiche e indistinguibili, e nessuna delle due era «quella
+    // giusta». Basta scriverci una parola perché la bozza smetta di essere
+    // vuota, e da lì in poi la prossima «nuova chat» ne apre davvero una nuova.
+    // Cercata fra le pane VISIBILI, non fra tutte: una bozza vuota lasciata in
+    // un altro spazio non è «la chat nuova che hai già aperto», e riusarla
+    // teleporterebbe la finestra su un altro gruppo per un ⌘N.
+    const alreadyOpen = findEmptyDraftPane(visiblePanelsRef.current);
+    if (alreadyOpen) {
+      // È già in openPanels: openPanel qui non duplica niente, le ridà solo il
+      // fuoco (e il composer di una chat vuota se lo prende da sé).
+      openPanel(alreadyOpen, 'permanent', true);
+      return alreadyOpen;
+    }
     const draftId = createDraftPaneId();
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
     return draftId;
-  }, [createTopic, openPanel]);
+  }, [createTopic, openPanel, visiblePanelsRef]);
+
+  // ── «Aperta ma non aperta»: la bozza vuota se ne va da sé ────────────────
+  //
+  // Apri la chat nuova, cambi idea, torni su una tab esistente: il foglio
+  // bianco non ha ragione di restare. Si chiude quando smetti di guardarlo — e
+  // SOLO se è ancora bianco: una parola scritta, un file allegato o
+  // un'immagine incollata lo rendono tuo, e da quel momento non se ne va più
+  // da solo (`state/draftPane.ts` è l'unico posto dove «vuota» è definita).
+  const prevFocusedForDraftRef = useRef<string | null>(focusedPanelId);
+  useEffect(() => {
+    const prev = prevFocusedForDraftRef.current;
+    prevFocusedForDraftRef.current = focusedPanelId;
+    if (!prev || prev === focusedPanelId) return;
+    if (!isDraftPaneId(prev)) return;
+    // Già promossa (l'id è cambiato sotto) o già chiusa: niente da fare.
+    if (!openPanelsRef.current.includes(prev)) return;
+    if (!isDraftPaneEmpty(prev)) return;
+    forgetDraft(prev);
+    // `silent`: la chiusura non l'hai chiesta tu, quindi non deve finire nella
+    // pila dell'annulla — ⌘Z deve disfare l'ultima cosa che hai FATTO, non
+    // riportare indietro un foglio bianco che avevi lasciato.
+    handleClosePanelRef.current(prev, { silent: true });
+  }, [focusedPanelId, openPanelsRef]);
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
@@ -2066,6 +2114,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
       return next;
     });
+    try { localStorage.removeItem(draftTextKey(draftId)); } catch {}
+    forgetDraft(draftId);
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 

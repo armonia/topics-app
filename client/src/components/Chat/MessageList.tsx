@@ -74,14 +74,12 @@ interface MessageListProps {
   fileDragOver: boolean;
   chatContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
   onFileDragOver: (e: React.DragEvent) => void;
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
-  setMessage: (v: string) => void;
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
   onPlanDecision?: (approved: boolean) => void;
@@ -118,14 +116,12 @@ export function MessageList({
   fileDragOver,
   chatContainerRef,
   messagesEndRef,
-  textareaRef,
   onReply,
   onCopy,
   onTogglePin,
   onFileDragOver,
   onFileDragLeave,
   onFileDrop,
-  setMessage,
   onPlanApprove,
   onPlanReject,
   onPlanDecision,
@@ -1312,45 +1308,12 @@ export function MessageList({
           ))}
         </div>
       ) : filteredMessages.length === 0 ? (
-        <div className={`chat-measure text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
-          <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
-          {topic.systemPrompt && (
-            <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
-              <span>✨</span> Custom system prompt active
-            </p>
-          )}
-          {!topic.projectPath && (
-            <p className="text-[12px] text-app-text-muted mt-2 mb-2">Start a conversation</p>
-          )}
-          <div className="flex flex-wrap gap-2 justify-center mt-4">
-            {(topic.projectPath ? [
-                { label: '📋 Describe this project', msg: 'Give me a brief overview of this project — what it does, the tech stack, and the main files.' },
-                { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
-                { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
-              ] : [
-                { label: '💡 Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
-                { label: '📝 Write something', msg: 'Help me write ' },
-                { label: '🔍 Research a topic', msg: 'Research ' },
-              ]).map(q => (
-                <button
-                  key={q.label}
-                  onClick={() => { setMessage(q.msg); textareaRef.current?.focus(); }}
-                  className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift"
-                >
-                  {q.label}
-                </button>
-              ))}
-          </div>
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
-            <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
-            {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
-          </div>
-          {/* Stesso varco del Footer: l'empty state sta FUORI da Virtuoso e
-              senza questo la chat vuota respira diversamente da quella piena. */}
-          <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
-        </div>
+        /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
+           blocco del composer: i due si centrano insieme e scivolano insieme in
+           fondo al primo messaggio. Stando qui — in cima al contenitore che
+           scorre — era lontano mezzo schermo dalla riga di testo di cui parla,
+           e non c'era modo di muoverli come una cosa sola. */
+        null
       ) : (
         <Virtuoso
           data-testid="chat-message-list"

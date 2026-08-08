@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -64,13 +64,25 @@ const SLASH_COMMANDS = [
   { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 
-// ---- Overflow Menu (slash commands + voice tools) ----
+// ---- Add Menu (allegati + voce + comandi) ----
+//
+// Era il menu «⋯» in fondo a destra, e conteneva SOLO i comandi e la voce.
+// Adesso è il «+» in testa alla riga, ed è l'unico posto dove si aggiunge
+// qualcosa alla conversazione: la graffetta e il microfono stavano fuori come
+// due bottoni sciolti, in una riga che ne aveva sette e non diceva più quale
+// fosse quello importante. Fuori restano i controlli che si LEGGONO a colpo
+// d'occhio (fast mode, contesto, modello, effort, autonomia); qui dentro va
+// quello che si fa una volta ogni tanto.
+//
+// Le AZIONI stanno in cima e i comandi sotto: il «+» lo apri per allegare un
+// file, non per leggere l'elenco degli slash.
 
-function OverflowMenu({
+function AddMenu({
   isCallActive, isRecording, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
-  toggleCall, startRecording: _startRecording, stopRecording: _stopRecording, toggleListening, stopSpeaking, setAutoTTS,
+  toggleCall, startRecording, stopRecording, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
+  onAttach,
   onExport,
 }: {
   isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
@@ -78,6 +90,8 @@ function OverflowMenu({
   toggleCall: () => void; startRecording: () => void; stopRecording: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
   onSlashCommand: (cmd: string) => void;
+  /** Apre il selettore di file (la vecchia graffetta). */
+  onAttach: () => void;
   /** Export the conversation as a Markdown download (absent → row hidden). */
   onExport?: () => void;
 }) {
@@ -85,6 +99,7 @@ function OverflowMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const anyActive = isCallActive || isRecording || isListening || isSpeaking || autoTTS;
+  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
 
   return (
     <>
@@ -92,40 +107,49 @@ function OverflowMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
-        className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
-          anyActive
+        data-testid="composer-add-menu"
+        className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
+          open || anyActive
             ? 'text-primary bg-primary/10'
             : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
         }`}
-        title="Tools & commands"
+        title="Allega, strumenti e comandi"
+        // Il nome accessibile NON cambia col glifo: è il nome di questo menu da
+        // quando esiste, ed è come lo trovano sia i lettori di schermo sia le
+        // spec che ci passano per l'export.
         aria-label="Tools & commands"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <MoreHorizontal size={16} />
+        <Plus size={18} />
       </button>
-      {/* Migrated to the canonical Menu primitive (flip-above + clamp +
-          reposition + dismiss are inherited for free; align="right" matches
-          the old right-0 anchoring). restoreFocus=false preserves the
-          pre-migration behavior of not stealing focus back on dismiss. */}
-      <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="right" minWidth={220} restoreFocus={false}>
-        {/* Slash commands */}
-        {SLASH_COMMANDS.map((cmd) => {
-          const Icon = cmd.icon;
-          return (
-            <button
-              key={cmd.cmd}
-              type="button"
-              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
-            >
-              <Icon size={14} className="text-app-text-muted" />
-              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
-            </button>
-          );
-        })}
-
-        {/* Divider */}
-        <div className="h-px bg-app-border my-1" />
+      {/* Menu primitive: flip-above + clamp + reposition + dismiss inherited.
+          `align="left"` perché il trigger adesso è il primo elemento della riga.
+          restoreFocus=false preserva il comportamento storico di non riprendersi
+          il fuoco alla chiusura. */}
+      <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="left" minWidth={230} restoreFocus={false}>
+        {/* Allegare è la ragione per cui questo menu si apre: prima riga. */}
+        <button
+          type="button"
+          onClick={() => { onAttach(); setOpen(false); }}
+          className={`${rowClass} text-app-text`}
+          disabled={currentStreaming}
+          data-testid="composer-attach-file"
+        >
+          <Paperclip size={14} />
+          Attach file
+          <span className="ml-auto text-[11px] text-app-text-muted">⌘U</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { if (isRecording) stopRecording(); else startRecording(); setOpen(false); }}
+          className={`${rowClass} ${isRecording ? 'text-red-500' : 'text-app-text'}`}
+          disabled={currentStreaming || uploading}
+        >
+          {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
+          {isRecording ? 'Stop recording' : 'Record voice'}
+          <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧R</span>
+        </button>
 
         {/* Voice tools */}
         {voiceCallSupported && (
@@ -171,20 +195,37 @@ function OverflowMenu({
           <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
         </button>
         {onExport && (
-          <>
-            <div className="h-px bg-app-border my-1" />
-            <button
-              type="button"
-              onClick={() => { onExport(); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover text-app-text"
-              data-testid="chat-export-conversation"
-            >
-              <Download size={14} />
-              Export conversation
-              <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => { onExport(); setOpen(false); }}
+            className={`${rowClass} text-app-text`}
+            data-testid="chat-export-conversation"
+          >
+            <Download size={14} />
+            Export conversation
+            <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
+          </button>
         )}
+
+        {/* Divider */}
+        <div className="h-px bg-app-border my-1" />
+
+        {/* Slash commands */}
+        {SLASH_COMMANDS.map((cmd) => {
+          const Icon = cmd.icon;
+          return (
+            <button
+              key={cmd.cmd}
+              type="button"
+              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
+              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
+            >
+              <Icon size={14} className="text-app-text-muted" />
+              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
+              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
+            </button>
+          );
+        })}
       </Menu>
     </>
   );
@@ -928,6 +969,71 @@ export function ChatInput({
   const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
   const hasContext = mentionedFiles.length > 0 || contextFilePaths.length > 0;
 
+  // ── Una riga finché è una riga, due quando il testo cresce ───────────────
+  //
+  // A riposo il composer è una riga sola e i controlli stanno di fianco al
+  // testo. Ma quel gruppo è largo ~330px: su una card da 800 il campo ne
+  // riceveva 390, cioè il testo lungo si incolonnava nella metà sinistra
+  // lasciando vuota la destra. Appena serve una seconda riga, quindi, il testo
+  // si prende tutta la larghezza e i controlli scendono sotto — la forma di
+  // ogni composer moderno, e la stessa che avevamo prima: la differenza è che
+  // adesso quella seconda riga si paga solo quando serve.
+  //
+  // ISTERESI, non una soglia sola: al momento in cui i controlli scendono il
+  // campo diventa PIÙ LARGO, quindi lo stesso testo potrebbe tornare a starci
+  // in una riga → si richiuderebbe → si riaprirebbe, all'infinito. Si sale su
+  // una misura (il contenuto non ci sta) e si scende su due condizioni
+  // indipendenti dalla larghezza (nessun a-capo, e testo corto abbastanza da
+  // starci di sicuro anche nella riga stretta).
+  const [expanded, setExpanded] = useState(false);
+  const SINGLE_ROW_MAX_H = 40;
+  const SURELY_SHORT = 40;
+  const MAX_COMPOSER_H = 140;
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (!message) { setExpanded(false); return; }
+    if (!expanded) {
+      if (ta.scrollHeight > SINGLE_ROW_MAX_H) setExpanded(true);
+    } else if (!message.includes('\n') && message.length < SURELY_SHORT && ta.scrollHeight <= SINGLE_ROW_MAX_H) {
+      setExpanded(false);
+    }
+  }, [message, expanded, textareaRef]);
+
+  // L'altezza del campo si rimisura anche quando i controlli scendono, non solo
+  // quando cambia il testo: scendendo, il campo diventa più largo e lo stesso
+  // testo occupa una riga in meno. Stava in ChatPane, sulla sola `message`, e
+  // sotto il testo restava una riga vuota — l'altezza di una larghezza che non
+  // c'era più. `useLayoutEffect` perché la correzione deve arrivare prima del
+  // disegno, o quella riga vuota si vede lampeggiare.
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_H) + 'px';
+  }, [message, expanded, textareaRef]);
+
+  // …e quando la pane si allarga o si stringe. Trascinare un divisore o
+  // rimpicciolire la finestra cambia quante righe occupa lo stesso testo, e
+  // senza questo restava l'altezza della larghezza di prima: sotto il testo
+  // avanzava il vuoto (o, stringendo, l'ultima riga finiva sotto il bordo).
+  // Si reagisce alla sola LARGHEZZA: l'altezza la scriviamo noi qui dentro, e
+  // ascoltarla sarebbe un anello che si rincorre.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    let lastWidth = ta.clientWidth;
+    const ro = new ResizeObserver(() => {
+      const w = ta.clientWidth;
+      if (w === lastWidth) return;
+      lastWidth = w;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_H) + 'px';
+    });
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [textareaRef]);
+
   return (
     <>
       {/* Status banners (outside floating card) */}
@@ -1235,30 +1341,67 @@ export function ChatInput({
               </div>
             )}
 
-            {/* Row 1: Textarea (full width, borderless) */}
-            <textarea
-              ref={textareaRef}
-              data-testid="chat-message-input"
-              value={message}
-              onChange={handleMessageChange}
-              onKeyDown={handleKeyDown}
-              onPaste={onPaste}
-              aria-label={`Message input for ${topic.name}`}
-              aria-describedby="chat-input-hint"
-              placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
-              className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-3'} pb-1 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
-              style={{ minHeight: '36px', maxHeight: '140px' }}
-              rows={1}
-              disabled={uploading}
-            />
-            <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+            {/* UNA RIGA SOLA: «+», il testo, e i controlli che si leggono.
+                Erano due — la textarea a tutta larghezza e sotto una barra con
+                sette bottoni — e quella barra costava 40px di altezza a ogni
+                pane per dire, il più delle volte, niente. Adesso il campo di
+                testo è alto UNA riga e cresce con quello che scrivi (fino a
+                140px, poi scorre): il composer a riposo è una riga, non un
+                blocco.
+                `items-end`: quando il testo va a capo la colonna cresce verso
+                l'alto e i bottoni restano incollati al fondo, allineati alla
+                riga che stai scrivendo. */}
+            <div className={`flex items-end gap-1 px-1.5 py-1.5 ${expanded ? 'flex-wrap' : ''}`}>
+              <AddMenu
+                onAttach={() => fileInputRef.current?.click()}
+                onExport={onExportConversation}
+                isCallActive={isCallActive}
+                isRecording={isRecording}
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                autoTTS={autoTTS}
+                voiceCallSupported={voiceCallSupported}
+                sttSupported={sttSupported}
+                currentStreaming={currentStreaming}
+                uploading={uploading}
+                toggleCall={toggleCall}
+                startRecording={startRecording}
+                stopRecording={stopRecording}
+                toggleListening={toggleListening}
+                stopSpeaking={stopSpeaking}
+                setAutoTTS={setAutoTTS}
+                onSlashCommand={(cmd) => {
+                  setMessage(cmd + ' ');
+                  textareaRef.current?.focus();
+                }}
+              />
 
-            {/* Row 2: Action bar */}
-            <div className={`flex items-center gap-1 ${'px-1.5 pb-1.5'}`}>
-              {/* Left: tools. min-w-0 lets this cluster shrink below its
-                  content width; overflow-x-auto lets it scroll instead of
-                  clipping (or pushing Send off-row) once a narrow pane can't
-                  fit every icon.
+              {/* `min-w-[5rem]` è il pavimento del campo di testo, e serve:
+                  con `flex-1` la base è 0, quindi in una pane stretta lo
+                  schiacciamento sarebbe caduto TUTTO qui (campo largo zero) e i
+                  controlli sarebbero rimasti interi. Con un minimo, a cedere è
+                  il gruppo dei controlli — che scorre invece di sparire. */}
+              <textarea
+                ref={textareaRef}
+                data-testid="chat-message-input"
+                value={message}
+                onChange={handleMessageChange}
+                onKeyDown={handleKeyDown}
+                onPaste={onPaste}
+                aria-label={`Message input for ${topic.name}`}
+                aria-describedby="chat-input-hint"
+                placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+                className={`flex-1 min-w-[5rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'} ${expanded ? 'order-first basis-full' : ''}`}
+                style={{ minHeight: '32px', maxHeight: '140px' }}
+                rows={1}
+                disabled={uploading}
+              />
+              <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+
+              {/* I controlli di sessione. min-w-0 li lascia stringere sotto la
+                  loro larghezza naturale; overflow-x-auto li fa SCORRERE invece
+                  di tagliarli (o di spingere Invia fuori riga) quando la pane
+                  non li tiene tutti.
                   Perche' scorra davvero, i bottoni dentro devono essere
                   `flex-shrink-0`: senza, il default `flex-shrink: 1` li
                   SCHIACCIAVA invece di farli traboccare — a 390px di viewport
@@ -1266,17 +1409,7 @@ export function ChatInput({
                   `chat-layout-audit`, sotto il minimo WCAG 2.2 di 24px), con
                   l'icona da 16px in un box storto. Il contenitore prometteva
                   lo scroll e i figli non glielo lasciavano fare. */}
-              <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
-                  title="Attach file (⌘U)"
-                  aria-label="Attach file"
-                  disabled={currentStreaming}
-                >
-                  <Paperclip size={16} />
-                </button>
+              <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hide">
                 {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
                     stessa cosa: un interruttore in localStorage che iniettava
                     una RICHIESTA nel prompt («sei in plan mode, non toccare
@@ -1362,10 +1495,12 @@ export function ChatInput({
                 {/* The knobs you change MID conversation, in their own surface:
                     effort used to be buried under a "Provider & model" trigger,
                     and autonomy (the permission mode) was reachable only from
-                    the settings modal behind a tab right-click. */}
-                {onAutonomyChange && (
-                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
-                )}
+                    the settings modal behind a tab right-click.
+                    L'ordine è quello di una frase: CHI risponde (il modello),
+                    quanto ci pensa (l'effort), quanto può fare da sé
+                    (l'autonomia). L'autonomia sta per ultima perché è l'unica
+                    che porta un'etichetta a parole — «Agisce», «Propone»,
+                    «Libero» — e in coda al gruppo non spezza in due le icone. */}
                 <SessionConfigPopover
                   effort={effort ?? null}
                   onEffortChange={onEffortChange}
@@ -1373,49 +1508,19 @@ export function ChatInput({
                   providerOverride={providerOverride ?? null}
                   defaultProviderLabel={defaultProviderLabel}
                 />
+                {onAutonomyChange && (
+                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+                )}
               </div>
 
-              {/* Right: voice + send. flex-shrink-0: Send/Stop must never be
-                  the thing that gets squeezed on a narrow pane — the left
-                  cluster scrolls instead. */}
-              <div className="flex items-center gap-0.5 flex-shrink-0">
-                {/* Direct mic button — always visible on all screen sizes */}
-                <button
-                  type="button"
-                  onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
-                    isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
-                  }`}
-                  title={isRecording ? 'Stop recording (⌘⇧R)' : 'Record voice (⌘⇧R)'}
-                  aria-label={isRecording ? 'Stop recording' : 'Record voice'}
-                  disabled={currentStreaming || uploading}
-                >
-                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
-                </button>
-                {!isMobile && (
-                  <OverflowMenu
-                    onExport={onExportConversation}
-                    isCallActive={isCallActive}
-                    isRecording={isRecording}
-                    isListening={isListening}
-                    isSpeaking={isSpeaking}
-                    autoTTS={autoTTS}
-                    voiceCallSupported={voiceCallSupported}
-                    sttSupported={sttSupported}
-                    currentStreaming={currentStreaming}
-                    uploading={uploading}
-                    toggleCall={toggleCall}
-                    startRecording={startRecording}
-                    stopRecording={stopRecording}
-                    toggleListening={toggleListening}
-                    stopSpeaking={stopSpeaking}
-                    setAutoTTS={setAutoTTS}
-                    onSlashCommand={(cmd) => {
-                      setMessage(cmd + ' ');
-                      textareaRef.current?.focus();
-                    }}
-                  />
-                )}
+              {/* Invia, e basta. flex-shrink-0: Invia/Ferma non può MAI essere
+                  quello che si stringe in una pane stretta — a cedere è il
+                  gruppo dei controlli qui accanto, che scorre. */}
+              {/* `ml-auto`: a una riga non cambia niente (lo spazio se lo prende
+                  già il campo di testo con `flex-1`), a due righe tiene Invia
+                  inchiodato a destra invece di lasciarlo appiccicato ai
+                  controlli con il vuoto dopo. */}
+              <div className="flex items-center flex-shrink-0 ml-auto">
                 {/*
                   Unified composer button. The four states resolve via the
                   pure `decideComposerAction` helper so this JSX no longer
