@@ -947,7 +947,7 @@ export function TopicTree({
           // before the arrow. Tighten the LEFT only; the RIGHT keeps `pr-2`
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
-          className={`group/proj flex items-center ${ROW_H} pl-1 pr-2 select-none ${
+          className={`group/proj flex items-center ${ROW_H} ${ROW_PX} select-none ${
             // "Ho guardato un progetto" vuol dire: ho guardato ciò che stava
             // segnalando — guardarne l'INTESTAZIONE non è aver letto le chat che ci
             // stanno dentro. Quel pezzo ora sta dentro `projectAttentionTier`, che
