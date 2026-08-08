@@ -1132,7 +1132,19 @@ function App() {
           // separa una card dal bordo e una riga dalla sua vicina. Col mouse i
           // bottoni sono 28 e la riga resta 40, che è la stessa identità:
           // 28 + 2 × 6 = 40.
-          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
+          // NIENTE FILO SOTTO L'HEADER (Attilio, 08/08). Sopra e sotto c'è la
+          // stessa superficie — la colonna è chrome dall'alto in basso — quindi
+          // quella riga non separava due cose: ne disegnava il confine e basta.
+          // A dire dove finisce l'header ci pensano già i due comandi, che hanno
+          // un fondo proprio, e la prima card della lista, che è rientrata di 6.
+          //
+          // Nota per chi torna qui: la stessa cosa NON vale per il filo sotto la
+          // tabbar delle pane. Là ho misurato — barra e contenuto hanno lo
+          // STESSO fondo in tutte e quattro le combinazioni (telefono/desktop ×
+          // chiaro/scuro), quindi quel filo è l'unica separazione che esiste e
+          // toglierlo fonde le due zone. Qui invece l'header ha dentro di sé di
+          // che farsi riconoscere.
+          className={`flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
