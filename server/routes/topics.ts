@@ -391,7 +391,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
-    loadLocalMessages, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
@@ -2659,7 +2659,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       };
       if (body?.clearMessages) {
         const stored = loadLocalMessages(sessionKey);
-        const decision = shouldHonorClearMessages(stored);
+        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
+        // cancellazione che colpisce tutta la session_key, quindi è su quella
+        // che si deve decidere.
+        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
         if (decision.shouldWipe) {
           // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
           // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
@@ -2683,7 +2686,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         } else {
           console.warn(
             `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
-            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro" : ", not first-message")
+            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
+             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
+             : ", not first-message")
           );
           // Fall through to the normal finalize path so we don't lose the
           // partial assistant content the user was about to abort.

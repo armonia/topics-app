@@ -101,6 +101,30 @@ describe("shouldHonorClearMessages", () => {
     expect(d.assistantCount).toBe(25);
   });
 
+  test("RIFIUTA quando la sessione ha righe FUORI dal ramo attivo", () => {
+    // Il predicato guarda il ramo attivo, ma la cancellazione fa
+    // `DELETE ... WHERE session_key = ?`: butta anche i rami abbandonati che
+    // non ha mai visto. Qui il ramo attivo è la forma «si può cancellare»
+    // (utente + segnaposto vuoto), ma la sessione ne ha altre quattro.
+    const attivo = [msg("user", "u1"), placeholder("a1")];
+    const d = shouldHonorClearMessages(attivo, 6);
+    expect(d.shouldWipe).toBe(false);
+    expect(d.hiddenRows).toBe(4);
+  });
+
+  test("il conteggio di sessione che COINCIDE col ramo attivo non cambia nulla", () => {
+    const attivo = [msg("user", "u1"), placeholder("a1")];
+    expect(shouldHonorClearMessages(attivo, 2).shouldWipe).toBe(true);
+    // Omesso = comportamento storico, per i chiamanti che non lo passano.
+    expect(shouldHonorClearMessages(attivo).shouldWipe).toBe(true);
+  });
+
+  test("un conteggio più PICCOLO del ramo attivo non finge righe nascoste", () => {
+    // Non dovrebbe succedere; se succede, non è una ragione per cancellare.
+    const attivo = [msg("user", "u1"), placeholder("a1")];
+    expect(shouldHonorClearMessages(attivo, 1).hiddenRows).toBe(0);
+  });
+
   test("RIFIUTA con 1 utente e 2 assistenti (rami)", () => {
     const stored = [msg("user", "u1"), msg("assistant", "a1"), msg("assistant", "a2")];
     const d = shouldHonorClearMessages(stored);
