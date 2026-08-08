@@ -319,6 +319,9 @@ export interface AppContext {
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: { withBlocks?: boolean }) => StoredMessage[];
+  /** Righe della sessione INTERA (rami morti compresi) — ciò che una
+   *  cancellazione colpisce davvero. */
+  countMessagesBySession: (sessionKey: string) => number;
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
