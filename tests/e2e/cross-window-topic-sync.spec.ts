@@ -215,13 +215,17 @@ test.describe.serial("Cross-window topic + message sync", () => {
     }
   });
 
-  test("App-level new chat (draft) opens and persists — does not auto-close", async ({
+  test("App-level new chat (draft) opens and stays while you're on it", async ({
     browser,
   }) => {
     // Regression guard: a new App-level chat (no project) was opening and
     // immediately closing after the cross-window sync fix. The DRAFT pane
     // must remain visible long enough for the user to type their first
     // message (which then promotes the draft to a real topic).
+    //
+    // La bozza vuota adesso SI congeda da sola, ma solo quando smetti di
+    // guardarla (vedi `draft-pane-lifecycle.spec.ts`): finché è la pane a
+    // fuoco resta, ed è esattamente ciò che questo test misura.
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
@@ -247,7 +251,12 @@ test.describe.serial("Cross-window topic + message sync", () => {
       await expect(addPaneBtn).toBeVisible({ timeout: 10000 });
       await addPaneBtn.click();
 
-      const newChatBtn = page.getByRole("button", { name: /New Chat/ }).first();
+      // Agganciata al testId, non al testo: la voce si chiamava «New Chat», da
+      // `f6838968` si chiama «Chat» (il verbo lo porta il trigger, che si chiama
+      // «New») e porta accanto la sua lettera mnemonica — cioè il nome
+      // accessibile non è più una costante. La TAB che ne nasce resta «New
+      // Chat»: quello è il nome della chat, non del comando.
+      const newChatBtn = page.getByTestId("pane-add-menu-new-chat").first();
       await expect(newChatBtn).toBeVisible({ timeout: 5000 });
       await newChatBtn.click();
 
@@ -375,7 +384,12 @@ test.describe.serial("Cross-window topic + message sync", () => {
       await expect(addPaneBtn).toBeVisible({ timeout: 10000 });
       await addPaneBtn.click();
 
-      const newChatBtn = page.getByRole("button", { name: /New Chat/ }).first();
+      // Agganciata al testId, non al testo: la voce si chiamava «New Chat», da
+      // `f6838968` si chiama «Chat» (il verbo lo porta il trigger, che si chiama
+      // «New») e porta accanto la sua lettera mnemonica — cioè il nome
+      // accessibile non è più una costante. La TAB che ne nasce resta «New
+      // Chat»: quello è il nome della chat, non del comando.
+      const newChatBtn = page.getByTestId("pane-add-menu-new-chat").first();
       await expect(newChatBtn).toBeVisible({ timeout: 5000 });
       await newChatBtn.click();
 
