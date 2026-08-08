@@ -1255,6 +1255,28 @@ input[type="range"]::-webkit-slider-thumb {
  * NB, detto senza abbellirlo: sopra i 768px con puntatore grossolano (un iPad in
  * orizzontale) la riga è alta 34 e la card la ritaglia (`overflow-hidden` in
  * sidebarRowCard), quindi lì i 44px NON si raggiungono. */
+/* LA RIGA DI PRIMO LIVELLO, SOTTO I 768px: un rialzo al posto di un filo.
+ *
+ * Vedi `SIDEBAR_L1_DIVIDERS` in `lib/selectionStyles` per il perché. Qui conta
+ * il DOVE: `@layer components` sta sotto `utilities` nell'ordine di Tailwind v4,
+ * quindi qualunque `bg-*` che la riga porti già — selezione, attenzione, hover —
+ * vince su questo senza bisogno di `!important` e senza gare di specificità.
+ * Questo è il fondo del RIPOSO, e solo di quello.
+ *
+ * I valori sono quelli del riposo delle tessere fissate (`RESTING_SURFACE`, ramo
+ * `max-md:`): è esattamente il punto — nella stessa colonna le tessere e le
+ * righe devono essere la stessa cosa, ed è la loro differenza che aveva reso il
+ * filo «brutto».
+ *
+ * `> *` è figlio DIRETTO: le righe annidate dell'albero non lo prendono, dove
+ * l'indentazione separa già e una fila di card farebbe una tabella. */
+@layer components {
+  @media (width < 48rem) {
+    .sidebar-l1-rows > * { background-color: color-mix(in srgb, #000 8%, transparent); }
+    .dark .sidebar-l1-rows > * { background-color: color-mix(in srgb, #fff 10%, transparent); }
+  }
+}
+
 .tap-expand-y { position: relative; }
 @media (pointer: coarse) {
   .tap-expand-y::after {
