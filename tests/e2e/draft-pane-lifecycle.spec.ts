@@ -21,6 +21,7 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, ensureTopicVisible } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { mockChatStream, unmockChatStream } from "./helpers/sse-helpers";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -112,5 +113,34 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     // Un secondo pieno oltre il tempo in cui la chiusura sarebbe scattata.
     await page.waitForTimeout(1000);
     await expect(draftTabs(page)).toHaveCount(1);
+  });
+
+  test("il composer sta al centro finché la chat è vuota, poi si aggancia in fondo", async ({ page }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await ensureTopicVisible(page, new RegExp(topicName));
+    await page.getByRole("treeitem", { name: new RegExp(topicName) }).first().dblclick();
+
+    const composer = page.getByRole("textbox", { name: new RegExp(`Message input for ${topicName}`) });
+    await expect(composer).toBeVisible({ timeout: 15_000 });
+
+    // Vuota: il blocco (invito + composer) è centrato, cioè spostato in su.
+    const block = page.locator('[data-testid="chat-input-area"]').filter({ has: composer });
+    await expect(block).toHaveAttribute("data-composer-centered", "true", { timeout: 10_000 });
+    const centeredTop = (await block.boundingBox())?.y ?? 0;
+    await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+
+    // Il primo messaggio la fa scendere.
+    await mockChatStream(page, { chunks: ["ok"], userMessage: "primo messaggio" });
+    await composer.fill("primo messaggio");
+    await composer.press("Enter");
+
+    await expect(block).toHaveAttribute("data-composer-centered", "false", { timeout: 15_000 });
+    // …e giù vuol dire GIÙ: la transizione dura 420ms, quindi si misura dopo.
+    await expect
+      .poll(async () => (await block.boundingBox())?.y ?? 0, { timeout: 10_000 })
+      .toBeGreaterThan(centeredTop + 40);
+    await expect(page.getByTestId("chat-empty-state")).toHaveCount(0);
+    await unmockChatStream(page);
   });
 });
