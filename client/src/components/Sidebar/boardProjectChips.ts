@@ -91,36 +91,37 @@ export function boardProjectChips(
  * discriminante più forte di un nome troncato e non si può confondere con un
  * glifo di stato.
  *
- * · `CHIP_W_ICON_COUNT` = 42 — 24 di slot icona + 4 + 14 di numero (due cifre
+ * · `CHIP_W_ICON_COUNT` = 38 — 20 di slot icona + 4 + 14 di numero (due cifre
  *   tabellari a 11px). Niente padding: la pastiglia non ha più una superficie
  *   da riempire.
- * · `CHIP_W_ICON` = 24 — solo icona. Il gradino di emergenza, quando nemmeno
- *   una da 42 ci sta.
+ * · `CHIP_W_ICON` = 20 — solo icona. Il gradino di emergenza.
  *
  * Fisse, non «quanto serve»: una pastiglia che si adatta al contenuto
  * cambierebbe misura quando l'icona atterra, e con lei cambierebbe il NUMERO di
  * pastiglie visibili, a cose ferme. Lo slot è dichiarato e l'icona ci entra
  * dentro.
  *
- * LO SLOT È 24×14, e le due misure rispondono a due cose diverse.
+ * LO SLOT È 20×14, e le due misure rispondono a due cose diverse.
  * L'ALTEZZA è 14 perché è quella standard dell'app — lo stesso `ROW_GLYPH` dei
  * glifi di stato che le stanno accanto: «le icone a volte sono troppo
  * piccoline, facciamole normali come tutte le altre icone dell'app» (Attilio,
  * 08/08). La LARGHEZZA è quasi il doppio perché `object-contain` scala per il
  * lato vincolante: un logo-scritta (`acquapub` 256×119, `edm-contratto`
  * 3235×1224) in un quadrato da 14 renderebbe 5-6px di inchiostro, cioè si
- * legge come «l'icona non c'è». In 24×14 rende 24×9. I loghi quadrati restano
- * 14×14 centrati con 5px di aria per lato.
+ * legge come «l'icona non c'è». In 20×14 rende 20×7,6.
  *
- * Perché 24 e non 28: a 28 la pastiglia sale a 46 e sulla colonna desktop —
- * misurata, 160px di riga utile — la seconda pastiglia non ci sta più per TRE
- * pixel. Ventiquattro tiene l'altezza standard e il secondo progetto.
+ * VENTI e non 24, e il motivo è la DISTANZA DAL NUMERO. `object-contain` centra
+ * l'inchiostro nella scatola: un logo quadrato rende 14×14 in mezzo a 24, cioè
+ * 5px di aria per lato, che si sommano ai 4 del `gap` — il numero finiva a 9px
+ * dal suo glifo. «Il conteggio task è ancora troppo lontano dalla propria
+ * icona» (Attilio, 08/08). A 20 l'aria scende a 3 e la distanza vera a 7. Meno
+ * non si può senza far sparire i logo-scritta, che è il difetto da cui veniamo.
  *
  * SONO UNA SCALA, non due varianti da scegliere: si prova la più ricca e si
  * scende solo quando non ne entra NEMMENO UNA.
  */
-export const CHIP_W_ICON_COUNT = 42;
-export const CHIP_W_ICON = 24;
+export const CHIP_W_ICON_COUNT = 38;
+export const CHIP_W_ICON = 20;
 /** Lo spazio fra due BLOCCHI della riga — pastiglie, «+N», conteggi
  *  (`gap-1.5`, lo stesso passo del resto della sidebar). */
 export const CHIP_GAP = 6;
