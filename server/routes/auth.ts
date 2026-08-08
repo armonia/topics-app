@@ -14,6 +14,10 @@ import { nuovaChiave } from "../../shared/relay-crypto";
 import {
   grantedByType, subjectsOf, putGrant, dropGrant, deviceP, type SubjectKind,
 } from "../lib/grants-query";
+import {
+  installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
+  actingPersonId, isOrgRole, type OrgRole,
+} from "../lib/orgs";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -598,17 +602,19 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           soggetti.push({ subjectType: "person", subjectId: p.id, name: p.display_name, devices: Number(p.n) });
         }
 
-        const orgs = db.query(`
-          SELECT o.id, o.name,
-                 (SELECT COUNT(*) FROM org_members om WHERE om.org_id = o.id
-                    AND om.revoked_at IS NULL AND om.local_blocked_at IS NULL) AS n
-            FROM orgs o WHERE o.revoked_at IS NULL ORDER BY o.name`).all() as Array<{ id: string; name: string; n: number }>;
+        const orgs = db.query(
+          "SELECT id, name FROM orgs WHERE revoked_at IS NULL ORDER BY name",
+        ).all() as Array<{ id: string; name: string }>;
         for (const o of orgs) {
+          // Lo STESSO conteggio di `/api/auth/me` e `/api/auth/orgs`, e non una
+          // terza copia della definizione di «membro»: le prime due si erano
+          // già separate su questa esatta riga.
+          const n = liveMemberCount(db as never, o.id);
           // Un'organizzazione da UNA persona non si nomina: il singolo è
           // un'organizzazione di uno perché il codice abbia una strada sola,
           // non perché il prodotto abbia due vocabolari.
-          if (Number(o.n) <= 1) continue;
-          soggetti.push({ subjectType: "org", subjectId: o.id, name: o.name, devices: Number(o.n) });
+          if (n <= 1) continue;
+          soggetti.push({ subjectType: "org", subjectId: o.id, name: o.name, devices: n });
         }
       } catch {
         // Schema più vecchio della 084: restano i soli dispositivi ospiti.
@@ -649,21 +655,27 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             FROM installation_owners io JOIN people p ON p.id = io.person_id
            ORDER BY io.is_default DESC LIMIT 1`).get() as
           { id: string; name: string; email: string | null } | undefined;
-        // Il conteggio guarda ENTRAMBE le revoche, come `/api/auth/subjects`.
-        // Erano due definizioni diverse di «membro» sulla stessa
-        // organizzazione: qui si contava solo `revoked_at`, là anche
-        // `local_blocked_at`. Dopo aver tolto qualcuno i due numeri si
-        // separavano — l'interfaccia diceva «siete in due» e la rubrica dei
-        // destinatari non offriva il gruppo, perché per lei eri di nuovo solo.
-        const org = db.query(`
-          SELECT o.id, o.name,
-                 (SELECT COUNT(*) FROM org_members m
-                   WHERE m.org_id = o.id AND m.revoked_at IS NULL AND m.local_blocked_at IS NULL) AS membri
-            FROM orgs o WHERE o.revoked_at IS NULL ORDER BY o.created_at LIMIT 1`).get() as
-          { id: string; name: string; membri: number } | undefined;
+        // ── QUALE organizzazione, e perché non «la prima».
+        //
+        // Era `FROM orgs WHERE revoked_at IS NULL ORDER BY created_at LIMIT 1`:
+        // la riga più VECCHIA della tabella, senza guardare chi stesse
+        // chiedendo e senza guardare `installation`, che è la tabella nata per
+        // rispondere a questa domanda (084 §5). Finché di organizzazioni ce n'è
+        // una la risposta è giusta per caso; alla seconda l'installazione
+        // cambia identità in silenzio — altro nome nell'intestazione, altri
+        // membri, nessun errore da nessuna parte. Adesso la domanda si fa in un
+        // posto solo, `server/lib/orgs.ts`.
+        const orgId = installationOrgId(db as never);
+        const org = orgId
+          ? db.query("SELECT id, name FROM orgs WHERE id = ?").get(orgId) as { id: string; name: string } | undefined
+          : undefined;
         return json({
           person: io ?? null,
-          org: org ? { id: org.id, name: org.name, members: Number(org.membri) } : null,
+          // Il conteggio esce dalla stessa funzione di `/api/auth/subjects` e di
+          // `/api/auth/orgs`: erano tre definizioni di «membro» e due si erano
+          // già separate — l'interfaccia diceva «siete in due» e la rubrica non
+          // offriva il gruppo, perché per lei eri di nuovo solo.
+          org: org ? { id: org.id, name: org.name, members: liveMemberCount(db as never, org.id) } : null,
         });
       } catch {
         // Schema più vecchio della 084: non c'è ancora nessuno da nominare.
@@ -671,7 +683,103 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    if (method === "PATCH" && (pathname.startsWith("/api/auth/people/") || pathname.startsWith("/api/auth/orgs/"))) {
+    // ── LE ORGANIZZAZIONI: elencarle e crearne.
+    //
+    // Fino a oggi ce n'era una sola e la faceva la migration. Nasce qui la
+    // seconda, e nasce con un `owner` VIVO — il modo di ritrovarsi con un
+    // gruppo che nessuno può amministrare è crearne uno senza nessun
+    // proprietario dentro.
+    if (pathname === "/api/auth/orgs") {
+      const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
+
+      if (method === "GET") {
+        try {
+          const righe = db.query(
+            "SELECT id, name, created_at FROM orgs WHERE revoked_at IS NULL ORDER BY created_at",
+          ).all() as Array<{ id: string; name: string; created_at: number }>;
+          const installazione = installationOrgId(db as never);
+          return json({
+            orgs: righe.map((o) => ({
+              id: o.id,
+              name: o.name,
+              members: liveMemberCount(db as never, o.id),
+              // Il ruolo di CHI CHIEDE, non un ruolo assoluto: è ciò che
+              // decide quali gesti l'interfaccia può offrire senza proporne uno
+              // che il server rifiuterà.
+              role: orgRole(db as never, o.id, io),
+              // Il gruppo di questa installazione non si cancella: è l'ancora a
+              // cui `/api/auth/me` risponde, e senza di lui l'identità della
+              // macchina diventa «una delle organizzazioni, forse».
+              installation: o.id === installazione,
+            })),
+          });
+        } catch { return json({ orgs: [] }); }
+      }
+
+      if (method === "POST") {
+        const body = await readJSON(req) as { name?: unknown } | null;
+        const nome = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
+        if (!nome) return json({ error: "serve un nome" }, 400);
+        if (!io) return json({ error: "non c'è una persona a cui intestare il gruppo" }, 400);
+        try {
+          const id = crypto.randomUUID().replace(/-/g, "");
+          db.query(
+            "INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES (?,?,?,'local',1,?)",
+          ).run(id, nome, now, now);
+          // Chi lo crea lo amministra. È l'unico modo in cui `role` può valere
+          // qualcosa senza un piano di controllo che lo scriva: il primo
+          // membro è un `owner`, e i successivi entrano come `member`.
+          db.query(
+            "INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES (?,?, 'owner', ?, 1, ?)",
+          ).run(id, io, now, now);
+          return json({ ok: true, id, name: nome });
+        } catch {
+          return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
+        }
+      }
+    }
+
+    // ── CANCELLARE un'organizzazione.
+    //
+    // `revoked_at` e non un DELETE, come ovunque nella 084: una riga cancellata
+    // non racconta niente, e `org_members` la referenzia con ON DELETE RESTRICT
+    // — un DELETE fallirebbe, e fallirebbe a runtime. La colonna era LETTA in
+    // quattro punti e SCRITTA da nessuno: un interruttore di sicurezza che
+    // nessun gesto poteva premere.
+    if (method === "DELETE" && /^\/api\/auth\/orgs\/[^/]+$/.test(pathname)) {
+      const id = decodeURIComponent(pathname.slice("/api/auth/orgs/".length));
+      try {
+        const org = db.query("SELECT revoked_at FROM orgs WHERE id = ?").get(id) as { revoked_at: number | null } | undefined;
+        // Già revocato = sconosciuto, la STESSA risposta che dà la POST dei
+        // membri: due rotte che guardano la stessa riga non possono dire una
+        // «non c'è» e l'altra «fatto», o il secondo clic sembra riuscito.
+        if (!org || org.revoked_at !== null) return json({ error: "organizzazione sconosciuta" }, 404);
+        if (id === installationOrgId(db as never)) {
+          return json({ error: "il gruppo di questa installazione non si cancella" }, 400);
+        }
+        const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
+        if (!canAdministerOrg(db as never, id, io)) {
+          return json({ error: "non amministri questo gruppo" }, 403);
+        }
+        // I dispositivi PRIMA della revoca: dopo, la JOIN su `org_members` non
+        // li trova più e resterebbero con una socket aperta e i principali di
+        // prima — timbrati all'upgrade e non più riletti.
+        const dispositivi = dispositiviDelSoggetto(db, "org", id);
+        db.query("UPDATE orgs SET revoked_at = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND revoked_at IS NULL")
+          .run(now, now, id);
+        for (const d of dispositivi) ctx.closeDeviceSockets?.(d);
+        return json({ ok: true });
+      } catch {
+        return json({ error: "non disponibile su questo database" }, 400);
+      }
+    }
+
+    // Il percorso è ancorato in fondo con `$`: senza, questo ramo intercettava
+    // anche `/api/auth/orgs/<id>/members` — `startsWith` non sa dove finisce un
+    // id — e una PATCH ai membri finiva in una UPDATE su `orgs` con id
+    // `<id>/members`, cioè zero righe toccate e un `ok: true` in risposta. Il
+    // gesto non faceva niente e diceva di averlo fatto.
+    if (method === "PATCH" && /^\/api\/auth\/(people|orgs)\/[^/]+$/.test(pathname)) {
       const persona = pathname.startsWith("/api/auth/people/");
       const id = decodeURIComponent(pathname.slice(persona ? "/api/auth/people/".length : "/api/auth/orgs/".length));
       const body = await readJSON(req) as { name?: unknown; email?: unknown } | null;
@@ -682,6 +790,17 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       const email = body?.email === null ? null
         : typeof body?.email === "string" ? body.email.trim().slice(0, 200) : undefined;
       if (name !== null && !name) return json({ error: "nome vuoto" }, 400);
+
+      // Rinominare un gruppo è amministrarlo, e passa dallo stesso ruolo che
+      // decide gli inviti: due porte sullo stesso potere con due regole diverse
+      // sono la porta più debole delle due. Le PERSONE restano fuori — chi si
+      // rinomina rinomina sé stesso, e non è un potere dentro un gruppo.
+      if (!persona) {
+        const io = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
+        if (!canAdministerOrg(db as never, id, io)) {
+          return json({ error: "non amministri questo gruppo" }, 403);
+        }
+      }
 
       try {
         if (name) {
@@ -699,13 +818,28 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
 
     // ── I MEMBRI di un'organizzazione.
     //
-    // Chi può scrivere qui: solo una richiesta NON confinata, cioè il
-    // proprietario di questa installazione. Il gate lo garantisce già — un
-    // ospite non passa il cancello del metodo — e non si aggiunge un secondo
-    // controllo che direbbe la stessa cosa in un altro modo: due guardie sulla
-    // stessa porta sono due occasioni di aprirla.
+    // Chi può ARRIVARE qui: solo una richiesta non confinata — il cancello non
+    // mette `/api/auth/orgs/` in allowlist, quindi un ospite si ferma prima, e
+    // non si aggiunge un secondo controllo che direbbe la stessa cosa in un
+    // altro modo: due guardie sulla stessa porta sono due occasioni di aprirla.
+    //
+    // Chi può SCRIVERE qui è una domanda DIVERSA, ed è l'unica a cui
+    // `org_members.role` risponde (084, righe 96-102). Non è la stessa del
+    // cancello: essere proprietario di questa macchina non ti rende
+    // amministratore di un gruppo di qualcun altro di cui sei un membro
+    // qualunque — e con una sola organizzazione le due domande coincidevano per
+    // caso, il che è il motivo per cui la colonna è rimasta a lungo scritta e
+    // mai imposta.
     if (/^\/api\/auth\/orgs\/[^/]+\/members$/.test(pathname)) {
       const orgId = decodeURIComponent(pathname.split("/")[4]);
+      const ioPersona = actingPersonId(db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
+      /** L'organizzazione esiste? Prima del ruolo, o «non esiste» diventerebbe
+       *  «non ti è permesso» — due risposte diverse che nascondono l'una
+       *  l'altra. */
+      const orgViva = () => {
+        try { return !!db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId); }
+        catch { return null; }  // schema più vecchio della 084
+      };
 
       if (method === "GET") {
         try {
@@ -734,8 +868,15 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "POST") {
         const body = await readJSON(req) as { personId?: unknown; name?: unknown; email?: unknown } | null;
         try {
-          const org = db.query("SELECT 1 FROM orgs WHERE id = ? AND revoked_at IS NULL").get(orgId);
-          if (!org) return json({ error: "organizzazione sconosciuta" }, 404);
+          // Le tre scritture di questo blocco fanno le STESSE due domande, e le
+          // fanno con le stesse due righe: la seconda copia scritta a mano è
+          // quella che un giorno dimentica una delle due revoche.
+          const viva = orgViva();
+          if (viva === null) return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
+          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (!canAdministerOrg(db as never, orgId, ioPersona)) {
+            return json({ error: "non amministri questo gruppo" }, 403);
+          }
 
           let pid: string;
           if (typeof body?.personId === "string" && body.personId) {
@@ -786,6 +927,12 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (method === "DELETE") {
         const pid = url.searchParams.get("personId") ?? "";
         try {
+          const viva = orgViva();
+          if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
+          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (!canAdministerOrg(db as never, orgId, ioPersona)) {
+            return json({ error: "non amministri questo gruppo" }, 403);
+          }
           const owner = db.query("SELECT 1 FROM installation_owners WHERE person_id = ?").get(pid);
           // Il proprietario dell'installazione non si toglie dalla propria
           // organizzazione: sarebbe l'unico gesto capace di lasciare la
@@ -799,6 +946,48 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             .run(now, orgId, pid);
           for (const d of dispositiviDelSoggetto(db, "person", pid)) ctx.closeDeviceSockets?.(d);
           return json({ ok: true });
+        } catch {
+          return json({ error: "non disponibile su questo database" }, 400);
+        }
+      }
+
+      // ── PROMUOVERE e RETROCEDERE.
+      //
+      // Il gesto che rende `role` una colonna e non una decorazione: senza di
+      // lui l'unico ruolo scrivibile sarebbe quello dell'INSERT — `member` per
+      // chi entra, `owner` per chi crea — e un gruppo non potrebbe mai cambiare
+      // amministratore. Un enum a tre valori di cui due sono irraggiungibili è
+      // un enum che mente.
+      if (method === "PATCH") {
+        const body = await readJSON(req) as { personId?: unknown; role?: unknown } | null;
+        const pid = typeof body?.personId === "string" ? body.personId : "";
+        if (!pid) return json({ error: "serve una persona" }, 400);
+        if (!isOrgRole(body?.role)) return json({ error: "ruolo sconosciuto" }, 400);
+        const ruolo: OrgRole = body.role;
+        try {
+          const viva = orgViva();
+          if (viva === null) return json({ error: "non disponibile su questo database" }, 400);
+          if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
+          if (!canAdministerOrg(db as never, orgId, ioPersona)) {
+            return json({ error: "non amministri questo gruppo" }, 403);
+          }
+          const attuale = orgRole(db as never, orgId, pid);
+          // Chi è stato tolto o revocato non ha un ruolo da cambiare: si
+          // riaggiunge, e quello è un altro gesto. Promuovere un assente
+          // scriverebbe una riga viva senza passare da nessuna delle due
+          // colonne di revoca.
+          if (!attuale) return json({ error: "quella persona non è un membro" }, 404);
+          if (attuale === ruolo) return json({ ok: true, personId: pid, role: ruolo });
+          // Zero proprietari vivi = gruppo immodificabile per chiunque, e
+          // l'unico modo di uscirne sarebbe una UPDATE a mano nel database.
+          // L'ULTIMO proprietario non si retrocede; il penultimo sì.
+          if (attuale === "owner" && liveOwnerCount(db as never, orgId) <= 1) {
+            return json({ error: "serve almeno un proprietario del gruppo" }, 400);
+          }
+          db.query(`
+            UPDATE org_members SET role = ?, rev = rev + 1, updated_at = ?
+             WHERE org_id = ? AND person_id = ?`).run(ruolo, now, orgId, pid);
+          return json({ ok: true, personId: pid, role: ruolo });
         } catch {
           return json({ error: "non disponibile su questo database" }, 400);
         }
