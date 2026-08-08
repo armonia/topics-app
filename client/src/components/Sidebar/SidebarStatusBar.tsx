@@ -468,7 +468,25 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
         style={{
           paddingInline: ROW_INSET,
-          minHeight: `calc(${isMobile ? 44 : 28}px + env(safe-area-inset-bottom, 0px))`,
+          // `var(--sab)` e non `env(...)` diretto: `env()` non si può
+          // sovrascrivere, quindi con la chiamata cruda questa riga era
+          // IMPOSSIBILE da provare fuori da un iPhone vero — e infatti l'ho
+          // sbagliata due volte a occhi chiusi. `--sab` è già definita in
+          // `:root` come `env(safe-area-inset-bottom, 0px)`, quindi in
+          // produzione il valore è identico, ma una sonda può forzarla e
+          // misurare il risultato.
+          //
+          // METÀ FASCIA, non tutta. Misurato con `--sab: 34px`:
+          //  · con la fascia INTERA la riga diventa alta 78 e il contenuto sta
+          //    a 25,5 dall'alto e 24,5 dal basso. È centrato, ma la riga si è
+          //    solo INGRASSATA: sopra il contenuto c'è 25px di niente — «hai
+          //    semplicemente alzato spazio sopra la status riga», ed è vero;
+          //  · con `paddingBottom` (la versione ancora prima) il contenuto
+          //    stava a 56px dal bordo, cioè la fascia era spazio morto;
+          //  · con METÀ la riga è alta 61, il contenuto sta a ~30px dal fondo e
+          //    il suo bordo inferiore a ~18: la fascia è ABITATA, e l'home
+          //    indicator — che vive negli ultimi ~10px — non ci finisce sotto.
+          minHeight: `calc(${isMobile ? 44 : 28}px + var(--sab) / 2)`,
         }}
       >
         {/* Gateway status */}
