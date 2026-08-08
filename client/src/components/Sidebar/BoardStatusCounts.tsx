@@ -4,6 +4,7 @@ import { StatusIcon } from '../Board/atoms';
 import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
   boardProjectChips, fitBoardRow, CHIP_MODES,
   type BoardProjectChip, type ChipMode,
@@ -75,6 +76,9 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
   return (
     <span
       data-testid={`board-project-${chip.projectId}`}
+      // Il nome esce dal disegno ma NON dall'informazione: il tooltip resta
+      // l'unico posto in cui la pastiglia dice di chi è, e senza di esso
+      // un'icona sconosciuta sarebbe un enigma invece di una scorciatoia.
       title={`${chip.name}: ${chip.n} task aperti`}
       className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
       style={{ width: CHIP_W[mode] }}
@@ -85,21 +89,13 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       <span className="flex w-5 flex-shrink-0 justify-center">
         <ProjectFavicon path={chip.path} size={12} width={20} />
       </span>
-      {mode !== 'icon' && (
-        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap leading-tight text-app-text-secondary">
-          {chip.name}
-        </span>
-      )}
-      {mode === 'name-count' && (
-        // Il divisore verticale è la parte che fa il lavoro: separa il numero
-        // dal nome DENTRO la pastiglia, così la coppia si legge come «questo
-        // progetto: tanti» e non come due cose in fila. Un `gap` non basta —
-        // era esattamente il difetto della prima versione, dove nome e numero
-        // avevano stesso corpo, stesso colore e 4px in mezzo.
-        <span className="flex flex-shrink-0 items-center gap-1">
-          <span aria-hidden className="h-2.5 w-px bg-black/10 dark:bg-white/15" />
-          <span className="tabular-nums text-app-text-muted">{chip.n}</span>
-        </span>
+      {mode === 'icon-count' && (
+        // NIENTE DIVISORE. Serviva a staccare il numero dal NOME, quando il
+        // nome c'era: due testi dello stesso corpo a 4px di distanza si
+        // leggevano come una parola sola. Senza nome non c'è niente da cui
+        // staccarlo, e la riga verticale diventerebbe un tratto in più fra due
+        // cose che nessuno confonde — un'icona e una cifra.
+        <span className="flex-1 text-right tabular-nums text-app-text-secondary">{chip.n}</span>
       )}
     </span>
   );
@@ -145,7 +141,30 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
  */
 export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
   const index = useBoardProjects();
-  const chips = useMemo(() => boardProjectChips(byStatus, index), [byStatus, index]);
+  const tutti = useMemo(() => boardProjectChips(byStatus, index), [byStatus, index]);
+  /**
+   * SOLO CHI HA UN'ICONA arriva sulla riga.
+   *
+   * Non è un filtro estetico, è la conseguenza di una regola che il progetto si
+   * è già data: `ProjectFavicon` non inventa niente per chi non ha un'icona
+   * vera — niente monogrammi, niente tessere generate (decisione dura, Attilio
+   * 16/07). Senza il nome, una pastiglia di un progetto senza icona sarebbe uno
+   * slot vuoto con una cifra accanto: la «cifra anonima» che era già il difetto
+   * di due giri fa.
+   *
+   * Chi resta fuori NON sparisce: finisce nel «+N» insieme a chi non ci sta per
+   * spazio, che è esattamente ciò che quel numero dichiara — «altri N progetti».
+   *
+   * Il filtro sta PRIMA dell'aritmetica, non dentro il disegno, se no si
+   * prenoterebbe spazio per pastiglie che poi non si disegnano. E la risposta
+   * arriva sincrona per ogni progetto che la cache conosce, quindi al ricarico
+   * la riga nasce già composta invece di ricomporsi sotto gli occhi.
+   */
+  const conIcona = useProjectIconsPresent(useMemo(() => tutti.map((c) => c.path), [tutti]));
+  const chips = useMemo(() => tutti.filter((c) => c.path && conIcona.has(c.path)), [tutti, conIcona]);
+  /** Quelli tolti dal filtro: il «+N» li deve contare, o la riga direbbe che i
+   *  progetti con lavoro aperto sono meno di quanti sono. */
+  const senzaIcona = tutti.length - chips.length;
   const counts = useMemo(
     () => SUMMARY_STATUSES
       .map((status) => ({ status, n: byStatus?.[status]?.length ?? 0 }))
@@ -193,7 +212,14 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
 
   const fitted = fitBoardRow(width, chips, counts);
   const { rolled } = fitted.counts;
-  if (chips.length === 0 && counts.length === 0) return null;
+  // Il «+N» somma DUE esclusioni diverse — chi non ci sta per spazio e chi non
+  // ha un'icona da mostrare — perché per chi guarda sono la stessa cosa: altri
+  // progetti con lavoro aperto, che questa riga non sta nominando.
+  const nascosti = fitted.chips.hidden + senzaIcona;
+  // La riga esiste se c'è QUALCOSA da dire, e i progetti senza icona sono
+  // qualcosa: `tutti`, non `chips`, o un insieme di progetti tutti senza icona
+  // farebbe sparire anche i conteggi di stato che gli stanno accanto.
+  if (tutti.length === 0 && counts.length === 0) return null;
 
   return (
     <div ref={measureRef} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -226,13 +252,13 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
           progetti dietro un `overflow: hidden`. Lo spazio se lo prende sempre
           `fitProjectChips` (secondo passaggio), quindi comparire non sposta
           nulla; l'elemento invece esiste solo quando ha qualcosa da dire. */}
-      {fitted.chips.hidden > 0 && (
+      {nascosti > 0 && (
         <span
           data-testid="board-project-more"
-          title={`Altri ${fitted.chips.hidden} progetti con task aperti`}
+          title={`Altri ${nascosti} progetti con task aperti`}
           className="flex-shrink-0 tabular-nums text-[11px] text-app-text-tertiary"
         >
-          +{fitted.chips.hidden}
+          +{nascosti}
         </span>
       )}
       {(fitted.counts.shown.length > 0 || rolled) && (
