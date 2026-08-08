@@ -1458,11 +1458,31 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
     await expect(page.getByTestId("pinned-expansion")).toBeVisible({ timeout: 15000 });
     await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("1");
 
-    // Il fuoco se ne va altrove. Una tessera si accende per DUE motivi — è
-    // quella dove sei, oppure ha la fascia aperta — e qui interessa il secondo:
-    // col fuoco addosso resterebbe accesa comunque, e non si vedrebbe niente.
+    // IL FUOCO SE NE VA ALTROVE, E LA CORNICE PIENA VA CON LUI.
+    //
+    // Qui prima si asseriva "1", perche' `lit` valeva `focused || expanded`:
+    // spostando il fuoco su un'altra tessera la prima restava col bordo pieno
+    // — due tessere accese identiche e un solo fuoco. E' il difetto riferito
+    // «cambio fuoco fra le pin e a volte resta illuminato il bordo»: il «a
+    // volte» erano le tessere che si APRONO, cioe' i progetti con tab, perche'
+    // `expanded` e' un insieme che nessuno restringeva quando il fuoco si
+    // muoveva. La cornice piena ora dice una cosa sola — sei qui.
+    //
+    // Aperta-ma-non-a-fuoco resta comunque qualcosa da dire, e lo dice un
+    // GRADINO piu' in basso (`opacity-40`): stessa cornice, smorzata. Si
+    // asserisce che sia FRA i due estremi invece del numero esatto — quel che
+    // conta e' che non sia ne' spenta ne' accesa come la tessera a fuoco.
     await page.locator(`[data-pinned-tile="${vicino!.id}"]`).click();
-    await expect.poll(() => opacita(rim), { timeout: 10000 }).toBe("1");
+    const grado = async () => {
+      const v = Number(await opacita(rim));
+      return v === 0 ? "spenta" : v === 1 ? "piena" : "smorzata";
+    };
+    await expect.poll(grado, { timeout: 10000 }).toBe("smorzata");
+    // La cornice si dissolve in 200ms, e a meta' dissolvenza QUALUNQUE valore
+    // sarebbe «smorzato»: si guarda di nuovo a transizione finita, o questo
+    // test passerebbe anche su una cornice che si sta semplicemente spegnendo.
+    await page.waitForTimeout(400);
+    expect(await grado(), "aperta ma non a fuoco: smorzata, non spenta").toBe("smorzata");
 
     // Ora la fascia si svuota. La chat sta lì perché è FISSATA (una chat a tab
     // chiusa resta figlia del suo progetto solo per quello): riportarla nella

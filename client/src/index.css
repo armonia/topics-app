@@ -1242,7 +1242,30 @@ input[type="range"]::-webkit-slider-thumb {
  * superficie e ruberebbe ogni clic al bottone che lo porta.
  *
  * Chi lo usa non deve dichiarare `position: relative`: lo impone la classe,
- * come fa `.tap-expand`. */
+ * come fa `.tap-expand`.
+ *
+ * ── I CAPELLI SONO DUE, E DEVONO ESSERCI ENTRAMBI ──────────────────────────
+ * Attilio, 08/08: «il bordo delle pin sembra piatto sopra». Non è la curva: il
+ * `::before` ha `inset: 0` e `border-radius: inherit`, nessun ospite porta un
+ * `border`, quindi padding-box e border-box coincidono e un'ombra inset è
+ * clippata alla scatola ARROTONDATA — lungo l'arco il capello si assottiglia
+ * come il coseno dell'angolo e muore in dissolvenza, non di netto. Il lato alto
+ * è dritto perché è dritta la CARD (una tab è larga 150 e arrotondata a 8:
+ * l'89% dello spigolo superiore è rettilineo per costruzione).
+ *
+ * Piatto era invece il MODELLO: dei due capelli ne era rimasto uno. La riga
+ * bassa sopravviveva solo nel ramo web-chiaro; negli altri tre era stata tolta.
+ * Una superficie con luce sopra e NIENTE sotto non si legge come un piano
+ * rialzato — si legge come un coperchio. Quindi il capello basso torna in tutti
+ * e quattro, con l'alpha del suo fondo, e il bianco alto scende dove era fuori
+ * scala (0.75 e 0.5 erano riflessi da metallo lucido, non da una card).
+ *
+ * Sui fondi scuri il capello basso è comunque NERO, e non è una svista: la
+ * tessera non è appoggiata sul nero puro ma sulla propria campitura, che è un
+ * bianco in alpha sopra il chrome — un nero al 18-20% su quel grigio lo scurisce
+ * quanto basta a chiudere la forma sotto. Il commento che c'era prima («un'ombra
+ * nera su un fondo quasi nero non si vede e sporca soltanto») descriveva la
+ * scatola vuota, non la scatola dipinta. */
 .edge-lit { position: relative; }
 .edge-lit::before {
   content: '';
@@ -1250,34 +1273,40 @@ input[type="range"]::-webkit-slider-thumb {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  /* Tema CHIARO: la luce ambientale viene dall'alto, quindi lo spigolo
-     superiore è quasi bianco e quello inferiore raccoglie un'ombra. Il filo
-     perimetrale è nero all'4%: su un fondo grigio-azzurro (il chrome) un filo
-     bianco tutt'attorno farebbe sembrare la card ritagliata. */
+  /* Tema CHIARO (web): la luce ambientale viene dall'alto, quindi lo spigolo
+     superiore prende luce e quello inferiore raccoglie un'ombra. Il filo
+     perimetrale è nero al 4%: su un fondo grigio-azzurro (il chrome) un filo
+     bianco tutt'attorno farebbe sembrare la card ritagliata.
+     Il bianco era 0.75 — su una card che sta un gradino sopra un chrome chiaro
+     è un riflesso da cromatura, e sopravvaluta di molto il rialzo. */
   box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.75),
-    inset 0 -1px 0 0 rgb(0 0 0 / 0.035),
+    inset 0 1px 0 0 rgb(255 255 255 / 0.4),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
     inset 0 0 0 1px rgb(0 0 0 / 0.04);
 }
 .dark .edge-lit::before {
-  /* Tema SCURO: la stessa geometria a parti invertite — lo spigolo alto prende
-     un bianco tenue (il riflesso), quello basso non prende niente (un'ombra
-     nera su un fondo quasi nero non si vede e sporca soltanto). */
+  /* Tema SCURO (web): la stessa geometria, con i due capelli tarati sul fondo —
+     bianco tenue in cima, nero in fondo. Il capello basso mancava del tutto. */
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
     inset 0 0 0 1px rgb(255 255 255 / 0.045);
 }
 /* Sotto la vibrancy di macOS il riflesso resta, ma più asciutto: lì il
    materiale nativo porta già il suo gradiente e due riflessi sovrapposti
-   leggono come un doppio bordo. */
+   leggono come un doppio bordo. Attenzione: `.electron-mac` è il nome legacy,
+   ma la classe la mette anche la shell TAURI su macOS — questi due rami sono
+   quelli che si vedono nell'app vera, gli altri due valgono in browser. */
 html.electron-mac .edge-lit::before {
   box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.5),
+    inset 0 1px 0 0 rgb(255 255 255 / 0.32),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
     inset 0 0 0 1px rgb(0 0 0 / 0.03);
 }
 html.electron-mac.dark .edge-lit::before {
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
 }
 
@@ -1350,6 +1379,47 @@ html.electron-mac .raised-control { background-color: rgb(0 0 0 / 0.06); }
 html.electron-mac .raised-control:hover { background-color: rgb(0 0 0 / 0.10); }
 html.electron-mac.dark .raised-control { background-color: rgb(255 255 255 / 0.10); }
 html.electron-mac.dark .raised-control:hover { background-color: rgb(255 255 255 / 0.16); }
+
+/* LO STESSO COMANDO, MA APPOGGIATO SU CONTENUTO VIVO.
+ *
+ * Attilio, 08/08: «il + in overlay è un velo, sotto ci si legge attraverso».
+ * Ed è vero proprio dove conta: `.raised-control` è opaco solo sul WEB, mentre
+ * sotto la shell mac — cioè nell'app che si guarda — vale 6% in chiaro e 10%
+ * al buio. Per un bottone in fila va bene: sotto di lui c'è la lastra e basta.
+ * Ma due «+» non stanno in fila, stanno SOPRA qualcosa che si muove — le tab
+ * che scorrono nella barra, il nome e la tinta di una tessera fissata — e a
+ * quell'alpha il contenuto sale attraverso il bottone e lo cancella.
+ *
+ * La risposta NON è il pieno: un blu opaco sopra il vetro è l'adesivo che
+ * `.raised-control` esiste per non essere. È lo sfocato — il bottone resta
+ * traslucido e della famiglia, ma quello che ci passa sotto arriva impastato
+ * invece che leggibile, che è esattamente cosa fa un materiale di sistema.
+ * L'alpha sale di un soffio perché il blur da solo non dà corpo: sfoca i
+ * contorni ma non alza il contrasto contro il glifo.
+ *
+ * Si applica al CONTENITORE dell'overlay (o al comando stesso), non a
+ * `.raised-control`: quella classe la condividono cinque superfici, e quattro
+ * non hanno niente sotto da sfocare — pagherebbero un layer di compositing per
+ * nulla. Qui i portatori sono due, uno per barra delle tab e uno per tessera
+ * fissata mentre il mouse ci sta sopra (fuori dall'hover il contenitore è
+ * `display: none`, quindi nessun layer).
+ *
+ * `-webkit-backdrop-filter` non è ridondante: WKWebView — cioè la shell — è
+ * proprio il motore che vuole ancora il prefisso. */
+html.electron-mac :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
+  background-color: rgb(0 0 0 / 0.1);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+}
+html.electron-mac :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
+  background-color: rgb(0 0 0 / 0.14);
+}
+html.electron-mac.dark :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
+  background-color: rgb(255 255 255 / 0.14);
+}
+html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
+  background-color: rgb(255 255 255 / 0.2);
+}
 
 /* IL LONG-PRESS SI VEDE. Su iPhone `navigator.vibrate` non esiste, quindi
  * `haptic()` è un no-op e 500ms di pressione sarebbero ciechi: senza un segno,
@@ -1826,44 +1896,6 @@ html.electron-mac.dark .raised-control:hover { background-color: rgb(255 255 255
   will-change: opacity;
 }
 
-/* ─── "Working" aura ─────────────────────────────────────────────────────────
- * A real, dynamic wave of iridescent smoke hugging the pane edge while a
- * session works. Rendered by <AuraWave> (components/AuraWave.tsx) into a low-res
- * <canvas> that is upscaled to the pane: the wave (multi-harmonic border
- * displacement) is filled and blurred cheaply at 1/3 resolution, so the haze is
- * genuinely soft with no hard edges, at 60fps even with many panes. SPEED tracks
- * session activity (token throughput; see lib/auraActivity.ts). Host = this
- * container (position:absolute, overflow:hidden, border-radius:inherit).
- * Rendered only while working → zero idle cost; the shared rAF pauses when the
- * document is hidden. */
-.chat-working-aura {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  pointer-events: none;
-  border-radius: inherit;
-  overflow: hidden;
-  animation: chat-working-ring-in 300ms ease-out;
-}
-/* The low-res canvas AuraWave draws the blurred wave into, upscaled by CSS to
- * fill the pane. All the softness is real blur done cheaply at 1/DOWNSCALE
- * resolution (see AuraWave.tsx) — no CSS filter needed here. */
-.chat-working-aura canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-@keyframes chat-working-ring-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* prefers-reduced-motion: AuraWave draws a single static, shaped haze (no rAF
- * loop) — still a cue, no motion. Only the container's fade-in is stopped. */
-@media (prefers-reduced-motion: reduce) {
-  .chat-working-aura { animation: none; }
-}
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On

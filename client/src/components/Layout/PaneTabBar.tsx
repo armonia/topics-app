@@ -784,14 +784,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
-        className="flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar"
-        // Left/right inset = ROW_INSET (4px), the SAME edge inset the sidebar
-        // rows use, so the tab list and the sidebar list line up at the sides
-        // (was 5px left + a stray 4px root `pl-1` = 9px on project group bars).
-        // The 30px overrides stay: left when a floating sidebar-toggle overlays
-        // the leftmost bar, right when the add-menu needs clearance for scrolled
-        // tabs.
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : ROW_INSET, paddingRight: hasMenuItems ? 30 : ROW_INSET }}
+        // LA RISERVA A DESTRA È L'INGOMBRO DEL «+», non un numero tondo.
+        //
+        // Erano 30px scritti a mano, e non bastavano: il bottone è
+        // `ROW_ACTION_BOX` (28 sopra i 768px, 36 sotto) e sta a `ROW_INSET` (6)
+        // dal bordo, quindi occupa 34 — l'ultima tab passava 4px SOTTO di lui
+        // anche a riposo, cioè prima ancora di scorrere. Ora la riserva è
+        // quell'ingombro: 28+6=34 in larghezza piena, 36+6=42 col dito.
+        //
+        // Espressa in CLASSI e non nello stile in linea di proposito: il box
+        // del bottone lo decide il breakpoint `md:` di Tailwind, e usando lo
+        // STESSO breakpoint la riserva non può disallinearsi dal bottone su
+        // nessun dispositivo — cosa che un predicato JS (`isMobile` vale <768
+        // ma <1024 se touch) non garantirebbe. `pr-1.5` = 6 = ROW_INSET.
+        className={`flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
+          hasMenuItems ? 'pr-[42px] md:pr-[34px]' : 'pr-1.5'
+        }`}
+        // Left inset = ROW_INSET, the SAME edge inset the sidebar rows use, so
+        // the tab list and the sidebar list line up at the sides (was 5px left
+        // + a stray 4px root `pl-1` = 9px on project group bars). The 30px
+        // override stays for when a floating sidebar-toggle overlays the
+        // leftmost bar.
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1, paddingLeft: hasLeftOverlay ? 30 : ROW_INSET }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           // Scope guard: ignore drags from another window/project entirely (no
@@ -1304,7 +1318,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // due archi diversi si toccano e il confronto diventa inevitabile.
           // A 6 il bottone respira, sta sul ritmo di tutto il resto, e smette di
           // essere letto insieme all'angolo.
-          className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
+          //
+          // `raised-control-overlay`: questo «+» non è in fila con le tab, ci
+          // sta SOPRA — la strip scorre sotto di lui. Sotto la vibrancy il
+          // fondo di un comando è un'alpha (6-10%), e a quell'alpha una tab che
+          // passa sotto si legge attraverso il bottone. La variante non lo
+          // rende opaco: sfoca ciò che gli passa sotto, così resta di vetro
+          // senza diventare un velo. Vedi index.css.
+          className="raised-control-overlay absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
           style={{ paddingRight: ROW_INSET }}
           {...NO_DRAG_REGION}
         >

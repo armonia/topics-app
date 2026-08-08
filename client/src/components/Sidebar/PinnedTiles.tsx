@@ -6,7 +6,7 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
-import { PINNED_TILE_H, PINNED_TILE_CONTAINER, pinnedTileActionInset } from './pinnedTileMetrics';
+import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET } from './pinnedTileMetrics';
 import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,
@@ -63,9 +63,14 @@ const DROP_EFFECT = 'move' as const;
 function PinnedTilePreview({
   item,
   metaFor,
+  hasActions,
 }: {
   item: SidebarItem;
   metaFor: (item: SidebarItem) => PinnedTileMeta;
+  /** L'anteprima non porta il «+» — è inerte — ma deve LASCIARGLI lo stesso
+   *  slot della tessera vera, o il nome si troncherebbe a una misura diversa
+   *  da quella che avrà un istante dopo il drop. */
+  hasActions?: boolean;
 }) {
   const meta = metaFor(item);
   return (
@@ -74,6 +79,7 @@ function PinnedTilePreview({
       expanded={false}
       focused={meta.focused}
       attention={meta.attention}
+      hasActions={hasActions}
       onToggle={() => {}}
     />
   );
@@ -152,9 +158,6 @@ export function PinnedTiles({
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
-  // L'inset del «+» segue l'altezza della tessera: 4 sul desktop, 10 sotto i
-  // 768px dove la tessera è `h-11`. Vedi `pinnedTileActionInset` — i due numeri
-  // sono accoppiati da un'invariante, non scelti a occhio.
   const { isMobile } = useMobile();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -193,6 +196,11 @@ export function PinnedTiles({
 
   const byId = new Map(items.map(i => [i.id, i]));
   const rows = reconcilePinnedLayout(items.map(i => i.id), layout);
+
+  /** Su questa tessera si appoggia un comando? Lo sa solo il chiamante, e la
+   *  tessera deve saperlo per riservargli lo slot — anche nelle anteprime, che
+   *  altrimenti troncherebbero il nome a una misura che il drop non produrrà. */
+  const haAzioni = (item: SidebarItem) => (renderActions?.(item) ?? null) !== null;
 
   /**
    * Chi ha DAVVERO qualcosa da aprire qui sotto — deciso una volta per render,
@@ -629,7 +637,7 @@ export function PinnedTiles({
       {newRowAt === at && (
         incomingRow
           ? <div data-testid="pinned-drop-preview" className={`${PINNED_TILE_CONTAINER} opacity-60 pointer-events-none`}>
-              <PinnedTilePreview item={incomingRow} metaFor={metaFor} />
+              <PinnedTilePreview item={incomingRow} metaFor={metaFor} hasActions={haAzioni(incomingRow)} />
             </div>
           : <div
               data-testid="pinned-drop-ghost"
@@ -802,7 +810,7 @@ export function PinnedTiles({
                     <div key="ghost" style={flex} className={`${PINNED_TILE_CONTAINER} min-w-0`}>
                       {dropAt?.incoming
                         ? <div data-testid="pinned-drop-preview" className="opacity-60 pointer-events-none">
-                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} />
+                            <PinnedTilePreview item={dropAt.incoming} metaFor={metaFor} hasActions={haAzioni(dropAt.incoming)} />
                           </div>
                         : <div
                             data-testid="pinned-drop-ghost"
@@ -834,15 +842,26 @@ export function PinnedTiles({
                         angolo in basso sembrava appoggiato lì, e il badge tiene
                         già quello in alto. Sopra, a destra e sotto stanno alla
                         stessa distanza: la tessera è alta quanto il «+» più due
-                        volte il suo rientro. */}
+                        volte il suo rientro.
+
+                        `raised-control-overlay`: sotto la vibrancy il fondo di
+                        un comando è un'alpha (6-10%), scelta apposta per
+                        partecipare al vetro. Va bene per un bottone in fila;
+                        qui il bottone sta SOPRA contenuto vivo — il nome e la
+                        tinta della tessera — e a quell'alpha ci si legge
+                        attraverso. La variante non lo rende opaco: sfoca ciò
+                        che gli passa sotto, così resta di vetro e smette di
+                        essere un velo. Vedi index.css. */}
                     {actions && (
                       <div
-                        className="absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex"
+                        className="raised-control-overlay absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex"
                         // Il rientro da destra è lo STESSO numero che lo separa
                         // dal bordo alto e da quello basso — lì ci pensa
                         // `PINNED_TILE_H`, che è l'altezza del trigger più due
-                        // volte questo. Tre distanze uguali, un numero solo.
-                        style={{ right: pinnedTileActionInset(isMobile) }}
+                        // volte questo. Tre distanze uguali, un numero solo —
+                        // e da quando la tessera è `h-9` quel numero è 4 su
+                        // entrambe le larghezze, non più due costanti.
+                        style={{ right: PINNED_TILE_ACTION_INSET }}
                       >
                         {actions}
                       </div>
@@ -857,6 +876,10 @@ export function PinnedTiles({
                       // aprire il click porta e basta, e la tessera non deve
                       // promettere una fascia che non arriva.
                       expandable={apribili.has(key)}
+                      // Il «+» qui sopra non è figlio della tessera e lei non
+                      // lo può misurare: glielo diciamo, così gli lascia lo
+                      // slot invece di finirci sotto col nome.
+                      hasActions={actions !== null}
                       focused={meta.focused}
                       attention={meta.attention}
                       dragging={dragKey === key && !reordering}
@@ -932,7 +955,7 @@ export function PinnedTiles({
             transform: 'translate(-50%, -50%) scale(1.06)',
           }}
         >
-          <PinnedTilePreview item={byId.get(ghost.key)!} metaFor={metaFor} />
+          <PinnedTilePreview item={byId.get(ghost.key)!} metaFor={metaFor} hasActions={haAzioni(byId.get(ghost.key)!)} />
         </div>,
         document.body,
       )}
