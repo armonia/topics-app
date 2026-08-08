@@ -21,8 +21,26 @@ hermetic(test);
 
 const PROJ = `/tmp/e2e-storia-${Date.now()}`;
 
+/**
+ * L'identita' viaggia CON il comando, non con la macchina.
+ *
+ * Un `git commit` senza `user.name`/`user.email` non fallisce sul portatile di
+ * chi scrive il test — lo salva la config globale — e fallisce sul runner, che
+ * non ne ha nessuna: «Author identity unknown. *** Please tell me who you are.»
+ * Questo file ne aveva gia' la prova a due passi di distanza (il repo VUOTO piu'
+ * sotto fa `git config user.email`), ma il repo principale no. Passandola con
+ * `-c` a ogni invocazione il test non dipende piu' da com'e' configurata la
+ * macchina che lo esegue. `commit.gpgsign=false` per la stessa ragione: una
+ * chiave di firma e' un'altra cosa che il runner non ha.
+ */
+const IDENTITA = [
+  "-c", "user.name=e2e",
+  "-c", "user.email=e2e@test",
+  "-c", "commit.gpgsign=false",
+];
+
 function git(args: string[]) {
-  execFileSync("git", args, { cwd: PROJ, stdio: "pipe" });
+  execFileSync("git", [...IDENTITA, ...args], { cwd: PROJ, stdio: "pipe" });
 }
 /**
  * Il popover della cronologia, aperto dal suo bottone nella riga d'intestazione.
