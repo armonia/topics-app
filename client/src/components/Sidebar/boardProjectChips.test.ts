@@ -108,7 +108,18 @@ describe('fitProjectChips', () => {
     // nessuna, a icone sì.
     const stretta = CHIP_W_NAME + CHIP_GAP + MORE_W - 1;
     expect(stretta).toBeGreaterThanOrEqual(spanIcon(1) + CHIP_GAP + MORE_W);
-    expect(fitProjectChips(stretta, chips)).toEqual({ shown: ['a'], hidden: 4, mode: 'icon' });
+    const fitted = fitProjectChips(stretta, chips);
+    expect(fitted.mode).toBe('icon');
+    // QUANTE ne entrano si CALCOLA, non si ricopia: il numero dipende dal
+    // rapporto fra le due larghezze, e ricopiarlo lega il test a quel rapporto
+    // invece che alla regola. (Successo l'08/08: tolto il numero dalla
+    // pastiglia, `CHIP_W_ICON` è sceso da 36 a 20 e qui era rosso un «1» che
+    // non diceva niente di sbagliato.)
+    let entrano = chips.length;
+    while (entrano > 0 && spanIcon(entrano) + CHIP_GAP + MORE_W > stretta) entrano--;
+    expect(entrano).toBeGreaterThan(0);
+    expect(fitted.shown).toEqual(chips.slice(0, entrano));
+    expect(fitted.hidden).toBe(chips.length - entrano);
   });
 
   test('col nome ne entra una: si resta col nome anche se a icone ne entrerebbero di più', () => {
