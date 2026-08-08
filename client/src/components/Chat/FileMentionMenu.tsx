@@ -140,7 +140,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
     >
       {/* Header */}
       <div className="px-3 py-1.5 border-b border-app-border flex items-center gap-2">
-        <Search size={12} className="text-app-text-muted" />
+        <Search size={12} className="text-app-text-secondary" />
         <span className="text-[11px] text-app-text-muted font-medium">Files</span>
         {filter && <span className="text-[11px] text-primary font-mono">@{filter}</span>}
         <div className="flex-1" />

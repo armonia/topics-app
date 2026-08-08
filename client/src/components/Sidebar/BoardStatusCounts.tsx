@@ -330,7 +330,20 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
       )}
       </div>
       {(fitted.counts.shown.length > 0 || rolled) && (
-        <span className="flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
+        <span
+          // `ml-auto`: i conteggi si appoggiano al BORDO DESTRO della riga.
+          //
+          // Era stato tolto per rendere uniformi i tre stacchi, ma la riga è
+          // `flex-1` e lo spazio che avanza deve pur finire da qualche parte:
+          // senza `ml-auto` finiva DOPO i conteggi — «hanno spazio a destra che
+          // non dovrebbero avere» (Attilio, 08/08). Con l'auto quello spazio
+          // torna PRIMA di loro, dove si legge come lo stacco fra due gruppi
+          // invece che come una coda vuota. `GROUP_SPACING` resta comunque il
+          // minimo garantito dall'aritmetica del ritaglio: l'auto può solo
+          // allargarlo, mai stringerlo.
+          className="ml-auto flex flex-shrink-0 items-center gap-1.5"
+          data-testid="board-status-counts"
+        >
           {fitted.counts.shown.map(({ status, n }) => (
             <span
               key={status}
