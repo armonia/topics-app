@@ -53,7 +53,7 @@ import { abandonNoticeFromRepo } from "./server/services/worktree-abandon-notice
 import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings } from "./server/services/landing-audit";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
-import { createDetachedTopic } from "./server/lib/session-control-core";
+import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
 import { createBrowserService } from "./server/browser-service";
@@ -768,7 +768,11 @@ const externalSessions = createExternalSessionsService({
  * gitignorato del repo, e nelle chat fuori da quel repo gli stessi strumenti
  * morivano muti.
  */
-const DISPATCH_AUTONOMY = "yolo";
+// Il tier di nascita di un agente dispacciato ha UNA fonte sola, ed è dentro
+// `createDetachedTopic` (DETACHED_TOPIC_AUTONOMY): lì vale anche per un
+// chiamante che se ne dimentichi. Qui resta l'alias storico, non un secondo
+// valore che può divergere da quello.
+const DISPATCH_AUTONOMY = DETACHED_TOPIC_AUTONOMY;
 
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
