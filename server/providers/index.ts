@@ -26,26 +26,13 @@ import {
   resolveOpenaiModel,
   resolveOpenaiMaxTokens,
   resolveCodexModel,
+  resolveClaudeCodeModel,
   resolveClaudeCodePermissionMode,
   resolveCodexApprovalMode,
   resolveClaudeCodeEnabled,
   type AppSettings,
 } from "../services/app-settings";
 
-/**
- * Resolve the Claude-Code model id. A settings override wins; else
- * `CLAUDE_CODE_MODEL` (a deprecated alias of the canonical `CLAUDE_MODEL` —
- * still honoured with a one-time warning); else `CLAUDE_MODEL`.
- */
-function resolveClaudeCodeModel(settings: AppSettings): string | undefined {
-  if (settings.claudeModel) return settings.claudeModel;
-  const legacy = process.env.CLAUDE_CODE_MODEL;
-  if (legacy) {
-    warnDeprecatedEnv("CLAUDE_CODE_MODEL", "CLAUDE_MODEL");
-    return legacy;
-  }
-  return process.env.CLAUDE_MODEL || undefined;
-}
 
 // ---------------------------------------------------------------------------
 // Registry

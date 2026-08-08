@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Bell, Cpu, Palette, UserRound, ShieldCheck } from 'lucide-react';
+import { X, Bell, Cpu, Palette, UserRound } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -8,7 +8,6 @@ import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
-import { PermissionsSection } from './PermissionsSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface GlobalSettingsProps {
@@ -39,7 +38,14 @@ interface GlobalSettingsProps {
 // nativo, con un test che fallisce se divergono. Non va reintrodotta nemmeno
 // leggendo `SHORTCUT_GROUPS`: sarebbe la stessa lista in due finestre. Resta
 // il RIMANDO in fondo ad Aspetto, che è l'unica cosa che non può mentire.
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices' | 'permissions';
+//
+// «Permessi» non è stata rimossa, è stata SPOSTATA: gli «strumenti sempre
+// consentiti» sono in fondo alla scheda «AI Providers». Erano una voce di nav di
+// primo livello che nella stragrande maggioranza dei casi mostrava lo stato
+// vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
+// mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
+// è per-chat e sta nel composer.
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'devices';
 
 // L'id resta `devices` — è la chiave interna a cui punta il deep-link della
 // riga d'identità nella sidebar (`onOpenDevices` in App.tsx). L'ETICHETTA no:
@@ -50,10 +56,6 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'devices', label: 'Account', icon: UserRound },
-  // Un «Consenti sempre» premuto di corsa dentro una chat deve poter essere
-  // ritrovato e ritirato: senza questa scheda sarebbe una decisione
-  // permanente presa in un posto e visibile in nessuno.
-  { id: 'permissions', label: 'Permessi', icon: ShieldCheck },
 ];
 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, onOpenShortcuts, initialSection }: GlobalSettingsProps & { initialSection?: SectionId }) {
@@ -152,7 +154,6 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 <DevicesSection />
               </div>
             )}
-            {section === 'permissions' && <PermissionsSection />}
           </div>
         </div>
       </div>

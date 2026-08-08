@@ -19,6 +19,7 @@
  */
 
 import { getDatabase } from "../db";
+import { warnDeprecatedEnv } from "../lib/env-alias";
 
 /** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
  *  client (`client/src/types/index.ts`), che sono le preferenze della UI. */
@@ -166,6 +167,26 @@ export function resolveAiProvider(s = getAppSettings()): string | undefined {
 
 export function resolveClaudeModel(s = getAppSettings()): string | undefined {
   return firstNonEmpty(s.claudeModel, process.env.CLAUDE_MODEL);
+}
+
+/**
+ * Il modello di claude-code. Stava dentro `providers/index.ts` come helper
+ * privato, quindi era leggibile SOLO alla costruzione del provider: cambiare il
+ * default in Impostazioni non aveva effetto fino al riavvio del server. Qui sta
+ * accanto ai suoi fratelli ed è chiamabile anche allo spawn, come già fa
+ * `resolveClaudeEffort`.
+ *
+ * `CLAUDE_CODE_MODEL` è un alias deprecato di `CLAUDE_MODEL`: si onora ancora,
+ * con l'avviso una-tantum, ma perde contro la scelta esplicita in Impostazioni.
+ */
+export function resolveClaudeCodeModel(s = getAppSettings()): string | undefined {
+  if (s.claudeModel) return s.claudeModel;
+  const legacy = process.env.CLAUDE_CODE_MODEL;
+  if (legacy) {
+    warnDeprecatedEnv("CLAUDE_CODE_MODEL", "CLAUDE_MODEL");
+    return legacy;
+  }
+  return process.env.CLAUDE_MODEL || undefined;
 }
 
 export function resolveClaudeMaxTokens(s = getAppSettings()): number | undefined {
