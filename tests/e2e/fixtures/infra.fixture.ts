@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { mockOpenClawAvailable, openTopicsMenuItem } from "../helpers/openclaw";
+import { mockOpenClawAvailable, openAddMenuPane } from "../helpers/openclaw";
 
 /**
  * Mock data for infrastructure panel E2E tests.
@@ -86,10 +86,12 @@ export class InfraPage {
   // --- Navigation helpers ---
 
   async openCronPanel() {
-    // Cron Jobs moved into the "Settings & Tools" (Topics ▾) menu and is gated
-    // on `openclawAvailable` (stubbed in mockCronJobs). Open via the menu, then
-    // wait for the pane's "Refresh" button.
-    await openTopicsMenuItem(this.page, "Cron Jobs");
+    // «Cron Jobs» stava nel dropdown «Settings & Tools»; ora è la riga «Cron»
+    // del menu «New» (⌘N), col nome che la pane porta davvero. Resta gated su
+    // `openclawAvailable` — il gate è passato dal `.filter` del dropdown a
+    // `PaneConfig.requires`, quindi senza lo stub di `mockCronJobs` la riga non
+    // compare in NESSUN menu. Aperta la pane, si aspetta il suo «Refresh».
+    await openAddMenuPane(this.page, "cron");
     await this.page
       .getByRole("button", { name: "Refresh" })
       .first()

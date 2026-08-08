@@ -22,6 +22,20 @@ import { parseUtilityPanelType } from './utilityPanelId';
  */
 export type PaneScope = 'standalone' | 'project';
 
+/**
+ * Una capacità dell'INSTALLAZIONE, non della finestra: qualcosa che c'è o non
+ * c'è a seconda di come questo Topics è configurato. Un tipo che la richiede e
+ * non la trova non viene proposto in nessun menu — aprirlo darebbe una pane
+ * vuota, che è peggio di una voce assente.
+ *
+ * Oggi ce n'è una sola (`openclaw`, cioè GATEWAY_URL/TOKEN configurati) e il
+ * suo unico cliente è `cron`. Prima il filtro stava scritto a mano nel menu
+ * «Topics ▾» che apriva quelle pagine (`.filter(id => id !== 'cron' || …)`):
+ * un gate su UNA superficie, che sarebbe rimasto indietro alla prima superficie
+ * nuova. Qui è una proprietà del TIPO, quindi vale ovunque per costruzione.
+ */
+export type PaneRequirement = 'openclaw';
+
 export interface PaneConfig {
   icon: string;
   label: string;
@@ -34,6 +48,8 @@ export interface PaneConfig {
    * `onAddPane(type)` path. See `getAddableTypesForScope` below.
    */
   addableScopes?: readonly PaneScope[];
+  /** Capacità dell'installazione senza la quale il tipo NON si propone. */
+  requires?: PaneRequirement;
 }
 
 // Keyed by the authoritative `PaneType` union (state/pane/types.ts), a
@@ -49,37 +65,71 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   terminal:      { icon: 'Terminal',      label: 'Terminal',     color: '#8b5cf6', addableScopes: ['standalone', 'project'] },
   git:           { icon: 'GitBranch',     label: 'Git',          color: '#ef4444', singleton: true, addableScopes: ['project'] },
   plan:          { icon: 'BookOpen',      label: 'Piano',        color: '#f97316' },
-  dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
+  // Dashboard e Cron si aprivano SOLO dal dropdown «Topics ▾», e lì si
+  // chiamavano «Statistics» e «Cron Jobs» — due nomi che nessun'altra
+  // superficie usava (la tab, la sidebar e i permalink leggono di qui). Ora
+  // stanno nel «+» come ogni altra pane, col nome che hanno davvero.
+  dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true, addableScopes: ['standalone'] },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
   // 'Board' secca anche qui: il gemello di progetto (`kanban`) porta lo stesso
   // nome, ma i due non compaiono mai nello stesso menu — `addableScopes` li
   // tiene su superfici diverse (standalone vs progetto), quindi «generale»
   // distingueva da una cosa che non era mai lì accanto.
   board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['standalone'] },
-  cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true },
+  cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true, addableScopes: ['standalone'], requires: 'openclaw' },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
 };
 
 /**
+ * Le capacità che questa installazione HA, oggi. Insieme VUOTO all'avvio, e
+ * quello è il verso giusto del dubbio: finché nessuno ha detto che OpenClaw
+ * c'è, Cron non si propone. L'errore possibile è una voce che compare tardi,
+ * non una che apre il vuoto.
+ *
+ * Vive qui, e non letta da `providersSnapshotStore`, per non trascinare
+ * `lib/api` (rete, sessione, ~1300 righe) dentro un adattatore che tutta la UI
+ * importa. Lo scrittore è UNO — App, accanto a `useOpenClawAvailable()` — e
+ * scrive in RENDER, non in un effetto: App renderizza prima dei suoi figli,
+ * quindi il menu costruito nello stesso passo vede già il valore nuovo. Da un
+ * effetto arriverebbe un render in ritardo, e nessuno ne pianificherebbe un
+ * altro per recuperarlo.
+ */
+const paneCapabilities = new Set<PaneRequirement>();
+
+/** Dichiara se una capacità è disponibile. Idempotente (StrictMode rirenderizza
+ *  due volte) e senza effetti su React: è una Set di modulo, non uno stato. */
+export function setPaneCapability(cap: PaneRequirement, available: boolean): void {
+  if (available) paneCapabilities.add(cap);
+  else paneCapabilities.delete(cap);
+}
+
+/**
  * Canonical list of pane types addable in a given scope, in the order they
  * should appear in the `+` menu. Excludes `chat` (handled by `onNewChat`),
- * `fixed` panes, and types the caller has marked as currently-singleton-and-
- * already-present via `excludeSingletonsPresent`.
+ * `fixed` panes, types whose `requires` capability isn't available, and types
+ * the caller has marked as currently-singleton-and-already-present via
+ * `excludeSingletonsPresent`.
  *
  * The order respects the iteration order of PANE_CONFIG so adding a new pane
  * type with `addableScopes` set is the only edit needed to surface it
  * everywhere — no call-site array maintenance.
+ *
+ * `capabilities` è esplicito nella firma (col default ambientale) perché la
+ * funzione resti PURA quando la si prova: il test passa l'insieme che vuole,
+ * la UI si affida al registro sopra.
  */
 export function getAddableTypesForScope(
   scope: PaneScope,
   excludeSingletonsPresent: ReadonlySet<PaneType> = new Set(),
+  capabilities: ReadonlySet<PaneRequirement> = paneCapabilities,
 ): PaneType[] {
   const out: PaneType[] = [];
   for (const [type, config] of Object.entries(PANE_CONFIG) as [PaneType, PaneConfig][]) {
     if (!config) continue;
     if (config.fixed) continue;
     if (!config.addableScopes?.includes(scope)) continue;
+    if (config.requires && !capabilities.has(config.requires)) continue;
     if (config.singleton && excludeSingletonsPresent.has(type)) continue;
     out.push(type);
   }

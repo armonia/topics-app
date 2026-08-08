@@ -78,9 +78,10 @@ import {
 } from '../lib/terminalAgents';
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
+import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
-import { notifyNative } from '../lib/shell/app';
+import { notifyNative, primeWebNotificationPermission } from '../lib/shell/app';
 import { isTauri } from '../lib/shell';
 import { getBrowserContextFromPaneId } from '../state/pane/adapters/paneConfig';
 import { clearBrowserSpawner } from '../state/browserSpawner';
@@ -1006,7 +1007,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
   // ---- handleOpenAsPage ----
-  type UtilityPageType = 'dashboard' | 'cron' | 'board';
+  type UtilityPageType = UtilityPanelType;
   const handleOpenAsPage = useCallback((type: UtilityPageType) => {
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
@@ -1043,7 +1044,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // prop (e.g. the standalone tab bar's "+" → Board generale). Event-based
   // like `topics:open-project-picker`, so every host triggers it identically.
   useEffect(() => {
-    const VALID = new Set<UtilityPageType>(['dashboard', 'cron', 'board']);
+    const VALID = new Set<UtilityPageType>(UTILITY_PANEL_TYPES);
     const onOpenUtility = (e: Event) => {
       const type = (e as CustomEvent<{ type?: string }>).detail?.type as UtilityPageType | undefined;
       if (type && VALID.has(type)) handleOpenAsPage(type);
@@ -1169,9 +1170,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // WS Cluster 2: message sync (notifications, media, clear, agents-spawned)
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    // Permesso dei banner web, dalla porta unica: sotto Tauri NON si chiede.
+    //
+    // Qui c'era la richiesta nuda, senza il guard nativo. Questo effetto è
+    // montato una volta PER FINESTRA, quindi con i gruppi staccati partivano N
+    // prompt insieme a ogni avvio — e in WKWebView il permesso non sopravvive
+    // al rilancio, quindi ripartivano SEMPRE. Sono «le tre spuntine da
+    // rimettere ogni volta». Vedi `primeWebNotificationPermission`.
+    void primeWebNotificationPermission();
     return onWSMessage((msg) => {
       // message:new cross-window sync — uses stable messageId for dedupe.
       // Falls back to last-of-role/content match for legacy emissions that
