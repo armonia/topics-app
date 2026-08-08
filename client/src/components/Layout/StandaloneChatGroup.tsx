@@ -660,6 +660,12 @@ export function StandaloneChatGroup({
           pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalType : undefined}
           onPendingPaneConsumed={onPendingProjectPaneConsumed}
           onNewChat={onNewChatInProject ? (groupId?: string) => onNewChatInProject(projectPath, groupId) : undefined}
+          // Il pin della sidebar scende fin qui: dentro il progetto il menu
+          // di una tab può così offrire «Fissa il progetto» e «Fissa questa
+          // tab». Senza, `PaneTabBar` nasconde la voce e col dito non resta
+          // nessuna strada (su iOS il drag HTML5 non esiste).
+          onToggleFissato={onToggleFissato}
+          isFissato={isFissato}
           pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.topicId : null}
           pendingFocusTargetGroupId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.targetGroupId : undefined}
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
