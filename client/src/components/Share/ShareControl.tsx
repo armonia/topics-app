@@ -14,9 +14,10 @@ import { Share2, X, UserPlus, Globe, Copy, Check } from 'lucide-react';
  * stessa critica che abbiamo già fatto due volte stasera, prima al pannello dei
  * dispositivi e poi alla revoca.
  *
- * Mostra la PROVENIENZA quando c'è: «da progetto X» invece di una riga muta.
- * Senza, alla domanda «perché costui vede questa cosa?» non c'è risposta, e un
- * permesso a cui non si sa rispondere è un permesso che non si toglie.
+ * Alla domanda «perché costui vede questa cosa?» risponde il SOGGETTO della
+ * riga — questo dispositivo, questa persona, questo team — che è l'unica
+ * provenienza che esiste: nessuna concessione è derivata da un contenitore
+ * (vedi `GrantRow` in server/lib/grants-query.ts).
  */
 type ResourceType = 'task' | 'topic';
 
@@ -48,7 +49,6 @@ interface Share {
   deviceId?: string;
   name: string;
   sharedAt: number;
-  via: { type: string; id: string | null } | null;
 }
 
 const ETICHETTA: Record<Subject['subjectType'], string> = {
@@ -201,16 +201,14 @@ export function ShareControl({ resourceType, resourceId }: { resourceType: Resou
                 <li key={chiave(s.subjectType, s.subjectId)} className="flex items-center gap-2 rounded px-1.5 py-1 text-[12px]">
                   <span className="min-w-0 flex-1">
                     <span className="truncate text-app-text">{s.name}</span>
-                    {/* La provenienza: senza, «perché costui vede questa cosa?»
-                        non ha risposta, e un permesso a cui non si sa rispondere
-                        è un permesso che non si toglie. E si dice QUALE: «da
-                        progetto» senza dire quale non risponde alla domanda per
-                        cui la colonna esiste. */}
-                    {s.via && (
-                      <span className="ml-1 text-[10px] text-app-text-muted">
-                        via {s.via.type}{s.via.id ? ` ${s.via.id}` : ''}
-                      </span>
-                    )}
+                    {/* CHI, e di che natura: «Anna · person» e «Anna · device»
+                        sono due permessi diversi — il primo segue la persona su
+                        ogni suo dispositivo, il secondo muore con quel ferro.
+                        Il nome da solo non lo dice, e la revoca è la stessa
+                        riga per due significati diversi. */}
+                    <span className="ml-1 text-[10px] text-app-text-muted">
+                      {ETICHETTA[s.subjectType]}
+                    </span>
                   </span>
                   <button
                     aria-label={`Remove access for ${s.name}`}

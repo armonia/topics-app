@@ -30,25 +30,62 @@ import { join } from "node:path";
 import {
   createAuthRouter, __resetLiveSocketsForTests, __resetPendingForTests,
 } from "../../server/routes/auth";
+import { createTasksRouter } from "../../server/routes/tasks";
 import { resolvePrincipals } from "../../server/lib/principals";
 import { grantedByType } from "../../server/lib/grants-query";
+import type { RouteHandler } from "../../server/types";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql"];
+
+/** Le colonne di `tasks` che il SERVIZIO legge (`SELECT *` + `rowToTask`), non
+ *  quelle che bastano alla rotta: l'elenco delle schede di un ospite passa per
+ *  `createTaskService`, quindi una tabella ridotta qui non fallirebbe
+ *  sull'asserzione — fallirebbe prima, e per la ragione sbagliata. */
+const DDL_TASKS = `CREATE TABLE tasks (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
+  status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
+  kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
+  chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
+  claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+  assigned_agent_id TEXT, in_progress_at TEXT,
+  dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+  parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
+  agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+  model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
+  priority_auto INTEGER NOT NULL DEFAULT 1,
+  delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
+  checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
+  delivered_by TEXT, delivered_reason TEXT, preview_image TEXT
+)`;
 
 /** Lo schema VERO, applicando le migration: un CREATE TABLE riscritto a mano
  *  smetterebbe di accorgersi proprio della deriva che qui fa più male. */
 function db084(): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+  db.run(DDL_TASKS);
+  db.run(`CREATE TABLE task_comments (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'comment'
+  )`);
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
   for (const m of MIGRAZIONI) {
     db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
   }
   db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c1','La chat condivisa',1)");
   db.run("INSERT INTO topics (id, name, updated_at) VALUES ('c2','La chat PRIVATA',2)");
-  db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda condivisa','todo')");
+  seminaTask(db, "t1", "La scheda condivisa");
   return db;
+}
+
+/** Una scheda vera, con le colonne obbligatorie riempite. */
+function seminaTask(db: Database, id: string, testo: string): void {
+  db.run(
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at)
+     VALUES (?, 'prog-1', ?, 'todo', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+    [id, testo],
+  );
 }
 
 function creaCtx(db: Database, deviceId: string | null) {
@@ -66,8 +103,27 @@ function creaCtx(db: Database, deviceId: string | null) {
   } as never;
 }
 
+/** Il router dei task destruttura di più (`matchRoute`, `broadcastToAll`) e
+ *  guarda il RUOLO dell'identità, non solo il dispositivo: il filtro degli
+ *  ospiti sta all'ingresso di quel router. */
+function creaCtxTask(db: Database, deviceId: string | null) {
+  return {
+    db,
+    json: (data: unknown, status = 200) =>
+      new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
+    readJSON: async (req: Request) => {
+      try { return await req.json(); } catch { return null; }
+    },
+    matchRoute: () => null,
+    broadcast: () => {},
+    broadcastToAll: () => {},
+    getTopicBySessionKey: () => null,
+    requestIdentity: () => (deviceId ? { deviceId, role: "guest" } : null),
+  } as never;
+}
+
 function chiama(
-  router: ReturnType<typeof createAuthRouter>,
+  router: RouteHandler,
   path: string,
   method = "GET",
   body?: unknown,
@@ -190,5 +246,98 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
     const db = db084();
     ospiteConPersona(db);
     expect(await inventario(db, null)).toEqual({ tasks: [], topics: [] });
+  });
+});
+
+/**
+ * L'ALTRA metà della stessa domanda, e va fissata a parte perché vive in un
+ * altro router.
+ *
+ * `GET /api/all-boards/tasks` è l'elenco che un ospite vede DENTRO l'app (la
+ * board), e il filtro sta all'ingresso di `createTasksRouter`. È lo stesso
+ * difetto di `/api/auth/shared` — il solo principale-ferro invece di tutti — ma
+ * nessun test lo copriva: le prove end-to-end del confinamento condividono le
+ * schede con un DISPOSITIVO, che è esattamente la forma in cui i due insiemi
+ * di principali coincidono. Con quella forma, sostituire
+ * `resolvePrincipals(...).list` con `deviceP(...)` resta verde: il difetto
+ * passa in mezzo alla rete.
+ *
+ * Qui si condivide con la PERSONA, che è il soggetto che l'interfaccia offre
+ * davvero (la rubrica di `/api/auth/subjects` propone la persona quando c'è).
+ */
+async function elencoSchede(db: Database, deviceId: string): Promise<string[]> {
+  const router = createTasksRouter(creaCtxTask(db, deviceId));
+  const r = await chiama(router, "/api/all-boards/tasks");
+  expect(r?.status, "l'ospite deve poter chiedere il suo elenco").toBe(200);
+  const b = await r!.json() as { tasks: Array<{ id: string }> };
+  return b.tasks.map((t) => t.id);
+}
+
+describe("l'elenco delle schede di un ospite parla degli STESSI principali", () => {
+  test("una scheda condivisa con la sua PERSONA compare nell'elenco", async () => {
+    const db = db084();
+    const { deviceId, personId } = ospiteConPersona(db);
+    db.run(
+      "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person',?,'task','t1','read',1)",
+      [personId],
+    );
+
+    // Controllo POSITIVO sul canale di osservazione: il cancello concede. Senza,
+    // un elenco vuoto non distinguerebbe «il router è cieco» da «la concessione
+    // non esiste», e l'asserzione sotto sarebbe vera per la ragione sbagliata.
+    expect(
+      grantedByType(db, resolvePrincipals(db, deviceId).list).task,
+      "il cancello vede la concessione alla persona",
+    ).toContain("t1");
+
+    expect(await elencoSchede(db, deviceId)).toEqual(["t1"]);
+  });
+
+  test("una scheda condivisa con un'ALTRA persona resta fuori", async () => {
+    // Il controllo NEGATIVO: senza, «vede t1» sarebbe soddisfatto anche da un
+    // filtro che non filtra niente.
+    const db = db084();
+    const { deviceId, personId } = ospiteConPersona(db);
+    seminaTask(db, "t2", "La scheda di un altro");
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p-altro','Estraneo',1,'local',1,1)");
+    db.run(
+      "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person',?,'task','t1','read',1)",
+      [personId],
+    );
+    db.run("INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g2','person','p-altro','task','t2','read',1)");
+
+    expect(await elencoSchede(db, deviceId)).toEqual(["t1"]);
+  });
+
+  test("una scheda condivisa con un'ORGANIZZAZIONE viva compare; con una revocata no", async () => {
+    const db = db084();
+    const { deviceId, personId } = ospiteConPersona(db);
+    db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('o1','Squadra',1,'local',1,1)");
+    db.run(
+      "INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('o1',?,'member',1,1,1)",
+      [personId],
+    );
+    db.run("INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','org','o1','task','t1','read',1)");
+
+    expect(await elencoSchede(db, deviceId)).toEqual(["t1"]);
+
+    db.run("UPDATE orgs SET revoked_at = 999 WHERE id = 'o1'");
+    expect(await elencoSchede(db, deviceId)).toEqual([]);
+  });
+
+  test("la concessione al DISPOSITIVO continua a valere", async () => {
+    const db = db084();
+    const { deviceId } = ospiteConPersona(db);
+    db.run(
+      "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','device',?,'task','t1','read',1)",
+      [deviceId],
+    );
+    expect(await elencoSchede(db, deviceId)).toEqual(["t1"]);
+  });
+
+  test("una scheda NON condivisa non compare", async () => {
+    const db = db084();
+    const { deviceId } = ospiteConPersona(db);
+    expect(await elencoSchede(db, deviceId)).toEqual([]);
   });
 });

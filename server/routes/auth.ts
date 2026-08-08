@@ -1200,8 +1200,6 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
                 ? nomeDispositivo.get(r.subjectId) ?? r.subjectId
                 : nomeSoggetto.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
-              // La PROVENIENZA risponde a «perché costui vede questa cosa?».
-              via: r.viaType ? { type: r.viaType, id: r.viaId } : null,
             })),
         });
       }

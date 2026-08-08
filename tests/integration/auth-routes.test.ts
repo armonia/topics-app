@@ -338,21 +338,52 @@ describe("rotte auth · condivisione", () => {
     }
   });
 
-  test("l'elenco dice CHI vede la cosa, e da dove gli viene", async () => {
-    const { db, router, idOspite } = await scena();
-    await chiama(router, "/api/auth/shares", "POST", {
-      body: { resourceType: "task", resourceId: "t1", deviceId: idOspite },
-    });
-    // Una concessione derivata da un contenitore, scritta a mano come la
-    // scriverebbe la condivisione di un progetto.
-    db.run(
-      "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, via_type, via_id, granted_at) VALUES ('g2','device',?,'task','t2','read','project','p1',1)",
-      [idOspite],
-    );
-    const r = await chiama(router, "/api/auth/shares?resourceType=task&resourceId=t2");
-    const b = await r!.json() as { shares: Array<{ deviceId: string; via: { type: string; id: string | null } | null }> };
-    expect(b.shares).toHaveLength(1);
-    expect(b.shares[0].via).toEqual({ type: "project", id: "p1" });
+  test("l'elenco dice CHI vede la cosa, e di che natura è il soggetto", async () => {
+    // La natura del soggetto NON è decorazione: «device» muore con quel ferro,
+    // «person» segue la persona su OGNI dispositivo che appaierà, presente e
+    // futuro. Sono due permessi diversi dietro lo stesso nome, e la riga da
+    // togliere è una sola: se il pannello non li distingue, chi revoca non sa
+    // cosa sta revocando.
+    //
+    // Serve la 084: prima di quella migration il CHECK di `grants` ammette solo
+    // `device`, e una persona non ci si può nemmeno scrivere.
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda condivisa','todo')");
+    const router = createAuthRouter(creaCtx(db).ctx);
+
+    // Il PRIMO dispositivo di un'installazione è il proprietario, e a un
+    // proprietario non si condivide niente (vede già tutto). L'ospite è il
+    // secondo, ed è ospite perché è di un'ALTRA persona — che dalla 084 è il
+    // gesto che crea un ospite, non un flag.
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const g = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: g.requestId, personName: "Anna" } });
+    const ospite = db.query("SELECT id, person_id FROM devices WHERE role = 'guest'").get() as { id: string; person_id: string };
+
+    // Le due nature, sulla stessa risorsa: il ferro e la persona.
+    for (const soggetto of [
+      { subjectType: "device", subjectId: ospite.id },
+      { subjectType: "person", subjectId: ospite.person_id },
+    ]) {
+      const p = await chiama(router, "/api/auth/shares", "POST", {
+        body: { resourceType: "task", resourceId: "t1", ...soggetto },
+      });
+      expect(p?.status, `condivisione con ${soggetto.subjectType}`).toBe(200);
+    }
+
+    const r = await chiama(router, "/api/auth/shares?resourceType=task&resourceId=t1");
+    const b = await r!.json() as { shares: Array<{ subjectType: string; subjectId: string; name: string }> };
+    expect(b.shares.map((s) => `${s.subjectType}:${s.subjectId}`))
+      .toEqual([`device:${ospite.id}`, `person:${ospite.person_id}`]);
+    // E il NOME della persona, non il suo UUID: «Condiviso con a8e3c1e4…» non
+    // risponde a nessuna delle domande per cui si apre questo pannello.
+    expect(b.shares.find((s) => s.subjectType === "person")?.name).toBe("Anna");
   });
 
   test("togliere la condivisione toglie la riga", async () => {
