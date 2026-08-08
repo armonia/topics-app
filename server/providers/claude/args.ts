@@ -44,6 +44,17 @@ export interface ClaudeSpawnArgsOptions {
   claudeSessionId: string;
   /** Sessione mai vista: si CONIA con `--session-id`; altrimenti si RIPRENDE. */
   isNewSession: boolean;
+  /**
+   * Il valore di `ENABLE_TOOL_SEARCH` da IMPORRE alla sessione, o null per non
+   * imporne nessuno (la CLI usa allora i suoi settings files).
+   *
+   * Serve una flag e non una variabile d'ambiente perché l'ambiente di processo
+   * PERDE: `--setting-sources user,…` fa leggere `~/.claude/settings.json`, e
+   * il suo blocco `env` vince su quello che passiamo allo spawn. Misurato:
+   * forzare `ENABLE_TOOL_SEARCH=1` nell'ambiente ha prodotto un prefisso
+   * byte-identico (cache_read pieno). `--settings` invece scavalca.
+   */
+  toolSearch?: string | null;
 }
 
 /** Ciò che serve per un completamento usa-e-getta (auto-titolo, digest, SSE). */
@@ -83,6 +94,19 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // SEMPRE (vedi `lib/autonomy-mode.ts` — un flag solo non può
     // desincronizzarsi da sé stesso).
     "--permission-prompt-tool", opts.permissionPromptTool,
+    // Gli schemi dei tool MCP viaggiano nel PREFISSO, cioè nella parte di prompt
+    // che ogni richiesta del turno ripaga: un turno da 4 round-trip li paga 4
+    // volte. Con il deferral la CLI manda i soli NOMI e carica lo schema quando
+    // serve, via ToolSearch — nessuno strumento sparisce, cambia solo quando ne
+    // arriva la descrizione.
+    //
+    // Misurato l'8/08/2026, stessa cwd, stesso config MCP (topics + exa +
+    // context7 + gateway, 161 tool), CLI 2.1.226, prompt che non chiama tool:
+    //     settings.json = "auto" ......  127.073 token di prefisso
+    //     forzato a "1" ...............   36.167 token   (−90.906, −71,5%)
+    // «auto» non deferiva NIENTE. E va imposto da qui, non dall'ambiente: vedi
+    // `toolSearch` in `ClaudeSpawnArgsOptions` per il perché.
+    ...(opts.toolSearch ? ["--settings", JSON.stringify({ env: { ENABLE_TOOL_SEARCH: opts.toolSearch } })] : []),
     "--append-system-prompt", opts.appendSystemPrompt,
     "--input-format", "stream-json",
     "--output-format", "stream-json",

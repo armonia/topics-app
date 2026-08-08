@@ -25,6 +25,34 @@ const BASE = {
   isNewSession: true,
 } as const;
 
+describe("buildClaudeArgs — il deferral degli schemi MCP", () => {
+  // Non è una preferenza: è la voce più grossa del prefisso. Con la flotta
+  // reale (161 tool) il prefisso passa da 127.073 a 36.167 token — e il
+  // prefisso lo ripaga OGNI richiesta del turno. Se qualcuno toglie questa
+  // flag, ogni chat torna a pagare 90.906 token per richiesta in silenzio.
+  test("`--settings` porta ENABLE_TOOL_SEARCH, e viene PRIMA del prompt di sistema", () => {
+    const args = buildClaudeArgs({ ...BASE, toolSearch: "1" });
+    const i = args.indexOf("--settings");
+    expect(i).toBeGreaterThan(-1);
+    expect(JSON.parse(args[i + 1])).toEqual({ env: { ENABLE_TOOL_SEARCH: "1" } });
+    expect(i).toBeLessThan(args.indexOf("--append-system-prompt"));
+  });
+
+  test("va su `--settings` e NON sull'ambiente: `--setting-sources user` farebbe vincere il file dell'utente", () => {
+    // Misurato: con `ENABLE_TOOL_SEARCH=1` nell'ambiente di processo il
+    // prefisso resta byte-identico (cache_read pieno). L'unico canale che
+    // scavalca `~/.claude/settings.json` è questa flag.
+    const args = buildClaudeArgs({ ...BASE, toolSearch: "1" });
+    expect(args).toContain("--setting-sources");
+    expect(args.join(" ")).toContain('"ENABLE_TOOL_SEARCH":"1"');
+  });
+
+  test("null non emette la flag: la CLI resta ai suoi settings", () => {
+    expect(buildClaudeArgs({ ...BASE, toolSearch: null })).not.toContain("--settings");
+    expect(buildClaudeArgs({ ...BASE })).not.toContain("--settings");
+  });
+});
+
 describe("buildClaudeArgs — la fotografia", () => {
   test("sessione NUOVA, effort e strict attivi", () => {
     expect(buildClaudeArgs({ ...BASE, effort: "xhigh" })).toEqual([
