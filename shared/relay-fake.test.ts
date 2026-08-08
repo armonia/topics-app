@@ -233,6 +233,24 @@ describe("tubo sul relay · il giro completo", () => {
     expect(s.allaMacchina.some((e) => e.esito === "errore")).toBe(false);
   });
 
+  it("il testo non latino arriva intero anche con i frame più piccoli di un carattere", () => {
+    // `max` è una manopola pubblica del capo, e sotto la misura di un carattere
+    // il taglio deve sforare invece di spaccarlo: un pezzo un po' più largo si
+    // rimette insieme, un carattere a metà no. È il guasto che si scopre mesi
+    // dopo su una lingua che nessuno aveva provato.
+    const testo = "日本語 ààà 🙂🙂";
+    const s = scenaTubo(2);
+    s.tuboGuest.manda("req", testo);
+
+    const arrivati = finiti(s.allaMacchina);
+    expect(arrivati.length).toBe(1);
+    expect(arrivati[0]).toMatchObject({ dati: testo });
+    expect(s.allaMacchina.some((e) => e.esito === "errore")).toBe(false);
+    // Controllo positivo: è davvero passato spezzato in molti frame, o sopra si
+    // starebbe provando il caso facile del pezzo unico.
+    expect(s.esterne.filter((m) => m.t === "to-guest").length).toBeGreaterThan(5);
+  });
+
   it("un blob più grosso di un frame passa spezzato e arriva identico", () => {
     // I binari il Durable Object li scarta, quindi i byte vanno in base64 dentro
     // JSON — e nessun frame deve avvicinarsi al tetto di 32 MiB.
@@ -313,6 +331,28 @@ describe("tubo sul relay · un capo storto non porta giù gli altri", () => {
     expect(finiti(s.allaMacchina).length).toBe(1);
     s.tuboGuest.annulla(n);
     expect(s.allaMacchina.at(-1)).toEqual({ esito: "chiuso", s: n, motivo: "aborted" });
+  });
+
+  it("rinunciare a una risposta della MACCHINA non uccide le proprie richieste", () => {
+    // Il caso normale, non uno storto: la scheda si chiude mentre la macchina
+    // sta mandando una risposta lunga, quindi l'ospite annulla uno stream PARI
+    // — della corsia altrui. Se quel reset spostasse il segnaposto dei numeri
+    // già visti dalla macchina, la PRIMA richiesta dell'ospite morirebbe, e con
+    // lei tutte quelle sotto: un rifiuto che si porta via il canale invece di
+    // morire su uno stream solo.
+    const s = scenaTubo(16);
+    s.tuboHost.manda("res", "primo");
+    const lunga = s.tuboHost.manda("res", "x".repeat(200));
+    expect(lunga).toBeGreaterThan(1); // davvero un numero della corsia della macchina
+
+    s.tuboGuest.annulla(lunga);
+    expect(s.allaMacchina.at(-1)).toEqual({ esito: "chiuso", s: lunga, motivo: "aborted" });
+
+    // E il canale dell'ospite verso la macchina è ancora vivo, dal suo primo
+    // numero in poi.
+    s.tuboGuest.manda("req", "dopo");
+    expect(finiti(s.allaMacchina)).toMatchObject([{ dati: "dopo" }]);
+    expect(s.allaMacchina.some((e) => e.esito === "errore")).toBe(false);
   });
 });
 
