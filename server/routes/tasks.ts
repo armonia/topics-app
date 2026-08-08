@@ -21,7 +21,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
-import { grantedResourceIds, deviceP } from "../lib/grants-query";
+import { grantedResourceIds } from "../lib/grants-query";
+import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isAgentWorking } from "../../shared/board";
 import { getTerminalSessionById } from "./terminal";
@@ -599,7 +600,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // caso esisterà (vedi `task-sharing-guests`, fuori scope).
       if (method !== "GET") return json({ error: "sola lettura", code: "guest_read_only" }, 403);
 
-      const condivisi = new Set(grantedResourceIds(ctx.db, deviceP(deviceId), "task"));
+      // TUTTI i principali, come il cancello in `server.ts` e come
+      // `/api/auth/shared`: il solo `deviceP` rendeva invisibile in questo
+      // elenco una scheda condivisa con la PERSONA — che è il soggetto che
+      // l'interfaccia offre — pur restando apribile per id dal cancello.
+      const condivisi = new Set(
+        grantedResourceIds(ctx.db, resolvePrincipals(ctx.db, deviceId).list, "task"),
+      );
 
       // L'elenco: solo i suoi.
       if (pathname === "/api/all-boards/tasks") {
