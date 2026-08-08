@@ -4,6 +4,11 @@ import { useServerState } from './useServerState';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 
+/** I motivi di fallimento di `set_theme` già segnalati, per non ripetere lo
+ *  stesso avviso a ogni cambio di tema. Modulo-scope: il guscio è uno per
+ *  documento, non per componente. */
+const setThemeWarned = new Set<string>();
+
 function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -79,7 +84,21 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     // listener sotto: quando l'appearance flippa davvero, la media query emette
     // `change` e classe e meta si riallineano lì.
     if (isTauri) {
-      void tauriInvoke('set_theme', { theme: themeMode }).catch(() => {});
+      // L'ERRORE NON SI INGHIOTTE. Era `.catch(() => {})`, e questa è l'UNICA
+      // via con cui il tema arriva al guscio nativo: se la command non c'è
+      // (binario più vecchio del client — accade a ogni ship che non ricostruisce
+      // l'app), o se il bridge risponde male, la finestra resta pinnata al tema
+      // di prima e dal lato web non se ne accorge nessuno. È esattamente il caso
+      // in cui «Sistema» sembra non funzionare: il client ha fatto il suo, il
+      // guscio no, e non c'era una riga da nessuna parte a dirlo.
+      // Una volta sola per motivo: questo effetto gira a ogni cambio di tema, e
+      // un guscio vecchio fallirebbe sempre — un avviso per clic sarebbe rumore.
+      void tauriInvoke('set_theme', { theme: themeMode }).catch((err: unknown) => {
+        const key = String(err);
+        if (setThemeWarned.has(key)) return;
+        setThemeWarned.add(key);
+        console.warn('[theme] il guscio nativo non ha accettato il tema; la finestra resta come era:', err);
+      });
     }
   }, [themeMode]);
 
