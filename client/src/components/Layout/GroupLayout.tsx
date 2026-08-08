@@ -80,6 +80,21 @@ interface GroupLayoutProps {
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   onPinPane?: (groupId: string, paneId: string) => void;
+  /**
+   * Il pin della sidebar per una tab, e la sua lettura — DIVERSI da `onPinPane`,
+   * che promuove una tab di anteprima a permanente.
+   *
+   * Finora nessun gruppo li riceveva, quindi dentro una finestra di progetto la
+   * voce «Fissa» del menu di una tab non compariva affatto (`PaneTabBar` la
+   * nasconde quando l'ospite non la cabla). Col dito era il caso peggiore: lì
+   * l'unica alternativa — trascinare la tab sui Fissati — non esiste, perché su
+   * iOS il drag HTML5 non c'è.
+   */
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
+  /** La chiave di pin del progetto che contiene queste barre, se ce n'è uno:
+   *  è ciò che fa comparire «Fissa il progetto» accanto a «Fissa questa tab». */
+  projectPinKey?: string;
   /** Tab-level rename for a project's chat tabs (routes to the host's topic
    *  update) and browser tabs (pins pane.title). Forwarded to each PaneTabBar. */
   onRenameChat?: (topicId: string, name: string) => void;
@@ -105,7 +120,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, onContextRingClick, onStopStreaming,
-  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser, nonClosablePaneIds, linkContext,
+  onSettings, onPopOut, onPinPane, onToggleFissato, isFissato, projectPinKey, onRenameChat, onRenameBrowser, nonClosablePaneIds, linkContext,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -886,6 +901,9 @@ export function GroupLayout({
             onPopOut={onPopOut}
             onRenameChat={onRenameChat}
             onRenameBrowser={onRenameBrowser}
+              onToggleFissato={onToggleFissato}
+              isFissato={isFissato}
+              projectPinKey={projectPinKey}
             onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
             tabNotifications={groupNotifications}
             nonClosablePaneIds={nonClosablePaneIds}
@@ -1103,6 +1121,9 @@ export function GroupLayout({
               onPopOut={onPopOut}
               onRenameChat={onRenameChat}
               onRenameBrowser={onRenameBrowser}
+              onToggleFissato={onToggleFissato}
+              isFissato={isFissato}
+              projectPinKey={projectPinKey}
               onPinPane={onPinPane ? (paneId) => { const gid = groupIdOfPane(paneId); if (gid) onPinPane(gid, paneId); } : undefined}
               tabNotifications={notifications}
               nonClosablePaneIds={nonClosablePaneIds}

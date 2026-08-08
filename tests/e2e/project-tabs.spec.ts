@@ -640,4 +640,51 @@ test.describe("Project Tabs", () => {
     await expect(bars).toHaveCount(1);
     await expect(bars.first().locator('[draggable="true"]')).toHaveCount(2);
   });
+  /**
+   * PROJECT-TABS-PIN — dentro un progetto le cose fissabili sono DUE, e il menu
+   * le deve nominare entrambe.
+   *
+   * «Per le sotto-tab di un progetto dovremmo mettere fissa progetto e tab»
+   * (Attilio, 08/08). Prima non ce n'era NESSUNA: `PaneTabBar` nasconde la voce
+   * quando l'ospite non cabla `onToggleFissato`, e nessun ospite di progetto lo
+   * cablava — il commento nel codice lo ammetteva. Il caso peggiore era col
+   * dito: lì l'unica alternativa (trascinare la tab sui Fissati) non esiste,
+   * perché su iOS il drag HTML5 non c'è.
+   *
+   * Il test apre il menu col tasto destro, che è la stessa strada della
+   * pressione lunga (`useLongPress` → `openTabMenu`): una sola sorgente, quindi
+   * verificarne una verifica il contratto di entrambe.
+   */
+  test("PROJECT-TABS-PIN: il menu di una tab di progetto offre «fissa il progetto» e «fissa questa tab»", async ({
+    page,
+  }) => {
+    await goToApp(page);
+    await openTestProject(page);
+
+    // La barra DENTRO la finestra di progetto, non quella di primo livello:
+    // quest'ultima porta la tab DEL progetto, dove una voce sola («Fissa») è
+    // la risposta giusta. La distinzione è il test — presa la barra sbagliata,
+    // il test passerebbe verde su un menu che non è quello in esame.
+    const finestra = page.locator('[data-testid="project-window"]:visible').first();
+    await expect(finestra).toBeVisible({ timeout: 10000 });
+    const tabBar = finestra.locator('[data-testid="panel-tab-bar"]:visible').first();
+    // `[data-testid^="pane-tab-"]` e NON `[draggable="true"]`: dentro un
+    // progetto le tab non sono trascinabili (il riordino non è cablato lì), e
+    // il selettore per attributo di drag non ne trova nessuna — misurato.
+    const tab = tabBar.locator('[data-testid^="pane-tab-"]').first();
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    await tab.click({ button: "right" });
+
+    // Due voci DISTINTE, non una: il progetto torna sotto mano con tutte le sue
+    // tab, la tab si riapre da sola e fuori dal progetto. Chiamarle nello stesso
+    // modo era il difetto anche quando la voce c'era.
+    const progetto = page.getByTestId("tab-menu-pin-project");
+    const questaTab = page.getByTestId("tab-menu-pin-tab");
+    await expect(progetto, "manca «fissa il progetto»").toBeVisible({ timeout: 5000 });
+    await expect(questaTab, "manca «fissa questa tab»").toBeVisible();
+    await expect(progetto).toContainText(/progetto/i);
+    await expect(questaTab).toContainText(/tab/i);
+    // E non sono lo stesso bersaglio travestito.
+    expect(await progetto.textContent()).not.toBe(await questaTab.textContent());
+  });
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
@@ -73,6 +74,16 @@ export interface ProjectWindowPaneProps {
   // Report all open pane IDs inside this project (for sidebar filtering)
   onOpenPanesChange?: (paneIds: string[]) => void;
   /**
+   * Il pin della sidebar, passato di sopra e inoltrato al `GroupLayout`.
+   *
+   * Serve perché dentro un progetto le cose fissabili sono DUE — il progetto e
+   * la singola tab — e finora il menu non ne offriva nessuna: `PaneTabBar`
+   * nasconde la voce quando l'ospite non cabla `onToggleFissato`, e nessun
+   * ospite di progetto lo cablava.
+   */
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
+  /**
    * Is this project window the ACTIVE top-level tab? The host keeps every
    * visited window mounted behind `display:none`, and a hidden DOM subtree is
    * invisible to the panes inside it: without this flag the window kept telling
@@ -91,7 +102,7 @@ export function ProjectWindowPane({
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
-  onActiveTopicChange, onOpenPanesChange, isVisible: windowVisible = true,
+  onActiveTopicChange, onOpenPanesChange, onToggleFissato, isFissato, isVisible: windowVisible = true,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -519,6 +530,13 @@ export function ProjectWindowPane({
             onSettings={handlePaneSettings}
             onPopOut={handlePanePopOut}
             onPinPane={handlePinPane}
+            onToggleFissato={onToggleFissato}
+            isFissato={isFissato}
+            // La chiave con cui la sidebar conosce QUESTO progetto. Si ricava
+            // dall'id di pane invece di comporre a mano `project:<path>`: la
+            // forma grezza e quella codificata divergono, ed è già costato una
+            // volta (vedi `pinKeyFromPaneId`).
+            projectPinKey={pinKeyFromPaneId(wrapperPaneId)}
             // Tab-level rename parity: chat → canonical topic update; browser →
             // pin pane.title with titleSource='user' (project panes persist via
             // updatePane, not the global store, so we can't use the store helper).

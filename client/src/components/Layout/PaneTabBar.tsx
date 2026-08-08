@@ -176,12 +176,23 @@ interface PaneTabBarProps {
    * Sidebar "Fissati" pin toggle for a tab's underlying subject — DISTINCT from
    * `onPinPane` (which promotes a preview tab to a permanent one). `pinKey` is
    * the sidebar-item id: a chat's bare topicId, or `terminal:<sessionId>` for a
-   * terminal. Passed only by app-level hosts (StandaloneChatGroup); project
-   * tab bars leave it undefined and the entry hides. Paired with `isFissato`
-   * so the entry can render "Fissa" vs "Rimuovi dai Fissati".
+   * terminal. Paired with `isFissato` so the entry can render "Fissa" vs
+   * "Rimuovi dai Fissati".
+   *
+   * Lo passano sia gli ospiti di primo livello sia le finestre di progetto:
+   * finora le seconde no, ed è il motivo per cui dentro un progetto la voce non
+   * c'era proprio.
    */
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
+  /**
+   * La chiave di pin del PROGETTO che contiene questa barra, quando ce n'è uno.
+   *
+   * È ciò che rende il menu capace di distinguere «fissa il progetto» da «fissa
+   * questa tab»: senza, le due cose avevano lo stesso nome e una sola voce.
+   * Le barre di primo livello la lasciano indefinita e tornano alla voce unica.
+   */
+  projectPinKey?: string;
   /** Notification badge counts per pane ID */
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
@@ -209,7 +220,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -1379,18 +1390,55 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           {onToggleFissato && (() => {
             const pane = panes.find(p => p.id === ctxMenu.paneId);
             if (!pane) return null;
-            const pinKey = pinKeyForPane(pane);
-            if (!pinKey) return null;
-            const pinned = isFissato?.(pinKey) ?? false;
-            return (
+            const tabKey = pinKeyForPane(pane);
+            /**
+             * DENTRO UN PROGETTO LE COSE FISSABILI SONO DUE, e finora il menu
+             * ne offriva zero.
+             *
+             * «Per le sotto-tab di un progetto dovremmo mettere fissa progetto
+             * e tab» (Attilio, 08/08). La voce singola diceva solo «Fissa» e —
+             * peggio — dentro una finestra di progetto non compariva affatto,
+             * perché l'ospite non cablava `onToggleFissato`: il commento
+             * precedente lo ammetteva («hidden … project tab bars»). Il
+             * risultato era che sulla tab di un progetto fissare era possibile
+             * solo trascinando, e sul telefono il drag HTML5 non esiste — cioè
+             * lì non era possibile affatto.
+             *
+             * Quando `projectPinKey` c'è, le due voci si nominano: fissare il
+             * PROGETTO (torna sempre sotto mano con tutte le sue tab) è una
+             * cosa diversa dal fissare QUESTA tab (che si riapre da sola,
+             * fuori dal progetto). Senza `projectPinKey` — barra di primo
+             * livello — resta la voce singola di prima, che lì non è ambigua.
+             */
+            const voci: { key: string; etichetta: string; pinned: boolean }[] = [];
+            if (projectPinKey) {
+              voci.push({ key: projectPinKey, etichetta: 'il progetto', pinned: isFissato?.(projectPinKey) ?? false });
+            }
+            // `tabKey !== projectPinKey`: la tab del progetto stesso, dentro la
+            // sua barra, sarebbe la stessa voce due volte.
+            if (tabKey && tabKey !== projectPinKey) {
+              voci.push({
+                key: tabKey,
+                etichetta: projectPinKey ? 'questa tab' : '',
+                pinned: isFissato?.(tabKey) ?? false,
+              });
+            }
+            if (voci.length === 0) return null;
+            return voci.map(({ key, etichetta, pinned }) => (
               <button
-                onClick={() => { onToggleFissato(pinKey); setCtxMenu(null); }}
+                key={key}
+                data-testid={`tab-menu-pin-${etichetta === 'il progetto' ? 'project' : 'tab'}`}
+                onClick={() => { onToggleFissato(key); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               >
                 {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                <span className="flex-1 text-left">{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
+                <span className="flex-1 text-left">
+                  {pinned
+                    ? (etichetta ? `Togli ${etichetta} dai Fissati` : 'Rimuovi dai Fissati')
+                    : (etichetta ? `Fissa ${etichetta}` : 'Fissa')}
+                </span>
               </button>
-            );
+            ));
           })()}
           {/* "Ricarica" — terminal panes only (pane id `terminal:<sessionId>`).
               Restarts the session in place via POST /reload: claude/codex resume
