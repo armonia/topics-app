@@ -417,7 +417,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
     <div className="flex min-w-0 items-center gap-1.5">
       {/* Search — always visible */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-secondary" />
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
