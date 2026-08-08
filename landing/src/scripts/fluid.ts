@@ -361,6 +361,7 @@ precision highp float;
 uniform sampler2D uTex;
 uniform float uTime;
 uniform float uHero;
+uniform float uWide;
 varying vec2 vUv;
 
 float h1(vec2 p){
@@ -402,12 +403,28 @@ void main(){
      single fraction that ended at the hero on a desktop was still two thirds
      open a screen further down on a phone. check:painted found it there and
      nowhere else. uHero counts viewport heights. */
-  /* 0.160 in the hero, and the last digit is not taste either: at 0.170 the one
-     remaining failure on the whole page was the word "telemetry" at 390, near-
-     white on rgb(81 111 164) — 4.46:1 against a bar of 4.5. The ceiling is the
-     honest instrument for that, because it is the quantity the requirement is
-     actually about. */
-  float ceilY = mix(0.160, 0.036, clamp(uHero, 0.0, 1.0));
+  /* AND THE HERO'S CEILING DEPENDS ON THE WIDTH, because what it is really a
+     limit on is TEXT OVER LIGHT, and how much text ends up over the light is a
+     layout fact rather than a shader one.
+
+     The reference gets to be near-white — 253 against our 107 — for one reason:
+     it has no text over its glow at all. Its words are in the black top half and
+     its photograph is in the lit bottom half. On a wide screen this hero now
+     does the same: badge, headline, sub and the two numbers all sit above the
+     crest, and what stands in the light is two buttons with their own fills and
+     the opaque frame of the app. Driven to 0.40 as a test, 1440 passed
+     completely — nothing on the first screen was reading against the field.
+
+     On a phone that composition is not available. The hero is more than a screen
+     tall, the reading column IS the screen, and the numbers land in the light
+     whatever the order. So the ceiling drops back to what 12.5px of near-white
+     ink can sit on: 4.5:1 against #eef1f7 is L 0.156.
+
+     0.34 is not the 0.40 of the test — the test only says 0.40 has no failures
+     at 1440, and a budget with no margin is a budget that fails on the next
+     paragraph someone writes. */
+  float ceilY = mix(0.160, 0.340, clamp(uWide, 0.0, 1.0));
+  ceilY = mix(ceilY, 0.036, clamp(uHero, 0.0, 1.0));
   float mapped = ceilY * (1.0 - exp(-lumY / ceilY));
   lin *= mapped / max(lumY, 0.00001);
 
@@ -477,6 +494,7 @@ function start(cv: HTMLCanvasElement) {
     tex: gl.getUniformLocation(cProg, 'uTex'),
     time: gl.getUniformLocation(cProg, 'uTime'),
     hero: gl.getUniformLocation(cProg, 'uHero'),
+    wide: gl.getUniformLocation(cProg, 'uWide'),
   };
   gl.uniform1i(cu.tex, 0);
 
@@ -542,8 +560,18 @@ function start(cv: HTMLCanvasElement) {
        that freeze(t, at) still fully determines the frame — the gates depend on
        that — while the fade stays measured in screens rather than in a fraction
        of a page whose length depends on the width. */
+    /* 0.72 of a screen, not 1.1. The hero ceiling has to be spent on the hero:
+       at 1.1 the section right under the fold was still lit at nearly hero
+       strength, and on a phone — where that section arrives much sooner in
+       absolute pixels — check:painted failed on its body copy while the hero
+       itself was fine. The light belongs to the first screen. */
     const span = document.documentElement.scrollHeight - innerHeight;
-    gl.uniform1f(cu.hero, Math.min(1, (at * Math.max(0, span)) / (innerHeight * 1.1)));
+    gl.uniform1f(cu.hero, Math.min(1, (at * Math.max(0, span)) / (innerHeight * 0.72)));
+    /* Whether the hero can keep its text out of the light. Wide: yes, and the
+       glow is allowed to be a glow. Narrow: no, and it goes back to what small
+       ink can sit on. The ramp is the width at which the hero stops fitting in
+       one screen. */
+    gl.uniform1f(cu.wide, Math.max(0, Math.min(1, (innerWidth - 760) / 340)));
     fullscreen(cProg, cLoc);
   };
 
