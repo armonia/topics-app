@@ -305,6 +305,12 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
     expect(await fino(() => up.aperti.length === 4)).toBe(true);
     expect(up.aperti.map((a) => a.percorso).sort()).toEqual([...percorsi].sort());
     expect(m.c.__socket(SID)).toBe(4);
+    // …e l'apertura è arrivata fino all'OSPITE, non solo fino all'ascoltatore:
+    // sono due viaggi diversi, e guardare solo il primo lascia il secondo a
+    // metà. Senza questa attesa il controllo di sotto — «gli altri non hanno
+    // sentito niente» — legge «apertura» invece di «aperto» quando il frame di
+    // ritorno è ancora per strada, e diventa un rosso che parla d'altro.
+    expect(await fino(() => sk.every((x) => x.stato() === "aperto"))).toBe(true);
 
     sk[1]!.chiudi();
     expect(await fino(() => up.vivi() === 3)).toBe(true);
@@ -377,7 +383,12 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
     const up = ascoltatore();
     const t = proxyNudo({ porta: up.porta });
     t.apri(1);
-    expect(await fino(() => up.aperti.length === 1)).toBe(true);
+    // Si aspetta il CANALE, non l'ascoltatore: che l'upgrade sia stato accolto
+    // di sopra e che la macchina abbia aperto la sua corsia sono due eventi
+    // diversi, e il secondo arriva dopo. Fermarsi al primo legge un canale che
+    // sta ancora nascendo, e il rosso parla d'altro.
+    expect(await fino(() =>
+      t.arrivati.some((f) => f.f === "open" && f.k === GENERE_WS_APERTO))).toBe(true);
 
     // Controllo positivo: il canale della macchina è nato davvero, e ha un
     // numero — è quello che va restituito.
