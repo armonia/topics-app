@@ -54,6 +54,19 @@ function resolveClaudeCodeModel(settings: AppSettings): string | undefined {
 const _providers = new Map<string, AIProvider>();
 let _defaultName: string | undefined;
 
+/**
+ * L'ordine con cui si sceglie un default di RIPIEGO fra i provider che
+ * conosciamo per nome. Chi non è qui dentro non è escluso: cade dopo (vedi
+ * `recomputeDefault`).
+ */
+const PROVIDER_PREFERENCE_ORDER = [
+  "claude-code",
+  "codex",
+  "claude",
+  "openai",
+  "openclaw",
+];
+
 // ---------------------------------------------------------------------------
 // Factory (single provider)
 // ---------------------------------------------------------------------------
@@ -158,23 +171,27 @@ export function recomputeDefault(): boolean {
   // default chat target. This only picks the *fallback* default when the
   // previous one is offline; an explicit `AI_PROVIDER` env and per-topic
   // `provider` always win over this order.
-  const PROVIDER_PREFERENCE_ORDER = [
-    "claude-code",
-    "codex",
-    "claude",
-    "openai",
-    "openclaw",
-  ];
+  //
+  // È l'ordine dei NOTI, non l'elenco degli ammessi. Era una lista di cinque
+  // nomi a mano, e nessun agente ACP ci stava dentro: gemini non poteva MAI
+  // diventare il default automatico nemmeno essendo l'unico connesso, perché
+  // `find` non lo trovava e finiva nel ramo di ripiego qui sotto — che sceglie
+  // il primo connesso in ordine di REGISTRAZIONE, cioè per caso. Ora chi non è
+  // in tabella cade DOPO i noti e PRIMA dell'ultimo ripiego: resta fuori dalla
+  // preferenza esplicita, ma dentro la graduatoria.
   const preferred = PROVIDER_PREFERENCE_ORDER.find(
     (name) => _providers.get(name)?.connected === true,
   );
-  if (preferred) {
-    _defaultName = preferred;
+  const unknownConnected = [..._providers.entries()].find(
+    ([name, p]) => p.connected === true && !PROVIDER_PREFERENCE_ORDER.includes(name),
+  )?.[0];
+  const chosen = preferred ?? unknownConnected;
+  if (chosen) {
+    _defaultName = chosen;
   } else {
     // Nothing connected — keep current default if any, else fall back to the
     // first registered provider so getProvider() doesn't throw on boot.
-    const firstConnected = [..._providers.entries()].find(([, p]) => p.connected)?.[0];
-    _defaultName = firstConnected ?? _defaultName ?? _providers.keys().next().value;
+    _defaultName = _defaultName ?? _providers.keys().next().value;
   }
   return _defaultName !== previous;
 }

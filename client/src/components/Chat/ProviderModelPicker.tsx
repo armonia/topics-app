@@ -9,16 +9,22 @@ import { resolveEffectiveProvider } from '@/lib/effortTiers';
 import { splitModelId } from '@/lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
-const PROVIDER_LABELS: Record<string, string> = {
-  openclaw: 'OpenClaw',
-  claude: 'Claude (API)',
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  openai: 'OpenAI (ChatGPT)',
-};
-
+/**
+ * L'etichetta la DICE il server, dentro lo snapshot (`entry.label`).
+ *
+ * Qui viveva una seconda tabella `PROVIDER_LABELS`, copia di quella in
+ * `server/providers/snapshot-manager.ts` — e le due erano già divergenti:
+ * `openai` era «OpenAI» di là e «OpenAI (ChatGPT)» di qua. Non se ne accorgeva
+ * nessuno proprio perché era morta: `entry.label` arriva sempre e vince, quindi
+ * la copia si vedeva al massimo per un fotogramma di boot, giusto il tempo di
+ * dare un nome diverso allo stesso provider. È lo specchio che
+ * `tests/unit/no-type-mirrors.test.ts` esiste per vietare.
+ *
+ * Il ripiego è il nome nudo: un provider senza etichetta è un provider che il
+ * server non conosce, e inventargli un nome qui sarebbe indovinare.
+ */
 function labelFor(entry: ProviderSnapshotEntry): string {
-  return entry.label ?? PROVIDER_LABELS[entry.name] ?? entry.name;
+  return entry.label ?? entry.name;
 }
 
 export interface ProviderModelOverride {

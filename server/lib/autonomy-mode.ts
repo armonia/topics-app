@@ -105,32 +105,6 @@ export function permissionModeAsks(mode: string | null | undefined): boolean {
 }
 
 /**
- * I pezzi di `argv` che collegano il canale. SEMPRE, in ogni modalità.
- *
- * ── Perché non è condizionato, pur servendo solo dove si chiede ─────────────
- * Il primo taglio lo passava solo quando `permissionModeAsks(mode)`, e in
- * parallelo diceva al bridge di pubblicare `approval_prompt` solo in quel caso
- * — due flag che dovevano restare accoppiati. Sono bastati dieci minuti per
- * scoprire come si rompe: una configurazione MCP scritta a mano senza il
- * secondo flag, e la CLI ha risposto
- *
- *     MCP tool mcp__topics__approval_prompt (passed via --permission-prompt-tool)
- *     not found
- *
- * su OGNI richiesta di permesso. Cioè un guasto peggiore di quello che stiamo
- * chiudendo: prima moriva muto, così muore rumoroso e su tutto.
- *
- * Verificato che passarlo dove non serve non costa niente: in
- * `bypassPermissions` la CLI non chiede mai, quindi non lo chiama — e continua
- * comunque a toglierlo dall'elenco che il modello vede (provato: `init` non lo
- * elenca, e il turno finisce regolarmente). Un flag solo non può
- * desincronizzarsi da sé stesso.
- */
-export function permissionPromptArgs(_mode?: string | null): string[] {
-  return ["--permission-prompt-tool", PERMISSION_PROMPT_TOOL];
-}
-
-/**
  * Il turno va in PIANO?
  *
  * Il piano si chiedeva in due modi, e non erano lo stesso: un interruttore nel

@@ -1,0 +1,176 @@
+/**
+ * L'argv delle CLI come CONTRATTO.
+ *
+ * Questi non sono test di logica: sono fotografie. Il valore sta tutto nel
+ * fatto che, se qualcuno tocca una flag, il rosso arriva QUI e non in
+ * produzione al primo turno — che è com'è andata finora, visto che nessun test
+ * del repo nominava `--include-partial-messages` o `--setting-sources`.
+ *
+ * Quando un cambio è voluto si aggiorna la fotografia, e il diff del commit
+ * mostra esattamente cosa si è deciso di cambiare. Quando non lo è, il rosso è
+ * la domanda giusta al momento giusto.
+ */
+import { describe, expect, test } from "bun:test";
+import { buildClaudeArgs, buildClaudeOneshotArgs } from "./args";
+import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
+
+const BASE = {
+  permissionMode: "acceptEdits",
+  model: "claude-opus-5[1m]",
+  mcpConfigPath: "/tmp/topics-mcp/topic-7.json",
+  mcpStrict: true,
+  permissionPromptTool: "mcp__topics__approval_prompt",
+  appendSystemPrompt: "<prompt di sistema>",
+  claudeSessionId: "11111111-2222-3333-4444-555555555555",
+  isNewSession: true,
+} as const;
+
+describe("buildClaudeArgs — la fotografia", () => {
+  test("sessione NUOVA, effort e strict attivi", () => {
+    expect(buildClaudeArgs({ ...BASE, effort: "xhigh" })).toEqual([
+      "--print",
+      "--permission-mode", "acceptEdits",
+      "--verbose",
+      "--model", "claude-opus-5[1m]",
+      "--effort", "xhigh",
+      "--setting-sources", "user,project,local",
+      "--mcp-config", "/tmp/topics-mcp/topic-7.json",
+      "--strict-mcp-config",
+      "--permission-prompt-tool", "mcp__topics__approval_prompt",
+      "--append-system-prompt", "<prompt di sistema>",
+      "--input-format", "stream-json",
+      "--output-format", "stream-json",
+      "--include-partial-messages",
+      "--session-id", "11111111-2222-3333-4444-555555555555",
+    ]);
+  });
+
+  test("sessione RIPRESA: `--resume` al posto di `--session-id`", () => {
+    const args = buildClaudeArgs({ ...BASE, effort: null, isNewSession: false });
+    expect(args).toContain("--resume");
+    expect(args).not.toContain("--session-id");
+    // La coda è la parte che decide se il modello ricorda: si guarda intera.
+    expect(args.slice(-2)).toEqual(["--resume", "11111111-2222-3333-4444-555555555555"]);
+  });
+
+  test("senza effort la flag NON compare (la CLI usa il suo)", () => {
+    expect(buildClaudeArgs({ ...BASE, effort: null })).not.toContain("--effort");
+    expect(buildClaudeArgs({ ...BASE, effort: undefined })).not.toContain("--effort");
+    expect(buildClaudeArgs({ ...BASE, effort: "" })).not.toContain("--effort");
+  });
+
+  test("senza strict il fleet MCP globale resta acceso: la flag non c'è", () => {
+    const args = buildClaudeArgs({ ...BASE, effort: null, mcpStrict: false });
+    expect(args).not.toContain("--strict-mcp-config");
+    // …ma il file di sessione si passa comunque.
+    expect(args).toContain("--mcp-config");
+  });
+
+  test("il canale di permesso c'è in OGNI modalità, bypassPermissions incluso", () => {
+    // È l'invariante che il 7 agosto è costata tutti i tool MCP: un flag solo
+    // non può desincronizzarsi da sé stesso solo se non è condizionato.
+    for (const mode of ["bypassPermissions", "acceptEdits", "plan", "auto", "dontAsk"]) {
+      const args = buildClaudeArgs({ ...BASE, effort: null, permissionMode: mode });
+      const i = args.indexOf("--permission-prompt-tool");
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(args[i + 1]).toBe("mcp__topics__approval_prompt");
+    }
+  });
+
+  test("ogni flag ha il suo valore subito dopo: niente coppie spaiate", () => {
+    const args = buildClaudeArgs({ ...BASE, effort: "high" });
+    const takesValue = new Set([
+      "--permission-mode", "--model", "--effort", "--setting-sources", "--mcp-config",
+      "--permission-prompt-tool", "--append-system-prompt", "--input-format",
+      "--output-format", "--session-id", "--resume",
+    ]);
+    for (let i = 0; i < args.length; i++) {
+      if (!takesValue.has(args[i]!)) continue;
+      const value = args[i + 1];
+      expect(value).toBeDefined();
+      expect(value!.startsWith("--")).toBe(false);
+      i++;
+    }
+  });
+});
+
+describe("buildClaudeOneshotArgs — la fotografia", () => {
+  test("con il config MCP vuoto", () => {
+    expect(
+      buildClaudeOneshotArgs({
+        permissionMode: "bypassPermissions",
+        model: "claude-sonnet-5",
+        emptyMcpConfigPath: "/tmp/topics-mcp/oneshot-x.json",
+      }),
+    ).toEqual([
+      "--print",
+      "--permission-mode", "bypassPermissions",
+      "--model", "claude-sonnet-5",
+      "--setting-sources", "user,project,local",
+      "--mcp-config", "/tmp/topics-mcp/oneshot-x.json",
+      "--strict-mcp-config",
+      "--tools", "",
+      "--output-format", "json",
+    ]);
+  });
+
+  test("MAI `--verbose`: con `--output-format json` stdout diventa l'array di eventi", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m" });
+    expect(args).not.toContain("--verbose");
+  });
+
+  test("scrittura del config fallita: si ripiega senza scoping, non si inventa un path", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m", emptyMcpConfigPath: null });
+    expect(args).not.toContain("--mcp-config");
+    expect(args).not.toContain("--strict-mcp-config");
+    // `--tools ""` resta: è quello che toglie gli schemi dei tool integrati.
+    expect(args.slice(-4)).toEqual(["--tools", "", "--output-format", "json"]);
+  });
+});
+
+describe("buildCodexArgs — la fotografia", () => {
+  const BRIDGE = { command: "/usr/local/bin/bun", args: ["/srv/topics/mcp.ts", "--session", "topic:7"] };
+
+  test("modello esplicito, sandbox, bridge e tier di reasoning", () => {
+    expect(
+      buildCodexArgs({
+        model: "gpt-5-codex",
+        approvalMode: "auto",
+        bridge: BRIDGE,
+        reasoningEffort: "high",
+      }),
+    ).toEqual([
+      "exec", "--json", "--skip-git-repo-check",
+      "--model", "gpt-5-codex",
+      "--sandbox", "workspace-write",
+      "-c", `mcp_servers.topics.command="/usr/local/bin/bun"`,
+      "-c", `mcp_servers.topics.args=["/srv/topics/mcp.ts","--session","topic:7"]`,
+      "-c", `model_reasoning_effort="high"`,
+    ]);
+  });
+
+  test("`full-access` scambia la sandbox col bypass, e SOLO quello esatto", () => {
+    expect(buildCodexArgs({ approvalMode: "full-access" })).toContain("--dangerously-bypass-approvals-and-sandbox");
+    // Un valore scritto male non deve poter concedere l'accesso pieno…
+    expect(buildCodexArgs({ approvalMode: "full_access" })).toContain("--sandbox");
+    // …né toglierlo: assente = sandbox, che è il ripiego prudente.
+    expect(buildCodexArgs({})).toEqual(["exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write"]);
+  });
+
+  test("senza modello NON si passa `--model`: la CLI pesca da config.toml", () => {
+    // È l'unico modo perché funzionino gli account ChatGPT.
+    expect(buildCodexArgs({ model: null })).not.toContain("--model");
+  });
+
+  test("i valori dei `-c` sono TOML valido (stringa e array di stringhe)", () => {
+    const args = buildCodexArgs({ bridge: { command: 'c:\\bun.exe', args: ['a "b"'] } });
+    const cmd = args[args.indexOf("-c") + 1]!;
+    expect(cmd).toBe('mcp_servers.topics.command="c:\\\\bun.exe"');
+    expect(args[args.lastIndexOf("-c") + 1]).toBe('mcp_servers.topics.args=["a \\"b\\""]');
+  });
+
+  test("one-shot: niente `--json`, qui si legge il testo", () => {
+    expect(buildCodexOneshotArgs({ model: "gpt-5" })).toEqual(["exec", "--model", "gpt-5"]);
+    expect(buildCodexOneshotArgs({})).toEqual(["exec"]);
+  });
+});
