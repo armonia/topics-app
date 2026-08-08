@@ -90,6 +90,79 @@ describe("relay finto · la macchina spenta", () => {
   });
 });
 
+describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
+  /** Una macchina collegata e un dispositivo agganciato dall'altra rete. */
+  function scenaDispositivo() {
+    const relay = creaRelayFinto();
+    const mac = capo();
+    const host = relay.collegaMacchina(mac.invia);
+    host.ricevi({ t: "hello", v: 1, installationId: "i1", token: "tok" });
+
+    const dev = capo();
+    const disp = relay.collegaDispositivo("i1", dev.invia);
+    return { relay, mac, host, dev, disp };
+  }
+
+  it("si aggancia senza nessun riferimento di condivisione, e la macchina lo sa", () => {
+    // Non è un link: un dispositivo non ha una capacità su UNA risorsa, ha
+    // l'installazione intera davanti — e chi decide cosa può vedere è
+    // l'ascoltatore dedicato, non il relay.
+    const { mac, dev, disp } = scenaDispositivo();
+    const sid = disp.sessionId() ?? "";
+    expect(sid).toBeTruthy();
+    expect(dev.ricevuti[0]).toEqual({ t: "ready", v: 1, sessionId: sid });
+    expect(mac.ricevuti.at(-1)).toEqual({ t: "guest-joined", sessionId: sid, ruolo: "device" });
+  });
+
+  it("le buste vanno e tornano, col mittente attaccato dal relay", () => {
+    const { mac, dev, host, disp } = scenaDispositivo();
+    const sid = disp.sessionId()!;
+
+    disp.ricevi({ t: "to-host", payload: "FRAME-DEL-TUBO" });
+    expect(mac.ricevuti.at(-1)).toEqual({ t: "to-guest", to: sid, payload: "FRAME-DEL-TUBO" });
+
+    host.ricevi({ t: "to-guest", to: sid, payload: "RISPOSTA" });
+    expect(dev.ricevuti.at(-1)).toEqual({ t: "to-guest", to: sid, payload: "RISPOSTA" });
+  });
+
+  it("il relay non ha visto passare i contenuti nemmeno qui", () => {
+    const { relay, host, disp } = scenaDispositivo();
+    const sid = disp.sessionId()!;
+    disp.ricevi({ t: "to-host", payload: "SEGRETO-DEL-DISPOSITIVO" });
+    host.ricevi({ t: "to-guest", to: sid, payload: "SEGRETO-DELLA-MACCHINA" });
+
+    // Controllo positivo per primo: il registro ha davvero visto passare le due
+    // buste, quindi le negazioni qui sotto non stanno misurando il vuoto.
+    expect(relay.visto.filter((v) => v.t === "to-host" || v.t === "to-guest").length).toBe(2);
+    const registro = JSON.stringify(relay.visto);
+    expect(registro).not.toContain("SEGRETO-DEL-DISPOSITIVO");
+    expect(registro).not.toContain("SEGRETO-DELLA-MACCHINA");
+  });
+
+  it("senza macchina non si aggancia niente", () => {
+    const relay = creaRelayFinto();
+    const dev = capo();
+    const disp = relay.collegaDispositivo("i1", dev.invia);
+    expect(dev.ricevuti[0]).toEqual({ t: "denied", motivo: "host-offline" });
+    expect(disp.sessionId()).toBeNull();
+    expect(relay.ospitiCollegati()).toBe(0);
+  });
+
+  it("quando se ne va, la macchina lo sa ed è un DISPOSITIVO che se n'è andato", () => {
+    const { mac, disp } = scenaDispositivo();
+    const sid = disp.sessionId() ?? "";
+    disp.scollega();
+    expect(mac.ricevuti.at(-1)).toEqual({ t: "guest-left", sessionId: sid, ruolo: "device" });
+  });
+
+  it("un ospite di link resta un ospite: i due ruoli non si confondono", () => {
+    const { relay, mac } = scenaDispositivo();
+    const tel = capo();
+    relay.collegaOspite(tel.invia).ricevi({ t: "guest-open", v: 1, installationId: "i1", shareRef: "r1" });
+    expect(mac.ricevuti.at(-1)).toMatchObject({ ruolo: "guest" });
+  });
+});
+
 describe("relay finto · non ci si spaccia per altri", () => {
   it("un ospite non può scegliersi la sessione da cui dice di venire", () => {
     // È il relay ad attaccare `to` alla busta. Se lo facesse l'ospite,
