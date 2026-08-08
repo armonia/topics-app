@@ -23,6 +23,10 @@ import {
   componiStream, creaContatoreStream, creaRiassemblatore, leggiFramePayload, scriviFrame,
   type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream, type Rifiutato,
 } from "./relay-protocol";
+import {
+  GENERE_RICHIESTA, GENERE_RISPOSTA, leggiTestaRisposta, scriviTesta,
+  type Intestazioni,
+} from "./relay-http";
 
 type Invia = (m: MessaggioRelay) => void;
 
@@ -235,5 +239,134 @@ export function creaCapoTubo(opts: CapoTuboOpts) {
     },
 
     apertiOra: rias.apertiOra,
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// L'OSPITE che chiede HTTP dentro il tubo
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Il capo OSPITE dello scambio richiesta/risposta.
+ *
+ * Esiste qui per la stessa ragione del relay finto: **due implementazioni
+ * tengono onesto un formato**. Il proxy della macchina
+ * (`server/services/relay-client.ts`) è l'altra, e nessuna delle due può
+ * scivolare — la testa di risposta la scrive uno e la legge l'altro, e se uno
+ * dei due cominciasse a dipendere da un campo che il formato non promette,
+ * l'altro smetterebbe di capirlo.
+ *
+ * Non sa niente di come il `payload` arriva: si attacca a un relay finto, a un
+ * WebSocket vero o a due funzioni in memoria, e in tutti e tre i casi si
+ * comporta uguale.
+ */
+export interface RispostaTubo {
+  stato: number;
+  intestazioni: Intestazioni;
+  corpo: Uint8Array;
+  testo(): string;
+}
+
+export interface OspiteHttpOpts {
+  invia(payload: string): void;
+  max?: number;
+}
+
+export function creaOspiteHttp(opts: OspiteHttpOpts) {
+  const tubo = creaCapoTubo({
+    lato: "guest",
+    invia: opts.invia,
+    ...(opts.max !== undefined ? { max: opts.max } : {}),
+  });
+  /** Chi aspetta una risposta, per stream della RICHIESTA. */
+  const attese = new Map<number, (r: RispostaTubo | null) => void>();
+  /**
+   * Le risposte arrivate PRIMA che qualcuno le aspettasse.
+   *
+   * Non è un caso di scuola: il trasporto può essere sincrono — due funzioni in
+   * memoria, o un capo che rifiuta la richiesta senza toccare la rete — e
+   * allora la risposta rientra da questa stessa pila di chiamate, mentre
+   * `chiedi` non ha ancora avuto modo di registrarsi. Senza questa mappa quel
+   * caso è un'attesa che non finisce, e si vede solo come un test che scade.
+   */
+  const pronte = new Map<number, RispostaTubo | null>();
+  /** Da quale stream di risposta si torna a quale richiesta. Serve perché una
+   *  corsia può MORIRE (`reset`), e allora chi aspetta va svegliato lo stesso:
+   *  un `null` è una risposta, un'attesa per sempre no. */
+  const daRispostaAllaRichiesta = new Map<number, number>();
+
+  const consegna = (re: number, r: RispostaTubo | null) => {
+    const risolvi = attese.get(re);
+    if (!risolvi) { pronte.set(re, r); return; }
+    attese.delete(re);
+    risolvi(r);
+  };
+
+  return {
+    /** Manda una richiesta e aspetta la risposta. `null` = la corsia è morta. */
+    chiedi(
+      m: string, p: string,
+      extra: { h?: Intestazioni; corpo?: string | Uint8Array } = {},
+    ): { s: number; risposta: Promise<RispostaTubo | null> } {
+      const testa = scriviTesta({ m, p, ...(extra.h !== undefined ? { h: extra.h } : {}) });
+      const s = tubo.manda(GENERE_RICHIESTA, extra.corpo, testa);
+      if (pronte.has(s)) {
+        const gia = pronte.get(s) ?? null;
+        pronte.delete(s);
+        return { s, risposta: Promise.resolve(gia) };
+      }
+      const risposta = new Promise<RispostaTubo | null>((res) => attese.set(s, res));
+      return { s, risposta };
+    },
+
+    /**
+     * Apre uno stream di un genere qualsiasi.
+     *
+     * Serve a provare il punto di estensione del tubo: un capo che riceve un
+     * genere che non conosce deve chiudere QUELLO stream e restare in piedi. Va
+     * fatto dal contatore di questo capo — un numero scelto a mano brucerebbe
+     * quelli più bassi, e le richieste dopo verrebbero rifiutate per un motivo
+     * che non c'entra niente.
+     */
+    apriGenere(k: string, dati?: string | Uint8Array, h?: string): number {
+      return tubo.manda(k, dati, h);
+    },
+
+    /** Rinuncia. La macchina deve smettere di leggere il corpo di sopra. */
+    annulla(s: number, motivo: MotivoStream = "aborted") {
+      tubo.annulla(s, motivo);
+      consegna(s, null);
+    },
+
+    /** Un `payload` in arrivo dalla macchina. */
+    ricevi(payload: string): EsitoTubo {
+      const e = tubo.ricevi(payload);
+      if (e.esito === "aperto" && e.k === GENERE_RISPOSTA) {
+        const t = leggiTestaRisposta(e.h);
+        if (t) daRispostaAllaRichiesta.set(e.s, t.re);
+      }
+      if (e.esito === "completo") {
+        if (e.k !== GENERE_RISPOSTA) return e;
+        const t = leggiTestaRisposta(e.h);
+        if (!t) return e;
+        daRispostaAllaRichiesta.delete(e.s);
+        const corpo = e.e === "b" ? e.dati : new TextEncoder().encode(e.dati);
+        consegna(t.re, {
+          stato: t.s, intestazioni: t.h ?? [], corpo,
+          testo: () => new TextDecoder().decode(corpo),
+        });
+      }
+      if (e.esito === "chiuso" || e.esito === "errore") {
+        // Due modi di morire, e vanno svegliati tutti e due: la macchina può
+        // chiudere la corsia di RISPOSTA (e allora si risale al `re`) oppure
+        // la corsia della RICHIESTA, quando la testa non le è nemmeno
+        // piaciuta — e lì non c'è nessuna risposta da cui risalire.
+        const re = daRispostaAllaRichiesta.get(e.s);
+        if (re !== undefined) { daRispostaAllaRichiesta.delete(e.s); consegna(re, null); }
+        else consegna(e.s, null);
+      }
+      return e;
+    },
+
+    inAttesa: () => attese.size,
   };
 }
