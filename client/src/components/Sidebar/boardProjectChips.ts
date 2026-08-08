@@ -152,8 +152,8 @@ export const CHIP_SPACING = 12;
  */
 export const CHIP_INNER_GAP = 2;
 /**
- * Il vuoto fra i TRE GRUPPI della riga: etichetta della board, pastiglie dei
- * progetti, conteggi di stato.
+ * Il vuoto fra i TRE GRUPPI della riga: etichetta della board, blocco dei
+ * progetti (pastiglie + «+N»), conteggi di stato.
  *
  * Venti, cioè più dei 12 che separano due pastiglie, e la gerarchia è il punto:
  * 2 dentro una coppia, 12 fra due coppie, 20 fra due gruppi. Con gruppi e
@@ -288,13 +288,14 @@ export function fitProjectChips<T>(width: number | null, chips: readonly T[]): F
   if (width === null) return zero();
   const tryMode = (mode: ChipMode, cw: number): FittedChips<T> | null => {
     // Tre passi, e ognuno dice una cosa diversa: `CHIP_INNER_GAP` (2) lega
-    // un'icona al suo numero, `CHIP_SPACING` (12) separa due pastiglie,
-    // `GROUP_SPACING` (20) separa i gruppi della riga — e il «+N» è un gruppo.
+    // un'icona al suo numero, `CHIP_SPACING` (12) separa due pastiglie e anche
+    // il «+N» dall'ultima — perché il «+N» PARLA DELLE PASTIGLIE, quindi sta
+    // nel loro gruppo — e `GROUP_SPACING` (20) separa i gruppi fra loro.
     const span = (n: number) => n * cw + (n - 1) * CHIP_SPACING;
     let n = chips.length;
     while (n > 0 && span(n) > width) n--;
     if (n === chips.length) return { shown: [...chips], hidden: 0, mode };
-    while (n > 0 && span(n) + GROUP_SPACING + MORE_W > width) n--;
+    while (n > 0 && span(n) + CHIP_SPACING + MORE_W > width) n--;
     return n > 0 ? { shown: chips.slice(0, n), hidden: chips.length - n, mode } : null;
   };
   for (const { mode, w } of CHIP_MODES) {
@@ -333,7 +334,7 @@ export function fitBoardRow(
   // senza poter dire quante ne mancano, risponde ZERO. È il difetto di prima
   // spostato di due pixel, non risolto.
   const chipFloor = chips.length > 0
-    ? CHIP_W_ICON + GROUP_SPACING + (chips.length > 1 ? MORE_W + GROUP_SPACING : 0)
+    ? CHIP_W_ICON + (chips.length > 1 ? CHIP_SPACING + MORE_W : 0) + GROUP_SPACING
     : 0;
   const fittedCounts = fitStatusCounts(width, chipFloor, counts);
   const used = countsSpan(fittedCounts);
