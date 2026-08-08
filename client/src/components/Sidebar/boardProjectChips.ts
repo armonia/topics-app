@@ -72,7 +72,7 @@ export function boardProjectChips(
 }
 
 /**
- * LE DUE LARGHEZZE DI UNA PASTIGLIA, e perché sono due e non una elastica.
+ * LE TRE LARGHEZZE DI UNA PASTIGLIA, e perché sono tre e non una elastica.
  *
  * Fisse, non «quanto serve»: l'icona di un progetto arriva da una richiesta di
  * rete, quindi una pastiglia che si adatta al contenuto cambierebbe misura
@@ -80,35 +80,41 @@ export function boardProjectChips(
  * lei, a cose ferme. Il layout non si decide su uno stato asincrono: lo slot è
  * dichiarato e l'icona ci entra dentro, presente o assente che sia.
  *
- * ── LA PASTIGLIA NON PORTA PIÙ IL SUO NUMERO ────────────────────────────────
- * Portava anche il conteggio dei task di quel progetto, e su una riga larga
- * 244px il risultato misurato era questo: UNA pastiglia in modo solo-icona che
- * diceva «31», poi «+6», poi i conteggi per colonna «8» e «36». Quattro numeri
- * in fila, di cui uno senza nome né glifo accanto — «si confondono i numeri»
- * (Attilio, 08/08), ed è letteralmente vero: 31 e 36 sono la stessa forma.
+ * ── IL NUMERO È USCITO, E POI È RIENTRATO DALLA PORTA GIUSTA ────────────────
+ * Portava il conteggio dei task di quel progetto, e su una riga larga 244px il
+ * risultato misurato era: UNA pastiglia in modo solo-icona che diceva «31», poi
+ * «+6», poi i conteggi per colonna «8» e «36». Quattro numeri in fila, di cui
+ * uno senza nome né glifo accanto — «si confondono i numeri» (Attilio, 08/08),
+ * ed è letteralmente vero: 31 e 36 sono la stessa forma. Quindi il numero è
+ * stato tolto.
  *
- * Adesso la pastiglia porta IDENTITÀ (icona + nome) e basta, e i soli numeri
- * della riga sono i conteggi per colonna, ognuno col suo glifo di stato. Il
- * quanto non si perde: sta nel `title` della pastiglia, che è dove stava già la
- * versione per esteso. Togliere le due cifre restringe la pastiglia da 74 a 58,
- * quindi il nome compare anche dove prima si degradava a numero anonimo — cioè
- * il difetto si corregge due volte.
+ * Poi: «non vedo cmq il conteggio task nelle chip». Le due richieste non si
+ * contraddicono, ma insieme dicono una cosa precisa: il numero deve ESSERCI e
+ * non deve poter essere letto come uno dei conteggi di stato. Rimetterlo dentro
+ * la pastiglia da 58 lo farebbe comparire subito — misurato, non taglia niente —
+ * ma il nome scenderebbe da 34px a 16, cioè due caratteri: si baratta l'identità
+ * per il numero, e la confusione torna da un'altra porta.
  *
- * · `CHIP_W_NAME` = 58 — 8 di padding + 12 di slot icona + 4 + 34 di nome. I 34
- *   sono cinque-sei caratteri a 11px: un troncamento, non un moncone. Allargarli
- *   costa più di quanto rende — a 42 la pastiglia arriva a 66, e sulla riga da
- *   244px non ci sta più insieme al suo «+N», quindi il modo col nome cade del
- *   tutto e resta la sola icona. Meglio un nome corto che nessun nome.
- *   «Mostra bene i progetti, quelli che non entrano mettili in +» (Attilio,
- *   07/08).
- * · `CHIP_W_ICON` = 20 — la stessa pastiglia SENZA il nome: 8 + 12.
+ * Il posto l'ha liberato la CODA: `todo` e `backlog` sono usciti dal riassunto
+ * (vedi `SUMMARY_STATUSES`), i conteggi sono passati da 63px a 25-56, e le
+ * pastiglie da 90,84 a 97-129. In quello spazio la pastiglia ci sta col nome E
+ * col numero. Il numero ha una scatola sua, tono e peso diversi, e sta accanto
+ * al nome del progetto a cui appartiene: non è più un numero che galleggia.
  *
- * La seconda è un DEGRADO, non una variante da scegliere: si accende solo
- * quando nemmeno una pastiglia col nome ci sta, e adesso che non porta cifre è
- * un degrado onesto — una tessera con l'icona del progetto, o (per chi un'icona
- * non ce l'ha, e non l'avrà: niente monogrammi, niente tessere generate) una
- * tessera vuota col suo tooltip. Muta, ma non ambigua.
+ * · `CHIP_W_NAME_COUNT` = 76 — 8 di padding + 12 di slot icona + 4 + 34 di nome
+ *   + 4 + 14 di numero (due cifre tabellari a 11px).
+ * · `CHIP_W_NAME` = 58 — la stessa senza il numero: 8 + 12 + 4 + 34. I 34 sono
+ *   cinque-sei caratteri a 11px: un troncamento, non un moncone.
+ * · `CHIP_W_ICON` = 20 — solo icona: 8 + 12.
+ *
+ * SONO UNA SCALA, non tre varianti da scegliere: si prova la più ricca e si
+ * scende solo quando non ne entra NEMMENO UNA. Il secondo e il terzo gradino
+ * sono degradi onesti — un nome senza numero dice ancora chi; un'icona sola dice
+ * chi a chi ha un'icona, e per chi non ce l'ha (niente monogrammi, niente
+ * tessere generate) resta una tessera muta col suo tooltip. Muta, ma non
+ * ambigua: è la cifra anonima che era il difetto, non il silenzio.
  */
+export const CHIP_W_NAME_COUNT = 76;
 export const CHIP_W_NAME = 58;
 export const CHIP_W_ICON = 20;
 /** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
@@ -135,8 +141,16 @@ export function countWidth(n: number): number {
   return COUNT_GLYPH_W + COUNT_GAP + DIGIT_W * String(n).length;
 }
 
-/** Come si disegnano le pastiglie: col nome, o con la sola icona. */
-export type ChipMode = 'name' | 'icon';
+/** Come si disegnano le pastiglie, dalla più ricca alla più povera. */
+export type ChipMode = 'name-count' | 'name' | 'icon';
+
+/** La scala dei gradini, con la sua larghezza. L'ordine È la priorità, e vive
+ *  qui una volta sola: `fitProjectChips` la scorre, e il test la rilegge. */
+export const CHIP_MODES: readonly { mode: ChipMode; w: number }[] = [
+  { mode: 'name-count', w: CHIP_W_NAME_COUNT },
+  { mode: 'name', w: CHIP_W_NAME },
+  { mode: 'icon', w: CHIP_W_ICON },
+];
 
 export interface FittedChips<T> {
   shown: T[];
@@ -222,14 +236,16 @@ export function fitStatusCounts(width: number, chipFloor: number, counts: readon
  * `min-w-0`), al contrario di un «+N» che entra ed esce dal flusso e cambia la
  * misura che lo ha deciso.
  *
- * Il modo col nome ha la precedenza: si passa a solo-icona solo se col nome non
- * ne entra NEMMENO UNA.
+ * I gradini si provano nell'ordine di {@link CHIP_MODES}, dal più ricco: si
+ * scende solo quando del gradino corrente non entra NEMMENO UNA pastiglia. Il
+ * gradino è lo stesso per tutte quelle mostrate — mescolarli darebbe una riga in
+ * cui la prima pastiglia dice una cosa e la seconda un'altra.
  */
 export function fitProjectChips<T>(width: number | null, chips: readonly T[]): FittedChips<T> {
-  if (chips.length === 0) return { shown: [], hidden: 0, mode: 'name' };
-  if (width === null) return { shown: [], hidden: 0, mode: 'name' };
-  const tryMode = (mode: ChipMode): FittedChips<T> | null => {
-    const cw = mode === 'name' ? CHIP_W_NAME : CHIP_W_ICON;
+  const zero = (mode: ChipMode = CHIP_MODES[0]!.mode) => ({ shown: [] as T[], hidden: 0, mode });
+  if (chips.length === 0) return zero();
+  if (width === null) return zero();
+  const tryMode = (mode: ChipMode, cw: number): FittedChips<T> | null => {
     const span = (n: number) => n * cw + (n - 1) * CHIP_GAP;
     let n = chips.length;
     while (n > 0 && span(n) > width) n--;
@@ -237,7 +253,11 @@ export function fitProjectChips<T>(width: number | null, chips: readonly T[]): F
     while (n > 0 && span(n) + CHIP_GAP + MORE_W > width) n--;
     return n > 0 ? { shown: chips.slice(0, n), hidden: chips.length - n, mode } : null;
   };
-  return tryMode('name') ?? tryMode('icon') ?? { shown: [], hidden: chips.length, mode: 'name' };
+  for (const { mode, w } of CHIP_MODES) {
+    const fitted = tryMode(mode, w);
+    if (fitted) return fitted;
+  }
+  return { shown: [], hidden: chips.length, mode: CHIP_MODES[0]!.mode };
 }
 
 export interface FittedBoardRow {
@@ -259,7 +279,7 @@ export function fitBoardRow(
   counts: readonly BoardCount[],
 ): FittedBoardRow {
   if (width === null) {
-    return { chips: { shown: [], hidden: 0, mode: 'name' }, counts: { shown: [...counts], rolled: null } };
+    return { chips: { shown: [], hidden: 0, mode: CHIP_MODES[0]!.mode }, counts: { shown: [...counts], rolled: null } };
   }
   // Il pavimento vale solo se c'è davvero qualche progetto da mostrare: senza
   // pastiglie da disegnare, riservare spazio per una sarebbe un buco. E deve

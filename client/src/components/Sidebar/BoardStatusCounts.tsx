@@ -5,22 +5,39 @@ import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import {
-  boardProjectChips, fitBoardRow, CHIP_W_ICON, CHIP_W_NAME,
+  boardProjectChips, fitBoardRow, CHIP_MODES,
   type BoardProjectChip, type ChipMode,
 } from './boardProjectChips';
 
+/** La larghezza di ogni gradino, indicizzata dal modo. Derivata da `CHIP_MODES`
+ *  e non riscritta: la scala e le sue misure vivono nel modulo puro, che è anche
+ *  quello che l'aritmetica del ritaglio legge — due copie divergerebbero, e la
+ *  pastiglia si disegnerebbe di una misura diversa da quella prenotata. */
+const CHIP_W: Record<ChipMode, number> = Object.fromEntries(
+  CHIP_MODES.map(({ mode, w }) => [mode, w]),
+) as Record<ChipMode, number>;
+
 /**
- * Gli stati riassunti sulla riga, nell'ordine in cui contano per chi guarda:
- * chi aspetta te, chi sta lavorando, poi la coda.
+ * Gli stati riassunti sulla riga: chi aspetta te, e chi sta lavorando.
  *
- * Non è l'ordine del kanban da sinistra a destra — quello è una pipeline, e qui
- * la riga ha spazio per tre o quattro numeri: i primi devono essere quelli che
- * cambiano una decisione. È anche l'ordine in cui la CODA si arrotola quando lo
- * spazio finisce (vedi `fitStatusCounts`): si perde il backlog, mai il review.
- * `done` resta fuori, come per il conteggio della riga: la board si annuncia
- * per il lavoro APERTO.
+ * DUE, non quattro. `todo` e `backlog` sono usciti, e non per fare spazio a
+ * caso: il criterio era già scritto qui — «i primi devono essere quelli che
+ * cambiano una decisione» — e la coda non ne cambia nessuna. Sapere che ci sono
+ * 36 task in backlog, sulla riga di una sidebar, non fa fare niente di diverso;
+ * sapere che 8 aspettano te sì.
+ *
+ * Costava, e il conto è misurato con le funzioni pure del ritaglio: `review 8`
+ * più `backlog 36` occupano 63 dei ~160px elastici, e alle pastiglie ne restano
+ * 90,84 — quanto basta per UNA pastiglia col solo nome. Senza la coda i conteggi
+ * scendono a 25-56px e le pastiglie arrivano a 97-129, cioè lo spazio in cui la
+ * pastiglia può tornare a dire ANCHE quanti task ha quel progetto. È la stessa
+ * riga, spesa meglio.
+ *
+ * L'ordine resta anche quello in cui la coda si arrotola (`fitStatusCounts`): si
+ * perde «in corso», mai «review». `done` resta fuori: la board si annuncia per
+ * il lavoro APERTO.
  */
-const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo', 'backlog'];
+const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress'];
 
 /**
  * UNA PASTIGLIA DI PROGETTO — e adesso è davvero una pastiglia.
@@ -37,13 +54,15 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo'
  *    e riconfermata: niente lettere, niente tessere generate — quindi senza lo
  *    slot il nome partiva 16px più a sinistra e la pastiglia aveva un layout
  *    INTERNO diverso dalle vicine pur avendo la stessa larghezza esterna;
- *  · IL NUMERO È USCITO. Restava il difetto vero: su una riga da 244px la
+ *  · IL NUMERO È USCITO E POI RIENTRATO, e la differenza è DOVE. Prima la
  *    pastiglia si degradava a solo-icona e diceva «31», due pastiglie più in là
- *    i conteggi per colonna dicevano «8» e «36». Quattro numeri in fila, uno dei
- *    quali senza glifo né nome accanto — «al momento si confondono i numeri»
- *    (Attilio, 08/08). La pastiglia porta identità; il quanto sta nel `title`,
- *    dove stava già per esteso, e i soli numeri della riga sono i conteggi, che
- *    un glifo ce l'hanno.
+ *    i conteggi per colonna dicevano «8» e «36»: quattro numeri in fila, uno dei
+ *    quali senza glifo né nome accanto — «si confondono i numeri». Adesso il
+ *    numero c'è solo nel gradino `name-count`, cioè solo quando ha ACCANTO il
+ *    nome del progetto di cui parla, e con una scatola sua: tono più tenue,
+ *    `tabular-nums`, staccato da un divisore. Un numero attaccato a un nome non
+ *    è un numero che galleggia. Lo spazio l'ha liberato la coda dei conteggi
+ *    (`SUMMARY_STATUSES`), non un restringimento del nome.
  *
  * L'etichetta si taglia SENZA puntini (`overflow-hidden whitespace-nowrap`
  * invece di `truncate`): a 11px l'ellissi mangia ~7px dei 34 disponibili, cioè
@@ -58,14 +77,25 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       data-testid={`board-project-${chip.projectId}`}
       title={`${chip.name}: ${chip.n} task aperti`}
       className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
-      style={{ width: mode === 'name' ? CHIP_W_NAME : CHIP_W_ICON }}
+      style={{ width: CHIP_W[mode] }}
     >
       <span className="flex w-3 flex-shrink-0 justify-center">
         <ProjectFavicon path={chip.path} size={12} />
       </span>
-      {mode === 'name' && (
+      {mode !== 'icon' && (
         <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap leading-tight text-app-text-secondary">
           {chip.name}
+        </span>
+      )}
+      {mode === 'name-count' && (
+        // Il divisore verticale è la parte che fa il lavoro: separa il numero
+        // dal nome DENTRO la pastiglia, così la coppia si legge come «questo
+        // progetto: tanti» e non come due cose in fila. Un `gap` non basta —
+        // era esattamente il difetto della prima versione, dove nome e numero
+        // avevano stesso corpo, stesso colore e 4px in mezzo.
+        <span className="flex flex-shrink-0 items-center gap-1">
+          <span aria-hidden className="h-2.5 w-px bg-black/10 dark:bg-white/15" />
+          <span className="tabular-nums text-app-text-muted">{chip.n}</span>
         </span>
       )}
     </span>
