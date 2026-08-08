@@ -79,8 +79,11 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
       style={{ width: CHIP_W[mode] }}
     >
-      <span className="flex w-3 flex-shrink-0 justify-center">
-        <ProjectFavicon path={chip.path} size={12} />
+      {/* Lo slot è 20×12, non 12×12: un logo-scritta in un quadrato da 12 rende
+          4-5px di inchiostro (misurato), cioè si legge come «l'icona non c'è».
+          Vedi `CHIP_W_*` e il parametro `width` di ProjectFavicon. */}
+      <span className="flex w-5 flex-shrink-0 justify-center">
+        <ProjectFavicon path={chip.path} size={12} width={20} />
       </span>
       {mode !== 'icon' && (
         <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap leading-tight text-app-text-secondary">

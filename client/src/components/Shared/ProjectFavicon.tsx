@@ -20,11 +20,27 @@ import { reportImgError, useProjectIcon } from './projectIconStore';
 export function ProjectFavicon({
   path,
   size = 14,
+  width,
   className = '',
   fallback = null,
 }: {
   path: string;
+  /** L'ALTEZZA della scatola. Quadrata se `width` non è dato. */
   size?: number;
+  /**
+   * Una scatola più LARGA che alta, per le superfici che devono poter mostrare
+   * anche un logo-scritta.
+   *
+   * Serve perché `object-contain` in un quadrato scala per il lato vincolante:
+   * un wordmark 3235×1224 in 12×12 diventa 12px di inchiostro alto **4,5**, cioè
+   * una scheggia che si legge come «l'icona non c'è». In 20×12 lo stesso logo
+   * rende 20×7,6, che si vede. Il prezzo lo pagano anche i loghi quadrati, che
+   * restano 12×12 centrati in 20 con 4px di aria per lato: è il prezzo di una
+   * scatola DICHIARATA, e l'alternativa — dedurre la larghezza dal rapporto
+   * d'aspetto dell'immagine — farebbe dipendere il layout da una risposta di
+   * rete, che in questo repo è la regola che si paga più cara.
+   */
+  width?: number;
   className?: string;
   /** Rendered when the project has no icon file. Default null = nothing at
    *  all (zero footprint); pass a custom node (e.g. a status dot) to opt in. */
@@ -47,28 +63,28 @@ export function ProjectFavicon({
   return (
     <img
       src={src}
-      width={size}
+      width={width ?? size}
       height={size}
       alt=""
       draggable={false}
       className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
       style={{
-        // LA SCATOLA È QUADRATA, E VA IMPOSTA DALLO STILE.
+        // LA SCATOLA VA IMPOSTA DALLO STILE, non dagli attributi.
         //
         // Gli attributi `width`/`height` qui sopra dichiarano solo il rapporto
         // d'aspetto: il preflight di Tailwind mette `img { height: auto }`, che
-        // li scavalca. Per un'icona quadrata non si vedeva; per un LOGO LARGO
-        // sì, e di brutto — misurato l'08/08: `edm-contratto` (3235×1224) usciva
-        // 18 di larghezza per **6,8** di altezza, `acquapub` (256×119) 12 per
-        // **5,6**. Una scheggia, che nella pastiglia di un progetto o in una
-        // tessera fissata si legge come «l'icona non c'è» («non vedo le icone
-        // nelle chip da mobile, almeno non tutte»).
+        // li scavalca. Senza queste due righe la scatola COLLASSAVA sul rapporto
+        // d'aspetto dell'immagine — misurato l'08/08: `edm-contratto`
+        // (3235×1224) usciva 18 di larghezza per 6,8 di altezza.
         //
-        // Con la scatola imposta, `object-contain` fa il suo mestiere: il logo
-        // largo entra dentro il quadrato con le sue bande, invece di schiacciare
-        // il quadrato addosso a sé. E lo slot resta della misura dichiarata,
-        // quindi nessuna riga si sposta quando l'immagine atterra.
-        width: size,
+        // Attenzione, perché è una distinzione che mi sono già giocato una volta:
+        // imporre la scatola risolve il LAYOUT (lo slot resta della misura
+        // dichiarata, niente si sposta quando l'immagine atterra) e NON risolve
+        // la leggibilità. `object-contain` scala per il lato vincolante, quindi
+        // in un quadrato da 12 quello stesso logo resta 12×4,5 di inchiostro: la
+        // scheggia è la stessa di prima, solo centrata. Per vederlo serve una
+        // scatola più larga che alta — vedi `width`.
+        width: width ?? size,
         height: size,
         // The probe already confirmed the icon exists, so the slot is
         // reserved up-front (no layout shift); opacity-until-decode hides the

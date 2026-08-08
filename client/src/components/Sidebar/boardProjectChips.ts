@@ -101,11 +101,19 @@ export function boardProjectChips(
  * col numero. Il numero ha una scatola sua, tono e peso diversi, e sta accanto
  * al nome del progetto a cui appartiene: non è più un numero che galleggia.
  *
- * · `CHIP_W_NAME_COUNT` = 76 — 8 di padding + 12 di slot icona + 4 + 34 di nome
+ * · `CHIP_W_NAME_COUNT` = 84 — 8 di padding + 20 di slot icona + 4 + 34 di nome
  *   + 4 + 14 di numero (due cifre tabellari a 11px).
- * · `CHIP_W_NAME` = 58 — la stessa senza il numero: 8 + 12 + 4 + 34. I 34 sono
+ * · `CHIP_W_NAME` = 66 — la stessa senza il numero: 8 + 20 + 4 + 34. I 34 sono
  *   cinque-sei caratteri a 11px: un troncamento, non un moncone.
- * · `CHIP_W_ICON` = 20 — solo icona: 8 + 12.
+ * · `CHIP_W_ICON` = 28 — solo icona: 8 + 20.
+ *
+ * LO SLOT È 20 E NON 12, ed è una decisione presa coi numeri sul tavolo: in un
+ * quadrato da 12 un logo-scritta (`acquapub` 256×119, `edm-contratto` 3235×1224)
+ * rende 4-5px di inchiostro, cioè niente. In 20×12 si vede. Lo pagano anche i
+ * loghi quadrati, che restano 12×12 centrati con 4px di aria per lato. Otto
+ * pixel per pastiglia si potevano permettere solo dopo che `backlog` è uscito dal
+ * riassunto: con i vecchi conteggi da 63px la pastiglia da 84 non ci stava e la
+ * riga sarebbe tornata muta.
  *
  * SONO UNA SCALA, non tre varianti da scegliere: si prova la più ricca e si
  * scende solo quando non ne entra NEMMENO UNA. Il secondo e il terzo gradino
@@ -114,9 +122,9 @@ export function boardProjectChips(
  * tessere generate) resta una tessera muta col suo tooltip. Muta, ma non
  * ambigua: è la cifra anonima che era il difetto, non il silenzio.
  */
-export const CHIP_W_NAME_COUNT = 76;
-export const CHIP_W_NAME = 58;
-export const CHIP_W_ICON = 20;
+export const CHIP_W_NAME_COUNT = 84;
+export const CHIP_W_NAME = 66;
+export const CHIP_W_ICON = 28;
 /** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
 export const CHIP_GAP = 6;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
