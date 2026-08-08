@@ -93,14 +93,23 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       className="flex min-w-0 flex-shrink-0 items-center gap-1 text-[11px]"
       style={{ width: CHIP_W[mode] }}
     >
-      {/* Lo slot è 24×14 — l'altezza è quella standard dell'app, la larghezza
+      {/* Lo slot è 20×14 — l'altezza è quella standard dell'app, la larghezza
           serve ai logo-scritta. Le misure e il perché stanno accanto a
           `CHIP_W_ICON`, che è anche il numero che l'aritmetica del ritaglio
           prenota: qui si LEGGE quella costante invece di riscriverla. */}
       <span className="flex flex-shrink-0 justify-center" style={{ width: ICON_SLOT_W }}>
         <ProjectFavicon path={chip.path} size={STATUS_GLYPH_PX} width={ICON_SLOT_W} />
       </span>
-      {mode === 'icon-count' && (
+      {/* IL NUMERO SI MOSTRA SOLO SE CI STA TUTTO.
+          La pastiglia prenota 14px, cioè DUE cifre tabellari a 11px: con tre
+          (un progetto oltre i 99 task aperti) il terzo carattere finiva sotto
+          l'`overflow-hidden` del ritaglio e si vedeva una cifra MOZZATA — «tipo
+          guido non esce il conteggio, viene tagliato; in quel caso non
+          dovremmo farlo vedere proprio» (Attilio, 08/08). Un numero tagliato non
+          è un numero approssimato: è un numero SBAGLIATO, e «104» che si legge
+          «10» mente. Senza, resta l'icona — che dice comunque «qui c'è del
+          lavoro» — e il totale vero sta nei conteggi di stato accanto. */}
+      {mode === 'icon-count' && String(chip.n).length <= 2 && (
         // NIENTE DIVISORE. Serviva a staccare il numero dal NOME, quando il
         // nome c'era: due testi dello stesso corpo a 4px di distanza si
         // leggevano come una parola sola. Senza nome non c'è niente da cui
@@ -242,7 +251,19 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
   if (tutti.length === 0 && counts.length === 0) return null;
 
   return (
-    <div ref={measureRef} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div
+      ref={measureRef}
+      data-testid="board-row-summary"
+      // UN PASSO SOLO fra i tre gruppi — etichetta della board, pastiglie dei
+      // progetti, conteggi di stato — ed è lo stesso che separa due pastiglie.
+      // Prima erano due (6 fra i blocchi, 12 fra le pastiglie) più un `ml-auto`
+      // che spingeva i conteggi a destra: la distanza fra i gruppi dipendeva
+      // dallo spazio che avanzava, cioè cambiava a ogni progetto in più.
+      // «Teniamo spaziatura uniforme fra board, conteggio progetti e conteggi
+      // stati» (Attilio, 08/08).
+      className="flex min-w-0 flex-1 items-center"
+      style={{ gap: CHIP_SPACING }}
+    >
       <div
         // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14
         // ancora la pastiglia con un locator a PREFISSO
@@ -290,7 +311,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         </span>
       )}
       {(fitted.counts.shown.length > 0 || rolled) && (
-        <span className="ml-auto flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
+        <span className="flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
           {fitted.counts.shown.map(({ status, n }) => (
             <span
               key={status}
