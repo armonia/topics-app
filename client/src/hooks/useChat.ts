@@ -1029,7 +1029,21 @@ export function useChat() {
     // non li buttiamo del tutto: dicono che il server ha chiuso il turno, e se
     // il nostro SSE non chiude dietro sono l'unico modo per accorgersene. Vedi
     // scheduleSSEFailsafe.
-    if (localSSESessionsRef.current.has(sessionKey) && event.type !== 'stream:usage') {
+    // `stream:tool_permission_required` passa per la STESSA ragione di
+    // `stream:usage`, ed è il caso peggiore della stessa famiglia: il pannello
+    // del permesso viaggia SOLO su WebSocket (`server/routes/topics.ts:2057`) e
+    // sull'SSE non c'è. Scartandolo, la finestra che possiede l'SSE — cioè
+    // proprio quella da cui hai mandato il messaggio — era strutturalmente
+    // CIECA al pannello che stava aspettando: restava a girare, mentre il
+    // telefono, che l'SSE non ce l'ha, lo mostrava. E un refresh «lo faceva
+    // comparire» perché ricaricava dallo snapshot invece che dal filo.
+    //
+    // Non può duplicare niente, per lo stesso motivo dell'usage: il gestore
+    // SCRIVE uno stato fisso sulla tool call (`awaiting_permission` + la
+    // richiesta), non accumula — riceverlo due volte lascia lo stesso stato.
+    const passaAncheAlMittente =
+      event.type === 'stream:usage' || event.type === 'stream:tool_permission_required';
+    if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
       return;
     }
