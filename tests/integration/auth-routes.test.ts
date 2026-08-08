@@ -1227,3 +1227,239 @@ describe("rotte auth · le organizzazioni: crearle, cancellarle, e chi comanda",
     expect(await m!.json()).toEqual({ members: [] });
   });
 });
+
+/**
+ * La rubrica e il cancello devono rispondere UGUALE.
+ *
+ * `GET /api/auth/subjects` è il menu da cui il pannello sceglie;
+ * `POST /api/auth/shares` è il gesto vero. Erano due implementazioni della
+ * stessa domanda — una `SELECT` con un `NOT EXISTS` scritto dentro la rubrica,
+ * e `motivoRifiutoSoggetto` dentro il cancello — e su un caso non concordavano:
+ * la persona TOLTA da ogni gruppo spariva dal menu e la POST sullo stesso id
+ * rispondeva `200`. Il verso in cui una divergenza così sbaglia è il peggiore:
+ * non solleva niente, CONCEDE.
+ */
+describe("rotte auth · la rubrica e il cancello non possono divergere", () => {
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    db.run("INSERT INTO tasks (id, text, status) VALUES ('t1','La scheda','todo')");
+    return db;
+  }
+  const miaOrg = (db: Database) => (db.query("SELECT org_id AS id FROM installation").get() as { id: string }).id;
+
+  /** Una persona MEMBRO del gruppo di questa installazione. */
+  function collega(db: Database, id: string): string {
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES (?,?,1,'local',0,1)", [id, id]);
+    db.run("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES (?,?, 'member',1,0,1)",
+      [miaOrg(db), id]);
+    return id;
+  }
+
+  const inRubrica = async (router: ReturnType<typeof createAuthRouter>, id: string) => {
+    const b = await (await chiama(router, "/api/auth/subjects"))!.json() as
+      { subjects: Array<{ subjectType: string; subjectId: string }> };
+    return b.subjects.some((s) => s.subjectType === "person" && s.subjectId === id);
+  };
+
+  const condividi = (router: ReturnType<typeof createAuthRouter>, id: string) =>
+    chiama(router, "/api/auth/shares", "POST", {
+      body: { resourceType: "task", resourceId: "t1", subjectType: "person", subjectId: id },
+    });
+
+  test("un membro vivo: la rubrica lo offre E il cancello lo accetta", async () => {
+    // Il controllo POSITIVO. Senza, un `subjects` che restituisse sempre vuoto
+    // e un cancello che rifiutasse sempre passerebbero il caso qui sotto: è
+    // questo test che dimostra che il canale di osservazione funziona.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const p = collega(db, "viva");
+
+    expect(await inRubrica(router, p), "la rubrica deve offrirla").toBe(true);
+    expect((await condividi(router, p))?.status, "il cancello deve accettarla").toBe(200);
+    expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 1 });
+  });
+
+  test("TOLTA da ogni gruppo: sparisce dalla rubrica E il cancello la rifiuta", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const p = collega(db, "tolta");
+    // Esattamente ciò che scrive `DELETE /api/auth/orgs/:id/members`.
+    db.run("UPDATE org_members SET local_blocked_at = 99 WHERE person_id = ?", [p]);
+
+    expect(await inRubrica(router, p), "la rubrica non deve più offrirla").toBe(false);
+    const r = await condividi(router, p);
+    // Il difetto che questa riga fissa: qui rispondeva 200 e scriveva la
+    // concessione, mandando la scheda a qualcuno che avevi tolto.
+    expect(r?.status, "il cancello deve rifiutarla come fa la rubrica").toBe(400);
+    expect((await r!.json() as { error: string }).error).toBe("person_removed");
+    expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 0 });
+  });
+
+  test("il rifiuto è un CODICE, non una frase italiana", async () => {
+    // `ShareControl` fa `setErrore(body.error)` e lo stampa tale e quale: una
+    // frase italiana qui compariva sotto un titolo inglese.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role) VALUES ('mio','Mio','h',1,'owner')");
+
+    const r = await chiama(router, "/api/auth/shares", "POST", {
+      body: { resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "mio" },
+    });
+    expect(r?.status).toBe(400);
+    expect((await r!.json() as { error: string }).error).toBe("device_not_guest");
+  });
+});
+
+
+/**
+ * `people.revoked_at` era LETTA in otto punti e SCRITTA in nessuno.
+ *
+ * La stessa forma che `orgs.revoked_at` aveva prima della DELETE dei gruppi: un
+ * interruttore di sicurezza che nessun gesto poteva premere — e la 084 lo dice
+ * di sé stessa, «una colonna che sembra un interruttore di sicurezza e non è
+ * cablata a niente è peggio della sua assenza».
+ *
+ * Il buco vero che lasciava aperto: una persona INVITATA per nome — creata da
+ * `POST /orgs/:id/members {name}` prima che collegasse qualcosa — e poi tolta
+ * restava una riga che nessun gesto poteva più toccare. Fuori dalla rubrica,
+ * fuori dall'elenco dei membri, fuori dai principali, e dentro il database per
+ * sempre: un errore di battitura era definitivo.
+ *
+ * Il gesto è SEPARATO da «togli dal gruppo», e i due test in fondo dicono
+ * perché: fonderli renderebbe impossibile rimettere dentro qualcuno, e
+ * cancellare qualcuno ancora attaccato a qualcosa gli toglierebbe l'accesso in
+ * silenzio.
+ */
+describe("rotte auth · cancellare una persona dalla rubrica", () => {
+  function db084(): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, text TEXT, status TEXT, project_id TEXT, preview_image TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER)");
+    for (const m of [...MIGRAZIONI, "084-people-orgs.sql"]) {
+      db.run(readFileSync(join(RADICE, "server", "db", "migrations", m), "utf8"));
+    }
+    return db;
+  }
+  const miaOrg = (db: Database) => (db.query("SELECT org_id AS id FROM installation").get() as { id: string }).id;
+  const revocaDi = (db: Database, pid: string) =>
+    (db.query("SELECT revoked_at FROM people WHERE id = ?").get(pid) as { revoked_at: number | null }).revoked_at;
+
+  /** Invita per nome, come fa la schermata: la persona NASCE qui. */
+  async function invita(router: ReturnType<typeof createAuthRouter>, org: string, nome: string): Promise<string> {
+    const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: nome } });
+    return (await r!.json() as { personId: string }).personId;
+  }
+  const togliDalGruppo = (router: ReturnType<typeof createAuthRouter>, org: string, pid: string) =>
+    chiama(router, `/api/auth/orgs/${org}/members?personId=${encodeURIComponent(pid)}`, "DELETE");
+  const cancella = (router: ReturnType<typeof createAuthRouter>, pid: string) =>
+    chiama(router, `/api/auth/people/${encodeURIComponent(pid)}`, "DELETE");
+
+  test("una persona tolta dai gruppi si cancella, e la colonna viene SCRITTA", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const pid = await invita(router, org, "Errore Di Battitura");
+    expect(revocaDi(db, pid), "appena invitata è viva").toBeNull();
+
+    await togliDalGruppo(router, org, pid);
+    expect((await cancella(router, pid))?.status).toBe(200);
+    expect(revocaDi(db, pid), "la lapide si scrive").not.toBeNull();
+  });
+
+  test("cancellata, sparisce dalla rubrica dei destinatari", async () => {
+    // La prova che la colonna non è scritta a vuoto: gli otto punti che la
+    // LEGGONO cambiano risposta. Qui si guarda il primo — se `revoked_at`
+    // restasse `NULL`, la persona sarebbe ancora offerta.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const pid = await invita(router, org, "Da Cancellare");
+    const nella = async () => {
+      const b = await (await chiama(router, "/api/auth/subjects"))!.json() as
+        { subjects: Array<{ subjectType: string; subjectId: string }> };
+      return b.subjects.some((s) => s.subjectType === "person" && s.subjectId === pid);
+    };
+    expect(await nella(), "prima c'è").toBe(true);
+
+    await togliDalGruppo(router, org, pid);
+    await cancella(router, pid);
+    expect(await nella(), "dopo non c'è più").toBe(false);
+  });
+
+  test("il secondo clic dice «non c'è», non «fatto»", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const pid = await invita(router, org, "Una Volta Sola");
+    await togliDalGruppo(router, org, pid);
+    await cancella(router, pid);
+
+    const r = await cancella(router, pid);
+    expect(r?.status).toBe(404);
+    expect((await r!.json() as { error: string }).error).toBe("unknown_person");
+  });
+
+  test("chi è ancora in un gruppo NON si cancella", async () => {
+    // Cancellarla le toglierebbe in silenzio ciò che a quel gruppo era stato
+    // condiviso: `resolvePrincipals` scarta la persona appena la colonna c'è.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const pid = await invita(router, miaOrg(db), "Ancora Dentro");
+
+    const r = await cancella(router, pid);
+    expect(r?.status).toBe(409);
+    expect((await r!.json() as { error: string }).error).toBe("still_a_member");
+    expect(revocaDi(db, pid)).toBeNull();
+  });
+
+  test("chi ha ancora un DISPOSITIVO vivo non si cancella", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const pid = await invita(router, org, "Ha Un Telefono");
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role, person_id) VALUES ('tel','Telefono','h',1,'guest',?)",
+      [pid]);
+    await togliDalGruppo(router, org, pid);
+
+    const r = await cancella(router, pid);
+    expect(r?.status).toBe(409);
+    expect((await r!.json() as { error: string }).error).toBe("still_has_devices");
+    expect(revocaDi(db, pid)).toBeNull();
+
+    // Revocato il dispositivo, il gesto passa: il rifiuto era una condizione,
+    // non un divieto.
+    db.run("UPDATE devices SET revoked_at = 5 WHERE id = 'tel'");
+    expect((await cancella(router, pid))?.status).toBe(200);
+    expect(revocaDi(db, pid)).not.toBeNull();
+  });
+
+  test("il proprietario dell'installazione non si cancella MAI", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const mio = (db.query("SELECT person_id AS id FROM installation_owners").get() as { id: string }).id;
+
+    const r = await cancella(router, mio);
+    expect(r?.status).toBe(400);
+    expect((await r!.json() as { error: string }).error).toBe("cannot_remove_self");
+    expect(revocaDi(db, mio)).toBeNull();
+  });
+
+  test("togliere dal gruppo NON cancella: rimetterla dentro deve restare possibile", async () => {
+    // I due gesti restano due. Fonderli sembrerebbe una semplificazione e
+    // renderebbe irreversibile il gesto più reversibile che c'è.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const org = miaOrg(db);
+    const pid = await invita(router, org, "Torna Indietro");
+    await togliDalGruppo(router, org, pid);
+    expect(revocaDi(db, pid), "togliere dal gruppo non scrive la lapide").toBeNull();
+
+    const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId: pid } });
+    expect(r?.status, "e rimetterla dentro riesce").toBe(200);
+  });
+});
