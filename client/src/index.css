@@ -2090,7 +2090,12 @@ html.electron-mac #root {
 /* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
  * Single translucent layer = clean frost, no compounding. */
 html.electron-mac.dark {
-  --bg: hsl(222 16% 9% / 0.5);
+  /* 0,82 come il chrome, e per la stessa ragione: la vibrancy è behindWindow,
+   * quindi a 0,5 metà del colore della PAGINA veniva da ciò che c'è dietro la
+   * finestra. Lasciarla a 0,5 mentre il chrome sale a 0,82 farebbe litigare le
+   * due superfici — chrome scuro e pagina pallida — che è il difetto di prima
+   * spostato di un layer. */
+  --bg: hsl(222 16% 9% / 0.82);
 }
 html.electron-mac:not(.dark) {
   /* La stessa tinta di `:root` (hue 220, sat 16%, L 96%), come il ramo scuro qui
@@ -2098,7 +2103,7 @@ html.electron-mac:not(.dark) {
    * L 97% — un'altra tinta, non un altro grado di trasparenza — cioè la pagina
    * del desktop e quella del web erano due colori diversi che si chiamavano
    * uguale. */
-  --bg: hsl(220 16% 96% / 0.55);
+  --bg: hsl(220 16% 96% / 0.82);
 }
 
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
@@ -2127,11 +2132,35 @@ html.electron-mac .content-flip-layer {
  *
  * IL GRADO DI TRASPARENZA VIVE QUI, E SOLO QUI. `--chrome-bg` è la stessa
  * tinta del web/PWA (vedi :root / .dark in cima); sotto la shell mac prende
- * l'alpha 0.55 che lascia salire il materiale nativo. Chi ritocca la tinta del
+ * l'alpha che lascia salire il materiale nativo (0,82, vedi la nota qui sotto).
+ * Chi ritocca la tinta del
  * chrome tocca UN token e i due mondi si muovono insieme; chi tocca l'alpha
  * tocca solo queste due righe, e il web non se ne accorge. */
+/* L'ALPHA DEL CHROME È 0,82 E NON 0,55, e il perché sta nel materiale nativo.
+ *
+ * La vibrancy sotto la shell è un `NSVisualEffectView` con
+ * `setBlendingMode: 0` (lib.rs), cioè **behindWindow**: il materiale campiona
+ * ciò che sta DIETRO LA FINESTRA — il desktop e ogni altra finestra a quelle
+ * coordinate — non il contenuto dell'app. Sopra ci mettiamo la nostra tinta, e a
+ * 0,55 il 45% di quel fondo passa attraverso il tema.
+ *
+ * Coi numeri, tema scuro con qualcosa di CHIARO dietro (una pagina di browser,
+ * un documento bianco: il frost esce attorno a rgb(150)):
+ *   0,55 · (8,10,14) + 0,45 · 150  =  rgb(72,73,75)   ← grigio medio, «slavato»
+ *   0,82 · (8,10,14) + 0,18 · 150  =  rgb(33,35,38)   ← scuro, e resta scuro
+ * In chiaro il difetto è lo stesso specchiato: #eaecf0 a 0,55 sopra un fondo
+ * scuro rgb(40) dà rgb(147), cioè un chrome grigio dove ci si aspetta quasi
+ * bianco. Per questo salgono entrambe.
+ *
+ * «Forse è proprio il blur che non va che lo rende così» (Attilio, 08/08): sì, e
+ * non è il blur da spegnere — è che il tema era nostro solo per metà. A 0,82 il
+ * materiale si vede ancora (il movimento del fondo dietro la finestra resta
+ * percepibile) ma non decide più il colore del tema.
+ *
+ * NB: è una modifica di CSS, quindi viaggia col bundle. Non serve ricostruire il
+ * guscio. */
 html.electron-mac.dark {
-  --chrome-bg: hsl(224 26% 4.5% / 0.55);
+  --chrome-bg: hsl(224 26% 4.5% / 0.82);
 }
 html.electron-mac:not(.dark) {
   /* 93%, non 90%: il ramo scuro qui sopra ripete alla lettera la lightness del
@@ -2139,7 +2168,7 @@ html.electron-mac:not(.dark) {
    * più scura di `:root` — mentre il commento del blocco dichiara «stessa
    * tinta, cambia solo l'alpha». Era una deriva, non una scelta: due tinte per
    * il chrome chiaro, una sul web e una sul desktop. */
-  --chrome-bg: hsl(220 16% 93% / 0.55);
+  --chrome-bg: hsl(220 16% 93% / 0.82);
 }
 /* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
    token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
