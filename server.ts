@@ -82,6 +82,7 @@ import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
 import { createLicenseRouter } from "./server/routes/license";
+import { createAccountRouter } from "./server/routes/account";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
@@ -479,6 +480,11 @@ const licenzaSvc = creaServizioLicenza({
 });
 ctx.licenza = () => licenzaSvc;
 const licenseRouter = createLicenseRouter(ctx);
+// L'account: agganciare un'identità remota alla persona che è già qui. Nasce
+// SPENTO — senza `TOPICS_ACCOUNT_URL` la rotta risponde «non configurato» e
+// l'interfaccia non offre nulla — e non è un cancello: nessun ramo di
+// `server/routes/account.ts` può togliere una capacità locale (ORG-08).
+const accountRouter = createAccountRouter(ctx);
 
 /**
  * L'identita' risolta per una richiesta, deposta dal gate e letta dalle rotte.
@@ -2055,6 +2061,7 @@ const opzioniServer = {
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await authRouter(req, url, pathname, method)
+        || await accountRouter(req, url, pathname, method)
         || await licenseRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
