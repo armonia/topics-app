@@ -174,50 +174,41 @@
 
 /* Font stack */
 :root {
-  /* ─── Phase G · 3-layer token system ─────────────────────────────────
-   * Three parallel scales adopted from the reference desktop client we
-   * studied: standard tokens (already below), `--dashboard-*` for chat/
-   * IDE chrome, `--sidebar-*` (with `/ .7` translucent variants for
-   * vibrancy). Topics keeps its own brand colour — gold is NOT copied.
-   *
-   * Single radius token + 3-step calc ladder for component sizing.
-   */
+  /* Un solo token di raggio, più la scala a tre gradini per i componenti. */
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 2px);
   --radius-xs: calc(var(--radius) - 4px);
 
-  /* Dashboard layer — chat / main-pane chrome (light defaults) */
-  --dashboard-bg-primary: hsl(0 0% 100%);
-  --dashboard-surface-light: hsl(0 0% 98%);
-  --dashboard-surface-dark: hsl(0 0% 96%);
-  --dashboard-input-surface: hsl(220 20% 99%);
-  --dashboard-border: hsl(0 0% 0% / 0.12);
-  --dashboard-text-primary: hsl(0 0% 0%);
-  --dashboard-text-secondary: hsl(0 0% 15%);
-  --dashboard-text-muted: hsl(0 0% 35%);
-
-  /* Sidebar layer — its own scoped scale */
-  --sidebar-bg: hsl(0 0% 96%);
-  --sidebar-foreground: hsl(240 5% 26%);
-  --sidebar-border: hsl(0 0% 0% / 0.1);
-  --sidebar-search: hsl(0 0% 91%);
-  --sidebar-hover: hsl(0 0% 0% / 0.04);
-  --sidebar-selected: hsl(0 0% 0% / 0.08);
-  --sidebar-footer-bg: hsl(0 0% 94%);
-  --sidebar-tree-line: hsl(0 0% 75%);
-  --sidebar-primary: hsl(240 6% 10%);
-  --sidebar-ring: hsl(217 91% 60%);
-
-  /* Functional / status */
-  --color-functional-positive: hsl(142 72% 29%);
-  --color-functional-warning: hsl(32 95% 44%);
-  --color-functional-negative: hsl(0 84% 60%);
+  /* (Qui stavano TRE strati di token copiati da un client desktop di
+   * riferimento: `--dashboard-*` (8), `--sidebar-*` (10) e
+   * `--color-functional-*` (3). Erano morti due volte.
+   *   · `.dark` non ne ridefiniva NEMMENO UNO, quindi dichiaravano valori
+   *     esplicitamente CHIARI — un tema solo su due.
+   *   · I diciannove alias in `tailwind.config.js` li avvolgevano in
+   *     `hsl(...)` mentre il token conteneva GIÀ `hsl(...)`:
+   *     `hsl(hsl(0 0% 96%))`, che il browser scarta come dichiarazione
+   *     invalida. Cioè non avrebbero dipinto niente nemmeno se qualcuno li
+   *     avesse usati — e nessuno li usava: zero call-site in `client/src`.
+   * Facevano sembrare il tema chiaro più curato di quanto fosse. Il gemello
+   * VERO esiste già ed è la ritaratura per-layer più in basso in questo file,
+   * che ha entrambi i rami.) */
 
   --primary: #0066ff;
   --primary-hover: #0052cc;
   --primary-light: rgba(0,102,255,0.1);
   --primary-medium: rgba(0,102,255,0.15);
   --primary-dark: #4d94ff;
+  /* Il blu come INCHIOSTRO dentro il chrome CHIARO — il gemello di
+   * `--primary-dark`, che fa lo stesso lavoro dentro il chrome scuro.
+   * Il numero è identico su tutt'e due i lati: `#0066ff` come testo misura
+   * 4,10:1 sul chrome scuro (#080a0e) e 4,09:1 sul chrome chiaro (#eaecf0) —
+   * lo stesso token, la stessa superficie, sotto il 4,5 di WCAG AA in
+   * ENTRAMBI i temi. Solo che finora la correzione esisteva per uno solo.
+   * `blue-700` (#1447e6) su #eaecf0 dà 5,78:1.
+   * Su `--bg-surface` (bianco) `#0066ff` sta già a 4,83:1: lì passa, e per
+   * questo il token NON si alza in tutto il tema — cambiare tutti i link
+   * sposterebbe il marchio per riparare un punto che non è rotto. */
+  --primary-ink-chrome: #1447e6;
 
   /* Neutral theme colors */
   /* REGOLA — superfici rialzate nei due temi.
@@ -233,7 +224,29 @@
    *     queste — dal 2026-08-06 è un grigio di sistema, chiaro in tema chiaro.
    * NB: `--bg-panel` NON è chiaro in light (vale #1e1e1e, scuro di proposito):
    * non è la scorciatoia per un fondo chiaro. */
-  --bg: #f8f9fa;
+  /* IL TEMA CHIARO STA NELLA STESSA FAMIGLIA FREDDA DELLO SCURO.
+   *
+   * Lo scuro è stato ri-tinteggiato tutto su `hsl(220-224 …)` — il commento del
+   * blocco `.dark` spiega perché: un grigio NEUTRO si legge caldo, sporco. Il
+   * chiaro aveva ricevuto quel passaggio solo su DUE token (`--chrome-bg` e
+   * `--bg`); tutti gli altri erano rimasti a hue 0, saturazione 0. Un grigio
+   * neutro appoggiato a un grigio-blu è lo STESSO difetto, applicato al
+   * contrario e mai corretto.
+   *
+   * Le lightness qui sotto non sono a occhio: sono la SOLUZIONE di «quale
+   * hsl(220 S% L%) ha la stessa luminanza relativa del grigio che sostituisce»
+   * (script in scratchpad/retint.mjs). Ogni contrasto misurato altrove nel file
+   * — il terziario sul chrome, i bordi della sidebar, il placeholder mobile —
+   * resta lo stesso entro 0,013, che è solo l'arrotondamento della lightness a
+   * un decimale. È un cambio di TINTA, non di gerarchia.
+   * Saturazione: 14% sulle superfici e sui bordi (come lo scuro), 8-10% sui
+   * testi, dove una tinta più forte si vedrebbe come inchiostro colorato. */
+  /* I TRE PIANI, SCALATI. Erano chrome↔pagina 1,120:1 e pagina↔pane 1,054:1:
+   * uno scalino grosso e uno quasi nullo, quindi la pagina non si leggeva come
+   * piano INTERMEDIO — o stava col chrome o spariva nel bianco. In scuro sono
+   * 1,076 e 1,061, cioè due gradini pari. La pagina scende a 96% di lightness:
+   * chrome↔pagina 1,075:1 (lo scuro fa 1,076) e pagina↔pane 1,098:1. */
+  --bg: hsl(220 16% 96%);
   --bg-surface: #ffffff;
   /* IL CHROME — la superficie della NAVIGAZIONE (sidebar: header, albero,
    * barra di stato). Un gradino SOTTO la pagina, non sopra: il chrome
@@ -248,8 +261,8 @@
    * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il
    * materiale nativo. UNA tinta, due gradi di opacità — mai due tinte. */
   --chrome-bg: hsl(220 16% 93%);
-  --bg-elevated: #fafafa;
-  --bg-hover: #f5f5f5;
+  --bg-elevated: hsl(220 14% 98.1%);
+  --bg-hover: hsl(220 14% 96.3%);
   /* Le superfici del CODICE stanno nella stessa famiglia fredda del resto del
    * tema — hue 220, saturazione bassa — non in una loro. Misurato: erano a hue
    * 215/240 con il 28% di saturazione, il DOPPIO della palette dell'app, e in
@@ -258,34 +271,36 @@
    * tenerle BLU no: era solo un residuo. */
   --bg-code: hsl(220 12% 13%);
   --bg-panel: #1e1e1e;
-  --bg-input: #fafafa;
-  --bg-inset: #f8f8f8;
+  --bg-input: hsl(220 14% 98.1%);
+  --bg-inset: hsl(220 14% 97.4%);
   /* La bolla dei TUOI messaggi.
    * Grigio di sistema, non il blu del marchio: in questa app il blu è
    * l'accento delle AZIONI e del caricamento, e un messaggio non è un'azione.
    * È la stessa regola per cui la selezione è neutra (lib/selectionStyles.ts):
    * una tinta usata per dire due cose smette di dirne una.
-   * Deve staccare da `--bg` (#f8f9fa) SENZA diventare un'altra superficie:
-   * un gradino sotto la pagina, come i controlli di sistema.
-   * Misurato: stacco 1,20:1 dalla pagina (#f8f9fa) e testo a 13,8:1. Il primo
-   * valore provato, #e9ebef, dava 1,13:1 — la bolla si intuiva invece di
-   * vedersi, perché questa pagina non è bianca ma già off-white e mangia il
-   * gradino. */
-  --bg-user-bubble: #e2e5ea;
-  --text: #1a1a1a;
-  --text-secondary: #5a5a5a;
-  --text-tertiary: #707070;
-  --text-muted: #6b6b6b;
-  --text-placeholder: #949494;
-  --text-heading: #333333;
-  --text-body: #444444;
-  --text-faint: #8a8a8a;
-  --text-hover: #555555;
-  --border: #e8e8e8;
-  --border-light: #e0e0e0;
-  --border-subtle: #f0f0f0;
-  --border-input: #e0e0e0;
-  --spinner-track: #cccccc;
+   * Deve staccare da `--bg` SENZA diventare un'altra superficie: un gradino
+   * sotto la pagina, come i controlli di sistema.
+   * Misurato: stacco 1,20:1 dalla pagina e testo a 13,2:1. Il primo valore
+   * provato, #e9ebef, dava 1,13:1 — la bolla si intuiva invece di vedersi,
+   * perché questa pagina non è bianca ma già off-white e mangia il gradino.
+   * Il valore è RITARATO quando la pagina è scesa a 96%: #e2e5ea, che su
+   * #f8f9fa dava i suoi 1,20:1, sulla pagina nuova si chiudeva a 1,15:1. Lo
+   * stacco che il disegno DICHIARA è il numero, non l'hex. */
+  --bg-user-bubble: hsl(220 14% 88.5%);
+  --text: hsl(220 10% 10.6%);
+  --text-secondary: hsl(220 8% 36.4%);
+  --text-tertiary: hsl(220 8% 45.3%);
+  --text-muted: hsl(220 8% 43.2%);
+  --text-placeholder: hsl(220 8% 59.2%);
+  --text-heading: hsl(220 9% 20.7%);
+  --text-body: hsl(220 9% 27.6%);
+  --text-faint: hsl(220 8% 55.4%);
+  --text-hover: hsl(220 8% 34.3%);
+  --border: hsl(220 14% 91.4%);
+  --border-light: hsl(220 14% 88.5%);
+  --border-subtle: hsl(220 14% 94.4%);
+  --border-input: hsl(220 14% 88.5%);
+  --spinner-track: hsl(220 10% 80.7%);
   --resize-handle: #e5e7eb;
   --skeleton-from: #e5e7eb;
   --skeleton-mid: #f3f4f6;
@@ -296,7 +311,12 @@
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
-  --disabled-bg: #cccccc;
+  --disabled-bg: hsl(220 10% 80.7%);
+  /* (I grigi qui sopra che restano in esadecimale — `#e5e7eb`, `#f3f4f6`,
+   * `#d1d5db`, `#6b7280`, `#374151`, `#9ca3af` — sono la scala `gray` di
+   * Tailwind, che è GIÀ fredda: stanno nella famiglia, non fuori. Quelli che ne
+   * stavano fuori erano i neutri puri, ed è quelli che questo giro ha portato
+   * dentro.) */
 
   /* Phase 30 devOverlay tokens (aliases — no visual change) */
   --color-surface-raised: var(--bg-elevated);
@@ -600,6 +620,25 @@
  * (0,2,0) contro lo (0,1,0) dell'utility di Tailwind: vince a prescindere
  * dall'ordine di generazione. */
 .dark .text-primary { color: var(--primary-dark); }
+
+/* LO STESSO DIFETTO ERA STATO MISURATO SU UN LATO SOLO.
+ *
+ * Il commento qui sopra registra col numero che `#0066ff` come testo sul chrome
+ * SCURO fa 4,10:1. Sul chrome CHIARO (#eaecf0) fa 4,09:1 — lo stesso token,
+ * la stessa superficie, lo stesso numero — e in chiaro non esisteva nessuna
+ * regola equivalente. Morde dove morde in scuro: dentro il chrome, cioè sul
+ * link «Ricarica» del banner di versione e su ogni `text-primary` della
+ * colonna. Su `--bg-surface` (bianco) sta a 4,83:1, quindi la correzione si
+ * ferma al layer del chrome — come già fanno terziario e bordi trenta righe
+ * più su, e per la stessa ragione.
+ *
+ * Il selettore è lo stesso della ritaratura del chrome, non `:root:not(.dark)`
+ * nudo: fuori dalla colonna il fondo è bianco e lì `--primary` va bene com'è.
+ * Solo la proprietà `color`: `bg-primary` resta #0066ff, perché lì il problema
+ * è il bianco SOPRA e su un blu più scuro migliora, non peggiora. */
+html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary {
+  color: var(--primary-ink-chrome);
+}
 
 /* Global focus styles for keyboard navigation */
 @layer base {
@@ -1989,7 +2028,12 @@ html.electron-mac.dark {
   --bg: hsl(222 16% 9% / 0.5);
 }
 html.electron-mac:not(.dark) {
-  --bg: hsl(220 24% 97% / 0.55);
+  /* La stessa tinta di `:root` (hue 220, sat 16%, L 96%), come il ramo scuro qui
+   * sopra ripete quella del suo `.dark`: cambia solo l'alpha. Portava sat 24% e
+   * L 97% — un'altra tinta, non un altro grado di trasparenza — cioè la pagina
+   * del desktop e quella del web erano due colori diversi che si chiamavano
+   * uguale. */
+  --bg: hsl(220 16% 96% / 0.55);
 }
 
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
@@ -2025,7 +2069,12 @@ html.electron-mac.dark {
   --chrome-bg: hsl(224 26% 4.5% / 0.55);
 }
 html.electron-mac:not(.dark) {
-  --chrome-bg: hsl(220 16% 90% / 0.55);
+  /* 93%, non 90%: il ramo scuro qui sopra ripete alla lettera la lightness del
+   * `.dark` in cima (4,5%), il chiaro invece ne portava una PROPRIA — tre punti
+   * più scura di `:root` — mentre il commento del blocco dichiara «stessa
+   * tinta, cambia solo l'alpha». Era una deriva, non una scelta: due tinte per
+   * il chrome chiaro, una sul web e una sul desktop. */
+  --chrome-bg: hsl(220 16% 93% / 0.55);
 }
 /* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
    token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
