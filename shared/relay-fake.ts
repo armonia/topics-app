@@ -508,13 +508,42 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
 
   const manda = (f: Parameters<typeof scriviFrame>[0]) => opts.invia(scriviFrame(f));
 
-  function spegni(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
-    if (sk.stato === "chiuso") return;
+  /**
+   * Stacca il socket da tutto ciò che lo tiene, e dice se c'era ancora.
+   *
+   * Va fatto PRIMA di mettere qualunque cosa sul filo: il trasporto può essere
+   * sincrono — due funzioni in memoria — e allora la risposta della macchina
+   * rientra qui dentro, a metà della chiusura che si sta dichiarando. Se il
+   * socket fosse ancora nelle mappe, quel rientro annuncerebbe una SECONDA
+   * chiusura — la caduta del filo, `1006`, senza codice — che arriva a chi
+   * ascolta prima di quella vera e la copre.
+   */
+  function stacca(sk: StatoSocketOspite): boolean {
+    if (sk.stato === "chiuso") return false;
     sk.stato = "chiuso";
     perNome.delete(sk.s);
-    if (sk.sOut !== null) perCanale.delete(sk.sOut);
+    if (sk.sOut !== null) {
+      perCanale.delete(sk.sOut);
+      // Il canale della MACCHINA va dimenticato anche qui, e non solo quando
+      // arriva il suo `reset`: chiudendo per primi, quel reset può non essere
+      // ancora sul filo. Lasciarlo nel riassemblatore vorrebbe dire consumare
+      // un canale a ogni socket chiuso, e dopo `maxStream` giri nessun socket
+      // nuovo si aprirebbe più — restando in «apertura» per sempre, perché il
+      // rifiuto arriverebbe su uno stream che nessuno sta più aspettando.
+      rias.dimentica(sk.sOut);
+    }
+    return true;
+  }
+
+  /** Fine dichiarata: si chiude la propria corsia e lo si dice a chi ascolta. */
+  function annuncia(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
     if (avvisa) sk.canale.chiudi("aborted");
     sk.cb.suChiuso?.(c, r, sk.rifiuto ?? undefined);
+  }
+
+  function spegni(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
+    if (!stacca(sk)) return;
+    annuncia(sk, c, r, avvisa);
   }
 
   return {
@@ -537,7 +566,9 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
         s,
         manda: (d) => (sk.stato === "chiuso" ? "troppo" : canale.manda(d)),
         chiudi(c = WS_CHIUSURA_NORMALE, r = "") {
-          if (sk.stato === "chiuso") return;
+          // Si esce dalle mappe prima di parlare: la macchina risponde a questa
+          // chiusura dentro la stessa pila di chiamate.
+          if (!stacca(sk)) return;
           // La chiusura viaggia su uno stream suo perché porta un codice: il
           // `reset` del tubo ha solo il vocabolario del tubo.
           for (const fr of componiStream({
@@ -545,7 +576,7 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
             h: scriviTestaWs({ w: s }), dati: scriviChiusuraWs({ c, r }),
             ...(opts.max !== undefined ? { max: opts.max } : {}),
           })) manda(fr);
-          spegni(sk, c, r, true);
+          annuncia(sk, c, r, true);
         },
         stato: () => sk.stato,
         credito: () => canale.creditoOra(),

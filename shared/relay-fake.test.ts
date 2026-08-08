@@ -8,8 +8,12 @@
  * il trasporto è ancora sostituibile.
  */
 import { describe, expect, it } from "bun:test";
-import { creaCapoTubo, creaRelayFinto } from "./relay-fake";
-import { involucro, type EsitoTubo, type MessaggioRelay } from "./relay-protocol";
+import { creaCapoTubo, creaOspiteWs, creaRelayFinto } from "./relay-fake";
+import {
+  involucro, leggiFramePayload, scriviFrame,
+  type EsitoTubo, type MessaggioRelay,
+} from "./relay-protocol";
+import { GENERE_WS, GENERE_WS_APERTO, WS_APERTO, scriviTestaWs } from "./relay-ws";
 
 /** Un capo che tiene traccia di cosa gli è arrivato. */
 function capo() {
@@ -440,5 +444,52 @@ describe("relay finto · un messaggio malformato non fa danni", () => {
     // non deve avvelenare il canale.
     host.ricevi({ t: "hello", v: 1, installationId: "i1", token: "t" });
     expect(relay.macchineCollegate()).toBe(1);
+  });
+});
+
+/**
+ * Il capo OSPITE dei WebSocket, e il suo tetto di canali.
+ *
+ * Anche i canali si contano, e anche l'ospite ne ha un tetto: sono la difesa
+ * contro un capo che ne apre all'infinito. Ma un tetto lo si può consumare per
+ * sbaglio — bastano aperture e chiusure normali che non restituiscono niente —
+ * e allora smette di essere un tetto e diventa una scadenza, che scatta dopo un
+ * pomeriggio di lavoro invece che sotto un attacco.
+ */
+describe("l'ospite dei WebSocket · chiudere restituisce il canale", () => {
+  it("settanta socket aperti e chiusi di fila, e il settantesimo si apre lo stesso", () => {
+    // La macchina ridotta all'osso: risponde all'apertura e NON manda MAI un
+    // reset. È il caso vero, non un caso di scuola — su una rete quel reset
+    // viaggia, e intanto l'ospite ha già aperto altri socket. Se per liberare
+    // il canale aspettasse la risposta, basterebbe una raffica di aperture e
+    // chiusure per esaurirgli il tetto senza che nessuno abbia sbagliato.
+    let prossimoHost = 0;
+    const ospite = creaOspiteWs({
+      invia: (p) => {
+        const fr = leggiFramePayload(p);
+        if (!fr || fr.f !== "open" || fr.k !== GENERE_WS) return;
+        const sOut = prossimoHost;
+        prossimoHost += 2;
+        ospite.ricevi(scriviFrame({
+          f: "open", s: sOut, n: 0, k: GENERE_WS_APERTO,
+          h: scriviTestaWs({ re: fr.s, s: WS_APERTO }), c: true,
+        }));
+      },
+    });
+
+    // Oltre il `maxStream` di serie del riassemblatore, che è 64.
+    const GIRI = 70;
+    let aperti = 0;
+    for (let i = 0; i < GIRI; i++) {
+      const sk = ospite.apri("/ws", { suAperto: () => { aperti += 1; } });
+      if (sk.stato() !== "aperto") break;
+      sk.chiudi();
+    }
+
+    // Il conto è la misura: senza la restituzione si ferma a 64, e i socket
+    // successivi restano in «apertura» per sempre — senza errore, perché il
+    // rifiuto arriva su uno stream che nessuno sta più aspettando.
+    expect(aperti).toBe(GIRI);
+    expect(ospite.socketVivi()).toBe(0);
   });
 });
