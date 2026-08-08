@@ -1,0 +1,13 @@
+-- La lingua delle risposte, per singola board.
+--
+-- La preferenza globale (`app_settings.output_language`, migration 087) e' gia'
+-- quella che raggiunge chat, terminale e kanban. Questa colonna e' l'OVERRIDE:
+-- una board di un cliente inglese non deve costringere tutto il resto dell'app
+-- a cambiare lingua.
+--
+-- NULL = 'inherit', ed e' il default che conta: una board che non ha mai
+-- sentito parlare di questa impostazione continua a seguire la preferenza
+-- globale, cioe' si comporta esattamente come prima della migration. E'
+-- la stessa forma di `dispatch_model` (NULL = 'auto'): il valore che dice
+-- «non ho scelto» non e' una lingua, e' l'assenza di scelta.
+ALTER TABLE board_settings ADD COLUMN language TEXT;

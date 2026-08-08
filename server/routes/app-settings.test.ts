@@ -73,6 +73,7 @@ beforeEach(() => {
     aiProvider: null, claudeModel: null, claudeMaxTokens: null, claudeEffort: null,
     openaiModel: null, openaiMaxTokens: null, codexModel: null, codexReasoningEffort: null,
     claudeCodePermissionMode: null, codexApprovalMode: null, claudeCodeEnabled: null,
+    outputLanguage: null,
   });
 });
 
@@ -122,6 +123,33 @@ describe("aiProvider — l'insieme ammesso è il registro, non una lista scritta
     const r = await put({ aiProvider: null });
     expect(r.status).toBe(200);
     expect(getAppSettings().aiProvider).toBeNull();
+  });
+});
+
+describe("outputLanguage — la lingua in cui il modello risponde (migration 087)", () => {
+  test("i tre valori ammessi passano e si rileggono", async () => {
+    for (const v of ["auto", "it", "en"]) {
+      const r = await put({ outputLanguage: v });
+      expect(r.status).toBe(200);
+      expect(getAppSettings().outputLanguage).toBe(v);
+    }
+  });
+
+  test("una lingua non prevista è un 400, non una riga scritta e mai onorata", async () => {
+    // `resolveOutputLanguage` ripiegherebbe comunque su 'auto', ma scrivere
+    // 'fr' e poi ignorarlo è il difetto che questa scheda ha già avuto una
+    // volta con `aiProvider`: la scelta salvata e disattesa insieme.
+    const r = await put({ outputLanguage: "fr" });
+    expect(r.status).toBe(400);
+    expect(r.body.errors[0].field).toBe("outputLanguage");
+    expect(getAppSettings().outputLanguage).toBeNull();
+  });
+
+  test("`null` azzera la scelta — è lo stesso stato di «auto»", async () => {
+    await put({ outputLanguage: "it" });
+    const r = await put({ outputLanguage: null });
+    expect(r.status).toBe(200);
+    expect(getAppSettings().outputLanguage).toBeNull();
   });
 });
 

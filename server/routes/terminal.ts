@@ -29,7 +29,7 @@ import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
-import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
+import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import type { SubAgentExitInfo } from "./subagent-exit";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
@@ -1225,7 +1225,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // show up in the Processes panel instead of leaking into the bare shell.
     // --append-system-prompt works in interactive mode and is additive to the
     // project's own CLAUDE.md.
-    args.push('--append-system-prompt', TOPICS_AGENT_SYSTEM_PROMPT);
+    args.push('--append-system-prompt', topicsAgentSystemPrompt());
     // Start the interactive session at the same effort tier a Warp shell would
     // ("ultracode" = xhigh). The server runs under launchd with no CLAUDE_EFFORT
     // in its env, and the user's global effortLevel defaults to low, so without

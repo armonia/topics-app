@@ -37,6 +37,9 @@ import {
   shouldResume,
   type TurnEndInfo,
 } from "../providers/stop-reason";
+import { languageDirective } from "../lib/topics-agent-prompt";
+import { resolveOutputLanguage } from "./app-settings";
+import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -393,11 +396,44 @@ export function parkedEdgeEvent(
   };
 }
 
-/** Persistent role for the task-scoped topic (the per-turn task rides in the user message). */
-const ROLE_PROMPT =
-  "Sei un agent che lavora UN SOLO task di un board Kanban, nella working directory corrente, " +
-  "fino allo stato `review`. Comunicazione minima: brevi commenti di stato ai milestone. " +
-  "Non puoi portare il task a `done` (serve l'ok umano).";
+/**
+ * Persistent role for the task-scoped topic (the per-turn task rides in the
+ * user message).
+ *
+ * Era una costante, e la sua lingua era l'italiano perché così l'aveva scritta
+ * chi l'ha scritta: un agente kanban rispondeva in italiano anche con
+ * l'interfaccia in inglese, mentre la stessa persona in chat veniva servita in
+ * inglese perché LÌ la costante era inglese. Due bocche, due lingue, nessuna
+ * scelta. Adesso il ruolo resta italiano — è il testo del protocollo di board,
+ * e quello non si traduce a ogni giro — ma la LINGUA DELLE RISPOSTE la decide
+ * `languageDirective`, la stessa che serve chat e terminale.
+ */
+function rolePrompt(lang?: OutputLanguage): string {
+  const base =
+    "Sei un agent che lavora UN SOLO task di un board Kanban, nella working directory corrente, " +
+    "fino allo stato `review`. Comunicazione minima: brevi commenti di stato ai milestone. " +
+    "Non puoi portare il task a `done` (serve l'ok umano).";
+  const directive = lang ? languageDirective(lang) : languageDirective();
+  return directive ? `${base} ${directive}` : base;
+}
+
+/**
+ * La lingua EFFETTIVA di una board: il suo override, se ne ha uno, altrimenti
+ * la preferenza globale — la stessa che serve chat e terminale.
+ *
+ * È qui e non nel chiamante perché «uguali» (l'impostazione in Preferenze e
+ * quella sulla board) deve voler dire lo STESSO VALORE EFFETTIVO, non due
+ * valori da tenere allineati a mano: se la risoluzione vivesse in due punti,
+ * il primo giorno che uno dei due dimentica il ripiego le due superfici
+ * mostrerebbero la stessa scelta e produrrebbero lingue diverse.
+ */
+function boardLanguage(settings: { language?: string } | null | undefined): OutputLanguage {
+  const raw = (settings?.language ?? "").trim().toLowerCase();
+  if (raw && raw !== "inherit" && (OUTPUT_LANGUAGES as readonly string[]).includes(raw)) {
+    return raw as OutputLanguage;
+  }
+  return resolveOutputLanguage();
+}
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
@@ -658,6 +694,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
+   * La direttiva di lingua come riga del kickoff, quando ce n'è una.
+   *
+   * Il ruolo persistente del topic (`rolePrompt`) la porta già, ma il kickoff è
+   * scritto in italiano: senza la riga qui, un utente che ha scelto l'inglese
+   * riceve una pagina di istruzioni italiane e risponde per imitazione. E c'è
+   * un caso in cui il kickoff è l'UNICO testo fresco — `reuseBlockerContext`,
+   * dove il topic (e quindi il suo ruolo) è quello del task bloccante, creato
+   * prima ed eventualmente con un'altra lingua.
+   */
+  /**
+   * La lingua effettiva per una board, con il ripiego sulla globale.
+   *
+   * Ha il try/catch come ogni altra lettura di `getBoardSettings` in questo file:
+   * un dispatch NON deve morire perché una board non ha ancora una riga di
+   * impostazioni — in quel caso vale la preferenza globale, che è il default.
+   */
+  function langFor(projectId: string): OutputLanguage {
+    try { return boardLanguage(deps.svc.getBoardSettings(projectId)); }
+    catch { return resolveOutputLanguage(); }
+  }
+
+  function languageLine(lang: OutputLanguage): string[] {
+    const directive = languageDirective(lang);
+    return directive ? [directive] : [];
+  }
+
+  /**
    * Il testo del task, incorniciato come DATO e non come istruzione.
    *
    * Condiviso fra il kickoff normale e quello di fan-out di proposito: è la
@@ -730,6 +793,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
         `  2. update_task(task_id="${task.id}", status="review")`,
         "  La board mostra le opzioni come bottoni: l'umano risponde con un click e tu riparti con la sua scelta.",
+        ...languageLine(langFor(task.projectId)),
         "Inizia ora.",
       ].join("\n"),
     );
@@ -821,7 +885,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             name: task.text.slice(0, 60),
             projectPath: cwd,
             worktreeId,
-            systemPrompt: ROLE_PROMPT,
+            systemPrompt: rolePrompt(langFor(task.projectId)),
             effort: settings.effort,
             model: chosenModel,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
@@ -937,6 +1001,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Contesto snello: Grep per trovare, Read a fette (offset/limit) sui file oltre ~400 righe. Comandi lunghi (build/test/install) in background con run_script + read_process_output, mai bloccato sul comando.",
         "- Chiudi il turno con 2-3 frasi: che strada hai scelto, cosa hai cambiato e dove guardare. È l'unica cosa che l'umano legge di te nel confronto — scrivila bene.",
+        ...languageLine(langFor(task.projectId)),
         "Inizia ora.",
       ].join("\n"),
     );
@@ -970,7 +1035,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         name: `${task.text.slice(0, 44)} · tentativo ${idx}`,
         projectPath: resolved.path,
         worktreeId,
-        systemPrompt: ROLE_PROMPT,
+        systemPrompt: rolePrompt(langFor(task.projectId)),
         effort: opts.effort,
         model: opts.model,
         mcpPolicy: opts.mcp === "inherit" ? undefined : "bridge-only",

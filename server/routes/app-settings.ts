@@ -2,6 +2,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
+import { OUTPUT_LANGUAGES } from "../../shared/types";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -24,6 +25,9 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
 const EFFORT_CLAUDE = new Set<string>(EFFORT_TIERS);
 const EFFORT_CODEX = new Set<string>(CODEX_REASONING_EFFORTS);
 const APPROVAL = new Set(["auto", "full-access"]);
+/** L'insieme delle lingue vive in `shared/types.ts`, letto dai due lati del
+ *  filo: qui per validare, nel selettore per disegnare le opzioni. */
+const LANGUAGES = new Set<string>(OUTPUT_LANGUAGES);
 
 /**
  * I nomi ammessi per `aiProvider`: quelli REGISTRATI adesso, non una lista
@@ -73,6 +77,9 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   claudeCodePermissionMode: { kind: "string" },
   codexApprovalMode: { kind: "string", allow: APPROVAL },
   claudeCodeEnabled: { kind: "bool" },
+  // `null` e `'auto'` dicono la stessa cosa — «nessuna direttiva» — e passano
+  // entrambi: il selettore manda la stringa, chi azzera manda null.
+  outputLanguage: { kind: "string", allow: LANGUAGES },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

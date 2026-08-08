@@ -148,6 +148,15 @@ export class ProviderSnapshotManager extends EventEmitter {
         // ricopia perché una riga ricostruita non lo perda per strada (poi ogni
         // cambio arriva da `patchEntry`).
         fastMode: (provider as { fastMode?: () => ProviderSnapshotEntry["fastMode"] | null }).fastMode?.() ?? undefined,
+        // Le lingue le DICHIARA il motore, come la fast mode: qui si legge e
+        // basta. Nessun provider la implementa ancora, quindi oggi il campo è
+        // sempre assente — che è la risposta onesta («non lo so»), non un no:
+        // la UI mostra un badge grigio e non blocca niente. Il giorno che un
+        // agente ACP porta la riga di metadati, o che qualcuno aggiunge un
+        // probe una-tantum, il valore compare qui senza toccare altro.
+        languages:
+          (provider as { languages?: () => ProviderSnapshotEntry["languages"] | null }).languages?.() ??
+          undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),

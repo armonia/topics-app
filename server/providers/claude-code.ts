@@ -49,7 +49,7 @@ import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
 import { toolResultText } from "../../shared/tool-result-text";
-import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
+import { topicsAgentSystemPrompt, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
@@ -1880,7 +1880,9 @@ export class ClaudeCodeProvider implements AIProvider {
       permissionPromptTool: PERMISSION_PROMPT_TOOL,
       // Nudge the agent to launch dev servers via mcp__topics__run_script so they
       // appear in the Processes panel instead of leaking into the bare shell.
-      appendSystemPrompt: TOPICS_AGENT_SYSTEM_PROMPT,
+      // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
+      // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
+      appendSystemPrompt: topicsAgentSystemPrompt(),
       claudeSessionId,
       isNewSession,
     });

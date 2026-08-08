@@ -20,6 +20,7 @@
 
 import { getDatabase } from "../db";
 import { warnDeprecatedEnv } from "../lib/env-alias";
+import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
 
 /** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
  *  client (`client/src/types/index.ts`), che sono le preferenze della UI. */
@@ -35,6 +36,9 @@ export interface AppSettings {
   claudeCodePermissionMode: string | null;
   codexApprovalMode: string | null;
   claudeCodeEnabled: boolean | null;
+  /** La lingua in cui il modello deve rispondere (migration 087). NULL = «auto»,
+   *  cioè nessuna direttiva: il modello sceglie come ha sempre fatto. */
+  outputLanguage: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -49,6 +53,7 @@ const EMPTY: AppSettings = {
   claudeCodePermissionMode: null,
   codexApprovalMode: null,
   claudeCodeEnabled: null,
+  outputLanguage: null,
 };
 
 interface Row {
@@ -63,6 +68,7 @@ interface Row {
   claude_code_permission_mode: string | null;
   codex_approval_mode: string | null;
   claude_code_enabled: number | null;
+  output_language: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -79,6 +85,7 @@ function rowToSettings(r: Row): AppSettings {
     codexApprovalMode: r.codex_approval_mode ?? null,
     claudeCodeEnabled:
       r.claude_code_enabled == null ? null : r.claude_code_enabled === 1,
+    outputLanguage: r.output_language ?? null,
   };
 }
 
@@ -95,7 +102,8 @@ export function getAppSettings(): AppSettings {
       .query(
         `SELECT ai_provider, claude_model, claude_max_tokens, claude_effort,
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
-                claude_code_permission_mode, codex_approval_mode, claude_code_enabled
+                claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
+                output_language
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -119,6 +127,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   claudeCodePermissionMode: "claude_code_permission_mode",
   codexApprovalMode: "codex_approval_mode",
   claudeCodeEnabled: "claude_code_enabled",
+  outputLanguage: "output_language",
 };
 
 /**
@@ -245,4 +254,22 @@ export function settingClaudeEffort(s = getAppSettings()): string | null {
 /** Codex reasoning-effort override from settings (null when unset). */
 export function settingCodexReasoningEffort(s = getAppSettings()): string | null {
   return s.codexReasoningEffort ?? null;
+}
+
+/**
+ * La lingua in cui il modello deve rispondere (migration 087).
+ *
+ * A differenza dei fratelli qui sopra NON ha un env di ripiego, di proposito:
+ * è una preferenza di persona, presa da un selettore, non un parametro di
+ * bootstrap — e un `TOPICS_OUTPUT_LANGUAGE` nell'ambiente di launchd sarebbe
+ * una seconda verità che nessuno vede in Impostazioni.
+ *
+ * Un valore fuori scala (riga scritta a mano, DB di un'altra versione) torna
+ * `'auto'`: sbagliare lingua è peggio che non sceglierne una.
+ */
+export function resolveOutputLanguage(s = getAppSettings()): OutputLanguage {
+  const raw = (s.outputLanguage ?? "").trim().toLowerCase();
+  return (OUTPUT_LANGUAGES as readonly string[]).includes(raw)
+    ? (raw as OutputLanguage)
+    : "auto";
 }

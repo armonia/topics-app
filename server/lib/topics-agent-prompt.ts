@@ -2,8 +2,41 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { warnDeprecatedEnv } from './env-alias';
-import { settingClaudeEffort, settingCodexReasoningEffort } from '../services/app-settings';
+import {
+  settingClaudeEffort,
+  settingCodexReasoningEffort,
+  resolveOutputLanguage,
+} from '../services/app-settings';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
+import type { OutputLanguage } from '../../shared/types';
+
+/**
+ * La riga che dice al modello in che lingua rispondere. UNA riga, e sempre la
+ * stessa: è l'unico posto in cui la scelta dell'utente diventa testo per il
+ * modello, e le tre bocche che parlano — il prompt di sistema di chat/terminale
+ * qui sotto, il kickoff della board (`services/task-dispatcher.ts`) e il blocco
+ * sintetico del contesto (`context/assemble.ts`) — la chiedono tutte a questa
+ * funzione invece di scriversela per conto proprio. È il motivo per cui prima
+ * la lingua dell'agente non era la scelta di nessuno: in chat era inglese
+ * perché così era scritta la costante, sulla board italiano perché così era
+ * scritto il kickoff, e il selettore non spostava né l'uno né l'altro.
+ *
+ * `auto` torna stringa vuota — nessuna direttiva. NON è una svista: quando
+ * l'utente non ha scelto una lingua, inventargliene una sarebbe peggio che
+ * lasciare il modello libero di rispondere nella lingua in cui gli si parla.
+ * Chi chiama deve quindi controllare che la stringa non sia vuota prima di
+ * concatenarla, altrimenti si ritrova una riga bianca nel prompt.
+ */
+export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()): string {
+  switch (lang) {
+    case 'it':
+      return 'Rispondi sempre in italiano, qualunque sia la lingua della richiesta.';
+    case 'en':
+      return 'Always answer in English, whatever language the request is written in.';
+    default:
+      return '';
+  }
+}
 
 /**
  * System-prompt fragment appended to every Topics-launched Claude session
@@ -20,7 +53,7 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
  * registers it (see the process detector in routes/processes.ts) — so this prompt
  * is the preferred path, not the only safety net.
  */
-export const TOPICS_AGENT_SYSTEM_PROMPT = [
+const TOPICS_AGENT_PROCESS_PROMPT = [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
@@ -32,6 +65,26 @@ export const TOPICS_AGENT_SYSTEM_PROMPT = [
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');
+
+/**
+ * Il prompt di sistema completo per una sessione lanciata da Topics: la parte
+ * sui processi qui sopra, più la direttiva di lingua quando ce n'è una.
+ *
+ * Era una COSTANTE, e questo era il difetto: una costante non può sapere in che
+ * lingua l'utente vuole essere servito, quindi la risposta era sempre quella in
+ * cui era scritta la costante. I due chiamanti — `providers/claude-code.ts`
+ * (chat headless) e `routes/terminal.ts` (PTY interattivo) — sono gli stessi di
+ * prima: passare da funzione qui copre entrambe le superfici in un colpo, che è
+ * esattamente il motivo per cui questo frammento vive in un file condiviso.
+ *
+ * La lingua si risolve al momento della chiamata, non all'import: cambiare
+ * lingua in Impostazioni vale dalla sessione successiva senza riavviare il
+ * server (stesso contratto di `resolveClaudeCodeModel`).
+ */
+export function topicsAgentSystemPrompt(lang: OutputLanguage = resolveOutputLanguage()): string {
+  const directive = languageDirective(lang);
+  return directive ? `${TOPICS_AGENT_PROCESS_PROMPT} ${directive}` : TOPICS_AGENT_PROCESS_PROMPT;
+}
 
 /**
  * Effort tier for Topics-launched Claude sessions — the "ultracode" tier in the
