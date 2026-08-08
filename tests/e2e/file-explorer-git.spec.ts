@@ -7,6 +7,8 @@ import {
   type FileProject,
 } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { writeFileSync, rmSync } from "fs";
+import { join } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -454,7 +456,85 @@ test.describe("File Explorer — Git", () => {
     await expect(commitBtn).toBeEnabled();
     await commitBtn.click();
 
-    // After commit, the staged section should clear (clean working tree)
-    await expect(gitChanges.getByText("Albero di lavoro pulito")).toBeVisible({ timeout: 15000 });
+    // After commit, the staged section should clear (clean working tree).
+    //
+    // Aspettare SOLO l'albero pulito rendeva due esiti diversi indistinguibili:
+    // «il commit e' fallito» e «il pannello non si e' aggiornato» finivano
+    // tutt'e due in un timeout muto a 15s. Il pannello ora tiene l'errore di
+    // git al posto suo, quindi si aspetta il primo dei due che arriva e, se e'
+    // l'errore, il rosso porta con se' lo stderr vero di `git commit`.
+    const cleanTree = gitChanges.getByText("Albero di lavoro pulito");
+    const commitError = gitChanges.locator('[data-testid="commit-error"]');
+    await expect(cleanTree.or(commitError)).toBeVisible({ timeout: 15000 });
+    if (await commitError.isVisible()) {
+      throw new Error(`git commit rifiutato dal server: ${(await commitError.innerText()).trim()}`);
+    }
+    await expect(cleanTree).toBeVisible();
+  });
+
+  /**
+   * Un commit RIFIUTATO deve lasciare un segno che resta.
+   *
+   * Prima c'era solo un toast: spariva da solo, e il pannello restava identico
+   * a com'era un istante prima — le stesse modifiche, la stessa casella piena.
+   * Cioe' indistinguibile da un commit non ancora partito. Il 400 qui e' finto
+   * ma il testo e' quello vero di git: e' esattamente lo stderr che FILE-17
+   * incassava in silenzio.
+   */
+  test("FILE-18: un commit rifiutato lascia l'errore nel pannello", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-02" });
+    // FILE-17 ha appena committato tutto: senza una modifica nuova non c'e'
+    // niente da mettere in stage, e il bottone Commit resta disabilitato.
+    writeFileSync(join(tmpDir, "rifiutato.txt"), "una riga che non verra' committata\n");
+
+    const STDERR = "fatal: Unable to create '/tmp/e2e/.git/index.lock': File exists.";
+    await page.route("**/api/git/commit", (route) =>
+      route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: STDERR }) }),
+    );
+
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    const gitChanges = page.locator('[data-testid="git-changes"]');
+    await expect(gitChanges).toBeVisible({ timeout: 10000 });
+
+    // La sezione Git puo' arrivare CHIUSA, esattamente come in FILE-16/17:
+    // senza questo passo non esiste nessun bottone "Changes" da trovare.
+    const gitHeader = gitChanges.locator("div").filter({ hasText: /^Git$/ }).first();
+    const changedFilesList = gitChanges.locator("span", { hasText: /^[MDUA]$/ });
+    if (!(await changedFilesList.first().isVisible().catch(() => false))) {
+      await gitHeader.click();
+    }
+
+    const changesHeader = gitChanges.locator("button", { hasText: /Changes/ });
+    await expect(changesHeader.first()).toBeVisible({ timeout: 10000 });
+    const changesRow = changesHeader.first().locator("..");
+    await changesRow.hover();
+    const stageAllBtn = changesRow.locator('button[title="Stage all"]');
+    await expect(stageAllBtn).toBeVisible();
+    await stageAllBtn.click();
+
+    await expect(gitChanges.locator("button", { hasText: /Staged/ }).first()).toBeVisible({ timeout: 10000 });
+
+    const commitInput = gitChanges.locator('[data-testid="commit-message-input"]');
+    await commitInput.fill("questo commit verra' rifiutato");
+    await gitChanges.locator('button[title="Commit staged changes"]').click();
+
+    // La ragione di git, per esteso, dentro al pannello.
+    const commitError = gitChanges.locator('[data-testid="commit-error"]');
+    await expect(commitError).toBeVisible({ timeout: 10000 });
+    await expect(commitError).toContainText("index.lock");
+
+    // E RESTA: il watcher su .git/index ricarica lo stato entro ~500ms, e un
+    // toast a quel punto sarebbe gia' sulla via d'uscita.
+    await page.waitForTimeout(3000);
+    await expect(commitError).toBeVisible();
+    // Il messaggio non e' stato buttato via: si puo' ritentare senza riscriverlo.
+    await expect(commitInput).toHaveValue("questo commit verra' rifiutato");
+
+    await page.unroute("**/api/git/commit");
+    rmSync(join(tmpDir, "rifiutato.txt"), { force: true });
   });
 });
