@@ -20,6 +20,7 @@ import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
@@ -1773,6 +1774,12 @@ function PaneCloseButton({
   // the same countdown regardless of which surface kicked it off.
   const pendingStatus = usePanePendingStatus(paneId);
 
+  // Chiudere una tab non ha un altro percorso col dito (il tasto centrale è del
+  // mouse), quindi senza puntatore la X si VEDE: `touch: 'shown'`. La domanda è
+  // `hasHover`, non `isTouch` — su un portatile touch l'hover c'è, e il ramo
+  // gated su `isTouch` lasciava la X permanentemente accesa su ogni tab.
+  const closeReveal = useHoverReveal('self', { touch: 'shown' });
+
   // IL BERSAGLIO STA SUL BOTTONE, NON SULLO SPAN.
   //
   // Il glifo è 14px dentro uno span da 20, in una tab alta 36 su touch: sotto
@@ -1854,9 +1861,7 @@ function PaneCloseButton({
   // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
   return (
     <span className={slot}>
-      <span className={`absolute inset-0 flex items-center justify-center ${
-        isTouch ? '' : 'opacity-0 group-hover:opacity-100'
-      } transition-opacity`}>
+      <span className={`absolute inset-0 flex items-center justify-center ${closeReveal}`}>
         <PendingActionRing
           status={null}
           size={ROW_ACTION_GLYPH}

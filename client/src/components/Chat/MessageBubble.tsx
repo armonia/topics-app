@@ -7,6 +7,7 @@ import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
 import { useMobile } from '../../hooks/useMobile';
+import { hoverRevealClass } from '../../lib/hoverReveal';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useDismissable } from '../../hooks/useDismissable';
 
@@ -209,11 +210,10 @@ export const MessageBubble = memo(function MessageBubble({
   // STANDARD dell'app — apre il menu di una riga di sidebar, di una tab, di un
   // gruppo, di una tessera — quindi si impara una volta e vale ovunque. Un gesto
   // che si conosce non ha bisogno di un promemoria stampato su ogni messaggio.
-  const actionsVisibility = showActions
-    ? 'opacity-100'
-    : hasHover
-      ? 'opacity-0 group-hover:opacity-100'
-      : 'opacity-0 pointer-events-none';
+  // La coppia giusta (hover → si scopre; niente puntatore → sparisce DAVVERO,
+  // hit-test compreso) arriva dalla regola condivisa: `lib/hoverReveal`. Il
+  // percorso col dito c'e' gia' — «tieni premuto» apre la barra.
+  const actionsVisibility = showActions ? 'opacity-100' : hoverRevealClass(hasHover);
 
   const actionBtnClass = "w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-primary rounded";
 
@@ -490,8 +490,11 @@ export const MessageBubble = memo(function MessageBubble({
                 // gesto della barra azioni — tieni premuto e compare tutto cio'
                 // che il mouse rivelerebbe, invece di due meta-informazioni
                 // stampate addosso a ogni messaggio.
+                // Qui e' TESTO, non un comando: il ramo senza puntatore non ha
+                // bisogno di `pointer-events-none` (non c'e' niente da colpire)
+                // e segue `showActions`.
                 hasHover
-                  ? 'opacity-0 group-hover:opacity-100'
+                  ? hoverRevealClass(true)
                   : showActions ? 'opacity-100' : 'opacity-0'
               }`}
             >
