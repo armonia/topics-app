@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, FileText, AlertCircle, History } from 'lucide-react';
+// Unione delle due sponde del merge, meno le tre icone (Globe, Trash2, Link)
+// che il ramo di consegna importava per una versione di questo file che HEAD
+// nel frattempo ha riscritto: qui non le usa più nessuno.
+import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, FileText, AlertCircle, X, History } from 'lucide-react';
 import type { GitStatus as _GitStatus, GitFile } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
@@ -241,6 +244,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [pushing, setPushing] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
+  /**
+   * L'ultimo commit rifiutato, finché non se ne prova un altro.
+   *
+   * Un commit fallito arrivava solo come toast: spariva da solo, e il pannello
+   * restava identico a com'era un istante prima — le stesse modifiche, la
+   * stessa casella piena. Cioè indistinguibile da un commit che non è ancora
+   * partito. Il momento in cui serve un segnale che RESTA è proprio questo.
+   */
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [generatingMsg, setGeneratingMsg] = useState(false);
   /** Chi ha scritto il messaggio nella casella: il modello, o le sole regole. */
   const [msgSource, setMsgSource] = useState<'ai' | 'rules' | null>(null);
@@ -714,12 +726,18 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     if (!commitMessage.trim()) return;
     try {
       setCommitting(true);
+      setCommitError(null);
       await gitApi.commit(projectPath, commitMessage);
       setCommitMessage('');
       await loadStatus();
       toast.success('Committed!');
     } catch (err: unknown) {
-      toast.error(`Commit failed: ${errMessage(err)}`);
+      const motivo = errMessage(err);
+      setCommitError(motivo);
+      toast.error(`Commit failed: ${motivo}`);
+      // Il pannello mostrava ancora lo stato di PRIMA del commit: rileggerlo è
+      // l'unico modo di sapere se l'indice è rimasto davvero com'era.
+      await loadStatus().catch(() => { /* già in errore: non se ne aggiunge un secondo */ });
     } finally {
       setCommitting(false);
     }
@@ -1158,6 +1176,28 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       <kbd className="kbd !text-white/50">⌘↩</kbd>
                     </button>
                   </div>
+                  {/* Il commit rifiutato, con la ragione di git per esteso.
+                      Resta lì finché non se ne prova un altro — non è un avviso
+                      che passa, è lo stato in cui il pannello si trova. */}
+                  {commitError && (
+                    <div
+                      data-testid="commit-error"
+                      role="alert"
+                      className="mx-2 mb-1 px-2 py-1 rounded border border-red-500/40 bg-red-500/10 text-[10px] leading-[14px] text-red-600 dark:text-red-400 flex items-start gap-1 flex-shrink-0"
+                    >
+                      <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
+                      <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
+                        Commit non riuscito — niente è stato committato. {commitError}
+                      </span>
+                      <button
+                        onClick={() => setCommitError(null)}
+                        className="flex-shrink-0 p-0.5 rounded hover:bg-red-500/20"
+                        title="Nascondi"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  )}
                   {/* Chi ha scritto. Solo quando NON è il modello: un ripiego
                       dai soli numeri è plausibile abbastanza da passare per una
                       descrizione, ed è esattamente per questo che va detto. */}
