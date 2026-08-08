@@ -8,6 +8,7 @@ import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
 import { DevicesSection } from './DevicesSection';
 import { IdentitySection } from './IdentitySection';
+import { AccountSection } from './AccountSection';
 import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface GlobalSettingsProps {
@@ -150,6 +151,12 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
               // a una persona, e leggere l'elenco senza sapere di chi sono è
               // leggere una lista di oggetti.
               <div className="space-y-6">
+                {/* L'account viene prima delle persone perché risponde a una
+                    domanda che le precede — «chi sono io fuori da questa
+                    macchina» — e perché su un'installazione senza servizio
+                    degli account non si disegna affatto: in quel caso questa
+                    schermata resta esattamente com'era. */}
+                <AccountSection />
                 <IdentitySection />
                 <DevicesSection />
               </div>
