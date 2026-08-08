@@ -2130,32 +2130,39 @@ html.electron-mac .content-flip-layer {
  * l'alpha 0.55 che lascia salire il materiale nativo. Chi ritocca la tinta del
  * chrome tocca UN token e i due mondi si muovono insieme; chi tocca l'alpha
  * tocca solo queste due righe, e il web non se ne accorge. */
-/* L'ALPHA DEL CHROME RESTA 0,55, E IL «SLAVATO» NON SI CORREGGE DA QUI.
+/* L'ALPHA DEL CHROME RESTA 0,55, e la misura che diceva il contrario NON VALEVA.
  *
- * Misurato l'08/08 sul buffer della finestra vera (`screencapture -l<id>`, sei
- * campioni fra sidebar, riga di chrome e area pane): il chrome usciva
- * **rgb(106,107,109)**, uniforme. Risolvendo per il fondo — 106 = 0,55·8 +
- * 0,45·B — viene B ≈ **rgb(226)**, cioè quasi bianco: dietro la finestra c'erano
- * altre due finestre a bounds IDENTICI. La vibrancy è `behindWindow`
- * (`setBlendingMode: 0`, lib.rs), quindi quel bianco è ciò che il materiale fa
- * salire, e la nostra tinta scura al 55% non riesce a coprirlo.
+ * L'08/08 ho alzato queste alpha a 0,82 sostenendo di aver misurato il chrome a
+ * rgb(106,107,109) con un fondo implicito quasi bianco. Quella misura era
+ * INVALIDA e va scritto qui, perché il numero sembrava solido: veniva da
+ * `screencapture -l<window-id>`, che cattura il buffer PROPRIO della finestra e
+ * appiattisce le zone TRASPARENTI su un riempimento suo. Su una finestra di
+ * vetro l'82% dei pixel erano quel riempimento, non il chrome — la prova è che
+ * lo stesso valore usciva anche sopra le pane OPACHE, che opache lo sono
+ * davvero. È il cugino di [[project_screencapture-shows-transparency-as-black]].
  *
- * La controprova esclude l'altra ipotesi: con la tinta CHIARA lo stesso conto
- * darebbe rgb(230), non 106. Il tema scuro È applicato; il grigio è dilizione,
- * non un token sbagliato.
+ * Nemmeno la controprova regge: una cattura COMPOSITA del display mostra ciò che
+ * è davanti a quelle coordinate, e la finestra dell'app aveva altre due finestre
+ * ai bounds IDENTICI. Senza portare l'app in primo piano — cioè senza rubare il
+ * fuoco all'utente mentre lavora — il composito di QUESTA finestra non è
+ * misurabile da qui.
  *
- * Perché l'alpha NON è la leva, coi numeri su quel fondo:
- *   0,55 → rgb(106)   0,70 → rgb(73)   0,82 → rgb(47)
- *   0,90 → rgb( 30)   0,95 → rgb(19)   1,00 → rgb( 8)
- * Per arrivare a «scuro davvero» serve 0,90+, e a quel punto del vetro non
- * resta niente — cioè si perde esattamente la cosa che rende questo guscio
- * quello che è. Provato a 0,82 e rimesso a 0,55: un grigio meno chiaro è
- * comunque un grigio, e in cambio si spegneva il materiale.
+ * Quindi: l'alpha torna al valore che c'era, e la sostanza resta un'IPOTESI, non
+ * un fatto. L'ipotesi è che il «grigio slavato» sia diluizione — la vibrancy è
+ * `behindWindow` (`setBlendingMode: 0`, lib.rs), quindi il materiale fa salire
+ * ciò che sta dietro la FINESTRA, e la nostra tinta al 55% non lo copre. Ciò che
+ * la sostiene è uno screenshot dell'utente in cui il campo è un grigio MEDIO,
+ * che non è né il tema scuro (quasi nero) né il chiaro (quasi bianco).
  *
- * Le leve vere stanno nel NATIVO, non qui: il materiale (`setMaterial: 7`,
- * Sidebar, è fra i più trasmissivi) e l'appearance della vista. Entrambe
- * chiedono una ricompilazione del guscio, quindi vanno fatte insieme all'altra
- * correzione che la aspetta già. */
+ * Come si verifica, senza strumenti: togliere di sotto la finestra chiara. Se il
+ * chrome scurisce, è diluizione; se resta grigio, l'ipotesi è morta e va cercato
+ * altro. Finché non è verificata, qui non si tocca niente: alzare l'alpha
+ * baratta il vetro per un grigio meno chiaro, che è un cattivo affare in
+ * entrambi i casi.
+ *
+ * Le leve vere, se l'ipotesi regge, sono native e chiedono una ricompilazione:
+ * il materiale (`setMaterial: 7`, Sidebar, è fra i più trasmissivi) e
+ * l'appearance della vista. */
 html.electron-mac.dark {
   --chrome-bg: hsl(224 26% 4.5% / 0.55);
 }
