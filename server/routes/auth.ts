@@ -782,6 +782,18 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       }
 
       if (method === "POST") {
+        // SENZA RELAY NON SI CONIA. Era il buco: `/api/auth/relay` diceva
+        // `enabled:false` e il bottone spariva dall'interfaccia, ma questa
+        // rotta continuava a produrre link validi — un interruttore che
+        // nasconde il gesto senza toglierlo è peggio di nessun interruttore,
+        // perché fa credere di aver spento una cosa che è ancora accesa.
+        //
+        // Solo la POST. Elencare e REVOCARE restano raggiungibili a relay
+        // spento: chi ha appena spento è esattamente chi deve poter revocare
+        // ciò che aveva già distribuito.
+        if (!ctx.relayConfig?.()?.baseUrl) {
+          return json({ error: "la condivisione pubblica è spenta su questa installazione" }, 409);
+        }
         const body = await readJSON(req) as {
           resourceType?: string; resourceId?: string; giorni?: unknown;
         } | null;
