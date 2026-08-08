@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { openTopicsMenuItem } from "../helpers/openclaw";
+import { openAddMenuPane } from "../helpers/openclaw";
 
 /**
  * Deterministic mock data for dashboard E2E tests.
@@ -37,18 +37,14 @@ export class DashboardPage {
   // --- Navigation ---
 
   /**
-   * Open the dashboard pane via the sidebar "Topics" dropdown -> "Statistics" button.
+   * Apre la pane Dashboard dal menu «New» (⌘N) della sidebar.
+   *
+   * Si chiamava «Statistics» e viveva nel dropdown «Settings & Tools»: era il
+   * menu «+» con un'altra etichetta, e ora è una riga del «+» col nome che la
+   * pane porta davvero nella tab e nella sidebar («Dashboard»).
    */
   async openDashboard() {
-    // Click the "Topics" button (title="Settings & Tools") in sidebar header to open dropdown
-    const topicsBtn = this.page.locator('button[title="Settings & Tools"]');
-    await topicsBtn.click();
-
-    // Click "Statistics" in the dropdown menu
-    const statsBtn = this.page.locator(
-      'button:has-text("Statistics"):visible',
-    );
-    await statsBtn.click();
+    await openAddMenuPane(this.page, "dashboard");
 
     // Wait for the dashboard pane to be visible
     await this.pane.waitFor({ state: "visible", timeout: 10_000 });

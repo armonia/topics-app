@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
+import { isUtilityPanelType } from '../../../state/pane/adapters/utilityPanelId';
 import type { PaneType } from '../../../types';
 import {
   isBrowserPaneId,
@@ -171,11 +172,17 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       if (paneId && targetPrimary && onMergeIntoCell) {
         onMergeIntoCell(paneId, targetPrimary);
       }
-    } else if (type === 'board') {
-      // Utility pane (`__board__`) — owned by the App-level lifecycle hook
-      // (handleOpenAsPage). Event-based like `topics:open-project-picker`, so
-      // every "+" host opens it identically with no prop-threading.
-      window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } }));
+    } else if (isUtilityPanelType(type)) {
+      // Pane utility singleton (`__board__`, `__dashboard__`, `__cron__`) —
+      // le possiede l'hook di lifecycle di App (handleOpenAsPage). Il bus è lo
+      // stesso di `topics:open-project-picker`, così ogni ospite del «+» le apre
+      // identicamente senza prop-threading.
+      //
+      // Elencare UN tipo a mano qui è già costato: quando Dashboard e Cron sono
+      // uscite dal menu «Topics ▾» per entrare nel «+», le loro righe comparivano
+      // e non facevano NIENTE — un no-op silenzioso, il difetto più difficile da
+      // vedere. L'insieme è quello che il ricevitore già accetta.
+      window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type } }));
     }
   }, [ordering.ops, claudeSkipPermissions, onCreateTerminal, gridItemKey, onMergeIntoCell]);
 

@@ -8,7 +8,24 @@
  * importers, so both worlds read one implementation.
  */
 
-export type UtilityPanelType = 'dashboard' | 'cron' | 'board';
+/**
+ * I tre tipi, come INSIEME e non solo come unione di tipi. Serve a runtime:
+ * il bus `topics:open-utility` ha un mittente (il «+» delle tab) e un
+ * ricevitore (il lifecycle di App), ed entrambi elencavano i tipi a mano. Il
+ * mittente ne aveva UNO — quando Dashboard e Cron sono entrate nel menu «+», le
+ * loro righe comparivano e non facevano niente: un no-op silenzioso.
+ *
+ * L'unione è derivata dall'insieme, non viceversa, così aggiungerne un quarto
+ * è una modifica sola.
+ */
+export const UTILITY_PANEL_TYPES = ['dashboard', 'cron', 'board'] as const;
+
+export type UtilityPanelType = (typeof UTILITY_PANEL_TYPES)[number];
+
+/** Il tipo è una pane utility? (Guardia a runtime per il bus.) */
+export function isUtilityPanelType(type: string): type is UtilityPanelType {
+  return (UTILITY_PANEL_TYPES as readonly string[]).includes(type);
+}
 
 export const UTILITY_PREFIX = '__';
 

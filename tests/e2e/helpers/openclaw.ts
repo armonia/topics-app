@@ -1,11 +1,15 @@
 import type { Page } from "@playwright/test";
 
 /**
- * Shared helpers for the OpenClaw-gated utility surfaces (Activity, Agents,
- * Cron Jobs, …). These panes used to hang off standalone header buttons; they
- * now live inside the "Settings & Tools" (Topics ▾) dropdown and only render
- * when `openclawAvailable` is true. The isolated test server reports openclaw
- * as unconfigured, so tests must stub availability AND open the menu.
+ * Shared helpers for the utility panes (Dashboard, Cron, Board), plus the
+ * OpenClaw availability stub they sometimes need.
+ *
+ * Le pane utility hanno cambiato porta due volte: prima bottoni nella testata
+ * standalone, poi il dropdown «Settings & Tools» (Topics ▾), oggi il menu «New»
+ * (⌘N) come ogni altra pane. Cron è l'unica ancora GATED su OpenClaw
+ * (`PaneConfig.requires`), e il server di test lo riporta non configurato:
+ * quel test deve quindi stubbare la disponibilità PRIMA di aprire il menu, o
+ * la riga non esiste proprio.
  */
 
 const READY_OPENCLAW = {
@@ -67,17 +71,26 @@ export async function mockOpenClawAvailable(page: Page) {
 }
 
 /**
- * Open a utility pane from the "Settings & Tools" (Topics ▾) dropdown by its
- * menu-row accessible name (e.g. "Activity", "Agents", "Statistics",
- * "Cron Jobs", "Remote Access"). The click is scoped to the menu portal — the
- * div whose DIRECT child is the "Reimposta pannelli" button — so it never
- * collides with the pane's own header button (same name) once the pane is open
- * and persisted across the serial suite.
+ * Apre una pane UTILITY (Dashboard, Cron, Board) dal menu «New» della sidebar —
+ * il «+» ⌘N, che è l'unico posto da cui si apre una pane.
+ *
+ * Stavano nel dropdown «Settings & Tools» (Topics ▾) con nomi loro
+ * («Statistics», «Cron Jobs»); erano il menu «+» con altre etichette, e il
+ * dropdown è tornato a essere solo vista + azioni di layout + Settings.
+ *
+ * Il locator è il `data-testid` della riga e non il nome accessibile: le righe
+ * di `PaneAddMenu` sono `role="menuitem"` dentro un `role="menu"` (da baff80a5),
+ * quindi `getByRole("button", …)` non le trova — stessa scelta di
+ * `helpers/terminal-workspace.ts`. In più il testid non collide col bottone
+ * omonimo nell'intestazione della pane, una volta che la pane è aperta e
+ * sopravvive alla suite seriale.
  */
-export async function openTopicsMenuItem(page: Page, name: string | RegExp) {
-  await page.locator('button[title="Settings & Tools"]').click();
-  const topicsMenu = page.locator(
-    'div:has(> button:has-text("Reimposta pannelli"))',
-  );
-  await topicsMenu.getByRole("button", { name }).click();
+export async function openAddMenuPane(
+  page: Page,
+  type: "dashboard" | "cron" | "board",
+) {
+  await page.locator('button[title="New (⌘N)"]').click();
+  const row = page.getByTestId(`pane-add-menu-${type}`);
+  await row.waitFor({ state: "visible", timeout: 5000 });
+  await row.click();
 }
