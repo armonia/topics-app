@@ -53,6 +53,23 @@ export function ProjectFavicon({
       draggable={false}
       className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
       style={{
+        // LA SCATOLA È QUADRATA, E VA IMPOSTA DALLO STILE.
+        //
+        // Gli attributi `width`/`height` qui sopra dichiarano solo il rapporto
+        // d'aspetto: il preflight di Tailwind mette `img { height: auto }`, che
+        // li scavalca. Per un'icona quadrata non si vedeva; per un LOGO LARGO
+        // sì, e di brutto — misurato l'08/08: `edm-contratto` (3235×1224) usciva
+        // 18 di larghezza per **6,8** di altezza, `acquapub` (256×119) 12 per
+        // **5,6**. Una scheggia, che nella pastiglia di un progetto o in una
+        // tessera fissata si legge come «l'icona non c'è» («non vedo le icone
+        // nelle chip da mobile, almeno non tutte»).
+        //
+        // Con la scatola imposta, `object-contain` fa il suo mestiere: il logo
+        // largo entra dentro il quadrato con le sue bande, invece di schiacciare
+        // il quadrato addosso a sé. E lo slot resta della misura dichiarata,
+        // quindi nessuna riga si sposta quando l'immagine atterra.
+        width: size,
+        height: size,
         // The probe already confirmed the icon exists, so the slot is
         // reserved up-front (no layout shift); opacity-until-decode hides the
         // broken-glyph frame an erroring <img> would paint.
