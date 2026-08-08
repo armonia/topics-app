@@ -717,6 +717,57 @@ test.describe("Sidebar — Project icons", () => {
     await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
 
+  /**
+   * ICON-CACHE — un'icona GIÀ IN CACHE deve restare VISIBILE, non solo presente.
+   *
+   * Il test qui sopra usa `toBeVisible()`, e questo è il suo punto cieco: per
+   * Playwright «visibile» vuol dire rettangolo non vuoto e niente
+   * `display:none`/`visibility:hidden` — l'**opacità non la guarda**. Passava
+   * quindi anche con l'icona a `opacity: 0`, che è esattamente il difetto
+   * misurato l'08/08 sul server vivo: `<img>` con `complete: true` e
+   * `naturalWidth: 512`, e sullo schermo niente.
+   *
+   * Il meccanismo: `ProjectFavicon` accendeva l'opacità solo su `onLoad`, ma
+   * un'immagine servita dalla cache è già `complete` quando React attacca il
+   * gestore — quell'evento è già passato e non torna. Con la cache fredda non
+   * succede mai; per questo il ricarico ripetuto è parte del test e non un
+   * vezzo. In WebKit cadeva al secondo giro, in Chromium al terzo; sul telefono
+   * capitava quasi sempre («da app desktop le vedo ma da PWA no… tutte, e a
+   * volte tornano»).
+   *
+   * Si asserisce «prima o poi opaca», non «opaca subito»: il primo fotogramma a
+   * 0 è legittimo (lo slot è prenotato prima che l'immagine sia disegnabile), e
+   * pretendere l'istante sbagliato renderebbe rosso un comportamento giusto. Col
+   * difetto in piedi l'opacità non arriva MAI a 1, quindi il rosso c'è davvero.
+   */
+  test("ICON-CACHE: un'icona già in cache resta opaca a ogni ricarico", async ({ page }) => {
+    await goToApp(page);
+    const row = page.getByTestId("project-toggle-e2e-iconful-project");
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    for (let giro = 1; giro <= 4; giro++) {
+      const icon = row.locator('img[src*="/api/projects/icon"]');
+      await expect(icon, `giro ${giro}: l'icona non è nel DOM`).toBeVisible({ timeout: 10000 });
+      // Scaricata e decodificabile: separa «non è mai arrivata» da «è arrivata
+      // e non si vede», che è il difetto sotto esame.
+      await expect
+        .poll(() => icon.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 10000 })
+        .toBe(true);
+      await expect
+        .poll(() => icon.evaluate((el) => getComputedStyle(el).opacity), {
+          timeout: 8000,
+          message: `giro ${giro}: icona scaricata ma INVISIBILE (opacity 0) — il cancello è tornato a dipendere da onLoad`,
+        })
+        .toBe("1");
+      // Il ricarico è ciò che scalda la cache: dal secondo giro in poi l'<img>
+      // può essere completa prima che React attacchi i suoi gestori.
+      if (giro < 4) {
+        await page.reload();
+        await expect(row).toBeVisible({ timeout: 10000 });
+      }
+    }
+  });
+
   // Una tab tenuta da un'ALTRA finestra resta visibile qui, col glifo della
   // finestra: è l'unica cosa che la vecchia sezione "Finestre" sapeva fare, e
   // sopravvive alla sua rimozione (e a quella della sezione "Gruppi", che
