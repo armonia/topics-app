@@ -31,6 +31,35 @@ interface ProviderInfo {
   isDefault: boolean;
 }
 
+/**
+ * Il gesto «condividi questa chat», e l'unico posto dove si decide se questa
+ * chat si possa condividere affatto.
+ *
+ * Sta in un componente suo, e non in una riga di JSX dentro il modale, perché
+ * la condizione È il comportamento: una `draft:` non ha ancora una riga sul
+ * server, quindi la concessione atterrerebbe su un id che sta per essere
+ * buttato — e non la ferma nessuno più a valle. `POST /api/auth/shares`
+ * (server/routes/auth.ts) valida il tipo di risorsa, il tipo di soggetto e il
+ * confinamento del soggetto: non controlla MAI che la riga della risorsa
+ * esista. Una concessione verso `draft:xyz` viene scritta da `putGrant` e
+ * sopravvive all'id buttato — un permesso verso il nulla che resta poi
+ * nell'elenco.
+ *
+ * Isolato così, quel «non sulle bozze» è una funzione pura di props: si prova
+ * senza montare niente (`TopicSettingsModal.test.tsx`), e togliere la guardia
+ * fa diventare rosso quel test invece di non far fallire nulla.
+ *
+ * Il controllo vive QUI e non nella riga di chrome della pane perché quella
+ * riga è la barra delle TAB — appartiene al gruppo, non alla singola chat —
+ * mentre questo modale è la superficie che parla di UNA topic, ed è
+ * raggiungibile allo stesso modo da ogni layout (gruppo standalone, cella
+ * sola, finestra di progetto).
+ */
+export function TopicShareAction({ topicId }: { topicId: string }) {
+  if (topicId.startsWith('draft:')) return null;
+  return <ShareControl resourceType="topic" resourceId={topicId} />;
+}
+
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
   const confirm = useConfirm();
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
@@ -194,18 +223,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 la stessa cosa in un altro modo. Il modello sotto è una tabella
                 `grants` sola, generica sul tipo di risorsa: due pannelli diversi
                 sarebbero esattamente la divergenza che quel modello esiste per
-                evitare.
-
-                Sta QUI e non nella riga di chrome della pane perché la riga di
-                chrome è la barra delle TAB — appartiene al gruppo, non alla
-                singola chat — mentre questo modale è la superficie che parla di
-                UNA topic, ed è raggiungibile allo stesso modo da ogni layout
-                (gruppo standalone, cella solo, finestra di progetto).
-
-                Non sulle BOZZE: una `draft:` non ha ancora una riga sul server,
-                quindi la concessione atterrerebbe su un id che sta per essere
-                buttato — un permesso verso il nulla, che poi resta nell'elenco. */}
-            {!topic.id.startsWith('draft:') && <ShareControl resourceType="topic" resourceId={topic.id} />}
+                evitare. La regola «non sulle bozze» sta dentro
+                `TopicShareAction`, sopra. */}
+            <TopicShareAction topicId={topic.id} />
             <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
               <X size={14} />
             </button>
