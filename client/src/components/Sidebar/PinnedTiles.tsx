@@ -1,3 +1,4 @@
+import { COLUMN_GAP } from '../../lib/selectionStyles';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
@@ -34,7 +35,9 @@ import { liveTranslate, useCellFlip } from './useCellFlip';
  * 0px fra due righe di tessere (si toccavano) e 10px prima del filo. Tre
  * distanze diverse per tre spazi che l'occhio legge come uno.
  */
-const TILE_GAP = 6;
+// Il passo è quello della colonna, importato e non riscritto: prima erano due
+// numeri uguali per caso, e le righe hanno già smesso una volta di seguirlo.
+const TILE_GAP = COLUMN_GAP;
 
 /** Quanto della sezione possono prendersi le fasce aperte. Il resto della
  *  sidebar deve restare raggiungibile: una tessera espansa non è una modale. */
@@ -154,7 +157,10 @@ export function PinnedTiles({
    *  il «+» che sulla riga di un progetto apre una tab dentro quel progetto.
    *  Vive FUORI dal bottone: un bottone dentro un bottone è HTML non valido, e
    *  il browser lo srotola spostando l'annidamento a caso. `null` ⇒ niente. */
-  renderActions?: (item: SidebarItem) => ReactNode;
+  /** Le azioni sulla tessera (oggi: il «+» dei progetti). Riceve anche se la
+   *  tessera è APERTA, perché il «+» si mostra solo lì: un comando «crea
+   *  dentro» su una cosa chiusa promette un posto che non si vede. */
+  renderActions?: (item: SidebarItem, aperta: boolean) => ReactNode;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -200,7 +206,7 @@ export function PinnedTiles({
   /** Su questa tessera si appoggia un comando? Lo sa solo il chiamante, e la
    *  tessera deve saperlo per riservargli lo slot — anche nelle anteprime, che
    *  altrimenti troncherebbero il nome a una misura che il drop non produrrà. */
-  const haAzioni = (item: SidebarItem) => (renderActions?.(item) ?? null) !== null;
+  const haAzioni = (item: SidebarItem) => (renderActions?.(item, aperta(item.id)) ?? null) !== null;
 
   /**
    * Chi ha DAVVERO qualcosa da aprire qui sotto — deciso una volta per render,
@@ -822,7 +828,7 @@ export function PinnedTiles({
                 const item = byId.get(key);
                 if (!item) return null;
                 const meta = metaFor(item);
-                const actions = renderActions?.(item) ?? null;
+                const actions = renderActions?.(item, aperta(key)) ?? null;
                 return (
                   <div
                     key={key}
