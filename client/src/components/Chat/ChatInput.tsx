@@ -78,16 +78,16 @@ const SLASH_COMMANDS = [
 // file, non per leggere l'elenco degli slash.
 
 function AddMenu({
-  isCallActive, isRecording, isListening, isSpeaking, autoTTS,
+  isCallActive, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
-  toggleCall, startRecording, stopRecording, toggleListening, stopSpeaking, setAutoTTS,
+  toggleCall, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
   onAttach,
   onExport,
 }: {
-  isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
+  isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
-  toggleCall: () => void; startRecording: () => void; stopRecording: () => void;
+  toggleCall: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
   onSlashCommand: (cmd: string) => void;
   /** Apre il selettore di file (la vecchia graffetta). */
@@ -98,7 +98,7 @@ function AddMenu({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const anyActive = isCallActive || isRecording || isListening || isSpeaking || autoTTS;
+  const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
   const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
 
   return (
@@ -140,16 +140,10 @@ function AddMenu({
           Attach file
           <span className="ml-auto text-[11px] text-app-text-muted">⌘U</span>
         </button>
-        <button
-          type="button"
-          onClick={() => { if (isRecording) stopRecording(); else startRecording(); setOpen(false); }}
-          className={`${rowClass} ${isRecording ? 'text-red-500' : 'text-app-text'}`}
-          disabled={currentStreaming || uploading}
-        >
-          {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
-          {isRecording ? 'Stop recording' : 'Record voice'}
-          <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧R</span>
-        </button>
+        {/* «Registra voce» NON sta qui: è il tasto col microfono in fondo alla
+            riga, l'unico ammesso prima dell'invio. Due porte per lo stesso
+            gesto sono due posti dove cercarlo e uno di troppo da tenere in
+            piedi. */}
 
         {/* Voice tools */}
         {voiceCallSupported && (
@@ -969,49 +963,20 @@ export function ChatInput({
   const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
   const hasContext = mentionedFiles.length > 0 || contextFilePaths.length > 0;
 
-  // ── Una riga finché è una riga, due quando il testo cresce ───────────────
+  // ── L'altezza del campo la decide il testo, non le righe ─────────────────
   //
-  // A riposo il composer è una riga sola e i controlli stanno di fianco al
-  // testo. Ma quel gruppo è largo ~330px: su una card da 800 il campo ne
-  // riceveva 390, cioè il testo lungo si incolonnava nella metà sinistra
-  // lasciando vuota la destra. Appena serve una seconda riga, quindi, il testo
-  // si prende tutta la larghezza e i controlli scendono sotto — la forma di
-  // ogni composer moderno, e la stessa che avevamo prima: la differenza è che
-  // adesso quella seconda riga si paga solo quando serve.
-  //
-  // ISTERESI, non una soglia sola: al momento in cui i controlli scendono il
-  // campo diventa PIÙ LARGO, quindi lo stesso testo potrebbe tornare a starci
-  // in una riga → si richiuderebbe → si riaprirebbe, all'infinito. Si sale su
-  // una misura (il contenuto non ci sta) e si scende su due condizioni
-  // indipendenti dalla larghezza (nessun a-capo, e testo corto abbastanza da
-  // starci di sicuro anche nella riga stretta).
-  const [expanded, setExpanded] = useState(false);
-  const SINGLE_ROW_MAX_H = 40;
-  const SURELY_SHORT = 40;
+  // Il campo nasce alto una riga e cresce con quello che scrivi, fino a 140px
+  // (poi scorre). Stava in ChatPane, su `[message]`: è tornato qui perché
+  // dipende anche dalla LARGHEZZA del campo, e quella la conosce solo il
+  // composer. `useLayoutEffect` perché la correzione deve arrivare prima del
+  // disegno, o si vede lampeggiare l'altezza vecchia.
   const MAX_COMPOSER_H = 140;
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    if (!message) { setExpanded(false); return; }
-    if (!expanded) {
-      if (ta.scrollHeight > SINGLE_ROW_MAX_H) setExpanded(true);
-    } else if (!message.includes('\n') && message.length < SURELY_SHORT && ta.scrollHeight <= SINGLE_ROW_MAX_H) {
-      setExpanded(false);
-    }
-  }, [message, expanded, textareaRef]);
-
-  // L'altezza del campo si rimisura anche quando i controlli scendono, non solo
-  // quando cambia il testo: scendendo, il campo diventa più largo e lo stesso
-  // testo occupa una riga in meno. Stava in ChatPane, sulla sola `message`, e
-  // sotto il testo restava una riga vuota — l'altezza di una larghezza che non
-  // c'era più. `useLayoutEffect` perché la correzione deve arrivare prima del
-  // disegno, o quella riga vuota si vede lampeggiare.
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_H) + 'px';
-  }, [message, expanded, textareaRef]);
+  }, [message, textareaRef]);
 
   // …e quando la pane si allarga o si stringe. Trascinare un divisore o
   // rimpicciolire la finestra cambia quante righe occupa lo stesso testo, e
@@ -1341,22 +1306,38 @@ export function ChatInput({
               </div>
             )}
 
-            {/* UNA RIGA SOLA: «+», il testo, e i controlli che si leggono.
-                Erano due — la textarea a tutta larghezza e sotto una barra con
-                sette bottoni — e quella barra costava 40px di altezza a ogni
-                pane per dire, il più delle volte, niente. Adesso il campo di
-                testo è alto UNA riga e cresce con quello che scrivi (fino a
-                140px, poi scorre): il composer a riposo è una riga, non un
-                blocco.
-                `items-end`: quando il testo va a capo la colonna cresce verso
-                l'alto e i bottoni restano incollati al fondo, allineati alla
-                riga che stai scrivendo. */}
-            <div className={`flex items-end gap-1 px-1.5 py-1.5 ${expanded ? 'flex-wrap' : ''}`}>
+            {/* IL TESTO SI PRENDE LA RIGA, i controlli stanno SOTTO.
+                Ci ho provato a tenerli di fianco, ed è la cosa sbagliata: il
+                gruppo è largo ~330px, quindi su una card da 800 al testo ne
+                restavano 390 e si incolonnava nella metà sinistra lasciando
+                vuota la destra. «Devono stare sotto le cose che ti ho indicato,
+                non affianco al testo.»
+                La riga singola è quella dell'INPUT: il campo nasce alto una riga
+                sola e cresce con quello che scrivi (fino a 140px, poi scorre).
+                Sotto, sempre uguale a sé stessa, la riga dei controlli: «+» in
+                testa, i permessi subito dopo, e invio in fondo a destra. */}
+            <textarea
+              ref={textareaRef}
+              data-testid="chat-message-input"
+              value={message}
+              onChange={handleMessageChange}
+              onKeyDown={handleKeyDown}
+              onPaste={onPaste}
+              aria-label={`Message input for ${topic.name}`}
+              aria-describedby="chat-input-hint"
+              placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+              className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-2.5'} pb-1 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+              style={{ minHeight: '28px', maxHeight: '140px' }}
+              rows={1}
+              disabled={uploading}
+            />
+            <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+
+            <div className="flex items-center gap-1 px-1.5 pb-1.5">
               <AddMenu
                 onAttach={() => fileInputRef.current?.click()}
                 onExport={onExportConversation}
                 isCallActive={isCallActive}
-                isRecording={isRecording}
                 isListening={isListening}
                 isSpeaking={isSpeaking}
                 autoTTS={autoTTS}
@@ -1365,8 +1346,6 @@ export function ChatInput({
                 currentStreaming={currentStreaming}
                 uploading={uploading}
                 toggleCall={toggleCall}
-                startRecording={startRecording}
-                stopRecording={stopRecording}
                 toggleListening={toggleListening}
                 stopSpeaking={stopSpeaking}
                 setAutoTTS={setAutoTTS}
@@ -1375,28 +1354,6 @@ export function ChatInput({
                   textareaRef.current?.focus();
                 }}
               />
-
-              {/* `min-w-[5rem]` è il pavimento del campo di testo, e serve:
-                  con `flex-1` la base è 0, quindi in una pane stretta lo
-                  schiacciamento sarebbe caduto TUTTO qui (campo largo zero) e i
-                  controlli sarebbero rimasti interi. Con un minimo, a cedere è
-                  il gruppo dei controlli — che scorre invece di sparire. */}
-              <textarea
-                ref={textareaRef}
-                data-testid="chat-message-input"
-                value={message}
-                onChange={handleMessageChange}
-                onKeyDown={handleKeyDown}
-                onPaste={onPaste}
-                aria-label={`Message input for ${topic.name}`}
-                aria-describedby="chat-input-hint"
-                placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
-                className={`flex-1 min-w-[5rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'} ${expanded ? 'order-first basis-full' : ''}`}
-                style={{ minHeight: '32px', maxHeight: '140px' }}
-                rows={1}
-                disabled={uploading}
-              />
-              <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
 
               {/* I controlli di sessione. min-w-0 li lascia stringere sotto la
                   loro larghezza naturale; overflow-x-auto li fa SCORRERE invece
@@ -1409,7 +1366,7 @@ export function ChatInput({
                   `chat-layout-audit`, sotto il minimo WCAG 2.2 di 24px), con
                   l'icona da 16px in un box storto. Il contenitore prometteva
                   lo scroll e i figli non glielo lasciavano fare. */}
-              <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
                 {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
                     decide se l'agente può toccare i tuoi file, ed è quindi la
                     cosa da guardare prima di premere invio — non l'ultima
@@ -1517,11 +1474,27 @@ export function ChatInput({
               {/* Invia, e basta. flex-shrink-0: Invia/Ferma non può MAI essere
                   quello che si stringe in una pane stretta — a cedere è il
                   gruppo dei controlli qui accanto, che scorre. */}
-              {/* `ml-auto`: a una riga non cambia niente (lo spazio se lo prende
-                  già il campo di testo con `flex-1`), a due righe tiene Invia
-                  inchiodato a destra invece di lasciarlo appiccicato ai
-                  controlli con il vuoto dopo. */}
-              <div className="flex items-center flex-shrink-0 ml-auto">
+              {/* In coda alla riga: il microfono e l'invio, e nient'altro.
+                  `flex-shrink-0`: questi due non si stringono MAI — a cedere è
+                  il gruppo dei controlli qui accanto, che scorre. */}
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                {/* Il tasto per DETTARE, l'unico ammesso prima dell'invio: è la
+                    seconda strada per riempire questo campo, quindi sta dove
+                    finisce di riempirsi. Il resto della voce (dettatura del
+                    browser, chiamata, lettura ad alta voce) resta nel «+»,
+                    perché sono modalità, non un gesto singolo. */}
+                <button
+                  type="button"
+                  onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
+                    isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={isRecording ? 'Stop recording (⌘⇧R)' : 'Record voice (⌘⇧R)'}
+                  aria-label={isRecording ? 'Stop recording' : 'Record voice'}
+                  disabled={currentStreaming || uploading}
+                >
+                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                </button>
                 {/*
                   Unified composer button. The four states resolve via the
                   pure `decideComposerAction` helper so this JSX no longer
