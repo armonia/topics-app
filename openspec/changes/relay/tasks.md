@@ -97,3 +97,75 @@ sapere se il disegno regge prima di aprire un conto.
 - [ ] 5.2 Misurare il costo reale su un mese di uso vero e confrontarlo con la
   stima di questo documento. Se diverge, si aggiorna il documento — non si
   aggiusta il ricordo.
+
+## 6. Reperti della verifica del 2026-08-08 — letti nel codice, non stimati
+
+Questa sezione nasce da una revisione avversariale fatta mentre si valutava se
+il relay potesse trasportare una SESSIONE invece di un link. Sta qui e non in una
+chat perché una scoperta che vive in una conversazione è persa: nessuno dei punti
+qui sotto è stato affrontato.
+
+**Stato: la condivisione pubblica è SPENTA** (`TOPICS_RELAY_URL` commentata in
+`~/.topics-server-env`, 2026-08-08, decisione di Attilio). Il Worker resta su e
+da fermo non costa. Quindi tutto ciò che segue è dormiente — ma torna vivo il
+giorno che si riaccende, e non si accorge di essere stato dimenticato.
+
+- [ ] 6.1 **`share_links.key` è la chiave AES-256 IN CHIARO a riposo**
+  (`085-share-links.sql:52`). È la scelta opposta a quella fatta per i gettoni
+  di sessione, dove il DB tiene solo lo SHA-256 proprio perché «un backup, o una
+  lettura del file server ancora da sandboxare, consegna dati ma non accessi»
+  (`server/lib/device-auth.ts:19-24`). Qui non è aggirabile — è l'host che deve
+  CIFRARE, quindi la chiave gli serve intera — ma la conseguenza va scritta e
+  scelta: chi legge `data/topics.db` apre ogni link vivo. Con una scheda in sola
+  lettura il raggio è una scheda; con una sessione dentro, non più.
+
+- [ ] 6.2 **L'ingresso ospite del Durable Object non autentica nessuno, e
+  l'`installationId` è pubblico per costruzione.** `relay/src/worker.ts:49`
+  accetta `/s/:installationId` sulla sola forma del percorso;
+  `relay-do.ts:61-75` assegna un `sessionId` a chiunque, senza `shareRef`, senza
+  chiave, senza tetto. E `shared/relay-crypto.ts:125` mette l'`installationId`
+  nel PERCORSO di ogni link condiviso. Quindi chiunque abbia mai ricevuto un
+  link può, per sempre: aprire socket ospite illimitate, tenere sveglio il DO, e
+  iniettare messaggi in entrata — che sono quelli che si pagano. Il tetto di 5.1
+  non basta: quello limita il danno, non l'accesso.
+
+- [ ] 6.3 **`/agent/:installationId` — il capo HOST — è dirottabile.**
+  `relay-do.ts:52-59` assegna il tag host in base al solo percorso, prima di
+  qualunque `hello`. Chi conosce l'`installationId` (vedi 6.2) può presentarsi
+  come la macchina. La correzione naturale — leggere una credenziale a tempo di
+  `fetch` — sbatte contro `relay/relay-contract.test.ts:96-98`, che vieta
+  testualmente la parola `Authorization` nel sorgente del Worker. Il divieto è
+  giusto (il relay non deve conoscere le credenziali di Topics) ma va rifatto
+  per distinguere «non legge le credenziali dell'utente» da «non ha una propria
+  autenticazione di trasporto».
+
+- [ ] 6.4 **Nessuno esegue MAI `relay-do.ts`.** `relay-contract.test.ts:13-15`
+  lo legge con `readFileSync` come STRINGA; non c'è miniflare, né
+  `vitest-pool-workers`, né `unstable_dev` in tutto il repo, e nessun test
+  collega `relay-client.ts` a `relay-do.ts`. Instradamento, sfratto,
+  `guest-left`, `denied`, chiusura: zero copertura a runtime. Esistono due
+  implementazioni del protocollo (`shared/relay-fake.ts`) e **nessuna delle due
+  valida l'altra**.
+
+- [ ] 6.5 **`gestisci` non ha test.** `server/services/relay-client.ts:104-124`
+  è la funzione che un trasporto di sessione sostituirebbe per intero, e
+  `relay-client.test.ts` esercita solo `__servi`. Il rifiuto indistinguibile
+  (`:117-123`), citato come presidio anti-oracolo, vive in codice mai eseguito.
+
+- [ ] 6.6 **«null = si chiude» è un commento, non un comportamento.**
+  `shared/relay-protocol.ts:140` lo afferma, ma `relay-client.ts:141-144` fa
+  `if (m) void gestisci(m)` — il messaggio invalido si ignora in silenzio e la
+  socket resta aperta; `relay-do.ts:93-98` risponde `denied: bad-version` senza
+  chiudere; `pagina-ospite.ts:128-136` non chiama nemmeno `leggiMessaggio`.
+  Conseguenza: un deploy del Worker che cambi l'involucro non rompe
+  rumorosamente gli host non aggiornati — degrada in silenzio.
+
+- [ ] 6.7 **Prima di trasportare una sessione servono le fondamenta dei
+  permessi.** L'allowlist degli ospiti (`server/lib/grants.ts:62-83`) è di sei
+  prefissi e NON contiene `/api/ui-state`, `/api/projects`, `/ws/terminal/:id`,
+  `/ws/browser/:id`; `:99-103` nega ogni metodo mutante tranne il logout. Non è
+  un dettaglio da allargare: `grants.ts:9-16` spiega che spazi e tab «vivono
+  dentro un blob JSON da ~56 KB in una riga sola di `ui_state` … Vanno promossi
+  a righe PRIMA, ed è lavoro di fondamenta, non una voce in un enum». Nota che
+  questo NON blocca il caso «il MIO telefono raggiunge il MIO Mac»: un
+  dispositivo `owner` non è confinato. Blocca «un ospite ha una sessione vera».

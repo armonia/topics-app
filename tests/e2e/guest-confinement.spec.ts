@@ -194,45 +194,56 @@ test.describe("Confinamento dell'ospite", () => {
       data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
     });
 
-    // Un contesto browser vero col biscotto dell'ospite: è il percorso che fa
-    // davvero un telefono, e l'unico modo di aprire quella socket con quella
-    // identità — `WebSocket` di Node non porta header, e `ws` non è fra le
-    // dipendenze di questo repo.
-    const eq = cookie.indexOf("=");
-    const ctx = await browser.newContext({ baseURL: E2E_TUNNEL_BASE });
-    await ctx.addCookies([{
-      name: cookie.slice(0, eq),
-      value: cookie.slice(eq + 1),
-      url: E2E_TUNNEL_BASE,
-    }]);
-    const page = await ctx.newPage();
+    // DUE osservatori sullo stesso evento: il proprietario da loopback e
+    // l'ospite dal tunnel. Serve il primo perché senza di lui questo test
+    // sarebbe verde anche se il broadcast non partisse affatto — cioè sarebbe
+    // un'asserzione che non può fallire, che è il modo tipico in cui una prova
+    // di confinamento mente.
+    const apri = async (base: string, biscotto?: string) => {
+      const ctx = await browser.newContext({ baseURL: base });
+      if (biscotto) {
+        const eq = biscotto.indexOf("=");
+        await ctx.addCookies([{ name: biscotto.slice(0, eq), value: biscotto.slice(eq + 1), url: base }]);
+      }
+      const page = await ctx.newPage();
+      await page.goto(base, { waitUntil: "domcontentloaded" });
+      // La socket la si tiene aperta A MANO: un ospite non monta
+      // l'applicazione, quindi quella dell'app si chiude dopo la stretta di
+      // mano e guardare lì darebbe silenzio per il motivo sbagliato.
+      await page.evaluate(() => {
+        const w = window as unknown as { __frame: string[] };
+        w.__frame = [];
+        const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws`);
+        ws.addEventListener("message", (e) => w.__frame.push(String(e.data)));
+      });
+      const frames = () => page.evaluate(() => (window as unknown as { __frame: string[] }).__frame);
+      await expect.poll(async () => (await frames()).some((f) => f.includes('"welcome"')), { timeout: 10_000 }).toBe(true);
+      return { ctx, frames };
+    };
 
-    const frame: string[] = [];
-    page.on("websocket", (ws) => {
-      ws.on("framereceived", (f) => { if (typeof f.payload === "string") frame.push(f.payload); });
-    });
+    const proprietario = await apri(E2E_BASE);
+    const ospiteWs = await apri(E2E_TUNNEL_BASE, cookie);
 
     try {
-      await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
-      // Si aspetta che la socket sia SU prima di muovere qualcosa: senza
-      // questo, un test verde direbbe solo che il frame è arrivato prima che
-      // qualcuno ascoltasse.
-      await page.waitForEvent("websocket", { timeout: 15_000 });
-
       for (const t of [condivisa, nascosta]) {
         await request.patch(`${E2E_BASE}/api/topics/${t.id}`, { data: { name: `${t.name}-mossa` } });
       }
-      // I broadcast sono immediati: se il filtro fosse rotto il frame sarebbe
-      // già qui. L'attesa è per il filo, non per una riconciliazione.
-      await page.waitForTimeout(2000);
 
-      const testo = frame.join("\n");
+      // CONTROLLO POSITIVO: il proprietario DEVE vedere passare la topic
+      // nascosta. Se questo non arriva, il test successivo non prova niente.
+      await expect
+        .poll(async () => (await proprietario.frames()).join("\n").includes(nascosta.id), { timeout: 10_000 })
+        .toBe(true);
+
+      // E l'ospite, sullo stesso evento, no.
+      const suo = (await ospiteWs.frames()).join("\n");
       expect(
-        testo.includes(nascosta.id),
+        suo.includes(nascosta.id),
         "l'id di una topic NON condivisa non deve comparire in nessun frame consegnato all'ospite",
       ).toBe(false);
     } finally {
-      await ctx.close();
+      await proprietario.ctx.close();
+      await ospiteWs.ctx.close();
     }
   });
 });
