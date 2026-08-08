@@ -2065,12 +2065,34 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <select
           value={s.dispatchModel || 'auto'}
           onChange={(e) => patch({ dispatchModel: e.target.value })}
-          className="max-w-[55%] rounded bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
+          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
         >
           <option value="auto">Auto (sceglie il classificatore)</option>
           {models.map((m) => (
             <option key={m} value={m}>{friendlyModelLabel(m)}</option>
           ))}
+        </select>
+      </label>
+
+      {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si
+          intende lo stesso VALORE EFFETTIVO: «Come le Impostazioni» non copia
+          la scelta globale, la EREDITA (il ripiego lo fa il server, in un punto
+          solo). Copiare il valore vorrebbe dire che cambiare la preferenza
+          globale non muove le board che l'avevano già letta. */}
+      <label
+        className="flex items-center justify-between gap-2"
+        title="In che lingua rispondono gli agent dispatchati su questa board. «Come le Impostazioni» segue la preferenza globale, la stessa di chat e terminale. Vale dal prossimo dispatch: la lingua entra nel prompt di sistema, e cambiarlo sotto una sessione viva è peggio del ritardo."
+      >
+        <span>Lingua delle risposte</span>
+        <select
+          value={s.language || 'inherit'}
+          onChange={(e) => patch({ language: e.target.value })}
+          className="max-w-[55%] rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-app-text outline-none"
+          data-testid="board-language"
+        >
+          <option value="inherit">Come le Impostazioni</option>
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
         </select>
       </label>
 

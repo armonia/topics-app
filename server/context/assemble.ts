@@ -25,6 +25,7 @@ import { join } from "path";
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { getActiveGoal, goalContextContent } from "../services/goals";
+import { languageDirective } from "../lib/topics-agent-prompt";
 
 import { contextWindowFor } from "../usage/context-window";
 import type {
@@ -245,6 +246,13 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
           `these actions degrade to user-driven control (sidebar drag / context-menu / /project).`,
         );
       }
+      // La lingua sta FUORI dal cancello qui sopra di proposito: quel cancello
+      // riguarda i tool, e i provider che non li hanno — codex, openai, gli
+      // agenti ACP — sono esattamente quelli che non hanno nemmeno un
+      // `--append-system-prompt` in cui infilare la direttiva. Questa è l'unica
+      // via che li raggiunge, ed è anche l'unica verificabile a occhio
+      // nell'ispettore del contesto invece che per fede.
+      pushLanguageBlock(systemBlocks);
       pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
       pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
       if (planMode) pushPlanModeBlock(systemBlocks);
@@ -635,6 +643,35 @@ function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
   blocks.push({
     id: "synthetic:browser-instruction",
     label: "Browser tool instructions",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: true,
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/**
+ * La lingua in cui rispondere, come blocco del contesto.
+ *
+ * Nessun blocco quando la scelta è «auto»: un blocco vuoto nell'ispettore è
+ * peggio di un blocco assente — sembra rotto, e non lo è. `auto` significa
+ * appunto che al modello non arriva nessuna direttiva.
+ *
+ * Su claude-code questa riga è la SECONDA copia (la prima viaggia in
+ * `--append-system-prompt` allo spawn, vedi `topicsAgentSystemPrompt`), e va
+ * bene: i due canali hanno vite diverse — quello dello spawn dura quanto la
+ * sessione e non si vede da nessuna parte, questo è per-turno e si legge
+ * nell'ispettore. Una riga ripetuta costa una riga.
+ */
+function pushLanguageBlock(blocks: SystemBlock[]): void {
+  const content = languageDirective();
+  if (!content) return;
+  blocks.push({
+    id: "synthetic:output-language",
+    label: "Output language",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),

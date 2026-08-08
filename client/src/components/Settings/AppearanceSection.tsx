@@ -1,7 +1,10 @@
+import { useEffect, useRef } from 'react';
 import { Type, AlignJustify, Rows3, Sun, Moon, Monitor, LayoutGrid, Keyboard, ChevronRight } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { isDesktop } from '../../lib/shell';
 import { ToggleRow } from './ToggleRow';
+import { fetchOutputLanguage, pushOutputLanguage, type LocalePreference } from '../../lib/i18n';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
 interface AppearanceSectionProps {
   settings: AppSettings;
@@ -204,29 +207,20 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
         </div>
       )}
 
-      {/* Lingua. La migrazione delle stringhe è PER SUPERFICIE (vedi
+      {/* Lingua — UNA preferenza, due effetti. Le etichette restano bilingui
+          perché questo è l'unico posto che si deve poter leggere anche quando
+          la lingua scelta è quella sbagliata.
+
+          La migrazione delle stringhe della UI è PER SUPERFICIE (vedi
           `lib/i18n.ts`): cambiare lingua sposta le superfici già convertite e
-          lascia le altre com'erano. È detto qui sotto invece di lasciarlo
-          scoprire — un selettore che sembra non fare niente è peggio di un
-          selettore che dice cosa fa. */}
-      <div className="mt-6">
-        <h3 className="text-[13px] font-medium text-app-text mb-1">Lingua · Language</h3>
-        <p className="text-[12px] text-app-text-muted mb-3">
-          Le superfici già tradotte seguono questa scelta; le altre restano come sono
-          finché non vengono convertite. · Translated surfaces follow this setting;
-          the rest stay as they are until converted.
-        </p>
-        <select
-          value={settings.language ?? 'auto'}
-          onChange={(e) => onChange('language', e.target.value as 'auto' | 'it' | 'en')}
-          className="rounded bg-white/5 px-2 py-1 text-[12px] text-app-text outline-none"
-          data-testid="settings-language"
-        >
-          <option value="auto">Automatica · Automatic</option>
-          <option value="it">Italiano</option>
-          <option value="en">English</option>
-        </select>
-      </div>
+          lascia le altre com'erano. Le RISPOSTE del modello invece cambiano
+          subito e ovunque — chat, terminale, agenti della board — perché la
+          scelta finisce nella riga `app_settings.output_language` e da lì in
+          `languageDirective`. È detto qui sotto invece di lasciarlo scoprire. */}
+      <LanguageSetting
+        value={settings.language ?? 'auto'}
+        onChange={(v) => onChange('language', v)}
+      />
 
       {/* La porta per le scorciatoie. Qui c'era una SCHEDA che le riscriveva a
           mano — nove righe, e due dicevano il falso (⌘F era dato per «Find
@@ -251,4 +245,120 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
 
     </div>
   );
+}
+
+/**
+ * Il selettore della lingua, e la riga che dice se il motore la sostiene.
+ *
+ * Perché è un componente a parte e non due tag in mezzo agli altri: qui c'è
+ * uno stato che gli altri controlli di questa scheda non hanno. «Lingua» è una
+ * preferenza SOLA con due depositi — localStorage per la UI (dove `t()` la
+ * legge in modo sincrono) e la riga `app_settings` per il modello — e i due
+ * vanno tenuti d'accordo.
+ *
+ * Il riallineamento una-tantum al montaggio serve a chi aveva già scelto una
+ * lingua PRIMA che la scelta arrivasse fino al modello: la sua preferenza
+ * esiste solo in locale, la riga del server è ancora vuota, e senza questo
+ * giro dovrebbe riscegliere la stessa lingua per farsi ascoltare. Si scrive
+ * solo se il server non ha ancora nulla: se qualcosa c'è, comanda quello che
+ * l'utente ha scelto per ultimo, non un'eco del localStorage.
+ */
+function LanguageSetting({
+  value,
+  onChange,
+}: {
+  value: LocalePreference;
+  onChange: (v: LocalePreference) => void;
+}) {
+  const { snapshot } = useProvidersSnapshot();
+  // Il valore al montaggio, congelato: il riallineamento deve guardare cosa
+  // c'era quando la scheda si è aperta, non inseguire i cambi successivi (che
+  // scrivono già per conto loro).
+  const mounted = useRef(value);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const onServer = await fetchOutputLanguage();
+      if (!live) return;
+      // Si scrive SOLO se il server ha risposto e la riga è davvero vuota.
+      // `known: false` (rete caduta, risposta illeggibile) è «non lo so», e
+      // «non lo so» non autorizza a sovrascrivere: da lì potrebbe esserci la
+      // scelta appena fatta in un'altra finestra.
+      if (!onServer.known || onServer.value !== null) return;
+      if (mounted.current === 'auto') return;
+      void pushOutputLanguage(mounted.current);
+    })();
+    return () => { live = false; };
+  }, []);
+
+  const handle = (next: LocalePreference) => {
+    onChange(next);           // la UI, subito e in modo sincrono
+    void pushOutputLanguage(next); // il modello, appena la rete risponde
+  };
+
+  const support = languageSupport(snapshot, value);
+
+  return (
+    <div className="mt-6">
+      <h3 className="text-[13px] font-medium text-app-text mb-1">Lingua · Language</h3>
+      <p className="text-[12px] text-app-text-muted mb-3">
+        Vale per l'interfaccia <b>e</b> per la lingua in cui rispondono gli agenti
+        (chat, terminale, board). Le superfici della UI non ancora tradotte restano
+        come sono. · Applies to the interface <b>and</b> to the language the agents
+        answer in (chat, terminal, board). UI surfaces not yet translated stay as
+        they are.
+      </p>
+      <select
+        value={value}
+        onChange={(e) => handle(e.target.value as LocalePreference)}
+        className="rounded bg-white/5 px-2 py-1 text-[12px] text-app-text outline-none"
+        data-testid="settings-language"
+      >
+        <option value="auto">Automatica · Automatic</option>
+        <option value="it">Italiano</option>
+        <option value="en">English</option>
+      </select>
+      <p className={`mt-2 text-[11px] ${support.tone}`} data-testid="settings-language-support">
+        {support.text}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Cosa sappiamo del supporto linguistico del motore di default.
+ *
+ * REGOLA DI ONESTÀ, la stessa della fast mode: «non lo so» NON è «non si può».
+ * Il campo `languages` di `ProviderSnapshotEntry` esiste per essere DICHIARATO
+ * dal motore, non indovinato da una tabella scritta qui — una tabella
+ * `{ 'claude-opus-5': ['it','en'], … }` invecchia da sola, e il caso che conta
+ * (un llama locale, domani) è proprio quello che non potrebbe conoscere.
+ * Quindi: assente o `unknown` ⇒ riga grigia e nient'altro. Nessun blocco,
+ * nessun selettore disabilitato, nessun popup. Il giorno che un motore non
+ * risponde, la funzione non lo dichiara rotto.
+ */
+function languageSupport(
+  snapshot: { providers: Array<{ name: string; label?: string; languages?: { supported: string[] | null; source: string } }>; defaultProvider: string | null } | null,
+  value: LocalePreference,
+): { text: string; tone: string } {
+  const GREY = 'text-app-text-muted';
+  if (value === 'auto') {
+    return { text: 'Nessuna direttiva: il modello risponde nella lingua in cui gli scrivi.', tone: GREY };
+  }
+  const entry = snapshot?.providers.find((p) => p.name === snapshot.defaultProvider);
+  const declared = entry?.languages;
+  if (!declared || declared.source === 'unknown') {
+    return { text: 'Supporto non verificato: nessun motore ha dichiarato le lingue che sostiene.', tone: GREY };
+  }
+  const name = entry?.label ?? entry?.name ?? 'il motore';
+  // `supported: null` con una fonte vera = «tutte»: è una dichiarazione, non
+  // un'assenza, e va letta come un sì.
+  if (declared.supported === null || declared.supported.includes(value)) {
+    return { text: `Confermato da ${name}.`, tone: 'text-emerald-400' };
+  }
+  return {
+    text: `${name} non dichiara questa lingua fra quelle che sostiene: la risposta potrebbe arrivare in un'altra.`,
+    tone: 'text-amber-400',
+  };
 }

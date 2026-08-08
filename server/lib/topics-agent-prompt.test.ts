@@ -7,7 +7,13 @@ import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveCodexReasoningEffort, resolveClaudeEffort, topicEffortFor } from './topics-agent-prompt';
+import {
+  resolveCodexReasoningEffort,
+  resolveClaudeEffort,
+  topicEffortFor,
+  languageDirective,
+  topicsAgentSystemPrompt,
+} from './topics-agent-prompt';
 import { __resetDeprecatedEnvWarnings } from './env-alias';
 
 const ENV_KEYS = ['TOPICS_CODEX_REASONING_EFFORT', 'CODEX_REASONING_EFFORT'] as const;
@@ -178,5 +184,52 @@ describe('topicEffortFor — il selettore per-topic sul percorso PTY', () => {
     const broken = { prepare: () => { throw new Error('no such column: effort'); } };
     expect(topicEffortFor(broken, 't1')).toBeNull();
     expect(resolveClaudeEffort(topicEffortFor(broken, 't1'))).toBe('xhigh');
+  });
+});
+
+/**
+ * La direttiva di lingua — l'unico posto in cui la scelta dell'utente diventa
+ * testo per il modello.
+ *
+ * Le tre bocche che parlano (`providers/claude-code.ts`, `routes/terminal.ts`,
+ * `services/task-dispatcher.ts` e il blocco sintetico di `context/assemble.ts`)
+ * chiedono tutte QUESTA funzione: se una se la riscrivesse, tornerebbe il
+ * difetto di partenza — chat in inglese perché così era scritta la costante,
+ * board in italiano perché così era scritto il kickoff, e il selettore che non
+ * sposta né l'uno né l'altro.
+ *
+ * Il caso che conta è `auto`: deve tornare STRINGA VUOTA. Una direttiva
+ * inventata quando l'utente non ha scelto niente è peggio di nessuna direttiva
+ * — e i chiamanti si appoggiano al vuoto per non concatenare una riga bianca.
+ */
+describe('languageDirective', () => {
+  test("'auto' non è una lingua: nessuna direttiva", () => {
+    expect(languageDirective('auto')).toBe('');
+  });
+
+  test('italiano e inglese danno una riga sola, e nomina la lingua', () => {
+    expect(languageDirective('it')).toContain('italiano');
+    expect(languageDirective('en')).toContain('English');
+    for (const lang of ['it', 'en'] as const) {
+      expect(languageDirective(lang).split('\n')).toHaveLength(1);
+    }
+  });
+});
+
+describe('topicsAgentSystemPrompt', () => {
+  test('la parte sui processi c\'è sempre — la lingua è additiva, non sostitutiva', () => {
+    for (const lang of ['auto', 'it', 'en'] as const) {
+      expect(topicsAgentSystemPrompt(lang)).toContain('mcp__topics__run_script');
+    }
+  });
+
+  test("con 'auto' il prompt è ESATTAMENTE quello di prima: nessuna coda", () => {
+    const auto = topicsAgentSystemPrompt('auto');
+    expect(auto.endsWith('or the command is a short one-off.')).toBe(true);
+  });
+
+  test('con una lingua scelta la direttiva chiude il prompt', () => {
+    expect(topicsAgentSystemPrompt('it').endsWith(languageDirective('it'))).toBe(true);
+    expect(topicsAgentSystemPrompt('en').endsWith(languageDirective('en'))).toBe(true);
   });
 });

@@ -23,6 +23,29 @@
  * the re-export.
  */
 
+// ─── Lingua (interfaccia E risposte del modello) ───────────────────────
+
+/**
+ * La lingua scelta dall'utente. UNA preferenza sola, che governa insieme le
+ * stringhe dell'interfaccia (`client/src/lib/i18n.ts`) e la lingua in cui il
+ * modello risponde (`languageDirective` in `server/lib/topics-agent-prompt.ts`).
+ *
+ * Sono una cosa sola di proposito: due selettori quasi uguali — «lingua della
+ * UI» e «lingua delle risposte» — sarebbero due preferenze da spiegare, e
+ * nessuno saprebbe perché la prima non sposta la seconda. È esattamente il
+ * difetto che c'era: il selettore muoveva le stringhe della UI e si fermava lì.
+ *
+ * `auto` NON è una lingua: è l'assenza di una scelta. La UI segue il browser,
+ * e al modello non arriva NESSUNA direttiva — cioè risponde come ha sempre
+ * fatto. Non si inventa una lingua quando l'utente non ne ha chiesta una.
+ *
+ * Il tipo DERIVA dall'array, come già fa `shared/effort.ts`: chi valida (la
+ * rotta), chi risolve (il server) e chi disegna il selettore leggono lo stesso
+ * insieme, così non può esistere in tre copie destinate a divergere.
+ */
+export const OUTPUT_LANGUAGES = ['auto', 'it', 'en'] as const;
+export type OutputLanguage = (typeof OUTPUT_LANGUAGES)[number];
+
 // ─── ToolCall status (chat message → tool call lifecycle) ──────────────
 
 /**
@@ -270,6 +293,33 @@ export interface ProviderSnapshotEntry {
      *  normale: 2 = il doppio (10$/50$ contro 5$/25$ per 1M, listino scritto
      *  dalla CLI). `null` se su questo modello la fast mode non esiste. */
     costMultiplier: number | null;
+  };
+  /**
+   * Le lingue che questo motore sostiene, COME LE DICHIARA lui — non come le
+   * indovina una tabella qui dentro.
+   *
+   * La tentazione ovvia era `{ 'claude-opus-5': ['it','en'], … }`, ed è
+   * l'errore che questo repo ha già pagato due volte (i commenti in
+   * `claude-models.ts` e `task-model-picker.ts` raccontano com'è finita): una
+   * lista scritta a mano invecchia da sola e nessuno se ne accorge. E il caso
+   * che conta davvero — un llama locale che arriva domani — è proprio quello
+   * che una tabella non può conoscere.
+   *
+   * REGOLA DI ONESTÀ, la stessa di `fastMode`: assente, oppure
+   * `source: 'unknown'`, significa «non lo so» — e non lo so NON è un no.
+   * Nessun blocco, nessun controllo disabilitato, al massimo un badge grigio.
+   * Altrimenti il giorno che arriva il motore che non risponde al probe la
+   * funzione lo dichiara rotto senza averne motivo.
+   *
+   * `supported: null` con `source: 'declared'` è il caso del motore che dice
+   * «tutte»: una dichiarazione vera, non un'assenza.
+   */
+  languages?: {
+    supported: string[] | null;
+    source: 'declared' | 'probed' | 'unknown';
+    /** ISO 8601. Quando il segnale è stato raccolto — serve a non ripetere il
+     *  probe a ogni giro (vedi `snapshot-manager.ts`). */
+    checkedAt?: string;
   };
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;

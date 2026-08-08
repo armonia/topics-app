@@ -4,8 +4,16 @@
  * lingua incompleta è un fatto da scoprire qui, non guardando l'interfaccia a
  * caso.
  */
-import { describe, test, expect } from 'bun:test';
-import { t, resolveLocale, interpolate, missingKeys, FALLBACK_LOCALE } from './i18n';
+import { describe, test, expect, afterEach } from 'bun:test';
+import {
+  t,
+  resolveLocale,
+  interpolate,
+  missingKeys,
+  FALLBACK_LOCALE,
+  fetchOutputLanguage,
+  pushOutputLanguage,
+} from './i18n';
 
 describe('resolveLocale', () => {
   test('una preferenza esplicita vince sempre', () => {
@@ -56,5 +64,67 @@ describe('allineamento fra le lingue', () => {
     // sola — ed è esattamente il momento in cui va saputo.
     expect(missingKeys('it')).toEqual([]);
     expect(missingKeys('en')).toEqual([]);
+  });
+});
+
+/**
+ * Il verso server della stessa preferenza.
+ *
+ * Quello che conta qui è UNA distinzione: `fetchOutputLanguage` torna `null`
+ * per «non lo so» e la stringa `'auto'` per «l'utente ha scelto auto». Sono due
+ * cose diverse e chi chiama ci si appoggia: il riallineamento una-tantum in
+ * Impostazioni scrive la preferenza locale sul server SOLO quando la riga è
+ * davvero vuota. Se un errore di rete tornasse `'auto'` invece di `null`, quel
+ * codice concluderebbe «l'utente non ha mai scelto» proprio quando non ne sa
+ * niente — e sovrascriverebbe una scelta fatta da un'altra finestra.
+ */
+describe('la lingua dall’altra parte del filo', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  const stub = (impl: () => unknown) => {
+    globalThis.fetch = (async () => impl()) as unknown as typeof fetch;
+  };
+
+  test('riga vuota: il server SA, e sa che non è stato scelto niente', async () => {
+    stub(() => ({ ok: true, json: async () => ({ settings: { outputLanguage: null } }) }));
+    expect(await fetchOutputLanguage()).toEqual({ known: true, value: null });
+  });
+
+  test("«auto» scritto esplicitamente è una SCELTA, non un'assenza", async () => {
+    stub(() => ({ ok: true, json: async () => ({ settings: { outputLanguage: 'auto' } }) }));
+    expect(await fetchOutputLanguage()).toEqual({ known: true, value: 'auto' });
+  });
+
+  test('una lingua vera torna com’è', async () => {
+    stub(() => ({ ok: true, json: async () => ({ settings: { outputLanguage: 'en' } }) }));
+    expect(await fetchOutputLanguage()).toEqual({ known: true, value: 'en' });
+  });
+
+  test('rete rotta, risposta non ok o valore illeggibile: «non lo so» — MAI «vuoto»', async () => {
+    // È la distinzione che conta: chi riallinea i due depositi scrive solo su
+    // «vuoto». Se un errore di rete si presentasse come «vuoto», il
+    // localStorage di questa finestra sovrascriverebbe una scelta appena fatta
+    // da un'altra proprio quando non se ne sa niente.
+    stub(() => { throw new Error('offline'); });
+    expect(await fetchOutputLanguage()).toEqual({ known: false });
+    stub(() => ({ ok: false, json: async () => ({}) }));
+    expect(await fetchOutputLanguage()).toEqual({ known: false });
+    stub(() => ({ ok: true, json: async () => ({ settings: { outputLanguage: 'fr' } }) }));
+    expect(await fetchOutputLanguage()).toEqual({ known: false });
+  });
+
+  test('la scrittura manda il campo giusto e non rilancia se la rete cade', async () => {
+    let body: string | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      body = init.body as string;
+      return { ok: true, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+    await pushOutputLanguage('it');
+    expect(JSON.parse(body!)).toEqual({ outputLanguage: 'it' });
+
+    stub(() => { throw new Error('offline'); });
+    // Il selettore ha già aggiornato la UI: un errore qui non deve propagarsi.
+    await pushOutputLanguage('en');
   });
 });

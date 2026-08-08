@@ -152,6 +152,16 @@ export interface BoardSettings {
    */
   dispatchModel: string;
   /**
+   * Lingua in cui rispondono gli agenti dispatchati su questa board.
+   * 'inherit' (il default NULL) → vale la preferenza globale
+   * (`app_settings.output_language`), che e' anche quella di chat e terminale:
+   * cosi' «uguali» significa LO STESSO VALORE EFFETTIVO, non due valori da
+   * tenere allineati a mano. Un valore concreto ('it' | 'en') e' l'override —
+   * una board di un cliente inglese non deve costringere il resto dell'app a
+   * cambiare lingua.
+   */
+  language: string;
+  /**
    * Fan-out: quanti agenti lavorano IN PARALLELO lo stesso task, ognuno nel
    * proprio worktree, prima che l'umano scelga quale tenere (migration 065).
    * 1 (il default) = un agente, il path storico byte per byte. >1 occupa N slot

@@ -91,6 +91,8 @@ import m082 from "./migrations/083-grants.sql" with { type: "text" };
 import m083 from "./migrations/084-people-orgs.sql" with { type: "text" };
 import m084 from "./migrations/085-share-links.sql" with { type: "text" };
 import m085 from "./migrations/086-tool-grants.sql" with { type: "text" };
+import m086 from "./migrations/087-output-language.sql" with { type: "text" };
+import m087 from "./migrations/088-board-language.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -186,4 +188,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 84, name: "084-people-orgs.sql", sql: m083 },
   { version: 85, name: "085-share-links.sql", sql: m084 },
   { version: 86, name: "086-tool-grants.sql", sql: m085 },
+  { version: 87, name: "087-output-language.sql", sql: m086 },
+  { version: 88, name: "088-board-language.sql", sql: m087 },
 ];
