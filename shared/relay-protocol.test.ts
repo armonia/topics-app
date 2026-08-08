@@ -282,6 +282,50 @@ describe("tubo · spezzare non deve rovinare il contenuto", () => {
     expect(dividiTesto("")).toEqual([]);
   });
 
+  it("un carattere che in `max` non ci sta si sfora, non si spacca", () => {
+    // `max` è un parametro pubblico — sta su `componiStream` e su `CapoTuboOpts`,
+    // e i test stessi lo abbassano. Quando è più piccolo di UN carattere non c'è
+    // nessun taglio lecito: emettere i byte a metà darebbe U+FFFD, cioè
+    // esattamente il guasto che questo taglio esiste per evitare. Si sfora di al
+    // più tre byte, e il testo torna indietro identico.
+    const enc = new TextEncoder();
+    for (const c of ["à", "日", "🙂"]) {          // 2, 3, 4 byte
+      const largo = enc.encode(c).length;
+      for (const max of [1, 2, 3, 4]) {
+        const testo = c.repeat(3);
+        const pezzi = dividiTesto(testo, max);
+        const eti = `${c}/${max}`;
+        expect(`${eti}→${pezzi.join("")}`).toBe(`${eti}→${testo}`);
+        expect(`${eti}→${pezzi.some((p) => p.includes("�"))}`).toBe(`${eti}→false`);
+        // Lo sforo è limitato al carattere: mai un pezzo più largo di così.
+        const tetto = Math.max(max, largo);
+        expect(`${eti}→${pezzi.every((p) => enc.encode(p).length <= tetto)}`).toBe(`${eti}→true`);
+      }
+    }
+  });
+
+  it("i casi esatti che si spaccavano", () => {
+    expect(dividiTesto("🙂", 3)).toEqual(["🙂"]);
+    expect(dividiTesto("🙂🙂", 2)).toEqual(["🙂", "🙂"]);
+    // Controllo positivo: da 4 byte in su il taglio è quello normale e non
+    // sfora mai, quindi sopra si sta misurando la soglia giusta.
+    const enc = new TextEncoder();
+    const pezzi = dividiTesto("🙂🙂🙂", 4);
+    expect(pezzi).toEqual(["🙂", "🙂", "🙂"]);
+    expect(pezzi.every((p) => enc.encode(p).length <= 4)).toBe(true);
+  });
+
+  it("una misura assurda non manda in giro a vuoto chi spezza", () => {
+    // `max: 0` avanzerebbe di zero byte per giro: un ciclo che non finisce mai
+    // è peggio di un errore, perché non si vede.
+    expect(dividiTesto("abc", 0).join("")).toBe("abc");
+    const b = new Uint8Array([1, 2, 3]);
+    const pezzi = dividiBinario(b, 0);
+    const rimesso: number[] = [];
+    for (const p of pezzi) rimesso.push(...daBase64url(p)!);
+    expect(rimesso).toEqual([1, 2, 3]);
+  });
+
   it("i byte si spezzano e si rimettono insieme identici", () => {
     const b = new Uint8Array(1000);
     for (let i = 0; i < b.length; i++) b[i] = i & 0xff;
@@ -447,6 +491,37 @@ describe("tubo · rimettere insieme", () => {
     // Vale anche su uno che qui non esiste: i due capi possono mollare nello
     // stesso istante, e nessuno dei due ha sbagliato.
     expect(r.r.ricevi({ f: "reset", s: 99, motivo: "aborted" }).esito).toBe("chiuso");
+  });
+
+  it("un `reset` sulla PROPRIA corsia non chiude in faccia all'altra", () => {
+    // Il caso normale «chi riceve rinuncia»: l'ospite chiude la scheda mentre la
+    // macchina gli sta mandando una risposta lunga, e manda un `reset` su uno
+    // stream PARI — aperto dalla macchina, non suo. Pari e dispari condividono
+    // lo stesso spazio numerico: se quel reset spostasse il segnaposto dei numeri
+    // già visti, ogni `open` remoto più basso morirebbe con `bad-frame`. Sarebbe
+    // l'esatto contrario della promessa del tubo, dove un rifiuto muore su UNO
+    // stream solo.
+    const r = ricevente({ latoRemoto: "guest" });
+    expect(r.r.ricevi({ f: "reset", s: 18, motivo: "aborted" })).toEqual({
+      esito: "chiuso", s: 18, motivo: "aborted",
+    });
+    // La PRIMA richiesta dell'ospite, e tutte quelle sotto il 18, devono ancora
+    // poter arrivare.
+    for (const s of [1, 3, 5]) {
+      expect(`${s}→${r.r.ricevi({ f: "open", s, n: 0, k: "req", fin: true }).esito}`).toBe(`${s}→completo`);
+    }
+  });
+
+  it("un `reset` sulla corsia REMOTA continua a bruciare quel numero", () => {
+    // L'altra metà della stessa regola: sulla corsia di chi manda, un numero
+    // chiuso resta chiuso, o riaprirlo vorrebbe dire scrivere dentro lo stream
+    // di prima.
+    const r = ricevente({ latoRemoto: "guest" });
+    expect(r.r.ricevi({ f: "reset", s: 7, motivo: "aborted" }).esito).toBe("chiuso");
+    expect(r.r.ricevi({ f: "open", s: 7, n: 0, k: "req", fin: true })).toMatchObject({ esito: "errore" });
+    expect(r.r.ricevi({ f: "open", s: 5, n: 0, k: "req", fin: true })).toMatchObject({ esito: "errore" });
+    // Controllo positivo: uno più alto sì.
+    expect(r.r.ricevi({ f: "open", s: 9, n: 0, k: "req", fin: true }).esito).toBe("completo");
   });
 
   it("dimenticare uno stream ne libera il pendente, e lo rende inesistente", () => {
