@@ -1893,6 +1893,14 @@ export class ClaudeCodeProvider implements AIProvider {
       // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
       appendSystemPrompt: topicsAgentSystemPrompt(),
+      // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
+      // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
+      // l'env qui sotto) ma passava da un canale che perde contro
+      // `~/.claude/settings.json`. Vale 90.906 token di prefisso per richiesta
+      // sulla flotta reale, e non toglie un solo strumento.
+      // `TOPICS_TOOL_SEARCH=off` lo spegne senza toccare il codice, per il
+      // giorno in cui una release della CLI cambia il significato del valore.
+      toolSearch: process.env.TOPICS_TOOL_SEARCH === "off" ? null : (process.env.TOPICS_TOOL_SEARCH || "1"),
       claudeSessionId,
       isNewSession,
     });
