@@ -2219,6 +2219,81 @@ html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
 
+/* LA RIGA DELLE TAB È UN VETRO SOPRA IL CONTENUTO, NON UN RIPIANO SOPRA DI ESSO.
+ *
+ * Era un fratello nel flusso — barra, poi la pane sotto — separati da un
+ * `border-b`. Quel filo non era decorazione: l'avevo misurato, barra e
+ * contenuto hanno lo STESSO fondo in tutte e quattro le combinazioni
+ * (telefono/desktop × chiaro/scuro), quindi era l'UNICA cosa che diceva dove
+ * finiva l'una e cominciava l'altra. Toglierlo e basta avrebbe fuso le due zone.
+ *
+ * Quindi non si toglie e basta: si cambia il rapporto. La barra esce dal flusso
+ * (`absolute`), la conversazione parte da sopra e le passa SOTTO, e a separarle
+ * non c'è più una linea ma la PROFONDITÀ — il blur dice «questo è davanti»
+ * meglio di quanto un pixel di bordo dicesse «questo è un'altra zona».
+ * (Attilio, 08/08: «rimuovere la linea sotto la tab bar, togliendo anche
+ * l'eventuale sfondo, in modo da creare un effetto overlay».)
+ *
+ * IL FONDO NON SPARISCE, si fa vetro, ed è il punto che va capito prima di
+ * riabbassare l'alpha: sotto ci scorre TESTO. Senza velo, i nomi delle tab
+ * cadono su parole in movimento e il contrasto cambia riga per riga. Il velo
+ * è la stessa tinta del chrome di sempre (`--chrome-bg`) — la barra non
+ * diventa un'altra superficie, diventa la stessa superficie translucida.
+ *
+ * L'alpha è 0,72 e non 0,55 per la stessa ragione per cui i popover stanno a
+ * 0,72 (vedi `.glass-surface` più sotto): 0,55 è tarato su ciò che sale da
+ * DIETRO LA FINESTRA — la vibrancy di macOS, che è già sfocata e senza forma.
+ * Qui sotto c'è contenuto dell'app, cioè glifi ad alto contrasto, e il blur
+ * sfoca i contorni ma non abbassa il contrasto: serve corpo. Sulla shell mac
+ * l'alpha resta quella del chrome, perché lì la barra confina con la sidebar e
+ * due vetri della stessa famiglia a due opacità diverse si leggono come una
+ * giunta (è l'invariante «un solo strato» del blocco qui sopra).
+ *
+ * `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano: Lightning
+ * CSS collassa la coppia grezza sul solo `-webkit-`, che Blink ignora, e il
+ * blur sparisce in silenzio (la stessa trappola documentata su `.glass-surface`). */
+:root { --chrome-overlay-bg: hsl(220 5.6% 93% / 0.72); }
+.dark { --chrome-overlay-bg: hsl(224 26% 4.5% / 0.72); }
+html.electron-mac { --chrome-overlay-bg: var(--chrome-bg); }
+.pane-chrome-bar {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  /* Sopra il contenuto, sotto i popover (z-50) e le anteprime di split. */
+  z-index: 20;
+  background-color: var(--chrome-overlay-bg);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+/* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
+ *
+ * La cella di ogni pane tiene un rientro pari all'altezza della barra
+ * (`paneCellTopInset`), così i blocchi che stanno in cima alla chat — banner,
+ * messaggi appuntati, la striscia di attività sul telefono — nascono SOTTO il
+ * vetro e si leggono. Il trascritto invece deve passarci sotto, quindi si
+ * riprende quel rientro con un margine negativo e lo restituisce come varco
+ * DENTRO il contenuto scrollato (l'`Header` di Virtuoso legge `--chat-gutter`).
+ *
+ * `:first-child` è la condizione, ed è esatta: quei blocchi o rendono un
+ * elemento o non rendono niente: quando non c'è nessuno sopra, il contenitore
+ * del trascritto È il primo figlio della colonna. Quando invece c'è un banner,
+ * il rientro della cella l'ha già speso lui — allora niente margine negativo e
+ * varco a zero, altrimenti i 40px si conterebbero due volte e sotto il banner
+ * si aprirebbe una fascia vuota.
+ *
+ * Due effetti, UNA condizione: se un giorno la regola cade, cadono insieme, e
+ * non si arriva mai allo stato misto (margine senza varco = prima riga
+ * coperta). Lo blocca `chrome-bar-overlay.spec.ts`. */
+.chat-under-chrome { --chat-gutter: 0px; }
+.chat-under-chrome:first-child {
+  margin-top: calc(-1 * var(--chrome-bar-h, 0px));
+  --chat-gutter: var(--chrome-bar-h, 0px);
+}
+
+/* La regola `!important` di `html.electron-mac .chrome-glass` (qui sopra)
+   batterebbe il fondo di `.pane-chrome-bar` — e va bene così, perché lì il
+   token che vogliamo È `--chrome-bg`. Scritto per esteso perché chi legge non
+   debba dedurlo dalla cascata. */
+
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
  * In dark mode `--bg-surface` is #181a20 (a blue-tinted grey); rendered opaque
@@ -2634,14 +2709,26 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 .code-block-wrapper .hljs-meta { color: #d19a66; }
 .code-block-wrapper .hljs-title,
 .code-block-wrapper .hljs-title.function_ { color: #61afef; }
+/* IL SOLO TOKEN DELLA TAVOLOZZA CHE NON PASSAVA AA, e ora passa.
+ *
+ * `#e06c75` è il rosso di One Dark, e su questo fondo (`--code-bg`, #2a2b2d)
+ * misura 4,38:1 — sotto il 4,5 di WCAG AA per il testo piccolo, di un soffio.
+ * Gli altri sei token della tavolozza stanno fra 5,7 e 8,1: era l'unico fuori.
+ * Alzato quel tanto che basta (4,84:1) mantenendo tinta e carattere: a occhio è
+ * lo stesso rosso, al contrastometro non è più l'eccezione.
+ *
+ * È emerso di rimbalzo — il varco in cima al trascritto ha spostato la finestra
+ * virtualizzata di Virtuoso e ha fatto MONTARE un blocco di codice che il
+ * cancello a11y non aveva mai visto. Il difetto c'era da prima; a cambiare è
+ * stato solo chi lo guardava. */
 .code-block-wrapper .hljs-attr,
 .code-block-wrapper .hljs-attribute,
 .code-block-wrapper .hljs-variable,
 .code-block-wrapper .hljs-template-variable,
-.code-block-wrapper .hljs-property { color: #e06c75; }
+.code-block-wrapper .hljs-property { color: #e57781; }
 .code-block-wrapper .hljs-built_in,
 .code-block-wrapper .hljs-title.class_ { color: #e5c07b; }
-.code-block-wrapper .hljs-deletion { color: #e06c75; }
+.code-block-wrapper .hljs-deletion { color: #e57781; }
 .code-block-wrapper .hljs-emphasis { font-style: italic; }
 .code-block-wrapper .hljs-strong { font-weight: 600; }
 

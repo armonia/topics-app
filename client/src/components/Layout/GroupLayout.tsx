@@ -7,7 +7,8 @@ import { flattenGroupRows } from './flattenLayout';
 import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
-import { paneCellBg } from '../../lib/paneCellBg';
+import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
+import { CHROME_BAR, CHROME_BAR_H_VAR } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneAlive } from '../../state/paneLiveness';
@@ -766,10 +767,10 @@ export function GroupLayout({
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
     return (
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <div className="relative flex-1 flex flex-col min-h-0 min-w-0" style={CHROME_BAR_H_VAR}>
         {/* Match the populated branch's chrome row (h-10) so the empty
             project tab bar aligns with the sidebar header. */}
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+        <div className={CHROME_BAR}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
               panes={[]}
@@ -842,10 +843,10 @@ export function GroupLayout({
     // (handleSplitGroup used to just console.warn).
     const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
     return (
-      <div data-split-card className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div data-split-card className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={CHROME_BAR_H_VAR}>
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(gid)}>
+        <div className={CHROME_BAR} onDragOverCapture={handleTabBarDragOver(gid)}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
             panes={groupPanes}
@@ -961,7 +962,7 @@ export function GroupLayout({
                   // fully transparent (they frost themselves), chat + kanban
                   // in the frosted tier (`pane-frost`), the rest opaque
                   // `bg-surface` so dense text stays crisp over the vibrancy.
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >
                   {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
                 </PaneKeepAlive>
@@ -1071,8 +1072,8 @@ export function GroupLayout({
 
     if (flatPanes.length === 0) {
       return (
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-          <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+        <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={CHROME_BAR_H_VAR}>
+          <div className={CHROME_BAR}>
             <div className="flex-1 flex items-center min-w-0 overflow-hidden">
               <PaneTabBar
                 panes={[]}
@@ -1098,8 +1099,8 @@ export function GroupLayout({
     }
 
     return (
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+      <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={CHROME_BAR_H_VAR}>
+        <div className={CHROME_BAR}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
               panes={flatPanes}
@@ -1141,7 +1142,7 @@ export function GroupLayout({
                   key={stableKeyOf(pane)}
                   paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >
                   {renderPane(pane, isPaneActive, isPaneActive)}
                 </PaneKeepAlive>
