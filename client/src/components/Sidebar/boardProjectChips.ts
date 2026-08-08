@@ -136,14 +136,17 @@ export const CHIP_GAP = 6;
  * «Che abbiano bene le spaziature intorno e che non sembrino cliccabili»
  * (Attilio, 08/08). Il fondo (`bg-black/[0.05]`) e gli angoli tondi erano ciò
  * che diceva «bottone»: tolti quelli, a legare l'icona col SUO numero resta
- * solo la distanza. Dentro la pastiglia i due pezzi stanno a 4px, fuori a 12:
- * un rapporto di tre, che è la soglia oltre la quale l'occhio raggruppa senza
- * bisogno di un contorno (legge della vicinanza). Con i 6px di prima il numero
- * di una pastiglia e l'icona della successiva erano quasi equidistanti dal
- * proprio partner, ed è esattamente il modo in cui una fila di coppie si legge
- * come una fila di elementi sciolti.
+ * solo la distanza — dentro la pastiglia i due pezzi stanno a 2px.
+ *
+ * OTTO, sceso da 12. Il rapporto con i 2 interni resta 4:1, ben oltre la soglia
+ * a cui l'occhio raggruppa senza bisogno di un contorno; ma le pastiglie ora si
+ * stringono in un BLOCCO, e un blocco compatto si distingue dai conteggi di
+ * stato — che stanno a 28 — molto meglio di una fila larga. «Non si capisce la
+ * differenza fra l'icona di stato e i progetti» (Attilio, 08/08): il problema
+ * non era lo stacco dai conteggi, era che i progetti non si leggevano come una
+ * cosa sola.
  */
-export const CHIP_SPACING = 12;
+export const CHIP_SPACING = 8;
 /**
  * Il vuoto DENTRO una pastiglia, fra l'icona e il suo numero.
  *
