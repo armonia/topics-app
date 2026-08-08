@@ -75,10 +75,13 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
  * volta di troppo: quando il glifo è passato da 12 a 14 l'aritmetica è rimasta
  * indietro, e la riga ha sbordato finché qualcuno non l'ha misurata.
  *
- * Il perché di 16 (e non 14) sta su `StatusIcon`: è la griglia PARI su cui i
- * bordi del disegno cadono sui confini dei pixel a 1x.
+ * 14 è anche `ROW_GLYPH` (lib/selectionStyles), cioè la misura di OGNI glifo di
+ * riga dell'app: «tutte le icone dovrebbero avere formato standard». I due
+ * numeri non sono importati l'uno dall'altro di proposito — vivono in due
+ * sistemi (il disegno di un glifo, la griglia della sidebar) che possono
+ * legittimamente separarsi — ma finché coincidono è perché devono.
  */
-export const STATUS_GLYPH_PX = 16;
+export const STATUS_GLYPH_PX = 14;
 
 /**
  * Perché il sistema ha portato in review un task che l'agente non ha consegnato.

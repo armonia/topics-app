@@ -95,8 +95,10 @@ export function boardProjectChips(
  * il difetto si corregge due volte.
  *
  * · `CHIP_W_NAME` = 58 — 8 di padding + 12 di slot icona + 4 + 34 di nome. I 34
- *   sono la misura che rende il nome LEGGIBILE (sei-sette caratteri) invece di
- *   un moncone: a 22 ce ne entravano DUE, ma nessuna delle due diceva chi era.
+ *   sono cinque-sei caratteri a 11px: un troncamento, non un moncone. Allargarli
+ *   costa più di quanto rende — a 42 la pastiglia arriva a 66, e sulla riga da
+ *   244px non ci sta più insieme al suo «+N», quindi il modo col nome cade del
+ *   tutto e resta la sola icona. Meglio un nome corto che nessun nome.
  *   «Mostra bene i progetti, quelli che non entrano mettili in +» (Attilio,
  *   07/08).
  * · `CHIP_W_ICON` = 20 — la stessa pastiglia SENZA il nome: 8 + 12.
@@ -121,9 +123,12 @@ export const MORE_W = 22;
 const COUNT_GLYPH_W = STATUS_GLYPH_PX;
 /** `gap-1` fra il glifo e il suo numero. */
 const COUNT_GAP = 4;
-/** Una cifra a 10px, tabellare. Arrotondata per ECCESSO: una stima corta
- *  farebbe sbordare i conteggi, che sono l'ultima cosa a poter sparire. */
-const DIGIT_W = 6;
+/** Una cifra a 11px, tabellare. Arrotondata per ECCESSO: una stima corta
+ *  farebbe sbordare i conteggi, che sono l'ultima cosa a poter sparire.
+ *  Era 6, tarata sui 10px di prima — «i numeri contatori sono troppo piccoli
+ *  per lo stato» (Attilio, 08/08), e 10px era comunque sotto il minimo di
+ *  leggibilità che l'app si è già data altrove (vedi PinnedTile). */
+const DIGIT_W = 7;
 
 /** Quanto occupa un conteggio (glifo + numero) con quel valore dentro. */
 export function countWidth(n: number): number {

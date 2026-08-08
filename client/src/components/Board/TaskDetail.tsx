@@ -1719,7 +1719,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
           </button>
         ) : null}
         <span title={STATUS_LABEL[node.status]} className="flex shrink-0">
-          <StatusIcon status={node.status} className="h-3 w-3" />
+          <StatusIcon status={node.status} />
         </span>
         {openable ? (
           <button
@@ -1861,7 +1861,7 @@ export function StatusEventRow({ comment }: { comment: TaskComment }) {
       title={`${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
-      {valid ? <StatusIcon status={to} className="h-3 w-3" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
+      {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       <span className="min-w-0 truncate">
         <span className="text-app-text-secondary">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
       </span>

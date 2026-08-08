@@ -46,7 +46,7 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress', 'todo'
  *    un glifo ce l'hanno.
  *
  * L'etichetta si taglia SENZA puntini (`overflow-hidden whitespace-nowrap`
- * invece di `truncate`): a 10px l'ellissi mangia ~6px dei 34 disponibili, cioè
+ * invece di `truncate`): a 11px l'ellissi mangia ~7px dei 34 disponibili, cioè
  * un carattere intero, per dire una cosa che il tooltip dice meglio. Il
  * `leading-tight` è l'antidoto al taglio delle code: la riga eredita
  * `leading-none` dal bottone della board, e `leading-none` + `overflow-hidden`
@@ -57,7 +57,7 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
     <span
       data-testid={`board-project-${chip.projectId}`}
       title={`${chip.name}: ${chip.n} task aperti`}
-      className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[10px] dark:bg-white/[0.07]"
+      className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
       style={{ width: mode === 'name' ? CHIP_W_NAME : CHIP_W_ICON }}
     >
       <span className="flex w-3 flex-shrink-0 justify-center">
@@ -87,8 +87,9 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
  * colonne: anello tratteggiato → anello vuoto → mezza torta → tre quarti →
  * disco spuntato. La stessa forma, quindi lo stesso significato, senza un
  * secondo codice da imparare. Reso alla SUA misura (nessun override di classe
- * qui): il viewBox è 16 e a 16px una unità del disegno vale un pixel. Ogni
- * riduzione lo rimanda a cavallo della griglia, ed è così che il tratteggio del
+ * qui): 14px, che è anche `ROW_GLYPH`, cioè la misura di ogni altro glifo di
+ * riga — «tutte le icone dovrebbero avere formato standard». Ogni scostamento
+ * lo manda a cavallo della griglia dei pixel, ed è così che il tratteggio del
  * backlog è già diventato poltiglia una volta (vedi `StatusIcon`).
  *
  * ── I progetti, in linea ────────────────────────────────────────────────────
@@ -196,7 +197,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         <span
           data-testid="board-project-more"
           title={`Altri ${fitted.chips.hidden} progetti con task aperti`}
-          className="flex-shrink-0 tabular-nums text-[10px] text-app-text-tertiary"
+          className="flex-shrink-0 tabular-nums text-[11px] text-app-text-tertiary"
         >
           +{fitted.chips.hidden}
         </span>
@@ -208,7 +209,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
               key={status}
               data-testid={`board-count-${status}`}
               title={`${STATUS_LABEL[status]}: ${n}`}
-              className="flex items-center gap-1 tabular-nums text-[10px] text-app-text-secondary"
+              className="flex items-center gap-1 tabular-nums text-[11px] text-app-text-secondary"
             >
               <StatusIcon status={status} />
               {n}
@@ -218,7 +219,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
             <span
               data-testid="board-count-rest"
               title={rolled.statuses.map((s) => `${STATUS_LABEL[s]}: ${counts.find((c) => c.status === s)?.n ?? 0}`).join(' · ')}
-              className="flex items-center gap-1 tabular-nums text-[10px] text-app-text-tertiary"
+              className="flex items-center gap-1 tabular-nums text-[11px] text-app-text-tertiary"
             >
               <MoreHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
               {rolled.n}
