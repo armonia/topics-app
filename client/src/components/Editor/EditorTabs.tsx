@@ -9,6 +9,7 @@ import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -40,6 +41,9 @@ interface EditorTabsProps {
 
 export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function EditorTabs({ projectPath }, ref) {
   const confirm = useConfirm();
+  // La X di una tab non ha un altro percorso col dito (il tasto centrale e' del
+  // mouse, e qui non c'e' menu contestuale): senza puntatore si vede.
+  const closeReveal = useHoverReveal('self', { touch: 'shown' });
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [darkMode, setDarkMode] = useState(false);
@@ -256,7 +260,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}
-                className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 flex-shrink-0 transition-opacity"
+                className={`ml-auto p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 flex-shrink-0 ${closeReveal}`}
               >
                 <X size={10} />
               </button>

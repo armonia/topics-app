@@ -23,6 +23,7 @@ import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_PANEL, Z_PO
 import { useDismissable } from '../../hooks/useDismissable';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
@@ -208,6 +209,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // e' LO STESSO menu, non un secondo da tenere allineato.
   const { isTouch } = useMobile();
   const fileLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
+  // «Stage all» / «Unstage all» stanno sull'INTESTAZIONE di una sezione: sono
+  // uno per pannello, non uno per riga, e non hanno un menu dove rifugiarsi —
+  // quindi senza puntatore si vedono invece di restare bersagli invisibili.
+  const hdrReveal = useHoverReveal('hdr', { touch: 'shown' });
+  // La freccina del branch e' l'affordance del menu, non un comando suo: il
+  // bottone che la contiene funziona comunque. Senza hover si mostra, cosi' si
+  // capisce che quel nome si apre.
+  const branchChevronReveal = useHoverReveal('git', { touch: 'shown' });
   const tr = useT();
   const { gitStatus, loading, error, notGit, reload: loadStatus, fetchRemote } = useGitStatus({ projectPath });
   const toast = useToast();
@@ -952,11 +961,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             ) : (
               <button
                 ref={branchBtnRef}
+                data-testid="git-branch-button"
                 onClick={(e) => { e.stopPropagation(); setShowBranches(!showBranches); }}
                 className="flex items-center gap-0.5 min-w-0 hover:text-primary transition-colors text-app-text-muted"
               >
                 <span className="truncate max-w-[80px]" title={gitStatus!.branch}>{gitStatus!.branch}</span>
-                <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform opacity-0 group-hover/git:opacity-100 ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
+                <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform ${branchChevronReveal} ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
               </button>
             ))}
             {hasData && fileCount > 0 && (
@@ -1561,7 +1571,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     </button>
                     <button
                       onClick={handleUnstageAll}
-                      className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors opacity-0 group-hover/hdr:opacity-100"
+                      className={`p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors ${hdrReveal}`}
                       title="Unstage all"
                     >
                       <Minus size={10} />
@@ -1585,7 +1595,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     <button
                       onClick={handleStageAll}
                       disabled={stagingAll}
-                      className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
+                      className={`p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 ${hdrReveal}`}
                       title="Stage all"
                     >
                       {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
@@ -1841,6 +1851,8 @@ function CompactFileList({
   onUnstageAll, onStageAll, stagingAll,
   renderFileRow,
 }: CompactFileListProps) {
+  // Stessa regola dei header in modalita' piena: vedi `hdrReveal` in GitChanges.
+  const hdrReveal = useHoverReveal('hdr', { touch: 'shown' });
   // Build flat item list: headers + files + remotes
   const items = useMemo<CompactItem[]>(() => {
     const list: CompactItem[] = [];
@@ -1914,7 +1926,7 @@ function CompactFileList({
               </button>
               <button
                 onClick={onUnstageAll}
-                className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors opacity-0 group-hover/hdr:opacity-100"
+                className={`p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors ${hdrReveal}`}
                 title="Unstage all"
               >
                 <Minus size={10} />
@@ -1936,7 +1948,7 @@ function CompactFileList({
               <button
                 onClick={onStageAll}
                 disabled={stagingAll}
-                className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
+                className={`p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 ${hdrReveal}`}
                 title="Stage all"
               >
                 {stagingAll ? <Spinner size="xs" /> : <Plus size={10} />}
