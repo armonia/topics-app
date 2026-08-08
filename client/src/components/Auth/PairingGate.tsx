@@ -20,6 +20,7 @@ export function PairingGate({ session }: { session: SessionState }) {
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
   const requestIdRef = useRef<string | null>(null);
+  const claimRef = useRef<string>('');
 
   const titolo =
     session.status === 'unpaired' && session.reason === 'revoked'
@@ -46,9 +47,13 @@ export function PairingGate({ session }: { session: SessionState }) {
       try {
         const r = await fetch('/api/auth/pair/request', { method: 'POST', credentials: 'same-origin' });
         if (!r.ok) throw new Error('richiesta rifiutata');
-        const body = await r.json() as { requestId: string; code: string };
+        const body = await r.json() as { requestId: string; code: string; claim?: string };
         if (!vivo) return;
         requestIdRef.current = body.requestId;
+        // Il segreto di ritiro: torna solo qui, e da qui non esce più. Senza,
+        // chiunque avesse visto passare il `requestId` poteva incassare il
+        // gettone al posto nostro.
+        claimRef.current = body.claim ?? '';
         setCode(body.code);
         attendi();
       } catch {
@@ -59,9 +64,11 @@ export function PairingGate({ session }: { session: SessionState }) {
     async function attendi() {
       if (!vivo || !requestIdRef.current) return;
       try {
-        const r = await fetch(`/api/auth/pair/status?requestId=${encodeURIComponent(requestIdRef.current)}`, {
-          credentials: 'same-origin',
-        });
+        const r = await fetch(
+          `/api/auth/pair/status?requestId=${encodeURIComponent(requestIdRef.current)}`
+          + `&claim=${encodeURIComponent(claimRef.current)}`,
+          { credentials: 'same-origin' },
+        );
         const body = await r.json() as { state: 'pending' | 'approved' | 'denied' | 'expired' };
         if (!vivo) return;
         if (body.state === 'approved') {

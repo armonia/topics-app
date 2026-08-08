@@ -555,8 +555,21 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcast(message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
+    // Era l'UNICA fan-out senza filtro degli ospiti, e portava roba d'oro:
+    // `auth:pair-requested` con il `requestId` e il codice di chi sta entrando,
+    // `auth:pair-resolved`, `auth:device-revoked`. Un ospite con un permesso di
+    // lettura su una scheda leggeva il riferimento di un appaiamento altrui e
+    // poi ne ritirava il gettone da `/api/auth/pair/status` — cioè diventava il
+    // dispositivo appena approvato. Provato in `guest-confinement.spec.ts`
+    // (GUEST-05), non dedotto.
+    //
+    // Il filtro è lo stesso di `broadcastToAll`, chiamato dallo stesso posto:
+    // nessuno dei tipi che passano di qui è nell'allowlist, quindi per un
+    // ospite cadono tutti — che è la risposta giusta.
+    const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
+        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
         try { ws.send(payload); } catch (err) {
           console.error(`[WS] Send error to ${ws.data.id}:`, err);
         }
