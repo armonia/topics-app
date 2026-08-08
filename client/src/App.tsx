@@ -979,7 +979,7 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-secondary hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
@@ -1184,7 +1184,7 @@ function App() {
                     6 contro 8. Tre elementi affiancati con tre forme diverse
                     non sono tre stili, sono un difetto: Aggiungi e Cerca sono
                     il riferimento (Attilio, 08/08). */}
-                <ChevronDown size={14} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
           </div>
