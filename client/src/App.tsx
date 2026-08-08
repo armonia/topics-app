@@ -1163,7 +1163,7 @@ function App() {
                 // 12 — 2px a sinistra dei nomi sotto, il near-miss che si legge
                 // peggio di una differenza netta. Con ROW_PX il titolo va a 14
                 // e il rialzo dell'hover resta a filo col bordo delle card.
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 rounded-md transition-colors cursor-pointer ${
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 min-h-7 rounded-lg transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.
@@ -1179,7 +1179,12 @@ function App() {
                 data-testid="sidebar-topics-menu"
               >
                 <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
-                <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
+                {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
+                    STESSA riga — misurato: era 12 contro i loro 14, e il raggio
+                    6 contro 8. Tre elementi affiancati con tre forme diverse
+                    non sono tre stili, sono un difetto: Aggiungi e Cerca sono
+                    il riferimento (Attilio, 08/08). */}
+                <ChevronDown size={14} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
           </div>
