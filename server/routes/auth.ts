@@ -575,6 +575,24 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             FROM people p
            WHERE p.revoked_at IS NULL
              AND p.id NOT IN (SELECT person_id FROM installation_owners)
+             -- Chi hai TOLTO non deve restare fra i destinatari. Il ramo delle
+             -- organizzazioni qui sotto guardava già local_blocked_at, questo
+             -- no: una persona aggiunta e poi tolta continuava a comparire per
+             -- sempre nella rubrica, e condividere con lei sarebbe riuscito.
+             --
+             -- «Nessuna appartenenza viva» e non «nessuna appartenenza»: chi
+             -- non è in nessun gruppo — per esempio una persona nata approvando
+             -- un dispositivo con «è di un'altra persona» — resta un
+             -- destinatario legittimo.
+             AND NOT EXISTS (
+               SELECT 1 FROM org_members bloccati
+                WHERE bloccati.person_id = p.id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM org_members vivi
+                     WHERE vivi.person_id = p.id
+                       AND vivi.revoked_at IS NULL AND vivi.local_blocked_at IS NULL
+                  )
+             )
            ORDER BY p.display_name`).all() as Array<{ id: string; display_name: string; n: number }>;
         for (const p of persone) {
           soggetti.push({ subjectType: "person", subjectId: p.id, name: p.display_name, devices: Number(p.n) });
@@ -631,9 +649,16 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             FROM installation_owners io JOIN people p ON p.id = io.person_id
            ORDER BY io.is_default DESC LIMIT 1`).get() as
           { id: string; name: string; email: string | null } | undefined;
+        // Il conteggio guarda ENTRAMBE le revoche, come `/api/auth/subjects`.
+        // Erano due definizioni diverse di «membro» sulla stessa
+        // organizzazione: qui si contava solo `revoked_at`, là anche
+        // `local_blocked_at`. Dopo aver tolto qualcuno i due numeri si
+        // separavano — l'interfaccia diceva «siete in due» e la rubrica dei
+        // destinatari non offriva il gruppo, perché per lei eri di nuovo solo.
         const org = db.query(`
           SELECT o.id, o.name,
-                 (SELECT COUNT(*) FROM org_members m WHERE m.org_id = o.id AND m.revoked_at IS NULL) AS membri
+                 (SELECT COUNT(*) FROM org_members m
+                   WHERE m.org_id = o.id AND m.revoked_at IS NULL AND m.local_blocked_at IS NULL) AS membri
             FROM orgs o WHERE o.revoked_at IS NULL ORDER BY o.created_at LIMIT 1`).get() as
           { id: string; name: string; membri: number } | undefined;
         return json({
@@ -736,10 +761,22 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           db.query(
             "INSERT OR IGNORE INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES (?,?, 'member', ?, 1, ?)",
           ).run(orgId, pid, now, now);
-          // Se c'era ed era stato bloccato, rientrare vuol dire togliere il
-          // blocco: altrimenti «l'ho riaggiunto e non vede niente».
-          db.query("UPDATE org_members SET revoked_at = NULL, local_blocked_at = NULL WHERE org_id = ? AND person_id = ?")
+          // Rientrare toglie il blocco LOCALE, e SOLO quello. `revoked_at` è
+          // del piano di controllo — è la licenza — e la migration lo dichiara
+          // (`084-people-orgs.sql:108-110`). Azzerarlo da qui, com'era, voleva
+          // dire che riaggiungere qualcuno scavalcava in silenzio una revoca
+          // decisa altrove: il gesto più innocuo dell'interfaccia diventava il
+          // modo di annullare una licenza.
+          db.query("UPDATE org_members SET local_blocked_at = NULL WHERE org_id = ? AND person_id = ?")
             .run(orgId, pid);
+          // E se la revoca remota c'è, si dice invece di far finta: altrimenti
+          // la persona ricompare in elenco e continua a non vedere niente,
+          // senza che nessuna schermata spieghi perché.
+          const remota = db.query("SELECT revoked_at FROM org_members WHERE org_id = ? AND person_id = ?")
+            .get(orgId, pid) as { revoked_at: number | null } | undefined;
+          if (remota?.revoked_at != null) {
+            return json({ ok: true, personId: pid, revocataAltrove: true });
+          }
           return json({ ok: true, personId: pid });
         } catch {
           return json({ error: "le organizzazioni non sono disponibili su questo database" }, 400);
