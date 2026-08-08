@@ -106,7 +106,16 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
         // leggevano come una parola sola. Senza nome non c'è niente da cui
         // staccarlo, e la riga verticale diventerebbe un tratto in più fra due
         // cose che nessuno confonde — un'icona e una cifra.
-        <span className="flex-1 text-right tabular-nums text-app-text-secondary">{chip.n}</span>
+        // Il numero sta ATTACCATO alla sua icona, non spinto a destra.
+        //
+        // Era `flex-1 text-right`, e la larghezza della pastiglia è PRENOTATA
+        // per due cifre: con una cifra sola il numero si trovava a ~11px
+        // dall'icona invece che a 4 — e il vuoto lo faceva sembrare il numero
+        // della pastiglia dopo. «I contatori sono troppo lontani dalle icone»
+        // (Attilio, 08/08). Lasciando fluire il testo, il gap è sempre il
+        // `gap-1` del contenitore e l'aria in eccesso finisce in coda, dove
+        // separa le coppie invece di spezzarle.
+        <span className="tabular-nums text-app-text-secondary">{chip.n}</span>
       )}
     </span>
   );
