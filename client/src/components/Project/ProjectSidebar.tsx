@@ -102,13 +102,13 @@ function RailButton({
         // sull'icona si confonde col tratto sottostante e il numero perde il
         // bordo. Con l'anello resta leggibile anche sovrapposta.
         <span
-          className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ring-elevated ${toneClass}`}
+          className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ring-app-chrome ${toneClass}`}
         >
           {badge > 99 ? '99+' : badge}
         </span>
       )}
       {badge === null && dot && (
-        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ring-elevated ${toneClass}`} />
+        <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ring-app-chrome ${toneClass}`} />
       )}
     </button>
   );
@@ -368,7 +368,7 @@ export function ProjectSidebar({
         ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
         : tr('project.sidebar.processes');
     return (
-      <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
+      <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden">
         {/* Header — stessa riga di chrome della tab bar delle pane (h-10 +
             border-b, vedi GroupLayout) e dell'header espanso qui sotto: il
             bottone di espansione cade sulla STESSA linea mediana dei tab, e il
@@ -426,7 +426,23 @@ export function ProjectSidebar({
     return createPortal(
       <>
         <div className="fixed inset-0 bg-black/50 z-40" onClick={onToggleCollapse} aria-hidden="true" />
-        <div className="fixed inset-y-0 left-0 z-50 w-[280px] bg-elevated flex flex-col overflow-hidden shadow-lg border-r border-app-border">
+        <div
+          // Stessa ancora della variante desktop: le due non convivono mai (il
+          // ramo è esclusivo), e portare lo stesso nome fa sì che la ritaratura
+          // dei token del chrome in index.css — agganciata a QUESTO selettore —
+          // valga anche sul telefono, dove il fondo è identico.
+          data-testid="project-sidebar"
+          className="chrome-glass fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg border-r border-app-border"
+          // IL FONDO SI FERMA SOPRA L'HOME INDICATOR. Il pannello è
+          // `inset-y-0`, quindi la sua ultima riga finiva sotto il trattino:
+          // uno spazio da cui non si può toccare niente, occupato da qualcosa
+          // di toccabile. Il padding lo dipinge il background di QUESTO
+          // elemento, quindi la fascia esce del colore del chrome e il bordo
+          // dell'app resta continuo — il contenuto sale, la superficie no. È lo
+          // stesso rimedio del composer (ChatInput) e della barra di stato
+          // della sidebar principale.
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
           {/* Header */}
           <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
             <span className="text-[12px] font-semibold text-app-text truncate" title={projectName}>{projectName}</span>
@@ -519,7 +535,21 @@ export function ProjectSidebar({
   return (
     <div
       data-testid="project-sidebar"
-      className="chrome-glass flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden relative"
+      // `bg-app-chrome`, non `bg-elevated`. Misurato in tema chiaro sul web:
+      // questa colonna usciva #fafafa mentre la sidebar principale — l'altro
+      // chrome della stessa finestra — usciva #eaecf0, e la pagina sotto è
+      // #f8f9fa. Cioè la barra dei progetti era la superficie più CHIARA delle
+      // tre: avanzava verso l'occhio invece di arretrare, al contrario di ogni
+      // altro chrome («non mi sembra che abbia lo sfondo corretto rispetto al
+      // tema», Attilio 08/08). La classe `chrome-glass` c'era già, ma sotto
+      // Tauri/mac è l'unica cosa che dipinge: sul web e su Windows/Linux
+      // restava `bg-elevated` a decidere, e nessuno lo vedeva dal Mac.
+      //
+      // Nessun rischio di doppia mano: la guardia anti-compounding è agganciata
+      // alla CLASSE (`.chrome-glass .chrome-glass { transparent !important }`),
+      // e sotto la shell il `!important` di quelle regole batte comunque questa
+      // utility. Qui si corregge il ramo che la shell non attraversa.
+      className="chrome-glass flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
       {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.

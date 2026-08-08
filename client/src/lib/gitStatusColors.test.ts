@@ -10,7 +10,12 @@ describe('gitStatusTextClass', () => {
   test('ogni stato riconosciuto porta una coppia chiaro/scuro', () => {
     for (const code of ['M ', ' M', 'MM', 'A ', 'AM', ' D', 'D ', 'R  ', 'RM', 'C ', '??']) {
       const cls = gitStatusTextClass(code);
-      expect(cls, `stato ${JSON.stringify(code)}`).toMatch(/^text-[a-z]+-700 dark:text-[a-z]+-400$/);
+      // Il GRADINO chiaro non è uno solo: dipende dal contrasto della singola
+      // tinta sul fondo su cui atterra (700 per rosso/blu/viola, 800 per ambra
+      // e verde, che a 700 restavano sotto AA sul chrome — vedi il modulo). Ciò
+      // che il test difende è la COPPIA: una classe nuda vale per un tema solo,
+      // ed è il baco per cui questo file esiste.
+      expect(cls, `stato ${JSON.stringify(code)}`).toMatch(/^text-[a-z]+-[78]00 dark:text-[a-z]+-400$/);
     }
   });
 

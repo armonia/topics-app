@@ -20,21 +20,37 @@
  *   amber-600   3,06     4,98   ← perfino la coppia «curata» di GitChanges
  *                                 fallisce in chiaro.
  *
- * Le coppie qui sotto sono scelte SUL NUMERO, non a occhio: la scala 700 in
- * chiaro e la 400 in scuro sono le uniche due che superano insieme il 4,5:1 di
- * WCAG AA su entrambe le superfici.
+ * Le coppie qui sotto sono scelte SUL NUMERO, non a occhio: in scuro la scala
+ * 400, in chiaro la più chiara che supera il 4,5:1 di WCAG AA sul fondo VERO su
+ * cui questi colori atterrano.
  *
- *   amber-700 / amber-400    4,84 / 9,26
- *   green-700 / green-400    4,74 / 8,96
- *   red-700   / red-400      6,15 / 5,50
- *   blue-700  / blue-400     6,54 / 6,03
- *   purple-700 / purple-400  6,78 / 5,70
+ * ── E IL FONDO VERO È CAMBIATO L'08/08 ──────────────────────────────────────
+ * Questa nota diceva: «il chrome della sidebar è più scuro del pannello —
+ * #eaecf0 contro #fafafa — e lì la scala 700 non basta per l'ambra e il verde».
+ * Era una parentesi su un caso che non ci riguardava. Poi la barra dei progetti
+ * è passata dal token sbagliato (`bg-elevated`) al chrome che dichiarava di
+ * essere, e l'albero dei file — l'unico consumatore di queste classi — si è
+ * ritrovato proprio su quel fondo. Misurato lì (canvas → sRGB, soglia AA):
  *
- * (Il chrome della sidebar è più scuro del pannello — #eaecf0 contro #fafafa —
- * e lì la scala 700 non basta per l'ambra e il verde: i segnali della barra di
- * stato hanno le loro coppie, misurate su QUEL fondo, in SidebarStatusBar.tsx.
- * Due superfici diverse, due tarature: è la stessa ragione per cui il chrome si
- * ritara terziario e bordi in index.css.)
+ *                    su #eaecf0
+ *   amber-700          4,25   ✗   → amber-800   5,99  ✓
+ *   green-700          4,18   ✗   → green-800   6,03  ✓
+ *   red-700            5,43   ✓
+ *   blue-700           5,78   ✓
+ *   purple-700         5,97   ✓
+ *
+ * Scendono di un gradino SOLO ambra e verde, cioè i due che non passavano: le
+ * altre tre restano dove sono, perché scurire una tinta che già passa costa
+ * saturazione e non compra niente. Sono gli stessi due gradini — e gli stessi
+ * numeri — a cui era già arrivata la barra di stato, che sul chrome ci vive da
+ * prima (SidebarStatusBar.tsx). Il rosso non l'ha trovato una revisione a
+ * occhio: l'ha trovato il cancello di contrasto FILETREE-CONTRAST-01.
+ *
+ *   amber-800 / amber-400    5,99 / 9,26
+ *   green-800 / green-400    6,03 / 8,96
+ *   red-700   / red-400      5,43 / 5,50
+ *   blue-700  / blue-400     5,78 / 6,03
+ *   purple-700 / purple-400  5,97 / 5,70
  */
 
 /** Le famiglie di stato che hanno una tinta propria. */
@@ -53,8 +69,8 @@ type GitStatusTone =
  * fallback da «modificato» significa affermare una cosa che non si sa.
  */
 const GIT_STATUS_TEXT: Record<GitStatusTone, string> = {
-  added: 'text-green-700 dark:text-green-400',
-  modified: 'text-amber-700 dark:text-amber-400',
+  added: 'text-green-800 dark:text-green-400',
+  modified: 'text-amber-800 dark:text-amber-400',
   deleted: 'text-red-700 dark:text-red-400',
   renamed: 'text-blue-700 dark:text-blue-400',
   untracked: 'text-purple-700 dark:text-purple-400',
