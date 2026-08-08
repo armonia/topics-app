@@ -11,6 +11,7 @@ import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
@@ -140,6 +141,13 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
   // duplica e cestina erano irraggiungibili. Stesso gesto del resto dell'app.
   const { isTouch } = useMobile();
   const nodeLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
+  // Le tre icone di una cartella (nuovo file, nuova cartella, chiudi) si
+  // scoprono col mouse. Senza puntatore spariscono DAVVERO — `pointer-events`
+  // compresi, altrimenti restano tre bersagli invisibili sul bordo destro di
+  // una riga il cui tocco apre la cartella. Il percorso col dito c'e' gia': il
+  // long-press qui sopra apre lo stesso menu del tasto destro, che ha «New
+  // File» e «New Folder»; chiudere la cartella e' il tocco sulla riga stessa.
+  const dirActionsReveal = useHoverReveal('node');
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
@@ -298,7 +306,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
               </span>
             )}
             {isDir && (
-              <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/node:opacity-100 transition-opacity flex-shrink-0"
+              <div className={`ml-auto flex items-center gap-0.5 flex-shrink-0 ${dirActionsReveal}`}
                    onClick={e => e.stopPropagation()}>
                 <button onClick={() => onNewFile?.(node.path)} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File">
                   <FilePlus size={12} />

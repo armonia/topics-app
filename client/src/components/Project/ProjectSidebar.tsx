@@ -11,6 +11,7 @@ import { useGitStatus } from '../../hooks/useGitStatus';
 import { isRecentFailure } from '../../lib/processFailure';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 // Git is heavy (diff rendering) — keep lazy
 const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
@@ -124,6 +125,11 @@ export function ProjectSidebar({
   onOpenProcessLog,
 }: ProjectSidebarProps) {
   const tr = useT();
+  // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
+  // chiudi tutto, ricarica) non hanno un altro percorso col dito, e sono UNO
+  // per pannello — non uno per riga —, quindi senza puntatore si vedono
+  // (`touch: 'shown'`) invece di restare bersagli invisibili sull'header.
+  const filesHeaderReveal = useHoverReveal('files', { touch: 'shown' });
   // Project name = the display override (task title) or the path's folder name.
   const projectName = displayName || projectPath.split('/').filter(Boolean).pop() || 'Project';
   // Auto-collapse on mobile
@@ -463,7 +469,7 @@ export function ProjectSidebar({
                 <span>{tr('project.sidebar.files')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
                 {expandedSections.files && (
-                  <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                  <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
                     <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
                     <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
                     <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
@@ -610,7 +616,7 @@ export function ProjectSidebar({
             <span>{tr('project.sidebar.files')}</span>
             <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
             {expandedSections.files && (
-              <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+              <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
                 <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
                 <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
                 <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>

@@ -135,6 +135,7 @@ export default defineConfig({
       // gate esiste apposta per non guardare. La lista va quindi RIPETUTA qui.
       testIgnore: [
         "**/sidebar-touch-audit.spec.ts",
+        "**/hover-reveal-touch-audit.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -160,6 +161,29 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
+      },
+    },
+    /**
+     * IL DITO, MA SU UNO SCHERMO LARGO.
+     *
+     * `isTouch` e `isMobile` sono due domande diverse (vedi `hooks/useMobile.ts`),
+     * e il progetto qui sopra le fa insieme: a 390px l'app è in layout mobile,
+     * quindi non può provare i rami touch delle superfici che a quella larghezza
+     * non esistono — la barra laterale del progetto, il pannello git, la tendina
+     * dei rami. Stessi segnali (`hasTouch` + `isMobile` spengono
+     * `(hover: hover)`), viewport da desktop: così `useMobile()` risponde
+     * `isTouch: true, hasHover: false, isMobile: false`, che è esattamente la
+     * combinazione di un tablet con la tastiera staccata — e la popolazione su
+     * cui i comandi nascosti dietro l'hover sparivano.
+     */
+    {
+      name: "chromium-touch-wide",
+      testMatch: "**/hover-reveal-touch-audit.spec.ts",
+      use: {
+        browserName: "chromium",
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 1280, height: 900 },
       },
     },
   ],
