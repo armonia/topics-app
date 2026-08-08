@@ -83,11 +83,35 @@ export interface Accolto {
   sessionId?: string;
 }
 
-/** Un ospite si è collegato o se n'è andato. La macchina lo deve sapere per
- *  smettere di mandare buste a nessuno. */
+/**
+ * Da quale porta è entrata una sessione.
+ *
+ * `guest` è chi ha aperto un LINK: una capacità su UNA risorsa, e la macchina
+ * gli serve quella e nient'altro. `device` è un dispositivo APPAIATO che entra
+ * da fuori rete: non ha un link, ha l'installazione intera davanti — e la
+ * decide l'ascoltatore dedicato, con le stesse regole della rete locale.
+ *
+ * Sta nell'involucro di proposito, ed è l'unica cosa che il relay aggiunge di
+ * suo: la sa perché è scritta nell'URL da cui si è agganciato, quindi non la
+ * ricava guardando dentro niente. Serve a chi riceve per scegliere la POSTURA
+ * prima di aprire la busta — e senza, le due sessioni arrivano identiche e
+ * l'unico modo di distinguerle sarebbe indovinarlo dal contenuto, cioè dalla
+ * sola cosa che non deve guardare nessuno tranne lui.
+ *
+ * Assente vuol dire `guest`: un relay più vecchio non lo manda, e un capo che
+ * ne pretendesse la presenza smetterebbe di parlare con un deploy che non è
+ * ancora stato aggiornato.
+ */
+export type RuoloSessione = "guest" | "device";
+
+const RUOLI = new Set<string>(["guest", "device"]);
+
+/** Una sessione si è aperta o è finita. La macchina lo deve sapere per smettere
+ *  di mandare buste a nessuno. */
 export interface OspiteCambiato {
   t: "guest-joined" | "guest-left";
   sessionId: string;
+  ruolo?: RuoloSessione;
 }
 
 /**
@@ -122,6 +146,9 @@ export function involucro(m: MessaggioRelay): Record<string, unknown> {
   if ("installationId" in m) base.installationId = m.installationId;
   if ("to" in m) base.to = m.to;
   if ("sessionId" in m && m.sessionId !== undefined) base.sessionId = m.sessionId;
+  // Il ruolo è instradamento, non contenuto: il relay lo legge dall'URL da cui
+  // ci si aggancia, e lo dichiara qui perché resti l'UNICA cosa che aggiunge.
+  if ("ruolo" in m && m.ruolo !== undefined) base.ruolo = m.ruolo;
   if ("shareRef" in m) base.shareRef = m.shareRef;
   if ("motivo" in m) base.motivo = m.motivo;
   return base;
@@ -165,8 +192,18 @@ export function leggiMessaggio(raw: unknown): MessaggioRelay | null {
         ? { t, v: m.v as number, ...(str("sessionId") ? { sessionId: m.sessionId as string } : {}) }
         : null;
     case "guest-joined":
-    case "guest-left":
-      return str("sessionId") ? { t, sessionId: m.sessionId as string } : null;
+    case "guest-left": {
+      if (!str("sessionId")) return null;
+      // Assente si accetta (un relay più vecchio non lo manda); presente e
+      // fuori vocabolario NO: un ruolo che non si conosce è una postura che
+      // non si sa scegliere, e sceglierne una a caso è il modo in cui si
+      // finisce per trattare un estraneo come un dispositivo appaiato.
+      if ("ruolo" in m && m.ruolo !== undefined) {
+        if (typeof m.ruolo !== "string" || !RUOLI.has(m.ruolo)) return null;
+        return { t, sessionId: m.sessionId as string, ruolo: m.ruolo as RuoloSessione };
+      }
+      return { t, sessionId: m.sessionId as string };
+    }
     case "denied":
       return typeof m.motivo === "string" && MOTIVI.has(m.motivo)
         ? { t, motivo: m.motivo as Rifiutato["motivo"] }

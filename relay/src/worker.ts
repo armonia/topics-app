@@ -1,14 +1,24 @@
 /**
  * Il relay di Topics: instrada, e non capisce.
  *
- * Due porte sole:
+ * Tre porte sole:
  *   `GET /agent/:installationId`  ← la MACCHINA, che chiama FUORI
  *   `GET /s/:installationId`      ← l'OSPITE, che apre un link
+ *   `GET /d/:installationId`      ← il DISPOSITIVO appaiato, da un'altra rete
  *
- * Entrambe finiscono nello stesso Durable Object, uno per installazione, che è
- * il punto d'incontro. La macchina non ascolta su nessuna porta: apre lei la
+ * Tutte finiscono nello stesso Durable Object, uno per installazione, che è il
+ * punto d'incontro. La macchina non ascolta su nessuna porta: apre lei la
  * connessione. È il motivo per cui in questo prodotto la parola «tunnel» non
  * compare — non c'è niente da esporre.
+ *
+ * ── PERCHÉ IL DISPOSITIVO HA UNA PORTA SUA ──────────────────────────────────
+ * Un ospite di link è una CAPACITÀ su una risorsa: una domanda, una risposta.
+ * Un dispositivo appaiato ha davanti l'installazione intera e ci resta per ore,
+ * con decine di richieste in volo insieme. Sono due posture diverse dal lato
+ * della macchina, e la macchina deve poterle distinguere PRIMA di aprire la
+ * busta. Il percorso è la sola cosa che il relay sa di suo, quindi il ruolo
+ * nasce lì e viaggia nell'involucro — e non si ricava mai dal contenuto, che
+ * resta roba di nessuno tranne i due capi.
  *
  * Quello che il Worker NON fa, ed è deliberato (RELAY-04): non decide chi sei.
  * Stabilisce un canale. Chi sei e cosa puoi vedere lo decide l'installazione,
@@ -46,7 +56,7 @@ export default {
       });
     }
 
-    const m = url.pathname.match(/^\/(agent|s)\/([A-Za-z0-9_-]{1,128})$/);
+    const m = url.pathname.match(/^\/(agent|s|d)\/([A-Za-z0-9_-]{1,128})$/);
 
     if (!m) {
       // Nessuna pagina, nessun indice: un relay che risponde qualcosa a una
@@ -65,7 +75,11 @@ export default {
     const id = env.SESSIONE.idFromName(installationId);
     const stub = env.SESSIONE.get(id);
     const dentro = new URL(req.url);
-    dentro.searchParams.set("ruolo", ruolo === "agent" ? "host" : "guest");
+    // Una tabella e non una catena di ternari: aggiungere una porta domani deve
+    // essere una riga, e una porta che non c'è deve cadere sul valore meno
+    // potente invece che su quello più comodo.
+    const RUOLI: Record<string, string> = { agent: "host", s: "guest", d: "device" };
+    dentro.searchParams.set("ruolo", RUOLI[ruolo ?? ""] ?? "guest");
     return stub.fetch(new Request(dentro.toString(), req));
   },
 };

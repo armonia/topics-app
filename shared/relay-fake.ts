@@ -22,6 +22,7 @@ import {
   RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
   componiStream, creaContatoreStream, creaRiassemblatore, leggiFramePayload, scriviFrame,
   type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream, type Rifiutato,
+  type RuoloSessione,
 } from "./relay-protocol";
 import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, leggiTestaRisposta, scriviTesta,
@@ -53,7 +54,7 @@ export interface RelayFintoOpts {
  */
 export function creaRelayFinto(opts: RelayFintoOpts = {}) {
   const macchine = new Map<string, Capo>();
-  const ospiti = new Map<string, { capo: Capo; installationId: string }>();
+  const ospiti = new Map<string, { capo: Capo; installationId: string; ruolo: RuoloSessione }>();
   /** Ciò che il relay ha VISTO passare: serve ai test per dimostrare che non
    *  contiene i contenuti. */
   const visto: Array<Record<string, unknown>> = [];
@@ -121,9 +122,9 @@ export function creaRelayFinto(opts: RelayFintoOpts = {}) {
           const host = macchine.get(m.installationId);
           if (!host) return nega(capo, "host-offline");
           sessionId = `s${++contatore}`;
-          ospiti.set(sessionId, { capo, installationId: m.installationId });
+          ospiti.set(sessionId, { capo, installationId: m.installationId, ruolo: "guest" });
           capo.invia({ t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId });
-          host.invia({ t: "guest-joined", sessionId });
+          host.invia({ t: "guest-joined", sessionId, ruolo: "guest" });
           return;
         }
 
@@ -144,16 +145,72 @@ export function creaRelayFinto(opts: RelayFintoOpts = {}) {
         if (!sessionId) return;
         const o = ospiti.get(sessionId);
         if (o) {
-          macchine.get(o.installationId)?.invia({ t: "guest-left", sessionId });
+          macchine.get(o.installationId)?.invia({ t: "guest-left", sessionId, ruolo: o.ruolo });
           ospiti.delete(sessionId);
         }
       },
     };
   }
 
+  /**
+   * Un DISPOSITIVO appaiato che si aggancia da un'altra rete.
+   *
+   * Sta accanto a `collegaOspite` e non dentro, perché nel relay vero le due
+   * cose sono due PERCORSI diversi (`/d/:id` e `/s/:id`) e il ruolo nasce da
+   * lì. Qui la stessa asimmetria si vede nella forma: l'installazione arriva
+   * al collegamento e non con un messaggio dopo, esattamente come nell'URL —
+   * un dispositivo non ha nessun riferimento di condivisione da mostrare, ha
+   * l'installazione intera davanti, e chi decide cosa può vedere è
+   * l'ascoltatore dedicato della macchina, non il relay.
+   */
+  function collegaDispositivo(installationId: string, invia: Invia) {
+    const capo: Capo = { invia };
+    let sessionId: string | null = null;
+
+    const host = macchine.get(installationId);
+    if (!host) nega(capo, "host-offline");
+    else {
+      sessionId = `s${++contatore}`;
+      ospiti.set(sessionId, { capo, installationId, ruolo: "device" });
+      capo.invia({ t: "ready", v: RELAY_PROTOCOL_VERSION, sessionId });
+      host.invia({ t: "guest-joined", sessionId, ruolo: "device" });
+    }
+
+    return {
+      ricevi(raw: unknown) {
+        const m = leggiMessaggio(raw);
+        if (!m) return nega(capo, "bad-version");
+        visto.push({ t: m.t });
+
+        if (m.t === "to-host") {
+          if (!sessionId) return nega(capo, "host-offline");
+          const o = ospiti.get(sessionId);
+          const h = o && macchine.get(o.installationId);
+          if (!h) return nega(capo, "host-offline");
+          // Il mittente lo attacca il RELAY, come per gli ospiti di link: un
+          // capo che se lo scegliesse potrebbe spacciarsi per un altro.
+          h.invia({ t: "to-guest", to: sessionId, payload: m.payload });
+          return;
+        }
+
+        nega(capo, "bad-version");
+      },
+      scollega() {
+        if (!sessionId) return;
+        const o = ospiti.get(sessionId);
+        if (o) {
+          macchine.get(o.installationId)?.invia({ t: "guest-left", sessionId, ruolo: o.ruolo });
+          ospiti.delete(sessionId);
+        }
+      },
+      sessionId: () => sessionId,
+    };
+  }
+
   return {
     collegaMacchina,
     collegaOspite,
+    collegaDispositivo,
     /** Tutto ciò che il relay ha visto. Nessun contenuto, per costruzione. */
     visto,
     macchineCollegate: () => macchine.size,
