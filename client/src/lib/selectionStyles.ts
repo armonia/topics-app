@@ -227,6 +227,34 @@ export const ON_FILL_TEXT_SOFT = 'text-inherit opacity-70';
 export const ROW_PX = 'px-2';
 
 /**
+ * IL TESTO DI UNA TAB, ovunque una tab si presenti: la barra delle pane, la
+ * tessera fissata, la riga di un progetto nella colonna.
+ *
+ * Erano tre tipografie diverse per tre presentazioni della STESSA cosa —
+ * misurate: la tab a 11px medium, la tessera a 11px normale, la riga di
+ * progetto a 13px medium — più tre colori diversi a riposo. «Le tab progetti
+ * sono ancora grige e sono diverse anche in peso, allineiamo tutto» (Attilio,
+ * 08/08).
+ *
+ * Tre decisioni, e una sola ragione dietro tutte:
+ *
+ *  · **13px**, che è la misura più GRANDE delle tre e non un compromesso a
+ *    metà: la lamentela era che i corpi sembrano piccoli, quindi si sale.
+ *  · **medium** per tutte: il peso non è un modo di dire «questa è meno
+ *    importante», è parte dell'identità del carattere.
+ *  · **testo pieno** per tutte. A dire quale tab è quella corrente ci pensa la
+ *    SUPERFICIE — è la regola che questo file già dichiara («at rest the card is
+ *    transparent, so only the current/hovered/needy row reads as a filled
+ *    tab»). Spegnere anche il testo diceva la stessa cosa due volte, e la
+ *    seconda la diceva male: una tab a riposo diventava illeggibile da lontano.
+ *
+ * Chi ha bisogno di un tono diverso — un progetto tutto archiviato, una riga
+ * dentro un fill di attenzione — lo aggiunge DOPO, sovrascrivendo: qui c'è la
+ * base, non l'ultima parola.
+ */
+export const TAB_LABEL = 'text-[13px] font-medium text-app-text';
+
+/**
  * The single horizontal inset (px) of a list of tabs/rows from its panel edge —
  * SHARED by the sidebar AND the tab bar so the two lists line up at the sides
  * AND so a list item's side gap equals a tab's TOP/BOTTOM gap (the spacing reads

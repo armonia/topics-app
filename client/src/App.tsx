@@ -984,7 +984,10 @@ function App() {
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
     >
-      <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
+      {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
+          metro che Attilio ha usato) un glifo da 14 in una scatola da 28 legge
+          come mezzo comando. Sedici riempie la scatola senza toccarne i bordi. */}
+      <Search size={isMobile ? 20 : 16} className="flex-shrink-0" aria-hidden="true" />
       {/* Col dito niente etichetta: il bottone sta ACCANTO al titolo, in una
           riga dove ogni pixel orizzontale è conteso, e la lente da sola si
           legge. L'etichetta serviva alla barra in fondo, dove i due comandi
