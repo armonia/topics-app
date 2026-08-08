@@ -199,6 +199,7 @@ export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
 import type { Topic, TopicsData, UnreadData } from "../shared/types";
+import type { ServizioLicenza } from "./lib/licenza";
 
 export interface ActiveStream {
   sessionKey: string;
@@ -267,6 +268,10 @@ export interface AppContext {
   /** Il relay è collegato ADESSO. Diverso da «configurato»: serve a dire a chi
    *  crea un link se quel link funzionerà subito o solo quando torna la rete. */
   relayConnected?: () => boolean;
+  /** COSA È CONCESSO su questa installazione — la porta unica, `server/lib/licenza.ts`.
+   *  Opzionale perché un contesto ridotto (le prove) non la innesta: chi legge
+   *  cade sul piano gratuito, che è il verso giusto in cui mancare. */
+  licenza?: () => ServizioLicenza;
   /** Chiude tutte le socket di un dispositivo. L'identità di una socket è
    *  timbrata all'upgrade e non si rilegge, quindi senza questo una revoca
    *  valeva sull'HTTP e non sul filo già aperto. Torna quante ne ha chiuse. */
