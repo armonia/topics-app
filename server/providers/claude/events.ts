@@ -154,6 +154,29 @@ export function readAssistantCallUsage(event: unknown): CallUsage | null {
 }
 
 /**
+ * L'identità della CHIAMATA API che ha prodotto questo evento.
+ *
+ * Serve perché `assistant` NON è un evento per chiamata: la CLI ne emette uno
+ * per BLOCCO di contenuto, e ognuno ripete la STESSA `message.usage`. Misurato
+ * su un turno reale (16 ricerche voli): 24 eventi `assistant` con usage, 4
+ * `message.id` distinti — 8 + 9 + 5 + 2. Chi accumula quell'usage senza
+ * guardare l'id conta lo stesso prompt fino a 9 volte: 925.774 token diventano
+ * 4.893.590, e il costo del turno $3,66 diventa $22,80.
+ *
+ * `message.id` è l'id del messaggio Anthropic, identico su tutti i blocchi
+ * della stessa risposta e diverso fra una risposta e l'altra. Null quando
+ * manca: chi chiama non deve poter confondere «id assente» con «stesso id»,
+ * quindi in quel caso si torna al comportamento storico (nessuna deduplica) e
+ * non a «già visto».
+ */
+export function readAssistantMessageId(event: unknown): string | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "assistant") return null;
+  const id = asRecord(e.message)?.id;
+  return typeof id === "string" && id ? id : null;
+}
+
+/**
  * La dimensione del contesto che quella chiamata ha visto.
  *
  * Si legge dall'evento e non da `CallUsage` per non fare aritmetica al

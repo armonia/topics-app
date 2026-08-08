@@ -36,6 +36,7 @@ import {
   parseToolInputBuffer,
   readAssistantCallUsage,
   readAssistantContextTokens,
+  readAssistantMessageId,
   readEventContent,
   readParentToolUseId,
   readResultErrorText,
@@ -961,6 +962,14 @@ interface PersistentProcess {
    *  re-emits them on every cumulative `assistant` snapshot, so we need a
    *  set to skip duplicates and prevent push-without-dedup downstream. */
   settledToolCalls?: Set<string>;
+  /** I `message.id` delle chiamate API già FATTURATE in questo turno.
+   *
+   *  Stessa trappola di `settledToolCalls`, sull'altra grandezza: la CLI emette
+   *  un evento `assistant` per BLOCCO di contenuto e ognuno ripete la stessa
+   *  `message.usage`. `onCallUsage` accumula, quindi senza questo Set un turno
+   *  con 24 eventi su 4 chiamate fatturava 4.893.590 token invece di 925.774
+   *  (5,29×) e $22,80 invece di $3,66 — numeri misurati sul topic dec44329. */
+  billedCallIds?: Set<string>;
   /** In-flight tool inputs from `--include-partial-messages` stream_events,
    *  keyed by content-block index: id/name captured at content_block_start,
    *  `buf` accumulates input_json_delta.partial_json until block stop.
@@ -1283,6 +1292,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
+    pp.billedCallIds?.clear();
     pp.streamingToolInputs?.clear();
     pp.argsFinalized?.clear();
     pp.attributedToolCalls?.clear();
@@ -2686,10 +2696,26 @@ export class ClaudeCodeProvider implements AIProvider {
         if (size > 0) handler.onContextSize?.(size, callUsage.model);
         // Lo stesso evento porta anche il CONSUMO di questa chiamata, che finora
         // buttavamo: `onContextSize` misura il serbatoio (sale e scende con le
-        // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula —
-        // il `result` finale somma già tutte le chiamate, quindi non si somma due
-        // volte.
-        handler.onCallUsage?.(callUsage);
+        // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula.
+        //
+        // E siccome ACCUMULA, va emesso UNA VOLTA PER CHIAMATA API — non una
+        // volta per evento. `assistant` non è un evento per chiamata: la CLI ne
+        // manda uno per BLOCCO di contenuto, tutti con la stessa `message.usage`
+        // (misurato: 24 eventi, 4 `message.id`, 8+9+5+2). Senza questo Set lo
+        // stesso prompt veniva fatturato fino a 9 volte, e il piede del messaggio
+        // mostrava 4.893.590 token per un turno da 925.774.
+        //
+        // `onContextSize` qui sopra non ha bisogno della guardia: ASSEGNA una
+        // misura invece di sommarla, quindi ripeterla è idempotente.
+        const callId = readAssistantMessageId(event);
+        const billed = (pp.billedCallIds ??= new Set<string>());
+        // Id assente = non possiamo distinguere una ripetizione da una chiamata
+        // nuova: si emette, come si è sempre fatto. Sbagliare per eccesso su un
+        // evento malformato è meglio che perdere in silenzio una chiamata vera.
+        if (!callId || !billed.has(callId)) {
+          if (callId) billed.add(callId);
+          handler.onCallUsage?.(callUsage);
+        }
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
         // loro nel loop dei blocchi, una sola volta ciascuna (Trappola 1).
