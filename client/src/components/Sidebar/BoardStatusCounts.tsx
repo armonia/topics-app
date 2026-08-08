@@ -6,17 +6,9 @@ import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
-  boardProjectChips, fitBoardRow, CHIP_MODES, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON, contaLeggibile,
-  type BoardProjectChip, type ChipMode,
+  boardProjectChips, fitBoardRow, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON, chipWidth, contaLeggibile,
+  type BoardProjectChip,
 } from './boardProjectChips';
-
-/** La larghezza di ogni gradino, indicizzata dal modo. Derivata da `CHIP_MODES`
- *  e non riscritta: la scala e le sue misure vivono nel modulo puro, che è anche
- *  quello che l'aritmetica del ritaglio legge — due copie divergerebbero, e la
- *  pastiglia si disegnerebbe di una misura diversa da quella prenotata. */
-const CHIP_W: Record<ChipMode, number> = Object.fromEntries(
-  CHIP_MODES.map(({ mode, w }) => [mode, w]),
-) as Record<ChipMode, number>;
 
 /** La scatola dell'icona: `CHIP_W_ICON` meno niente, perché senza superficie la
  *  pastiglia non ha più padding — lo slot È la pastiglia, nel gradino povero. */
@@ -81,7 +73,7 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress'];
  * `leading-none` dal bottone della board, e `leading-none` + `overflow-hidden`
  * insieme tranciano le discendenti di g, p, q.
  */
-function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode }) {
+function ProjectChip({ chip }: { chip: BoardProjectChip }) {
   return (
     <span
       data-testid={`board-project-${chip.projectId}`}
@@ -96,7 +88,11 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       // la distanza (`CHIP_SPACING` doppio del gap fra i blocchi), che è come si
       // raggruppa senza disegnare un contorno.
       className="flex min-w-0 flex-shrink-0 items-center text-[11px]"
-      style={{ width: CHIP_W[mode], gap: CHIP_INNER_GAP }}
+      // La larghezza viene da `chipWidth(n)`, la STESSA funzione che l'aritmetica
+      // del ritaglio usa per decidere quante ce ne stanno. Con una misura fissa
+      // per tutte, una pastiglia da una cifra si portava dietro 7px di vuoto in
+      // coda e il divario fra due coppie cambiava col numero.
+      style={{ width: chipWidth(chip.n), gap: CHIP_INNER_GAP }}
     >
       {/* Lo slot è 20×14 — l'altezza è quella standard dell'app, la larghezza
           serve ai logo-scritta. Le misure e il perché stanno accanto a
@@ -316,7 +312,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         style={{ gap: CHIP_SPACING }}
       >
         {fitted.chips.shown.map((chip) => (
-          <ProjectChip key={chip.projectId} chip={chip} mode={fitted.chips.mode} />
+          <ProjectChip key={chip.projectId} chip={chip} />
         ))}
       </div>
       {/* Il ritaglio è DICHIARATO — «+2» — invece di lasciar sparire dei
