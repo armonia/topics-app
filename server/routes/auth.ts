@@ -18,6 +18,7 @@ import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
   actingPersonId, isOrgRole, orgAlive, type OrgRole,
 } from "../lib/orgs";
+import { consentito } from "../lib/licenza";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -902,6 +903,45 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           if (!viva) return json({ error: "organizzazione sconosciuta" }, 404);
           if (!canAdministerOrg(db as never, orgId, ioPersona)) {
             return json({ error: "non amministri questo gruppo" }, 403);
+          }
+
+          // ── IL POSTO ────────────────────────────────────────────────────
+          // Qui e in NESSUN altro punto di questo blocco: i posti governano
+          // l'ingresso e nient'altro (`server/lib/licenza.ts`). Sulla lettura,
+          // sulla rimozione e sul cambio di ruolo non si chiede niente alla
+          // licenza — un conteggio che può togliere è un conteggio che un
+          // giorno espelle qualcuno mentre la fatturazione ha un problema.
+          //
+          // La domanda si fa alla porta unica, non con un `if` scritto qui: due
+          // punti che rispondono a «c'è posto?» sono due punti che un giorno
+          // rispondono diversamente, e quello che decide davvero è questo.
+          //
+          // Chi è GIÀ dentro non consuma un posto in più: ripetere questa POST
+          // su un membro vivo è idempotente, e non deve diventare l'unico gesto
+          // che si rompe a gruppo pieno.
+          const giaMembro = typeof body?.personId === "string" && body.personId
+            ? orgRole(db as never, orgId, body.personId) !== null
+            : false;
+          // Senza il servizio della licenza innestato non c'è un'autorità a cui
+          // chiedere, e non se ne inventa una: si lascia passare, che è il verso
+          // in cui questo modulo sbaglia sempre.
+          const licenza = ctx.licenza?.();
+          if (!giaMembro && licenza) {
+            const esito = consentito(licenza.stato(), {
+              tipo: "aggiungi_persona_al_gruppo",
+              membriVivi: liveMemberCount(db as never, orgId),
+            });
+            if (!esito.ok) {
+              // Il codice esce con i due numeri: «rifiutato» senza dire quanti
+              // posti ci sono e quanti se ne stanno usando manda a cercare il
+              // problema nella parte sbagliata.
+              return json(
+                esito.codice === "no_seats_left"
+                  ? { error: esito.codice, seats: esito.posti, members: esito.membri }
+                  : { error: esito.codice },
+                403,
+              );
+            }
           }
 
           let pid: string;

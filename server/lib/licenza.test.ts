@@ -17,7 +17,7 @@
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -29,6 +29,14 @@ import {
 } from "./licenza";
 
 const IID = "installazione-di-prova";
+
+/** I soli bit dei permessi, senza il tipo di file. */
+const permessi = (f: string): number => statSync(f).mode & 0o777;
+
+/** `root` scrive anche dove i permessi dicono di no, quindi il caso «cartella
+ *  non scrivibile» lì non è riproducibile: si salta invece di dichiarare verde
+ *  una prova che non è avvenuta. */
+const itSenzaRoot = (typeof process.getuid === "function" && process.getuid() === 0) ? it.skip : it;
 
 // ── Un servizio di firma finto, con la stessa forma di quello vero. ──────────
 function nuovaCoppia() {
@@ -283,7 +291,55 @@ describe("licenza · il servizio su disco", () => {
   it("il gettone finisce su disco leggibile solo dal proprietario", () => {
     const s = crea();
     s.installa(firma(servizio.privata, {}), 1_000);
+    // Il contenuto è il gettone (il canale di osservazione funziona)…
     expect(readFileSync(percorsoGettone(dir), "utf8").trim().split(".").length).toBe(2);
+    // …e i permessi sono quelli, che è la cosa che il nome di questo test
+    // promette. Guardare solo il contenuto lascerebbe il `mode` fissato da
+    // niente: toglierlo dal modulo non farebbe rosso nessuna riga.
+    expect(permessi(percorsoGettone(dir))).toBe(0o600);
+  });
+
+  it("i permessi valgono anche sul RINNOVO, non solo alla prima installazione", () => {
+    // `writeFileSync({mode})` applica il modo solo quando CREA il file. Su un
+    // gettone che c'era già — o su un file lasciato lì a 0644 da una versione
+    // precedente — i permessi resterebbero quelli, e «leggibile solo dal
+    // proprietario» sarebbe vero il primo giorno e falso da lì in poi.
+    writeFileSync(percorsoGettone(dir), "gettone-vecchio\n", { mode: 0o644 });
+    expect(permessi(percorsoGettone(dir))).toBe(0o644);
+    crea().installa(firma(servizio.privata, {}), 1_000);
+    expect(permessi(percorsoGettone(dir))).toBe(0o600);
+  });
+
+  itSenzaRoot("su una cartella NON scrivibile la licenza vale lo stesso", () => {
+    // Il caso in cui un cancello di licenza fa il danno peggiore: uno che ha
+    // pagato, un gettone perfetto, e una directory di stato che non accetta
+    // scritture (montata sola lettura, permessi storti, disco pieno). Rileggere
+    // il disco dopo una scrittura fallita risponderebbe `no_token` — cioè
+    // «nessuna licenza» a chi ce l'ha, per un motivo che non ha niente a che
+    // fare con la licenza.
+    chmodSync(dir, 0o500);
+    try {
+      const s = crea();
+      const dopo = s.installa(firma(servizio.privata, { seats: 6 }), 1_000);
+      expect(dopo.piano).toBe("team");
+      expect(dopo.posti).toBe(6);
+      expect(dopo.motivo).toBe("valid");
+      // Il controllo che dimostra che stiamo osservando il caso giusto: il file
+      // NON c'è davvero, quindi il «team» qui sopra non arriva dal disco.
+      expect(existsSync(percorsoGettone(dir))).toBe(false);
+      // E vale anche dopo, non solo nella risposta immediata: le letture
+      // successive non devono ricadere sul gratuito.
+      expect(s.stato(1_000).piano).toBe("team");
+      expect(s.stato(1_000).posti).toBe(6);
+      // Scade lo stesso, però: una licenza tenuta in memoria non è una licenza
+      // eterna.
+      expect(s.stato(9e12).motivo).toBe("expired");
+      // E si può togliere, altrimenti sarebbe una licenza inamovibile proprio
+      // sulla macchina dove non se ne può cancellare il file.
+      expect(s.rimuovi().motivo).toBe("no_token");
+    } finally {
+      chmodSync(dir, 0o700);
+    }
   });
 });
 
