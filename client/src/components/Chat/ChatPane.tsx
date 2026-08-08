@@ -232,6 +232,10 @@ function ChatPaneComponent({
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
   const paneRootRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState(0);
+  // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
+  // contare nella centratura: si misura a parte per poterlo scalare.
+  const greetingRef = useRef<HTMLDivElement>(null);
+  const [greetingHeight, setGreetingHeight] = useState(0);
 
   // Persist the caret/selection of the chat composer so a hot reload (bundle-rev
   // or dev HMR) restores it exactly, not just the draft text. Listeners live here
@@ -669,8 +673,14 @@ function ChatPaneComponent({
 
   const chatIsEmpty = historyProbed && !currentLoading && currentMessages.length === 0;
   const composerCentered = chatIsEmpty || handoffCentered;
-  const composerOffset = composerCentered && paneHeight > 0 && inputAreaHeight > 0
-    ? Math.max(0, Math.round((paneHeight - inputAreaHeight) / 2))
+  // A centrarsi è LA BARRA, non il blocco. Centrando l'insieme — invito più
+  // composer — la barra finiva sotto la metà di quanto pesa l'invito, e si
+  // vedeva: «non è ben centrata verticalmente rispetto alla pagina, non deve
+  // pesare l'intro». L'invito resta sopra come sporgenza e non entra nel conto:
+  // si toglie la sua altezza da quella del blocco e si centra il resto.
+  const barHeight = Math.max(0, inputAreaHeight - greetingHeight);
+  const composerOffset = composerCentered && paneHeight > 0 && barHeight > 0
+    ? Math.max(0, Math.round((paneHeight - barHeight) / 2))
     : 0;
 
   // Il blocco vuoto resta montato per la durata della dissolvenza, ma FUORI dal
@@ -687,6 +697,17 @@ function ChatPaneComponent({
     return () => clearTimeout(t);
   }, [composerCentered]);
   const showGreeting = composerCentered || greetingLeaving;
+  // L'invito compare e sparisce, quindi l'osservatore si riattacca: un RO su un
+  // nodo smontato non riporta lo zero, riporta l'ultimo valore e basta — e
+  // quello, sottratto per sempre, terrebbe la barra troppo in basso.
+  useLayoutEffect(() => {
+    const el = greetingRef.current;
+    if (!el) { setGreetingHeight(0); return; }
+    setGreetingHeight(el.getBoundingClientRect().height);
+    const ro = new ResizeObserver(([entry]) => setGreetingHeight(entry.contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showGreeting]);
 
   // Una chat NUOVA nasce per essere scritta, e il fuoco al campo di testo non è
   // un furto: in una chat vuota non c'è nient'altro in questa pane su cui
@@ -1269,12 +1290,14 @@ function ChatPaneComponent({
         style={composerOffset ? { transform: `translateY(-${composerOffset}px)` } : undefined}
       >
         {showGreeting && (
-          <ChatEmptyState
-            topic={topic}
-            paneHeight={paneHeight}
-            fading={!composerCentered}
-            onPick={(msg) => { setMessage(msg); textareaRef.current?.focus(); }}
-          />
+          <div ref={greetingRef}>
+            <ChatEmptyState
+              topic={topic}
+              paneHeight={paneHeight}
+              fading={!composerCentered}
+              onPick={(msg) => { setMessage(msg); textareaRef.current?.focus(); }}
+            />
+          </div>
         )}
         {pendingPlan && (
           <PlanApprovalBar
