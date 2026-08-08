@@ -175,6 +175,34 @@
 
     // --- spaziature incoerenti tra fratelli consecutivi (asse dominante) ---
     byParent.forEach(function (group, parent) {
+      // SPAZIO RISERVATO ≠ ELEMENTO VISIVO.
+      //
+      // Una lista virtualizzata mette in cima e in fondo al contenuto scrollato
+      // due scatole che non disegnano niente e non contengono niente: valgono
+      // lo spazio da tenere libero (il varco sotto la barra delle tab,
+      // l'ingombro del composer). Contate come fratelli producono "gap" che per
+      // l'occhio non esistono — fra un vuoto e una lista non c'è nessuna
+      // distanza da leggere — e li producono solo quando diventano TRE: finché
+      // lo spaziatore era uno solo il gruppo restava sotto la soglia. Cioè il
+      // difetto compariva AGGIUNGENDO una scatola invisibile.
+      //
+      // La regola non è «è vuota» ma «non si vede»: un div senza figli che porta
+      // un fondo o un bordo È un elemento visivo (un filetto, una barra), e il
+      // self-test di questo file inietta i suoi difetti proprio con scatole
+      // vuote colorate. Qui si escludono solo quelle che non dipingono nulla e
+      // nel cui sottoalbero non c'è niente da guardare.
+      function dipingeQualcosa(el, cs) {
+        var bg = cs.backgroundColor;
+        if (bg && bg !== 'transparent' && !/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(bg)) return true;
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
+        if (cs.boxShadow && cs.boxShadow !== 'none') return true;
+        if (cs.outlineStyle && cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) return true;
+        if (parseFloat(cs.borderTopWidth) || parseFloat(cs.borderRightWidth)
+          || parseFloat(cs.borderBottomWidth) || parseFloat(cs.borderLeftWidth)) return true;
+        if ((el.textContent || '').trim() !== '') return true;
+        return !!el.querySelector('img,svg,canvas,video,input,textarea,select');
+      }
+      group = group.filter(function (o) { return dipingeQualcosa(o.el, o.cs); });
       if (group.length < 3) return;
       var ps = getComputedStyle(parent);
       // Dentro un contenitore INLINE non c'è spaziatura progettata: ci sono le
@@ -215,7 +243,11 @@
         var bad = gaps.some(function (v) { return Math.abs(v - med) > TOL; });
         if (bad) {
           findings.spacing.push({
+            // `items`, e non solo `parent`: un finding che dice «div, gap 12 e
+            // 6» costringe a riaprire il browser per sapere di CHI parla. Con i
+            // fratelli scritti dentro, il rosso si legge dal terminale.
             parent: sel(seq[0].el.parentElement), axis: axis,
+            items: seq.map(function (o) { return sel(o.el); }),
             gaps: gaps, median: med, n: seq.length
           });
         }

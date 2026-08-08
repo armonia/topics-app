@@ -208,6 +208,33 @@ export function MessageList({
     // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
     // abbastanza da non far mai toccare le due cose.
     Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
+    // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
+    // conversazione confina con del CHROME, non con il bordo della finestra.
+    //
+    // Da quando la barra delle tab è un vetro fuori dal flusso
+    // (`.pane-chrome-bar`), la cella della chat comincia SOTTO di lei: senza
+    // questo varco il primo messaggio nascerebbe già coperto. Con, a riposo non
+    // c'è niente di nascosto — e scorrendo i messaggi le passano sotto, che è
+    // tutto il punto dell'overlay.
+    //
+    // Altezza in `var()` e non in pixel, al contrario del Footer, e la
+    // differenza è chi conosce il numero. L'altezza del composer la MISURA
+    // JavaScript (`inputAreaHeight`), quindi tanto vale sommarla lì; quella
+    // della barra è una costante dichiarata dalla card che la possiede
+    // (CHROME_BAR_H_VAR), e leggerla in CSS evita di ricopiarla in un terzo
+    // posto. Virtuoso misura l'Header col suo ResizeObserver, quindi il numero
+    // risolto lo scopre da sé.
+    //
+    // La variabile è `--chat-gutter` e NON `--chrome-bar-h`, e la differenza è
+    // il caso in cui sopra il trascritto c'è un banner: lì il rientro se l'è
+    // già preso la cella, e questo varco deve valere zero o i 40px si contano
+    // due volte. A deciderlo è UNA regola CSS (`.chat-under-chrome:first-child`,
+    // index.css) che accende insieme il margine negativo e il varco: da qui non
+    // si vede la condizione, si legge solo il risultato.
+    //
+    // Il default è 0: una lista montata dove non c'è nessuna barra sopra —
+    // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
+    Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
   }), [inputAreaHeight]);
 
@@ -1276,7 +1303,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label={`Messages for ${topic.name}`}
-      className={`flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
+      className={`chat-under-chrome flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
