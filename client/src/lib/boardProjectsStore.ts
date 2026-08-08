@@ -27,6 +27,29 @@ let projects: BoardProjectRef[] | null = null;
 let newProjectDir: string | null = null;
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
 const listeners = new Set<() => void>();
+/**
+ * Quando l'ultima fetch è FALLITA, e il ritardo prima di riprovare.
+ *
+ * Serve perché questo indice è l'UNICO posto da cui esce il `path` su disco di
+ * un progetto, e senza path non c'è icona (`ProjectFavicon` con `path` vuoto non
+ * rende niente, per decisione). Prima, un errore scriveva `projects = []` — che
+ * per chi legge è indistinguibile da «nessun progetto» — e da quel momento la
+ * guardia `projects === null` non scattava più e `fetchOnce(force)` non era
+ * chiamato da nessuna parte: l'indice era perso per la VITA DEL DOCUMENTO.
+ *
+ * Non è teorico e non è raro: misurato sul server di produzione, `…/tasks` fa
+ * 88.936 richieste contro 318 di `…/projects`, cioè 280:1. I task si riprendono
+ * da soli a ogni giro, questo indice aveva UNA occasione. Su una PWA installata
+ * — un documento longevo che iOS congela e riprende, e che parla al Mac via
+ * LAN — quell'unica occasione cade dentro un Wi-Fi che salta, una ripresa fuori
+ * rete o uno dei riavvii graceful del server, e le icone non tornano più.
+ */
+let lastFailAt = 0;
+/** Corto: la finestra di guasto tipica è un riavvio del server o un cambio di
+ *  rete, cioè secondi. Non è un backoff crescente perché non c'è una raffica da
+ *  contenere: il ritentativo parte da un montaggio o da un risveglio, eventi
+ *  che l'utente genera uno alla volta. */
+const RETRY_AFTER_MS = 3000;
 
 function publish(): void {
   listeners.forEach((cb) => cb());
@@ -42,11 +65,17 @@ async function fetchOnce(force = false): Promise<BoardProjectRef[] | null> {
       const res = await boardApi.projects();
       projects = res.projects.slice().sort(byName);
       newProjectDir = res.newProjectDir ?? null;
+      lastFailAt = 0;
     } catch {
-      // Una lista vuota è la stessa cosa che «non lo so» per chi rende: il
-      // chip ricade su nome-dall'id e nessuna icona, invece di girare per
-      // sempre su uno spinner. Il prossimo `reload` riprova.
-      projects = [];
+      // «NON LO SO» RESTA null, e non diventa una lista vuota.
+      //
+      // Per chi RENDE le due cose si comportano uguale — la pastiglia ricade su
+      // nome-dall'id e nessuna icona, mai uno spinner infinito, che è
+      // l'invariante che questo ramo difende. Ma per lo STORE sono opposte:
+      // `[]` è una risposta, `null` è una domanda aperta. Scrivendo `[]` la
+      // guardia in `subscribeBoardProjects` non scattava mai più e l'indice
+      // moriva col documento (vedi `lastFailAt`).
+      lastFailAt = Date.now();
     } finally {
       inflight = null;
     }
@@ -76,10 +105,50 @@ export function useNewProjectDir(enabled = true): string | null {
   );
 }
 
+/**
+ * LA PORTA DI RIENTRO, e sta QUI e non nel hook del socket.
+ *
+ * Gli istanti che significano «la rete è tornata / l'app si è risvegliata» sono
+ * gli unici in cui un documento longevo — la PWA installata, che iOS congela e
+ * riprende invece di ricaricare — può recuperare un indice perso. L'app li
+ * ascolta già in `useWebSocket`, ma agganciarsi là vorrebbe dire infilare questa
+ * preoccupazione dentro la logica del socket, che ha le sue uscite anticipate
+ * (`reconnectNow` esce subito se la socket è già aperta — e l'indice può essere
+ * perso con la socket sanissima). Lo store si ripara da sé: i listener si
+ * montano al primo sottoscrittore e restano, perché sono globali per documento e
+ * non per componente.
+ *
+ * Non fa niente quando l'indice c'è: `fetchOnce` senza `force` esce subito.
+ */
+let recoveryArmed = false;
+function armRecovery(): void {
+  if (recoveryArmed || typeof document === 'undefined') return;
+  recoveryArmed = true;
+  const recover = () => {
+    if (document.hidden) return;
+    if (projects === null && !inflight) void fetchOnce();
+  };
+  document.addEventListener('visibilitychange', recover);
+  window.addEventListener('online', recover);
+  window.addEventListener('focus', recover);
+}
+
 export function subscribeBoardProjects(cb: () => void): () => void {
   listeners.add(cb);
-  if (projects === null && !inflight) void fetchOnce();
+  armRecovery();
+  // Un montaggio è già un ritentativo: se l'indice non c'è e l'ultimo tentativo
+  // è fallito da più di `RETRY_AFTER_MS`, si riprova. Prima bastava che il
+  // primo tentativo fallisse perché nessun montaggio successivo provasse più.
+  if (projects === null && !inflight && Date.now() - lastFailAt >= RETRY_AFTER_MS) void fetchOnce();
   return () => { listeners.delete(cb); };
+}
+
+/**
+ * Ricostruisci l'indice ADESSO, buttando quello che c'è. Per chi sa di averlo
+ * invalidato (una cartella aggiunta o rinominata fuori dall'app).
+ */
+export function reloadBoardProjects(): void {
+  void fetchOnce(true);
 }
 
 /**
