@@ -369,7 +369,9 @@ body.v3.is-ready .hero__title .dim {
 
 .hero__proof {
   display: flex; justify-content: center; flex-wrap: wrap; gap: 0;
-  margin: 40px auto 0; max-width: 660px;
+  /* Above the buttons now, so the space below it is the gap before the two
+     controls rather than the gap after the last thing in the hero. */
+  margin: 30px auto 32px; max-width: 660px;
 }
 /* NO DIVIDERS. Four numbers were being held apart by a full-height 1px rule
    between each pair, and the rule ran the height of the tallest cell — so the
@@ -1688,6 +1690,22 @@ body.v3.has-field .field__aurora { display: none; }
   color: var(--ink); background: hsl(220 20% 100% / .06);
   border-color: hsl(220 16% 100% / .16); box-shadow: none;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+/* EXCEPT IN THE HERO, WHERE IT STANDS IN THE LIGHT. Glass at 6% white is glass:
+   whatever is behind it comes through, and in the hero what is behind it is the
+   brightest part of the field. Measured with the ceiling driven to 0.40, "How it
+   works" read 2.77:1 — the label was the second thing capping the whole glow,
+   after the counters. A control that sits ON the light needs a floor of its own;
+   at 82% of the band colour it is still visibly the quieter of the two buttons,
+   and it no longer reports the weather behind it. */
+[data-ground="dark"] .hero__actions .btn--glass {
+  background: color-mix(in srgb, var(--p-0) 82%, hsl(220 20% 100% / .10));
+  border-color: hsl(220 16% 100% / .22);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+[data-ground="dark"] .hero__actions .btn--glass:hover {
+  background: color-mix(in srgb, var(--p-2) 88%, hsl(220 20% 100% / .12));
+  border-color: hsl(220 16% 100% / .32);
 }
 [data-ground="dark"] .btn--glass:hover { background: hsl(220 20% 100% / .11); border-color: hsl(220 16% 100% / .26); }
 [data-ground="dark"] .halo::after { border-color: var(--accent-line); }

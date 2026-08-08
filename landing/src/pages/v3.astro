@@ -127,6 +127,30 @@ const stats = repoStats();
           Every task gets its own git worktree, so several agents can be mid-edit on the
           same repository without touching each other's files.
         </p>
+        {/* The proof used to be 1,211px below the claim. It is the same
+             sentence, so it goes in the same breath. */}
+        {/* TWO, AND BOTH ARE ABOUT THE READER. It had four, and the first two
+             were "commits" and "in 7 days" — activity theatre. A commit count is
+             a fact about how busy I have been, not about whether this is worth
+             installing, and a landing page that leads with it is asking to be
+             admired rather than used. Releases says it ships; telemetry: none is
+             a promise about what happens on the visitor's machine. */}
+        {/* AND IT SITS ABOVE THE BUTTONS, WHICH IS A LIGHTING DECISION BEFORE IT
+             IS A RHETORICAL ONE. The light in this hero rises from the bottom,
+             and the reference's hero puts every word it has in the black half
+             and its photograph in the lit one. This row is 12.5px type: measured
+             with the ceiling driven to 0.40, it was the ONLY thing on the whole
+             first screen that failed — the two buttons under it never did,
+             because a button carries its own opaque fill and does not read
+             against the field at all. So the one text that cannot live in the
+             light moves out of it, and what stays down there is the two controls
+             and the app.
+             It reads better in that order anyway: claim, proof, act. */}
+        <dl class="hero__proof">
+          <div><dt>releases</dt><dd data-count={stats.releases}>{stats.releases}</dd></div>
+          <div><dt>telemetry</dt><dd class="is-word">none</dd></div>
+        </dl>
+
         <div class="hero__actions">
           <a class="btn btn--primary btn--lg halo" id="primaryDownload" href="https://github.com/armonia/topics-app/releases/latest" rel="noopener" target="_blank">
             <svg class="ic"><use href="#ic-dl"/></svg>
@@ -141,19 +165,6 @@ const stats = repoStats();
             <svg class="ic"><use href="#ic-arrow"/></svg>
           </a>
         </div>
-
-        {/* The proof used to be 1,211px below the claim. It is the same
-             sentence, so it goes in the same breath. */}
-        {/* TWO, AND BOTH ARE ABOUT THE READER. It had four, and the first two
-             were "commits" and "in 7 days" — activity theatre. A commit count is
-             a fact about how busy I have been, not about whether this is worth
-             installing, and a landing page that leads with it is asking to be
-             admired rather than used. Releases says it ships; telemetry: none is
-             a promise about what happens on the visitor's machine. */}
-        <dl class="hero__proof">
-          <div><dt>releases</dt><dd data-count={stats.releases}>{stats.releases}</dd></div>
-          <div><dt>telemetry</dt><dd class="is-word">none</dd></div>
-        </dl>
       </div>
 
       {/* ── THE ONE DEMO ────────────────────────────────────────────────────
