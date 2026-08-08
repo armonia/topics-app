@@ -262,12 +262,13 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
  *    soglia col pollice sia fuori colonna rispetto ai vicini.
  */
 const TRIGGER_CLASS_PILL =
-  // `text-app-text-secondary`, non `-muted`: un COMANDO non è una didascalia.
-  // Nel tema scuro il muted è `#8a9099` contro il `#e6e8ec` del testo pieno —
-  // «alcune cose non sono effettivamente bianche, come i tasti» (Attilio,
-  // 08/08). Il secondario (`#aab0ba`) resta un gradino sotto il pieno, così il
-  // glifo non urla quanto un titolo, ma si legge come una cosa che si preme.
-  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text-secondary hover:text-app-text transition-colors`;
+  // TESTO PIENO, in due giri. Era `-muted` (`#8a9099` in scuro), l'ho portato al
+  // secondario (`#aab0ba`) e non bastava: «ancora il + della sidebar e ricerca
+  // li vedo grigi» (Attilio, 08/08). Ha ragione, e il motivo è che questi due
+  // NON sono un gradino di gerarchia: sono i due comandi principali della
+  // colonna, l'unica cosa che si preme lassù. Un gradino sotto il testo pieno
+  // ha senso per una didascalia, non per il comando che apre tutto.
+  `${ROW_ACTION_BOX} edge-lit flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors`;
 
 export function PaneAddMenu({
   scope,
@@ -327,9 +328,9 @@ export function PaneAddMenu({
   // RAISED_CONTROL plate with an inline kbd hint.
   const triggerBase =
     triggerVariant === 'header'
-      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-secondary hover:text-app-text transition-colors flex-shrink-0`
+      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
-        ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text-secondary hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
+        ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
   // Il glifo cresce col dito su OGNI variante, «pill» compresa: il box della
   // pill adesso è 36px sotto i 768px (ROW_ACTION_BOX), e un «+» da 14 al centro
