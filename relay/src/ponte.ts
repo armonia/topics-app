@@ -559,7 +559,17 @@ export function creaPonte(opts: PonteOpts) {
       const intestazioni: Intestazioni = [];
       for (const [n, v] of req.headers) intestazioni.push([n, v]);
 
-      const testa = scriviTesta({ m: req.method, p: percorso, h: intestazioni });
+      // L'indirizzo VERO di chi ha bussato. Qui e' l'unico posto che lo sa: la
+      // macchina vede solo il proprio salto locale, e le intestazioni di
+      // inoltro le spoglia apposta perche' chi bussa potrebbe scriversele.
+      // Senza questa riga il tetto per-indirizzo dell'appaiamento diventa un
+      // solo secchio per tutta Internet, e il cartello di approvazione dice
+      // «viene dalla tua macchina» a una richiesta arrivata da fuori.
+      const vero = req.headers.get("cf-connecting-ip") ?? "";
+      const testa = scriviTesta({
+        m: req.method, p: percorso, h: intestazioni,
+        ...(vero ? { ip: vero } : {}),
+      });
       const s = prossimo();
       const risposta = new Promise<Esito | null>((res) => attese.set(s, res));
 
@@ -645,6 +655,9 @@ export function creaPonte(opts: PonteOpts) {
       const aperto = new Promise<EsitoWs>((res) => { f.apertura = res; });
       canale.apri(GENERE_WS, scriviTestaWs({
         p: percorso, h: intestazioni, ...(sp.length > 0 ? { sp } : {}),
+        // Stessa ragione dell'HTTP: senza, un upgrade da fuori si presenta
+        // come locale.
+        ...(req.headers.get("cf-connecting-ip") ? { ip: req.headers.get("cf-connecting-ip")! } : {}),
       }));
 
       let scaduta: ReturnType<typeof setTimeout> | undefined;
