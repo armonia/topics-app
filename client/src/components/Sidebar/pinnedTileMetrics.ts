@@ -73,30 +73,39 @@ export const PINNED_TILE_CONTAINER = '@container/tile';
 export const PINNED_TILE_ACTION_SLOT = 'w-9 md:w-7';
 
 /**
- * Il rientro del «+» dal bordo destro — ed è {@link ROW_ACTIONS_INSET_PX}, cioè
- * lo stesso con cui OGNI comando in coda dell'app si ferma dal bordo della sua
- * card (`.row-actions` in index.css).
+ * IL RIENTRO DEL «+» È L'ARIA CHE HA SOPRA E SOTTO — tre spazi uguali attorno a
+ * un comando che FLOTTA su una card.
  *
- * Era 4, e i 4px non erano un gusto: uscivano dall'invariante «altezza = box +
- * 2 × rientro» che la tessera si era data da sola (vedi {@link PINNED_TILE_H}).
- * Il prezzo si vede facendo il conto su una tessera larga W, ora che i figli
- * hanno il passo condiviso (`ROW_GAP`, 8):
+ * Ci sono passato per tre valori, e i primi due erano sbagliati per due ragioni
+ * opposte:
  *
- *   · lo SLOT riservato al bottone ({@link PINNED_TILE_ACTION_SLOT}) sta a
- *     `[W−36, W−8]` — 28 di larghezza, dopo gli 8 di padding destro;
- *   · a rientro 4 il bottone cadeva a `[W−32, W−4]`. Cioè NON sul suo slot:
- *     sbordava di 4px dentro il padding a destra e ne lasciava 4 scoperti a
- *     sinistra. Uno slot esiste per essere occupato da chi lo ha chiesto.
- *   · a rientro 8 il bottone cade a `[W−36, W−8]`: esattamente il suo slot.
+ *  · **4**, dall'invariante che la tessera si era data da sola («altezza = box +
+ *    2 × rientro»). I tre spazi coincidevano, ma il conto girava al contrario:
+ *    era il rientro del bottone a decidere l'ALTEZZA della tessera, e per questo
+ *    la tessera stava a 36 contro i 34 di una riga.
+ *  · **8** ({@link ROW_ACTIONS_INSET_PX}, il rientro dei comandi in fila).
+ *    Coerente con le righe, e sbagliato qui: «sui pinned il + ha più spazio a
+ *    destra che sopra e sotto» (Attilio, 10/08). Vero — 8 contro 3 — e si vede
+ *    perché su una tessera il bottone flotta su una superficie piccola, dove
+ *    l'asimmetria si legge tutta. In una riga lunga non si legge, ed è per
+ *    questo che là 8 va bene.
  *
- * Quindi il numero canonico non è solo più coerente col resto dell'app, è più
- * corretto QUI — ed è l'aritmetica a dirlo, non l'omologazione.
+ * Il numero giusto è quello che il repo usa già per l'altro comando che flotta:
+ * il «+» della barra di chrome sta a `ROW_INSET` dal bordo e la riga gli lascia
+ * `chromeRowInset(box)` sopra e sotto — 6 e 6. Stessa idea, un piano più giù:
+ * qui l'aria verticale è `(altezza − box) / 2`, e il rientro destro la copia.
  *
- * L'aria sopra e sotto non è più un terzo uso di questo numero: la lascia il
- * centraggio, (altezza − box)/2, cioè 3 col mouse e 4 col dito — gli stessi di
- * una riga della colonna, per costruzione, da quando la tessera è alta come lei.
+ * Quindi **3 col mouse e 4 col dito**, e non è un ritorno alle due costanti di
+ * un tempo: allora erano due numeri per far tornare un'invariante scelta a
+ * mano, adesso sono lo stesso calcolo su due altezze diverse. Il verso è quello
+ * giusto — l'altezza la decide la RIGA, il rientro segue.
+ *
+ * Letterali per la ragione di sempre (Tailwind legge il sorgente come testo), e
+ * ricalcolati da `pinnedTileMetrics.test.ts` a partire da altezza e box.
  */
-export const PINNED_TILE_ACTION_INSET = ROW_ACTIONS_INSET_PX;
+export const PINNED_TILE_ACTION_INSET_CLASS = 'right-[4px] md:right-[3px]';
+/** Gli stessi due numeri per l'aritmetica del test — vedi {@link PINNED_TILE_PX}. */
+export const PINNED_TILE_ACTION_INSET_PX = { wide: 3, compact: 4 } as const;
 
 /**
  * I numeri dietro le classi qui sopra, in pixel — l'unica forma in cui
