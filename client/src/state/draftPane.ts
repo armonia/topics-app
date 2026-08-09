@@ -41,8 +41,26 @@ export function setDraftDirty(paneId: string, dirty: boolean): void {
   dirtyDrafts.set(paneId, dirty);
 }
 
+/**
+ * Bozze che hai TOCCATO: un doppio clic sulla tab, un clic dentro la pane, un
+ * tasto nel campo. È una domanda diversa da «è vuota», e più giusta di «hai
+ * smesso di guardarla»: una tab che non hai mai toccato non l'hai scelta, l'hai
+ * solo aperta — è un'anteprima, e le anteprime si possono richiudere da sole.
+ * Dal momento in cui la tocchi diventa tua e non se ne va più.
+ */
+const touchedDrafts = new Set<string>();
+
+export function markDraftTouched(paneId: string): void {
+  if (paneId.startsWith('draft:')) touchedDrafts.add(paneId);
+}
+
+export function isDraftTouched(paneId: string): boolean {
+  return touchedDrafts.has(paneId);
+}
+
 export function forgetDraft(paneId: string): void {
   dirtyDrafts.delete(paneId);
+  touchedDrafts.delete(paneId);
 }
 
 /** C'è qualcosa da perdere in questa bozza? */
@@ -69,4 +87,9 @@ export function findEmptyDraftPane(paneIds: readonly string[]): string | null {
     if (isDraftPaneEmpty(id)) return id;
   }
   return null;
+}
+
+/** Una bozza che non hai mai toccato E non contiene niente: si può richiudere. */
+export function isDraftDisposable(paneId: string): boolean {
+  return paneId.startsWith('draft:') && !isDraftTouched(paneId) && isDraftPaneEmpty(paneId);
 }
