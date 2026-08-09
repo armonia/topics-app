@@ -45,7 +45,18 @@
   // Vive su un sottodominio SUO e non su `topics.armonia.io`: quello è il sito,
   // servito da un altro Worker (`topics-landing`), e due Worker sullo stesso
   // hostname sono una gara che vince chi ha deployato per ultimo.
+  // DUE nomi per lo stesso Worker, e non e' ridondanza.
+  //
+  // `app.` e' quello che vede una PERSONA: l'indirizzo del proprio Mac. La
+  // parola «relay» e' idraulica, e l'idraulica non si mostra a chi apre un
+  // link dal telefono — lo dice gia' la proposta di questa change per
+  // «tunnel», e vale uguale qui.
+  //
+  // `relay.` resta perche' e' quello che usa la MACCHINA per chiamare fuori
+  // (`TOPICS_RELAY_URL`): toglierlo scollegherebbe ogni installazione gia'
+  // configurata nel momento del deploy.
   "routes": [
+    { "pattern": "app.topics.armonia.io", "custom_domain": true },
     { "pattern": "relay.topics.armonia.io", "custom_domain": true }
   ],
   // ESPLICITO, e non è ridondanza: aggiungere una `route` DISATTIVA
