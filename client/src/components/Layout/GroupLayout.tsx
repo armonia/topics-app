@@ -870,6 +870,7 @@ export function GroupLayout({
           {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
               panes={[]}
               activePaneId={null}
               onActivate={() => {}}
@@ -953,6 +954,7 @@ export function GroupLayout({
           {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
             subordinate={subordinate && rowIdx === 0}
             panes={groupPanes}
             activePaneId={group.activePaneId}
@@ -1187,6 +1189,7 @@ export function GroupLayout({
             {leadingSlot && <LeadingSlot node={leadingSlot} />}
             <div className="flex-1 flex items-center min-w-0 overflow-hidden">
               <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
                 panes={[]}
                 activePaneId={null}
                 onActivate={() => {}}
@@ -1216,6 +1219,7 @@ export function GroupLayout({
           {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
+              hasLeadingBlock={!!leadingSlot}
               panes={flatPanes}
               activePaneId={activePaneId}
               groupIsFocused
