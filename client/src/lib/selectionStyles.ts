@@ -544,6 +544,48 @@ export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
 
 /**
+ * LA RIGA SUBORDINATA: l'aria fra due barre impilate è UNA, e la seconda non la
+ * ripete.
+ *
+ * Dentro una finestra di progetto le righe di chrome sono due — quella dell'app
+ * con la TAB del progetto, e sotto quella del progetto con le sue pane. Ognuna
+ * portava i suoi 6 di aria, quindi fra la tab sopra (finisce a y=34) e la card
+ * sotto (cominciava a y=46) passavano DODICI px, mentre ogni altra coppia di
+ * card dell'app ne ha sei. «Ancora vedo le tabbar troppo lontane» (Attilio,
+ * 09/08), e aveva ragione: era il passo dell'app raddoppiato.
+ *
+ * La regola è quella che la colonna usa già un piano più giù — «ognuno porta
+ * metà passo, e il primo non porta la sua perché sopra c'è chi l'ha già messa»
+ * (vedi `.sidebar-column` in index.css). Qui: l'aria SOTTO la tab dell'app e
+ * l'aria SOPRA la card del progetto sono la stessa aria. La riga figlia non la
+ * paga: tiene solo la propria, in coda.
+ *
+ * Quindi 34 = box(28) + ROW_INSET(6), con l'incasso solo SOTTO. La scatola del
+ * contenuto vale 28, `items-center` la centra su se stessa, e la card cade a
+ * 40..68: sei px dall'inchiostro di sopra, sei sotto prima del contenuto.
+ *
+ * SOLO SOPRA I 768px, e non per prudenza: col dito la tab è 36 e la riga ne
+ * lascia già 2 per lato — non c'è aria ripetuta da togliere, e 36 in 34 non ci
+ * starebbe comunque (lo taglierebbe l'`overflow-hidden` della barra). Là resta
+ * 40, e il varco fra le due righe è 4.
+ *
+ * `--chrome-bar-h` NON può restare lo stile in linea di {@link CHROME_BAR_H_VAR}:
+ * uno stile in linea nessuna media query lo raggiunge, e quella variabile
+ * alimenta il rientro delle celle (`paneCellTopInset`) e il varco in cima alla
+ * conversazione. Diventa quindi una coppia di utility con lo STESSO breakpoint
+ * di `md:h-[34px]` — non un `@media (min-width: 768px)` scritto a mano: `md:` è
+ * 48rem, e con una root-font diversa i due predicati divergerebbero. È lo stesso
+ * disaccordo già pagato una volta (tab 28 e comando 36 sulla stessa riga).
+ */
+export const CHROME_ROW_SUB_H = ROW_ACTION_BOX_PX.desktop + ROW_INSET;
+export const CHROME_BAR_SUB =
+  'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] md:pb-[6px] flex-shrink-0 overflow-hidden min-w-0';
+/** La variabile, per la card che possiede una barra subordinata. Va al POSTO di
+ *  {@link CHROME_BAR_H_VAR}: uno stile in linea batte la classe, quindi i due
+ *  insieme lascerebbero la riga a 40 con l'inchiostro appeso in cima. */
+export const CHROME_BAR_SUB_H_CLASS = '[--chrome-bar-h:40px] md:[--chrome-bar-h:34px]';
+
+/**
  * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
  * Era 14 dentro un box da 24: un pallino. A 16 dentro {@link ROW_ACTION_BOX}
  * resta un anello sottile con la sua aria attorno, e si vede cosa si sta per

@@ -696,13 +696,17 @@ export function ProjectSidebar({
         onMouseDown={startWidthResize}
         onDoubleClick={resetWidth}
         title={tr('project.sidebar.resize')}
-        className="absolute top-10 bottom-0 right-0 w-2 z-20 cursor-col-resize"
+        className="absolute top-10 md:top-[34px] bottom-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
-      {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. Alta come la riga
-          di chrome (h-10) perche e la testata della colonna e deve stare in
-          linea con la barra delle tab accanto; dentro, la card e una tab. */}
-      <div className="flex items-center h-10 px-1.5 flex-shrink-0">
+      {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. E la STESSA RIGA
+          della barra delle tab che le sta accanto, quindi ne segue la geometria
+          alla lettera: sopra i 768px la riga subordinata e alta 34 con l'incasso
+          solo sotto (CHROME_BAR_SUB), perche l'aria in cima l'ha gia messa la
+          barra dell'app. Se questa testata restasse `h-10`, la card e la prima
+          sotto-tab si scollerebbero di sei pixel — e sarebbero due meta della
+          stessa riga. */}
+      <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
         <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>
 

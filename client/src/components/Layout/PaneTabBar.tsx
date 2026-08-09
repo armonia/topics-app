@@ -219,9 +219,15 @@ interface PaneTabBarProps {
    *  actions); project tab bars (GroupLayout) default to 'project'. The
    *  variant's items/order/icons live in <PaneAddMenu> — see its docs. */
   addMenuScope?: PaneScope;
+  /**
+   * Questa barra sta SOTTO un'altra riga di chrome (le tab di un progetto sotto
+   * la tab del progetto). Vedi {@link CHROME_BAR_SUB}: la riga è più bassa e
+   * l'aria in cima l'ha già messa la riga sopra.
+   */
+  subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -795,7 +801,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // (GroupLayout.tsx:30) è l'`edgeOffset` dello strip di drop superiore, che
   // finirebbe 8px fuori posto — e andrebbe rialzato in lockstep anche l'header
   // della sidebar progetto, o l'allineamento fra rail e tab si spezza di nuovo.
-  const barClass = className ?? 'flex-initial md:py-1 pr-0 min-w-0 app-drag-region';
+  // `md:py-1` SPARISCE nella riga subordinata, e non è cosmesi: là la scatola
+  // del contenuto vale 28 (34 meno l'incasso in coda), e una radice da 38 —
+  // 28 + 2 di padding della strip + 8 di `py-1` — sborda di 5px per lato. La
+  // tab ci starebbe lo stesso (`items-center` la centra a 40..68), ma il suo
+  // alone `edge-lit` e l'anello di fuoco dipingono FUORI dalla scatola e li
+  // taglierebbe l'`overflow-hidden` della barra. Senza `py-1` la radice è 30 e
+  // sborda di uno.
+  //
+  // Visivamente non toglie niente nemmeno nella riga normale: 38 centrato in 40
+  // e 30 centrato in 40 mettono la tab nello stesso posto (misurato: 6..34 in
+  // entrambi i casi). Resta dov'era perché la radice porta `app-drag-region`, e
+  // una fascia trascinabile più stretta di 4px per lato è un cambiamento vero.
+  const barClass = className ?? `flex-initial ${subordinate ? '' : 'md:py-1'} pr-0 min-w-0 app-drag-region`;
 
   return (
     // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the

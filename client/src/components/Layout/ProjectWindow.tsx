@@ -560,6 +560,10 @@ export function ProjectWindowPane({
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
             leadingSlot={railSlot}
+            // La finestra di progetto vive SOTTO la tab del progetto nella barra
+            // dell'app: la sua prima riga di chrome non ripete l'aria che quella
+            // sopra ha gia messo. Vedi CHROME_BAR_SUB.
+            subordinate
           />
         </div>
       </div>

@@ -4,7 +4,9 @@ import {
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
   CHROME_ROW_ACTION_RESERVE_LEFT,
+  CHROME_BAR_SUB,
   CHROME_ROW_CONTENT_H,
+  CHROME_ROW_SUB_H,
   COLUMN_GAP,
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
@@ -127,6 +129,26 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
       risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
     );
+  });
+
+  test('la riga subordinata è box + un solo incasso, e i due li dice la stessa fonte', () => {
+    // 34 = 28 + 6. Scritto come aritmetica e non come numero: se il box o
+    // l'incasso si muovono, la riga figlia li segue o si separa QUI.
+    expect(CHROME_ROW_SUB_H).toBe(ROW_ACTION_BOX_PX.desktop + ROW_INSET);
+    // E la riga piena è la stessa cosa con l'incasso DUE volte: è tutta la
+    // faccenda in una riga: la figlia non paga l'aria in cima perché quella
+    // sopra l'ha già messa.
+    expect(CHROME_ROW_SUB_H + ROW_INSET).toBe(CHROME_ROW_CONTENT_H);
+    // La classe deve dire lo stesso numero della costante: sono due scritture
+    // dello stesso valore, e Tailwind legge solo la prima.
+    expect(risolvi(CHROME_BAR_SUB, 'h')).toEqual({ wide: CHROME_ROW_SUB_H, compact: CHROME_ROW_CONTENT_H });
+    // `md:pb-[…]` esiste SOLO sopra i 768: `risolvi` pretende un valore per
+    // entrambe le larghezze, quindi qui si legge il ramo `md:` da solo — ed è
+    // giusto così, sotto quel breakpoint l'incasso in coda non c'è perché la
+    // riga non si è stretta.
+    const pb = /(?:^|\s)md:pb-\[(\d+)px\]/.exec(CHROME_BAR_SUB);
+    expect(pb, 'CHROME_BAR_SUB senza incasso in coda').not.toBeNull();
+    expect(Number(pb![1])).toBe(ROW_INSET);
   });
 
   test('il comando ci sta dentro la riga', () => {
