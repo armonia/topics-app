@@ -18,6 +18,7 @@ import {
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
+import { configureSessionParking, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
@@ -426,6 +427,15 @@ rebuildSummary();
 // so the latter can register its sessions with it. See
 // openspec/changes/claude-session-tracker.
 const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
+
+// La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
+// deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
+// su una chat che non ha più né riga né tab. Configurata qui perché il tracker
+// nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
+configureSessionParking((sessionKey) => {
+  const st = claudeSessionTracker.getSessionByKey(sessionKey);
+  if (st?.claudeSessionId) claudeSessionTracker.noteDormant(st.claudeSessionId);
+});
 
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
@@ -918,6 +928,7 @@ const taskDispatcher = createTaskDispatcher({
       saveUnread: ctx.saveUnread,
       broadcastToAll: ctx.broadcastToAll,
       purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
+      parkClaudeSession: parkTopicSession,
     }, topicId);
     // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
     // può fermare la potatura (il task è finito comunque).
@@ -3297,6 +3308,56 @@ function reconcileOrphanedTranscripts(): void {
   }
 }
 
+// ── Archived-topic reconcile — le fasi che nessuna superficie può spegnere ──
+// Il gemello di riparazione di `parkTopicSession` (lib/session-parking.ts): il
+// parcheggio all'archiviazione tiene pulito da qui in avanti, ma le sessioni
+// GIÀ trapelate non le ri-archivierà nessuno. Al 2026-08-09 erano 28 — 20 ferme
+// su `awaiting-user`, ultima attività a metà luglio — servite dentro le 206 di
+// `/api/claude-sessions` a ogni bootstrap del client.
+//
+// Diversamente dai due sweep qui sopra, questo NON consulta il broker: una fase
+// viva su un topic archiviato è sbagliata comunque, anche se un figlio fosse
+// vivo (nessuna superficie la mostra, nessun gesto la spegne). Resta però la
+// stessa cortesia verso il dispatcher: un task in corso possiede la sua
+// sessione, e un topic dei tentativi archiviato mentre il task lavora non va
+// toccato sotto i piedi. `noteDormant` è soft — non uccide niente, e il primo
+// hook o riga di transcript rianima.
+function reconcileArchivedTopicSessions(): void {
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[archived-sessions] dispatcher claim query failed — skipping for safety:", err);
+    return;
+  }
+
+  let rows: Array<{ sk: string; csid: string | null; phase: string }> = [];
+  try {
+    rows = ctx.db.query(
+      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
+       FROM claude_code_sessions s
+       JOIN topics t ON t.session_key = s.session_key
+       WHERE t.archived = 1 AND s.phase NOT IN ('dormant', 'completed', 'error')`,
+    ).all() as Array<{ sk: string; csid: string | null; phase: string }>;
+  } catch (err) {
+    console.warn("[archived-sessions] query failed:", err);
+    return;
+  }
+
+  let parked = 0;
+  for (const row of rows) {
+    if (!row.csid) continue;
+    if (dispatcherClaimed.has(row.sk)) continue;
+    if (claudeSessionTracker.noteDormant(row.csid)) parked += 1;
+  }
+  if (rows.length > 0) {
+    console.log(`[archived-sessions] ${rows.length} sessione/i viva/e su topic archiviati, ${parked} parcheggiata/e → dormant`);
+  }
+}
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
@@ -3307,6 +3368,7 @@ function reconcileOrphanedTranscripts(): void {
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
+  .then(() => reconcileArchivedTopicSessions())
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────

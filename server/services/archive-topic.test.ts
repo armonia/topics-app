@@ -30,6 +30,7 @@ interface Harness {
   unread: UnreadData;
   broadcasts: { type: string; [k: string]: unknown }[];
   purged: string[];
+  parked: string[];
 }
 
 function harness(opts: { topic?: Topic | null; purgeFails?: string } = {}): Harness {
@@ -38,9 +39,11 @@ function harness(opts: { topic?: Topic | null; purgeFails?: string } = {}): Harn
   const unread: UnreadData = { t1: { lastReadAt: "2026-07-01T00:00:00.000Z", unreadCount: 7 } };
   const broadcasts: { type: string; [k: string]: unknown }[] = [];
   const purged: string[] = [];
+  const parked: string[] = [];
   return {
-    saved, unread, broadcasts, purged,
+    saved, unread, broadcasts, purged, parked,
     deps: {
+      parkClaudeSession: (sk) => { parked.push(sk); },
       getTopicById: (id) => (topic && topic.id === id ? topic : null),
       saveSingleTopic: (t) => { saved.push(t); },
       loadUnread: () => unread,
@@ -67,6 +70,32 @@ describe("archiveTopicFully", () => {
     expect(h.unread.t1?.unreadCount).toBe(0);
     // Il passo che mancava e faceva risuscitare l'id al reload successivo.
     expect(h.purged).toEqual(["t1"]);
+  });
+
+  // Il quarto passo. Senza, la fase Claude del topic resta viva per sempre: una
+  // `awaiting-user` non si spegne da sola (per scelta) e un topic archiviato non
+  // ha più né riga né tab da cui spegnerla, mentre i due reconcile di boot
+  // filtrano `archived = 0`. Misurate il 2026-08-09: 28 sessioni così, 20 su
+  // «tocca a te», ultima attività a metà luglio.
+  it("parcheggia la sessione Claude del topic", () => {
+    const h = harness();
+    archiveTopicFully(h.deps, "t1");
+    expect(h.parked).toEqual(["sk1"]);
+  });
+
+  it("parcheggia ANCHE su un topic già archiviato: ri-archiviare deve riparare", () => {
+    // È l'unica leva che le sessioni già trapelate hanno senza una query a mano
+    // — stessa logica convergente dei passi 2 e 3.
+    const h = harness({ topic: makeTopic({ archived: true }) });
+    h.unread.t1 = { lastReadAt: "2026-07-01T00:00:00.000Z", unreadCount: 0 };
+    archiveTopicFully(h.deps, "t1");
+    expect(h.parked).toEqual(["sk1"]);
+  });
+
+  it("un topic senza sessionKey non fa partire nessun parcheggio", () => {
+    const h = harness({ topic: makeTopic({ sessionKey: undefined }) });
+    archiveTopicFully(h.deps, "t1");
+    expect(h.parked).toEqual([]);
   });
 
   it("broadcasta sia l'archiviazione sia l'unread azzerato", () => {
