@@ -78,7 +78,13 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     await expect(composer).toBeFocused({ timeout: 5_000 });
   });
 
-  test("vuota si congeda quando cambi tab, con dentro del testo resta", async ({ page }) => {
+  // Il congedo della bozza vuota è SPENTO dal 09/08 (`DRAFT_AUTOCLOSE` in
+  // usePanelLifecycle): «ancora si chiude da sola la tab», e non sono riuscito
+  // a riprodurre il percorso che la chiude. Finché non c'è, la bozza resta —
+  // ed è questo che il test misura, perché un test deve dire quello che l'app
+  // FA. La riaccensione riporta qui l'asserzione opposta, con il percorso vero
+  // in mano.
+  test("resta aperta quando cambi tab — vuota o con del testo", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await ensureTopicVisible(page, new RegExp(topicName));
@@ -86,25 +92,23 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     await hostRow.dblclick();
     await expect(page.locator('[role="main"]')).toBeVisible({ timeout: 10_000 });
 
-    // ── vuota → se ne va ────────────────────────────────────────────────
+    // ── vuota → resta (il congedo è spento) ─────────────────────────────
     await newChat(page);
     await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
-    // Un attimo sulla bozza: una che non hai mai guardato non l'hai mai
-    // lasciata, e la regola lo dice (DRAFT_MIN_LOOKED_AT_MS). Senza questa
-    // attesa il test misurerebbe il caso opposto a quello che vuole.
     await page.waitForTimeout(800);
-    // Torno sulla chat che c'era: il foglio bianco non ha più ragione di stare.
     await page
       .locator('[data-testid="panel-tab-bar"]')
       .first()
       .getByText(new RegExp(topicName))
       .first()
       .click();
-    await expect(draftTabs(page)).toHaveCount(0, { timeout: 10_000 });
+    await page.waitForTimeout(1500);
+    await expect(draftTabs(page)).toHaveCount(1);
 
-    // ── con del testo → resta ───────────────────────────────────────────
-    await newChat(page);
-    await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
+    // ── con del testo → resta, e questo non cambierà mai ────────────────
+    // Torno sulla bozza per scriverci: da un'altra tab il suo campo non è
+    // nemmeno nell'albero di accessibilità.
+    await draftTabs(page).first().click();
     const composer = page.getByRole("textbox", { name: /Message input for New Chat/ });
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await composer.fill("questo non deve sparire");
@@ -122,10 +126,12 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
 
   test("appena aperta non si chiude da sola, nemmeno con altre tab davanti", async ({ page, request }) => {
     // «Se sono su un'altra tab e faccio nuova tab dalla tab, mi si apre al volo
-    // ma poi mi si chiude subito.» Il fuoco di una pane appena nata RIMBALZA
-    // (React → bozza, il ponte store→React rimanda il vecchio, poi torna): sul
-    // primo di quei fotogrammi la bozza risulta «lasciata» pur essendo appena
-    // arrivata. Qui si misura che non basta perdere il fuoco per un istante.
+    // ma poi mi si chiude subito.» Questo è il percorso segnalato, misurato per
+    // intero: due tab aperte, la chat nuova dal «+» della barra, e due secondi
+    // dopo deve essere ancora lì col fuoco nel campo. Non ha mai fallito nel
+    // server di test — il che è metà del problema, non una consolazione — ma
+    // resta la rete: se un giorno quel percorso si mette a chiudere la tab,
+    // cade qui e non addosso a chi la usa.
     const other = await createTopic(request, `Draft Sibling ${Date.now()}`);
     try {
       await resetPaneStore(request, [topicId, other.id]);

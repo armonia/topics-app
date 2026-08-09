@@ -331,6 +331,22 @@ export interface UsePanelLifecycleReturn {
  *  no pane title can contain, so the encode/decode round-trip is total. */
 const PRESENCE_TAB_SEP = '\u0001';
 
+// SPENTA (09/08). «Ancora si chiude da sola la tab», due volte, e le mie due
+// difese — chiusura differita e soglia di «l'hai guardata» — non l'hanno
+// fermata. Non l'ho riprodotta: né dal «+» della barra con due tab aperte, né
+// dopo un click singolo (anteprima), né sul percorso segnalato per intero, e
+// il registro dei tre punti che possono chiudere una pane dice che nessuno di
+// loro tocca la bozza in quei percorsi. Continuare a indurire una regola che
+// non so far scattare vuol dire indovinare a spese di chi la usa: finché non
+// ho il percorso esatto, la tab RESTA. Una tab che sparisce è peggio di una
+// che avanza — la seconda si chiude con una X, la prima si porta via un gesto
+// che avevi appena fatto.
+// Il resto della regola è vivo e non è in discussione: una bozza vuota sola
+// (il «+» riporta il fuoco su quella), e il fuoco nel campo appena nasce.
+const DRAFT_AUTOCLOSE = false;
+const DRAFT_CLOSE_DELAY_MS = 400;
+const DRAFT_MIN_LOOKED_AT_MS = 500;
+
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
     isDetached, detachedTopicId, detachedTopicIds, isMobile,
@@ -2055,8 +2071,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   //     finestra, si annulla e non è successo niente;
   //   • una bozza che non ha mai avuto il fuoco per almeno mezzo secondo non
   //     è mai stata guardata, quindi non può essere stata lasciata.
-  const DRAFT_CLOSE_DELAY_MS = 400;
-  const DRAFT_MIN_LOOKED_AT_MS = 500;
   const prevFocusedForDraftRef = useRef<string | null>(focusedPanelId);
   const draftFocusedAtRef = useRef<Map<string, number>>(new Map());
   const pendingDraftCloseRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -2074,6 +2088,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       pendingDraftCloseRef.current = null;
     }
 
+    if (!DRAFT_AUTOCLOSE) return;
     if (!prev || prev === focusedPanelId) return;
     if (!isDraftPaneId(prev)) return;
     if (pendingDraftCloseRef.current?.id === prev) return;
