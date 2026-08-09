@@ -22,6 +22,7 @@
  *   bun scripts/token-live.ts                 # tutte le chat con una sessione CLI
  *   bun scripts/token-live.ts armonia         # solo quelle che matchano
  *   bun scripts/token-live.ts armonia --watch # aggiorna finché non lo fermi
+ *   bun scripts/token-live.ts --json          # un solo oggetto JSON, e nient'altro
  *
  * Riusa i moduli veri del server (stesso dedup per message.id, stessa tabella
  * finestre, stessi moltiplicatori di cache), così non è una seconda verità.
@@ -35,6 +36,7 @@ import { calculateCostWithCache } from "../server/usage/pricing";
 
 const args = process.argv.slice(2);
 const watch = args.includes("--watch");
+const asJson = args.includes("--json");
 const filter = args.find((a) => !a.startsWith("--"))?.toLowerCase() ?? "";
 const INTERVAL_MS = 4000;
 
@@ -130,29 +132,41 @@ function scanTranscript(path: string): {
 const reader = createTranscriptUsageReader();
 const previous = new Map<string, { read: number; preambles: number }>();
 
-function render(): void {
+/** Una chat misurata: gli stessi numeri della tabella, prima di diventare celle. */
+interface Entry {
+  sessionKey: string;
+  name: string;
+  phase: string | null;
+  model: string;
+  /** Contesto dell'ultima chiamata: il numero del ring nel composer. */
+  lastContextTokens: number;
+  contextWindowTokens: number;
+  /** false = finestra stimata (nella tabella è il "≈"). */
+  contextWindowKnown: boolean;
+  contextPct: number;
+  /** Cumulativo fresco + scrittura + rilettura di cache: la bolletta. */
+  readTokens: number;
+  costUsd: number;
+  preambles: number;
+  calls: number;
+}
+
+/** Le chat da mostrare, già filtrate. */
+function selected(): Row[] {
   // Il filtro guarda anche il path del transcript: il nome di una chat spesso non
   // dice a che progetto appartiene ("Aggiorniamoci puliamo…"), ma il path sì.
-  const rows = sessions().filter(
+  return sessions().filter(
     (r) =>
       !filter ||
       r.name.toLowerCase().includes(filter) ||
       r.session_key.toLowerCase().includes(filter) ||
       (r.jsonl_path ?? "").toLowerCase().includes(filter),
   );
-  if (rows.length === 0) {
-    console.log(filter ? `Nessuna chat che matcha "${filter}".` : "Nessuna chat con una sessione CLI.");
-    return;
-  }
+}
 
-  const stamp = new Date().toLocaleTimeString("it-IT");
-  console.log(`\n[1m${stamp}[0m  ${rows.length} chat`);
-  console.log(
-    "  " +
-      pad("CHAT", 30) + pad("FASE", 13) + pad("CONTESTO ORA", 20) +
-      pad("LETTI", 9) + pad("Δ", 9) + pad("COSTO", 10) + pad("PREAMBOLI", 11) + "CHIAMATE",
-  );
-
+/** I numeri, calcolati una volta sola: tabella e JSON leggono di qui. */
+function measure(rows: Row[]): Entry[] {
+  const out: Entry[] = [];
   for (const r of rows) {
     if (!r.jsonl_path || !existsSync(r.jsonl_path)) continue;
     const usage = reader.read(r.jsonl_path);
@@ -179,36 +193,85 @@ function render(): void {
       cacheCreation1hTokens: scan.write1h,
     });
 
-    const prev = previous.get(r.session_key);
-    const delta = prev ? read - prev.read : 0;
-    const newPreamble = prev && scan.preambles > prev.preambles;
-    previous.set(r.session_key, { read, preambles: scan.preambles });
+    out.push({
+      sessionKey: r.session_key,
+      name: r.name.replace(/\s+/g, " "),
+      phase: r.phase,
+      model,
+      lastContextTokens: scan.lastCtx,
+      contextWindowTokens: win.tokens,
+      contextWindowKnown: win.known,
+      contextPct: pct,
+      readTokens: read,
+      costUsd: cost,
+      preambles: scan.preambles,
+      calls: scan.calls,
+    });
+  }
+  return out;
+}
 
-    const ctxColor = pct > 90 ? "[31m" : pct > 70 ? "[33m" : "[36m";
-    const ctxCell = `${ctxColor}${fmt(scan.lastCtx)}/${fmt(win.tokens)} ${pct.toFixed(0)}%[0m${win.known ? "" : " ≈"}`;
+function renderTable(): void {
+  const rows = selected();
+  if (rows.length === 0) {
+    console.log(filter ? `Nessuna chat che matcha "${filter}".` : "Nessuna chat con una sessione CLI.");
+    return;
+  }
+
+  const stamp = new Date().toLocaleTimeString("it-IT");
+  console.log(`\n\x1b[1m${stamp}\x1b[0m  ${rows.length} chat`);
+  console.log(
+    "  " +
+      pad("CHAT", 30) + pad("FASE", 13) + pad("CONTESTO ORA", 20) +
+      pad("LETTI", 9) + pad("Δ", 9) + pad("COSTO", 10) + pad("PREAMBOLI", 11) + "CHIAMATE",
+  );
+
+  for (const e of measure(rows)) {
+    const prev = previous.get(e.sessionKey);
+    const delta = prev ? e.readTokens - prev.read : 0;
+    const newPreamble = prev && e.preambles > prev.preambles;
+    previous.set(e.sessionKey, { read: e.readTokens, preambles: e.preambles });
+
+    const pct = e.contextPct;
+    const ctxColor = pct > 90 ? "\x1b[31m" : pct > 70 ? "\x1b[33m" : "\x1b[36m";
+    const ctxCell =
+      `${ctxColor}${fmt(e.lastContextTokens)}/${fmt(e.contextWindowTokens)} ${pct.toFixed(0)}%\x1b[0m` +
+      (e.contextWindowKnown ? "" : " ≈");
     // Il ring è "contesto vivo", questo è la stessa misura: se divergono, uno dei due mente.
-    const deltaCell = delta > 0 ? `[32m+${fmt(delta)}[0m` : "·";
-    const preCell = newPreamble ? `[33m${scan.preambles} ↑[0m` : String(scan.preambles);
+    const deltaCell = delta > 0 ? `\x1b[32m+${fmt(delta)}\x1b[0m` : "·";
+    const preCell = newPreamble ? `\x1b[33m${e.preambles} ↑\x1b[0m` : String(e.preambles);
 
     console.log(
       "  " +
-        pad(r.name.replace(/\s+/g, " "), 30) +
-        pad(r.phase ?? "?", 13) +
+        pad(e.name, 30) +
+        pad(e.phase ?? "?", 13) +
         ctxCell.padEnd(20 + ctxColor.length + 5) +
-        pad(fmt(read), 9) +
+        pad(fmt(e.readTokens), 9) +
         deltaCell.padEnd(9 + (delta > 0 ? 9 : 0)) +
-        pad("$" + cost.toFixed(2), 10) +
+        pad("$" + e.costUsd.toFixed(2), 10) +
         preCell.padEnd(11 + (newPreamble ? 9 : 0)) +
-        String(scan.calls),
+        String(e.calls),
     );
   }
 
   console.log(
-    "\n  [2mCONTESTO ORA = ultima chiamata / finestra (il ring del composer) · " +
+    "\n  \x1b[2mCONTESTO ORA = ultima chiamata / finestra (il ring del composer) · " +
       "LETTI = cumulativo fresco+cache (la bolletta)\n  PREAMBOLI = quante volte <context> è ripartito: " +
-      "a regime resta fermo mentre CHIAMATE sale.[0m",
+      "a regime resta fermo mentre CHIAMATE sale.\x1b[0m",
   );
 }
+
+/**
+ * Un solo oggetto JSON su stdout e nient'altro: niente colori, niente
+ * intestazione, niente legenda — `--json` esiste per essere dato in pasto a
+ * qualcosa, non letto a occhio. Il Δ resta fuori: è la differenza fra due
+ * render, non un dato della chat.
+ */
+function renderJson(): void {
+  console.log(JSON.stringify({ chats: measure(selected()) }));
+}
+
+const render = asJson ? renderJson : renderTable;
 
 render();
 if (watch) {
