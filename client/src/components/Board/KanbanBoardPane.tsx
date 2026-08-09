@@ -657,6 +657,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // fed by `task:usage-live` and dropped when the turn ends. Drives the ticking
   // chip on working cards; the persisted agent_ms/agent_tokens take over after.
   const [liveUsage, setLiveUsage] = useState<Map<string, LiveUsage>>(new Map());
+  // «Questo task aspetta TE», mentre il turno e' ancora vivo: un pannello di
+  // domanda o un permesso aperti a meta' turno. Transitorio come liveUsage, e
+  // per una ragione in piu': l'attesa vive nelle mappe in memoria del server, e
+  // a server riavviato NON esiste piu'. Persisterla in dispatch_state la farebbe
+  // sopravvivere a cio' che la sostiene — ed e' gia' costata un task congelato.
+  const [awaitingHuman, setAwaitingHuman] = useState<Set<string>>(new Set());
   const draggingRef = useRef(false);
   const pendingRefetch = useRef(false);
   const safeRefetch = useCallback(() => {
@@ -667,7 +673,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     if (!onMessage) return;
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
-        taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null };
+        taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
+        waiting?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
         // A turn that ended (or a task that left 'working') drops its live chip;
@@ -683,6 +690,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         setLiveUsage((prev) => {
           const n = new Map(prev);
           n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null });
+          return n;
+        });
+      }
+      if (m.type === 'task:awaiting-human' && typeof m.taskId === 'string'
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        setAwaitingHuman((prev) => {
+          const has = prev.has(m.taskId!);
+          if (m.waiting === has) return prev; // nessun cambio: niente re-render
+          const n = new Set(prev);
+          if (m.waiting) n.add(m.taskId!); else n.delete(m.taskId!);
           return n;
         });
       }
@@ -1122,6 +1139,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   tasksById={tasksById}
                   projectPathById={projectPathById}
                   liveById={liveUsage}
+                  awaitingHuman={awaitingHuman}
                 />
               ))}
             </div>

@@ -817,6 +817,25 @@ const taskUsageLiveSchema = z.looseObject({
   model: z.nullable(z.string()),
 });
 
+// «Questo task sta aspettando una PERSONA», mentre il turno è ancora vivo: un
+// pannello di domanda o una richiesta di permesso aperti a metà turno.
+//
+// Transitorio come `task:usage-live`, e per la stessa ragione più una in più.
+// La ragione in più: l'attesa vive nelle mappe in memoria di `ask-user-bridge` e
+// `permission-bridge`, quindi a server riavviato NON esiste più. Scriverla in
+// `dispatch_state` la farebbe sopravvivere a chi la sostiene — e, provato sul
+// campo, farebbe anche uscire il task dalla porta del recupero orfani
+// (`ACTIVE_DISPATCH_STATES`), lasciandolo `in_progress` per sempre.
+const taskAwaitingHumanSchema = z.looseObject({
+  type: z.literal('task:awaiting-human'),
+  projectId: z.string(),
+  taskId: z.string(),
+  /** true quando l'attesa comincia, false quando finisce. */
+  waiting: z.boolean(),
+  /** Da quale porta arriva. Per chi guarda la board sono lo stesso fatto: serve nei log. */
+  source: z.enum(['ask', 'permission']),
+});
+
 // L'interruttore auto-dispatch è GLOBALE, non per progetto: ogni header di board
 // aperto — non solo quello del progetto toccato — deve girare la pill.
 const boardDispatchSchema = z.looseObject({
@@ -1080,6 +1099,7 @@ const OUTBOUND_SCHEMAS = {
   'task:review-ready': taskReviewReadySchema,
   'task:parked': taskParkedSchema,
   'task:usage-live': taskUsageLiveSchema,
+  'task:awaiting-human': taskAwaitingHumanSchema,
   'board:dispatch': boardDispatchSchema,
   'board:global-cap': boardGlobalCapSchema,
   'board:settings': boardSettingsSchema,

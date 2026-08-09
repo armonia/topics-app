@@ -135,15 +135,16 @@ dispatch no — i numeri del dispatch vero vengono dalle card `c9f60cbc` e
 `7b201e93`), e la forbice di `chat-xhigh` è larga (2,47× sulla rilettura cache),
 quindi è il **3/3** a reggere l'affermazione, non la distanza fra le mediane.
 
-Quindi `bun scripts/board-vs-chat.ts` **esce 3** (misura negativa; `1` è
-riservato all'attrezzo rotto), e quel rosso è la misura, non
-un guasto: non si aggiusta con `--tolerance-pct` (misurato: verde solo da **+48%**
-in su — e prima di aggregare le repliche serviva +70%, perché il cancello
-inseguiva il peggior campione singolo). Nessuna soglia dentro un intervallo
-difendibile lo salva. O l'envelope di dispatch costa meno, o la
-risposta a «da oggi solo board?» è «no, non a questo prezzo» — e la decide una
-persona. Il braccio `board` è **simulato**: le differenze dal dispatch vero sono
-elencate una per una nelle `notes` di ogni terna e in `simulationGaps` del
+Quindi `bun scripts/board-vs-chat.ts` **esce 0**: contro `chat-xhigh` il cancello
+di parità passa. Prima della rimisura usciva **3** (misura negativa) contro la
+chat a medium, e quel rosso non si aggiustava con `--tolerance-pct` — serviva
++48%, cioè oltre qualunque soglia difendibile. Non è stata una soglia a
+cambiarlo: è stato misurare il braccio giusto. Il `3` resta il codice della
+misura negativa e l'`1` quello dell'attrezzo rotto, e restano entrambi
+raggiungibili: il cancello non è stato spento, ha smesso di scattare.
+
+Il braccio `board` di questo confronto è **simulato**: le differenze dal dispatch
+vero sono elencate una per una nelle `notes` di ogni terna e in `simulationGaps` del
 bundle. Non è una misura del dispatcher reale.
 
 ## I casi limite
