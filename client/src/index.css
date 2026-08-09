@@ -2408,13 +2408,21 @@ html.electron-mac:not(.dark) .chrome-glass {
  * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
  * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
  * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
-:root { --chrome-overlay-bg: color-mix(in srgb, var(--bg-surface) 72%, transparent); }
-/* Sotto la shell mac NON c'è una superficie da imitare: `.pane-frost`, le celle
- * e la colonna del progetto sono tutte trasparenti e mostrano la stessa
- * vibrancy. Lì l'unica tinta che non sposta il fondo è NESSUNA tinta, e il
- * vetro lo fa il blur — che è esattamente l'invariante «un solo strato di
- * frost» dichiarata più su. */
-html.electron-mac { --chrome-overlay-bg: transparent; }
+/* NESSUN VELO, NEMMENO SUL WEB: le tab GALLEGGIANO sul contenuto.
+ *
+ * Il velo era la tinta del chrome, poi è diventato la tinta della superficie
+ * sotto (che è la ragione per cui il gradino è sparito), e a quel punto la
+ * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
+ * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
+ * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
+ * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
+ * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
+ * questa barra ha sempre voluto avere.
+ *
+ * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
+ * blocco `html.electron-mac`, e tenerne due significava che web e desktop
+ * mostravano due barre diverse per una decisione che è una sola. */
+:root { --chrome-overlay-bg: transparent; }
 .pane-chrome-bar {
   position: absolute;
   inset-inline: 0;

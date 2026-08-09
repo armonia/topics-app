@@ -96,27 +96,28 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
   });
 
   for (const tema of ["dark", "light"] as const) {
-    test(`CONT-1 (${tema}): sul web il velo ha la TINTA della superficie, non quella del chrome`, async ({ page }) => {
+    test(`CONT-1 (${tema}): la riga di chrome NON dipinge — il vetro è il blur`, async ({ page }) => {
       await page.evaluate((t) => {
         document.documentElement.classList.remove("electron-mac");
         document.documentElement.classList.toggle("dark", t === "dark");
       }, tema);
       await page.waitForTimeout(120);
 
-      const { velo, superficie } = await tinte(page);
-      const v = rgba(velo);
-      const s = rgba(superficie);
+      // Il velo è passato per tre forme: la tinta del CHROME (che spostava il
+      // colore, da cui il gradino di 13-14 livelli), poi la tinta della
+      // SUPERFICIE sotto (scarto zero per costruzione), e infine nessuna tinta
+      // — perché stendere un colore su se stesso non serviva a niente che il
+      // `backdrop-filter` non facesse già. «Il bg tabbar doveva essere
+      // trasparente così appariva tutto in floating» (Attilio, 09/08).
+      const { velo } = await tinte(page);
+      expect(rgba(velo)[3], `il velo deve essere trasparente (${velo})`).toBe(0);
 
-      // I canali coincidono: è questo che rende lo scarto zero per costruzione.
-      expect(
-        [v[0], v[1], v[2]],
-        `velo ${velo} contro superficie ${superficie}`,
-      ).toEqual([s[0], s[1], s[2]]);
-
-      // E resta un velo, non un vetro vuoto: sotto la barra scorre il
-      // trascritto, e senza opacità i nomi delle tab cadono sulle parole.
-      expect(v[3], `alpha del velo (${velo})`).toBeGreaterThan(0.5);
-      expect(v[3], `alpha del velo (${velo})`).toBeLessThan(1);
+      // E il blur resta: è LUI a rendere leggibili i nomi delle tab mentre
+      // sotto passano i messaggi. Senza, questa non è una barra che galleggia,
+      // è una barra che non c'è.
+      const sfocatura = await page.locator(".pane-chrome-bar").first()
+        .evaluate((el) => getComputedStyle(el).backdropFilter);
+      expect(sfocatura, "la barra deve continuare a sfocare ciò che le passa sotto").toMatch(/blur/);
     });
   }
 
