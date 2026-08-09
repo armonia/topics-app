@@ -485,11 +485,16 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       ref={placeholderRef}
       className="flex-1 min-h-0 overflow-hidden bg-surface relative"
       data-testid="browser-native-placeholder"
-      // Marks this subtree as a native browser slot. The occlusion tracker skips
-      // any `.glass-surface`/overlay INSIDE a slot so a pane's own in-pane chrome
-      // (e.g. the responsive size readout below, itself .glass-surface) can never
-      // freeze the live view to a still by "occluding itself".
-      data-native-browser-slot=""
+      // Marks this subtree as a native browser slot. Due usi, non uno:
+      //  1. il tracciatore degli overlay SALTA i `.glass-surface` che stanno
+      //     dentro uno slot, cosi' la cromatura interna di una pane (il riquadro
+      //     della misura, che e' esso stesso `.glass-surface`) non puo'
+      //     congelare la vista viva «coprendo se' stessa»;
+      //  2. porta il CONTEXT ID, cosi' la pane rilegge da qui il proprio
+      //     rettangolo VIVO quando deve decidere se un overlay la copre, invece
+      //     di fidarsi dell'ultimo rettangolo chiesto alla vista nativa — che e'
+      //     una cache, e puo' descrivere un posto in cui la pane non e' piu'.
+      data-native-browser-slot={browser.viewId ?? ''}
     >
       {/* Loading shimmer while WebContentsView spins up. */}
       {!browser.ready && (
