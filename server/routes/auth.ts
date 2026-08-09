@@ -62,6 +62,11 @@ interface PendingPairing {
 
 const pending = new Map<string, PendingPairing>();
 
+/** I timer di scadenza, uno per richiesta. Vivono accanto alla mappa e non
+ *  dentro l'oggetto: `PendingPairing` è ciò che si consegna e si serializza,
+ *  e un handle di timer lì dentro sarebbe una cosa che non si può guardare. */
+const scadenze = new Map<string, ReturnType<typeof setTimeout>>();
+
 /**
  * Quante socket vive ha ciascun dispositivo, adesso. Un conteggio e non un
  * booleano perche' un dispositivo apre piu' socket (quella primaria, i
@@ -102,11 +107,40 @@ export function __resetLiveSocketsForTests(): void {
  */
 export function __resetPendingForTests(): void {
   pending.clear();
+  // I timer vanno spenti, non solo dimenticati: uno lasciato acceso spara in
+  // mezzo al test successivo e ne annuncia la scadenza di una richiesta che
+  // quel test non ha mai fatto.
+  for (const t of scadenze.values()) clearTimeout(t);
+  scadenze.clear();
 }
 
-function sweep(now: number): void {
+/** Invecchia una richiesta in attesa, per provare la scadenza senza aspettare
+ *  tre minuti veri. Tocca `createdAt` e basta: il tempo lo legge `sweep`, e un
+ *  test che spostasse l'orologio proverebbe un mondo diverso da quello vero. */
+export function __invecchiaPendingPerTests(id: string, di: number): void {
+  const p = pending.get(id);
+  if (p) p.createdAt -= di;
+}
+
+function scordaScadenza(id: string): void {
+  const t = scadenze.get(id);
+  if (t !== undefined) { clearTimeout(t); scadenze.delete(id); }
+}
+
+function sweep(now: number, avvisa?: (id: string) => void): void {
   for (const [id, p] of pending) {
-    if (now - p.createdAt > PAIRING_CODE_TTL_MS) pending.delete(id);
+    if (now - p.createdAt > PAIRING_CODE_TTL_MS) {
+      pending.delete(id); scordaScadenza(id);
+      scordaScadenza(id);
+      // Scomparire in silenzio non basta. Il cartello di approvazione compare
+      // per un broadcast (`auth:pair-requested`) e vive nella memoria del
+      // client: senza l'annuncio contrario resta sullo schermo per sempre, e
+      // chi lo clicca prende un 404 su una richiesta che il server ha
+      // dimenticato da un pezzo. Su un endpoint esposto a Internet è peggio
+      // che un fastidio: la richiesta di uno sconosciuto continua a invitare
+      // un clic molto dopo che avrebbe dovuto sparire.
+      avvisa?.(id);
+    }
   }
 }
 
@@ -252,7 +286,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
   return async function authRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!pathname.startsWith("/api/auth/")) return null;
     const now = Date.now();
-    sweep(now);
+    sweep(now, (id) => ctx.broadcast?.({ type: "auth:pair-resolved", requestId: id, approved: false }));
     const ip = ctx.requestIp?.(req) ?? null;
     // La stessa domanda del gate, e va posta con la stessa funzione: attraverso
     // il tunnel il peer È loopback, quindi `isLoopbackAddress(ip)` da solo
@@ -307,6 +341,26 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         claim: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
       };
       pending.set(id, entry);
+      // La scadenza si annuncia DA SOLA, senza aspettare che qualcuno bussi.
+      //
+      // `sweep` gira all'inizio di ogni richiesta `/api/auth/*`, e per la
+      // memoria del server basta. Ma il cartello vive nel client: se in quei
+      // tre minuti nessuno chiama nulla, nessuno spazza, nessuno annuncia, e
+      // la scheda resta sullo schermo. Il timer è ciò che rende la scadenza
+      // una cosa che ACCADE invece di una che si scopre.
+      //
+      // `unref` perché un appaiamento in attesa non deve tenere in piedi il
+      // processo: allo spegnimento la richiesta muore comunque, ed è l'esito
+      // giusto — una richiesta sopravvissuta a un riavvio è una richiesta che
+      // nessuno sta più guardando.
+      const t = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id); scordaScadenza(id);
+        scadenze.delete(id);
+        ctx.broadcast?.({ type: "auth:pair-resolved", requestId: id, approved: false });
+      }, PAIRING_CODE_TTL_MS);
+      (t as unknown as { unref?: () => void }).unref?.();
+      scadenze.set(id, t);
       // Il frame porta il riferimento e il codice — servono al cartello di
       // approvazione — ma NON il `claim`, che è l'unica cosa capace di ritirare
       // il gettone. È la separazione che rende innocuo il resto.
@@ -328,7 +382,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (entry.state !== "approved" || !entry.token) return json({ state: "pending" });
       // Consegna unica: il token esce dalla memoria appena tocca il filo.
       const token = entry.token;
-      pending.delete(id);
+      pending.delete(id); scordaScadenza(id);
       // `json()` non porta header extra: qui serve `Set-Cookie`, quindi la
       // Response si costruisce a mano.
       return new Response(JSON.stringify({ state: "approved", name: entry.name }), {
