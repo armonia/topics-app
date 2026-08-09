@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
+import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
@@ -112,11 +112,48 @@ interface GroupLayoutProps {
    * vedi TabLinkContext, che spiega perché non è un campo del Pane.
    */
   linkContext?: TabLinkContext;
+  /**
+   * UN NODO DA OSPITARE IN TESTA ALLA PRIMA BARRA.
+   *
+   * Ci vive la barra di progetto CHIUSA (`ProjectSidebar`, ramo collassato):
+   * chiusa non è più una colonna verticale accanto alla riga di chrome, è una
+   * fila di card DENTRO di essa, davanti alle tab.
+   *
+   * È un `HTMLElement`, non un `ReactNode`: il nodo lo crea il chiamante una
+   * volta sola e ci scrive dentro col suo portale, quindi esiste già al primo
+   * render e non c'è il fotogramma in cui la vecchia rail lampeggia. Qui lo si
+   * aggancia e basta — nessuno stato, nessuna corsa fra ref e render.
+   *
+   * SOLO la prima barra lo ospita: con uno split ci sono N righe di chrome, ma
+   * il progetto è uno. «Prima» = il primo gruppo della prima riga, e in
+   * mancanza di righe la barra vuota.
+   */
+  leadingSlot?: HTMLElement;
+}
+
+/**
+ * L'ospite di {@link GroupLayoutProps.leadingSlot}: un div nel flusso, in testa
+ * alla barra, dentro cui viene spostato il nodo del chiamante.
+ *
+ * Nel FLUSSO e non in overlay: il blocco di sinistra ha una larghezza che
+ * dipende dal nome del progetto, e una riserva `padding-left` fissa — la strada
+ * che usa la barra standalone per il suo unico bottone — qui non saprebbe quanto
+ * riservare. Stando in fila, le tab si spostano da sole.
+ */
+function LeadingSlot({ node }: { node: HTMLElement }) {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const h = host.current;
+    if (!h) return;
+    h.appendChild(node);
+    return () => { if (node.parentNode === h) h.removeChild(node); };
+  }, [node]);
+  return <div ref={host} className="flex items-center min-w-0" />;
 }
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -771,6 +808,7 @@ export function GroupLayout({
         {/* Match the populated branch's chrome row (h-10) so the empty
             project tab bar aligns with the sidebar header. */}
         <div className={CHROME_BAR}>
+          {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
               panes={[]}
@@ -804,6 +842,11 @@ export function GroupLayout({
   // a column's primary group AND for each group vertically stacked under it via
   // cellStacks. `rowIdx` drives the last-row gutter inset; `seenPaneIds` is
   // threaded so a duplicated pane id never paints twice.
+  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
+  // primo della prima riga. Con uno split le righe di chrome sono N, il
+  // progetto uno solo.
+  const leadingGid = rows[0]?.groupIds[0];
+
   const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
@@ -847,6 +890,7 @@ export function GroupLayout({
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
         <div className={CHROME_BAR} onDragOverCapture={handleTabBarDragOver(gid)}>
+          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
             panes={groupPanes}
@@ -1074,6 +1118,7 @@ export function GroupLayout({
       return (
         <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={CHROME_BAR_H_VAR}>
           <div className={CHROME_BAR}>
+            {leadingSlot && <LeadingSlot node={leadingSlot} />}
             <div className="flex-1 flex items-center min-w-0 overflow-hidden">
               <PaneTabBar
                 panes={[]}
@@ -1101,6 +1146,7 @@ export function GroupLayout({
     return (
       <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={CHROME_BAR_H_VAR}>
         <div className={CHROME_BAR}>
+          {leadingSlot && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
             <PaneTabBar
               panes={flatPanes}
