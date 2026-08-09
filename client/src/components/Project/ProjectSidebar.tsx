@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
+import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_TAB, SECTION_TOOLS, SELECTED_SURFACE, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -13,6 +13,7 @@ import { useGitStatus } from '../../hooks/useGitStatus';
 import { isRecentFailure } from '../../lib/processFailure';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
+import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 // Git is heavy (diff rendering) — keep lazy
 const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
@@ -79,6 +80,11 @@ const MAX_SIDEBAR_W = 560;
  *
  * Processi non ha piede: per lui 96 resta giusto.
  */
+const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes: 96 };
+/** Una riga d'albero: il pavimento di Files quando è APERTA. Chiusa non serve —
+ *  lì il contenuto non c'è per scelta, e il divisore può salire fino alla card. */
+const MIN_FILES_CONTENT = 24;
+const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
 
 /**
  * LA CARD DEL PROGETTO — una sola, per tutti e due gli stati della colonna.
@@ -233,6 +239,7 @@ export function ProjectSidebar({
   // chiudi tutto, ricarica) non hanno un altro percorso col dito, e sono UNO
   // per pannello — non uno per riga —, quindi senza puntatore si vedono
   // (`touch: 'shown'`) invece di restare bersagli invisibili sull'header.
+  const filesHeaderReveal = useHoverReveal('files', { touch: 'shown' });
   // Project name = the display override (task title) or the path's folder name.
   const projectName = displayName || projectPath.split('/').filter(Boolean).pop() || 'Project';
   // Auto-collapse on mobile
@@ -250,6 +257,7 @@ export function ProjectSidebar({
   // scambiavano apertura e altezze, e ciò che avevi stretto su uno arrivava
   // stretto sull'altro senza averlo mai toccato lì.
   const SECTIONS_KEY = `sidebar-sections:${projectPath}`;
+  const HEIGHTS_KEY = `project-sidebar-bottom-heights:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
       const saved = sessionStorage.getItem(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
@@ -284,19 +292,19 @@ export function ProjectSidebar({
     ? { branch: gitStatus.branch, fileCount: gitStatus.files?.length ?? 0, ahead: gitStatus.ahead ?? 0, behind: gitStatus.behind ?? 0 }
     : null;
 
-  // UNA ALLA VOLTA. Le tre sezioni stavano impilate e aperte insieme, con
-  // altezze in pixel e un divisore trascinabile fra loro; ora stanno in una
-  // riga di chip sopra un pannello solo («devono essere dropdown singoli, al
-  // massimo puoi aprire [uno]», Attilio 09/08). Aprirne una chiude le altre —
-  // e chiuderla senza aprirne un'altra resta possibile, che è la differenza
-  // fra un menu a tendina e una scheda: qui il pannello può anche non esserci.
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => {
       const opening = !prev[section];
-      // Il cancello sulle altezze salvate se n'è andato con le altezze: una
-      // sezione aperta prende TUTTO lo spazio sotto la riga, quindi non può
-      // più «aprirsi su zero pixel» — che era il difetto per cui esisteva.
-      return { files: false, git: false, processes: false, [section]: opening };
+      // Aprire una sezione deve SEMPRE mostrare qualcosa. Git e Processi hanno
+      // un'altezza in pixel salvata, e il minimo di trascinamento era 32px —
+      // cioè esattamente l'altezza dell'intestazione: una sezione stretta fin
+      // laggiù si «apriva» su zero pixel di contenuto e sembrava rotta (il
+      // chevron ruotava e non compariva niente). Se l'altezza salvata non
+      // lascia spazio, si riapre alla misura di partenza.
+      if (opening && (section === 'git' || section === 'processes')) {
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+      }
+      return { ...prev, [section]: opening };
     });
   };
 
@@ -317,7 +325,44 @@ export function ProjectSidebar({
     try { sessionStorage.setItem(WIDTH_KEY, String(sidebarWidth)); } catch {}
   }, [WIDTH_KEY, sidebarWidth]);
 
+  // ── Bottom sections (Git, Processes) — anchored at bottom with pixel heights ──
+  // Files fills remaining space (flex-1). Git/Processes pinned at bottom.
+  const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number>>(() => {
+    try {
+      const saved = sessionStorage.getItem(HEIGHTS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { ...DEFAULT_HEIGHTS };
+  });
+
+  useEffect(() => {
+    try { sessionStorage.setItem(HEIGHTS_KEY, JSON.stringify(bottomHeights)); } catch {}
+  }, [HEIGHTS_KEY, bottomHeights]);
+
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Un divisore ha SEMPRE un sotto e un sopra, e alzarlo fa crescere quello
+  // SOTTO: la colonna è ancorata in fondo (Files prende ciò che avanza, Git e
+  // Processi hanno un'altezza in pixel). Il campo si chiamava `section` e non
+  // diceva da che parte stesse, così il divisore Git↔Processi passava `git` —
+  // cioè quello SOPRA — e il trascinamento usciva rovesciato.
+  //
+  // `above` assente = il vicino di sopra è Files, che non ha un'altezza sua:
+  // assorbe con `flex-1`, e il fermo è quanto le resta da cedere (`slack`).
+  const dragRef = useRef<{
+    below: 'git' | 'processes';
+    above?: 'git' | 'processes';
+    startY: number;
+    startBelow: number;
+    startAbove?: number;
+    slack: number;
+  } | null>(null);
+
+  // Files non ha un'altezza in stato: quanto può cedere si MISURA quando parte
+  // il trascinamento. Da una costante non si potrebbe — la sua intestazione è
+  // una card e cambia altezza col breakpoint.
+  const filesBoxRef = useRef<HTMLDivElement>(null);
+  const filesHeaderRef = useRef<HTMLDivElement>(null);
 
   // Full-viewport drag chrome (same protocol as useGridResize): keeps the
   // pointer out of iframes in the main area mid-drag and lets native Electron
@@ -326,6 +371,10 @@ export function ProjectSidebar({
   const dragOverlay = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    // 32px era l'altezza dell'INTESTAZIONE: si poteva trascinare una sezione
+    // fino a farla sparire del tutto e poi non c'era modo di capire perché
+    // «non si apriva». Il minimo lascia sempre una riga di contenuto.
+    const minDi = (s: 'git' | 'processes') => MIN_USEFUL_H[s];
     const dropChrome = () => {
       if (dragOverlay.current) {
         dragOverlay.current.remove();
@@ -337,7 +386,7 @@ export function ProjectSidebar({
     // tiene il puntatore fuori dagli iframe e dalle pane native mentre trascini,
     // e si alza solo al primo movimento vero, così un click secco non si
     // ritrova il mouseup su un altro bersaglio.
-    const raiseChrome = (cursor: 'col-resize') => {
+    const raiseChrome = (cursor: 'row-resize' | 'col-resize') => {
       if (dragOverlay.current) return;
       const ov = document.createElement('div');
       ov.style.cssText = `position:fixed;inset:0;z-index:2147483647;cursor:${cursor}`;
@@ -355,9 +404,31 @@ export function ProjectSidebar({
         setSidebarWidth(Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, w.startWidth + dx)));
         return;
       }
+      const r = dragRef.current;
+      if (!r) return;
+      // Lost-mouseup recovery: button no longer down — end the drag.
+      if ((e.buttons & 1) === 0) { onUp(); return; }
+      const delta = e.clientY - r.startY;
+      if (!dragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
+      raiseChrome('row-resize');
+      // Si stringe il DELTA, non le due altezze una per una. Tagliandole a
+      // valle con due `Math.max` indipendenti la somma non si conserva: quando
+      // una tocca il suo minimo l'altra continua a crescere, la coppia sfonda
+      // la colonna e il tetto — cioè il fondo di Files — se ne va per i fatti
+      // suoi. Misurato: tirando a fondo corsa la coppia passava da 350 a 696.
+      const giu = r.startBelow - minDi(r.below);              // quanto si può scendere
+      const su = r.above !== undefined
+        ? minDi(r.above) - r.startAbove!                      // fin dove cede il vicino
+        : -r.slack;                                           // fin dove cede Files
+      const d = su > giu ? 0 : Math.min(giu, Math.max(su, delta));
+      // Alzare il divisore (d < 0) fa crescere ciò che gli sta SOTTO.
+      setBottomHeights(prev => r.above
+        ? { ...prev, [r.below]: r.startBelow - d, [r.above]: r.startAbove! + d }
+        : { ...prev, [r.below]: r.startBelow - d });
     };
     const onUp = () => {
-      if (!widthDragRef.current) return;
+      if (!dragRef.current && !widthDragRef.current) return;
+      dragRef.current = null;
       widthDragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -369,6 +440,7 @@ export function ProjectSidebar({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       // Unmount mid-drag: balance the pane-resize-start already dispatched.
+      dragRef.current = null;
       widthDragRef.current = null;
       dropChrome();
     };
@@ -390,103 +462,39 @@ export function ProjectSidebar({
   }, []);
 
   /**
-   * LA RIGA DELLE TRE SEZIONI, e sotto il pannello di quella aperta.
-   *
-   * Funzione e non componente: un componente definito qui dentro sarebbe un
-   * TIPO nuovo a ogni render, e React smonterebbe e rimonterebbe tutto il
-   * sottoalbero a ogni battito — l'albero dei file perderebbe le cartelle
-   * aperte e lo scorrimento a ogni tasto premuto altrove. Così invece il JSX
-   * finisce inline nello stesso albero, che è quello che serve: una sola
-   * grammatica per il cassetto mobile e per la colonna desktop, che prima erano
-   * due copie e divergevano al primo ritocco fatto da una parte sola.
+   * `below` è la sezione SOTTO il divisore: è quella che cresce tirando in su.
+   * `above` è il vicino di sopra quando ne ha uno con un'altezza sua; senza,
+   * il vicino è Files e il fermo lo dà `slack`.
    */
-  const chip = (id: SectionId, glifo: ReactNode, etichetta: string, pastiglia?: ReactNode) => {
-    const attiva = expandedSections[id];
-    return (
-      <button
-        onClick={() => toggleSection(id)}
-        // Le ancore restano quelle di prima — `project-sidebar-<sezione>` con
-        // `aria-expanded` — perché a cambiare è dove sta il comando, non cosa
-        // fa. GitChanges la sua l'ha persa (`chromeless`): due elementi con la
-        // stessa ancora sono un locator ambiguo, non un dettaglio.
-        data-testid={`project-sidebar-${id}`}
-        aria-expanded={attiva}
-        title={etichetta}
-        className={`${SECTION_TAB} ${attiva ? SELECTED_SURFACE : RESTING_SURFACE}`}
-      >
-        {glifo}
-        <span className="truncate">{etichetta}</span>
-        {pastiglia}
-      </button>
-    );
-  };
-
-  /** I comandi dell'albero dei file: erano nell'intestazione della sezione, e
-   *  quando l'intestazione è salita nella riga sono rimasti senza casa. Qui
-   *  stanno sempre visibili invece che in hover: la striscia esiste SOLO
-   *  mentre la sezione è aperta, quindi non c'è niente da rivelare. */
-  const comandiFile = (
-    <div className={SECTION_TOOLS}>
-      <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
-      <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
-      <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
-      <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
-    </div>
-  );
-
-  const sezioni = (
-    <>
-      <div className={`flex items-center ${TAB_GAP_CLASS} px-1.5 pb-[3px] flex-shrink-0`}>
-        {chip('files', <FolderTree size={14} className="flex-shrink-0" />, tr('project.sidebar.files'))}
-        {chip(
-          'git',
-          <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />,
-          tr('project.sidebar.gitChanges'),
-          git && git.fileCount > 0
-            ? <span className="flex-shrink-0 text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">{git.fileCount}</span>
-            : undefined,
-        )}
-        {chip(
-          'processes',
-          <CirclePlay size={14} className="flex-shrink-0" />,
-          tr('project.sidebar.processes'),
-          // Un fallimento recente batte il conteggio: è l'unico dei due che
-          // chiede qualcosa a chi guarda.
-          failedCount > 0
-            ? <span className="flex-shrink-0 text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1.5 py-[1px] rounded-full">{failedCount}</span>
-            : runningCount > 0
-              ? <span className="flex-shrink-0 text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">{runningCount}</span>
-              : undefined,
-        )}
-      </div>
-      <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
-        {expandedSections.files && (
-          <>
-            {comandiFile}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
-            </div>
-          </>
-        )}
-        {expandedSections.git && (
-          <div className="flex-1 flex flex-col min-h-0">
-            <Suspense fallback={<div className={SECTION_TOOLS} />}>
-              <GitChanges projectPath={projectPath} compact chromeless expanded onToggle={() => toggleSection('git')} />
-            </Suspense>
-          </div>
-        )}
-        {expandedSections.processes && (
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
-          </div>
-        )}
-      </div>
-    </>
-  );
+  const startBottomResize = useCallback((below: 'git' | 'processes', above?: 'git' | 'processes') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    // Quanto Files può ancora cedere: la sua scatola meno ciò che deve restare
+    // visibile. Aperta lascia almeno una riga d'albero, chiusa basta la card —
+    // è lo stesso principio del minimo di Git e Processi, che non si stringono
+    // mai fino a diventare la sola intestazione.
+    const box = filesBoxRef.current?.offsetHeight ?? 0;
+    const testa = filesHeaderRef.current?.offsetHeight ?? 0;
+    const pavimento = testa + (expandedSections.files ? MIN_FILES_CONTENT : 0);
+    dragRef.current = {
+      below,
+      above,
+      startY: e.clientY,
+      startBelow: bottomHeights[below],
+      startAbove: above ? bottomHeights[above] : undefined,
+      slack: Math.max(0, box - pavimento),
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [bottomHeights, expandedSections.files]);
 
   if (effectiveCollapsed) {
     const open = (section: SectionId) => () => {
       onToggleCollapse();
+      // Stesso cancello del toggle: una sezione stretta a zero deve tornare
+      // utile anche quando la si apre dalla rail, non solo dall'intestazione.
+      if (section === 'git' || section === 'processes') {
+        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+      }
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
     // Tooltip: è QUI che sta l'informazione lunga. Nella rail ci sono 40px, e
@@ -626,7 +634,83 @@ export function ProjectSidebar({
           <div className="flex items-center h-10 px-1.5 flex-shrink-0">
             <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
           </div>
-          {sezioni}
+          {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
+              gemello desktop per il mezzo passo in fondo). */}
+          <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
+            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+              <div
+                onClick={() => toggleSection('files')}
+                // Stessa ancora della variante desktop qui sotto.
+                data-testid="project-sidebar-files"
+                role="button"
+                aria-expanded={expandedSections.files}
+                className={`${SECTION_CARD} group/files`}
+              >
+                <FolderTree size={14} className="flex-shrink-0" />
+                <span>{tr('project.sidebar.files')}</span>
+                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+                {expandedSections.files && (
+                  <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
+                  </div>
+                )}
+              </div>
+              {expandedSections.files && (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
+                </div>
+              )}
+            </div>
+            <div
+              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+              style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+            >
+              <Suspense fallback={
+                <div onClick={() => toggleSection('git')} className={SECTION_CARD}>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
+                    <span>{tr('project.sidebar.gitChanges')}</span>
+                    <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
+                  </div>
+                </div>
+              }>
+                <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
+              </Suspense>
+            </div>
+            <div
+              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+              style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+            >
+              <button
+                onClick={() => toggleSection('processes')}
+                // Ancora stabile per chi guarda da fuori: l'etichetta è tradotta
+                // dal 9d1991ea («Multilingua: terzo lotto»), quindi il testo non
+                // è un appiglio. E il bottone è un TOGGLE: `aria-expanded` è
+                // l'unico modo di aprirlo senza rischiare di richiuderlo — il
+                // gemello nella rail lo dichiara già (RailButton).
+                data-testid="project-sidebar-processes"
+                aria-expanded={expandedSections.processes}
+                className={SECTION_CARD}
+              >
+                <CirclePlay size={14} className="flex-shrink-0" />
+                <span>{tr('project.sidebar.processes')}</span>
+                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+                {runningCount > 0 && (
+                  <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                    {runningCount}
+                  </span>
+                )}
+              </button>
+              {expandedSections.processes && (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </>,
       document.body,
@@ -679,7 +763,177 @@ export function ProjectSidebar({
         <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>
 
-      {sezioni}
+      {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom.
+          IL MEZZO PASSO IN FONDO: le sezioni sono card, e l'ultima si fermava a
+          3px dal bordo della colonna invece dei 6 che ogni altra card ha su ogni
+          lato — «sono attaccate in fondo» (Attilio, 09/08). Metà la porta il
+          margine della card (`my-[3px]` in SECTION_CARD), metà questo padding:
+          è la stessa regola della colonna principale. */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
+
+        {/* Files Section — always flex-1 to push Git/Processes to bottom */}
+        <div ref={filesBoxRef} className="flex flex-col flex-1 min-h-0">
+          <div
+            ref={filesHeaderRef}
+            onClick={() => toggleSection('files')}
+            // Ancora stabile, come per Git e Processi: l'etichetta e' testo
+            // tradotto e questo e' un TOGGLE — chi lo clicca alla cieca su una
+            // sezione gia' aperta la richiude.
+            data-testid="project-sidebar-files"
+            role="button"
+            aria-expanded={expandedSections.files}
+            // Il bordo sotto SOLO da chiusa. Il contenitore di «File» resta
+            // `flex-1` anche quando è chiusa — serve a spingere Git e Processi
+            // in fondo — quindi il divisore da 1px finisce in fondo alla
+            // colonna, lontanissimo dall'intestazione: la riga chiusa restava
+            // senza linea, sospesa sopra il vuoto. Da aperta non serve, perché
+            // sotto ci sono i file.
+            //
+            // Il COLORE sta fuori dalla condizione, e non è pignoleria: si
+            // alterna solo `border-b`, cioè la LARGHEZZA. Con
+            // `border-b border-app-border` dentro il ramo, chiudendo la sezione
+            // il bordo lampeggiava scuro e poi sbiadiva — `transition-colors`
+            // anima anche `border-color`, la larghezza no. Il preflight di
+            // Tailwind v4 mette `border: 0 solid` senza colore, quindi il
+            // colore di partenza era `currentColor`, che qui è
+            // `--text-secondary` (#5a5a5a) contro un `--border` di #e8e8e8:
+            // la linea compariva quasi nera e ci metteva 150ms a schiarirsi.
+            // Tenendo il colore sempre acceso non c'è più niente da animare.
+            className={`${SECTION_CARD} group/files`}
+          >
+            <FolderTree size={14} className="flex-shrink-0" />
+            <span>{tr('project.sidebar.files')}</span>
+            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+            {expandedSections.files && (
+              <div className={`ml-auto flex items-center gap-0.5 ${filesHeaderReveal}`} onClick={e => e.stopPropagation()}>
+                <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFile')}><FilePlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.newFolder')}><FolderPlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title={tr('project.sidebar.refresh')}><RefreshCw size={12} /></button>
+              </div>
+            )}
+          </div>
+          {expandedSections.files && (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
+            </div>
+          )}
+        </div>
+
+        {/* Resize handle: Files ↔ first expanded bottom section */}
+        {(() => {
+          const firstBottom: 'git' | 'processes' | null = expandedSections.git ? 'git' : expandedSections.processes ? 'processes' : null;
+          const active = !!firstBottom;
+          return (
+            <div
+              data-testid="project-sidebar-split-files"
+              data-resize-active={active ? 'true' : 'false'}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
+              onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
+            >
+              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+            </div>
+          );
+        })()}
+
+        {/* Git Section — anchored at bottom, fixed pixel height */}
+        <div
+          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+          style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+        >
+          <Suspense fallback={
+            <div
+              onClick={() => toggleSection('git')}
+              className={SECTION_CARD}
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
+                <span>{tr('project.sidebar.gitChanges')}</span>
+                <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
+                {git && (
+                  <span className="text-app-text-muted truncate">{git.branch}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
+                {git && git.fileCount > 0 && (
+                  <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+                    {git.fileCount}
+                  </span>
+                )}
+                {git && git.behind > 0 && (
+                  <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+                    ↓{git.behind}
+                  </span>
+                )}
+                {git && git.ahead > 0 && (
+                  <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+                    ↑{git.ahead}
+                  </span>
+                )}
+                <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
+                  <span className="inline-flex items-center justify-center w-[10px] h-[10px] animate-spin">
+                    <RefreshCw size={10} />
+                  </span>
+                </span>
+              </div>
+            </div>
+          }>
+            <GitChanges
+              projectPath={projectPath}
+              compact
+              expanded={expandedSections.git}
+              onToggle={() => toggleSection('git')}
+            />
+          </Suspense>
+        </div>
+
+        {/* Resize handle: Git ↔ Processes */}
+        {(() => {
+          const active = expandedSections.git && expandedSections.processes;
+          return (
+            <div
+              data-testid="project-sidebar-split-git-processes"
+              data-resize-active={active ? 'true' : 'false'}
+              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
+              // SOTTO il divisore ci sono i Processi: sono loro a crescere
+              // quando lo si alza. Qui c'era `('git','processes')`.
+              onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
+            >
+              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+            </div>
+          );
+        })()}
+
+        {/* Processes Section — anchored at bottom, fixed pixel height */}
+        <div
+          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+          style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+        >
+          <button
+            onClick={() => toggleSection('processes')}
+            // Stessa ancora della variante mobile qui sopra: l'etichetta è
+            // tradotta (9d1991ea) e il bottone è un toggle, quindi il testid dice
+            // «quale controllo» e `aria-expanded` dice «è già aperto?».
+            data-testid="project-sidebar-processes"
+            aria-expanded={expandedSections.processes}
+            className={SECTION_CARD}
+          >
+            <CirclePlay size={14} className="flex-shrink-0" />
+            <span>{tr('project.sidebar.processes')}</span>
+            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+            {runningCount > 0 && (
+              <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                {runningCount}
+              </span>
+            )}
+          </button>
+          {expandedSections.processes && (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

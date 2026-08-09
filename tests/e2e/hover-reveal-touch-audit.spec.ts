@@ -31,7 +31,6 @@ import { resetPaneStore } from "./helpers/api-fixtures";
 import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
 import { longPress } from "./helpers/long-press";
 import { hermetic } from "./fixtures/hermetic";
-import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -46,12 +45,13 @@ const ALTRO_BRANCH = "tocco/da-cancellare";
  * resta chiusa.
  */
 async function apriGit(page: import("@playwright/test").Page) {
-  // Le tre sezioni sono una riga di chip sopra un pannello solo: il comando
-  // che apre Git non vive piu' DENTRO `git-changes` (che da chiusa non e'
-  // nemmeno montata), sta nel chip. Qui resta solo l'attesa del pannello.
-  await apriSezioneProgetto(page, "git");
   const gitChanges = page.locator('[data-testid="git-changes"]');
-  await expect(gitChanges).toBeVisible({ timeout: 10000 });
+  await expect(gitChanges).toBeVisible({ timeout: 15000 });
+  const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
+  await expect(header).toBeVisible({ timeout: 10000 });
+  if ((await header.getAttribute("aria-expanded")) !== "true") {
+    await header.getByText("Git", { exact: true }).click();
+  }
   return gitChanges;
 }
 
@@ -107,7 +107,6 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
     page,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
-    await apriSezioneProgetto(page, "git");
     await apriGit(page);
     await apriRami(page);
 
@@ -130,7 +129,6 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
     page,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
-    await apriSezioneProgetto(page, "git");
     await apriGit(page);
     await apriRami(page);
 

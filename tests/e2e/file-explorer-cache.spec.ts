@@ -206,14 +206,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     // È una card: fondo proprio, angoli, e rientrata dai lati come ogni altra.
     expect(aperta.raggio, "l'intestazione è arrotondata come una tab").not.toBe("0px");
     expect(aperta.fondo, "l'intestazione ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
-    // Il rientro laterale l'ha perso, e non e' una regressione: da quando le
-    // tre sezioni stanno in una RIGA (una alla volta, «dropdown singoli» —
-    // Attilio 09/08) l'incasso lo mette la riga che le contiene, una volta
-    // sola, invece di ognuna per se'. Ciò che conta e' che l'incasso ci sia:
-    // si misura sul contenitore.
-    const incassoRiga = await header.evaluate((el: HTMLElement) =>
-      parseFloat(getComputedStyle(el.parentElement!).paddingLeft));
-    expect(incassoRiga, "la riga delle sezioni è rientrata dai lati").toBeGreaterThan(0);
+    expect(parseFloat(aperta.rientro), "ed è rientrata dai lati").toBeGreaterThan(0);
 
     await header.click();
     await expect(header).toHaveAttribute("aria-expanded", "false");
@@ -223,12 +216,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,
     // questa riga se ne accorge.
     expect(chiusa.bordi, "nessun bordo compare chiudendo").toEqual(aperta.bordi);
-    // Il FONDO ora cambia, ed e' il punto: il chip attivo porta la superficie
-    // di una tab selezionata, perche' e' esattamente cio' che e' — la sezione
-    // che stai guardando. Cio' che non deve cambiare e' la GEOMETRIA: un
-    // cambio di stato che sposta i pixel e' la cosa che questo test sorveglia.
-    expect(chiusa.raggio, "il raggio non cambia fra i due stati").toBe(aperta.raggio);
-    expect(chiusa.fondo, "e da chiusa un fondo ce l'ha comunque").not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    expect(chiusa.fondo, "la superficie non cambia").toBe(aperta.fondo);
     // E nessun capello prende il colore del testo — il valore di partenza
     // sbagliato del preflight, che è il difetto vero dietro il vecchio test.
     for (const c of [...aperta.coloriBordo, ...chiusa.coloriBordo]) {
