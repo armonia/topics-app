@@ -390,6 +390,30 @@ export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-cente
 export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
 
 /**
+ * IL COMANDO DENTRO UNA RIGA DI CHROME — e il box lo detta la RIGA, non il dito.
+ *
+ * {@link ROW_ACTION_BOX} cresce a 36 sotto i 768px per il polpastrello. Va bene
+ * nell'header della colonna, che sotto i 768px è alto 56: (56−36)/2 = 10 di
+ * aria. NON va bene nella barra delle tab, che è `h-10` su OGNI schermo: là 36
+ * dentro 40 lascia DUE pixel, mentre una tab — 28 dentro 40 — ne ha sei.
+ * Misurato a 390×844: comando `sopra=2 sotto=2`, tab `sopra=6 sotto=6`, sulla
+ * stessa riga. «Il + e apri sidebar dovrebbero avere aria intorno uguale, anche
+ * rispetto alle tab» (Attilio, 09/08): non l'avevano, e non per un numero
+ * sbagliato — per un box che non poteva starci.
+ *
+ * Il bersaglio non si perde: `tap-expand` (index.css) proietta 44×44 INVISIBILI
+ * attorno al glifo su puntatore grossolano, senza toccare il layout. È
+ * esattamente il caso per cui quella classe esiste — un comando che dev'essere
+ * piccolo da vedere e grande da premere.
+ *
+ * Da qui discende tutto il resto della riga: l'incasso è `chromeRowInset(28)` =
+ * 6, cioè lo stesso ROW_INSET dei lati, e la riserva 28+6 = 34. Un numero solo
+ * per breakpoint, perché il box non cambia più col breakpoint.
+ */
+export const CHROME_ROW_ACTION_BOX = 'w-7 h-7 tap-expand';
+export const CHROME_ROW_ACTION_BOX_PX = 28;
+
+/**
  * IL RESPIRO ATTORNO A UN COMANDO NELLA RIGA DI CHROME — e perché non è 6.
  *
  * Attilio, 08/08: «la spaziatura del tasto di aggiunta … a destra verso la fine
@@ -445,18 +469,18 @@ export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
  * — la ricalcola `selectionStyles.test.ts`, che confronta questi letterali con
  * `chromeRowInset` e fallisce appena i due si separano.
  */
-export const CHROME_ROW_ACTION_INSET = 'right-[2px] md:right-[6px]';
+export const CHROME_ROW_ACTION_INSET = 'right-[6px]';
 /** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
  *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
  *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
  *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
  *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
-export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[2px] md:left-[6px]';
+export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
 /** Lo spazio che la strip delle tab deve tenersi libero a destra: l'ingombro
  *  del comando più il suo incasso (36+2 · 28+6). Una tab che ci passa sotto
  *  a riposo — cioè prima ancora di scorrere — è il difetto che questa riserva
  *  esiste per non fare. Letterali per la stessa ragione di qui sopra. */
-export const CHROME_ROW_ACTION_RESERVE = 'pr-[38px] md:pr-[34px]';
+export const CHROME_ROW_ACTION_RESERVE = 'pr-[34px]';
 /**
  * LO STESSO SPAZIO, SPECCHIATO — e prima non lo era.
  *
@@ -477,7 +501,7 @@ export const CHROME_ROW_ACTION_RESERVE = 'pr-[38px] md:pr-[34px]';
  * testo. E come l'altra, `selectionStyles.test.ts` ricalcola i due numeri dal
  * box e dall'incasso, così non possono più separarsi in silenzio.
  */
-export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[38px] md:pl-[34px]';
+export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[34px]';
 
 /**
  * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.
