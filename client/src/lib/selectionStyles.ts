@@ -41,6 +41,27 @@ export const SELECTED_SURFACE_SOFT =
  * risale a 1,115 e 1,122. Sulla pagina (`--bg`, dove vivono le tab) il rialzo
  * diventa un filo più netto: è un guadagno, non un effetto collaterale.
  */
+/**
+ * IL FONDO DI UNA TAB A RIPOSO SUL TELEFONO, e adesso è UNO.
+ *
+ * Ce n'erano due, e non erano due gusti: erano lo stesso valore prima e dopo una
+ * correzione, applicata a metà delle superfici. Il commento qui sotto lo dice
+ * già — a 0.05/0.06 il fondo di una tab stacca di 1,10:1 in scuro e 1,12:1 in
+ * chiaro, cioè è appoggiato sulla soglia di percettibilità, e a 0.08/0.10 sale
+ * a 1,18 e 1,25. Quella correzione è arrivata a `RESTING_SURFACE`, quindi alle
+ * tessere fissate e alle tab della barra; le RIGHE della colonna, che il fondo
+ * mobile se lo scrivevano a mano dentro `sidebarRowCard`, sono rimaste a
+ * 0.05/0.07 — cioè al valore già misurato come troppo debole su questo schermo.
+ *
+ * Misurato a 390×844 prima di toccare niente: tessera `oklab(0 0 0 / 0.08)`,
+ * riga `oklab(0 0 0 / 0.05)`, una accanto all'altra nella stessa colonna. È «i
+ * colori non sono coerenti fra le tab» (Attilio, 09/08), ed era vero.
+ *
+ * Sta qui come costante e non come stringa ricopiata perché il difetto era
+ * esattamente la copia: due posti che dicono la stessa cosa divergono al primo
+ * che viene corretto da solo.
+ */
+export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
 export const RESTING_SURFACE =
   'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
   // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
@@ -61,7 +82,7 @@ export const RESTING_SURFACE =
   // A 0.08/0.10 sale a 1,18:1 e 1,25:1, e i bordi si leggono senza aggiungere
   // un tratto. Solo sotto i 768px: sul desktop il fondo è più chiaro e il
   // rialzo attuale si vede già.
-  'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10] ' +
+  RESTING_FILL_MOBILE + ' ' +
   'max-md:hover:bg-black/[0.12] max-md:dark:hover:bg-white/[0.14]';
 
 /**
@@ -253,7 +274,21 @@ export const ROW_PX = 'px-2';
  * dentro un fill di attenzione — lo aggiunge DOPO, sovrascrivendo: qui c'è la
  * base, non l'ultima parola.
  */
-export const TAB_LABEL = 'text-[13px] font-medium text-app-text';
+/*
+ * E LA MISURA È DUE, PERCHÉ GLI SCHERMI SONO DUE — ma le superfici no.
+ *
+ * Sopra c'è scritto «13px, che è la misura più GRANDE delle tre». Era vero fra
+ * quelle tre, ma ne mancava una: le RIGHE della colonna, che non passavano di
+ * qui e stavano già a `text-[14px] md:text-[13px]` (TopicItem, TopicTree). Cioè
+ * sul telefono una riga era 14 e la tessera fissata accanto a lei 13 — misurato
+ * a 390×844, nella stessa colonna, una sopra l'altra.
+ *
+ * Si allinea verso l'ALTO, non verso il basso: la lamentela da cui viene questo
+ * blocco era che i corpi sembrano piccoli, quindi a muoversi è la tessera che
+ * sale a 14, non la riga che scende a 13. Sul desktop restano tutte 13, dove
+ * quel numero era già stato scelto e misurato.
+ */
+export const TAB_LABEL = 'text-[14px] md:text-[13px] font-medium text-app-text';
 
 /**
  * The single horizontal inset (px) of a list of tabs/rows from its panel edge —
@@ -491,7 +526,7 @@ export function sidebarRowCard(
   // hover — che arrivano dopo nella stringa — lo coprono senza gare di
   // specificità.
   const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative'
-    + (nested ? '' : ' max-md:bg-black/[0.05] dark:max-md:bg-white/[0.07]');
+    + (nested ? '' : ` ${RESTING_FILL_MOBILE}`);
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
