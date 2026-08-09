@@ -181,7 +181,7 @@ function leggiIntestazioni(raw: unknown): Intestazioni | null {
  * la forma PRIMA e l'origine DOPO: la seconda da sola non basta, perché
  * `new URL` ne normalizza troppa di quella roba senza dire niente.
  */
-export function risolviUrlLocale(porta: number, p: string): URL | null {
+export function risolviUrlLocale(porta: number, p: string, tls = false): URL | null {
   if (!Number.isInteger(porta) || porta < 1 || porta > 65535) return null;
   if (typeof p !== "string" || p.length === 0 || p.length > 8 * 1024) return null;
   if (!p.startsWith("/") || p.startsWith("//")) return null;
@@ -189,7 +189,20 @@ export function risolviUrlLocale(porta: number, p: string): URL | null {
   // appartiene a un percorso, e ognuno è un modo per farlo leggere diverso a
   // due parser diversi.
   if (/[\s\\]/.test(p) || haControlli(p)) return null;
-  const base = `http://127.0.0.1:${porta}`;
+  // Lo SCHEMA segue quello dell'ascoltatore, e non è cablato.
+  //
+  // La porta del tunnel eredita `opzioniServer`, TLS compreso: su un'installazione
+  // con i certificati `http://127.0.0.1:<porta>` non risponde affatto, e il ponte
+  // restituiva `upstream-unreachable` a ogni richiesta. Misurato in produzione:
+  // `http` → connessione rifiutata, `https` → 401 (cioè il server, che chiede
+  // un'identità perché chi entra da lì non è locale).
+  //
+  // E non si risolve parlando in chiaro: `secure` del biscotto di sessione
+  // discende da `url.protocol` (server/routes/auth.ts), quindi un tratto locale
+  // in chiaro conierebbe un biscotto SENZA `Secure` per una sessione che viaggia
+  // su un'origine pubblica in HTTPS. Il tratto locale non deve poter decidere un
+  // attributo di sicurezza del tratto pubblico.
+  const base = `${tls ? "https" : "http"}://127.0.0.1:${porta}`;
   try {
     const u = new URL(p, base);
     return u.origin === base ? u : null;
