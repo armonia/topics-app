@@ -191,6 +191,9 @@ export function ProjectWindowPane({
    * valore stabile da PASSARE, non da leggere.
    */
   const railSlot = useMemo(() => document.createElement('div'), []);
+  /** Dove finiscono i tre comandi quando la colonna è chiusa: SOTTO la barra
+   *  delle tab, non in fila con esse. Vedi `GroupLayoutProps.belowSlot`. */
+  const sottoSlot = useMemo(() => document.createElement('div'), []);
 
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
@@ -508,6 +511,7 @@ export function ProjectWindowPane({
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
           inlineSlot={railSlot}
+          belowSlot={sottoSlot}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
@@ -560,6 +564,7 @@ export function ProjectWindowPane({
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
             leadingSlot={railSlot}
+            belowSlot={sottoSlot}
             // La finestra di progetto vive SOTTO la tab del progetto nella barra
             // dell'app: la sua prima riga di chrome non ripete l'aria che quella
             // sopra ha gia messo. Vedi CHROME_BAR_SUB.

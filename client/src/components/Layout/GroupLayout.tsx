@@ -130,6 +130,18 @@ interface GroupLayoutProps {
    */
   leadingSlot?: HTMLElement;
   /**
+   * Il fratello di {@link GroupLayoutProps.leadingSlot}, un piano più sotto: un
+   * nodo agganciato SUBITO DOPO la riga di chrome del gruppo di testa, cioè
+   * dentro la cella e non dentro la barra.
+   *
+   * Serve alla barra di progetto chiusa: la card del titolo sta in fila con le
+   * tab (`leadingSlot`), i suoi tre comandi vanno «sotto il trigger» (Attilio,
+   * 09/08). Dentro la barra non ci starebbero — è alta 34 e ne conterrebbe due
+   * righe — quindi escono da lei e si appoggiano sotto, allineati al bordo
+   * sinistro della card.
+   */
+  belowSlot?: HTMLElement;
+  /**
    * Questa superficie sta DENTRO un'altra riga di chrome — è il caso della
    * finestra di progetto, che vive sotto la tab del progetto nella barra
    * dell'app. La sua prima riga diventa {@link CHROME_BAR_SUB}: più bassa, e
@@ -163,7 +175,7 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, subordinate = false,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -857,6 +869,7 @@ export function GroupLayout({
             />
           </div>
         </div>
+        {belowSlot && <LeadingSlot node={belowSlot} />}
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
           <div className="text-sm">No chats open</div>
           {onNewChatInGroup && (
@@ -991,6 +1004,7 @@ export function GroupLayout({
           />
           </div>
         </div>
+        {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
         <div
           className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
@@ -1167,6 +1181,7 @@ export function GroupLayout({
               />
             </div>
           </div>
+          {belowSlot && <LeadingSlot node={belowSlot} />}
         </div>
       );
     }
@@ -1213,6 +1228,7 @@ export function GroupLayout({
             />
           </div>
         </div>
+        {belowSlot && <LeadingSlot node={belowSlot} />}
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative">
           {flatPanes
             .filter((p) => isResidentPane(p) || p.id === activePaneId)

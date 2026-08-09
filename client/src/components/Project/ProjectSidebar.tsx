@@ -57,6 +57,16 @@ interface ProjectSidebarProps {
    * colonna deve dire dove va la sua forma chiusa.
    */
   inlineSlot: HTMLElement;
+  /**
+   * Dove vanno i TRE COMANDI da colonna chiusa: una riga sotto la card del
+   * titolo, non in fila con lei. «Devono proprio trovarsi a tasti come prima,
+   * la riga sotto il titolo quando la sidebar è chiusa» (Attilio, 09/08).
+   *
+   * Sono due nodi e non uno perché stanno su due piani diversi: la card vive
+   * DENTRO la riga delle tab (è una tab fra le tab), i comandi sotto di essa —
+   * e in una riga alta 34 due file non ci stanno.
+   */
+  belowSlot: HTMLElement;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -233,6 +243,7 @@ export function ProjectSidebar({
   onWSMessage,
   onOpenProcessLog,
   inlineSlot,
+  belowSlot,
 }: ProjectSidebarProps) {
   const tr = useT();
   // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
@@ -565,7 +576,7 @@ export function ProjectSidebar({
     // telefono. Senza nome sono quattro box da 36 con 6 di aria — ~160px — e
     // «sulla versione mobile anche doveva essere aggiornata» (Attilio, 09/08)
     // diventa una cosa che ci sta.
-    return createPortal(
+    const striscia = createPortal(
         <div
           data-testid="project-rail-inline"
           // In fila con le tab e con la loro grammatica: `gap-0.5` come fra due
@@ -592,10 +603,33 @@ export function ProjectSidebar({
             onToggle={onToggleCollapse}
             className="max-w-[180px] flex-shrink"
           />
-          {comandi()}
         </div>,
         inlineSlot,
     );
+
+    // I TRE COMANDI, UNA RIGA SOTTO. La card del titolo sta in fila con le tab;
+    // i comandi escono dalla barra e si appoggiano sotto di lei, allineati al
+    // suo bordo sinistro (`pl-1.5` = lo stesso ROW_INSET della striscia).
+    // «Ora sono sulla destra, ma devono essere sotto il trigger sidebar
+    // progetto» (Attilio, 09/08): erano a destra perché stavano DENTRO la
+    // striscia, in fila dopo la card.
+    const riga = createPortal(
+      <div
+        data-testid="project-rail-row"
+        // `pb-[6px]` e non il mezzo passo: le pastiglie stanno a `-bottom-1`, cioè
+        // quattro pixel SOTTO la scatola del bottone (ci sono finite per non
+        // essere tagliate dalla barra in cima, 09/08). Con tre soli pixel di
+        // coda sbordavano dalla riga di uno; sei le contengono e sono anche il
+        // passo pieno della colonna.
+        className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 pb-[6px] flex-shrink-0 app-no-drag`}
+        {...NO_DRAG_REGION}
+      >
+        {comandi()}
+      </div>,
+      belowSlot,
+    );
+
+    return <>{striscia}{riga}</>;
   }
 
   // On mobile: render as overlay on top of content.
