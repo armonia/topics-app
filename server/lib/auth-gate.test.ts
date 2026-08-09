@@ -314,3 +314,50 @@ describe("auth-gate · resolveAllowedOrigins", () => {
     }
   });
 });
+
+describe("origine · l'asse che da curl non si vede", () => {
+  // Il difetto: chi entra dal relay ha `Origin: https://app.topics.armonia.io`,
+  // ma la richiesta viene RIGIOCATA su loopback, quindi l'host che la macchina
+  // vede è `127.0.0.1:3334`. I due non combaciano e ogni scrittura veniva
+  // rifiutata con «cross-site origin blocked» — che il client traduce in «non
+  // riesco a contattare Topics», cioè la diagnosi sbagliata.
+  //
+  // Perché era rimasto scoperto: curl l'`Origin` non lo manda, e nemmeno
+  // l'APIRequestContext di Playwright. Ogni prova fatta finora saltava proprio
+  // il ramo che conta.
+  const dal = (origin: string, ammesse: string[] = []) => evaluateAuth({
+    method: "POST", pathname: "/api/auth/pair/request",
+    origin, host: "127.0.0.1:3334", allowedOrigins: ammesse,
+  });
+
+  it("senza allowlist, un'origine che non combacia con l'host è bloccata", () => {
+    expect(dal("https://app.topics.armonia.io").allow).toBe(false);
+  });
+
+  it("in allowlist passa", () => {
+    expect(dal("https://app.topics.armonia.io", ["https://app.topics.armonia.io"]).allow).toBe(true);
+  });
+
+  it("e passa SOLO quella: nessun sosia, nessun downgrade", () => {
+    // Il rischio di un'allowlist è aprire più di quanto si crede. Si confronta
+    // l'origine INTERA, quindi lo schema conta e un suffisso non basta.
+    const ammesse = ["https://app.topics.armonia.io"];
+    for (const finta of [
+      "https://app.topics.armonia.io.cattivo.example",
+      "https://cattivo.example",
+      "http://app.topics.armonia.io",
+      "https://app.topics.armonia.io:8443",
+    ]) {
+      expect(`${finta}→${dal(finta, ammesse).allow}`).toBe(`${finta}→false`);
+    }
+  });
+
+  it("una LETTURA non è bloccata: il CSRF riguarda ciò che cambia", () => {
+    // Controllo positivo dell'asse: se anche le GET fossero bloccate, i tre
+    // casi sopra passerebbero per il motivo sbagliato.
+    expect(evaluateAuth({
+      method: "GET", pathname: "/api/topics",
+      origin: "https://cattivo.example", host: "127.0.0.1:3334", allowedOrigins: [],
+    }).allow).toBe(true);
+  });
+});
