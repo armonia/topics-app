@@ -1324,30 +1324,17 @@ export function ChatInput({
               </div>
             )}
 
-            {/* Il campo, e con lui finisce la card. Nasce alto una riga e
-                cresce con quello che scrivi (fino a 140px, poi scorre): la
-                «riga sola» è la SUA, non quella della card. */}
-            <textarea
-              ref={textareaRef}
-              data-testid="chat-message-input"
-              value={message}
-              onChange={handleMessageChange}
-              onKeyDown={handleKeyDown}
-              onPaste={onPaste}
-              aria-label={`Message input for ${topic.name}`}
-              aria-describedby="chat-input-hint"
-              placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
-              className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-2.5'} pb-1 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
-              style={{ minHeight: '28px', maxHeight: '140px' }}
-              rows={1}
-              disabled={uploading}
-            />
-            <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
-
-            {/* DENTRO la card, con il testo: i tre gesti che agiscono sul
-                MESSAGGIO — aggiungere («+»), dettare, spedire. Sono la stessa
-                cosa del testo, quindi stanno nello stesso recinto. */}
-            <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {/* LA CARD È UNA RIGA: «+», il testo, il microfono, invio. Erano
+                due — il testo sopra e i tre gesti sotto — e a riposo la card
+                costava il doppio dell'altezza per dire la stessa cosa.
+                Qui accanto al testo ci stanno solo tre quadratini da 32px, non
+                il gruppo dei controlli di sessione (che è largo ~330px ed è per
+                questo che è finito FUORI, sotto la card): il campo si tiene
+                tutto il resto della larghezza.
+                `items-end`: quando il testo va a capo la colonna cresce verso
+                l'alto e i bottoni restano incollati al fondo, allineati alla
+                riga che stai scrivendo. */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5">
               <AddMenu
                 onAttach={() => fileInputRef.current?.click()}
                 onExport={onExportConversation}
@@ -1369,16 +1356,30 @@ export function ChatInput({
                 }}
               />
 
-              {/* Lo spazio fra il «+» e la coppia microfono+invio. Vuoto e
-                  basta: i controlli della sessione non stanno più qui dentro. */}
-              <div className="flex-1 min-w-0" />
+              {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è
+                  0, quindi in una pane strettissima lo schiacciamento cadrebbe
+                  tutto qui (campo largo zero) e i tre bottoni resterebbero
+                  interi. Con un minimo, la riga sfonda prima di far sparire il
+                  posto dove si scrive. */}
+              <textarea
+                ref={textareaRef}
+                data-testid="chat-message-input"
+                value={message}
+                onChange={handleMessageChange}
+                onKeyDown={handleKeyDown}
+                onPaste={onPaste}
+                aria-label={`Message input for ${topic.name}`}
+                aria-describedby="chat-input-hint"
+                placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+                className={`flex-1 min-w-[4rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                style={{ minHeight: '32px', maxHeight: '140px' }}
+                rows={1}
+                disabled={uploading}
+              />
+              <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
 
-              {/* Invia, e basta. flex-shrink-0: Invia/Ferma non può MAI essere
-                  quello che si stringe in una pane stretta — a cedere è il
-                  gruppo dei controlli qui accanto, che scorre. */}
               {/* In coda alla riga: il microfono e l'invio, e nient'altro.
-                  `flex-shrink-0`: questi due non si stringono MAI — a cedere è
-                  il gruppo dei controlli qui accanto, che scorre. */}
+                  `flex-shrink-0`: questi due non si stringono MAI. */}
               <div className="flex items-center gap-0.5 flex-shrink-0">
                 {/* Il tasto per DETTARE, l'unico ammesso prima dell'invio: è la
                     seconda strada per riempire questo campo, quindi sta dove
