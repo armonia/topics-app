@@ -1097,9 +1097,25 @@ function App() {
         // un gradino verso la barra di stato nera di iOS, e la fascia in cima
         // cambiava tinta aprendo e chiudendo la sidebar. Il token porta con sé
         // anche la trasparenza sulla shell mac: vedi --chrome-bg in index.css.
+        // UN'OMBRA SEPARA DUE PIANI, UN FILO SEPARA DUE ZONE DELLO STESSO PIANO.
+        //
+        // Su desktop la sidebar è `fixed` sopra il contenuto e proiettava uno
+        // `shadow-2xl`: venticinque pixel di sfumatura stesi SUL contenuto.
+        // Finché le due superfici avevano tinte diverse quella sfumatura si
+        // leggeva come profondità. Da quando il velo è uno solo hanno lo stesso
+        // pixel — misurato: sidebar #191b1e, contenuto #191b1e — e l'ombra resta
+        // l'unica cosa in mezzo: una banda scura senza bordo netto, che si legge
+        // come una spaziatura doppia e come una terza tinta (#17191c a x=211,
+        // che risale a #191b1e solo a x=236). «Non hanno bordo, c'è una doppia
+        // spaziatura e i colori non sono uguali» (Attilio, 09/08): sono tre
+        // sintomi di una cosa sola.
+        //
+        // Con le pane FLOTTANTI l'ombra è giusta e resta: lì la sidebar sta
+        // davvero su un piano diverso, staccata dal suo gap. Senza, i due piani
+        // sono uno, e ciò che serve è un confine — un pixel, non venticinque.
         className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
+            : `fixed inset-y-0 left-0 z-40 ${appSettings.floatingSplits ? 'shadow-2xl' : 'border-r border-app-border'}`
         }`}
         style={{
           // Non-mobile: the sidebar is position:fixed with a CONSTANT width and collapses
