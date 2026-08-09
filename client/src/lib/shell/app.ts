@@ -4,6 +4,7 @@
 import { shellKind } from './index';
 import { tauriInvoke } from './tauri';
 import { openTaskInApp } from '../openTaskLink';
+import { markReloadFlash } from '../reloadFlash';
 
 /** Open a URL in the user's default browser (never inside the app shell). */
 export async function openExternal(url: string): Promise<void> {
@@ -199,6 +200,10 @@ export async function reloadAllWindows(): Promise<void> {
       // Guscio vecchio senza il comando: almeno questa finestra riparte.
     }
   }
+  // Sul web (e sul guscio vecchio) il segno lo mettiamo noi: nel ramo Tauri
+  // sopra ce l'ha già messo `app_reload_all`, che ricarica finestre che questo
+  // documento non può toccare. Vedi `lib/reloadFlash.ts`.
+  markReloadFlash();
   window.location.reload();
 }
 
