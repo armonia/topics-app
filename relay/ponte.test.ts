@@ -387,6 +387,76 @@ describe("ponte · un guasto si legge, e non resta appeso", () => {
     });
   });
 
+  it("chi ha chiesto se ne va PRIMA della risposta: di là si smette di servirla", async () => {
+    // Una pagina che cambia mentre un'immagine sta ancora arrivando è il caso
+    // normale, non l'eccezione. Senza dirlo, la macchina continua a leggere un
+    // corpo che non ha più dove andare, e la corsia resta occupata fino alla
+    // scadenza: mezzo minuto di lavoro fatto per nessuno, moltiplicato per ogni
+    // richiesta che una pagina lascia a metà.
+    //
+    // La scadenza è LUNGA di proposito: così ciò che sveglia la richiesta può
+    // essere solo la rinuncia, e non la clessidra che si è mangiata il caso.
+    //
+    // COSA NON PROVA: che il segnale ARRIVI fin qui in produzione. Qui l'
+    // `AbortController` lo costruiamo noi e lo consegniamo a mano, saltando il
+    // salto vero — `worker.ts` che gira la richiesta al Durable Object con
+    // `env.SESSIONE.get(id).fetch(req)`, dove il segnale si perde se non è
+    // dichiarato `request_signal_passthrough`. Quel tratto lo presidia
+    // `relay-contract.test.ts` («il segnale deve ARRIVARE al ponte»), ed è là
+    // che va guardato se un giorno in produzione questa rinuncia non succede.
+    const inviati: string[] = [];
+    const p = creaPonte({ invia: (x) => inviati.push(x), scadenzaMs: 60_000 });
+
+    const andato = new AbortController();
+    const attesa = p.servi(
+      new Request("https://x/api/lento", { signal: andato.signal }),
+      "/api/lento", "/i/x",
+    );
+    await new Promise((res) => setTimeout(res, 0));
+
+    // Controllo POSITIVO: la richiesta è partita davvero, e sta aspettando.
+    const apertura = leggiFramePayload(inviati[0]!);
+    expect(apertura).not.toBeNull();
+    expect(p.inAttesa()).toBe(1);
+
+    andato.abort();
+    const r = await attesa;
+    expect(r.status).toBe(499);
+    expect(p.inAttesa()).toBe(0);
+
+    // …e la rinuncia è stata DETTA, non solo pensata.
+    expect(leggiFramePayload(inviati[inviati.length - 1]!)).toEqual({
+      f: "reset", s: apertura!.s, motivo: "aborted",
+    });
+  });
+
+  it("una richiesta già abbandonata quando arriva non parte nemmeno appesa", async () => {
+    // Il runtime può consegnare una richiesta il cui segnale è GIÀ interrotto:
+    // chi ha bussato se n'è andato prima che toccasse a noi. Restare in attesa
+    // per mezzo minuto sarebbe la stessa perdita, solo più difficile da vedere.
+    //
+    // Come sopra: il segnale è costruito qui, quindi questo prova la reazione,
+    // non il transito Worker→DO. Quello lo tiene `relay-contract.test.ts`.
+    const inviati: string[] = [];
+    const p = creaPonte({ invia: (x) => inviati.push(x), scadenzaMs: 60_000 });
+    const andato = new AbortController();
+    andato.abort();
+
+    const r = await p.servi(
+      new Request("https://x/api/y", { signal: andato.signal }),
+      "/api/y", "/i/x",
+    );
+    expect(r.status).toBe(499);
+    expect(p.inAttesa()).toBe(0);
+    // L'ASSERZIONE che dà il titolo al test, e che mancava. Le due sopra le
+    // soddisfa anche la strada in cui la richiesta PARTE e viene poi annullata:
+    // misurano la pulizia, non la prevenzione. Senza questa riga togliere la
+    // guardia in `ponte.ts` lasciava la suite verde mentre quattro frame
+    // scendevano nel tubo per una richiesta già morta — due messaggi in più su
+    // un Durable Object pagato a messaggio, più un numero di stream bruciato.
+    expect(inviati, "una richiesta già abbandonata non deve mandare NIENTE").toEqual([]);
+  });
+
   it("la macchina RIFIUTA la corsia della richiesta: 502 subito, non mezzo minuto di clessidra", async () => {
     // Non è un caso di laboratorio: la macchina resetta la corsia della
     // RICHIESTA — senza aprirne nessuna di risposta, quindi non c'è nessun

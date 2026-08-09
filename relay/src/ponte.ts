@@ -241,10 +241,44 @@ export function upgradeRifiutato(stato: number): Response {
   const frasi: Record<number, string> = {
     400: "That path is not served over the relay.",
     429: "Too many sockets are already open over the relay for this installation.",
+    499: "The client went away before the socket was opened.",
     503: "This installation has no remote access configured.",
     504: "The installation did not answer in time.",
   };
   return dillo(stato, frasi[stato] ?? "The installation could not open this socket.");
+}
+
+/**
+ * Chi ha chiesto se n'è andato PRIMA della risposta.
+ *
+ * ── PERCHÉ NON BASTA LA SCADENZA ────────────────────────────────────────────
+ * Una scheda che si chiude, o una pagina che cambia mentre un'immagine sta
+ * ancora arrivando, non è l'eccezione: è quello che succede tutto il giorno. Il
+ * runtime lo dice interrompendo il segnale della richiesta, e senza guardarlo
+ * l'unica cosa che sveglia il ponte è la scadenza — mezzo minuto in cui la
+ * macchina continua a leggere un corpo che non ha più dove andare, e in cui una
+ * corsia del tubo resta occupata da nessuno. Il tubo le corsie le CONTA, quindi
+ * non è solo lavoro sprecato: è il tetto che si consuma.
+ *
+ * ── UN ASCOLTATORE QUI NON È STATO CHE L'IBERNAZIONE PORTA VIA ──────────────
+ * Vive quanto la `fetch()` che lo ha creato, e un oggetto con una richiesta in
+ * volo non viene sfrattato — è la stessa ragione per cui il ponte può stare in
+ * un campo. Si stacca comunque appena non serve: un ascoltatore lasciato su un
+ * segnale è la richiesta di prima che non si riesce più a liberare.
+ */
+function seNeVa(req: Request): { andato: Promise<"andato">; stacca: () => void } {
+  const segnale: AbortSignal | undefined = req.signal;
+  let stacca = () => { /* niente da staccare */ };
+  const andato = new Promise<"andato">((res) => {
+    // Un contorno senza segnale non se ne va mai: la promessa resta in silenzio
+    // invece di dichiarare una rinuncia che nessuno ha chiesto.
+    if (!segnale) return;
+    if (segnale.aborted) { res("andato"); return; }
+    const su = () => res("andato");
+    segnale.addEventListener("abort", su, { once: true });
+    stacca = () => { try { segnale.removeEventListener("abort", su); } catch { /* già sparito */ } };
+  });
+  return { andato, stacca: () => stacca() };
 }
 
 /**
@@ -499,6 +533,12 @@ export function creaPonte(opts: PonteOpts) {
     async servi(req: Request, percorso: string, prefisso: string): Promise<Response> {
       if (!METODI.has(req.method)) return dillo(405, "This method is not carried over the relay.");
 
+      // Già andato quando la richiesta arriva fin qui: non si compone niente.
+      // Mandare una domanda e la sua rinuncia nello stesso respiro costa due
+      // buste su un oggetto che si paga a messaggio, e brucia un numero di
+      // stream che l'altro capo non riaccetterà mai più.
+      if (req.signal?.aborted) return dillo(499, "The client went away before the request was sent.");
+
       // Il corpo si legge intero prima di partire, e non è una scelta di
       // comodità: la macchina serve una richiesta quando il suo stream è
       // COMPLETO, quindi mandarlo a pezzi mentre arriva non farebbe cominciare
@@ -531,20 +571,34 @@ export function creaPonte(opts: PonteOpts) {
       const attesa = new Promise<Esito | null | "scaduta">((res) => {
         scaduta = setTimeout(() => res("scaduta"), scadenzaMs);
       });
-      const e = await Promise.race([risposta, attesa]);
+      const via = seNeVa(req);
+      const e = await Promise.race([risposta, attesa, via.andato]);
       if (scaduta !== undefined) clearTimeout(scaduta);
+      via.stacca();
 
-      if (e === "scaduta") {
+      // Le due rinunce fanno la STESSA cosa di là, e cambia solo chi ha smesso
+      // di aspettare per primo: qui la scadenza, lì chi aveva chiesto. Ciò che
+      // la macchina deve sapere è identico — questa corsia non serve più.
+      if (e === "scaduta" || e === "andato") {
         // Si rinuncia anche di là: la macchina deve smettere di leggere un
         // corpo che non ha più dove andare.
         attese.delete(s);
         manda({ f: "reset", s, motivo: "aborted" });
-        return dillo(504, "The installation did not answer in time.");
+        return e === "andato"
+          ? dillo(499, "The client went away before the installation answered.")
+          : dillo(504, "The installation did not answer in time.");
       }
       if (!e) return dillo(502, "The installation could not serve this request.");
 
       const senzaCorpo = SENZA_CORPO.has(e.stato) || req.method === "HEAD";
-      return new Response(senzaCorpo ? null : e.corpo, {
+      // `BodyInit` esclude le viste su un `SharedArrayBuffer` (da TS 5.7 il
+      // parametro di `Uint8Array` lo dice nel tipo), e i byte che escono dal
+      // riassemblatore sono dichiarati sul buffer generico. Qui non ce ne sono:
+      // nascono da `daBase64url` e da `TextEncoder`, cioè sempre su un
+      // `ArrayBuffer` normale. Si dice, invece di ricopiarli — un corpo grande
+      // ricopiato per una differenza che esiste solo nei tipi è memoria bruciata.
+      const byte = e.corpo as Uint8Array<ArrayBuffer>;
+      return new Response(senzaCorpo ? null : byte, {
         status: e.stato,
         headers: intestazioniDi(e.intestazioni, prefisso),
       });
@@ -572,6 +626,11 @@ export function creaPonte(opts: PonteOpts) {
       // questa installazione non è vero: sono i posti a essere finiti.
       if (fili.size >= maxSocket) return { ok: false, stato: 429 };
 
+      // Chi bussava se n'è già andato: non si apre niente. Un socket chiesto e
+      // rinunciato nello stesso respiro è, di là, una stretta di mano vera che
+      // parte e muore — cioè un processo acceso per nessuno.
+      if (req.signal?.aborted) return { ok: false, stato: 499 };
+
       // Le intestazioni si girano com'erano: chi decide cosa questo socket può
       // vedere è la macchina, con le stesse regole della rete locale, e le
       // toglie lei quelle che non le spettano (`intestazioniUpgrade`).
@@ -592,15 +651,19 @@ export function creaPonte(opts: PonteOpts) {
       const attesa = new Promise<"scaduta">((res) => {
         scaduta = setTimeout(() => res("scaduta"), scadenzaMs);
       });
-      const e = await Promise.race([aperto, attesa]);
+      const via = seNeVa(req);
+      const e = await Promise.race([aperto, attesa, via.andato]);
       if (scaduta !== undefined) clearTimeout(scaduta);
-      if (e !== "scaduta") return e;
+      via.stacca();
+      if (e !== "scaduta" && e !== "andato") return e;
 
       // Si rinuncia anche di là: la macchina deve smettere di tenere aperto un
-      // socket vero che non ha più nessuno davanti.
+      // socket vero che non ha più nessuno davanti. Vale identico per la
+      // scadenza e per chi se n'è andato — di là non c'è nessuna differenza da
+      // raccontare, e qui cambia solo lo stato che legge chi ha bussato.
       f.apertura = null;
       spegni(f);
-      return { ok: false, stato: 504 };
+      return { ok: false, stato: e === "andato" ? 499 : 504 };
     },
 
     /**
