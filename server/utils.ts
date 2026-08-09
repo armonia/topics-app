@@ -782,9 +782,17 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  // Il modulo push-triggers è puro; qui gli passiamo l'unico aggancio al DB che
-  // gli serve — il nome del topic per il titolo della push di fine risposta.
-  configurePushTriggers({ getTopicName: (topicId) => getTopicById(topicId)?.name ?? null });
+  // Il modulo push-triggers è puro; qui gli passiamo i due agganci al DB che gli
+  // servono — il nome del topic per il titolo della push di fine risposta, e se
+  // quel topic è da zittire (archiviato o mutato). Un topic che non esiste più
+  // conta come zittito: non c'è niente da nominare e nessuno da svegliare.
+  configurePushTriggers({
+    getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
+    isTopicSilenced: (topicId) => {
+      const t = getTopicById(topicId);
+      return !t || !!t.archived || !!t.muted;
+    },
+  });
 
   /**
    * Load a single topic by sessionKey. Same constant-time read as
