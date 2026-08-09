@@ -812,6 +812,33 @@ export const ROW_ACTIONS_INSET_PX = 8;
 export const ARCHIVED_ROW = 'opacity-60';
 
 /**
+ * LA RIGA DI UN ALBERO DENSO — la forma della card senza il suo ritmo.
+ *
+ * «Rivediamo tutte le cose residue come hover a righe invece che a card come
+ * design system, es. sotto gli accordion Processi, Git, File» (Attilio, 10/08).
+ * Erano le ULTIME tre superfici fuori dalla grammatica: righe a tutta larghezza,
+ * incasso ZERO, hover dipinto da bordo a bordo. Sotto un'intestazione che è una
+ * card rientrata, un hover full-bleed si legge come una fascia — cioè
+ * esattamente ciò che questo file esiste per togliere.
+ *
+ * Prende della card DUE cose su tre:
+ *  · l'INCASSO (`mx-1.5` = {@link ROW_INSET}) e il RAGGIO, che sono ciò che fa
+ *    leggere il rialzo come una superficie invece che come una banda;
+ *  · l'hover in ALPHA ({@link SIDEBAR_HOVER}) invece di `hover:bg-app-hover`.
+ *    Quest'ultimo è un opaco tarato su `--bg-surface`, e la colonna di progetto
+ *    è `--chrome-bg`: un gradino sotto. In tema chiaro l'opaco SCHIARISCE dove
+ *    la selezione SCURISCE — due stati della stessa riga in direzioni opposte.
+ *    È la stessa correzione già scritta per le righe della colonna principale.
+ *
+ * E NON prende il passo verticale (`my-[3px]`), che è la terza. Un albero di
+ * file ha centinaia di righe: sei pixel fra l'una e l'altra lo renderebbero
+ * lungo il doppio, e la densità lì è una funzione, non una svista. La card è la
+ * FORMA, non l'interlinea — e il passo di una lista di card e quello di un
+ * albero rispondono a due domande diverse.
+ */
+export const TREE_ROW_CARD = `mx-1.5 rounded-md transition-colors ${SIDEBAR_HOVER}`;
+
+/**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
  * project folders) so the sidebar reads as a column of tab-like cards — the
  * same visual language as the tab bar — instead of a flat list separated by

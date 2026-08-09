@@ -10,7 +10,7 @@
  * trigger «+»), non solo dalla tessera: qui sono al loro posto, e nessuno deve
  * importare un componente per sapere quanto è alta una riga.
  */
-import { ROW_ACTIONS_INSET_PX, ROW_H } from '../../lib/selectionStyles';
+import { ROW_H } from '../../lib/selectionStyles';
 
 /**
  * L'altezza di una tessera — che è quella di una RIGA, perché una tessera è una
@@ -83,7 +83,7 @@ export const PINNED_TILE_ACTION_SLOT = 'w-9 md:w-7';
  *    2 × rientro»). I tre spazi coincidevano, ma il conto girava al contrario:
  *    era il rientro del bottone a decidere l'ALTEZZA della tessera, e per questo
  *    la tessera stava a 36 contro i 34 di una riga.
- *  · **8** ({@link ROW_ACTIONS_INSET_PX}, il rientro dei comandi in fila).
+ *  · **8** (`ROW_ACTIONS_INSET_PX`, il rientro dei comandi in fila).
  *    Coerente con le righe, e sbagliato qui: «sui pinned il + ha più spazio a
  *    destra che sopra e sotto» (Attilio, 10/08). Vero — 8 contro 3 — e si vede
  *    perché su una tessera il bottone flotta su una superficie piccola, dove

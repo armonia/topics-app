@@ -14,7 +14,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, SIDEBAR_ACTIVE, SIDEBAR_INDENT_STEP, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 
@@ -221,16 +221,24 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
   return (
     <>
       <div
-        className={`group/node flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
+        // `TREE_ROW_CARD`: incasso + raggio + hover in ALPHA. Era una riga a
+        // tutta larghezza con `hover:bg-app-hover` — un opaco tarato su
+        // `--bg-surface` mentre questa colonna è `--chrome-bg` — cioè una fascia
+        // da bordo a bordo sotto un'intestazione che è una card rientrata.
+        // Il passo verticale resta quello denso dell'albero: vedi la costante.
+        className={`group/node ${TREE_ROW_CARD} flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none ${
           isSelected
             ? SELECTED_SURFACE
             : isMultiSelected
               ? SELECTED_SURFACE_SOFT
               : isFocused
-                ? 'bg-app-hover'
-                : 'hover:bg-app-hover text-app-text-body'
+                ? SIDEBAR_ACTIVE
+                : 'text-app-text-body'
         } ${isDragOver ? 'ring-1 ring-primary/50 bg-primary/10' : ''} ${isCut ? 'opacity-50' : ''}`}
-        style={{ paddingLeft: `${depth * 16 + 12}px` }}
+        // L'indentazione parte da `ROW_INSET` come ogni altra riga della colonna,
+        // non da 12: la card è già rientrata di 6 col suo margine, quindi il
+        // padding interno è quello di riga e la profondità ci si somma sopra.
+        style={{ paddingLeft: `${depth * SIDEBAR_INDENT_STEP + 8}px` }}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         {...nodeLongPress.handlers}
@@ -397,8 +405,11 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
                 ))}
                 {!showAll && remaining > 0 && (
                   <div
-                    className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[11px] text-primary hover:bg-primary/5 transition-colors"
-                    style={{ paddingLeft: `${(depth + 1) * 16 + 12}px` }}
+                    // Stessa forma e stessa indentazione delle righe che
+                    // segue: era l'unica riga dell'albero rimasta full-bleed,
+                    // con un hover tinto di primary invece del rialzo neutro.
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[11px] text-primary`}
+                    style={{ paddingLeft: `${(depth + 1) * SIDEBAR_INDENT_STEP + 8}px` }}
                     onClick={() => onExpandOverflow(node.path)}
                   >
                     Show {remaining.toLocaleString()} more items...
