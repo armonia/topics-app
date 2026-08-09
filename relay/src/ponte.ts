@@ -141,6 +141,44 @@ export function macchinaSpenta(): Response {
   return dillo(503, "This installation is not connected to the relay right now.");
 }
 
+/**
+ * La strada di un `set-cookie`, riportata sotto il prefisso da cui si è entrati.
+ *
+ * ── IL CASO CHE MORDE ───────────────────────────────────────────────────────
+ * La macchina emette il cookie di sessione con `Path=/` (`buildSessionCookie`,
+ * e deve farlo: di là serve anche a `/media`, `/uploads`, `/ws`). Ma su questo
+ * relay OGNI installazione vive sullo STESSO indirizzo, e a distinguerle c'è
+ * solo il tratto `/i/<installazione>`. Un cookie con `Path=/` il browser lo
+ * memorizza sull'origine del relay e lo rimanda anche a `/i/<un'altra>/…`,
+ * cioè lo consegna alla macchina di CHIUNQUE altro sia collegato allo stesso
+ * relay — che a quel punto se lo rigioca contro la vittima. `SameSite=Lax` non
+ * ferma niente: una navigazione in cima a una scheda se lo porta dietro.
+ *
+ * Il verso opposto si rompe da solo, e in silenzio: un cookie SENZA `Path`
+ * prende per impostazione la cartella della richiesta — `/i/inst-1/api` — e
+ * non tornerebbe più indietro su `/i/inst-1/altro`.
+ *
+ * Quindi la strada si riscrive sempre, esattamente come si fa con `location`:
+ * quella che c'è si porta sotto il prefisso, quella che manca si scrive.
+ */
+function stradaCookie(v: string, prefisso: string): string {
+  const pezzi = v.split(";");
+  // Si parte da 1: il primo pezzo è `nome=valore`, e un cookie che si chiama
+  // `path` non è l'attributo `Path`.
+  for (let i = 1; i < pezzi.length; i++) {
+    const pezzo = pezzi[i]!;
+    const eq = pezzo.indexOf("=");
+    if ((eq === -1 ? pezzo : pezzo.slice(0, eq)).trim().toLowerCase() !== "path") continue;
+    const strada = eq === -1 ? "" : pezzo.slice(eq + 1).trim();
+    // Una strada che non comincia da `/` non vale come strada: il browser la
+    // butta e ricade sulla cartella della richiesta. La si normalizza in
+    // radice, così il prefisso resta l'unico confine.
+    pezzi[i] = ` Path=${prefisso}${strada.startsWith("/") ? strada : "/"}`;
+    return pezzi.join(";");
+  }
+  return `${v}; Path=${prefisso}/`;
+}
+
 export function creaPonte(opts: PonteOpts) {
   // Si può abbassare e non alzare: un frame più grosso di così avvicinerebbe il
   // tetto per messaggio del Durable Object senza nessun vantaggio, e chi lo
@@ -181,15 +219,14 @@ export function creaPonte(opts: PonteOpts) {
   function intestazioniDi(coppie: Intestazioni, prefisso: string): Headers {
     const h = new Headers();
     for (const [n, v] of coppie) {
+      let valore = v;
       // Un rimando relativo esce dal ponte: il browser lo risolverebbe sulla
       // radice del relay, dove non c'è nessuna installazione. Si riporta sotto
       // il prefisso da cui è entrato — e SOLO se è un percorso, mai se è un
       // indirizzo assoluto, che è roba di chi lo ha scritto.
-      if (n === "location" && v.startsWith("/") && !v.startsWith("//")) {
-        h.append(n, `${prefisso}${v}`);
-        continue;
-      }
-      try { h.append(n, v); } catch { /* un valore che una Headers rifiuta non passa */ }
+      if (n === "location" && v.startsWith("/") && !v.startsWith("//")) valore = `${prefisso}${v}`;
+      else if (n === "set-cookie") valore = stradaCookie(v, prefisso);
+      try { h.append(n, valore); } catch { /* un valore che una Headers rifiuta non passa */ }
     }
     return h;
   }
