@@ -1,3 +1,4 @@
+import { COLUMN_GAP } from '../../lib/selectionStyles';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { SidebarItem } from '../../lib/buildSidebarItems';
@@ -34,7 +35,9 @@ import { liveTranslate, useCellFlip } from './useCellFlip';
  * 0px fra due righe di tessere (si toccavano) e 10px prima del filo. Tre
  * distanze diverse per tre spazi che l'occhio legge come uno.
  */
-const TILE_GAP = 6;
+// Il passo è quello della colonna, importato e non riscritto: prima erano due
+// numeri uguali per caso, e le righe hanno già smesso una volta di seguirlo.
+const TILE_GAP = COLUMN_GAP;
 
 /** Quanto della sezione possono prendersi le fasce aperte. Il resto della
  *  sidebar deve restare raggiungibile: una tessera espansa non è una modale. */
@@ -154,7 +157,10 @@ export function PinnedTiles({
    *  il «+» che sulla riga di un progetto apre una tab dentro quel progetto.
    *  Vive FUORI dal bottone: un bottone dentro un bottone è HTML non valido, e
    *  il browser lo srotola spostando l'annidamento a caso. `null` ⇒ niente. */
-  renderActions?: (item: SidebarItem) => ReactNode;
+  /** Le azioni sulla tessera (oggi: il «+» dei progetti). Riceve anche se la
+   *  tessera è APERTA, perché il «+» si mostra solo lì: un comando «crea
+   *  dentro» su una cosa chiusa promette un posto che non si vede. */
+  renderActions?: (item: SidebarItem, aperta: boolean) => ReactNode;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
 }) {
@@ -200,7 +206,7 @@ export function PinnedTiles({
   /** Su questa tessera si appoggia un comando? Lo sa solo il chiamante, e la
    *  tessera deve saperlo per riservargli lo slot — anche nelle anteprime, che
    *  altrimenti troncherebbero il nome a una misura che il drop non produrrà. */
-  const haAzioni = (item: SidebarItem) => (renderActions?.(item) ?? null) !== null;
+  const haAzioni = (item: SidebarItem) => (renderActions?.(item, aperta(item.id)) ?? null) !== null;
 
   /**
    * Chi ha DAVVERO qualcosa da aprire qui sotto — deciso una volta per render,
@@ -625,7 +631,29 @@ export function PinnedTiles({
           ? { paddingTop: TILE_GAP, paddingBottom: TILE_GAP }
           : attiva
             ? undefined
-            : { height: trailing ? 0 : TILE_GAP }
+            // LA ZONA IN TESTA VALE MEZZO PASSO, ed è un MARGINE, non un'altezza.
+            //
+            // Fra due righe di tessere questa zona e' l'UNICO separatore, quindi
+            // vale TILE_GAP pieno. Sopra la PRIMA riga no: li' sopra c'e' gia' il
+            // mezzo passo di chi precede — il contenitore che scorre, o la card
+            // che sta sopra la sezione — e i due si sommavano (misurato 9px
+            // sotto l'header della colonna contro i 6 di ogni altro stacco).
+            //
+            // Mezzo passo scritto come `margin-top` e non come `height` perché
+            // quando la sezione dei fissati è il PRIMO blocco della colonna
+            // anche questa metà deve sparire, e a toglierla è la regola
+            // `.sidebar-column > :first-child > :first-child` (index.css), che
+            // sa azzerare un margine e non un'altezza. Il comportamento visivo
+            // è identico — un div vuoto alto 0 con 3px di margine occupa i
+            // soliti 3 — e quello di trascinamento pure: durante un drag questa
+            // zona prende `h-2`/`h-5` da `attiva`, e questo stile non si applica.
+            //
+            // In coda resta 0 perche' lo spazio sotto lo porta il filo.
+            : trailing
+              ? { height: 0 }
+              : at === 0
+                ? { height: 0, marginTop: TILE_GAP / 2 }
+                : { height: TILE_GAP }
       }
     >
       {/* La riga nuova si vede per quello che sarà: la tessera vera, a tutta
@@ -822,7 +850,7 @@ export function PinnedTiles({
                 const item = byId.get(key);
                 if (!item) return null;
                 const meta = metaFor(item);
-                const actions = renderActions?.(item) ?? null;
+                const actions = renderActions?.(item, aperta(key)) ?? null;
                 return (
                   <div
                     key={key}

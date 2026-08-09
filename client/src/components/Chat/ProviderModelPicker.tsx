@@ -241,7 +241,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         >
           {/* Header — search + refresh */}
           <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-app-border">
-            <Search size={12} className="text-app-text-muted flex-shrink-0" />
+            <Search size={12} className="text-app-text-secondary flex-shrink-0" />
             <input
               autoFocus
               type="text"

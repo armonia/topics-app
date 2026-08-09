@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, Wrench, type LucideIcon } from 'lucide-react';
 import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, SELECTED_SURFACE } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -343,7 +343,14 @@ export function PinnedTile({
         // e non quello del gruppo, chevron e conteggio ne escono — vedi
         // `pinned-tile-lead` / `pinned-tile-count` in `index.css`.
         'justify-center @min-[104px]/tile:justify-start',
-        `${PINNED_TILE_H} w-full min-w-0 rounded-lg px-1.5 select-none`,
+        // `ROW_PX`, non un `px-1.5` scritto a mano: quel file dichiara questo
+        // valore come «l'incasso orizzontale canonico di una riga di
+        // contenuto — una tab della barra E una riga della colonna — così che
+        // il rientro si legga identico sulle due superfici». La tessera è la
+        // terza faccia della stessa cosa e stava a 6 contro i loro 8: misurato
+        // a 390×844, nome della tessera e nome della riga partivano da due
+        // colonne diverse nella stessa colonna.
+        `${PINNED_TILE_H} w-full min-w-0 rounded-lg ${ROW_PX} select-none`,
         'transition-colors duration-100',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
@@ -487,7 +494,26 @@ export function PinnedTile({
           scende nemmeno per far entrare una parola in più. */}
       <span
         data-testid="pinned-tile-name"
-        className={`relative min-w-0 flex-1 truncate-tight text-left text-[11px] text-app-text-secondary ${
+        // CENTRATO DA STRETTO, a sinistra da largo — «in queste condizioni»
+        // (Attilio, 08/08), e le condizioni sono la GRIGLIA.
+        //
+        // In una fila di tessere strette le icone stanno centrate e il nome di
+        // chi l'icona non ce l'ha («panea») stava a sinistra: due allineamenti
+        // nella stessa fila si leggono come un errore, non come una variante.
+        // Ma una tessera SOLA su una riga è larga quanto la colonna, e lì il
+        // nome centrato galleggia in mezzo al vuoto — «winfleet» a 180px dal
+        // bordo. La soglia separa i due casi: sotto i 200px si è in griglia.
+        //
+        // È una container query e NON l'esito della sonda dell'icona: la regola
+        // che vieta di commutare il layout su uno stato in volo resta intatta —
+        // qui si commuta sulla LARGHEZZA, che è misurata.
+        // `text-app-text`, non `-secondary`: qui il nome È la scheda. Per chi
+        // non ha un'icona è l'unica identità che la tessera mostra, e leggerla
+        // in `#aab0ba` invece che in `#e6e8ec` la fa sembrare una didascalia di
+        // qualcos'altro — «le schede pinnate non sono effettivamente bianche»
+        // (Attilio, 08/08). Il secondo colore resta, ma per le cose meno
+        // importanti: non per il nome della cosa che stai guardando.
+        className={`relative min-w-0 flex-1 truncate-tight text-center @min-[200px]/tile:text-left ${TAB_LABEL} ${
           hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''
         }`}
       >

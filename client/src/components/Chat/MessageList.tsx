@@ -74,14 +74,12 @@ interface MessageListProps {
   fileDragOver: boolean;
   chatContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
   onFileDragOver: (e: React.DragEvent) => void;
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
-  setMessage: (v: string) => void;
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
   onPlanDecision?: (approved: boolean) => void;
@@ -118,14 +116,12 @@ export function MessageList({
   fileDragOver,
   chatContainerRef,
   messagesEndRef,
-  textareaRef,
   onReply,
   onCopy,
   onTogglePin,
   onFileDragOver,
   onFileDragLeave,
   onFileDrop,
-  setMessage,
   onPlanApprove,
   onPlanReject,
   onPlanDecision,
@@ -212,6 +208,33 @@ export function MessageList({
     // pixel: poco, dentro la banda in cui stanno le superfici di chat serie, e
     // abbastanza da non far mai toccare le due cose.
     Footer: () => <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />,
+    // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
+    // conversazione confina con del CHROME, non con il bordo della finestra.
+    //
+    // Da quando la barra delle tab è un vetro fuori dal flusso
+    // (`.pane-chrome-bar`), la cella della chat comincia SOTTO di lei: senza
+    // questo varco il primo messaggio nascerebbe già coperto. Con, a riposo non
+    // c'è niente di nascosto — e scorrendo i messaggi le passano sotto, che è
+    // tutto il punto dell'overlay.
+    //
+    // Altezza in `var()` e non in pixel, al contrario del Footer, e la
+    // differenza è chi conosce il numero. L'altezza del composer la MISURA
+    // JavaScript (`inputAreaHeight`), quindi tanto vale sommarla lì; quella
+    // della barra è una costante dichiarata dalla card che la possiede
+    // (CHROME_BAR_H_VAR), e leggerla in CSS evita di ricopiarla in un terzo
+    // posto. Virtuoso misura l'Header col suo ResizeObserver, quindi il numero
+    // risolto lo scopre da sé.
+    //
+    // La variabile è `--chat-gutter` e NON `--chrome-bar-h`, e la differenza è
+    // il caso in cui sopra il trascritto c'è un banner: lì il rientro se l'è
+    // già preso la cella, e questo varco deve valere zero o i 40px si contano
+    // due volte. A deciderlo è UNA regola CSS (`.chat-under-chrome:first-child`,
+    // index.css) che accende insieme il margine negativo e il varco: da qui non
+    // si vede la condizione, si legge solo il risultato.
+    //
+    // Il default è 0: una lista montata dove non c'è nessuna barra sopra —
+    // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
+    Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
   }), [inputAreaHeight]);
 
@@ -1280,7 +1303,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label={`Messages for ${topic.name}`}
-      className={`flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
+      className={`chat-under-chrome flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
@@ -1312,45 +1335,12 @@ export function MessageList({
           ))}
         </div>
       ) : filteredMessages.length === 0 ? (
-        <div className={`chat-measure text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
-          <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
-          {topic.systemPrompt && (
-            <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
-              <span>✨</span> Custom system prompt active
-            </p>
-          )}
-          {!topic.projectPath && (
-            <p className="text-[12px] text-app-text-muted mt-2 mb-2">Start a conversation</p>
-          )}
-          <div className="flex flex-wrap gap-2 justify-center mt-4">
-            {(topic.projectPath ? [
-                { label: '📋 Describe this project', msg: 'Give me a brief overview of this project — what it does, the tech stack, and the main files.' },
-                { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
-                { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
-              ] : [
-                { label: '💡 Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
-                { label: '📝 Write something', msg: 'Help me write ' },
-                { label: '🔍 Research a topic', msg: 'Research ' },
-              ]).map(q => (
-                <button
-                  key={q.label}
-                  onClick={() => { setMessage(q.msg); textareaRef.current?.focus(); }}
-                  className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift"
-                >
-                  {q.label}
-                </button>
-              ))}
-          </div>
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
-            <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
-            {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
-            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
-          </div>
-          {/* Stesso varco del Footer: l'empty state sta FUORI da Virtuoso e
-              senza questo la chat vuota respira diversamente da quella piena. */}
-          <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
-        </div>
+        /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
+           blocco del composer: i due si centrano insieme e scivolano insieme in
+           fondo al primo messaggio. Stando qui — in cima al contenitore che
+           scorre — era lontano mezzo schermo dalla riga di testo di cui parla,
+           e non c'era modo di muoverli come una cosa sola. */
+        null
       ) : (
         <Virtuoso
           data-testid="chat-message-list"

@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.52",
+  "version": "2.2.87",
   "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
@@ -45,8 +45,9 @@
     "check:bundle": "bun run scripts/check-bundle-size.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
-    "typecheck": "bun run typecheck:client && bun run typecheck:server && bun run typecheck:e2e",
+    "typecheck": "bun run typecheck:client && bun run typecheck:tests:client && bun run typecheck:server && bun run typecheck:e2e",
     "typecheck:client": "cd client && ./node_modules/.bin/tsc -b",
+    "typecheck:tests:client": "cd client && ./node_modules/.bin/tsc -p tsconfig.test.json",
     "typecheck:server": "bun run scripts/typecheck-server.ts",
     "typecheck:e2e": "./client/node_modules/.bin/tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0",
     "test:e2e:shards": "./scripts/e2e-shards.sh",

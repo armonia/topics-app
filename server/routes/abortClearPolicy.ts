@@ -21,6 +21,7 @@
  */
 
 import type { StoredMessage } from "../types";
+import { isEmptyAssistantTurn, type AssistantTurnShape } from "../../shared/empty-turn";
 
 export interface ClearMessagesDecision {
   /** True iff the wipe is safe to perform — both counts ≤ 1. */
@@ -29,29 +30,74 @@ export interface ClearMessagesDecision {
   userCount: number;
   /** How many assistant-role messages the DB currently has. */
   assistantCount: number;
+  /** `true` se una riga assistente ha già prodotto qualcosa (testo, thinking,
+   *  tool call, blocchi, media). È il motivo di rifiuto che il conteggio da
+   *  solo non vedeva. */
+  assistantDidWork: boolean;
+  /** Righe della sessione che il ramo attivo NON contiene — e che una
+   *  cancellazione butterebbe comunque. Diverso da zero ⇒ rifiuto. */
+  hiddenRows: number;
 }
 
 /**
  * Decide whether to honor a `clearMessages: true` hint, given the
  * authoritative messages currently persisted for the session.
  *
- * Allow the wipe only when the stored thread is still at "first turn":
- * at most one user message AND at most one assistant message. Any larger
- * thread is treated as a real conversation and the wipe is denied so the
- * regular partial-finalize path can run instead.
+ * Allow the wipe only when the stored thread is still at "first turn" AND the
+ * assistant has produced nothing: at most one user message, at most one
+ * assistant message, e quella riga assistente VUOTA.
+ *
+ * ── Perché il conteggio da solo non basta (incidente 8 agosto 2026) ─────────
+ * Contare le righe sembrava dire «l'assistente non ha ancora risposto», che è
+ * l'intento scritto qui sopra. Non lo dice: in questa app **tutto** il lavoro di
+ * un turno — testo, thinking, ogni tool call — si accumula dentro l'UNICA riga
+ * assistente creata all'inizio dello stream. Un primo turno di qualunque durata
+ * resta «1 utente + 1 assistente». Quindi un turno che aveva già macinato
+ * diciassette tool contava 1+1 esattamente come un turno mai partito, e lo Stop
+ * lo cancellava: `saveLocalMessages(sessionKey, [])`, DELETE in transazione,
+ * nessun backup. È così che è sparita una chat vera.
+ *
+ * Misurato sul DB di sviluppo nel momento del fix: **208 sessioni** avevano
+ * quella forma, per **31,1 MB** di contenuto — tutte a un click di distanza. E
+ * il ramo di rifiuto non era mai scattato in 91 MB di log.
+ *
+ * Il predicato «ha prodotto qualcosa?» esisteva già ed è quello che usa lo
+ * scarto dei turni vuoti (`shared/empty-turn.ts`): guarda content, thinking,
+ * tool call, blocchi e media. Riusarlo tiene UNA definizione di «vuoto» invece
+ * di due libere di divergere.
  */
 export function shouldHonorClearMessages(
   storedMessages: readonly StoredMessage[],
+  /**
+   * Righe della sessione INTERA, rami abbandonati compresi. Omesso = si assume
+   * che il ramo attivo sia tutto (comportamento storico).
+   *
+   * Perché serve: `storedMessages` è il RAMO ATTIVO (`loadActiveThread`), ma la
+   * cancellazione è `saveLocalMessages(sessionKey, [])`, che fa
+   * `DELETE FROM messages WHERE session_key = ?` — cioè butta anche i rami che
+   * il predicato non ha mai guardato. Decidere sul sottoinsieme e distruggere
+   * l'insieme è come contare le stanze di un piano e demolire il palazzo.
+   * Misurato al momento del fix: 9 sessioni avevano righe fuori dal ramo attivo.
+   */
+  sessionRowCount?: number,
 ): ClearMessagesDecision {
   let userCount = 0;
   let assistantCount = 0;
+  let assistantDidWork = false;
   for (const msg of storedMessages) {
     if (msg.role === "user") userCount++;
-    else if (msg.role === "assistant") assistantCount++;
+    else if (msg.role === "assistant") {
+      assistantCount++;
+      if (!isEmptyAssistantTurn(msg as AssistantTurnShape)) assistantDidWork = true;
+    }
   }
+  const hiddenRows =
+    sessionRowCount === undefined ? 0 : Math.max(0, sessionRowCount - storedMessages.length);
   return {
-    shouldWipe: userCount <= 1 && assistantCount <= 1,
+    shouldWipe: userCount <= 1 && assistantCount <= 1 && !assistantDidWork && hiddenRows === 0,
     userCount,
     assistantCount,
+    assistantDidWork,
+    hiddenRows,
   };
 }

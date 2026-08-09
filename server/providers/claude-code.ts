@@ -36,6 +36,7 @@ import {
   parseToolInputBuffer,
   readAssistantCallUsage,
   readAssistantContextTokens,
+  readAssistantMessageId,
   readEventContent,
   readParentToolUseId,
   readResultErrorText,
@@ -961,6 +962,14 @@ interface PersistentProcess {
    *  re-emits them on every cumulative `assistant` snapshot, so we need a
    *  set to skip duplicates and prevent push-without-dedup downstream. */
   settledToolCalls?: Set<string>;
+  /** I `message.id` delle chiamate API già FATTURATE in questo turno.
+   *
+   *  Stessa trappola di `settledToolCalls`, sull'altra grandezza: la CLI emette
+   *  un evento `assistant` per BLOCCO di contenuto e ognuno ripete la stessa
+   *  `message.usage`. `onCallUsage` accumula, quindi senza questo Set un turno
+   *  con 24 eventi su 4 chiamate fatturava 4.893.590 token invece di 925.774
+   *  (5,29×) e $22,80 invece di $3,66 — numeri misurati sul topic dec44329. */
+  billedCallIds?: Set<string>;
   /** In-flight tool inputs from `--include-partial-messages` stream_events,
    *  keyed by content-block index: id/name captured at content_block_start,
    *  `buf` accumulates input_json_delta.partial_json until block stop.
@@ -1283,6 +1292,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
+    pp.billedCallIds?.clear();
     pp.streamingToolInputs?.clear();
     pp.argsFinalized?.clear();
     pp.attributedToolCalls?.clear();
@@ -1883,6 +1893,14 @@ export class ClaudeCodeProvider implements AIProvider {
       // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
       appendSystemPrompt: topicsAgentSystemPrompt(),
+      // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
+      // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
+      // l'env qui sotto) ma passava da un canale che perde contro
+      // `~/.claude/settings.json`. Vale 90.906 token di prefisso per richiesta
+      // sulla flotta reale, e non toglie un solo strumento.
+      // `TOPICS_TOOL_SEARCH=off` lo spegne senza toccare il codice, per il
+      // giorno in cui una release della CLI cambia il significato del valore.
+      toolSearch: process.env.TOPICS_TOOL_SEARCH === "off" ? null : (process.env.TOPICS_TOOL_SEARCH || "1"),
       claudeSessionId,
       isNewSession,
     });
@@ -1899,16 +1917,18 @@ export class ClaudeCodeProvider implements AIProvider {
     // models don't support tool search» — e quindi escludeva dal deferral proprio
     // i topic bridge-only su haiku: misurato, haiku deferisce come gli altri.
     //
-    // ATTENZIONE, e vale più della guardia: questa env è in gran parte INERTE.
-    // Lo spawn passa `--setting-sources user,project,local` (poche righe sopra),
-    // e `~/.claude/settings.json` dell'utente porta già `ENABLE_TOOL_SEARCH`, che
-    // vince sull'ambiente di processo. Finché quel file dice qualcosa, questo
-    // ramo non cambia il comportamento: la leva vera sta lì, non qui. Lo si tiene
-    // perché è corretto e perché su un'installazione senza quel settaggio è
-    // l'unica cosa che accende il deferral.
-    if (overrides.mcpPolicy === "bridge-only") {
-      env.ENABLE_TOOL_SEARCH = env.ENABLE_TOOL_SEARCH ?? "auto";
-    }
+    // Il deferral NON si accende più da qui, e non perché sia una preferenza:
+    // da questo canale non si accendeva affatto. Lo spawn passa
+    // `--setting-sources user,project,local`, quindi il blocco `env` di
+    // `~/.claude/settings.json` VINCE sull'ambiente del processo figlio —
+    // misurato l'8/08/2026 forzando `ENABLE_TOOL_SEARCH=1` nell'ambiente: il
+    // prefisso è tornato BYTE-IDENTICO (cache_read pieno, zero creazione).
+    // E il valore che quel file porta, `"auto"`, non deferisce niente: 127.073
+    // token di prefisso contro i 36.167 con `"1"`.
+    //
+    // Ora la leva è `--settings` in `buildClaudeArgs` (opzione `toolSearch`,
+    // poche righe sopra): è l'unico canale che scavalca i settings dell'utente,
+    // e vale per OGNI chat, non solo per i topic bridge-only.
 
     // Resilience layer: a fresh `--session-id` spawn is normal for a brand-
     // new topic, but it's *also* what happens after `forgetClaudeSessionId`
@@ -2686,10 +2706,26 @@ export class ClaudeCodeProvider implements AIProvider {
         if (size > 0) handler.onContextSize?.(size, callUsage.model);
         // Lo stesso evento porta anche il CONSUMO di questa chiamata, che finora
         // buttavamo: `onContextSize` misura il serbatoio (sale e scende con le
-        // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula —
-        // il `result` finale somma già tutte le chiamate, quindi non si somma due
-        // volte.
-        handler.onCallUsage?.(callUsage);
+        // compattazioni), questo la bolletta (solo cresce). Chi ascolta accumula.
+        //
+        // E siccome ACCUMULA, va emesso UNA VOLTA PER CHIAMATA API — non una
+        // volta per evento. `assistant` non è un evento per chiamata: la CLI ne
+        // manda uno per BLOCCO di contenuto, tutti con la stessa `message.usage`
+        // (misurato: 24 eventi, 4 `message.id`, 8+9+5+2). Senza questo Set lo
+        // stesso prompt veniva fatturato fino a 9 volte, e il piede del messaggio
+        // mostrava 4.893.590 token per un turno da 925.774.
+        //
+        // `onContextSize` qui sopra non ha bisogno della guardia: ASSEGNA una
+        // misura invece di sommarla, quindi ripeterla è idempotente.
+        const callId = readAssistantMessageId(event);
+        const billed = (pp.billedCallIds ??= new Set<string>());
+        // Id assente = non possiamo distinguere una ripetizione da una chiamata
+        // nuova: si emette, come si è sempre fatto. Sbagliare per eccesso su un
+        // evento malformato è meglio che perdere in silenzio una chiamata vera.
+        if (!callId || !billed.has(callId)) {
+          if (callId) billed.add(callId);
+          handler.onCallUsage?.(callUsage);
+        }
         // Stessa chiamata, seconda domanda: QUALI azioni ha deciso. I tool_use
         // nuovi di questo evento sono quelle azioni — l'usage va spalmato su di
         // loro nel loop dei blocchi, una sola volta ciascuna (Trappola 1).

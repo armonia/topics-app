@@ -243,7 +243,7 @@ export const TopicItem = memo(function TopicItem({
         // eccezione con 40/34 mentre le sorelle stavano a 44/32, e su touch 40px
         // sono sotto il minimo di tap target di iOS.
         `group flex items-center gap-2 ${ROW_H} ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0 }),
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',

@@ -26,6 +26,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../l
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
+import { parkTopicSession } from "../lib/session-parking";
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
@@ -391,7 +392,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
-    loadLocalMessages, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
@@ -1506,6 +1507,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           const res = archiveTopicFully({
             getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
             purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
+            parkClaudeSession: parkTopicSession,
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
@@ -1562,6 +1564,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
           broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
+          // Stesso passo 4 del percorso singolo (services/archive-topic.ts).
+          // È QUESTA la strada che ha prodotto la perdita misurata: le 28
+          // sessioni rimaste vive su chat chiuse portavano tutte la data di
+          // un'archiviazione di progetto in blocco.
+          parkTopicSession(topic.sessionKey);
           const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id);
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
@@ -2659,8 +2666,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       };
       if (body?.clearMessages) {
         const stored = loadLocalMessages(sessionKey);
-        const decision = shouldHonorClearMessages(stored);
+        // Il conteggio della sessione INTERA, non del solo ramo attivo: è la
+        // cancellazione che colpisce tutta la session_key, quindi è su quella
+        // che si deve decidere.
+        const decision = shouldHonorClearMessages(stored, countMessagesBySession(sessionKey));
         if (decision.shouldWipe) {
+          // Si scrive PRIMA di cancellare, e sul ramo che cancella. Finora il
+          // log parlava solo quando RIFIUTAVA: la distruzione di una chat non
+          // lasciava una riga che la nominasse, e nell'incidente dell'8 agosto
+          // l'unica traccia era un `resetSession` a due righe di distanza.
+          console.log(
+            `[Abort] ${sessionKey}: chat cancellata su clearMessages=true — ${decision.userCount} utente / ${decision.assistantCount} assistente, nessun lavoro prodotto`
+          );
           saveLocalMessages(sessionKey, []);
           clearedForReal = true;
           // Stesso taglio di `/clear`, per la stessa ragione: qui la chat viene
@@ -2675,7 +2692,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           }
         } else {
           console.warn(
-            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages, not first-message`
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages` +
+            (decision.assistantDidWork ? ", e il turno aveva già prodotto lavoro"
+             : decision.hiddenRows > 0 ? `, e la sessione ha ${decision.hiddenRows} righe fuori dal ramo attivo`
+             : ", not first-message")
           );
           // Fall through to the normal finalize path so we don't lose the
           // partial assistant content the user was about to abort.

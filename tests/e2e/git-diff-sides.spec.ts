@@ -33,8 +33,16 @@ test.describe("i due lati del diff", () => {
   let tmpDir = "";
   let topicName = "";
 
+  // L'identita' viaggia CON il comando: senza, `git commit` passa sul portatile
+  // di chi scrive (config globale) e fallisce sul runner, che non ne ha —
+  // «Author identity unknown». Vedi la stessa costante in
+  // git-commit-history.spec.ts e in helpers/file-project.ts.
   const git = (dir: string, ...args: string[]) =>
-    execFileSync("git", args, { cwd: dir, encoding: "utf-8" });
+    execFileSync(
+      "git",
+      ["-c", "user.name=e2e", "-c", "user.email=e2e@test", "-c", "commit.gpgsign=false", ...args],
+      { cwd: dir, encoding: "utf-8" },
+    );
 
   test.beforeAll(async ({ request }) => {
     project = await seedFileProject(request, "diff-sides");

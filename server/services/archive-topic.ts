@@ -12,10 +12,12 @@
  * senza purge il record `ui_state` resta stale e l'id del topic archiviato
  * risuscita al reload successivo.
  *
- * COSA GARANTISCE. Dopo questa funzione, per quel topic valgono tutte e tre:
+ * COSA GARANTISCE. Dopo questa funzione, per quel topic valgono tutte e quattro:
  *   1. `archived = true`, salvato e broadcastato,
  *   2. unread azzerato e broadcastato,
- *   3. nessun riferimento al topic nei record `ui_state` (tombstonato).
+ *   3. nessun riferimento al topic nei record `ui_state` (tombstonato),
+ *   4. la sua sessione Claude non è più in una fase viva (parcheggiata a
+ *      `dormant`) — vedi `parkClaudeSession`.
  * È lo stato finale che il percorso umano (`DELETE /api/topics/:id`) produceva
  * già; qui smette di essere una proprietà di QUEL percorso e diventa la
  * definizione di "archiviato".
@@ -42,6 +44,14 @@ export interface ArchiveTopicDeps {
   broadcastToAll: (message: OutboundMessage) => void;
   /** `purgeTopicFromUiState` (routes/topics.ts), passata dal chiamante. */
   purgeFromUiState: (topicId: string) => { ok: true } | { ok: false; error: string };
+  /**
+   * Parcheggia la sessione Claude del topic (fase → `dormant`), se ne ha una
+   * ancora viva. In prod è `parkTopicSession` (lib/session-parking.ts), dove
+   * sta il perché: una fase «tocca a te» su un topic archiviato non ha più
+   * nessuna superficie dove essere spenta, e nessun reconcile la guarda.
+   * Iniettata perché il tracker vive in server.ts; assente ⇒ passo saltato.
+   */
+  parkClaudeSession?: (sessionKey: string) => void;
 }
 
 export interface ArchiveTopicResult {
@@ -101,6 +111,13 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
 
   // 3. Via da ui_state, o l'id risuscita al prossimo reload del client.
   const purge = deps.purgeFromUiState(topicId);
+
+  // 4. La sessione Claude a riposo. Sempre, anche su un topic GIÀ archiviato:
+  // è lo stesso motivo dei passi 2 e 3 — ri-archiviare deve RIPARARE, ed è
+  // l'unica leva che le sessioni già trapelate hanno per tornare a posto senza
+  // una query a mano. Il parcheggio è un no-op su una fase già dormant o
+  // terminale, quindi il ripasso non costa broadcast per niente.
+  if (topic.sessionKey) deps.parkClaudeSession?.(topic.sessionKey);
 
   const repaired = alreadyArchived && stale;
   if (!purge.ok) return { ok: true, alreadyArchived, repaired, purgeError: purge.error, topic };

@@ -449,12 +449,74 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           bersagli fra 24 e 28px di altezza, ed è il punto della sidebar dove il
           pollice arriva peggio. Sul desktop restano 28, dove il mouse è preciso
           e lo spazio verticale vale. */}
+      {/* LA SAFE-AREA SI ABITA, NON SI LASCIA VUOTA.
+          Era `paddingBottom: env(safe-area-inset-bottom)`, cioè la riga stava
+          sopra la fascia e sotto restava una striscia morta alta 34px — su un
+          iPhone un terzo dell'altezza di questa riga, spesa per non dire
+          niente. «Metti lì sotto nella safe area la riga della status bar con
+          tutto» (Attilio, 08/08): adesso la fascia è ALTEZZA della riga, non
+          spazio sprecato sotto di lei, e `items-center` centra il contenuto
+          nella banda intera. Col dito il contenuto finisce a ~39px dal bordo,
+          quindi ben sopra l'home indicator, che ne occupa gli ultimi otto.
+          `env()` si azzera da sé dove non c'è inset, quindi sul desktop questa
+          riga resta esattamente la stessa di prima — nessun ramo, nessuna
+          media query. L'altezza base viene da `isMobile` e non da `min-h-*`
+          perché un `minHeight` in linea scavalcherebbe comunque la classe: due
+          fonti per la stessa misura sono due fonti che divergono. */}
       <div
         data-testid="sidebar-status-bar"
-        className="flex items-center gap-2 min-h-7 max-md:min-h-11 flex-shrink-0 border-t border-app-border"
+        className="flex items-center gap-2 flex-shrink-0 border-t border-app-border"
         style={{
-          paddingInline: ROW_INSET,
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          /**
+           * PIÙ RIENTRO DOVE C'È L'ANGOLO TONDO.
+           *
+           * Sei pixel bastano su un bordo dritto; su un iPhone questa riga sta
+           * SUL fondo, dove lo schermo curva con un raggio di ~55px, e i suoi
+           * estremi finiscono dentro l'arco. Il conto, con R=55 e x = R −
+           * √(R² − (R−y)²): alla quota del CENTRO del contenuto (y≈22px dal
+           * fondo) l'arco mangia 11px per lato; al suo bordo INFERIORE (y≈10)
+           * ne mangia 23.
+           *
+           * Trentadue, in tre giri: 16 copriva solo la quota centrale, 24 il
+           * punto peggiore (il bordo basso del contenuto), e dal vivo erano
+           * ancora «troppo vicine ai bordi laterali». La geometria dà il
+           * MINIMO per non essere tagliati; quanto stare LARGHI oltre quel
+           * minimo è una scelta di respiro, e 32 è il primo valore che legge
+           * come «centrale» invece che «spinto ai lati». Sopra il minimo di 23,
+           * quindi il taglio non torna comunque.
+           *
+           * `--sal`/`--sar` restano il pavimento: in orizzontale il notch mangia
+           * da un lato solo, e lì il numero giusto lo dice il sistema.
+           */
+          paddingLeft: isMobile ? 'max(32px, var(--sal))' : ROW_INSET,
+          paddingRight: isMobile ? 'max(32px, var(--sar))' : ROW_INSET,
+          // `var(--sab)` e non `env(...)` diretto: `env()` non si può
+          // sovrascrivere, quindi con la chiamata cruda questa riga era
+          // IMPOSSIBILE da provare fuori da un iPhone vero — e infatti l'ho
+          // sbagliata due volte a occhi chiusi. `--sab` è già definita in
+          // `:root` come `env(safe-area-inset-bottom, 0px)`, quindi in
+          // produzione il valore è identico, ma una sonda può forzarla e
+          // misurare il risultato.
+          //
+          /**
+           * LA FASCIA SI ASSORBE, NON SI SOMMA — terza e ultima versione, e le
+           * prime due erano sbagliate in due modi opposti (misurate con
+           * `--sab: 34px`):
+           *
+           *  · `paddingBottom`  → riga 78, contenuto a 56px dal bordo: la fascia
+           *    era spazio MORTO sotto la riga.
+           *  · `+ var(--sab)`   → riga 78, contenuto centrato (25,5 sopra / 24,5
+           *    sotto): centrato sì, ma la riga si era solo INGRASSATA — «hai
+           *    semplicemente alzato spazio sopra la status riga».
+           *  · `+ var(--sab)/2` → riga 61: meglio, ancora alta per niente.
+           *
+           * `max()` invece di una somma: l'altezza è quella di sempre, e la
+           * fascia la ALLARGA solo se da sola sarebbe più alta. Con 34px di
+           * inset la riga resta 44 — la stessa di un telefono senza notch —
+           * e il contenuto, centrato, cade a 22px dal fondo: dentro la fascia,
+           * sopra l'home indicator (ultimi ~10px). Niente altezza inventata.
+           */
+          minHeight: `max(${isMobile ? 44 : 28}px, calc(var(--sab) + 10px))`,
         }}
       >
         {/* Gateway status */}
@@ -508,16 +570,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               title={deviceTitle}
             >
               {isMobile
-                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />
-                : <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />}
+                ? <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />
+                : <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />}
               {appMemMB !== null && (
-                <span className={`text-app-text-muted ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
+                <span className={`text-app-text-secondary ${deviceMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(appMemMB)}</span>
               )}
               {shellCpu !== null && (
-                <span className={`text-app-text-muted ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
+                <span className={`text-app-text-secondary ${shellCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(shellCpu)}%</span>
               )}
               {fps > 0 && (
-                <span className={`text-app-text-muted ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
+                <span className={`text-app-text-secondary ${fps < 30 ? SEGNALE_GUASTO : fps < 50 ? SEGNALE_ATTESA : ''}`}>{fps}fps</span>
               )}
             </span>
           )}
@@ -527,12 +589,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               className="flex flex-shrink-0 items-center gap-1 tabular-nums"
               title={serverTitle}
             >
-              <Server size={10} className="flex-shrink-0 text-app-text-muted" />
+              <Server size={10} className="flex-shrink-0 text-app-text-secondary" />
               {serverSideMemMB !== null && (
-                <span className={`text-app-text-muted ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
+                <span className={`text-app-text-secondary ${serverMemHigh ? SEGNALE_ATTESA : ''}`}>{fmtMB(serverSideMemMB)}</span>
               )}
               {fleetCpu !== null && (
-                <span className={`text-app-text-muted ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
+                <span className={`text-app-text-secondary ${fleetCpu > 50 ? SEGNALE_ATTESA : ''}`}>{formatCpuPercent(fleetCpu)}%</span>
               )}
             </span>
           )}
@@ -624,7 +686,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           </span>
         )}
 
-        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-secondary tabular-nums whitespace-nowrap">
           {appVersion && (
             <button
               data-version-anchor
@@ -823,8 +885,8 @@ function DeviceIdentityRow({ onOpenDevices }: { onOpenDevices?: () => void }) {
       title="Apri l\u2019elenco dei dispositivi autorizzati"
     >
       {locale
-        ? <Monitor size={10} className="flex-shrink-0 text-app-text-muted" />
-        : <Smartphone size={10} className="flex-shrink-0 text-app-text-muted" />}
+        ? <Monitor size={10} className="flex-shrink-0 text-app-text-secondary" />
+        : <Smartphone size={10} className="flex-shrink-0 text-app-text-secondary" />}
       <span className="truncate">{session.name}</span>
       {altri && altri.totali > 0 && (
         <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-muted">
