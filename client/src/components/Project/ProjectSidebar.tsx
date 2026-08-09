@@ -81,6 +81,9 @@ const MAX_SIDEBAR_W = 560;
  * Processi non ha piede: per lui 96 resta giusto.
  */
 const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes: 96 };
+/** Una riga d'albero: il pavimento di Files quando è APERTA. Chiusa non serve —
+ *  lì il contenuto non c'è per scelta, e il divisore può salire fino alla card. */
+const MIN_FILES_CONTENT = 24;
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
 
 /**
@@ -338,13 +341,28 @@ export function ProjectSidebar({
 
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
+  // Un divisore ha SEMPRE un sotto e un sopra, e alzarlo fa crescere quello
+  // SOTTO: la colonna è ancorata in fondo (Files prende ciò che avanza, Git e
+  // Processi hanno un'altezza in pixel). Il campo si chiamava `section` e non
+  // diceva da che parte stesse, così il divisore Git↔Processi passava `git` —
+  // cioè quello SOPRA — e il trascinamento usciva rovesciato.
+  //
+  // `above` assente = il vicino di sopra è Files, che non ha un'altezza sua:
+  // assorbe con `flex-1`, e il fermo è quanto le resta da cedere (`slack`).
   const dragRef = useRef<{
-    section: 'git' | 'processes';
-    otherSection?: 'git' | 'processes';
+    below: 'git' | 'processes';
+    above?: 'git' | 'processes';
     startY: number;
-    startHeight: number;
-    otherStartHeight?: number;
+    startBelow: number;
+    startAbove?: number;
+    slack: number;
   } | null>(null);
+
+  // Files non ha un'altezza in stato: quanto può cedere si MISURA quando parte
+  // il trascinamento. Da una costante non si potrebbe — la sua intestazione è
+  // una card e cambia altezza col breakpoint.
+  const filesBoxRef = useRef<HTMLDivElement>(null);
+  const filesHeaderRef = useRef<HTMLDivElement>(null);
 
   // Full-viewport drag chrome (same protocol as useGridResize): keeps the
   // pointer out of iframes in the main area mid-drag and lets native Electron
@@ -393,15 +411,20 @@ export function ProjectSidebar({
       const delta = e.clientY - r.startY;
       if (!dragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
       raiseChrome('row-resize');
-      if (r.otherSection) {
-        // Redistributing between git ↔ processes
-        const newTop = Math.max(minDi(r.section), r.startHeight - delta);
-        const newBottom = Math.max(minDi(r.otherSection ?? r.section), (r.otherStartHeight || 0) + delta);
-        setBottomHeights(prev => ({ ...prev, [r.section]: newTop, [r.otherSection!]: newBottom }));
-      } else {
-        // Resizing files ↔ bottom section
-        setBottomHeights(prev => ({ ...prev, [r.section]: Math.max(minDi(r.section), r.startHeight - delta) }));
-      }
+      // Si stringe il DELTA, non le due altezze una per una. Tagliandole a
+      // valle con due `Math.max` indipendenti la somma non si conserva: quando
+      // una tocca il suo minimo l'altra continua a crescere, la coppia sfonda
+      // la colonna e il tetto — cioè il fondo di Files — se ne va per i fatti
+      // suoi. Misurato: tirando a fondo corsa la coppia passava da 350 a 696.
+      const giu = r.startBelow - minDi(r.below);              // quanto si può scendere
+      const su = r.above !== undefined
+        ? minDi(r.above) - r.startAbove!                      // fin dove cede il vicino
+        : -r.slack;                                           // fin dove cede Files
+      const d = su > giu ? 0 : Math.min(giu, Math.max(su, delta));
+      // Alzare il divisore (d < 0) fa crescere ciò che gli sta SOTTO.
+      setBottomHeights(prev => r.above
+        ? { ...prev, [r.below]: r.startBelow - d, [r.above]: r.startAbove! + d }
+        : { ...prev, [r.below]: r.startBelow - d });
     };
     const onUp = () => {
       if (!dragRef.current && !widthDragRef.current) return;
@@ -438,18 +461,31 @@ export function ProjectSidebar({
     setSidebarWidth(DEFAULT_SIDEBAR_W);
   }, []);
 
-  const startBottomResize = useCallback((section: 'git' | 'processes', otherSection?: 'git' | 'processes') => (e: React.MouseEvent) => {
+  /**
+   * `below` è la sezione SOTTO il divisore: è quella che cresce tirando in su.
+   * `above` è il vicino di sopra quando ne ha uno con un'altezza sua; senza,
+   * il vicino è Files e il fermo lo dà `slack`.
+   */
+  const startBottomResize = useCallback((below: 'git' | 'processes', above?: 'git' | 'processes') => (e: React.MouseEvent) => {
     e.preventDefault();
+    // Quanto Files può ancora cedere: la sua scatola meno ciò che deve restare
+    // visibile. Aperta lascia almeno una riga d'albero, chiusa basta la card —
+    // è lo stesso principio del minimo di Git e Processi, che non si stringono
+    // mai fino a diventare la sola intestazione.
+    const box = filesBoxRef.current?.offsetHeight ?? 0;
+    const testa = filesHeaderRef.current?.offsetHeight ?? 0;
+    const pavimento = testa + (expandedSections.files ? MIN_FILES_CONTENT : 0);
     dragRef.current = {
-      section,
+      below,
+      above,
       startY: e.clientY,
-      startHeight: bottomHeights[section],
-      otherSection,
-      otherStartHeight: otherSection ? bottomHeights[otherSection] : undefined,
+      startBelow: bottomHeights[below],
+      startAbove: above ? bottomHeights[above] : undefined,
+      slack: Math.max(0, box - pavimento),
     };
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
-  }, [bottomHeights]);
+  }, [bottomHeights, expandedSections.files]);
 
   if (effectiveCollapsed) {
     const open = (section: SectionId) => () => {
@@ -736,8 +772,9 @@ export function ProjectSidebar({
       <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
-        <div className="flex flex-col flex-1 min-h-0">
+        <div ref={filesBoxRef} className="flex flex-col flex-1 min-h-0">
           <div
+            ref={filesHeaderRef}
             onClick={() => toggleSection('files')}
             // Ancora stabile, come per Git e Processi: l'etichetta e' testo
             // tradotto e questo e' un TOGGLE — chi lo clicca alla cieca su una
@@ -789,6 +826,8 @@ export function ProjectSidebar({
           const active = !!firstBottom;
           return (
             <div
+              data-testid="project-sidebar-split-files"
+              data-resize-active={active ? 'true' : 'false'}
               className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
             >
@@ -853,8 +892,12 @@ export function ProjectSidebar({
           const active = expandedSections.git && expandedSections.processes;
           return (
             <div
+              data-testid="project-sidebar-split-git-processes"
+              data-resize-active={active ? 'true' : 'false'}
               className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
-              onMouseDown={active ? startBottomResize('git', 'processes') : undefined}
+              // SOTTO il divisore ci sono i Processi: sono loro a crescere
+              // quando lo si alza. Qui c'era `('git','processes')`.
+              onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
