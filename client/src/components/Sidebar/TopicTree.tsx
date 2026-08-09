@@ -776,7 +776,7 @@ export function TopicTree({
         <span className={ROW_GLYPH_SLOT}>
           <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
         </span>
-        <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
+        <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`}>{item.name}</span>
         {/* Was missing entirely: the row rendered no badge at all, so an agents
             pane could light up its TAB (pinned by tab-notifications.spec.ts
             TAB-BADGE-10/11) and stay silent here. Suppressed while focused, the
@@ -1150,7 +1150,14 @@ export function TopicTree({
 
         {/* Accordion children */}
         {isExpanded && children.length > 0 && (
-          <div>
+          // `flex flex-col`, e non un `<div>` nudo: in un contenitore a blocchi
+          // i margini verticali di due fratelli COLLASSANO, quindi i due
+          // `my-[3px]` delle card adiacenti diventavano 3px invece di 6 —
+          // MISURATO: le sotto-righe di un progetto respiravano metà delle
+          // righe di primo livello, che stanno dentro un contenitore flex.
+          // La classe dichiara mezzo passo per lato e il rendering ne dava uno
+          // solo: una spaziatura giusta nel codice e sbagliata sullo schermo.
+          <div className="flex flex-col">
             {children.map(child => {
               if (child.type === 'chat') return renderChatItem(child, 2);
               if (child.type === 'terminal') return renderTerminalItem(child, 2);
@@ -1213,7 +1220,7 @@ export function TopicTree({
             className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
           >
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
-            <span className="text-[13px] text-app-text">{label}</span>
+            <span className={TAB_LABEL}>{label}</span>
             {items.length > 0 && (
               <span className="text-[11px] text-app-text-tertiary">{items.length}</span>
             )}
@@ -1547,7 +1554,7 @@ export function TopicTree({
                 Il nome NON è l'elemento elastico: si prende quello che gli serve
                 e cede il resto al riassunto, che è la parte che cresce e che va
                 misurata. */}
-            <span className="flex-shrink-0 text-[12px] font-medium">{BOARD_LABEL}</span>
+            <span className={`flex-shrink-0 ${TAB_LABEL_TYPE}`}>{BOARD_LABEL}</span>
             {/* Di CHI sono quei task e a che punto stanno, con una sola misura e
                 una sola scala di priorità: vedi `BoardRowSummary`. */}
             <BoardRowSummary byStatus={boardByStatus} />
@@ -1578,8 +1585,14 @@ export function TopicTree({
           tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
           deve restare un letterale perché il JIT la trova nel sorgente) c'è
           `selectionStyles.test.ts`. */}
+      {/* `flex flex-col` sul contenitore che scorre, per la stessa ragione dei
+          figli dell'accordion: senza, i margini verticali dei figli DIRETTI
+          collassano fra loro e il passo dichiarato (mezzo per lato, sei in
+          totale) ne rende tre. La riga della board era la vittima visibile —
+          figlia diretta di questo contenitore, quindi 3px dalla vicina mentre
+          ogni riga dentro `SidebarRowList` (che è già flex) ne aveva 6. */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
+        className="flex flex-col flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
         style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
