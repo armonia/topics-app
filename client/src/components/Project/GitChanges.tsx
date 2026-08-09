@@ -26,7 +26,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { SECTION_TOOLS, SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 
 interface GitChangesProps {
@@ -34,6 +34,14 @@ interface GitChangesProps {
   compact?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
+  /**
+   * L'intestazione senza l'intestazione. Da quando le tre sezioni della barra
+   * di progetto stanno in una riga di chip, il nome, il chevron e l'apri/chiudi
+   * vivono lassù: qui resterebbero doppi. Con `chromeless` la testata perde il
+   * gruppo di sinistra e la sua card, e tiene solo i comandi — ramo,
+   * ahead/behind, cronologia, refresh — che non hanno altro posto dove stare.
+   */
+  chromeless?: boolean;
 }
 
 function errMessage(err: unknown): string {
@@ -201,7 +209,7 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
   }
 }
 
-export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
+export function GitChanges({ projectPath, compact = false, expanded = true, onToggle, chromeless = false }: GitChangesProps) {
   // Il pannello git era di SOLA LETTURA su touch: stage, unstage e discard
   // vivono in controlli `opacity-0 group-hover` e in un menu che si apriva
   // solo col tasto destro. Stesso gesto del resto dell'app — `openContextMenuAt`
@@ -909,14 +917,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       <div data-testid="git-changes" className={`flex flex-col ${expanded ? 'h-full min-h-0' : ''}`}>
         {/* Header — two-part layout: left flexible, right fixed (no shift) */}
         <div
-          onClick={onToggle}
-          // Stessa ancora della sezione Processi: un testid perche' l'etichetta
-          // e' testo, e `aria-expanded` perche' questo e' un TOGGLE — chi lo
-          // clicca alla cieca su una sezione gia' aperta la richiude.
-          data-testid="project-sidebar-git"
-          role="button"
-          aria-expanded={expanded}
-          className={`${SECTION_CARD} group/git`}
+          // Da `chromeless` questa NON è più un toggle: il testid, il ruolo e
+          // `aria-expanded` stanno sul chip della riga, e lasciarne una seconda
+          // copia qui darebbe due elementi con la stessa ancora — che per un
+          // test non è un dettaglio, è un locator ambiguo.
+          {...(chromeless
+            ? {}
+            : {
+                onClick: onToggle,
+                'data-testid': 'project-sidebar-git',
+                role: 'button',
+                'aria-expanded': expanded,
+              })}
+          className={chromeless ? `${SECTION_TOOLS} group/git` : `${SECTION_CARD} group/git`}
         >
           {/* Left: icon + label + chevron.
               `min-w-0` e non `flex-shrink-0`: con tutt'e due i gruppi
@@ -924,6 +937,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               (misurato a 160px, il minimo trascinabile) — il testo usciva
               semplicemente dal pannello. Ora l'etichetta tronca, e le icone
               restano perche' sono loro `flex-shrink-0`. */}
+          {!chromeless && (
           <div className="flex items-center gap-2 min-w-0">
             {/* Nessun colore addosso: l'icona sta accanto a DUE cose che il colore ce
                 l'hanno per dire qualcosa (la pastiglia col numero di modifiche, le
@@ -935,6 +949,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <span className={`truncate ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
             <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
           </div>
+          )}
           {/* Right: branch + badges + refresh */}
           {/* La propagazione si ferma solo sui CONTROLLI, non su tutto il
               gruppo. Fermarla sul contenitore rendeva morta anche l'aria fra un

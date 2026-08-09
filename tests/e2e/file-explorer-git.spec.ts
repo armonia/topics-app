@@ -9,6 +9,7 @@ import {
 import { hermetic } from "./fixtures/hermetic";
 import { writeFileSync, rmSync } from "fs";
 import { join } from "path";
+import { apriSezioneProgetto } from "./helpers/project-sections";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -104,6 +105,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // The Git section should show README.md with D status (deleted in beforeAll)
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -133,6 +135,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // Navigate to the git changes section
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -161,6 +164,7 @@ test.describe("File Explorer — Git", () => {
     page,
   }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
@@ -195,6 +199,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // The git section header shows the branch name in the right-side area
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -214,12 +219,16 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
 
-    // The Git header div toggles expand/collapse on click
-    const gitHeader = gitChanges.locator("div").filter({ hasText: /^Git$/ }).first();
+    // Il comando che apre e chiude Git non sta piu' DENTRO il pannello: sta
+    // nel chip della riga delle sezioni, e il pannello da chiusa non esiste
+    // proprio (GitChanges e' lazy e monta solo da aperta). Quindi il toggle si
+    // prende da fuori, e la sua ancora e' quella di sempre.
+    const gitHeader = page.getByTestId("project-sidebar-git").first();
     await expect(gitHeader).toBeVisible();
 
     // «La sezione mostra il suo contenuto» in UNA definizione sola.
@@ -269,6 +278,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // The Git section header is a div (not a button) rendered by GitChanges compact mode
     // Click the div containing "Git" text to toggle/expand the section
@@ -327,6 +337,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // Navigate to git section and open diff for src/index.ts
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -371,6 +382,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // Navigate to git section
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -416,6 +428,7 @@ test.describe("File Explorer — Git", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+    await apriSezioneProgetto(page, "git");
 
     // Navigate to git section
     const gitChanges = page.locator('[data-testid="git-changes"]');
@@ -496,6 +509,8 @@ test.describe("File Explorer — Git", () => {
     );
 
     await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    await apriSezioneProgetto(page, "git");
 
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
