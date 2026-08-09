@@ -90,11 +90,31 @@ verde + sonda `--json` che produce JSON parsabile).
 Mediana board vs mediana chat: **+47,0% di lavoro** e **+44,0% di rilettura
 cache**. La board è più economica in 1 replica su 3 su ciascun asse — cioè i
 singoli assi ballano — ma l'ordine per **costo** dentro la terna è
-`cli < chat < board-sim` in **3 terne su 3**, senza ribaltarsi. È l'affermazione
-più solida che questi dati sostengono, ed è: **su questo micro-task la board
-costa di più**.
+`cli < chat < board-sim` in **3 terne su 3**, senza ribaltarsi.
 
-Quindi `bun scripts/board-vs-chat.ts` **esce 1**, e quel rosso è la misura, non
+### E però queste nove corse rispondono alla domanda sbagliata
+
+Tutte a `medium`, «per correttezza». Ma le due superfici non girano allo stesso
+effort, e non è un dettaglio:
+
+- **board** → `board_settings.dispatch_effort` per `topics-app-ar3jt5` è
+  `medium`. Quel braccio era già giusto.
+- **chat** → senza override per-topic, `resolveClaudeEffort`
+  (`server/lib/topics-agent-prompt.ts`) cade sul default **`xhigh`**.
+
+Cioè il braccio di paragone girava a un terzo di gas rispetto a una chat vera, e
+il +47% misurava in buona parte quello. **Non è la penalità della board: è un
+tetto alla penalità della board.** Pareggiare l'effort a mano sembra la cosa
+onesta e non lo è — misura una terza superficie che non usa nessuno.
+
+Per questo il bundle ha un quarto braccio, `chat-xhigh`, e `paired` ora significa
+«stesso albero, stesso modello, stesso testo»: l'effort è una mappa per braccio
+(`effortByArm`) con `sameEffort` a dichiarare l'asimmetria invece di nasconderla.
+Il confronto che decide «da oggi solo board?» è **board contro `chat-xhigh`**; il
+braccio `chat` a medium resta come controllo a effort pari.
+
+Quindi `bun scripts/board-vs-chat.ts` **esce 3** (misura negativa; `1` è
+riservato all'attrezzo rotto), e quel rosso è la misura, non
 un guasto: non si aggiusta con `--tolerance-pct` (misurato: verde solo da **+48%**
 in su — e prima di aggregare le repliche serviva +70%, perché il cancello
 inseguiva il peggior campione singolo). Nessuna soglia dentro un intervallo
