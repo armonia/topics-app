@@ -89,6 +89,10 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     // ── vuota → se ne va ────────────────────────────────────────────────
     await newChat(page);
     await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
+    // Un attimo sulla bozza: una che non hai mai guardato non l'hai mai
+    // lasciata, e la regola lo dice (DRAFT_MIN_LOOKED_AT_MS). Senza questa
+    // attesa il test misurerebbe il caso opposto a quello che vuole.
+    await page.waitForTimeout(800);
     // Torno sulla chat che c'era: il foglio bianco non ha più ragione di stare.
     await page
       .locator('[data-testid="panel-tab-bar"]')
@@ -104,6 +108,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     const composer = page.getByRole("textbox", { name: /Message input for New Chat/ });
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await composer.fill("questo non deve sparire");
+    await page.waitForTimeout(800);
     await page
       .locator('[data-testid="panel-tab-bar"]')
       .first()
@@ -111,8 +116,41 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
       .first()
       .click();
     // Un secondo pieno oltre il tempo in cui la chiusura sarebbe scattata.
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
     await expect(draftTabs(page)).toHaveCount(1);
+  });
+
+  test("appena aperta non si chiude da sola, nemmeno con altre tab davanti", async ({ page, request }) => {
+    // «Se sono su un'altra tab e faccio nuova tab dalla tab, mi si apre al volo
+    // ma poi mi si chiude subito.» Il fuoco di una pane appena nata RIMBALZA
+    // (React → bozza, il ponte store→React rimanda il vecchio, poi torna): sul
+    // primo di quei fotogrammi la bozza risulta «lasciata» pur essendo appena
+    // arrivata. Qui si misura che non basta perdere il fuoco per un istante.
+    const other = await createTopic(request, `Draft Sibling ${Date.now()}`);
+    try {
+      await resetPaneStore(request, [topicId, other.id]);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      for (const n of [topicName, other.name]) {
+        await ensureTopicVisible(page, new RegExp(n));
+        await page.getByRole("treeitem", { name: new RegExp(n) }).first().dblclick();
+      }
+      await expect(page.locator('[role="main"]')).toBeVisible({ timeout: 10_000 });
+
+      // Il «+» della barra, che è la strada segnalata.
+      await page.getByTitle("Add pane").first().click();
+      await page.getByTestId("pane-add-menu-new-chat").first().click();
+
+      await expect(draftTabs(page)).toHaveCount(1, { timeout: 5_000 });
+      // Ben oltre la finestra della chiusura differita: se rimbalza, muore qui.
+      await page.waitForTimeout(2000);
+      await expect(draftTabs(page)).toHaveCount(1);
+      await expect(
+        page.getByRole("textbox", { name: /Message input for New Chat/ }),
+      ).toBeFocused({ timeout: 5_000 });
+    } finally {
+      await deleteTopic(request, other.id);
+    }
   });
 
   test("il composer sta al centro finché la chat è vuota, poi si aggancia in fondo", async ({ page }) => {
