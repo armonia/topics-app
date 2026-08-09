@@ -26,7 +26,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
+import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 
 interface GitChangesProps {
@@ -1080,8 +1080,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 return (
                   <div
                     key={`${group}-${file.path}`}
-                    className={`flex items-center gap-1.5 px-3 py-[3px] transition-colors group/file cursor-pointer select-none ${
-                      isSelected ? SELECTED_SURFACE : 'hover:bg-app-hover'
+                    // `TREE_ROW_CARD`: incasso + raggio + hover in alpha, come
+                    // ogni riga della colonna. Era full-bleed con `px-3` — due
+                    // px in piu' del canonico e nessun rientro — cioe' una
+                    // fascia sotto un'intestazione che e' una card.
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] group/file cursor-pointer select-none ${
+                      isSelected ? SELECTED_SURFACE : ''
                     }`}
                     title={fileTitle(file)}
                     // Ancore stabili: il `title` e il testo cambiano (rename,
@@ -1356,8 +1360,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return (
       <div
         key={`${group}-${file.path}`}
-        className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group select-none ${
-          isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : 'hover:bg-app-hover'
+        // Stessa forma delle righe dell'albero dei file: la card, senza il suo
+        // passo verticale. Vedi TREE_ROW_CARD.
+        className={`flex items-center gap-2 ${TREE_ROW_CARD} px-2 py-[4px] cursor-pointer text-[12px] group select-none ${
+          isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : ''
         }`}
         title={fileTitle(file)}
         data-git-file={file.path}

@@ -197,6 +197,12 @@ interface PaneTabBarProps {
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
   hasLeftOverlay?: boolean;
+  /** C'è un blocco IN TESTA alla riga, prima della strip — la card del progetto,
+   *  che `GroupLayout` monta nel suo `leadingSlot`. La barra non lo disegna e
+   *  non lo può misurare: deve solo sapere che c'è, per non sommare il proprio
+   *  incasso a quello che quel blocco ha già messo. Vedi il commento sulla
+   *  strip. */
+  hasLeadingBlock?: boolean;
   /**
    * Whether THIS group currently owns focus. When false, the tab-bar still
    * renders `activePaneId` as the local-active fallback (for content render
@@ -226,7 +232,7 @@ interface PaneTabBarProps {
   subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -849,9 +855,30 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         //     — «hai fatto i tasti più piccoli ma non dovevi» (Attilio, 09/08).
         // Il verticale non era un problema di box ma di predicato, e sta nella
         // classe della tab qui sotto.
+        // …e il quarto giro: DUE SEI IN FILA, che singolarmente sono giusti.
+        //
+        // «Il + della tabbar progetto è troppo lontano dal trigger sidebar
+        // (quando chiuso)» (Attilio, 10/08). Misurato: trigger a 442, «+» a 454
+        // — DODICI, dove ogni altra coppia della barra ne ha sei. Non è un
+        // numero sbagliato, è una somma: 6 di incasso della strip dal blocco che
+        // la precede, PIÙ i 6 che la riserva lascia fra l'ultima tab e il
+        // comando. Con delle tab in mezzo i due 6 misurano due cose diverse e il
+        // conto è giusto; con la strip VUOTA misurano lo stesso vuoto due volte,
+        // e il bottone si stacca dal trigger del doppio.
+        //
+        // Quindi l'incasso sinistro cade solo in quel caso: c'è un blocco in
+        // testa (la card del progetto) e non c'è nessuna tab a separarlo dal
+        // comando. È la stessa regola della colonna — «il primo non porta la sua
+        // metà perché sopra c'è chi l'ha già messa» — applicata in orizzontale.
         className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
-        } ${hasLeftOverlay ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+        } ${
+          hasLeftOverlay
+            ? CHROME_ROW_ACTION_RESERVE_LEFT
+            : hasLeadingBlock && panes.length === 0
+              ? 'pl-0'
+              : 'pl-1.5'
+        }`}
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;

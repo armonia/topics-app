@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Play, Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 import { useDetectedScripts } from '../../hooks/useDetectedScripts';
@@ -178,7 +179,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               // «test» esatto non trova «testCargo.toml».
               data-script-id={id}
               data-script-from={from}
-              className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+              className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
               onClick={() => {
                 if (isStopping) return;
                 if (running) {
@@ -259,7 +260,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
           return (
             <div key={sp.processId}>
               <div
-                className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+                className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
                 onClick={() => { if (!isStopping) onOpenProcessLog?.(sp.processId, sp.scriptName); }}
                 title={sp.command}
               >
@@ -316,7 +317,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
             <div
               data-testid="shell-process-row"
               data-shell-id={sp.shellId}
-              className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+              className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${isStopping ? 'opacity-60' : ''}`}
               onClick={() => { if (!isStopping) onOpenProcessLog?.(sp.processId, sp.scriptName); }}
               title={sp.command}
             >
