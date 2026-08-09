@@ -710,6 +710,32 @@ export const CHROME_BAR_SUB =
 export const CHROME_BAR_SUB_H_CLASS = '[--chrome-bar-h:40px] md:[--chrome-bar-h:34px]';
 
 /**
+ * LA BARRA È GIÀ STATA SCAVALCATA: da qui in giù non va più riservata.
+ *
+ * `--chrome-bar-h` esiste perché `.pane-chrome-bar` è ASSOLUTA — non occupa
+ * spazio nel flusso — quindi chi le sta sotto deve farsi il posto da sé: le
+ * celle col rientro (`paneCellTopInset`) e la conversazione col varco in cima.
+ * Un solo numero, due lettori.
+ *
+ * Poi è arrivato un terzo elemento IN MEZZO: la riga dei comandi del progetto,
+ * che sta nel flusso e si scavalca la barra da sola con `mt-[var(--chrome-bar-h)]`.
+ * Da quel momento i lettori erano tre e il conto si faceva DUE volte — la riga
+ * scendeva di 34, e la cella sotto di lei ne aggiungeva altri 34 per una barra
+ * che non aveva più niente sopra la testa.
+ *
+ * MISURATO sulla finestra vera, in scuro, a 1720×1410: fra la fine dei tre
+ * comandi (y=105) e il primo pixel di contenuto (y=144) c'erano TRENTOTTO pixel
+ * di niente. «C'era però una riga extra a caso» (Attilio, 10/08): non era una
+ * riga, era la stessa barra contata due volte.
+ *
+ * La regola è quindi: chi ha già scavalcato la barra la AZZERA per ciò che ha
+ * sotto. Vale per entrambi i lettori insieme, ed è giusto che li spenga
+ * entrambi — se fra la barra e la chat c'è una riga, la chat non passa più sotto
+ * la barra e nemmeno il suo varco serve.
+ */
+export const CHROME_BAR_CONSUMED = '[--chrome-bar-h:0px]';
+
+/**
  * Il diametro DISEGNATO del cerchio «fatto / chiudi» (`PendingActionRing`).
  * Era 14 dentro un box da 24: un pallino. A 16 dentro {@link ROW_ACTION_BOX}
  * resta un anello sottile con la sua aria attorno, e si vede cosa si sta per
