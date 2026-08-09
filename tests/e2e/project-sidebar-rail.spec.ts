@@ -118,9 +118,12 @@ test.describe("sidebar progetto: la rail collassata", () => {
       expect(h, `altezza di un elemento della striscia: ${boxes.join(", ")}`).toBe(attesa);
     }
 
-    // 5. IL NOME DEL PROGETTO c'è. Chiusa, prima, il progetto era senza nome:
-    //    tre icone identiche in ogni finestra.
-    await expect(strip.getByTestId("project-rail-inline-name")).toHaveText(PROJ.split("/").pop()!);
+    // 5. NIENTE NOME DEL PROGETTO, ed è voluto: c'è stato per un giro e Attilio
+    //    l'ha tolto (09/08). La riga sopra porta già la tab del progetto col suo
+    //    nome, e ripeterlo un rigo sotto sono due card con la stessa parola a
+    //    40px di distanza. L'asserzione è negativa e resta: senza, il giorno che
+    //    qualcuno lo rimette nessuno se ne accorge finché non lo vede.
+    await expect(strip.getByTestId("project-rail-inline-name")).toHaveCount(0);
 
     // 6. La pastiglia git porta il numero delle modifiche.
     //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:

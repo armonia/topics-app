@@ -4,9 +4,8 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
-import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_LABEL } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, ROW_ACTION_BOX, TAB_GAP_CLASS } from '../../lib/selectionStyles';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
@@ -482,12 +481,13 @@ export function ProjectSidebar({
       </>
     );
 
-    // SOLO col mouse. Sul telefono la riga di chrome è la stessa `h-10` ma la
-    // larghezza è 390: espandi + nome + tre comandi fanno ~330px, cioè la barra
-    // intera, e le tab non avrebbero più dove stare. Là la colonna chiusa resta
-    // la rail di sempre — il cassetto a tutto schermo è comunque la sua forma
-    // aperta, e la rail è un ripiego che occupa 40px e basta.
-    if (inlineSlot && !isMobile) {
+    // ANCHE COL DITO, e ci si arriva togliendo il nome. Con la card del titolo
+    // la striscia faceva ~330px su uno schermo da 390: la barra intera, senza
+    // più posto per le tab, e per questo il primo taglio la teneva spenta sul
+    // telefono. Senza nome sono quattro box da 36 con 6 di aria — ~160px — e
+    // «sulla versione mobile anche doveva essere aggiornata» (Attilio, 09/08)
+    // diventa una cosa che ci sta.
+    if (inlineSlot) {
       return createPortal(
         <div
           data-testid="project-rail-inline"
@@ -500,7 +500,7 @@ export function ProjectSidebar({
           // cedere dev'essere il NOME (che tronca), non i comandi (che
           // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
           // pressione arriva tutta sulla card del titolo.
-          className="flex items-center gap-0.5 pl-1.5 min-w-0 app-no-drag"
+          className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
           {...NO_DRAG_REGION}
         >
           <SidebarToggleButton
@@ -510,21 +510,12 @@ export function ProjectSidebar({
             icon={PanelLeftOpen}
             className={`edge-lit ${RAISED_CONTROL} rounded-lg`}
           />
-          {/* IL NOME DEL PROGETTO, che chiusa non si vedeva da nessuna parte.
-              È una CARD come una tab — stesso fondo a riposo, stesso corpo,
-              stesso incasso, stessa altezza — perché è la stessa famiglia di
-              cose: dice DOVE sei, come una tab dice COSA guardi. Cliccarla
-              riapre la colonna: il nome è l'intestazione di quella colonna, e
-              il gesto più ovvio su un titolo è aprire ciò che intitola. */}
-          <button
-            onClick={onToggleCollapse}
-            title={projectName}
-            data-testid="project-rail-inline-name"
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors cursor-pointer select-none min-w-0 max-w-[180px] flex-shrink`}
-          >
-            <ProjectFavicon path={projectPath} size={14} width={18} />
-            <span className="truncate">{projectName}</span>
-          </button>
+          {/* NIENTE NOME DEL PROGETTO qui, ed è una rimozione voluta (Attilio,
+              09/08, subito dopo averlo visto): la riga sopra porta già la tab
+              del progetto col suo nome, e ripeterlo un rigo sotto vuol dire
+              scrivere due volte la stessa parola in due card diverse a 40px di
+              distanza. Chiusa, la barra deve dire cosa si può APRIRE, non dove
+              sei — quello lo dice già la tab che ti ha portato qui. */}
           {comandi(true)}
         </div>,
         inlineSlot,

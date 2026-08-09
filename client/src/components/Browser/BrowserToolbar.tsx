@@ -248,7 +248,13 @@ export function BrowserToolbar({
   }, [url]);
 
   return (
-    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 chrome-glass border-b border-app-border">
+    // `chrome-row-solid` + `h-10`: è una riga di chrome come le altre, e ora lo
+    // dice anche il suo fondo. Era `chrome-glass` e basta, cioè sotto la shell
+    // mac una tinta decisa da chi la contiene invece che da lei (vedi index.css);
+    // e `py-1.5` la faceva alta quanto il suo contenuto, cioè 40 finché i
+    // bottoni sono 28 e un altro numero al primo che cambia. L'altezza della
+    // riga di chrome è una costante dell'app, non un risultato.
+    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 h-10 flex-shrink-0 chrome-row-solid border-b border-app-border">
       {/* Phase 30.1 polish — Chrome-style indeterminate progress bar at the
           bottom of the toolbar while loading. Inline keyframes + minimal
           DOM (single absolutely-positioned bar, ~3 LOC). */}
