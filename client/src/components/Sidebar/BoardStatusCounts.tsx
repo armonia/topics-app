@@ -1,22 +1,23 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
-import { STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
+import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
-  boardProjectChips, fitBoardRow, CHIP_MODES,
-  type BoardProjectChip, type ChipMode,
+  boardProjectChips, fitBoardRow, CHIP_SPACING, CHIP_INNER_GAP, GROUP_SPACING, CHIP_W_ICON, chipWidth, contaLeggibile,
+  type BoardProjectChip,
 } from './boardProjectChips';
 
-/** La larghezza di ogni gradino, indicizzata dal modo. Derivata da `CHIP_MODES`
- *  e non riscritta: la scala e le sue misure vivono nel modulo puro, che è anche
- *  quello che l'aritmetica del ritaglio legge — due copie divergerebbero, e la
- *  pastiglia si disegnerebbe di una misura diversa da quella prenotata. */
-const CHIP_W: Record<ChipMode, number> = Object.fromEntries(
-  CHIP_MODES.map(({ mode, w }) => [mode, w]),
-) as Record<ChipMode, number>;
+/** La scatola dell'icona: `CHIP_W_ICON` meno niente, perché senza superficie la
+ *  pastiglia non ha più padding — lo slot È la pastiglia, nel gradino povero. */
+const ICON_SLOT_W = CHIP_W_ICON;
+
+/** Il `gap-2` del bottone della riga «Board», dove questo riassunto è un
+ *  fratello dell'etichetta. Serve a sapere quanto manca per arrivare a
+ *  `GROUP_SPACING`: è l'unico numero che questo file non controlla. */
+const BOARD_ROW_GAP = 8;
 
 /**
  * Gli stati riassunti sulla riga: chi aspetta te, e chi sta lavorando.
@@ -72,7 +73,7 @@ const SUMMARY_STATUSES: readonly TaskStatus[] = ['review', 'in_progress'];
  * `leading-none` dal bottone della board, e `leading-none` + `overflow-hidden`
  * insieme tranciano le discendenti di g, p, q.
  */
-function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode }) {
+function ProjectChip({ chip }: { chip: BoardProjectChip }) {
   return (
     <span
       data-testid={`board-project-${chip.projectId}`}
@@ -80,22 +81,47 @@ function ProjectChip({ chip, mode }: { chip: BoardProjectChip; mode: ChipMode })
       // l'unico posto in cui la pastiglia dice di chi è, e senza di esso
       // un'icona sconosciuta sarebbe un enigma invece di una scorciatoia.
       title={`${chip.name}: ${chip.n} task aperti`}
-      className="flex min-w-0 flex-shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1 py-px text-[11px] dark:bg-white/[0.07]"
-      style={{ width: CHIP_W[mode] }}
+      // NIENTE SUPERFICIE. Aveva fondo e angoli tondi, cioè la forma di un
+      // bottone — «che non sembrino cliccabili» (Attilio, 08/08), ed era vero:
+      // in una sidebar dove ogni cosa con un fondo si preme, una pastiglia con
+      // un fondo promette un click che non c'è. Il raggruppamento lo fa adesso
+      // la distanza (`CHIP_SPACING` doppio del gap fra i blocchi), che è come si
+      // raggruppa senza disegnare un contorno.
+      className="flex min-w-0 flex-shrink-0 items-center text-[11px]"
+      // La larghezza viene da `chipWidth(n)`, la STESSA funzione che l'aritmetica
+      // del ritaglio usa per decidere quante ce ne stanno. Con una misura fissa
+      // per tutte, una pastiglia da una cifra si portava dietro 7px di vuoto in
+      // coda e il divario fra due coppie cambiava col numero.
+      style={{ width: chipWidth(chip.n), gap: CHIP_INNER_GAP }}
     >
-      {/* Lo slot è 20×12, non 12×12: un logo-scritta in un quadrato da 12 rende
-          4-5px di inchiostro (misurato), cioè si legge come «l'icona non c'è».
-          Vedi `CHIP_W_*` e il parametro `width` di ProjectFavicon. */}
-      <span className="flex w-5 flex-shrink-0 justify-center">
-        <ProjectFavicon path={chip.path} size={12} width={20} />
+      {/* Lo slot è 20×14 — l'altezza è quella standard dell'app, la larghezza
+          serve ai logo-scritta. Le misure e il perché stanno accanto a
+          `CHIP_W_ICON`, che è anche il numero che l'aritmetica del ritaglio
+          prenota: qui si LEGGE quella costante invece di riscriverla. */}
+      <span className="flex flex-shrink-0 justify-center" style={{ width: ICON_SLOT_W }}>
+        <ProjectFavicon path={chip.path} size={STATUS_GLYPH_PX} width={ICON_SLOT_W} />
       </span>
-      {mode === 'icon-count' && (
+      {/* Il numero c'è SEMPRE, perché una pastiglia che non può mostrarlo non
+          arriva fin qui: il filtro sta a monte, in `BoardRowSummary`, e usa lo
+          stesso `contaLeggibile` che dimensiona questa scatola. Prima il
+          controllo era qui e lasciava passare l'icona da sola — che accanto a
+          pastiglie complete si legge come un progetto con zero task. */}
+      {(
         // NIENTE DIVISORE. Serviva a staccare il numero dal NOME, quando il
         // nome c'era: due testi dello stesso corpo a 4px di distanza si
         // leggevano come una parola sola. Senza nome non c'è niente da cui
         // staccarlo, e la riga verticale diventerebbe un tratto in più fra due
         // cose che nessuno confonde — un'icona e una cifra.
-        <span className="flex-1 text-right tabular-nums text-app-text-secondary">{chip.n}</span>
+        // Il numero sta ATTACCATO alla sua icona, non spinto a destra.
+        //
+        // Era `flex-1 text-right`, e la larghezza della pastiglia è PRENOTATA
+        // per due cifre: con una cifra sola il numero si trovava a ~11px
+        // dall'icona invece che a 4 — e il vuoto lo faceva sembrare il numero
+        // della pastiglia dopo. «I contatori sono troppo lontani dalle icone»
+        // (Attilio, 08/08). Lasciando fluire il testo, il gap è sempre il
+        // `gap-1` del contenitore e l'aria in eccesso finisce in coda, dove
+        // separa le coppie invece di spezzarle.
+        <span className="tabular-nums text-app-text-secondary">{chip.n}</span>
       )}
     </span>
   );
@@ -161,7 +187,15 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
    * la riga nasce già composta invece di ricomporsi sotto gli occhi.
    */
   const conIcona = useProjectIconsPresent(useMemo(() => tutti.map((c) => c.path), [tutti]));
-  const chips = useMemo(() => tutti.filter((c) => c.path && conIcona.has(c.path)), [tutti, conIcona]);
+  const chips = useMemo(
+    // DUE condizioni, non una: serve l'icona (è l'unica identità che la
+    // pastiglia mostra) E un conteggio che ci stia per intero. «Non dovremmo
+    // mostrare un'icona se non si riesce a vedere completamente il suo
+    // conteggio» — un'icona senza numero non dice ciò per cui questa riga
+    // esiste, e accanto a pastiglie complete si legge come «zero task».
+    () => tutti.filter((c) => c.path && conIcona.has(c.path) && contaLeggibile(c.n)),
+    [tutti, conIcona],
+  );
   /** Quelli tolti dal filtro: il «+N» li deve contare, o la riga direbbe che i
    *  progetti con lavoro aperto sono meno di quanti sono. */
   const senzaIcona = tutti.length - chips.length;
@@ -222,7 +256,32 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
   if (tutti.length === 0 && counts.length === 0) return null;
 
   return (
-    <div ref={measureRef} data-testid="board-row-summary" className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div
+      ref={measureRef}
+      data-testid="board-row-summary"
+      // UN PASSO SOLO fra i tre gruppi — etichetta della board, pastiglie dei
+      // progetti, conteggi di stato — ed è lo stesso che separa due pastiglie.
+      // Prima erano due (6 fra i blocchi, 12 fra le pastiglie) più un `ml-auto`
+      // che spingeva i conteggi a destra: la distanza fra i gruppi dipendeva
+      // dallo spazio che avanzava, cioè cambiava a ogni progetto in più.
+      // «Teniamo spaziatura uniforme fra board, conteggio progetti e conteggi
+      // stati» (Attilio, 08/08).
+      className="flex min-w-0 flex-1 items-center"
+      // IL MARGINE SINISTRO NON È UN VEZZO: l'etichetta «Board» sta FUORI da
+      // questo contenitore — è un fratello, dentro il bottone della riga, che
+      // ha il suo `gap-2`. Spaziare qui dentro non poteva quindi allontanare i
+      // progetti dall'etichetta, ed è per questo che «ancora non c'è spazio fra
+      // board, progetti e status»: due dei tre gruppi non erano nemmeno nello
+      // stesso flex. Il margine recupera la differenza fino a `GROUP_SPACING`,
+      // così il primo stacco vale quanto il secondo.
+      style={{ gap: GROUP_SPACING, marginLeft: GROUP_SPACING - BOARD_ROW_GAP }}
+    >
+      {/* IL GRUPPO DEI PROGETTI: le pastiglie e il loro «+N».
+          Il «+N» stava fuori, a `GROUP_SPACING` dalle pastiglie — «il conteggio
+          dei progetti che non si vedono è troppo distante» (Attilio, 08/08), e
+          giustamente: parla DI LORO, quindi appartiene al loro gruppo e sta al
+          loro passo. Fuori resta solo il confine col gruppo dei conteggi. */}
+      <div className="flex min-w-0 items-center" style={{ gap: CHIP_SPACING }}>
       <div
         // Il nome NON comincia per `board-project-`, ed è deliberato: BOARD-14
         // ancora la pastiglia con un locator a PREFISSO
@@ -242,10 +301,18 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         // cioè il ritaglio delle pastiglie si leggerebbe come parte dei numeri
         // di stato. Lo spazio che avanza se lo prende il `ml-auto` dei
         // conteggi, così il «+N» resta attaccato a ciò che sta ritagliando.
-        className="flex min-w-0 items-center gap-1.5 overflow-hidden"
+        // Il passo fra le pastiglie viene dalla COSTANTE, non da una classe
+        // Tailwind: è lo stesso numero che `fitProjectChips` usa per decidere
+        // quante ce ne stanno, e due copie divergerebbero — la riga si
+        // disegnerebbe con un passo diverso da quello prenotato, cioè
+        // sborderebbe o lascerebbe un buco. (Tailwind scansiona il sorgente come
+        // TESTO, quindi una classe composta da una variabile non genererebbe
+        // nemmeno il CSS.)
+        className="flex min-w-0 items-center overflow-hidden"
+        style={{ gap: CHIP_SPACING }}
       >
         {fitted.chips.shown.map((chip) => (
-          <ProjectChip key={chip.projectId} chip={chip} mode={fitted.chips.mode} />
+          <ProjectChip key={chip.projectId} chip={chip} />
         ))}
       </div>
       {/* Il ritaglio è DICHIARATO — «+2» — invece di lasciar sparire dei
@@ -261,8 +328,22 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
           +{nascosti}
         </span>
       )}
+      </div>
       {(fitted.counts.shown.length > 0 || rolled) && (
-        <span className="ml-auto flex flex-shrink-0 items-center gap-1.5" data-testid="board-status-counts">
+        <span
+          // `ml-auto`: i conteggi si appoggiano al BORDO DESTRO della riga.
+          //
+          // Era stato tolto per rendere uniformi i tre stacchi, ma la riga è
+          // `flex-1` e lo spazio che avanza deve pur finire da qualche parte:
+          // senza `ml-auto` finiva DOPO i conteggi — «hanno spazio a destra che
+          // non dovrebbero avere» (Attilio, 08/08). Con l'auto quello spazio
+          // torna PRIMA di loro, dove si legge come lo stacco fra due gruppi
+          // invece che come una coda vuota. `GROUP_SPACING` resta comunque il
+          // minimo garantito dall'aritmetica del ritaglio: l'auto può solo
+          // allargarlo, mai stringerlo.
+          className="ml-auto flex flex-shrink-0 items-center gap-1.5"
+          data-testid="board-status-counts"
+        >
           {fitted.counts.shown.map(({ status, n }) => (
             <span
               key={status}

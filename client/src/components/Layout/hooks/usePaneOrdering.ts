@@ -215,6 +215,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     }
   }, [validatedOrderedIds, orderedIds]);
 
+
   // 5. effectivePinnedIds with contents-equality cache (ISSUE 23 / B7).
   const prevEffectivePinnedRef = useRef<Set<string>>(new Set());
   const effectivePinnedIds = useMemo(() => {

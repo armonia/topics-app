@@ -36,12 +36,6 @@ export interface Grant {
   resourceType: ResourceType;
   resourceId: string;
   level: GrantLevel;
-  /** Da dove viene: `null` = concessa a mano, valorizzata = derivata da un
-   *  contenitore. È ciò che rende rispondibile «perché costui vede questa cosa?»
-   *  e che permette di togliere in blocco ciò che un contenitore aveva dato
-   *  senza toccare le concessioni esplicite. */
-  viaType: string | null;
-  viaId: string | null;
   grantedAt: number;
 }
 

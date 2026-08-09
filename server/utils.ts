@@ -257,6 +257,9 @@ export function createAppContext(baseDir: string): AppContext {
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
+    /** Quante righe ha la sessione INTERA, rami morti compresi. È ciò che la
+     *  cancellazione colpisce davvero: il ramo attivo è un sottoinsieme. */
+    countMessagesBySession: db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE session_key = ?`),
 
     // Branching
     getMessageById: db.prepare(`SELECT * FROM messages WHERE id = ?`),
@@ -779,9 +782,17 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  // Il modulo push-triggers è puro; qui gli passiamo l'unico aggancio al DB che
-  // gli serve — il nome del topic per il titolo della push di fine risposta.
-  configurePushTriggers({ getTopicName: (topicId) => getTopicById(topicId)?.name ?? null });
+  // Il modulo push-triggers è puro; qui gli passiamo i due agganci al DB che gli
+  // servono — il nome del topic per il titolo della push di fine risposta, e se
+  // quel topic è da zittire (archiviato o mutato). Un topic che non esiste più
+  // conta come zittito: non c'è niente da nominare e nessuno da svegliare.
+  configurePushTriggers({
+    getTopicName: (topicId) => getTopicById(topicId)?.name ?? null,
+    isTopicSilenced: (topicId) => {
+      const t = getTopicById(topicId);
+      return !t || !!t.archived || !!t.muted;
+    },
+  });
 
   /**
    * Load a single topic by sessionKey. Same constant-time read as
@@ -940,6 +951,19 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function loadLocalMessages(sessionKey: string, opts?: { withBlocks?: boolean }): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);
+  }
+
+  /**
+   * Quante righe ha la sessione INTERA — rami abbandonati compresi.
+   *
+   * Serve a chi deve DECIDERE su una cancellazione: `loadLocalMessages` dà il
+   * ramo attivo, ma `saveLocalMessages(sk, [])` cancella tutta la session_key.
+   * Decidere sul sottoinsieme e distruggere l'insieme è come contare le stanze
+   * di un piano e demolire il palazzo.
+   */
+  function countMessagesBySession(sessionKey: string): number {
+    const row = stmts.countMessagesBySession.get(sessionKey) as { n?: number } | undefined;
+    return row?.n ?? 0;
   }
 
   /**
@@ -1946,7 +1970,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState,
     loadUnread, saveUnread,
-    loadLocalMessages, saveLocalMessages, appendLocalMessage,
+    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,

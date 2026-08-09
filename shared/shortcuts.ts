@@ -74,7 +74,13 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['⌘', 'Z'], description: 'Undo (layout, tabs)' },
       { keys: ['⌘', '⇧', 'Z'], description: 'Redo' },
       { keys: ['⌘', ','], description: 'Settings' },
-      { keys: ['⌘', '?'], description: 'Keyboard shortcuts', native: { chars: ['/', '?'] } },
+      // Scritta `⌘/` e non `⌘?`: la scorciatoia risponde a tutte e due (vedi
+      // `native.chars`, e l'handler in useKeyboardShortcuts), ma il `?` su una
+      // tastiera italiana è Shift+' — un tasto che il promemoria non nominava,
+      // e infatti: «vedo command punto interrogativo come shortcut, ma io non
+      // ce l'ho da tastiera». `/` è la forma che si scrive uguale ovunque ed è
+      // quella che scrivono anche gli altri.
+      { keys: ['⌘', '/'], description: 'Keyboard shortcuts', native: { chars: ['/', '?'] } },
     ],
   },
   {

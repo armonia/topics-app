@@ -91,28 +91,86 @@ export function boardProjectChips(
  * discriminante più forte di un nome troncato e non si può confondere con un
  * glifo di stato.
  *
- * · `CHIP_W_ICON_COUNT` = 46 — 8 di padding + 20 di slot icona + 4 + 14 di
- *   numero (due cifre tabellari a 11px).
- * · `CHIP_W_ICON` = 28 — solo icona: 8 + 20. Il gradino di emergenza, quando
- *   nemmeno una da 46 ci sta.
+ * · `CHIP_W_ICON_COUNT` = 36 — 20 di slot icona + 2 + 14 di numero (due cifre
+ *   tabellari a 11px). Niente padding: la pastiglia non ha più una superficie
+ *   da riempire.
+ * · `CHIP_W_ICON` = 20 — la sola SCATOLA DELL'ICONA, che il componente legge
+ *   per dimensionare lo slot. Non è più un gradino della scala: una pastiglia
+ *   senza il suo numero non si disegna affatto (vedi `CHIP_MODES`).
  *
  * Fisse, non «quanto serve»: una pastiglia che si adatta al contenuto
  * cambierebbe misura quando l'icona atterra, e con lei cambierebbe il NUMERO di
  * pastiglie visibili, a cose ferme. Lo slot è dichiarato e l'icona ci entra
  * dentro.
  *
- * LO SLOT È 20 E NON 12, ed è una decisione presa coi numeri sul tavolo: in un
- * quadrato da 12 un logo-scritta (`acquapub` 256×119, `edm-contratto` 3235×1224)
- * rende 4-5px di inchiostro, cioè niente. In 20×12 si vede. Lo pagano anche i
- * loghi quadrati, che restano 12×12 centrati con 4px di aria per lato.
+ * LO SLOT È 20×14, e le due misure rispondono a due cose diverse.
+ * L'ALTEZZA è 14 perché è quella standard dell'app — lo stesso `ROW_GLYPH` dei
+ * glifi di stato che le stanno accanto: «le icone a volte sono troppo
+ * piccoline, facciamole normali come tutte le altre icone dell'app» (Attilio,
+ * 08/08). La LARGHEZZA è quasi il doppio perché `object-contain` scala per il
+ * lato vincolante: un logo-scritta (`acquapub` 256×119, `edm-contratto`
+ * 3235×1224) in un quadrato da 14 renderebbe 5-6px di inchiostro, cioè si
+ * legge come «l'icona non c'è». In 20×14 rende 20×7,6.
+ *
+ * VENTI e non 24, e il motivo è la DISTANZA DAL NUMERO. `object-contain` centra
+ * l'inchiostro nella scatola: un logo quadrato rende 14×14 in mezzo a 24, cioè
+ * 5px di aria per lato, che si sommano ai 4 del `gap` — il numero finiva a 9px
+ * dal suo glifo. «Il conteggio task è ancora troppo lontano dalla propria
+ * icona» (Attilio, 08/08). A 20 l'aria scende a 3 e la distanza vera a 7. Meno
+ * non si può senza far sparire i logo-scritta, che è il difetto da cui veniamo.
  *
  * SONO UNA SCALA, non due varianti da scegliere: si prova la più ricca e si
  * scende solo quando non ne entra NEMMENO UNA.
  */
-export const CHIP_W_ICON_COUNT = 46;
-export const CHIP_W_ICON = 28;
-/** Lo spazio fra due elementi della riga (`gap-1.5`, lo stesso passo). */
+export const CHIP_W_ICON_COUNT = 36;
+export const CHIP_W_ICON = 20;
+/** Lo spazio fra due CONTEGGI DI STATO, dentro il loro gruppo (`gap-1.5`, lo
+ *  stesso passo del resto della sidebar). Fra i GRUPPI corre `GROUP_SPACING`,
+ *  fra due pastiglie `CHIP_SPACING`: tre passi, tre livelli di parentela. */
 export const CHIP_GAP = 6;
+/**
+ * Lo spazio fra due PASTIGLIE, che è il doppio di quello fra i blocchi — e non
+ * è una preferenza, è ciò che tiene in piedi il raggruppamento adesso che la
+ * pastiglia non ha più una superficie.
+ *
+ * «Che abbiano bene le spaziature intorno e che non sembrino cliccabili»
+ * (Attilio, 08/08). Il fondo (`bg-black/[0.05]`) e gli angoli tondi erano ciò
+ * che diceva «bottone»: tolti quelli, a legare l'icona col SUO numero resta
+ * solo la distanza — dentro la pastiglia i due pezzi stanno a 2px.
+ *
+ * SEI, sceso da 12 e poi da 8. Il problema non era lo stacco DAI conteggi —
+ * quello è 28 — ma che i progetti non si leggevano come UNA cosa: a 12px l'uno
+ * dall'altro erano elementi sparsi, e un elemento sparso in più (il conteggio
+ * di stato) non si distingue da loro. Stretti diventano un blocco, e un blocco
+ * si stacca da ciò che gli sta a 28 molto meglio di una fila larga.
+ *
+ * Sei è anche il passo della colonna (`ROW_INSET`, `COLUMN_GAP`), quindi la
+ * riga smette di avere un ritmo tutto suo. È il PAVIMENTO: il rapporto con i
+ * 2px interni alla coppia scende a 3:1, che è la soglia sotto la quale l'icona
+ * di una pastiglia e il numero della precedente tornano a essere quasi
+ * equidistanti dai rispettivi partner — cioè il difetto da cui veniamo.
+ */
+export const CHIP_SPACING = 6;
+/**
+ * Il vuoto DENTRO una pastiglia, fra l'icona e il suo numero.
+ *
+ * Due, non quattro: la scatola dell'icona è più larga dell'inchiostro (serve ai
+ * logo-scritta), quindi un logo quadrato si porta dietro ~3px di aria per lato
+ * che il `gap` non vede ma l'occhio sì. Con 4 la distanza VERA era 7; con 2
+ * scende a 5, ed è il minimo prima che la cifra tocchi il glifo.
+ */
+export const CHIP_INNER_GAP = 2;
+/**
+ * Il vuoto fra i TRE GRUPPI della riga: etichetta della board, blocco dei
+ * progetti (pastiglie + «+N»), conteggi di stato.
+ *
+ * Ventotto, cioè più del doppio dei 12 che separano due pastiglie, e la
+ * gerarchia è il punto: 2 dentro una coppia, 12 fra due coppie, 28 fra due
+ * gruppi. Con gruppi e pastiglie allo stesso passo le pastiglie si leggevano
+ * come parte dei conteggi, che è il difetto originale in un'altra forma; a 20
+ * lo stacco c'era ma non si imponeva.
+ */
+export const GROUP_SPACING = 28;
 /** Il «+N» finale: due caratteri a 10px più il suo respiro. */
 export const MORE_W = 22;
 
@@ -135,15 +193,58 @@ export function countWidth(n: number): number {
   return COUNT_GLYPH_W + COUNT_GAP + DIGIT_W * String(n).length;
 }
 
-/** Come si disegnano le pastiglie, dalla più ricca alla più povera. */
-export type ChipMode = 'icon-count' | 'icon';
+/**
+ * Come si disegna una pastiglia — e adesso c'è UN MODO SOLO.
+ *
+ * C'era un gradino di ripiego, `icon`: quando la pastiglia col numero non ci
+ * stava, si mostrava la sola icona. «Non dovremmo mostrare un'icona se non si
+ * riesce a vedere completamente il suo conteggio dei task aperti» (Attilio,
+ * 08/08), ed è la regola giusta: un'icona senza il suo numero non dice quello
+ * per cui questa riga esiste — «n progetti con n task» — dice solo «questo
+ * progetto esiste», che si sapeva già. Peggio: accanto a pastiglie complete si
+ * legge come un progetto con zero task.
+ *
+ * Quindi o la coppia si vede intera, o il progetto va nel «+N» insieme a tutti
+ * gli altri che questa riga non sta nominando. La scala resta una scala (una
+ * voce sola) perché l'aritmetica del ritaglio la scorre: aggiungere un gradino
+ * domani non vuol dire riscrivere `fitProjectChips`.
+ */
+export type ChipMode = 'icon-count';
 
-/** La scala dei gradini, con la sua larghezza. L'ordine È la priorità, e vive
- *  qui una volta sola: `fitProjectChips` la scorre, e il test la rilegge. */
 export const CHIP_MODES: readonly { mode: ChipMode; w: number }[] = [
   { mode: 'icon-count', w: CHIP_W_ICON_COUNT },
-  { mode: 'icon', w: CHIP_W_ICON },
 ];
+
+/**
+ * Il numero ci sta nella scatola che gli è stata prenotata?
+ *
+ * La pastiglia riserva 14px, cioè DUE cifre tabellari a 11px. Con tre — un
+ * progetto oltre i 99 task aperti — il terzo carattere finiva sotto
+ * l'`overflow-hidden` e si vedeva una cifra MOZZATA, che non è un numero
+ * approssimato ma un numero SBAGLIATO: «104» che si legge «10» mente.
+ *
+ * Sta qui, nel modulo puro, perché è la stessa domanda che decide se il
+ * progetto entra nella riga o nel «+N»: chi filtra e chi disegna devono usare
+ * lo STESSO predicato, o si prenota spazio per una pastiglia che poi non si
+ * disegna.
+ */
+export function contaLeggibile(n: number): boolean {
+  return String(n).length <= 2;
+}
+
+/**
+ * La larghezza di una pastiglia CON DENTRO quel numero.
+ *
+ * Non è `CHIP_W_ICON_COUNT` per tutte: quella è la misura da due cifre, e
+ * usarla per una pastiglia da una cifra lascia 7px di vuoto in coda — vuoto che
+ * si somma al passo e fa sembrare quella coppia più lontana dalla vicina. Il
+ * conteggio è noto in modo SINCRONO, quindi misurarlo non riapre la porta al
+ * layout deciso su uno stato in volo: l'unica cosa asincrona qui è l'icona, e
+ * quella ha una scatola dichiarata.
+ */
+export function chipWidth(n: number): number {
+  return CHIP_W_ICON + CHIP_INNER_GAP + DIGIT_W * String(n).length;
+}
 
 export interface FittedChips<T> {
   shown: T[];
@@ -234,20 +335,45 @@ export function fitStatusCounts(width: number, chipFloor: number, counts: readon
  * gradino è lo stesso per tutte quelle mostrate — mescolarli darebbe una riga in
  * cui la prima pastiglia dice una cosa e la seconda un'altra.
  */
-export function fitProjectChips<T>(width: number | null, chips: readonly T[]): FittedChips<T> {
+export function fitProjectChips<T>(
+  width: number | null,
+  chips: readonly T[],
+  /**
+   * Quanto è larga QUESTA pastiglia. Di default la misura da due cifre, che è
+   * il caso peggiore e va bene a chi non ha un conteggio sotto mano (i test
+   * sulle regole di ritaglio).
+   *
+   * Esiste perché la larghezza FISSA produceva distanze diverse fra le coppie:
+   * la scatola prenota due cifre, quindi una pastiglia che dice «4» si porta
+   * dietro 7px di vuoto in CODA e una che dice «25» no — e il divario fra due
+   * pastiglie vicine cambiava col numero. «Non mi sembra che abbiano la stessa
+   * distanza gli elementi nel conteggio per progetti» (Attilio, 08/08): non era
+   * un'impressione, erano 6px contro 13.
+   *
+   * Misurare per cifra NON riapre la porta al layout deciso su uno stato
+   * asincrono: il conteggio dei task è già in mano a chi disegna, sincrono e
+   * stabile. È l'ICONA a essere in volo, e quella ha una scatola dichiarata.
+   */
+  widthOf: (chip: T) => number = () => CHIP_W_ICON_COUNT,
+): FittedChips<T> {
   const zero = (mode: ChipMode = CHIP_MODES[0]!.mode) => ({ shown: [] as T[], hidden: 0, mode });
   if (chips.length === 0) return zero();
   if (width === null) return zero();
-  const tryMode = (mode: ChipMode, cw: number): FittedChips<T> | null => {
-    const span = (n: number) => n * cw + (n - 1) * CHIP_GAP;
+  const tryMode = (mode: ChipMode): FittedChips<T> | null => {
+    // Tre passi, e ognuno dice una cosa diversa: `CHIP_INNER_GAP` (2) lega
+    // un'icona al suo numero, `CHIP_SPACING` (6) separa due pastiglie e anche
+    // il «+N» dall'ultima — perché il «+N» PARLA DELLE PASTIGLIE, quindi sta
+    // nel loro gruppo — e `GROUP_SPACING` (28) separa i gruppi fra loro.
+    const span = (n: number) =>
+      chips.slice(0, n).reduce((acc, c) => acc + widthOf(c), 0) + Math.max(0, n - 1) * CHIP_SPACING;
     let n = chips.length;
     while (n > 0 && span(n) > width) n--;
     if (n === chips.length) return { shown: [...chips], hidden: 0, mode };
-    while (n > 0 && span(n) + CHIP_GAP + MORE_W > width) n--;
+    while (n > 0 && span(n) + CHIP_SPACING + MORE_W > width) n--;
     return n > 0 ? { shown: chips.slice(0, n), hidden: chips.length - n, mode } : null;
   };
-  for (const { mode, w } of CHIP_MODES) {
-    const fitted = tryMode(mode, w);
+  for (const { mode } of CHIP_MODES) {
+    const fitted = tryMode(mode);
     if (fitted) return fitted;
   }
   return { shown: [], hidden: chips.length, mode: CHIP_MODES[0]!.mode };
@@ -282,10 +408,14 @@ export function fitBoardRow(
   // senza poter dire quante ne mancano, risponde ZERO. È il difetto di prima
   // spostato di due pixel, non risolto.
   const chipFloor = chips.length > 0
-    ? CHIP_W_ICON + CHIP_GAP + (chips.length > 1 ? MORE_W + CHIP_GAP : 0)
+    ? CHIP_W_ICON_COUNT + (chips.length > 1 ? CHIP_SPACING + MORE_W : 0) + GROUP_SPACING
     : 0;
   const fittedCounts = fitStatusCounts(width, chipFloor, counts);
   const used = countsSpan(fittedCounts);
-  const chipSpace = Math.max(0, width - (used > 0 ? used + CHIP_GAP : 0));
-  return { chips: fitProjectChips(chipSpace, chips), counts: fittedCounts };
+  // `GROUP_SPACING` e non `CHIP_GAP`: fra il blocco delle pastiglie e quello dei
+  // conteggi corre il passo dei GRUPPI. Prenotarne sei mentre il layout ne
+  // disegna venti è il modo esatto in cui l'ultima pastiglia torna a essere
+  // tagliata — l'aritmetica deve conoscere i numeri veri del disegno.
+  const chipSpace = Math.max(0, width - (used > 0 ? used + GROUP_SPACING : 0));
+  return { chips: fitProjectChips(chipSpace, chips, (c) => chipWidth(c.n)), counts: fittedCounts };
 }

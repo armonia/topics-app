@@ -3,10 +3,17 @@ import {
   CHROME_ROW_ACTION_INSET,
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
+  CHROME_ROW_ACTION_RESERVE_LEFT,
+  CHROME_BAR_SUB,
   CHROME_ROW_CONTENT_H,
+  CHROME_ROW_SUB_H,
+  COLUMN_GAP,
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
+  ROW_INSET,
+  TAB_GAP_CLASS,
   chromeRowInset,
+  sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -68,15 +75,33 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual(h);
   });
 
-  test("l'incasso a destra è quello che il comando ha sopra e sotto", () => {
+  test("il comando lascia alla riga la stessa aria della tab che gli sta accanto", () => {
+    // Il verticale non si sceglie: (40 − box)/2. Vale per il comando come per
+    // la tab, quindi i due respirano uguale SOLO se hanno la stessa misura sullo
+    // stesso breakpoint — che è il difetto vero dietro «il + e apri sidebar
+    // dovrebbero avere aria intorno uguale, anche rispetto alle tab» (Attilio,
+    // 09/08): il comando seguiva `md:` e la tab un `isTouch` in JS, quindi in
+    // una finestra stretta senza touch erano 36 e 28 nella stessa riga.
+    //
+    // `TAB_H` ricopia la classe della tab (PaneTabBar), che non è esportabile
+    // — sta dentro un template con dieci altre cose. È una copia, e il suo
+    // prezzo è dichiarato: se qualcuno cambia l'altezza della tab senza toccare
+    // qui, questo test resta verde su una bugia. Ciò che NON può più succedere
+    // in silenzio è il disaccordo di meccanismo, perché entrambe le stringhe
+    // ora si leggono con lo stesso risolutore di breakpoint.
+    const TAB_H = 'h-9 md:h-7';
+    expect(risolvi(TAB_H, 'h')).toEqual(risolvi(ROW_ACTION_BOX, 'h'));
+    const box = risolvi(ROW_ACTION_BOX, 'h');
+    expect(chromeRowInset(box.wide)).toBe(6);
+    expect(chromeRowInset(box.compact)).toBe(2);
+  });
+
+  test("l'incasso dal bordo è ROW_INSET, non il respiro verticale", () => {
+    // Era `chromeRowInset(box)`: col dito veniva 2, cioè il bottone incollato
+    // al bordo mentre la strip senza comando si ferma a 6. Il bordo è una
+    // domanda ORIZZONTALE e ha già il suo numero.
     const dx = risolvi(CHROME_ROW_ACTION_INSET, 'right');
-    expect(dx.wide).toBe(chromeRowInset(ROW_ACTION_BOX_PX.desktop));
-    expect(dx.compact).toBe(chromeRowInset(ROW_ACTION_BOX_PX.touch));
-    // E lo spazio verticale, che è ciò a cui deve essere UGUALE: la riga meno
-    // il box, diviso due. Scritto qui per esteso perché è l'invariante, non un
-    // passaggio intermedio.
-    expect(dx.wide).toBe((CHROME_ROW_CONTENT_H - ROW_ACTION_BOX_PX.desktop) / 2);
-    expect(dx.compact).toBe((CHROME_ROW_CONTENT_H - ROW_ACTION_BOX_PX.touch) / 2);
+    expect(dx).toEqual({ wide: ROW_INSET, compact: ROW_INSET });
   });
 
   test('il comando in testa alla riga ha lo stesso incasso di quello in coda', () => {
@@ -87,10 +112,43 @@ describe('la riga di chrome e il comando in coda', () => {
     );
   });
 
-  test('la riserva della strip è il box più il suo incasso', () => {
+  test('la riserva della strip è bordo + box + la stessa aria del bordo', () => {
+    // I tre pezzi ci sono tutti: 6 dal bordo, il box, e altri 6 prima della
+    // tab. Era `box + chromeRowInset(box)`, cioè senza il terzo: la strip
+    // finiva ESATTAMENTE sul bordo del bottone e la tab lo toccava.
+    const box = risolvi(ROW_ACTION_BOX, 'w');
     const pr = risolvi(CHROME_ROW_ACTION_RESERVE, 'pr');
-    expect(pr.wide).toBe(ROW_ACTION_BOX_PX.desktop + chromeRowInset(ROW_ACTION_BOX_PX.desktop));
-    expect(pr.compact).toBe(ROW_ACTION_BOX_PX.touch + chromeRowInset(ROW_ACTION_BOX_PX.touch));
+    expect(pr.wide).toBe(ROW_INSET + box.wide + ROW_INSET);
+    expect(pr.compact).toBe(ROW_INSET + box.compact + ROW_INSET);
+  });
+
+  test('la riserva a SINISTRA è la stessa, specchiata', () => {
+    // Era un `paddingLeft: 30` in linea: fisso sui due breakpoint, quindi
+    // sbagliato su almeno uno dei due. I due capi della strip ospitano bottoni
+    // gemelli e devono riservare lo stesso spazio.
+    expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
+      risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
+    );
+  });
+
+  test('la riga subordinata è box + un solo incasso, e i due li dice la stessa fonte', () => {
+    // 34 = 28 + 6. Scritto come aritmetica e non come numero: se il box o
+    // l'incasso si muovono, la riga figlia li segue o si separa QUI.
+    expect(CHROME_ROW_SUB_H).toBe(ROW_ACTION_BOX_PX.desktop + ROW_INSET);
+    // E la riga piena è la stessa cosa con l'incasso DUE volte: è tutta la
+    // faccenda in una riga: la figlia non paga l'aria in cima perché quella
+    // sopra l'ha già messa.
+    expect(CHROME_ROW_SUB_H + ROW_INSET).toBe(CHROME_ROW_CONTENT_H);
+    // La classe deve dire lo stesso numero della costante: sono due scritture
+    // dello stesso valore, e Tailwind legge solo la prima.
+    expect(risolvi(CHROME_BAR_SUB, 'h')).toEqual({ wide: CHROME_ROW_SUB_H, compact: CHROME_ROW_CONTENT_H });
+    // `md:pb-[…]` esiste SOLO sopra i 768: `risolvi` pretende un valore per
+    // entrambe le larghezze, quindi qui si legge il ramo `md:` da solo — ed è
+    // giusto così, sotto quel breakpoint l'incasso in coda non c'è perché la
+    // riga non si è stretta.
+    const pb = /(?:^|\s)md:pb-\[(\d+)px\]/.exec(CHROME_BAR_SUB);
+    expect(pb, 'CHROME_BAR_SUB senza incasso in coda').not.toBeNull();
+    expect(Number(pb![1])).toBe(ROW_INSET);
   });
 
   test('il comando ci sta dentro la riga', () => {
@@ -101,5 +159,57 @@ describe('la riga di chrome e il comando in coda', () => {
       expect(chromeRowInset(box)).toBeGreaterThan(0);
       expect(box).toBeLessThan(CHROME_ROW_CONTENT_H);
     }
+  });
+});
+
+/**
+ * IL PASSO DELLA COLONNA, PER LO STESSO MOTIVO DI SOPRA.
+ *
+ * `COLUMN_GAP` è un numero, ma la metà che tocca alle card è scritta come
+ * classe (`my-[3px]`) e deve restare un letterale — Tailwind legge il sorgente
+ * come testo. L'altra metà la mette il contenitore che scorre
+ * (`TopicTree`, `paddingBlock: COLUMN_GAP / 2`), che invece il numero lo
+ * importa. Due metà della stessa distanza, di cui una sola segue la costante:
+ * se qualcuno porta COLUMN_GAP a 8 e la classe resta 3, sopra la prima card
+ * restano 7px mentre fra due card ne passano 6, ed è di nuovo il near-miss che
+ * questo giro serviva a togliere.
+ */
+describe('il passo verticale della colonna', () => {
+  test('il margine della card è mezzo COLUMN_GAP, e sta scritto nella classe', () => {
+    const base = sidebarRowCard({});
+    const my = /(?:^|\s)my-\[(\d+)px\]/.exec(base);
+    expect(my).not.toBeNull();
+    expect(Number(my![1])).toBe(COLUMN_GAP / 2);
+  });
+
+  // NIENTE «due card adiacenti distano COLUMN_GAP» QUI, e vale la pena dire
+  // perché: c'era, e non poteva fallire.
+  //
+  // Faceva `my * 2 === COLUMN_GAP` su una stringa — cioè riscriveva 3+3=6 in un
+  // altro modo — e si giustificava dicendo che i margini «NON collassano,
+  // perché stanno in un contenitore che scorre, che è un contesto di
+  // formattazione a sé». Sbagliato: un BFC impedisce ai margini dei FIGLI di
+  // sfuggire al contenitore, non il collasso FRA FRATELLI. A schermo le righe
+  // stavano a 3px (misurato: `3,3,3`) mentre questo test era verde.
+  //
+  // Una distanza renderizzata si misura dove viene renderizzata:
+  // `tests/e2e/tab-coherence-mobile.spec.ts` (TAB-COERENZA-3) legge i rettangoli
+  // di due righe adiacenti a 390×844. Qui resta solo ciò che è davvero
+  // verificabile da una stringa: che la classe dichiari mezzo passo.
+
+  test('il passo ORIZZONTALE è lo stesso, e lo dice la stessa costante', () => {
+    // Fra due tab c'erano 2px (`gap-0.5`) e fra due card della colonna 6: non
+    // due scelte, lo stesso numero prima e dopo una correzione applicata a
+    // metà. «Normalizza spaziature e dimensioni in tutte le tab sia verticali
+    // che orizzontali» (Attilio, 09/08). Questo test è ciò che impedisce alla
+    // metà orizzontale di restare di nuovo indietro.
+    expect(risolvi(TAB_GAP_CLASS, 'gap').wide).toBe(COLUMN_GAP);
+    expect(risolvi(TAB_GAP_CLASS, 'gap').compact).toBe(COLUMN_GAP);
+  });
+
+  test('mezzo passo è un numero intero di pixel', () => {
+    // Un COLUMN_GAP dispari darebbe mezzi pixel su entrambe le metà, e un bordo
+    // a 2,5px si vede come una riga sfocata.
+    expect(COLUMN_GAP % 2).toBe(0);
   });
 });

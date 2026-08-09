@@ -18,6 +18,7 @@ import {
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
 import { archiveTopicFully } from "./server/services/archive-topic";
+import { configureSessionParking, parkTopicSession } from "./server/lib/session-parking";
 import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { createVoiceRouter } from "./server/routes/voice";
@@ -82,6 +83,7 @@ import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
 import { createLicenseRouter } from "./server/routes/license";
+import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
 import { createAccountRouter } from "./server/routes/account";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
@@ -111,7 +113,16 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
-import { pendingAskAgeMs, pendingAskVerdict, cancelAsk, hasPendingAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
+// sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
+// entrambi i silenzi.
+import { pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+// La porta unica di «questo turno aspetta una PERSONA». Le due sorgenti di
+// silenzio legittimo sono una domanda a schermo E una richiesta di permesso a
+// schermo: qui dentro tre punti ne conoscevano solo la prima, che è esattamente
+// la deriva che `human-hold.ts` è stato scritto per impedire — e che la sua
+// docstring nomina, elencando «lo spazzino degli stream fermi» fra i sei posti.
+import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
 // palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
 import { armTurnDeadline } from "./server/lib/turn-deadline";
@@ -417,6 +428,15 @@ rebuildSummary();
 // openspec/changes/claude-session-tracker.
 const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
 
+// La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
+// deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
+// su una chat che non ha più né riga né tab. Configurata qui perché il tracker
+// nasce DOPO il contesto; i tre percorsi di archiviazione la chiamano.
+configureSessionParking((sessionKey) => {
+  const st = claudeSessionTracker.getSessionByKey(sessionKey);
+  if (st?.claudeSessionId) claudeSessionTracker.noteDormant(st.claudeSessionId);
+});
+
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
 const webrtcBridge = createWebrtcBridge();
@@ -485,6 +505,11 @@ const licenseRouter = createLicenseRouter(ctx);
 // l'interfaccia non offre nulla — e non è un cancello: nessun ramo di
 // `server/routes/account.ts` può togliere una capacità locale (ORG-08).
 const accountRouter = createAccountRouter(ctx);
+// Il pagamento, che NON è ciò che è concesso: `server/routes/billing.ts` può
+// solo passare un gettone a `licenzaSvc.installa`, che lo riverifica con la
+// chiave pubblica. Nasce SPENTO — senza `STRIPE_SECRET_KEY` la rotta risponde
+// «non configurato» — e nessun suo ramo può togliere una capacità locale.
+const billingRouter = createBillingRouter(ctx);
 
 /**
  * L'identita' risolta per una richiesta, deposta dal gate e letta dalle rotte.
@@ -636,8 +661,8 @@ async function runHeadlessTurn(
   let timedOut = false;
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
-    isWaitingForHuman: () => hasPendingAsk(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    isWaitingForHuman: () => isHumanHold(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
@@ -678,8 +703,8 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   let timedOut = false;
   const deadline = armTurnDeadline({
     ms: opts.timeoutMs,
-    isWaitingForHuman: () => hasPendingAsk(sessionKey),
-    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: domanda a schermo, il tempo dell'umano non conta`),
+    isWaitingForHuman: () => isHumanHold(sessionKey),
+    onRearm: () => console.log(`[turn] tetto a orologio riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
     onExpired: () => {
       timedOut = true;
       abortHeadlessTurn(sessionKey).catch(() => {});
@@ -903,6 +928,7 @@ const taskDispatcher = createTaskDispatcher({
       saveUnread: ctx.saveUnread,
       broadcastToAll: ctx.broadcastToAll,
       purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id),
+      parkClaudeSession: parkTopicSession,
     }, topicId);
     // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
     // può fermare la potatura (il task è finito comunque).
@@ -1694,7 +1720,14 @@ const opzioniServer = {
       // esentarne uno di troppo e' un buco, uno di meno un vicolo cieco in cui
       // non ci si puo' appaiare.
       const peerIp = server.requestIP(req)?.address ?? null;
-      const identity = isIdentityExemptPath(pathname)
+      // Il webhook di Stripe non ha — e non può avere — un'identità di
+      // dispositivo: arriva da un server, non da un browser appaiato. Si
+      // autentica da sé, con un HMAC sul corpo ESATTO (`server/lib/stripe.ts`),
+      // che è una prova più forte di un cookie. Sta scritto QUI e non dentro
+      // `isIdentityExemptPath` perché quella elenca i percorsi che servono a
+      // OTTENERE un'identità: mescolarci un'autenticazione di altra natura
+      // renderebbe più difficile accorgersi della prossima esenzione di troppo.
+      const identity = (isIdentityExemptPath(pathname) || isBillingWebhookPath(pathname))
         ? undefined
         : (() => {
             const loopback = isLocalTransport(req, peerIp, isLoopbackAddress);
@@ -2067,6 +2100,7 @@ const opzioniServer = {
         || await authRouter(req, url, pathname, method)
         || await accountRouter(req, url, pathname, method)
         || await licenseRouter(req, url, pathname, method)
+        || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -2886,7 +2920,15 @@ const staleStreamTimer = setInterval(() => {
     // domanda, non un "per sempre" — e vale solo finché il provider giura che
     // il figlio è VIVO: se muore mentre il pannello è su, nessuna gamba di
     // poll arriva più e niente, dentro il bridge, se ne accorgerebbe.
-    const askAge = pendingAskAgeMs(sessionKey);
+    // `humanHoldAgeMs`, non `pendingAskAgeMs`: i silenzi legittimi sono DUE —
+    // una domanda a schermo e una richiesta di PERMESSO a schermo — e questo
+    // spazzino conosceva solo il primo. È il difetto che ha ucciso il turno
+    // dell'8 agosto sotto un pannello di permesso aperto, ed è nominato per
+    // nome nella docstring di `human-hold.ts`, che elenca proprio «lo spazzino
+    // degli stream fermi» fra i sei posti che devono interrogare UNA cosa sola.
+    // Il tetto resta a tempo e resta condizionato al «figlio VIVO»: un pannello
+    // su una sessione morta non deve disarmare niente.
+    const askAge = humanHoldAgeMs(sessionKey);
     if (askAge !== null) {
       const askProv = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       const verdict = pendingAskVerdict({
@@ -3266,6 +3308,56 @@ function reconcileOrphanedTranscripts(): void {
   }
 }
 
+// ── Archived-topic reconcile — le fasi che nessuna superficie può spegnere ──
+// Il gemello di riparazione di `parkTopicSession` (lib/session-parking.ts): il
+// parcheggio all'archiviazione tiene pulito da qui in avanti, ma le sessioni
+// GIÀ trapelate non le ri-archivierà nessuno. Al 2026-08-09 erano 28 — 20 ferme
+// su `awaiting-user`, ultima attività a metà luglio — servite dentro le 206 di
+// `/api/claude-sessions` a ogni bootstrap del client.
+//
+// Diversamente dai due sweep qui sopra, questo NON consulta il broker: una fase
+// viva su un topic archiviato è sbagliata comunque, anche se un figlio fosse
+// vivo (nessuna superficie la mostra, nessun gesto la spegne). Resta però la
+// stessa cortesia verso il dispatcher: un task in corso possiede la sua
+// sessione, e un topic dei tentativi archiviato mentre il task lavora non va
+// toccato sotto i piedi. `noteDormant` è soft — non uccide niente, e il primo
+// hook o riga di transcript rianima.
+function reconcileArchivedTopicSessions(): void {
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[archived-sessions] dispatcher claim query failed — skipping for safety:", err);
+    return;
+  }
+
+  let rows: Array<{ sk: string; csid: string | null; phase: string }> = [];
+  try {
+    rows = ctx.db.query(
+      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
+       FROM claude_code_sessions s
+       JOIN topics t ON t.session_key = s.session_key
+       WHERE t.archived = 1 AND s.phase NOT IN ('dormant', 'completed', 'error')`,
+    ).all() as Array<{ sk: string; csid: string | null; phase: string }>;
+  } catch (err) {
+    console.warn("[archived-sessions] query failed:", err);
+    return;
+  }
+
+  let parked = 0;
+  for (const row of rows) {
+    if (!row.csid) continue;
+    if (dispatcherClaimed.has(row.sk)) continue;
+    if (claudeSessionTracker.noteDormant(row.csid)) parked += 1;
+  }
+  if (rows.length > 0) {
+    console.log(`[archived-sessions] ${rows.length} sessione/i viva/e su topic archiviati, ${parked} parcheggiata/e → dormant`);
+  }
+}
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
@@ -3276,6 +3368,7 @@ function reconcileOrphanedTranscripts(): void {
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
+  .then(() => reconcileArchivedTopicSessions())
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
@@ -3593,6 +3686,26 @@ const relayCfg = leggiRelayConfig(process.env, ctx.STATE_DIR);
 const relay = creaRelayClient({
   baseUrl: relayCfg.baseUrl,
   installationId: relayCfg.installationId,
+  // Dove si rigioca ciò che arriva dal relay. `null` — cioè
+  // `TOPICS_TUNNEL_PORT` non impostata, che è il caso di default — fa rifiutare
+  // in modo dichiarato: senza l'ascoltatore dedicato l'unica porta a cui
+  // rigiocare sarebbe quella principale, dove ogni richiesta è LOCALE, cioè
+  // proprietaria senza credenziali.
+  portaTunnel: portaTunnel,
+  // L'ascoltatore del tunnel spande `opzioniServer`: se il server principale
+  // ha i certificati, anche quella porta parla TLS.
+  tunnelTls: useTls,
+  // Il certificato su loopback è AUTOFIRMATO, e `fetch` lo rifiuterebbe. Qui
+  // saltare la verifica non toglie niente: il capo dall'altra parte è questo
+  // stesso processo su `127.0.0.1`, il traffico non lascia il kernel, e ciò
+  // contro cui la verifica protegge — qualcuno in mezzo — su loopback non
+  // esiste. Sta cablato QUI, sul solo salto locale, invece che dentro il
+  // proxy: una deroga scritta accanto alla ragione non diventa un'abitudine
+  // che poi qualcuno ricopia dove conta.
+  ...(useTls ? {
+    fetchLocale: ((input: string | URL | Request, init?: RequestInit) =>
+      fetch(input as never, { ...init, tls: { rejectUnauthorized: false } } as never)) as typeof fetch,
+  } : {}),
   trovaLink: (ref) => {
     try {
       const r = ctx.db.query(

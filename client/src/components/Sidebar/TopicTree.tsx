@@ -35,7 +35,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, SIDEBAR_L1_SURFACE, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL } from '@/lib/selectionStyles';
 import { spawnDragGhost } from '@/components/Layout/dragGhost';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -159,12 +159,34 @@ function boardSidebarItem(boardTaskCount: number, extra?: Partial<SidebarItem>):
  * Le viste della sidebar sono tre (a gruppi, a lista, per stato) e ognuna
  * impila righe di primo livello a modo suo. Avvolgerle tutte in questo
  * contenitore fa sì che la regola — sotto i 768px la riga a riposo prende una
- * superficie, vedi {@link SIDEBAR_L1_SURFACE} — stia in un posto solo, e che la
- * quarta vista nasca già giusta invece di ricopiare una classe.
+ * superficie — stia in un posto solo, e che la quarta vista nasca già giusta
+ * invece di ricopiare una classe. Dall'08/08 quel fondo vive dentro
+ * `sidebarRowCard` (la card, non la riga intera): questo contenitore resta
+ * perché è ancora il posto unico in cui impilare le righe di primo livello.
  */
 function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement>) {
+  // `flex flex-col`, e NON è cosmesi: è ciò che impedisce ai margini di
+  // COLLASSARE.
+  //
+  // Le card portano `my-[3px]` (mezzo COLUMN_GAP per lato, così due vicine ne
+  // fanno 6). Fra fratelli in flusso normale però i due margini adiacenti non
+  // si sommano: si collassano al maggiore. Risultato misurato a 390×844, riga
+  // contro riga: 3px. Nella stessa colonna le tessere fissate stavano a 6 veri
+  // (`gap: TILE_GAP`, PinnedTiles), quindi due ritmi a mezzo passo di distanza —
+  // «le spaziature non sono coerenti fra ogni tab e tipo tab» (Attilio, 09/08).
+  //
+  // I margini di un FLEX ITEM non collassano mai (CSS Box Model §8.3.1: il
+  // collasso vive solo nel block formatting context). Un `gap` avrebbe funzionato
+  // altrettanto, ma avrebbe spostato il numero dalla card al contenitore e
+  // lasciato `my-[3px]` a mentire in sei punti: così il valore resta uno solo,
+  // dichiarato dove la card lo dichiara, e qui si toglie solo ciò che glielo
+  // dimezzava.
+  //
+  // Il commento che stava qui diceva che questo contenitore «resta perché è
+  // ancora il posto unico in cui impilare le righe di primo livello». Appunto: è
+  // per questo che la correzione sta qui e vale per tutte e sei le viste.
   return (
-    <div className={`${SIDEBAR_L1_SURFACE} ${className}`} {...rest}>
+    <div className={`flex flex-col ${className}`} {...rest}>
       {children}
     </div>
   );
@@ -947,7 +969,7 @@ export function TopicTree({
           // before the arrow. Tighten the LEFT only; the RIGHT keeps `pr-2`
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
-          className={`group/proj flex items-center ${ROW_H} pl-1 pr-2 select-none ${
+          className={`group/proj flex items-center ${ROW_H} ${ROW_PX} select-none ${
             // "Ho guardato un progetto" vuol dire: ho guardato ciò che stava
             // segnalando — guardarne l'INTESTAZIONE non è aver letto le chat che ci
             // stanno dentro. Quel pezzo ora sta dentro `projectAttentionTier`, che
@@ -995,7 +1017,7 @@ export function TopicTree({
             aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
             aria-expanded={isExpanded}
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight size={14} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
           {/* Name button:
               - not selected → FOCUS the project + EXPAND it (show children).
@@ -1034,8 +1056,12 @@ export function TopicTree({
                 if (!isExpanded) toggleProject(item.id);
               }
             }}
-            className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-              projOnFill ? `${ON_FILL_TEXT} font-semibold` : isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+            className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left ${TAB_LABEL} transition-colors ${
+              // Il colore di base lo porta `TAB_LABEL` (pieno). Qui restano solo le
+              // DEROGHE vere: il testo su un fill di attenzione, e un progetto
+              // tutto archiviato — che è l'unico caso in cui spegnere il nome
+              // dice qualcosa invece di ripetere la superficie.
+              projOnFill ? `${ON_FILL_TEXT} font-semibold` : allArchived ? 'text-app-text-muted' : ''
             }`}
             title={pp}
             aria-label={`${item.name} project`}
@@ -1119,7 +1145,7 @@ export function TopicTree({
                   />
                 )}
                 {(onNewTopicInProject || onAddProjectPane) && (
-                  <div className="relative hidden group-hover/proj:flex">
+                  <div className={`relative ${isExpanded ? 'flex' : 'hidden'}`}>
                     {/* Same canonical add-pane affordance as the top tab
                         bar's "+" — single component, single rendering
                         contract. Trigger button visibility is the only
@@ -1362,9 +1388,25 @@ export function TopicTree({
       // fissabile che contiene tab: un «+» su una chat fissata non avrebbe
       // niente da creare dentro. Su touch niente, come per la riga: lì il menu
       // arriva dalla pressione lunga.
-      renderActions={item => {
+      renderActions={(item, _apertaTessera) => {
         if (item.type !== 'project' || !item.projectPath) return null;
         if (isTouch || (!onNewTopicInProject && !onAddProjectPane)) return null;
+        /**
+         * QUI IL «+» RESTA anche a tessera chiusa, ed è una deroga MOTIVATA
+         * alla regola «solo quando aperto» che vale per la riga.
+         *
+         * Per una tessera «aperta» non vuol dire «espansa»: vuol dire
+         * `expanded ∧ apribili`, e `apribili` sono i progetti che hanno GIÀ
+         * delle tab aperte (`renderExpanded !== null`). Un progetto fissato con
+         * tutte le tab chiuse non è apribile per definizione — e quello è
+         * esattamente il caso in cui questo «+» è l'UNICA strada per creare la
+         * prima tab, perché a tab chiuse la riga nell'albero può non esserci
+         * (è la ragione per cui TILE-17 esiste). Gatarlo qui non lo
+         * nasconderebbe: lo spegnerebbe per sempre proprio dove serve.
+         *
+         * Il riposo resta comunque pulito: il «+» è rivelato dal passaggio del
+         * mouse, non sempre acceso.
+         */
         const pp = item.projectPath;
         return (
           <PaneAddMenu
@@ -1487,11 +1529,21 @@ export function TopicTree({
             // `rounded-lg`), quindi la copia e l'originale potevano divergere —
             // e lo facevano.
             //
-            // `marginBottom: 0` sovrascrive il `my-px` della card, e non è un
-            // capriccio: lo spazio SOTTO appartiene a ciò che segue — il blocco
-            // dei fissati porta i suoi 6px (TILE_GAP) — e sommare i due margini
-            // fa 7px dove il ritmo ne vuole 6 (lo blocca `sidebar-pinned-tiles`
-            // TILE-14).
+            // NIENTE `marginBottom: 0`, e la ragione per cui c'era è decaduta.
+            //
+            // Serviva quando la zona in testa al blocco dei fissati valeva un
+            // passo INTERO: sommandoci il margine della card venivano 7px dove
+            // il ritmo ne vuole 6, e azzerarlo era il rimedio. Ma quella zona
+            // intera era essa stessa il difetto: quando sopra il blocco non
+            // c'era la board ma il contenitore che scorre — che porta il suo
+            // mezzo passo — si sommavano a 9, ed è la «doppia spaziatura sotto
+            // la topbar» (Attilio, 09/08).
+            //
+            // Ora la regola è UNA e non ha eccezioni: ognuno porta metà passo su
+            // ogni lato, e la somma fa sempre COLUMN_GAP. Il blocco dei fissati
+            // ne porta metà (`TILE_GAP / 2` sulla zona in testa, PinnedTiles),
+            // questa card l'altra metà — 3 + 3 = 6, che è quello che
+            // `sidebar-pinned-tiles` TILE-14 misura.
             // `gap-2` e non `gap-1.5`: è il passo che ogni altra riga con un
             // glifo usa fra l'icona e il nome, e sei px contro otto erano una
             // colonna del nome diversa da tutte le vicine.
@@ -1507,7 +1559,7 @@ export function TopicTree({
             className={`flex items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${
               sidebarRowCard({ focused: boardOpen })
             }`}
-            style={{ width: `calc(100% - ${ROW_INSET * 2}px)`, marginBottom: 0 }}
+            style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
           >
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
@@ -1535,13 +1587,31 @@ export function TopicTree({
 
   return (
     <div role="tree" aria-label={tr('sidebar.tree')} className="flex flex-col h-full min-h-0">
-      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
-          above the first row and below the last — the SAME 6px the cards keep
-          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
-          sidebar's padding reads identical on every axis. */}
+      {/* SOTTO NIENTE, SOPRA L'HEADER: il primo spazio non è come gli altri.
+          `sidebar-column` (index.css) azzera il mezzo passo del primo elemento;
+          qui si azzera l'altra metà, quella del contenitore. Sopra la lista non
+          c'è un bordo, c'è l'header: alto 40 attorno a un contenuto da 28,
+          quindi porta già SEI pixel suoi sotto il proprio inchiostro. La lista
+          che ne aggiungeva altri sei è la «doppia spaziatura sotto la topbar»
+          (Attilio, tre volte fra l'08 e il 09/08). Il perché per esteso — e
+          perché a cedere è la lista e non l'header — sta accanto alla regola in
+          index.css.
+
+          IN FONDO il mezzo passo resta: là sotto c'è davvero il bordo della
+          colonna, e vale la regola normale — metà qui, metà dal margine
+          dell'ultima card (`my-[3px]` in `sidebarRowCard`), che fa COLUMN_GAP.
+
+          Era `ROW_INSET − 1`, cioè 5, e il commento diceva «+ il my-px della
+          card = 6». Quel conto è scaduto quando il margine delle card è passato
+          da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo).
+
+          Derivato, non scritto: se COLUMN_GAP cambia, questo lo segue, e a
+          tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
+          deve restare un letterale perché il JIT la trova nel sorgente) c'è
+          `selectionStyles.test.ts`. */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
-        style={{ paddingBlock: ROW_INSET - 1 }}
+        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
+        style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
         // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste
@@ -1636,11 +1706,13 @@ export function TopicTree({
                     (ROW_INSET), gli stessi delle card dei gruppi sotto e delle
                     tessere sopra. A 12px era l'unico elemento su una colonna
                     sua, e il blocco dei fissati sembrava debordare.
-                    Anche il respiro è quel numero, sopra e sotto (`my-1.5`): è
+                    Anche il respiro è quel numero, sopra e sotto — ma diviso
+                    diversamente sui due lati (`mt-1.5 mb-[3px]`), perché sotto la
+                    prima card porta gia' la sua meta': è
                     lo stesso passo che separa la riga della board dalle tessere
                     e le righe di tessere fra loro, così i quattro spazi che
                     l'occhio legge in fila sono davvero uno. */}
-                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />
               </>
             )}
             {/* NIENTE separatori fra le card dei gruppi: quelle un bordo ce
@@ -1676,7 +1748,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             <SidebarRowList data-testid="sidebar-timeline">{withUnpinPreview(unpinnedItems)}</SidebarRowList>
@@ -1693,7 +1765,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Stesso filo della vista a lista: i fissati si staccano da ciò
                     che c'è sotto allo stesso modo in ogni vista. */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 my-1.5" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non

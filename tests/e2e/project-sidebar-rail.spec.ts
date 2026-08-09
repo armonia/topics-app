@@ -1,15 +1,25 @@
 /**
  * La sidebar del progetto, misurata invece che guardata.
  *
- * 1. Allineamento. Il bottone che riapre la barra chiusa deve stare sulla
- *    stessa mediana dei tab accanto. Prima era 2px piu in basso: uno
- *    screenshot non lo avrebbe fatto fallire, un boundingBox si.
- * 2. Bordo pieno. Sotto al bottone c'era un trattino da 24px su 40 invece del
- *    bordo che attraversa la colonna.
- * 3. Pastiglie. A barra chiusa le icone sono l'unica superficie che resta. Il
- *    repo di prova ha una modifica non committata, quindi git deve mostrare 1
- *    senza che nessuno apra il pannello: GitChanges e lazy e da chiusa non e
- *    montato, quindi il numero puo arrivare solo dallo store condiviso.
+ * CHIUSA NON È PIÙ UNA COLONNA. Era una rail verticale da 40px con un
+ * `border-r` che scendeva per tutta la finestra a contenere tre icone: una
+ * seconda superficie accanto alla riga di chrome, con una tinta sua e un filo
+ * che non separava niente. «Facciamo diventare la sidebar chiusa direttamente
+ * parte della tabbar progetto, in linea e non disposte verticalmente ma
+ * orizzontalmente, usando il design a card e riportando anche titolo progetto,
+ * così da togliere linea laterale inutile quando collassata» (Attilio, 09/08).
+ *
+ * Quindi ciò che si misura è cambiato con lei:
+ * 1. Chiusa, la colonna NON ESISTE — né la rail né il suo filo verticale — e i
+ *    suoi comandi stanno dentro `.pane-chrome-bar`.
+ * 2. Quei comandi hanno la misura e l'aria di una tab, perché ora sono in fila
+ *    con le tab (è l'invariante di `tab-bar-command-air.spec.ts`, qui riletta
+ *    sulla striscia del progetto).
+ * 3. Il nome del progetto si vede: chiusa, prima, non c'era da nessuna parte.
+ * 4. Pastiglie. Sono l'unica cosa che resta accesa da chiusa. Il repo di prova
+ *    ha una modifica non committata, quindi git deve mostrare 1 senza che
+ *    nessuno apra il pannello: GitChanges e lazy e da chiusa non e montato,
+ *    quindi il numero puo arrivare solo dallo store condiviso.
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
@@ -36,7 +46,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     rmSync(PROJ, { recursive: true, force: true });
   });
 
-  test("il bottone di espansione è allineato ai tab e il bordo è pieno", async ({ page, request }) => {
+  test("chiusa, la barra è una fila di card DENTRO la riga delle tab", async ({ page, request }) => {
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -50,74 +60,166 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // Collassa la sidebar del progetto (il bottone vive nel suo header).
     await win.getByRole("button", { name: "Nascondi la barra" }).click();
 
-    const rail = win.locator('[data-testid="project-sidebar-rail"]');
-    const railHeader = win.locator('[data-testid="project-sidebar-rail-header"]');
-    await expect(rail).toBeVisible({ timeout: 5000 });
+    const strip = win.locator('[data-testid="project-rail-inline"]');
+    await expect(strip).toBeVisible({ timeout: 5000 });
 
-    const expandBtn = rail.getByRole("button", { name: "Espandi la barra" });
+    // 1. LA COLONNA NON C'È PIÙ, e con lei il filo verticale. È metà della
+    //    richiesta — «togliere linea laterale inutile quando collassata» — e
+    //    senza questa asserzione il resto passerebbe anche con la rail ancora
+    //    lì accanto, semplicemente ignorata.
+    await expect(win.locator('[data-testid="project-sidebar-rail"]')).toHaveCount(0);
+    await expect(win.locator('[data-testid="project-sidebar"]')).toHaveCount(0);
+
+    // 2. E STA DENTRO la riga di chrome, non accanto: è la differenza fra
+    //    «in linea» e «appoggiata di fianco».
+    const tabRow = win.locator(".pane-chrome-bar").first();
+    await expect(tabRow).toBeVisible();
+    expect(
+      await strip.evaluate((el) => !!el.closest(".pane-chrome-bar")),
+      "la striscia deve stare DENTRO .pane-chrome-bar",
+    ).toBe(true);
+
+    const tabBox = (await tabRow.boundingBox())!;
+    const expandBtn = strip.getByTestId("project-card");
     await expect(expandBtn).toBeVisible();
-
-    const railBox = (await rail.boundingBox())!;
-    const headerBox = (await railHeader.boundingBox())!;
     const btnBox = (await expandBtn.boundingBox())!;
 
-    // Il bordo attraversa tutta la rail.
-    expect(
-      Math.abs(headerBox.width - railBox.width),
-      "la riga di header deve essere larga quanto la rail (bordo a piena larghezza)",
-    ).toBeLessThanOrEqual(1);
-    const borderPx = await railHeader.evaluate(
-      (el) => parseFloat(getComputedStyle(el).borderBottomWidth) || 0,
-    );
-    expect(borderPx, "la riga di header deve avere un bordo inferiore").toBeGreaterThan(0);
-    // Stessa altezza di chrome della riga dei tab: 40px (h-10).
-    expect(Math.round(headerBox.height), "la riga di chrome della rail è h-10").toBe(40);
-
-    // Allineamento con la tab bar accanto: stessa quota, si confrontano le
-    // linee mediane.
-    const tabRow = win.locator(".chrome-glass.border-b").first();
-    await expect(tabRow).toBeVisible();
-    const tabBox = (await tabRow.boundingBox())!;
-
+    // 3. STESSA MEDIANA — ma della SCATOLA DEL CONTENUTO, non della riga.
+    //
+    //    Finché la riga era simmetrica le due coincidevano, e questo test
+    //    confrontava il comando con il centro della barra. Da quando la riga
+    //    subordinata porta l'incasso solo in coda (34 di scatola, 28 di
+    //    contenuto, 6 sotto — vedi `sub-chrome-row.spec.ts`) le due mediane
+    //    distano 3px, e il test è diventato rosso su una geometria CORRETTA.
+    //    L'invariante vero è sempre stato «il comando sta in mezzo a ciò che la
+    //    riga concede», non «in mezzo alla riga».
+    const contenuto = await tabRow.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const top = r.top + parseFloat(cs.paddingTop);
+      const bottom = r.bottom - parseFloat(cs.paddingBottom);
+      return { top, bottom, center: (top + bottom) / 2 };
+    });
     const btnCenter = btnBox.y + btnBox.height / 2;
-    const tabCenter = tabBox.y + tabBox.height / 2;
     expect(
-      Math.abs(btnCenter - tabCenter),
-      `il bottone di espansione (centro ${btnCenter}) deve stare sulla mediana dei tab (${tabCenter})`,
+      Math.abs(btnCenter - contenuto.center),
+      `il comando (centro ${btnCenter}) deve stare sulla mediana del contenuto della riga (${contenuto.center})`,
     ).toBeLessThanOrEqual(1);
 
-    // I due bordi inferiori sulla stessa linea, o il taglio orizzontale della
-    // testata si vede spezzato.
-    expect(
-      Math.abs((headerBox.y + headerBox.height) - (tabBox.y + tabBox.height)),
-      "il bordo della rail e quello della tab bar devono essere alla stessa quota",
-    ).toBeLessThanOrEqual(1);
+    // 4. E STESSA MISURA di una tab: in fila con loro, un comando più alto o
+    //    più basso respira diverso dalla sua vicina — è il difetto tolto dal
+    //    «+» il 09/08, che qui rientrerebbe dalla porta di servizio.
+    const riga = win.getByTestId("project-rail-row");
+    await expect(riga, "i tre comandi stanno in una riga SOTTO il titolo").toBeVisible({ timeout: 10000 });
+    const boxes = await strip.locator("button").evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().height)),
+    );
+    // Il metro è una TAB VERA della stessa barra quando ce n'è una; qui la
+    // finestra di progetto nasce senza tab aperte, e allora vale la misura che
+    // il breakpoint impone a questa larghezza (`ROW_ACTION_BOX`: `md:w-7` = 28
+    // sopra i 768px, che è dove gira questo progetto). Scritto così e non con
+    // un ternario che restituisce lo stesso numero da tutte e due le parti —
+    // quello sarebbe un'asserzione che non può fallire.
+    // `count()` prima di `evaluate()`: un locator vuoto non fallisce subito, ASPETTA
+    // il suo timeout — trenta secondi buttati e poi la pagina chiusa sotto al test.
+    const tab = tabRow.locator("[data-pane-id]").first();
+    const tabH = (await tab.count()) > 0
+      ? await tab.evaluate((e) => Math.round(e.getBoundingClientRect().height))
+      : null;
+    const attesa = tabH ?? 28;
+    for (const h of boxes) {
+      // La card del progetto è una tab, i comandi sono box quadrati della
+      // stessa misura: una sola altezza per tutta la striscia.
+      expect(h, `altezza di un elemento della striscia: ${boxes.join(", ")}`).toBe(attesa);
+    }
 
-    // La pastiglia git porta il numero delle modifiche.
-    // Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:
-    // al primo montaggio l'etichetta e ancora quella senza ramo.
-    const gitBtn = rail.getByRole("button", { name: /Modifiche git/ });
+    // 4-bis. E LA STESSA CARD ANCHE DA APERTA. «Tieni la stessa card per quando
+    //    si apre» (Attilio, 09/08): erano due cose diverse — un bottone col solo
+    //    glifo da chiusa, un `<span>` a 12px semibold più un bottone separato da
+    //    aperta. Si riapre e si misura, invece di fidarsi del fatto che il
+    //    componente sia lo stesso: quello che conta è che a schermo abbiano la
+    //    stessa altezza e lo stesso corpo.
+    const chiusaH = boxes[0];
+    const chiusoFont = await strip.getByTestId("project-card")
+      .evaluate((el) => getComputedStyle(el).font);
+    await strip.getByTestId("project-card").click();
+    const cardAperta = win.getByTestId("project-card");
+    await expect(cardAperta).toBeVisible({ timeout: 5000 });
+    const aperta = await cardAperta.evaluate((el) => ({
+      h: Math.round(el.getBoundingClientRect().height),
+      font: getComputedStyle(el).font,
+      label: el.getAttribute("aria-label"),
+    }));
+    expect(aperta.h, "la card aperta è alta come quella chiusa").toBe(chiusaH);
+    expect(aperta.font, "stesso corpo").toBe(chiusoFont);
+    expect(aperta.label, "da aperta il gesto si inverte").toBe("Nascondi la barra");
+    // E si richiude, o i controlli qui sotto misurerebbero l'altro stato.
+    await cardAperta.click();
+    await expect(strip).toBeVisible({ timeout: 5000 });
+
+    // 5. IL NOME DEL PROGETTO STA DENTRO L'APERTORE, non accanto a lui.
+    //    Tre forme in tre giri: nessun nome (tre icone identiche in ogni
+    //    finestra), poi una card col nome ACCANTO al bottone quadrato — «togli
+    //    il nome» —, e infine «metti il titolo del progetto nell'apertore»
+    //    (Attilio, 09/08). L'asserzione tiene tutte e tre: UNA card, che porta
+    //    il nome ED è il comando.
+    await expect(strip.getByTestId("project-card")).toHaveText(PROJ.split("/").pop()!);
+    expect(
+      await strip.getByTestId("project-card").evaluate((el) => el.getAttribute("aria-label")),
+      "la card È l'apertore: il suo nome accessibile è il gesto, non il titolo",
+    ).toBe("Espandi la barra");
+    await expect(strip.locator('[data-testid="project-rail-inline-name"]')).toHaveCount(0);
+
+    // 6. La pastiglia git porta il numero delle modifiche.
+    //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:
+    //    al primo montaggio l'etichetta e ancora quella senza ramo.
+    const gitBtn = riga.getByRole("button", { name: /Modifiche git/ });
     await expect
       .poll(async () => (await gitBtn.getAttribute("aria-label")) ?? "", { timeout: 15000 })
       .toMatch(/Modifiche git · .+/);
     await expect(
       gitBtn.locator("span").first(),
-      "con una modifica non committata la rail mostra 1",
+      "con una modifica non committata la striscia mostra 1",
     ).toHaveText("1", { timeout: 15000 });
 
+    // 6-bis. E LA PASTIGLIA STA TUTTA DENTRO LA RIGA.
+    //
+    //    Stava a `-top-1`, cioè un pixel sopra il bottone: dentro una riga da 40
+    //    col bottone centrato ci stava, dentro la riga subordinata da 34 col
+    //    contenuto a filo in cima cadeva a y=39 contro una scatola che comincia
+    //    a 40 — e l'`overflow-hidden` della barra la tagliava a metà. «I
+    //    contatori vengono tagliati dalla top bar» (Attilio, 09/08).
+    //
+    //    Si misura il CONTENIMENTO, non la posizione: sopra o sotto è una scelta
+    //    che può cambiare, «dentro la riga» no.
+    const pastiglia = await gitBtn.locator("span").first().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const barra = el.closest('[data-testid="project-rail-row"]')!.getBoundingClientRect();
+      return {
+        sopra: Math.round((r.top - barra.top) * 10) / 10,
+        sotto: Math.round((barra.bottom - r.bottom) * 10) / 10,
+        anello: getComputedStyle(el).boxShadow,
+      };
+    });
+    expect(pastiglia.sopra, "la pastiglia non sborda in cima").toBeGreaterThanOrEqual(0);
+    expect(pastiglia.sotto, "e non sborda in fondo").toBeGreaterThanOrEqual(0);
+    // Niente anello: era un cerchio chiaro che serviva a staccarla dal tratto
+    // dell'icona quando le stava sopra. Sull'angolo basso non attraversa niente.
+    expect(pastiglia.anello, "la pastiglia non porta un anello attorno").toBe("none");
+
     // I numeri a referto: se questo test diventa rosso, dice di quanto.
+    const stripBox = (await strip.boundingBox())!;
     console.log(
-      `[rail] rail.w=${railBox.width} header.w=${headerBox.width} header.h=${headerBox.height} ` +
-        `btnCenterY=${btnCenter.toFixed(1)} tabCenterY=${tabCenter.toFixed(1)} ` +
-        `Δcentro=${Math.abs(btnCenter - tabCenter).toFixed(2)}px ` +
-        `Δbordo=${Math.abs((headerBox.y + headerBox.height) - (tabBox.y + tabBox.height)).toFixed(2)}px ` +
-        `borderBottom=${borderPx}px`,
+      `[striscia] x=${stripBox.x.toFixed(1)} w=${stripBox.width.toFixed(1)} ` +
+        `altezze=[${boxes.join(",")}] ` +
+        `btnCenterY=${btnCenter.toFixed(1)} contenutoCenterY=${contenuto.center.toFixed(1)} ` +
+        `Δcentro=${Math.abs(btnCenter - contenuto.center).toFixed(2)}px`,
     );
 
-    // Ritaglio sulla giunzione rail/tab bar, dove si guarda.
+    // Ritaglio sulla riga, dove si guarda.
     await page.screenshot({
       path: "test-results/project-sidebar-rail.png",
-      clip: { x: railBox.x, y: railBox.y, width: 340, height: 150 },
+      clip: { x: tabBox.x, y: tabBox.y - 2, width: 460, height: 60 },
     });
   });
 
@@ -131,16 +233,28 @@ test.describe("sidebar progetto: la rail collassata", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    // «File» chiusa deve leggersi come una riga, non come un titolo sospeso
-    // sul vuoto. Il suo contenitore resta flex-1 anche da chiusa (spinge Git e
-    // Processi in fondo), quindi il divisore da 1px finisce in fondo alla
-    // colonna: senza un bordo proprio, sotto la riga non c'e nessuna linea.
-    const filesRow = win.locator("div").filter({ hasText: /^File$/ }).last();
+    // «File» chiusa deve leggersi come una riga, non come un titolo sospeso sul
+    // vuoto. Ci arrivava con un `border-b` che compariva solo da chiusa; ora ci
+    // arriva perche' E' UNA CARD — fondo suo, angoli, rientro — in tutti e due
+    // gli stati. «Gli accordion della sidebar progetto diventano delle card,
+    // come le tab» (Attilio, 09/08), e fra card impilate una linea ripete cio'
+    // che fondo e distanza dicono gia'.
+    const filesRow = win.locator('[data-testid="project-sidebar-files"]');
     await expect(filesRow).toBeVisible({ timeout: 10000 });
     await filesRow.click();
-    await expect
-      .poll(async () => filesRow.evaluate(el => parseFloat(getComputedStyle(el).borderBottomWidth) || 0), { timeout: 5000 })
-      .toBeGreaterThan(0);
+    const card = await filesRow.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        fondo: cs.backgroundColor,
+        raggio: cs.borderRadius,
+        rientro: parseFloat(cs.marginLeft),
+        bordoSotto: parseFloat(cs.borderBottomWidth) || 0,
+      };
+    });
+    expect(card.fondo, "da chiusa la riga ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    expect(card.raggio, "ed e' arrotondata come una tab").not.toBe("0px");
+    expect(card.rientro, "ed e' rientrata dai lati come ogni altra card").toBeGreaterThan(0);
+    expect(card.bordoSotto, "e NON ha piu' una linea sotto").toBe(0);
 
     // Aprire «Processi» deve mostrare qualcosa. L'altezza e in pixel e viene
     // salvata: strizzata all'altezza dell'intestazione, la sezione si apriva su
@@ -229,12 +343,16 @@ test.describe("sidebar progetto: la rail collassata", () => {
     const dati = await win.evaluate(el => {
       const bar = el.querySelector('[data-testid="project-sidebar"]')!;
       const grip = el.querySelector('[data-testid="project-sidebar-resizer"]')!;
-      // Un divisore vero della barra: 1px, con il suo `bg-app-border`.
-      const linea = el.querySelector('.h-\\[1px\\].bg-app-border');
       return {
         grip: getComputedStyle(grip).backgroundColor,
-        bordoBarra: getComputedStyle(bar).borderRightColor,
-        linea: linea ? getComputedStyle(linea).backgroundColor : null,
+        // Il colore di un capello QUI, letto dal token invece che dal bordo
+        // della colonna. Era `getComputedStyle(bar).borderRightColor`, e quel
+        // bordo non esiste piu' — «lo vogliamo togliere proprio il bordo»
+        // (Attilio, 09/08). La lettura pero' non falliva: senza `border-r`,
+        // `borderRightColor` ricade su `currentColor`, cioe' sul colore del
+        // TESTO, e l'asserzione qui sotto e' andata rossa parlando di colori
+        // invece che di un elemento sparito. Il token e' la sorgente vera.
+        capello: getComputedStyle(bar).getPropertyValue("--border").trim(),
         dentroCard: !!grip.closest("[data-split-card]"),
       };
     });
@@ -244,9 +362,9 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // usciva una cucitura spessa dove ovunque c'e un capello.
     expect(dati.dentroCard, "la maniglia sta dentro una card, dove la regola arriva").toBe(true);
     expect(dati.grip, "la maniglia non si dipinge nemmeno da fluttuante").toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
-    // E la regola deve continuare a fare il suo mestiere: restituire la linea a
-    // chi ce l'aveva. Cancellarla avrebbe passato l'asserzione qui sopra e
-    // spento i divisori del progetto.
-    expect(dati.linea, "il divisore da 1px tiene il colore di un bordo qualsiasi").toBe(dati.bordoBarra);
+    // E la regola deve continuare a fare il suo mestiere: NON spegnere il colore
+    // dei capelli dentro la colonna. Cancellarla avrebbe passato l'asserzione
+    // qui sopra e portato via con se' anche i bordi veri.
+    expect(dati.capello, "dentro la colonna `--border` resta un colore vero").toMatch(/hsl|rgb|#/);
   });
 });

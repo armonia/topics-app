@@ -1,7 +1,9 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { E2E_BASE, E2E_TUNNEL_BASE } from "./helpers/test-server";
-import { createTopic } from "./helpers/api-fixtures";
+import { createTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { goToApp, ensureTopicVisible } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { ospite, daOspite } from "./helpers/ospite";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
 
 hermetic(test);
@@ -33,45 +35,9 @@ hermetic(test);
  * lascerebbe l'API perfetta e il contenuto in chiaro sul filo.
  */
 
-/** Appaia un dispositivo e lo fa approvare dal proprietario come persona
- *  DIVERSA da sé: è il gesto che lo rende ospite, e non c'è altro modo. */
-async function ospite(
-  api: APIRequestContext,
-  nome: string,
-): Promise<{ cookie: string; deviceId: string }> {
-  // La richiesta viene da fuori — è il telefono che chiede, non il Mac.
-  const richiesta = await api.post(`${E2E_TUNNEL_BASE}/api/auth/pair/request`, {
-    data: { name: nome },
-  });
-  expect(richiesta.ok()).toBeTruthy();
-  // Il `claim` torna SOLO qui, a chi ha chiesto. Chi vede passare il
-  // `requestId` in un frame non ce l'ha, ed è per questo che non può incassare.
-  const { requestId, claim } = (await richiesta.json()) as { requestId: string; claim: string };
-
-  // L'approvazione viene dal proprietario, cioè da dentro. `personName` è il
-  // caso «è di un'altra persona»: è QUELLO che lo rende ospite — il ruolo
-  // discende dalla persona, non si sceglie.
-  const ok = await api.post(`${E2E_BASE}/api/auth/pair/approve`, {
-    data: { requestId, personName: `Persona ${nome}` },
-  });
-  expect(ok.ok(), "il proprietario deve poter approvare da loopback").toBeTruthy();
-  const approvato = (await ok.json()) as { deviceId: string; role: string };
-  expect(approvato.role, "una persona diversa dal proprietario deve dare un ospite").toBe("guest");
-
-  // Il token esce UNA volta sola, nel `Set-Cookie` dello status.
-  const stato = await api.get(
-    `${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${requestId}&claim=${claim}`,
-  );
-  const corpo = (await stato.json()) as { state: string };
-  expect(corpo.state).toBe("approved");
-  const setCookie = stato.headers()["set-cookie"] ?? "";
-  const cookie = setCookie.split(";")[0] ?? "";
-  expect(cookie, "lo status approvato deve consegnare il biscotto di sessione").toContain(`${SESSION_COOKIE}=`);
-
-  return { cookie, deviceId: approvato.deviceId };
-}
-
-const daOspite = (cookie: string) => ({ Cookie: cookie });
+// `ospite()` e `daOspite()` vivono in `helpers/ospite.ts`: li usa anche lo spec
+// che entra dal RELAY, e due riti di appaiamento da tenere d'accordo sarebbero
+// uno di troppo.
 
 test.describe("Confinamento dell'ospite", () => {
   test("GUEST-01: vede la topic condivisa e NON le altre", async ({ request }) => {
@@ -311,5 +277,145 @@ test.describe("Confinamento dell'ospite · scalata di privilegio", () => {
     } finally {
       await ctx.close();
     }
+  });
+});
+
+/**
+ * ── LA SUPERFICIE DELLE CHAT ────────────────────────────────────────────────
+ *
+ * I casi sopra condividono con un DISPOSITIVO, chiamando l'API a mano. Non è la
+ * strada che percorre un utente, e la differenza non è cosmetica: la rubrica di
+ * `/api/auth/subjects` offre la PERSONA e non il ferro quando il dispositivo ne
+ * ha una — che è sempre, perché «è di un'altra persona» è il gesto che crea un
+ * ospite. Quindi ogni condivisione fatta dall'interfaccia atterra su un soggetto
+ * `person`, ed è un cammino che nessuno di quei casi tocca.
+ *
+ * Qui si guarda quello, sulla superficie delle chat, e sui DUE lati che devono
+ * dire la stessa cosa: il cancello (posso aprirla?) e l'inventario (la vedo
+ * nell'elenco?). Erano due risposte diverse alla stessa domanda.
+ */
+test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'interfaccia", () => {
+  /** L'id della PERSONA di un ospite, letto dalla rubrica dal lato proprietario.
+   *  È il soggetto che il pannello di condivisione offre davvero. */
+  async function personaDi(api: APIRequestContext, nome: string): Promise<string> {
+    const r = await api.get(`${E2E_BASE}/api/auth/subjects`);
+    expect(r.ok(), "la rubrica si legge dal lato proprietario").toBeTruthy();
+    const { subjects } = (await r.json()) as {
+      subjects: Array<{ subjectType: string; subjectId: string; name: string }>;
+    };
+    const p = subjects.find((s) => s.subjectType === "person" && s.name === `Persona ${nome}`);
+    expect(p, `la persona «Persona ${nome}» deve comparire fra i destinatari`).toBeTruthy();
+    return p!.subjectId;
+  }
+
+  test("GUEST-06: una chat condivisa con la PERSONA dell'ospite è leggibile E compare nell'inventario", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-06" });
+    const stamp = Date.now();
+    const nome = `guest-06-${stamp}`;
+    const condivisa = await createTopic(request, `E2E-Guest-Persona-${stamp}`);
+    const nascosta = await createTopic(request, `E2E-Guest-Persona-Nascosta-${stamp}`);
+    const { cookie } = await ospite(request, nome);
+    const personId = await personaDi(request, nome);
+
+    // Prima: niente. Senza questa lettura un inventario che restituisse sempre
+    // tutto sarebbe indistinguibile da uno che funziona.
+    const prima = await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) });
+    expect(prima.status()).toBe(200);
+    expect(JSON.stringify(await prima.json())).not.toContain(condivisa.id);
+
+    const messa = await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "person", subjectId: personId, resourceType: "topic", resourceId: condivisa.id },
+    });
+    expect(messa.status(), "condividere con una persona deve riuscire").toBe(200);
+
+    // 1. IL CANCELLO. Espande già i principali, quindi questo passava anche
+    //    prima: è il controllo positivo che rende leggibile il punto 2.
+    const suo = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect(suo.status(), "il cancello onora una concessione fatta alla persona").toBe(200);
+
+    // 2. L'INVENTARIO. È l'unica porta da cui un ospite SCOPRE cosa ha, e
+    //    guardava il solo dispositivo: la chat era apribile per id e invisibile
+    //    nell'elenco — «te l'ho condivisa» / «io non vedo niente».
+    const dopo = await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) });
+    const inventario = JSON.stringify(await dopo.json());
+    expect(inventario, "l'inventario deve dire la stessa cosa del cancello").toContain(condivisa.id);
+    expect(inventario, "e non allargarsi a ciò che nessuno ha condiviso").not.toContain(nascosta.id);
+
+    // 3. E resta sola lettura: il terzo asse non si allenta perché il soggetto
+    //    è una persona invece di un dispositivo.
+    const scrittura = await request.patch(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}`, {
+      headers: daOspite(cookie),
+      data: { name: "rinominata dall'ospite" },
+    });
+    expect(scrittura.status()).toBe(403);
+  });
+
+  test("GUEST-07: la condivisione fatta dal pannello sulla CHAT confina come quella fatta a mano", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-07" });
+    const stamp = Date.now();
+    const nome = `guest-07-${stamp}`;
+    const condivisa = await createTopic(request, `E2E-Share-Chat-${stamp}`);
+    const nascosta = await createTopic(request, `E2E-Share-Chat-Nascosta-${stamp}`);
+    const { cookie } = await ospite(request, nome);
+    await personaDi(request, nome); // la rubrica deve già offrirla prima di aprire il pannello
+
+    // Una sola tab aperta: il menu contestuale della barra va a colpire QUELLA
+    // chat e non un'omonima lasciata da un caso precedente.
+    await resetPaneStore(request, [condivisa.id]);
+    await goToApp(page);
+    await ensureTopicVisible(page, new RegExp(`E2E-Share-Chat-${stamp}$`));
+
+    // Il pannello di condivisione di una chat vive nelle sue impostazioni, che
+    // è la superficie raggiungibile allo stesso modo da ogni layout. Ci si
+    // arriva col tasto destro sulla tab, come farebbe chiunque.
+    const tab = page.locator('[role="main"]').getByText(new RegExp(`E2E-Share-Chat-${stamp}$`)).first();
+    await expect(tab).toBeVisible({ timeout: 10_000 });
+    await tab.dispatchEvent("contextmenu");
+    const voce = page.locator("button").filter({ hasText: /^Impostazioni$/ });
+    await expect(voce).toBeVisible({ timeout: 5_000 });
+    await voce.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // IL MONTAGGIO. Senza questa riga il resto del test non proverebbe niente
+    // sulla superficie delle chat: proverebbe di nuovo l'API.
+    const controllo = dialog.getByTestId("share-control");
+    await expect(controllo, "la chat deve offrire lo STESSO controllo di una scheda").toBeVisible();
+    await controllo.click();
+
+    // Il destinatario è la PERSONA: è ciò che la rubrica offre per un ospite
+    // appaiato come «è di un'altra persona».
+    const destinatario = dialog.getByRole("button", { name: new RegExp(`^Persona ${nome}`) });
+    await expect(destinatario).toBeVisible({ timeout: 5_000 });
+    await destinatario.click();
+
+    // Il pannello lo dice: è il segnale che la scrittura è andata a buon fine
+    // sul lato di chi condivide, prima di andare a guardare dall'altro.
+    await expect(controllo).toHaveText(/Shared with 1/, { timeout: 10_000 });
+
+    // ── E ADESSO DA FUORI, che è l'unico posto da cui il confinamento si vede.
+    const inv = await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) });
+    expect(inv.status()).toBe(200);
+    const elenco = JSON.stringify(await inv.json());
+    expect(elenco, "la chat condivisa dal pannello deve comparire all'ospite").toContain(condivisa.id);
+    expect(elenco, "e nessun'altra").not.toContain(nascosta.id);
+
+    const letta = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect(letta.status()).toBe(200);
+    const altrui = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${nascosta.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect([403, 404], "la chat non condivisa resta chiusa").toContain(altrui.status());
+
+    const scrittura = await request.patch(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}`, {
+      headers: daOspite(cookie),
+      data: { name: "rinominata dall'ospite" },
+    });
+    expect(scrittura.status(), "condivisa dal pannello resta comunque in sola lettura").toBe(403);
   });
 });

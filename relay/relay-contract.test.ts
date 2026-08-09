@@ -84,6 +84,69 @@ describe("relay · il co-browse a pixel non entra qui", () => {
   });
 });
 
+describe("relay · il segnale di chi ha chiesto è acceso DAVVERO", () => {
+  /** `wrangler.jsonc` senza i commenti: gli stessi criteri del sorgente, e per
+   *  la stessa ragione — una bandiera NOMINATA in una spiegazione non è una
+   *  bandiera accesa, e un guardiano che non sa distinguerle dice sempre di sì. */
+  const CONFIG = JSON.parse(
+    readFileSync(join(import.meta.dir, "wrangler.jsonc"), "utf8")
+      .split("\n").filter((r) => !r.trim().startsWith("//")).join("\n"),
+  ) as { name?: string; compatibility_flags?: string[] };
+
+  it("il file è stato letto, ed è quello del relay", () => {
+    // Senza, un percorso sbagliato solleverebbe — ma un file VUOTO o di un
+    // altro Worker passerebbe le asserzioni qui sotto senza dire niente.
+    expect(CONFIG.name).toBe("topics-relay");
+  });
+
+  it("`enable_request_signal` è dichiarato, perché di suo non si accende mai", () => {
+    // `request.signal` è il solo modo che il Worker ha di sapere che chi aveva
+    // chiesto se n'è andato: la scheda chiusa, la pagina cambiata mentre
+    // un'immagine stava ancora arrivando. Senza, l'unica cosa che sveglia il
+    // ponte è la scadenza — mezzo minuto in cui la macchina serve una risposta
+    // che non ha più dove andare, e una corsia del tubo resta occupata da
+    // nessuno.
+    //
+    // È un test sulla configurazione, e per la stessa ragione degli altri due
+    // qui sopra: il difetto è INVISIBILE a runtime. Il codice che ascolta il
+    // segnale gira uguale e i test passano uguali; solo che in produzione quel
+    // segnale non si interrompe mai. E questa bandiera, sola fra quelle che
+    // usiamo, non ha una data in cui si accende da sé: o è scritta, o non c'è.
+    const bandiere = CONFIG.compatibility_flags ?? [];
+    expect(bandiere).toContain("enable_request_signal");
+    expect(bandiere).not.toContain("disable_request_signal");
+  });
+
+  it("`request_signal_passthrough` è dichiarato: il segnale deve ARRIVARE al ponte", () => {
+    // La bandiera qui sopra rende il segnale osservabile; questa lo fa
+    // attraversare. Sono due cose diverse e la seconda è quella che si
+    // dimentica — accendere solo la prima dà un `request.signal` che esiste e
+    // non si interrompe mai, che è indistinguibile da un browser che non se ne
+    // va mai.
+    //
+    // Conta QUI perché il ponte non gira nel Worker: `worker.ts` passa la
+    // richiesta al Durable Object con `env.SESSIONE.get(id).fetch(req)`, e una
+    // `fetch()` non porta con sé il segnale di chi ha bussato se non è
+    // dichiarato `request_signal_passthrough` (gli stub dei Durable Object non
+    // fanno eccezione). Senza, `seNeVa()` in `src/ponte.ts` ascolta un segnale
+    // che nessuno interromperà: niente 499, niente `reset` verso la macchina,
+    // niente upgrade rinunciato — la macchina serve per tutta la scadenza.
+    //
+    // QUESTA ASSERZIONE È IL GUARDIANO DEL TRATTO Worker→DO, e non è un
+    // doppione dei test del ponte: `ponte.test.ts` e `ponte-ws.test.ts`
+    // costruiscono l'`AbortController` e lo consegnano a mano, quindi provano
+    // cosa fa il ponte QUANDO la rinuncia arriva — saltando esattamente il
+    // salto in cui il segnale si perde. Se questa riga sparisce, non resta
+    // niente che possa fallire.
+    //
+    // E non basta il deploy per accorgersene: `wrangler deploy --dry-run` esce
+    // 0 anche con un nome di bandiera inventato. O è scritta, o non c'è.
+    const bandiere = CONFIG.compatibility_flags ?? [];
+    expect(bandiere).toContain("request_signal_passthrough");
+    expect(bandiere).not.toContain("no_request_signal_passthrough");
+  });
+});
+
 describe("relay · non decide chi sei (RELAY-04)", () => {
   it("il Worker non conosce sessioni, credenziali, permessi", () => {
     // Due autorità sull'identità vanno tenute d'accordo per sempre, e quella
