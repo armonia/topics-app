@@ -24,6 +24,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { E2E_BASE as BASE } from "./helpers/test-server";
 
 hermetic(test);
 
@@ -74,6 +75,15 @@ test.beforeEach(async ({ page, request }) => {
   // dichiarare la topic aperta (vedi `resetPaneStore`), quindi le due righe
   // esistono già quando la pagina apre — niente corsa fra apertura e misura.
   await resetPaneStore(request, ids.slice());
+  // E LA COLONNA TORNA ALLA VISTA BASE, perché due dei test qui sotto la
+  // cambiano (vista «per stato», un fissato) e lo stato è SERVER-SIDE: senza
+  // questo azzeramento il primo che scrive detta la scena a tutti quelli che
+  // vengono dopo, in ordine di esecuzione — che è come CODA-4 è diventato rosso
+  // pur non essendo stato toccato. Un test che dipende da chi ha girato prima
+  // non sta misurando quello che dice di misurare.
+  await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+    data: { viewMode: 'timeline', showArchived: false, expandedNodes: [], pinnedItems: [], pinnedLayout: [] },
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await goToApp(page);
 });
@@ -157,37 +167,43 @@ test("CODA-3: il comando è l'ULTIMO — nessun segnale gli sta a destra", async
   }
 });
 
-test("CODA-5: una tessera fissata è alta quanto una riga, e l'intestazione di sezione MENO", async ({ page }) => {
-  // Le due misure che erano rimaste fuori dal primo giro, misurate insieme
-  // perché sono la stessa domanda vista da due lati: cosa deve essere alto
-  // quanto una riga, e cosa no.
-  //
-  //  · la TESSERA è una riga presentata in griglia — 36 contro 34 col mouse
-  //    erano due pixel fra card impilate nella stessa colonna;
-  //  · l'INTESTAZIONE di sezione no: un'intestazione alta quanto le righe che
-  //    introduce non si legge come un'intestazione.
-  await openTopic(page, nomi[0]);
+/* L'ALTEZZA DELL'INTESTAZIONE DI SEZIONE NON SI MISURA QUI, ed è una rinuncia
+ * dichiarata invece che un buco.
+ *
+ * Le intestazioni della colonna principale si disegnano solo in vista «per
+ * stato» E solo quando almeno una chat è in attesa o al lavoro: con topic
+ * appena creati cadono tutte in «il resto», e quel ramo rende una lista NUDA,
+ * senza intestazioni (vedi il `soloIlResto` in TopicTree). Un test scritto qui
+ * troverebbe zero elementi e passerebbe verde senza aver misurato niente —
+ * cioè un'asserzione che non può fallire, che in questo repo è già costata una
+ * suite verde su un difetto vivo.
+ *
+ * Fabbricare uno stato «in attesa» solo per far comparire un'intestazione
+ * significherebbe provare la geometria attraverso tre sistemi che non c'entrano
+ * (segnali, streaming, soglie di visto). Il numero è invece bloccato dove è
+ * davvero verificabile: `selectionStyles.test.ts` ricalcola `SECTION_H` contro
+ * `CARD_H` (stessa misura col mouse) e contro `ROW_H` (stessa col dito, i 44 di
+ * iOS), e controlla che `SECTION_CARD` la monti. */
+
+test("CODA-6: una tessera fissata è alta ESATTAMENTE quanto una riga", async ({ page, request }) => {
+  // Due pixel fra card impilate nella stessa colonna — 36 contro 34 — che
+  // venivano da un'invariante tutta della tessera. Si semina un fissato, o non
+  // c'è niente da misurare.
+  await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+    data: { viewMode: 'timeline', showArchived: false, expandedNodes: [], pinnedItems: [ids[1]], pinnedLayout: [] },
+  });
+  await goToApp(page);
+
+  const tessera = page.locator('[data-testid="sidebar-pinned-section"] [role="treeitem"]').first();
+  await expect(tessera, 'nessuna tessera fissata: il seme non ha preso').toBeVisible({ timeout: 15000 });
   const riga = rigaDi(page, nomi[0]);
   await expect(riga).toBeVisible();
+
   await page.mouse.move(1200, 850);
   await page.waitForTimeout(200);
-  const rr = await rett(riga, "riga");
-
-  // La sezione: la prima intestazione d'albero che la colonna monta.
-  const sezione = page.locator('button[aria-label^="sezione "]').first();
-  if (await sezione.count()) {
-    const rs = await rett(sezione, "intestazione di sezione");
-    expect(rs.h, `intestazione ${rs.h.toFixed(1)}px, riga ${rr.h.toFixed(1)}px: dovrebbe essere PIÙ BASSA`).toBeLessThan(rr.h - 1);
-  }
-
-  // La tessera: c'è solo se qualcosa è fissato, quindi il controllo è
-  // condizionale — un test che finge di aver misurato ciò che non c'era è
-  // peggio di uno che dichiara di aver saltato.
-  const tessera = page.locator('[data-testid="sidebar-pinned-section"] [role="treeitem"]').first();
-  if (await tessera.count()) {
-    const rt = await rett(tessera, "tessera fissata");
-    expect(Math.abs(rt.h - rr.h), `tessera ${rt.h.toFixed(1)}px contro riga ${rr.h.toFixed(1)}px`).toBeLessThanOrEqual(EPS);
-  }
+  const rt = await rett(tessera, 'tessera fissata');
+  const rr = await rett(riga, 'riga');
+  expect(Math.abs(rt.h - rr.h), `tessera ${rt.h.toFixed(1)}px contro riga ${rr.h.toFixed(1)}px`).toBeLessThanOrEqual(EPS);
 });
 
 test("CODA-4: fra due card adiacenti della colonna passa COLUMN_GAP", async ({ page }) => {
