@@ -7,7 +7,7 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
-import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET } from './pinnedTileMetrics';
+import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET_CLASS } from './pinnedTileMetrics';
 import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,
@@ -882,14 +882,15 @@ export function PinnedTiles({
                         essere un velo. Vedi index.css. */}
                     {actions && (
                       <div
-                        className="raised-control-overlay absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex"
-                        // Il rientro da destra è lo STESSO numero che lo separa
-                        // dal bordo alto e da quello basso — lì ci pensa
-                        // `PINNED_TILE_H`, che è l'altezza del trigger più due
-                        // volte questo. Tre distanze uguali, un numero solo —
-                        // e da quando la tessera è `h-9` quel numero è 4 su
-                        // entrambe le larghezze, non più due costanti.
-                        style={{ right: PINNED_TILE_ACTION_INSET }}
+                        // Il rientro da destra è lo STESSO spazio che il bottone
+                        // ha sopra e sotto — ma ora è DERIVATO da quello, non il
+                        // contrario: `(altezza tessera − box) / 2`, che con la
+                        // tessera alta come una riga fa 3 col mouse e 4 col dito.
+                        // Vedi PINNED_TILE_ACTION_INSET_CLASS, dove c'è anche il
+                        // giro che ho fatto per arrivarci.
+                        // In CLASSE e non più in `style`: serve un ramo `md:`, e
+                        // uno stile in linea nessuna media query lo raggiunge.
+                        className={`raised-control-overlay absolute top-1/2 -translate-y-1/2 z-10 hidden group-hover/cell:flex ${PINNED_TILE_ACTION_INSET_CLASS}`}
                       >
                         {actions}
                       </div>
