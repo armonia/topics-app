@@ -38,7 +38,8 @@
  * autorità sul chi-sei, e quella che sbaglia è sempre quella che nessuno guarda.
  */
 import {
-  componiStream, creaContatoreStream, creaRiassemblatore, leggiFramePayload, scriviFrame,
+  componiStream, creaCapoCanale, creaContatoreStream, creaRiassemblatore, leggiFramePayload,
+  ricaricaPer, scriviFrame,
   TUBO_BYTE_PER_FRAME,
   type FrameTubo,
 } from "../../shared/relay-protocol";
@@ -46,6 +47,12 @@ import {
   GENERE_RICHIESTA, GENERE_RISPOSTA, leggiTestaRisposta, scriviTesta,
   type Intestazioni,
 } from "../../shared/relay-http";
+import {
+  codiceInviabile, GENERE_WS, GENERE_WS_APERTO, GENERE_WS_CHIUSO,
+  leggiChiusuraWs, leggiTestaWsAperto, leggiTestaWsChiuso,
+  scriviChiusuraWs, scriviTestaWs, WS_APERTO, WS_CHIUSURA_NORMALE,
+  type ChiusuraWs,
+} from "../../shared/relay-ws";
 
 /**
  * Il nome della sessione del ponte, uno per installazione.
@@ -100,6 +107,83 @@ const MAX_STREAM = 256;
  *  niente. */
 const SCADENZA_MS = 30_000;
 
+/**
+ * Quanti socket vivi insieme si portano su questa sessione.
+ *
+ * È il tetto della MACCHINA (`MAX_SOCKET` in `relay-client.ts`), ricopiato di
+ * proposito: sfondarlo di là si legge come un `reset`, cioè come «il socket è
+ * morto» senza dire perché. Qui diventa un rifiuto dichiarato, con un numero
+ * addosso. Il conto ci sta: un pannello del client ne apre quattro — quello
+ * dell'applicazione, quello di ogni terminale, quello di ogni pannello browser.
+ */
+const MAX_SOCKET = 16;
+
+/**
+ * Il socket è morto perché l'installazione non è più collegata al relay.
+ *
+ * Sta nell'intervallo delle applicazioni (3000-4999) e non su `1001` o `1012`,
+ * e non è una scelta estetica: `close()` accetta solo `1000` e quell'intervallo
+ * (`codiceInviabile`), quindi qualsiasi altro numero sarebbe un'eccezione al
+ * posto di una chiusura. E `1000` direbbe «tutto a posto», che è l'unica cosa
+ * che qui non è vera.
+ */
+export const WS_PONTE_GIU = 4001;
+
+/**
+ * L'istanza del relay è ripartita, e questo socket non ha più un capo.
+ *
+ * L'ibernazione può sfrattare l'oggetto dalla memoria fra un messaggio e
+ * l'altro: quello che se ne va è la NUMERAZIONE degli stream, e con lei ogni
+ * socket aperto — la macchina si ricorda i numeri di prima e non li riaccetta.
+ * Un socket sopravvissuto allo sfratto è perciò un filo che non arriva più da
+ * nessuna parte: si chiude dicendolo, e chi sta di là riapre. Restare aperti
+ * sarebbe peggio, perché somiglia a funzionare.
+ */
+export const WS_PONTE_RIPARTITO = 4002;
+
+/**
+ * Il socket del browser, ridotto a ciò che il ponte usa davvero.
+ *
+ * Un'interfaccia locale e non il tipo del runtime: il ponte non deve sapere
+ * niente di Durable Object — è la stessa ragione per cui `invia` è una
+ * funzione — e un test può guidarlo con due oggetti in memoria.
+ */
+export interface SocketPonte {
+  send(dato: string | Uint8Array | ArrayBuffer): void;
+  close(codice?: number, motivo?: string): void;
+}
+
+/** Com'è andata la richiesta di aprire un socket. `stato` parla il vocabolario
+ *  dell'HTTP, come `TestaWsAperto.s`: è quello che chi instrada rigira a chi
+ *  ha bussato. */
+export type EsitoWs =
+  | { ok: true; sIn: number; sp?: string }
+  | { ok: false; stato: number };
+
+/** Il nome di un sottoprotocollo è un token HTTP. Stessa forma di
+ *  `PROTOCOLLO_VALIDO` in `shared/relay-ws.ts`, e per lo stesso motivo: tutto
+ *  ciò che non è un token — spazi, virgole, ritorni a capo — è ciò con cui si
+ *  spezza in due un'intestazione a valle. */
+const PROTOCOLLO_VALIDO = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const MAX_PROTOCOLLI = 16;
+
+/**
+ * I sottoprotocolli chiesti dal browser, letti dall'intestazione.
+ *
+ * Diventano `sp` nella testa del canale e NON viaggiano come intestazione: la
+ * macchina filtra via ogni `sec-websocket-*` (`intestazioniUpgrade`), perché
+ * quelle appartengono alla stretta di mano fra due capi vicini e questa
+ * connessione non è quella. Chi non è un token si scarta invece di far cadere
+ * l'apertura: una preferenza storta è una preferenza in meno, non un guasto.
+ */
+function protocolliChiesti(v: string | null): string[] {
+  if (!v) return [];
+  return v.split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && p.length <= 128 && PROTOCOLLO_VALIDO.test(p))
+    .slice(0, MAX_PROTOCOLLI);
+}
+
 export interface PonteOpts {
   /** Dove finisce un frame già serializzato, verso la macchina. È il solo
    *  contatto col trasporto: il ponte non sa niente di Durable Object. */
@@ -112,6 +196,9 @@ export interface PonteOpts {
   maxCorpo?: number;
   maxRisposta?: number;
   scadenzaMs?: number;
+  /** Quanti socket vivi insieme. Abbassabile nei test: provare un tetto
+   *  aprendo sedici socket è un test che nessuno legge. */
+  maxSocket?: number;
 }
 
 /** Ciò che torna dalla macchina, o `null` quando la corsia è morta. */
@@ -139,6 +226,25 @@ function dillo(stato: number, testo: string): Response {
  *  solo. */
 export function macchinaSpenta(): Response {
   return dillo(503, "This installation is not connected to the relay right now.");
+}
+
+/**
+ * L'upgrade non si apre, e si dice con lo stato che ha detto la macchina.
+ *
+ * Un `101` dato lo stesso e poi chiuso subito sarebbe, per chi guarda, un
+ * socket che muore senza motivo — e i motivi qui sono diversi fra loro: un
+ * percorso che di là sceglie un'altra destinazione non è la stessa cosa di una
+ * installazione senza accesso da fuori. Le frasi sono in inglese perché sono
+ * quelle che si leggono negli strumenti di chi apre il link.
+ */
+export function upgradeRifiutato(stato: number): Response {
+  const frasi: Record<number, string> = {
+    400: "That path is not served over the relay.",
+    429: "Too many sockets are already open over the relay for this installation.",
+    503: "This installation has no remote access configured.",
+    504: "The installation did not answer in time.",
+  };
+  return dillo(stato, frasi[stato] ?? "The installation could not open this socket.");
 }
 
 /**
@@ -187,6 +293,7 @@ export function creaPonte(opts: PonteOpts) {
   const maxCorpo = opts.maxCorpo ?? MAX_CORPO;
   const maxRisposta = opts.maxRisposta ?? MAX_CORPO;
   const scadenzaMs = opts.scadenzaMs ?? SCADENZA_MS;
+  const maxSocket = opts.maxSocket ?? MAX_SOCKET;
 
   const prossimo = creaContatoreStream("guest");
   const rias = creaRiassemblatore({
@@ -203,6 +310,156 @@ export function creaPonte(opts: PonteOpts) {
   const daRisposta = new Map<number, number>();
 
   const manda = (f: FrameTubo) => opts.invia(scriviFrame(f));
+
+  // ── I WEBSOCKET ────────────────────────────────────────────────────────
+  /**
+   * Un socket è una COPPIA di canali e un nome solo.
+   *
+   * I numeri di stream sono spartiti per parità, quindi nessuno dei due capi
+   * può scrivere sulla corsia dell'altro: l'ospite apre il suo (dispari)
+   * chiedendo il percorso, la macchina apre il proprio (pari) dicendo com'è
+   * andata. Il nome, per tutti e due, è lo stream dell'OSPITE — così non c'è
+   * nessuna tabella di corrispondenza da tenere d'accordo, ed è lo stesso
+   * accordo che `relay-client.ts` tiene dall'altra parte.
+   */
+  interface Filo {
+    /** Il canale dell'ospite: è anche il nome del socket. */
+    sIn: number;
+    /** Il canale della macchina, noto solo dopo il suo `wsok`. */
+    sOut: number | null;
+    su: SocketPonte | null;
+    canale: ReturnType<typeof creaCapoCanale>;
+    /** Chi aspetta l'esito dell'apertura, finché non è arrivato. */
+    apertura: ((e: EsitoWs) => void) | null;
+    /**
+     * Ciò che la macchina ha mandato PRIMA che il socket del browser fosse
+     * attaccato. Non serve un tetto scritto: il credito torna solo DOPO la
+     * consegna, quindi la finestra del canale della macchina (mezzo MiB) si
+     * chiude da sola. È lo stesso meccanismo del verso opposto, guardato
+     * dall'altra parte.
+     */
+    giu: Array<{ d: string | Uint8Array; byte: number }>;
+    finito: boolean;
+  }
+
+  /** I socket vivi, per stream del canale dell'OSPITE. */
+  const fili = new Map<number, Filo>();
+  /** …e gli stessi, per stream del canale della MACCHINA: è da lì che arrivano
+   *  i suoi messaggi, e cercarli scorrendo tutti i fili sarebbe un giro
+   *  lineare a ogni riga di terminale. */
+  const perCanale = new Map<number, Filo>();
+
+  /** La chiusura, con codice e motivo, su uno stream suo. Un `reset` del tubo
+   *  ha una sola parola di un vocabolario che parla del TUBO: buttare via
+   *  «1000 normale» contro «1011 errore» vorrebbe dire che da fuori rete ogni
+   *  chiusura si legge uguale, e chi si riconnette non sa se deve. */
+  function dichiaraChiusura(f: Filo, c: ChiusuraWs): void {
+    for (const fr of componiStream({
+      s: prossimo(), k: GENERE_WS_CHIUSO,
+      h: scriviTestaWs({ w: f.sIn }), dati: scriviChiusuraWs(c), max,
+    })) manda(fr);
+  }
+
+  /**
+   * Il socket muore, e lo si dice una volta sola.
+   *
+   * `finito` si alza PRIMA di toccare il socket del browser: `close()` può far
+   * scattare il proprio evento dentro la stessa pila di chiamate, e allora si
+   * rientrerebbe qui a dichiarare una SECONDA chiusura — quella del filo,
+   * senza codice — che arriva alla macchina dopo quella vera e la copre.
+   */
+  function spegni(
+    f: Filo,
+    o: { versoMacchina?: ChiusuraWs; versoBrowser?: ChiusuraWs } = {},
+  ): void {
+    if (f.finito) return;
+    f.finito = true;
+    fili.delete(f.sIn);
+    if (f.sOut !== null) { perCanale.delete(f.sOut); rias.dimentica(f.sOut); }
+    if (o.versoMacchina) dichiaraChiusura(f, o.versoMacchina);
+    // Il canale dell'ospite si chiude SEMPRE, anche quando è la macchina ad
+    // aver chiuso per prima. Il `reset` non racconta la chiusura — quella l'ha
+    // già dichiarata lei — serve a dire all'altro capo di DIMENTICARE questo
+    // stream: senza, resta nel suo riassemblatore per tutta la sessione, e i
+    // canali hanno un tetto. Un tetto che si consuma non è un tetto, è una
+    // scadenza.
+    f.canale.chiudi("aborted");
+
+    const risolvi = f.apertura;
+    f.apertura = null;
+    // Chi stava aspettando l'apertura non aspetta più. `502` e non un silenzio:
+    // un upgrade che non risponde lascia la scheda del browser a girare, che è
+    // il modo peggiore di guastarsi perché non dice niente.
+    risolvi?.({ ok: false, stato: 502 });
+
+    const su = f.su;
+    f.su = null;
+    f.giu.length = 0;
+    if (!su) return;
+    try {
+      const c = o.versoBrowser;
+      // `1006` e `1005` li produce il browser da solo e sono riservati:
+      // passarli a `close()` è un'eccezione, non una chiusura. Chi li riceve
+      // dal tubo chiude e basta — che è esattamente ciò che vogliono dire.
+      if (c && codiceInviabile(c.c)) su.close(c.c, c.r);
+      else su.close();
+    } catch { /* già chiusa */ }
+  }
+
+  /** Un messaggio della macchina verso il browser, e il credito che torna
+   *  indietro. Il credito si restituisce solo DOPO la consegna: prima sarebbe
+   *  una promessa su qualcosa che non è ancora successo. */
+  function consegnaGiu(f: Filo, d: string | Uint8Array, byte: number): void {
+    if (!f.su) { f.giu.push({ d, byte }); return; }
+    try {
+      f.su.send(d);
+    } catch {
+      // Il browser non c'è più: alla macchina lo si dice come una chiusura,
+      // non come un silenzio che le lascia il processo acceso.
+      spegni(f, { versoMacchina: { c: WS_CHIUSURA_NORMALE, r: "guest gone" } });
+      return;
+    }
+    if (f.sOut !== null) manda(ricaricaPer(f.sOut, byte));
+  }
+
+  /** La macchina risponde all'apertura: è aperto, oppure dice perché no. */
+  function apriCanale(s: number, k: string, h: string | undefined): void {
+    const scarta = () => { rias.dimentica(s); manda({ f: "reset", s, motivo: "bad-frame" }); };
+    // Un canale di un genere che non si conosce chiude QUELLO stream invece di
+    // far cadere la sessione: è il punto di estensione del tubo.
+    if (k !== GENERE_WS_APERTO) { scarta(); return; }
+    const t = leggiTestaWsAperto(h);
+    if (!t) { scarta(); return; }
+    const f = fili.get(t.re);
+    // Un canale che nomina un socket che qui non esiste: o non è mai esistito,
+    // o era già morto. In tutti e due i casi non c'è niente a cui attaccarlo.
+    if (!f || f.finito) { scarta(); return; }
+
+    f.sOut = s;
+    perCanale.set(s, f);
+    const risolvi = f.apertura;
+    f.apertura = null;
+    if (t.s === WS_APERTO) {
+      risolvi?.({ ok: true, sIn: f.sIn, ...(t.sp !== undefined ? { sp: t.sp } : {}) });
+      return;
+    }
+    // Non è riuscita, e il perché è l'unica cosa che l'ospite può leggere: si
+    // rigira così com'è invece di tradurlo in un guasto generico.
+    risolvi?.({ ok: false, stato: t.s });
+    spegni(f);
+  }
+
+  /** La macchina chiude un socket, con codice e motivo. */
+  function chiusuraDallaMacchina(s: number, h: string | undefined, dati: string | Uint8Array): void {
+    const t = leggiTestaWsChiuso(h);
+    const c = leggiChiusuraWs(dati);
+    if (!t || !c) { manda({ f: "reset", s, motivo: "bad-frame" }); return; }
+    const f = fili.get(t.w);
+    // Un socket già morto non è un errore: i due capi possono chiudere nello
+    // stesso istante e nessuno dei due ha sbagliato.
+    if (!f) return;
+    spegni(f, { versoBrowser: c });
+  }
 
   function consegna(re: number, e: Esito | null): void {
     const risolvi = attese.get(re);
@@ -293,6 +550,108 @@ export function creaPonte(opts: PonteOpts) {
       });
     },
 
+    /**
+     * Un upgrade WebSocket del browser, chiesto alla macchina.
+     *
+     * Si ASPETTA l'esito prima di rispondere, e non è pignoleria: un `101`
+     * dato subito e poi chiuso è, per chi guarda da fuori, un socket che si
+     * apre e muore senza dire niente — mentre un percorso che di là non esiste
+     * merita un guasto che si legge. E il sottoprotocollo scelto lo decide la
+     * macchina: senza aspettarla non ci sarebbe niente da mettere nella
+     * risposta di apertura, e un browser che ne aveva chiesto uno rifiuta la
+     * connessione.
+     *
+     * L'oggetto non viene sfrattato mentre una `fetch` è in volo, quindi lo
+     * stato di questo socket e chi lo ha chiesto stanno sempre nella stessa
+     * istanza, per costruzione.
+     */
+    async apriWs(req: Request, percorso: string): Promise<EsitoWs> {
+      // Il tetto è quello della macchina, dichiarato qui: di là si legge come
+      // un `reset`, cioè come una morte senza motivo. E ha un numero SUO —
+      // `503` qui direbbe «l'accesso da fuori non è configurato», che di
+      // questa installazione non è vero: sono i posti a essere finiti.
+      if (fili.size >= maxSocket) return { ok: false, stato: 429 };
+
+      // Le intestazioni si girano com'erano: chi decide cosa questo socket può
+      // vedere è la macchina, con le stesse regole della rete locale, e le
+      // toglie lei quelle che non le spettano (`intestazioniUpgrade`).
+      const intestazioni: Intestazioni = [];
+      for (const [n, v] of req.headers) intestazioni.push([n, v]);
+      const sp = protocolliChiesti(req.headers.get("sec-websocket-protocol"));
+
+      const sIn = prossimo();
+      const canale = creaCapoCanale({ s: sIn, invia: manda, max });
+      const f: Filo = { sIn, sOut: null, su: null, canale, apertura: null, giu: [], finito: false };
+      fili.set(sIn, f);
+      const aperto = new Promise<EsitoWs>((res) => { f.apertura = res; });
+      canale.apri(GENERE_WS, scriviTestaWs({
+        p: percorso, h: intestazioni, ...(sp.length > 0 ? { sp } : {}),
+      }));
+
+      let scaduta: ReturnType<typeof setTimeout> | undefined;
+      const attesa = new Promise<"scaduta">((res) => {
+        scaduta = setTimeout(() => res("scaduta"), scadenzaMs);
+      });
+      const e = await Promise.race([aperto, attesa]);
+      if (scaduta !== undefined) clearTimeout(scaduta);
+      if (e !== "scaduta") return e;
+
+      // Si rinuncia anche di là: la macchina deve smettere di tenere aperto un
+      // socket vero che non ha più nessuno davanti.
+      f.apertura = null;
+      spegni(f);
+      return { ok: false, stato: 504 };
+    },
+
+    /**
+     * Il socket del browser è stato accettato: da qui in poi i due versi
+     * scorrono. Quello che la macchina ha mandato nel frattempo si consegna
+     * adesso, in ordine — l'ha già pagato in credito, e perderlo si vedrebbe
+     * come una schermata che comincia a metà.
+     */
+    collegaWs(sIn: number, su: SocketPonte): void {
+      const f = fili.get(sIn);
+      if (!f || f.finito) { try { su.close(); } catch { /* già chiusa */ } return; }
+      f.su = su;
+      for (const q of f.giu.splice(0)) consegnaGiu(f, q.d, q.byte);
+    },
+
+    /**
+     * Un messaggio del browser verso la macchina.
+     *
+     * `false` vuol dire «questo socket qui non esiste»: chi instrada lo chiude,
+     * perché un filo che non arriva da nessuna parte è peggio di un filo
+     * tagliato — somiglia a funzionare.
+     */
+    messaggioWs(sIn: number, d: string | Uint8Array): boolean {
+      const f = fili.get(sIn);
+      if (!f || f.finito) return false;
+      // «troppo» vuol dire che la macchina non consuma e la coda ha sfondato il
+      // tetto. Un guasto dichiarato è meglio di una memoria che cresce senza
+      // che nessuno sappia perché.
+      if (f.canale.manda(d) === "troppo") {
+        spegni(f, {
+          versoMacchina: { c: WS_PONTE_GIU, r: "backpressure" },
+          versoBrowser: { c: WS_PONTE_GIU, r: "backpressure" },
+        });
+      }
+      return true;
+    },
+
+    /** Il browser ha chiuso: il codice si porta di là così com'è, e un codice
+     *  che il WebSocket non permette di dichiarare diventa una chiusura
+     *  normale — è la macchina a rigirarlo al socket vero. */
+    chiudiWs(sIn: number, codice?: number, motivo?: string): void {
+      const f = fili.get(sIn);
+      if (!f) return;
+      const c = typeof codice === "number" && Number.isInteger(codice) && codice >= 1000 && codice <= 4999
+        ? codice
+        : WS_CHIUSURA_NORMALE;
+      // Il browser è già andato: non gli si manda niente, nemmeno una chiusura.
+      f.su = null;
+      spegni(f, { versoMacchina: { c, r: (motivo ?? "").slice(0, 512) } });
+    },
+
     /** Un `payload` in arrivo dalla macchina, per QUESTA sessione. */
     ricevi(payload: string): void {
       const f = leggiFramePayload(payload);
@@ -301,13 +660,35 @@ export function creaPonte(opts: PonteOpts) {
       if (!f) return;
       const e = rias.ricevi(f);
 
-      if (e.esito === "aperto" && e.k === GENERE_RISPOSTA) {
-        const t = leggiTestaRisposta(e.h);
-        if (t) daRisposta.set(e.s, t.re);
+      if (e.esito === "aperto") {
+        // Un canale è un socket, e uno stream normale una risposta: le due
+        // forme non si scambiano di posto. Un `res` come canale non finirebbe
+        // mai, e un `wsok` senza canale consegnerebbe un socket intero alla
+        // sua chiusura.
+        if (e.canale) { apriCanale(e.s, e.k, e.h); return; }
+        if (e.k === GENERE_RISPOSTA) {
+          const t = leggiTestaRisposta(e.h);
+          if (t) daRisposta.set(e.s, t.re);
+        }
+        return;
+      }
+
+      if (e.esito === "messaggio") {
+        const filo = perCanale.get(e.s);
+        if (!filo || filo.finito) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return; }
+        consegnaGiu(filo, e.dati, e.byte);
+        return;
+      }
+
+      if (e.esito === "credito") {
+        // Il credito cammina al contrario dei dati: riguarda il canale che ha
+        // aperto QUESTO capo, ed è per questo che si cerca fra i `sIn`.
+        fili.get(e.s)?.canale.ricarica(e.c);
         return;
       }
 
       if (e.esito === "completo") {
+        if (e.k === GENERE_WS_CHIUSO) { chiusuraDallaMacchina(e.s, e.h, e.dati); return; }
         if (e.k !== GENERE_RISPOSTA) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return; }
         const t = leggiTestaRisposta(e.h);
         if (!t) { manda({ f: "reset", s: e.s, motivo: "bad-frame" }); return; }
@@ -321,6 +702,13 @@ export function creaPonte(opts: PonteOpts) {
       }
 
       if (e.esito === "chiuso" || e.esito === "errore") {
+        // Un socket può morire dai due lati: la macchina chiude il PROPRIO
+        // canale, oppure resetta quello dell'ospite quando la testa non le è
+        // nemmeno piaciuta. Nessuno dei due porta un codice — quello viaggia
+        // sullo stream di chiusura — quindi per il browser è una caduta del
+        // filo, che è esattamente ciò che è.
+        const filo = perCanale.get(e.s) ?? fili.get(e.s);
+        if (filo) { spegni(filo); return; }
         // Due modi di morire, e vanno svegliati tutti e due: la macchina può
         // chiudere la corsia di RISPOSTA (e allora si risale al `re`) oppure
         // quella della RICHIESTA, quando la testa non le è nemmeno piaciuta —
@@ -341,8 +729,17 @@ export function creaPonte(opts: PonteOpts) {
     abbandona(): void {
       for (const re of [...attese.keys()]) consegna(re, null);
       daRisposta.clear();
+      // …e i socket non sono diversi: un filo che resta aperto verso una
+      // macchina che non c'è più è la cosa che somiglia di più a funzionare
+      // senza esserlo. Si dichiara PERCHÉ, così chi sta di là sa che deve
+      // riaprire invece di restare a guardare qualcosa che non si aggiorna.
+      for (const f of [...fili.values()]) {
+        spegni(f, { versoBrowser: { c: WS_PONTE_GIU, r: "installation offline" } });
+      }
     },
 
     inAttesa: () => attese.size,
+    /** Quanti socket sono vivi su questa sessione. */
+    wsVivi: () => fili.size,
   };
 }
