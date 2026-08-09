@@ -18,7 +18,6 @@ import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helper
 import { initGitRepo } from "./helpers/file-project";
 import { execFileSync } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
-import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -63,8 +62,6 @@ test.describe("stage di un blocco alla volta", () => {
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
-
-    await apriSezioneProgetto(page, "git");
 
     const git0 = win.locator('[data-testid="git-changes"]');
     await expect(git0).toBeVisible({ timeout: 10000 });
@@ -112,7 +109,6 @@ test.describe("stage di un blocco alla volta", () => {
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    await apriSezioneProgetto(page, "git");
     const git0 = win.locator('[data-testid="git-changes"]');
     await expect(git0).toBeVisible({ timeout: 10000 });
     if (!(await git0.locator('[title="f.txt"]').first().isVisible().catch(() => false))) {
