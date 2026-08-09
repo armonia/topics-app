@@ -670,7 +670,14 @@ export function ProjectSidebar({
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
               gemello desktop per il mezzo passo in fondo). */}
-          <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
+          {/* `sidebar-column`: la PRIMA card non porta il suo mezzo passo in cima.
+          L'intestazione chiude già con `md:pb-[6px]` — il passo pieno — e la
+          card sotto ci aggiungeva i suoi 3, facendo 9 dove ne servono 6.
+          «Doppia spaziatura fra trigger, Files e tabbar» (Attilio, 09/08). La
+          regola è la stessa della colonna principale (index.css), non una
+          seconda: due posti che dicono la stessa cosa divergono al primo che
+          viene corretto da solo. */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
             <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
@@ -768,7 +775,13 @@ export function ProjectSidebar({
       // alla CLASSE (`.chrome-glass .chrome-glass { transparent !important }`),
       // e sotto la shell il `!important` di quelle regole batte comunque questa
       // utility. Qui si corregge il ramo che la shell non attraversa.
-      className="chrome-glass flex-shrink-0 bg-app-chrome flex flex-col overflow-hidden relative"
+      // IL FILO TORNA, ed è la stessa conclusione della sidebar principale: da
+      // quando il velo è uno solo, colonna e contenuto hanno lo stesso pixel, e
+      // due zone dello stesso piano le separa un filo — non un'ombra, non una
+      // differenza di tinta che non c'è più. «Mostriamo bordo sidebar, mi sa non
+      // abbiamo altre soluzioni pulite» (Attilio, 09/08): non è un ripiego, è
+      // l'unica cosa che resta quando le due superfici sono identiche.
+      className="chrome-glass flex-shrink-0 bg-app-chrome border-r border-app-border flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
       {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.
