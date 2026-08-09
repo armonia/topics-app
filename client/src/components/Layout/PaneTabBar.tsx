@@ -21,14 +21,13 @@ import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress } from '../../hooks/useLongPress';
-import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -1105,7 +1104,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // riga da 40, 6 di aria contro 2. `useMobile` lo dice già: le
             // affordance del dito seguono `isTouch`, quante-colonne-e-quanto-
             // alto seguono la larghezza.
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            className={`group ${ROW_CARD} edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${CARD_H} ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
@@ -1237,22 +1236,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 same: icon + name + notification badge + loading spinner. Git /
                 process status lives in the git & terminal panes where it's
                 actionable. */}
-            {/* Close / ⌘N affordance sits BEFORE the loading + status widgets so
-                the spinner and notification badge are the trailing-most things on
-                the tab ("loading e stato a fine tab"). The close X is revealed on
-                hover in this slot; idle it shows the ⌘N index (Electron). */}
-            {/* Anche una tab FISSATA si chiude. Il fissaggio non è un
-                lucchetto: è una scorciatoia che resta — chiusa la tab, la
-                tessera nei Fissati rimane e riaprirla la riporta dov'era
-                (riaprendo si disarchivia). Il lucchetto restava solo finché non
-                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
-                fare la cosa più comune che ci si fa. */}
-            {!nonClosablePaneIds?.has(pane.id) && (
-              <PaneCloseButton
-                paneId={pane.id}
-                onClose={onClose}
-              />
-            )}
+            {/* LA CHIUSURA NON STA PIÙ QUI, ed è la correzione di una regola che
+                questo commento dichiarava: «sta PRIMA dei widget di caricamento
+                e stato, così spinner e badge sono le cose più in coda alla tab».
+                Era coerente con sé stessa e sbagliata dal lato dell'uso: il
+                comando finiva in mezzo ai glifi, e la sua x dipendeva da quanti
+                ce n'erano — una tab con lo spinner e una senza mettevano la X in
+                due punti diversi. «Il tasto chiusura deve essere sempre a fine
+                tab, andando in hover sulle icone invece inutili» (Attilio,
+                09/08). Adesso è l'ULTIMO elemento e sta fuori dal flusso: vedi
+                ROW_ACTIONS, in fondo alla tab. */}
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -1275,6 +1268,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
+            {/* IL BINARIO QUIETO — i segnali che il comando può coprire. Lo
+                spinner resta FUORI (sopra): fermare un turno e chiudere la tab
+                sono due azioni diverse nello stesso istante.
+
+                I `ml-0.5` scritti a mano su ognuno se ne vanno: erano 2px sopra
+                il `gap` del contenitore, cioè 8 effettivi fra due cue e 6 fra la
+                X e lo spinner — due passi nella stessa tab. Adesso l'aria la
+                mette il contenitore, una volta. */}
+            <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,
                 independent signal — not attention (NotificationBadge) and not
                 loading (spinner) — so it stays muted. Keyed by topicId (chat)
@@ -1342,7 +1344,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 The tab bar deliberately renders no split schematic. */}
             <NotificationBadge
               count={badgeCount}
-              className="ml-0.5"
               variant={onFill ? 'onFill' : 'default'}
               // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
               // E i suoi figli possono benissimo non mostrare niente — quello
@@ -1356,6 +1357,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   : undefined
               }
             />
+            </div>
+            {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
+                Anche una tab FISSATA si chiude. Il fissaggio non è un
+                lucchetto: è una scorciatoia che resta — chiusa la tab, la
+                tessera nei Fissati rimane e riaprirla la riporta dov'era
+                (riaprendo si disarchivia). Il lucchetto restava solo finché non
+                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
+                fare la cosa più comune che ci si fa. */}
+            {!nonClosablePaneIds?.has(pane.id) && (
+              <PaneCloseButton
+                paneId={pane.id}
+                onClose={onClose}
+              />
+            )}
             {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );
@@ -1879,11 +1894,13 @@ function PaneCloseButton({
   // the same countdown regardless of which surface kicked it off.
   const pendingStatus = usePanePendingStatus(paneId);
 
-  // Chiudere una tab non ha un altro percorso col dito (il tasto centrale è del
-  // mouse), quindi senza puntatore la X si VEDE: `touch: 'shown'`. La domanda è
-  // `hasHover`, non `isTouch` — su un portatile touch l'hover c'è, e il ramo
-  // gated su `isTouch` lasciava la X permanentemente accesa su ogni tab.
-  const closeReveal = useHoverReveal('self', { touch: 'shown' });
+  // La regola che stava qui — «chiudere una tab non ha un altro percorso col
+  // dito, quindi senza puntatore il cerchio si VEDE» — è ancora quella, ma non
+  // la implementa più un hook: la scrive il CSS del binario, una volta per tutte
+  // le superfici (`@media (hover: hover)` in index.css). Un `useHoverReveal` per
+  // superficie erano N copie della stessa domanda, e infatti rispondevano
+  // diversamente: qui `hasHover`, sulle righe di sidebar `isTouch`, sul progetto
+  // un `group-hover` che spegneva anche il conto alla rovescia.
 
   // IL BERSAGLIO STA SUL BOTTONE, NON SULLO SPAN.
   //
@@ -1947,39 +1964,45 @@ function PaneCloseButton({
   // Stesso breakpoint della tab che lo contiene (`h-9 md:h-7`): con due
   // meccanismi diversi uno slot da 28 finiva dentro una tab da 28, cioè a filo
   // dei bordi, ogni volta che larghezza e touch non coincidevano.
-  const slot = 'w-7 h-7 md:w-6 md:h-6 flex items-center justify-center flex-shrink-0 relative z-10';
-
-  // While pending, the slot is the filled check (cancels on click).
-  if (pendingStatus) {
-    return (
-      <span className={slot}>
-        <PendingActionRing
-          status={pendingStatus}
-          size={ROW_ACTION_GLYPH}
-          boxClassName="w-full h-full"
-          className="tap-expand-y"
-          pendingTitle="Annulla chiusura"
-          pendingAriaLabel="Annulla chiusura"
-        />
-      </span>
-    );
-  }
-
-  // Idle, soft-destructive: empty "todo" circle on hover (always shown on
-  // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
+  //
+  // ── E TUTTO IL CONTO QUI SOPRA È DECADUTO, perché lo slot non è più in fila ─
+  //
+  // Ogni riga di quell'aritmetica pesava lo stesso pezzo: quanti px il comando
+  // toglie all'ETICHETTA dentro i 134 utili della tab. 14 → 20 → 24 → 28, e
+  // ogni volta l'etichetta scendeva (88 → 84 → 80) e ogni volta bisognava
+  // decidere se valeva. Il paragrafo che si chiude con «i 44 di Apple non ci
+  // sono e non si possono avere senza rubarli allo Stop» era vero: in una fila,
+  // allargare un bersaglio vuol dire stringerne un altro.
+  //
+  // Fuori dal flusso quel conto sparisce. Il binario è `absolute` (vedi
+  // ROW_ACTIONS), quindi il box può essere quello CONDIVISO — 36 col dito, 28
+  // col mouse, `ROW_ACTION_BOX` come ogni altro comando dell'app — e l'etichetta
+  // non paga niente: anzi, riprende i 24-28px che lo slot le toglieva. La
+  // docstring di `ROW_ACTION_BOX` dichiarava già «vale ANCHE nella barra delle
+  // tab», e per tre giri era stata l'unica superficie a non rispettarla, con
+  // 28/24 contro 36/28.
+  //
+  // Niente `useHoverReveal` e niente ternario sul pending: la visibilità la
+  // decide il CSS del binario, che è dove `hover: hover` si può chiedere bene —
+  // è una proprietà del dispositivo, non un booleano che React ricalcola. E
+  // `data-pending` tiene il cerchio acceso mentre il conto scorre, anche se il
+  // mouse se ne va.
   return (
-    <span className={slot}>
-      <span className={`absolute inset-0 flex items-center justify-center ${closeReveal}`}>
-        <PendingActionRing
-          status={null}
-          size={ROW_ACTION_GLYPH}
-          boxClassName="w-full h-full"
-          className="tap-expand-y"
-          onIdleClick={() => onClose(paneId)}
-          idleTitle="Chiudi tab"
-          idleAriaLabel={`Chiudi tab ${paneId}`}
-        />
-      </span>
+    <span
+      className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+      data-pending={pendingStatus ? 'true' : undefined}
+    >
+      <PendingActionRing
+        status={pendingStatus}
+        size={ROW_ACTION_GLYPH}
+        boxClassName={ROW_ACTION_BOX}
+        className="tap-expand-y"
+        onIdleClick={() => onClose(paneId)}
+        idleTitle="Chiudi tab"
+        idleAriaLabel={`Chiudi tab ${paneId}`}
+        pendingTitle="Annulla chiusura"
+        pendingAriaLabel="Annulla chiusura"
+      />
     </span>
   );
 }
