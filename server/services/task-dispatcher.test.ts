@@ -194,6 +194,27 @@ describe("task-dispatcher", () => {
     h.dispatcher.shutdown();
   });
 
+  it("dopo shutdown() il chip NON si muove piu': l'iscrizione e' la causa", async () => {
+    // La controprova dei due test qui sopra. Senza, "il chip diventa
+    // needs_input" potrebbe essere vero per un'altra ragione e i test
+    // passerebbero comunque: qui si toglie l'unica causa possibile e si pretende
+    // che l'effetto sparisca. Pinna anche l'unsubscribe di shutdown(), senza il
+    // quale un dispatcher spento continuerebbe a scrivere su un DB non suo.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+    expect(h.task("t1")!.dispatchState).toBe("working");
+
+    h.dispatcher.shutdown();
+    beginAsk(sk);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working"); // nessuno ascolta piu'
+    endAsk(sk);
+  });
+
   it("l'attesa di una sessione ESTRANEA non tocca nessun chip", async () => {
     // Le chat normali passano dalle stesse due porte: se il dispatcher
     // reagisse a tutte, una domanda in una chat qualunque muoverebbe la card
