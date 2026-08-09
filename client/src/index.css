@@ -2333,8 +2333,31 @@ html.electron-mac .chrome-glass .chrome-glass {
  * `--chrome-overlay-bg` già assume sotto la shell (vedi il blocco della barra),
  * riscritta qui solo perché serve un `!important` che batta quello della regola
  * anti-doppio-strato. Stessa specificità (0,3,0), vince l'ordine di sorgente. */
-html.electron-mac .chrome-glass .pane-chrome-bar {
+html.electron-mac .chrome-glass :is(.pane-chrome-bar, .chrome-row-solid) {
   background-color: var(--chrome-bg) !important;
+}
+
+/* L'ALTRA RIGA DI CHROME: quella che sta NEL FLUSSO.
+ *
+ * `.pane-chrome-bar` è l'overlay sopra la conversazione. La barra degli
+ * indirizzi di una pane browser fa lo stesso mestiere — è la testata della pane,
+ * alta 40 come le altre — ma non può essere un overlay: sotto di lei c'è una
+ * pagina web vera, che non deve scorrerle sotto.
+ *
+ * Aveva quindi il solo `chrome-glass`, e sotto la shell mac finiva nella stessa
+ * trappola della barra del progetto: annidata dentro un altro vetro, la regola
+ * anti-doppio-strato la spegneva e la sua tinta usciva diversa da quella della
+ * riga sopra. «Ancora alcuni colori non sono uniformati (es. browser)»
+ * (Attilio, 09/08): era questo, e la causa è la stessa di prima — la posizione
+ * nel DOM, non una scelta.
+ *
+ * Sul web dipinge `--chrome-overlay-bg`, la stessa tinta della barra delle tab,
+ * che su una superficie chiara compone esattamente sullo stesso valore. Il
+ * `border-b` resta, e non è un'incoerenza con la barra delle tab che l'ha perso:
+ * là sotto c'è testo NOSTRO che deve passarci sotto, qui c'è una pagina di
+ * qualcun altro, e fra le due ci vuole un confine. */
+.chrome-row-solid {
+  background-color: var(--chrome-overlay-bg);
 }
 
 /* LA RIGA DELLE TAB È UN VETRO SOPRA IL CONTENUTO, NON UN RIPIANO SOPRA DI ESSO.

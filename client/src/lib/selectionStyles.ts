@@ -337,6 +337,23 @@ export const ROW_INSET = 6;
  * numeri d'accordo per caso.
  */
 export const COLUMN_GAP = 6;
+/**
+ * LO STESSO PASSO, GIRATO DI NOVANTA GRADI — e adesso è davvero lo stesso.
+ *
+ * Fra due tab della barra c'era `gap-0.5`, cioè DUE pixel, e fra due card della
+ * colonna sei. Non erano due scelte: erano lo stesso numero prima e dopo una
+ * correzione applicata a metà. Il commento di `sidebarRowCard` lo dice ancora
+ * («il ritmo verticale segue il passo stretto della tabbar, gap-0.5 = 2px»),
+ * ma quel passo verticale è passato a `COLUMN_GAP` il 09/08 mentre l'orizzontale
+ * è rimasto indietro: la stessa card, messa in fila, respirava un terzo di
+ * quanto respira impilata.
+ *
+ * «Normalizza spaziature e dimensioni in tutte le tab sia verticali che
+ * orizzontali» (Attilio, 09/08). È lo stesso valore, e per questo è la stessa
+ * costante: un `gap-1.5` scritto a mano nella barra tornerebbe a poter divergere
+ * al primo che tocca uno dei due.
+ */
+export const TAB_GAP_CLASS = 'gap-1.5';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 
@@ -567,9 +584,14 @@ export function sidebarRowCard(
   // stays calm and only the current/hovered/needy row reads as a filled tab.
   // Horizontal inset (mx-1.5 = 6px = ROW_INSET) keeps the card off the
   // sidebar edges by the SAME amount as a tab's top/bottom gap in the tab bar
-  // ((40 − 28)/2), so the side gap reads identical to the vertical one. The
-  // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
-  // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
+  // ((40 − 28)/2), so the side gap reads identical to the vertical one. Il passo
+  // FRA due card è {@link COLUMN_GAP}, mezzo per ciascuna (`my-[3px]`), ed è lo
+  // stesso della barra delle tab: là lo scrive {@link TAB_GAP_CLASS}.
+  //
+  // Qui c'era scritto il contrario — «il ritmo verticale segue il passo stretto
+  // della tabbar, gap-0.5 = 2px» — ed è rimasto vero per un giorno: il passo
+  // verticale è salito a sei, quello orizzontale no, e la stessa card in fila
+  // respirava un terzo di quanto respira impilata. Adesso il numero è uno solo.
   // Sotto i 768px la card porta anche il FONDO DEL RIPOSO, e i valori sono
   // quelli di `RESTING_SURFACE` (ramo `max-md:`): nella stessa colonna una
   // tessera fissata e una riga devono essere la stessa cosa, ed era la loro
