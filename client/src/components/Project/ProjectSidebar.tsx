@@ -678,7 +678,7 @@ export function ProjectSidebar({
           seconda: due posti che dicono la stessa cosa divergono al primo che
           viene corretto da solo. */}
       <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
-            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0 pb-[3px]' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
                 // Stessa ancora della variante desktop qui sotto.
@@ -706,7 +706,7 @@ export function ProjectSidebar({
               )}
             </div>
             <div
-              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
               style={expandedSections.git ? { height: bottomHeights.git } : undefined}
             >
               <Suspense fallback={
@@ -722,7 +722,7 @@ export function ProjectSidebar({
               </Suspense>
             </div>
             <div
-              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
               style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
             >
               <button
@@ -819,7 +819,17 @@ export function ProjectSidebar({
       <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
-        <div ref={filesBoxRef} className="flex flex-col flex-1 min-h-0">
+        {/* `pb-[3px]` da APERTA: mezzo passo, come ogni card della colonna.
+            Misurato prima di toccarlo — fra due intestazioni CHIUSE passavano 7px
+            (i due mezzi passi delle card più il pixel del divisore di
+            ridimensionamento, che è nel flusso) e fra il contenuto di una sezione
+            aperta e la card successiva solo 4, perché il contenuto non chiudeva
+            con niente e restava il solo mezzo passo di chi veniva dopo. Due
+            distanze diverse per la stessa cosa, e la seconda era quella che si
+            vede di più: è esattamente il punto da cui è partito questo giro —
+            «quando aperta, trigger e trigger degli altri accordion si trovano
+            alla stessa distanza» (Attilio, 09/08). Adesso ci si trovano. */}
+        <div ref={filesBoxRef} className={`flex flex-col flex-1 min-h-0 ${expandedSections.files ? 'pb-[3px]' : ''}`}>
           <div
             ref={filesHeaderRef}
             onClick={() => toggleSection('files')}
@@ -885,7 +895,7 @@ export function ProjectSidebar({
 
         {/* Git Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
           style={expandedSections.git ? { height: bottomHeights.git } : undefined}
         >
           <Suspense fallback={
@@ -953,7 +963,7 @@ export function ProjectSidebar({
 
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
           style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
         >
           <button
