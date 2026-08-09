@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ROW_ACTION_BOX, ROW_H, ROW_PX } from '../../lib/selectionStyles';
+import { ROW_ACTION_BOX, ROW_H } from '../../lib/selectionStyles';
 import {
   PINNED_TILE_ACTION_INSET_CLASS,
   PINNED_TILE_ACTION_INSET_PX,
