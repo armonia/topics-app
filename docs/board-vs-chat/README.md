@@ -113,6 +113,28 @@ Per questo il bundle ha un quarto braccio, `chat-xhigh`, e `paired` ora signific
 Il confronto che decide «da oggi solo board?» è **board contro `chat-xhigh`**; il
 braccio `chat` a medium resta come controllo a effort pari.
 
+### Rimisurato, e il verdetto si capovolge
+
+Tre corse `chat-xhigh` dallo stesso albero `d760d733`, tutte e tre consegnate:
+
+| braccio | work (min/mediana/max) | cacheRead (min/mediana/max) | $ mediana |
+|---|---|---|---|
+| chat a **xhigh** | 104,6k / 108,8k / 148,3k | 3,37M / 4,25M / 8,34M | 3,63 |
+
+Contro la board: **−17,4% di lavoro** e **−28,6% di rilettura cache**, e la board
+è più economica in **3 repliche su 3 su entrambi gli assi**. L'ordine per costo è
+`cli < chat(medium) < board < chat(xhigh)`, identico in tutte e tre le terne.
+
+Cioè: a effort pari la board costa di più (l'envelope di dispatch è più lungo del
+preambolo di chat), ma **contro la chat che useresti davvero costa di meno**, e il
+motivo è che l'effort pesa più dell'envelope. Il primo numero misura il guscio, il
+secondo risponde alla domanda.
+
+Due avvertenze che restano: il braccio board è **simulato** (envelope reale,
+dispatch no — i numeri del dispatch vero vengono dalle card `c9f60cbc` e
+`7b201e93`), e la forbice di `chat-xhigh` è larga (2,47× sulla rilettura cache),
+quindi è il **3/3** a reggere l'affermazione, non la distanza fra le mediane.
+
 Quindi `bun scripts/board-vs-chat.ts` **esce 3** (misura negativa; `1` è
 riservato all'attrezzo rotto), e quel rosso è la misura, non
 un guasto: non si aggiusta con `--tolerance-pct` (misurato: verde solo da **+48%**
