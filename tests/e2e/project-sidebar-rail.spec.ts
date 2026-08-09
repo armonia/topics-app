@@ -168,52 +168,51 @@ test.describe("sidebar progetto: la rail collassata", () => {
     ).toBe("Espandi la barra");
     await expect(strip.locator('[data-testid="project-rail-inline-name"]')).toHaveCount(0);
 
-    // 6. La pastiglia git porta il numero delle modifiche.
-    //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:
-    //    al primo montaggio l'etichetta e ancora quella senza ramo.
-    const gitBtn = strip.getByRole("button", { name: /Modifiche git/ });
-    await expect
-      .poll(async () => (await gitBtn.getAttribute("aria-label")) ?? "", { timeout: 15000 })
-      .toMatch(/Modifiche git · .+/);
+    // 6. I TRE COMANDI STANNO IN UNA TENDINA SOTTO IL TITOLO.
+    //
+    //    «Solo quando chiusa la sidebar dovevano usare sotto il titolo con
+    //    dropdown» (Attilio, 09/08). Erano tre bottoni in fila DENTRO la riga
+    //    delle tab, ognuno con la sua pastiglia: quattro controlli in una riga
+    //    che deve contenere anche le tab. Ora è un bottone solo.
+    const apriSezioni = strip.getByTestId("project-rail-sections");
+    await expect(apriSezioni).toBeVisible();
+    expect(
+      await strip.locator("button").count(),
+      "da chiusa la striscia porta DUE controlli: il titolo e la tendina",
+    ).toBe(2);
+
+    //    Il PUNTO è ciò che resta delle tre pastiglie: dentro un menu chiuso
+    //    «1 modifica» smetterebbe di esistere finché non lo apri, cioè
+    //    esattamente ciò che la pastiglia risparmia. Il punto dice «c'è
+    //    qualcosa», il numero sta nella voce.
     await expect(
-      gitBtn.locator("span").first(),
-      "con una modifica non committata la striscia mostra 1",
+      apriSezioni.locator("span").first(),
+      "il repo ha una modifica non committata: il punto deve accendersi",
+    ).toBeVisible({ timeout: 15000 });
+
+    //    E il numero c'è, dentro la tendina, accanto alla sua voce.
+    await apriSezioni.click();
+    const menu = page.getByTestId("project-rail-sections-menu");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    for (const id of ["files", "git", "processes"]) {
+      await expect(menu.getByTestId(`project-rail-section-${id}`)).toBeVisible();
+    }
+    await expect(
+      menu.getByTestId("project-rail-section-git").locator("span").last(),
+      "con una modifica non committata la voce git mostra 1",
     ).toHaveText("1", { timeout: 15000 });
 
-    // 6-bis. E LA PASTIGLIA STA TUTTA DENTRO LA RIGA.
-    //
-    //    Stava a `-top-1`, cioè un pixel sopra il bottone: dentro una riga da 40
-    //    col bottone centrato ci stava, dentro la riga subordinata da 34 col
-    //    contenuto a filo in cima cadeva a y=39 contro una scatola che comincia
-    //    a 40 — e l'`overflow-hidden` della barra la tagliava a metà. «I
-    //    contatori vengono tagliati dalla top bar» (Attilio, 09/08).
-    //
-    //    Si misura il CONTENIMENTO, non la posizione: sopra o sotto è una scelta
-    //    che può cambiare, «dentro la riga» no.
-    const pastiglia = await gitBtn.locator("span").first().evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const barra = el.closest(".pane-chrome-bar")!.getBoundingClientRect();
-      return {
-        sopra: Math.round((r.top - barra.top) * 10) / 10,
-        sotto: Math.round((barra.bottom - r.bottom) * 10) / 10,
-        anello: getComputedStyle(el).boxShadow,
-      };
-    });
-    expect(pastiglia.sopra, "la pastiglia non sborda in cima").toBeGreaterThanOrEqual(0);
-    expect(pastiglia.sotto, "e non sborda in fondo").toBeGreaterThanOrEqual(0);
-    // Niente anello: era un cerchio chiaro che serviva a staccarla dal tratto
-    // dell'icona quando le stava sopra. Sull'angolo basso non attraversa niente.
-    expect(pastiglia.anello, "la pastiglia non porta un anello attorno").toBe("none");
+    //    La tendina si apre SOTTO il titolo: è la richiesta, e si misura.
+    const cardBox = (await strip.getByTestId("project-card").boundingBox())!;
+    const menuBox = (await menu.boundingBox())!;
+    expect(
+      menuBox.y,
+      `la tendina deve stare sotto la card (card finisce a ${cardBox.y + cardBox.height}, menu comincia a ${menuBox.y})`,
+    ).toBeGreaterThanOrEqual(cardBox.y + cardBox.height - 1);
 
-    // I numeri a referto: se questo test diventa rosso, dice di quanto.
-    const stripBox = (await strip.boundingBox())!;
-    console.log(
-      `[striscia] x=${stripBox.x.toFixed(1)} w=${stripBox.width.toFixed(1)} ` +
-        `altezze=[${boxes.join(",")}] ` +
-        `btnCenterY=${btnCenter.toFixed(1)} contenutoCenterY=${contenuto.center.toFixed(1)} ` +
-        `Δcentro=${Math.abs(btnCenter - contenuto.center).toFixed(2)}px`,
-    );
-
+    //    E una voce apre la colonna su quella sezione.
+    await menu.getByTestId("project-rail-section-git").click();
+    await expect(win.getByTestId("project-sidebar")).toBeVisible({ timeout: 5000 });
     // Ritaglio sulla riga, dove si guarda.
     await page.screenshot({
       path: "test-results/project-sidebar-rail.png",
