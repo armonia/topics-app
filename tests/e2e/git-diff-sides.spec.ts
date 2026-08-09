@@ -24,7 +24,6 @@ import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers
 import { hermetic } from "./fixtures/hermetic";
 import { execFileSync } from "child_process";
 import { writeFileSync } from "fs";
-import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -116,9 +115,15 @@ test.describe("i due lati del diff", () => {
     // non la barra laterale: le coppie in se' sono verificate sopra contro la
     // rotta, e la scelta della coppia in `diffEndpoints.test.ts`.
     await fileExplorerPage.gotoProject(tmpDir, topicName);
-    await apriSezioneProgetto(page, "git");
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 15000 });
+    const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
+    // L'ETICHETTA, non il centro: al centro della riga c'e' il nome del ramo,
+    // che e' un CONTROLLO — cliccarlo apre la sua tendina e la sezione resta
+    // chiusa (misurato con `elementFromPoint`).
+    if ((await header.getAttribute("aria-expanded")) !== "true") {
+      await header.getByText("Git", { exact: true }).click();
+    }
 
     // Due righe per lo stesso file: e' cosa vuol dire `MM`.
     await expect(gitChanges.locator('[data-git-file="mm.txt"]')).toHaveCount(2, { timeout: 10000 });

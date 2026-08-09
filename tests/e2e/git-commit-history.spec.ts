@@ -16,7 +16,6 @@ import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helper
 import { initGitRepo } from "./helpers/file-project";
 import { execFileSync } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, unlinkSync } from "fs";
-import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -55,11 +54,14 @@ function git(args: string[]) {
  * dentro `[data-testid="git-changes"]`.
  */
 async function apriStoria(win: Locator): Promise<Locator> {
-  // Il comando che apre Git sta nel chip della riga delle sezioni, non piu'
-  // dentro il pannello — che da chiusa non e' nemmeno montato.
-  await apriSezioneProgetto(win.page(), "git");
   const git = win.locator('[data-testid="git-changes"]');
   await expect(git).toBeVisible({ timeout: 10000 });
+  const head = git.locator('[data-testid="project-sidebar-git"]');
+  // L'ETICHETTA, non il centro della riga: al centro c'e' il nome del ramo, che
+  // e' un controllo e apre la sua tendina invece di espandere la sezione.
+  if ((await head.getAttribute("aria-expanded")) !== "true") {
+    await head.getByText("Git", { exact: true }).click();
+  }
   const bottone = git.locator('[data-testid="git-history-button"]');
   await expect(bottone).toBeVisible({ timeout: 10000 });
   if ((await bottone.getAttribute("aria-expanded")) !== "true") await bottone.click();
@@ -163,7 +165,6 @@ test.describe("cronologia dei commit", () => {
     expect(g.bot).toBeLessThanOrEqual(g.vh);
 
     // E il pannello non ha piu' un piede: ne' cronologia ne' remotes dentro.
-    await apriSezioneProgetto(page, "git");
     const pannello = win.locator('[data-testid="git-changes"]');
     await expect(pannello.locator('[data-testid="commit-history"]')).toHaveCount(0);
     await expect(pannello.locator("button").filter({ hasText: /^Remotes|^Add remote/ })).toHaveCount(0);
@@ -206,9 +207,15 @@ test.describe("cronologia dei commit", () => {
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    await apriSezioneProgetto(page, "git");
     const pannello = win.locator('[data-testid="git-changes"]');
     await expect(pannello).toBeVisible({ timeout: 15000 });
+    const head = pannello.locator('[data-testid="project-sidebar-git"]');
+    // L'ETICHETTA, non il centro: al centro della riga c'e' il nome del ramo,
+    // che e' un CONTROLLO — cliccarlo apre la sua tendina e la sezione resta
+    // chiusa (misurato con `elementFromPoint`).
+    if ((await head.getAttribute("aria-expanded")) !== "true") {
+      await head.getByText("Git", { exact: true }).click();
+    }
 
     // Albero pulito: il messaggio c'e', la lista no. Ed e' proprio lo stato in
     // cui il vecchio piede si comportava peggio — al posto della lista c'era un
@@ -285,9 +292,16 @@ test.describe("cronologia dei commit", () => {
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
       const win = page.locator(`[data-testid="project-window"][data-project-path="${VUOTO}"]`);
-      await apriSezioneProgetto(page, "git");
       const pannello = win.locator('[data-testid="git-changes"]');
       await expect(pannello).toBeVisible({ timeout: 15000 });
+      const header = pannello.locator('[data-testid="project-sidebar-git"]');
+      // Si clicca l'ETICHETTA, non il centro della riga: al centro c'e' il nome
+  // del ramo, che e' un CONTROLLO — cliccarlo apre la tendina dei rami e la
+  // sezione resta chiusa (misurato: `elementFromPoint` al centro restituisce
+  // lo span del branch).
+  if ((await header.getAttribute("aria-expanded")) !== "true") {
+    await header.getByText("Git", { exact: true }).click();
+  }
 
       // Il pannello c'e' e funziona: il file non tracciato si vede.
       await expect(pannello.locator('[data-git-file="nuovo.txt"]').first()).toBeVisible({ timeout: 10000 });
