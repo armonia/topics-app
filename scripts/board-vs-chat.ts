@@ -114,7 +114,21 @@ import { bracketCostUsd, isComparablePost048 } from "./board-baseline";
 // Tipi — il contratto pubblico, usato anche dal test
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type Arm = "board" | "chat" | "cli";
+/**
+ * `chat` e `chat-xhigh` sono DUE bracci perché sono due domande.
+ *
+ * La board gira a `medium` (`board_settings.dispatch_effort`); una chat senza
+ * override per-topic parte a `xhigh` (`resolveClaudeEffort`). Misurare la board
+ * contro una chat tenuta a medium «per parità» risponde a «quanto costa
+ * l'envelope di dispatch, a gas uguale» — una domanda legittima ma non QUELLA
+ * domanda. Chi decide «da oggi solo board?» confronta con la chat che userebbe
+ * davvero, e quella parte a xhigh.
+ *
+ * Quindi il cancello di parità preferisce `chat-xhigh` quando c'è, e ricade su
+ * `chat` quando manca — dichiarando ogni volta quale ha usato, perché un
+ * confronto contro un braccio diverso è un numero diverso.
+ */
+export type Arm = "board" | "chat" | "chat-xhigh" | "cli";
 
 /** Da dove viene una misura. `declared` = numeri già pronti nel file: si accetta
  *  ma si marca, perché non è passato dal reader. */
@@ -188,8 +202,20 @@ export interface PairComparison {
   reason: string | null;
   measures: ArmMeasure[];
   axes: AxisComparison[];
+  /**
+   * CONTRO QUALE chat è stato misurato il cancello. Va detto sempre: `chat` a
+   * medium e `chat-xhigh` danno numeri diversi sullo stesso lavoro, e un delta
+   * senza questo campo non si sa cosa confronti.
+   */
+  chatArm: Arm | null;
   /** Sovrapprezzo del guscio board sulla CLI nuda. Informativo, NON un cancello. */
   cliOverhead: { workPct: number | null; cacheReadPct: number | null } | null;
+  /**
+   * Lo stesso confronto contro la chat a `medium`, quando esiste ed è un braccio
+   * diverso da quello del cancello. Informativo: isola l'envelope di dispatch
+   * dall'effort, e mostra quanta parte del verdetto veniva da lì.
+   */
+  vsChatMedium: { workPct: number | null; cacheReadPct: number | null } | null;
 }
 
 export interface Spread {
@@ -568,7 +594,7 @@ function asFiniteNumber(v: unknown): number | null {
 
 export class InputError extends Error {}
 
-const ARMS: readonly Arm[] = ["board", "chat", "cli"];
+const ARMS: readonly Arm[] = ["board", "chat", "chat-xhigh", "cli"];
 const COVERAGES: readonly Coverage[] = ["covered", "workaround", "uncovered"];
 const PROOF_KINDS: readonly ProofRef["kind"][] = ["command", "test", "none", "source"];
 
@@ -991,7 +1017,12 @@ function pct(board: number, chat: number): number | null {
 export function comparePair(file: PairFile, deps: MeasureDeps, tolerancePct: number): PairComparison {
   const measures = file.runs.map((r) => measureRun(r, deps));
   const board = measures.find((m) => m.arm === "board") ?? null;
-  const chat = measures.find((m) => m.arm === "chat") ?? null;
+  // Il braccio di paragone è la chat che si userebbe davvero: `chat-xhigh` se
+  // la campagna l'ha misurata, `chat` (medium) altrimenti. Vedi il commento su
+  // `Arm`: non è una preferenza estetica, è la differenza fra «quanto costa
+  // l'envelope» e «conviene la board».
+  const chat = measures.find((m) => m.arm === "chat-xhigh") ?? measures.find((m) => m.arm === "chat") ?? null;
+  const chatControl = measures.find((m) => m.arm === "chat") ?? null;
   const cli = measures.find((m) => m.arm === "cli") ?? null;
 
   const workId = file.workId ?? file.work;
@@ -1002,7 +1033,7 @@ export function comparePair(file: PairFile, deps: MeasureDeps, tolerancePct: num
     work: file.work,
   };
   const unpaired = (reason: string): PairComparison => ({
-    ...ident, status: "unpaired", reason, measures, axes: [], cliOverhead: null,
+    ...ident, status: "unpaired", reason, measures, axes: [], chatArm: null, cliOverhead: null, vsChatMedium: null,
   });
 
   if (!board) return unpaired("manca il braccio board");
@@ -1036,7 +1067,18 @@ export function comparePair(file: PairFile, deps: MeasureDeps, tolerancePct: num
     ? { workPct: pct(board.workTokens, cli.workTokens), cacheReadPct: pct(board.cacheReadTokens, cli.cacheReadTokens) }
     : null;
 
-  return { ...ident, status: "evaluated", reason: null, measures, axes, cliOverhead };
+  // Il confronto contro la chat a medium resta visibile anche quando il cancello
+  // usa xhigh: e' la riga che mostra quanta parte del vecchio verdetto veniva
+  // dall'effort e quanta dall'envelope.
+  const vsChatMedium =
+    chatControl && chatControl.arm !== chat.arm && chatControl.delivered
+      ? {
+          workPct: pct(board.workTokens, chatControl.workTokens),
+          cacheReadPct: pct(board.cacheReadTokens, chatControl.cacheReadTokens),
+        }
+      : null;
+
+  return { ...ident, status: "evaluated", reason: null, measures, axes, chatArm: chat.arm, cliOverhead, vsChatMedium };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1086,10 +1128,14 @@ export function aggregateComparisons(
   for (const [workId, list] of groups) {
     const gating = list.length > 1;
     const armOf = (c: PairComparison, arm: Arm) => c.measures.find((m) => m.arm === arm) ?? null;
+    // Il braccio "chat" dell'aggregato deve essere lo STESSO che ha scelto
+    // comparePair (`chatArm`), altrimenti il verdetto per-replica e quello
+    // aggregato confrontano cose diverse e uno dei due mente in silenzio.
+    const chatOf = (c: PairComparison) => (c.chatArm ? armOf(c, c.chatArm) : armOf(c, "chat"));
     const axes: AxisAggregate[] = (["work", "cacheRead"] as const).map((axis) => {
       const pick = (m: ArmMeasure | null) => (m === null ? null : axis === "work" ? m.workTokens : m.cacheReadTokens);
       const boardVals = list.map((c) => pick(armOf(c, "board")) ?? 0);
-      const chatVals = list.map((c) => pick(armOf(c, "chat")) ?? 0);
+      const chatVals = list.map((c) => pick(chatOf(c)) ?? 0);
       const cliVals = list.map((c) => pick(armOf(c, "cli"))).filter((v): v is number => v !== null);
       const perReplicate = list.map((c) => c.axes.find((a) => a.axis === axis)?.deltaPct ?? 0);
       const boardMedian = median(boardVals);
@@ -1107,7 +1153,7 @@ export function aggregateComparisons(
         deltaPctPerReplicate: perReplicate,
         boardCheaperIn: list.filter((c) => {
           const b = pick(armOf(c, "board"));
-          const ch = pick(armOf(c, "chat"));
+          const ch = pick(chatOf(c));
           return b !== null && ch !== null && b <= ch;
         }).length,
         comparatorNoisierThanDelta:
