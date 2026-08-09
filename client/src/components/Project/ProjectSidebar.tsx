@@ -598,8 +598,9 @@ export function ProjectSidebar({
           <div className="flex items-center h-10 px-1.5 flex-shrink-0">
             <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
           </div>
-          {/* Sections — Files fills top, Git/Processes anchored at bottom */}
-          <div className="flex-1 flex flex-col min-h-0">
+          {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
+              gemello desktop per il mezzo passo in fondo). */}
+          <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
             <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
@@ -726,8 +727,13 @@ export function ProjectSidebar({
         <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>
 
-      {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}
-      <div className="flex-1 flex flex-col min-h-0">
+      {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom.
+          IL MEZZO PASSO IN FONDO: le sezioni sono card, e l'ultima si fermava a
+          3px dal bordo della colonna invece dei 6 che ogni altra card ha su ogni
+          lato — «sono attaccate in fondo» (Attilio, 09/08). Metà la porta il
+          margine della card (`my-[3px]` in SECTION_CARD), metà questo padding:
+          è la stessa regola della colonna principale. */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
         <div className="flex flex-col flex-1 min-h-0">
