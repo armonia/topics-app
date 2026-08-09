@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
+import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
-import { Menu } from '../Shared/Menu';
-import { POPOVER_ITEM } from '../../lib/popoverStyles';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -153,6 +152,77 @@ function ProjectCard({
   );
 }
 
+/**
+ * Un comando della barra di progetto CHIUSA, con la sua pastiglia.
+ *
+ * Su un bottone non ci sta una parola, ci sta un numero: la regola è che ne
+ * porti AL PIÙ uno — pastiglia numerica oppure punto, mai entrambi — e che tutto
+ * il resto (il ramo, il conteggio esteso, il perché) viva nel `title`, che è
+ * l'unico posto in cui c'è spazio davvero.
+ *
+ * IL BOX È QUELLO DELLA RIGA, non quello del dito: sta in fila con le tab,
+ * quindi la sua misura è quella della tab accanto ({@link ROW_ACTION_BOX}, 36
+ * col dito e 28 col mouse). C'è stata una seconda variante — `w-7 h-7` in una
+ * colonna verticale da 40px — finché la barra chiusa era una rail; non c'è più,
+ * e con la rail se n'è andato anche il ramo che la disegnava.
+ */
+function RailButton({
+  icon: Icon,
+  active,
+  onClick,
+  title,
+  badge = null,
+  tone = 'primary',
+  dot = false,
+}: {
+  icon: LucideIcon;
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  badge?: number | null;
+  tone?: 'primary' | 'success' | 'danger';
+  dot?: boolean;
+}) {
+  const toneClass = tone === 'danger'
+    ? 'bg-red-500 text-white'
+    : tone === 'success'
+      ? 'bg-emerald-500 text-white'
+      : 'bg-primary text-white';
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-expanded={active}
+      className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
+        active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
+      }`}
+    >
+      <Icon size={16} />
+      {/* LA PASTIGLIA STA IN BASSO, e senza anello.
+          Stava a `-top-1`, cioè un pixel SOPRA il bottone. Finché la riga era
+          alta 40 e il bottone centrato, quel pixel cadeva dentro i 6 di aria; da
+          quando la riga subordinata è 34 con il contenuto a filo in cima (vedi
+          CHROME_BAR_SUB) cade a y=39 contro una scatola che comincia a 40, e
+          l'`overflow-hidden` della barra lo taglia. In basso invece c'è
+          l'incasso in coda: 68+4 = 72 dentro una scatola che finisce a 74.
+          «I contatori vengono tagliati dalla top bar; li potremmo mettere verso
+          il basso, e senza un bordo extra bianco intorno» (Attilio, 09/08).
+          L'anello serviva a staccare la pastiglia dal TRATTO dell'icona quando
+          le stava sopra: sull'angolo basso non ha più niente da attraversare, e
+          un cerchio chiaro attorno a un numero colorato è una terza cosa che non
+          dice niente. */}
+      {badge !== null && badge > 0 && (
+        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ${toneClass}`}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {badge === null && dot && (
+        <span className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${toneClass}`} />
+      )}
+    </button>
+  );
+}
 
 export function ProjectSidebar({
   projectPath,
@@ -391,13 +461,6 @@ export function ProjectSidebar({
     setSidebarWidth(DEFAULT_SIDEBAR_W);
   }, []);
 
-  // La tendina delle sezioni, che esiste SOLO da colonna chiusa. Gli hook stanno
-  // qui e non nel ramo: `if (effectiveCollapsed)` ritorna prima, e dichiararli
-  // laggiù li farebbe comparire e sparire fra un render e l'altro.
-  const [sezioniAperte, setSezioniAperte] = useState(false);
-  const ancoraSezioni = useRef<HTMLDivElement>(null);
-  const bottoneSezioni = useRef<HTMLButtonElement>(null);
-
   /**
    * `below` è la sezione SOTTO il divisore: è quella che cresce tirando in su.
    * `above` è il vicino di sopra quando ne ha uno con un'altezza sua; senza,
@@ -453,42 +516,48 @@ export function ProjectSidebar({
       : runningCount > 0
         ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
         : tr('project.sidebar.processes');
-    // I TRE COMANDI, in un posto solo. Erano nati come coppia — una lista per la
-    // rail verticale e una per la striscia in linea — e adesso sono DATI, non
-    // JSX: la tendina li rende, e chi verra' dopo aggiunge una voce qui invece
-    // di ricopiare un bottone.
-    const vociSezioni = [
-      {
-        id: 'files' as const,
-        Glifo: FolderTree,
-        etichetta: tr('project.sidebar.files'),
-        titolo: tr('project.sidebar.files'),
-        pastiglia: null as number | null,
-        tono: '',
-      },
-      {
-        id: 'git' as const,
-        Glifo: GitBranch,
-        etichetta: tr('project.sidebar.gitChanges'),
-        // Il ramo per intero sta nel titolo: nella voce ci sta il numero che VS
-        // Code mette sulla stessa icona — quante modifiche non committate.
-        titolo: gitTitle,
-        pastiglia: git && git.fileCount > 0 ? git.fileCount : null,
-        tono: 'text-primary bg-primary/10',
-      },
-      {
-        id: 'processes' as const,
-        Glifo: CirclePlay,
-        etichetta: tr('project.sidebar.processes'),
-        titolo: procTitle,
-        // Il rosso vince sul verde: e' l'unico dei due che chiede di fare
-        // qualcosa.
-        pastiglia: failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null,
-        tono: failedCount > 0
-          ? 'text-red-600 dark:text-red-400 bg-red-500/10'
-          : 'text-green-600 dark:text-green-400 bg-green-500/10',
-      },
-    ];
+    // I TRE COMANDI, in un posto solo. Sono nati come coppia — una lista per la
+    // rail verticale e una per la striscia in linea — e la rail non c'e' piu':
+    // resta la lista, che e' anche il motivo per cui non ne sono mai divergite
+    // due al primo badge aggiunto.
+    const comandi = () => (
+      <>
+        <RailButton
+          icon={FolderTree}
+          active={expandedSections.files}
+          onClick={open('files')}
+          title={tr('project.sidebar.files')}
+        />
+        <RailButton
+          icon={GitBranch}
+          active={expandedSections.git}
+          onClick={open('git')}
+          title={gitTitle}
+          // Il NOME DEL RAMO non entra e non ci va: nei tool seri il ramo vive
+          // nella status bar. Qui ci va il numero che VS Code mette sulla stessa
+          // icona — quante modifiche non committate — e il ramo sta nel
+          // tooltip, per intero.
+          badge={git && git.fileCount > 0 ? git.fileCount : null}
+          tone="primary"
+          // Nessuna modifica ma divergenza col remoto: un punto, non un secondo
+          // numero addosso al primo. Due pastiglie su un bottone da 28px
+          // diventano rumore e non si leggono più né l'una né l'altra.
+          dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
+        />
+        <RailButton
+          icon={CirclePlay}
+          active={expandedSections.processes}
+          onClick={open('processes')}
+          title={procTitle}
+          // Il rosso è il motivo per cui questo badge esiste: un processo uscito
+          // male, oggi, non lo vedi da nessuna parte se la sidebar è chiusa.
+          // Vince sul verde perché è l'unico dei due che chiede di fare
+          // qualcosa.
+          badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
+          tone={failedCount > 0 ? 'danger' : 'success'}
+        />
+      </>
+    );
 
     // ANCHE COL DITO, e ci si arriva togliendo il nome. Con la card del titolo
     // la striscia faceva ~330px su uno schermo da 390: la barra intera, senza
@@ -508,8 +577,7 @@ export function ProjectSidebar({
           // cedere dev'essere il NOME (che tronca), non i comandi (che
           // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
           // pressione arriva tutta sulla card del titolo.
-          ref={ancoraSezioni}
-          className={`relative flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
+          className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
           {...NO_DRAG_REGION}
         >
           {/* IL NOME STA DENTRO L'APERTORE, non accanto a lui.
@@ -524,62 +592,7 @@ export function ProjectSidebar({
             onToggle={onToggleCollapse}
             className="max-w-[180px] flex-shrink"
           />
-          {/* I TRE SOTTO IL TITOLO, IN UNA TENDINA — e solo da chiusa.
-              «Solo quando chiusa la sidebar dovevano usare sotto il titolo con
-              dropdown» (Attilio, 09/08). Da chiusa i tre comandi stavano in
-              fila DENTRO la barra delle tab, e ognuno si portava la sua
-              pastiglia: quattro controlli in una riga che deve contenere anche
-              le tab. Ora è un bottone solo, e la tendina si apre sotto la card
-              del titolo — che è dove il titolo sta.
-
-              Il PUNTO sul bottone è ciò che resta delle tre pastiglie, ed è il
-              motivo per cui la tendina non costa un'informazione: dentro un
-              menu chiuso «1 modifica» o «un processo fallito» smetterebbero di
-              esistere finché non lo apri, cioè esattamente la cosa che la
-              pastiglia ti risparmia. Il punto dice «c'è qualcosa», il menu dice
-              cosa, e i numeri sono lì dentro accanto alla loro voce. */}
-          <button
-            ref={bottoneSezioni}
-            onClick={() => setSezioniAperte(v => !v)}
-            aria-haspopup="menu"
-            aria-expanded={sezioniAperte}
-            data-testid="project-rail-sections"
-            title={tr('project.sidebar.sections')}
-            className={`${RAISED_CONTROL} edge-lit relative ${ROW_ACTION_BOX} rounded-lg inline-flex items-center justify-center flex-shrink-0 transition-colors ${sezioniAperte ? 'text-app-text' : 'text-app-text-tertiary'}`}
-          >
-            <ChevronDown size={14} aria-hidden />
-            {(git ? git.fileCount > 0 || git.ahead > 0 || git.behind > 0 : false) || failedCount > 0 || runningCount > 0 ? (
-              <span
-                aria-hidden
-                className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${failedCount > 0 ? 'bg-red-500' : git && git.fileCount > 0 ? 'bg-primary' : runningCount > 0 ? 'bg-green-500' : 'bg-app-text-tertiary'}`}
-              />
-            ) : null}
-          </button>
-          <Menu
-            open={sezioniAperte}
-            anchorRef={ancoraSezioni}
-            onClose={() => setSezioniAperte(false)}
-            minWidth={190}
-            testId="project-rail-sections-menu"
-            ariaLabel={tr('project.sidebar.sections')}
-          >
-            {vociSezioni.map(({ id, Glifo, etichetta, titolo, pastiglia, tono }) => (
-              <button
-                key={id}
-                role="menuitem"
-                data-testid={`project-rail-section-${id}`}
-                title={titolo}
-                onClick={() => { setSezioniAperte(false); open(id)(); }}
-                className={POPOVER_ITEM}
-              >
-                <Glifo size={14} className="flex-shrink-0" />
-                <span className="min-w-0 flex-1 text-left">{etichetta}</span>
-                {pastiglia != null && (
-                  <span className={`flex-shrink-0 text-[11px] font-medium px-1.5 py-[1px] rounded-full ${tono}`}>{pastiglia}</span>
-                )}
-              </button>
-            ))}
-          </Menu>
+          {comandi()}
         </div>,
         inlineSlot,
     );
