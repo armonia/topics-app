@@ -564,7 +564,23 @@ export function ProjectWindowPane({
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
             leadingSlot={railSlot}
-            belowSlot={sottoSlot}
+            // SOLO da sidebar CHIUSA, ed è la differenza fra «lo slot esiste» e
+            // «nello slot c'è qualcosa».
+            //
+            // `sottoSlot` è un `document.createElement('div')` in un `useMemo`:
+            // esiste SEMPRE, aperta o chiusa. La riga dei comandi ci finisce
+            // dentro solo da chiusa. Passandolo sempre, `GroupLayout` credeva di
+            // avere una riga sotto la barra anche quando non c'era — e quindi
+            // azzerava il rientro delle celle (`CHROME_BAR_CONSUMED`) per una
+            // riga inesistente: il contenuto risaliva SOTTO la barra di vetro e
+            // ci si leggeva attraverso, sfocato. «Ora vedo uno sfondo blur sotto
+            // le tabbar» (Attilio, 10/08), ed era un difetto introdotto da me
+            // mezz'ora prima.
+            //
+            // Il predicato è lo STESSO che decide cosa disegna la sidebar
+            // (`collapsed={sidebarCollapsed}`, qui sopra), quindi i due non
+            // possono separarsi: o c'è la riga e c'è il reset, o nessuno dei due.
+            belowSlot={sidebarCollapsed ? sottoSlot : undefined}
             // La finestra di progetto vive SOTTO la tab del progetto nella barra
             // dell'app: la sua prima riga di chrome non ripete l'aria che quella
             // sopra ha gia messo. Vedi CHROME_BAR_SUB.
