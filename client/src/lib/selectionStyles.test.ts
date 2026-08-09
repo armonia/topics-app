@@ -4,10 +4,13 @@ import {
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
   CHROME_ROW_ACTION_RESERVE_LEFT,
+  CHROME_ROW_ACTION_BOX,
+  CHROME_ROW_ACTION_BOX_PX,
   CHROME_ROW_CONTENT_H,
   COLUMN_GAP,
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
+  ROW_INSET,
   chromeRowInset,
   sidebarRowCard,
 } from './selectionStyles';
@@ -69,17 +72,26 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(h).toEqual({ wide: ROW_ACTION_BOX_PX.desktop, compact: ROW_ACTION_BOX_PX.touch });
     // Quadrato: l'incasso vale su tre lati solo se lo è.
     expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual(h);
+    // E il box della RIGA DI CHROME, che è un'altra cosa: là dentro non ci sta
+    // un bersaglio da dito, quindi il box è quello che la riga concede e il
+    // bersaglio lo proietta `tap-expand`. Quadrato e uguale sui due schermi,
+    // altrimenti l'aria attorno al comando non può essere quella della tab.
+    const c = risolvi(CHROME_ROW_ACTION_BOX, 'h');
+    expect(c).toEqual({ wide: CHROME_ROW_ACTION_BOX_PX, compact: CHROME_ROW_ACTION_BOX_PX });
+    expect(risolvi(CHROME_ROW_ACTION_BOX, 'w')).toEqual(c);
+    // L'aria che ne risulta è quella di una tab: (40 − 28)/2 = 6, cioè ROW_INSET.
+    expect(chromeRowInset(CHROME_ROW_ACTION_BOX_PX)).toBe(ROW_INSET);
   });
 
   test("l'incasso a destra è quello che il comando ha sopra e sotto", () => {
     const dx = risolvi(CHROME_ROW_ACTION_INSET, 'right');
-    expect(dx.wide).toBe(chromeRowInset(ROW_ACTION_BOX_PX.desktop));
-    expect(dx.compact).toBe(chromeRowInset(ROW_ACTION_BOX_PX.touch));
+    expect(dx.wide).toBe(chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
+    expect(dx.compact).toBe(chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
     // E lo spazio verticale, che è ciò a cui deve essere UGUALE: la riga meno
     // il box, diviso due. Scritto qui per esteso perché è l'invariante, non un
     // passaggio intermedio.
-    expect(dx.wide).toBe((CHROME_ROW_CONTENT_H - ROW_ACTION_BOX_PX.desktop) / 2);
-    expect(dx.compact).toBe((CHROME_ROW_CONTENT_H - ROW_ACTION_BOX_PX.touch) / 2);
+    expect(dx.wide).toBe((CHROME_ROW_CONTENT_H - CHROME_ROW_ACTION_BOX_PX) / 2);
+    expect(dx.compact).toBe((CHROME_ROW_CONTENT_H - CHROME_ROW_ACTION_BOX_PX) / 2);
   });
 
   test('il comando in testa alla riga ha lo stesso incasso di quello in coda', () => {
@@ -92,8 +104,8 @@ describe('la riga di chrome e il comando in coda', () => {
 
   test('la riserva della strip è il box più il suo incasso', () => {
     const pr = risolvi(CHROME_ROW_ACTION_RESERVE, 'pr');
-    expect(pr.wide).toBe(ROW_ACTION_BOX_PX.desktop + chromeRowInset(ROW_ACTION_BOX_PX.desktop));
-    expect(pr.compact).toBe(ROW_ACTION_BOX_PX.touch + chromeRowInset(ROW_ACTION_BOX_PX.touch));
+    expect(pr.wide).toBe(CHROME_ROW_ACTION_BOX_PX + chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
+    expect(pr.compact).toBe(CHROME_ROW_ACTION_BOX_PX + chromeRowInset(CHROME_ROW_ACTION_BOX_PX));
   });
 
   test('la riserva a SINISTRA è la stessa, specchiata', () => {
