@@ -5,7 +5,7 @@
   "replicatesTotal": 3,
   "armsBundle": "scripts/board-vs-chat.arms.json",
   "work": "t1 — Aggiungi l'opzione `--json` a `scripts/token-live.ts`.\n\nCon `--json` lo script deve stampare su stdout UN SOLO oggetto JSON valido, e nient'altro:\nnessun colore ANSI, nessuna intestazione di tabella, nessuna riga di legenda. I dati sono\ngli STESSI che già stampa nella tabella — una voce per chat, con nome, fase, contesto\ndell'ultima chiamata, dimensione della finestra, token letti, costo in dollari, numero di\npreamboli e numero di chiamate. Senza `--json` il comportamento attuale non cambia.\n\nAggiungi un test in `scripts/token-live.test.ts` che verifica che `--json` produca un JSON\nparsabile con i campi attesi. Il test deve passare con `bun test scripts/token-live.test.ts`.\n\nNota: in questa working directory non c'è `data/topics.db`; lo script accetta `DATA_DIR`.",
-  "generatedAt": "2026-08-09T20:33:06.859Z",
+  "generatedAt": "2026-08-09T21:03:29.332Z",
   "runs": [
     {
       "arm": "cli",
@@ -44,6 +44,27 @@
         "SIMULATO — Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
         "SIMULATO — Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
         "SIMULATO — `--effort medium` come la board; una chat Topics reale parte a xhigh (resolveClaudeEffort), quindi questo braccio SOTTOSTIMA la chat."
+      ]
+    },
+    {
+      "arm": "chat-xhigh",
+      "label": "Chat Topics a xhigh (come parte davvero)",
+      "model": "claude-opus-5[1m]",
+      "transcriptPath": "/Users/zorahrel/.claude/projects/-private-tmp-board-arms-run3-chat-xhigh/cd755432-1cc1-498d-8302-bc4ba0389113.jsonl",
+      "humanActions": 1,
+      "humanActionsStructural": 1,
+      "humanActionsStructuralBasis": "Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+      "delivered": true,
+      "wallMs": 398398,
+      "notes": [
+        "MCP: flotta globale + bridge Topics (profilo chat, stub)",
+        "effort xhigh, prompt 17736 caratteri, 35 chiamate al modello",
+        "azioni umane MISURATE in questa corsa headless: 1. Il conto STRUTTURALE dell'interfaccia (1) è a mano, sta in humanActionsStructural e non è un numero uscito da qui — Un solo gesto: scrivere il messaggio in chat. Stessa avvertenza della CLI sul ciclo di feedback.",
+        "consegna verificata: bun test scripts/token-live.test.ts → exit 0; DATA_DIR=/Users/zorahrel/Projects/topics-app/data bun scripts/token-live.ts --json → JSON parsabile=true",
+        "sandbox /private/tmp/board-arms-run3/chat-xhigh (tree db608ba9502ff4f4d203a43dd282d2f4cbd4c371)",
+        "SIMULATO — Nessun topic creato sul server vivo: il preambolo `<context>` è quello REALE catturato da /api/topics/:id/context-preview, ma inserito a mano nel prompt.",
+        "SIMULATO — Il bridge Topics è lo STUB con gli schemi reali (profilo chat): stesso costo di prefisso, nessun effetto.",
+        "SIMULATO — `--effort xhigh`: il default di `resolveClaudeEffort()` per un topic senza override, cioè come parte una chat vera. È QUESTO il termine di paragone della board, non il braccio a medium."
       ]
     },
     {
