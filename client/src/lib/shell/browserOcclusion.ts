@@ -90,6 +90,55 @@ export function slotIsOccluded(slot: { x: number; y: number; width: number; heig
   return slotIntersectsRects(slot, overlays);
 }
 
+/**
+ * La decisione, in una funzione pura: questa pane deve togliersi di mezzo?
+ *
+ * `slot` è `null` quando la pane NON SA dove sta — nessun rettangolo vivo nel
+ * DOM e nessuno in cache. Prima quel caso non faceva niente, ed è il modo in
+ * cui un menu finisce sotto una webview nativa senza che nessuno se ne accorga:
+ * un silenzio che si vede solo a difetto avvenuto.
+ *
+ * Nel dubbio si CONGELA. I due errori non si equivalgono: un fermo-immagine di
+ * troppo per un istante non lo nota nessuno (i pixel sono gli stessi), mentre
+ * un menu invisibile sotto una vista nativa è un pezzo di interfaccia che non
+ * si può usare. Si sbaglia dalla parte che si può guardare.
+ */
+export function decideFreeze(
+  slot: { x: number; y: number; width: number; height: number } | null,
+  rects: readonly OverlayRect[],
+): boolean {
+  if (!slot) return rects.length > 0;
+  return slotIntersectsRects(slot, rects);
+}
+
+/**
+ * Il rettangolo VIVO dello slot di una pane browser, letto dal DOM nel momento
+ * in cui serve decidere.
+ *
+ * Prima si decideva sull'ultimo rettangolo CHIESTO alla vista nativa (una
+ * cache): non è dove la pane STA, è dove le è stato detto di andare l'ultima
+ * volta — e non viene aggiornato quando la vista si parcheggia fuori schermo.
+ * Basta una pane che si sposta senza ricommittare i bounds (uno split che si
+ * ridimensiona, la sidebar che scivola, un cambio di cella) perché la decisione
+ * si prenda su una geometria che non esiste più.
+ *
+ * Letto dal DOM, i due rettangoli vengono dalla stessa fonte — entrambi
+ * `getBoundingClientRect()`, entrambi in pixel CSS relativi al viewport —
+ * quindi non possono nemmeno essere in due spazi diversi.
+ */
+export function liveSlotRect(id: string): { x: number; y: number; width: number; height: number } | null {
+  if (typeof document === 'undefined' || !id) return null;
+  try {
+    const el = document.querySelector(`[data-native-browser-slot="${CSS.escape(id)}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    return { x: r.left, y: r.top, width: r.width, height: r.height };
+  } catch {
+    return null;
+  }
+}
+
 /** Subscribe to overlay-set changes (open/close/move). The callback gets the
  *  current overlay rects; consumers decide intersection per pane. Returns an
  *  unsubscribe fn. Lazily starts the observer on first subscription (Tauri). */

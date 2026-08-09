@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { slotIntersectsRects, OVERLAY_SELECTOR, type OverlayRect } from './browserOcclusion';
+import { slotIntersectsRects, decideFreeze, OVERLAY_SELECTOR, type OverlayRect } from './browserOcclusion';
 import { MODAL_PANEL } from '../modalStyles';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_SHEET } from '../popoverStyles';
 
@@ -104,4 +104,28 @@ test('OVERLAY_SELECTOR matches the Menu container roles', () => {
   // panel; both must be in the selector so the role alone lifts the menu.
   expect(OVERLAY_SELECTOR).toContain('[role="menu"]');
   expect(OVERLAY_SELECTOR).toContain('[role="listbox"]');
+});
+
+// ── «Non so dove sto» non è «non mi copre nessuno» ──────────────────────────
+// Il silenzio era il difetto: una pane senza rettangolo non si congelava mai, e
+// un menu aperto sopra di lei finiva sotto la webview nativa senza che niente
+// lo segnalasse. La decisione ora è esplicita e sbaglia dalla parte che si può
+// guardare: nel dubbio si congela.
+
+test('senza rettangolo e con un overlay aperto, la pane si congela lo stesso', () => {
+  const menu: OverlayRect = { left: 0, top: 0, right: 80, bottom: 60 };
+  expect(decideFreeze(null, [menu])).toBe(true);
+});
+
+test('senza rettangolo e senza overlay non si congela niente', () => {
+  // La prudenza vale solo quando c'è davvero qualcosa da proteggere: fuori da
+  // quel caso una pane senza rettangolo resta viva.
+  expect(decideFreeze(null, [])).toBe(false);
+});
+
+test('col rettangolo, decide l\'intersezione e non altro', () => {
+  const lontano: OverlayRect = { left: 0, top: 0, right: 80, bottom: 60 };
+  const sopra: OverlayRect = { left: 120, top: 120, right: 280, bottom: 280 };
+  expect(decideFreeze(slot, [lontano])).toBe(false);
+  expect(decideFreeze(slot, [sopra])).toBe(true);
 });
