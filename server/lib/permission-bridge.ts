@@ -39,6 +39,8 @@
  * l'identificatore della riga di tool già a schermo.
  */
 
+import { emitHumanHoldChange } from './human-hold-events';
+
 /** Cosa torna alla CLI. `allow_always` consente ORA e scrive un grant. */
 export type PermissionDecision = 'allow' | 'allow_always' | 'deny';
 
@@ -129,7 +131,11 @@ export function beginPermission(
   const key = permissionKey(sessionKey, toolUseId);
   const open = activeRequests.get(key);
   if (open === undefined) {
+    const wasHeld = sessionHasPendingPermission(sessionKey);
     activeRequests.set(key, { sessionKey, toolUseId, startedAt: now });
+    // Il primo permesso aperto e' quello che ferma il turno agli occhi di chi
+    // guarda la board; i successivi non cambiano il fatto.
+    if (!wasHeld) emitHumanHoldChange({ sessionKey, phase: 'held', source: 'permission' });
     return true;
   }
   return now - open.startedAt < ttlMs;
@@ -137,9 +143,14 @@ export function beginPermission(
 
 /** Chiude una richiesta: decisa, annullata o scaduta. Idempotente. */
 export function endPermission(sessionKey: string, toolUseId: string): void {
-  activeRequests.delete(permissionKey(sessionKey, toolUseId));
+  const removed = activeRequests.delete(permissionKey(sessionKey, toolUseId));
   for (const [alias, target] of [...aliases]) {
     if (target === toolUseId && alias.startsWith(`${sessionKey}\u0000`)) aliases.delete(alias);
+  }
+  // `released` solo quando cade l'ULTIMO: con due pannelli aperti, chiuderne uno
+  // non rimette il turno a lavorare.
+  if (removed && !sessionHasPendingPermission(sessionKey)) {
+    emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
   }
 }
 
@@ -301,6 +312,7 @@ export function cancelPermission(sessionKey: string, toolUseId: string, reason =
  * in `server/lib/human-hold.ts`.
  */
 export function cancelPermissionsForSession(sessionKey: string, reason = 'cancelled'): void {
+  const wasHeld = sessionHasPendingPermission(sessionKey);
   for (const [key, entry] of [...activeRequests]) {
     if (entry.sessionKey !== sessionKey) continue;
     activeRequests.delete(key);
@@ -316,4 +328,8 @@ export function cancelPermissionsForSession(sessionKey: string, reason = 'cancel
       buffered.delete(key);
     }
   }
+  // Un solo annuncio per l'intera sessione, e solo se c'era davvero qualcosa da
+  // annullare: questa funzione viene chiamata anche a fine turno su sessioni che
+  // non hanno mai aperto un pannello.
+  if (wasHeld) emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
 }
