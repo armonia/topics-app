@@ -583,19 +583,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const [taskId, slot] of inFlight) if (slot.sessionKey === sessionKey) return taskId;
     return null;
   }
-  const unsubscribeHumanHold = onHumanHoldChange(({ sessionKey, phase }) => {
+
+  /**
+   * L'attesa è TRANSITORIA, e non si scrive in `dispatch_state`.
+   *
+   * La prima versione la persisteva (`setDispatchState(needs_input)`), e quella
+   * riga ha introdotto un guasto peggiore di quello che curava: la porta del
+   * recupero orfani è `ACTIVE_DISPATCH_STATES` (qui sopra: solo `working` e
+   * `starting`), perché un chip `needs_input` significava «l'ha messa qui una
+   * persona, non toccarla». Un task fermo su una domanda a metà turno usciva
+   * quindi da quella porta: server riavviato — e con `TOPICS_SERVER_WATCH=1`
+   * basta salvare un file sotto `server/` — e restava `in_progress` +
+   * `needs_input` PER SEMPRE, senza reattach, senza resume, senza un commento
+   * che lo dicesse. Prima della modifica quel task veniva ripreso. Misurato con
+   * l'harness dei test veri: chip `working` → 1 turno rilanciato; chip
+   * `needs_input` → 0 turni, e ancora 0 dopo tre reconcile.
+   *
+   * La causa vera è una collisione di vocabolario: `needs_input` era già
+   * «parcheggiata da un umano». Quindi l'attesa a metà turno prende la strada
+   * che questo file usa già per i fatti che vivono quanto il processo —
+   * `task:usage-live` (qui sotto): un evento, non una colonna. È anche più
+   * corretto nel merito: dopo un riavvio le mappe di `ask-user-bridge` e
+   * `permission-bridge` sono vuote, cioè l'attesa NON esiste più, e un chip
+   * persistito starebbe mentendo.
+   */
+  function broadcastAwaitingHuman(taskId: string, projectId: string, waiting: boolean, source: "ask" | "permission"): void {
+    try {
+      deps.broadcast({ type: "task:awaiting-human", projectId, taskId, waiting, source });
+    } catch { /* best-effort */ }
+  }
+  const unsubscribeHumanHold = onHumanHoldChange(({ sessionKey, phase, source }) => {
     const taskId = taskWaitingOnSession(sessionKey);
     if (!taskId) return; // una chat qualunque: non è roba della board
     try {
       const task = deps.svc.get(taskId)?.task;
-      // Solo mentre il turno è davvero in volo. A task consegnato il chip lo
-      // decide `onTurnEnd`, e sovrascriverlo da qui rimetterebbe «in corso» su
-      // una consegna finita.
+      // Solo mentre il turno è davvero in volo: a consegna fatta il chip lo
+      // decide `onTurnEnd`, e un'attesa annunciata dopo sarebbe rumore.
       if (!task || task.status !== "in_progress") return;
-      const state = phase === "held" ? CHIP_NEEDS_INPUT : CHIP_WORKING;
-      if (task.dispatchState === state) return;
-      emit(deps.svc.setDispatchState({ taskId, state }));
-    } catch { /* best-effort: un chip non aggiornato non deve uccidere un pannello */ }
+      broadcastAwaitingHuman(taskId, task.projectId, phase === "held", source);
+    } catch { /* best-effort: un annuncio mancato non deve uccidere un pannello */ }
   });
   // Tasks already told "il repo è occupato da una sessione esterna" during the
   // CURRENT hold episode — cleared when the repo frees, so a later hold can

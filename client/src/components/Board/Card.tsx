@@ -18,12 +18,14 @@ import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById, awaitingHuman }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
   /** Live per-turn usage keyed by task id (ticking chip on working cards). */
   liveById: Map<string, LiveUsage>;
+  /** Task che in questo momento aspettano una persona (evento transitorio). */
+  awaitingHuman: Set<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -73,6 +75,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
+              awaiting={awaitingHuman.has(t.id)}
             />
           ))}
         </SortableContext>
@@ -105,7 +108,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 // props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
 // (useCallback / state setters), and task/blocker come from tasks-keyed memos,
 // so the shallow prop compare holds for idle cards.
-export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live }: {
+export const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live, awaiting }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -114,6 +117,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   blocker?: BoardTask;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
   projectPath?: string;
+  /** Il turno e' vivo ma fermo su una PERSONA: pannello di domanda o permesso
+   *  aperti a meta' turno. Transitorio, non e' in DB. */
+  awaiting?: boolean;
   /** Live per-turn usage while this task's agent works (ticking chip). */
   live?: LiveUsage;
 }) {
@@ -269,7 +275,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           </div>
           {/* The live chip's pulse dot already says "working": while it ticks,
               the 'al lavoro' state chip is redundant — one chip, not two. */}
-          {(live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+          {awaiting ? (
+            // Vince su tutto il resto mentre dura: un turno fermo su di te non e'
+            // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
+            // esiste per togliere.
+            <span
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-300"
+              title="Il turno e' vivo ma aspetta te: apri il tab del task per rispondere"
+            >aspetta te</span>
+          ) : (live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
