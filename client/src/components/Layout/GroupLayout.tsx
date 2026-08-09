@@ -167,10 +167,23 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
   useLayoutEffect(() => {
     const h = host.current;
     if (!h) return;
+    // IL PRIMO CHE LO PRENDE SE LO TIENE.
+    //
+    // Il nodo è UNO, e gli ospiti possono essere più d'uno: il ramo a griglia
+    // rende una volta PER GRUPPO, quindi in un progetto in split due ospiti si
+    // contendevano lo stesso nodo. `appendChild` lo SPOSTA, quindi vinceva
+    // l'ultimo che montava e gli altri restavano scatole vuote — e i comandi
+    // finivano in un gruppo qualsiasi invece che nel primo. Sintomo: «vedo una
+    // barra grigia ma non vedo i tasti» (Attilio, 09/08).
+    //
+    // Chi arriva secondo non ruba: rende una scatola vuota e alta zero, che non
+    // si vede. Il cleanup toglie il nodo SOLO se è ancora suo, quindi lo
+    // smontaggio dell'ospite che non l'ha mai avuto non lo strappa a chi ce l'ha.
+    if (node.parentNode && node.parentNode !== h && node.parentNode.isConnected) return;
     h.appendChild(node);
     return () => { if (node.parentNode === h) h.removeChild(node); };
   }, [node]);
-  return <div ref={host} className="flex items-center min-w-0" />;
+  return <div ref={host} className="flex items-center min-w-0 empty:hidden" />;
 }
 
 
