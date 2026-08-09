@@ -560,9 +560,12 @@ export function sidebarRowCard(
   // stessa forma che tessera e tab hanno sempre avuto: un ternario che sceglie
   // UNA superficie, mutuamente esclusiva (PinnedTile, PaneTabBar). Le righe
   // concatenavano: stessa grammatica, due meccanismi.
-  const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative'
-    + (nested ? '' : ` ${RESTING_FILL_MOBILE}`);
-  const riposo = '';
+  const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative';
+  // Il fondo del riposo si porta dietro il suo BORDO, e solo dove il fondo c'è:
+  // `edge-lit-mobile` (index.css) vive dentro la stessa media query di
+  // `max-md:`, quindi sul desktop — dove la riga a riposo è trasparente — non
+  // disegna niente. Senza, tessera e tab avevano la card chiusa e la riga no.
+  const riposo = nested ? '' : ` ${RESTING_FILL_MOBILE} edge-lit-mobile`;
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //

@@ -201,4 +201,57 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     // E sono DIVERSI: è tutto il punto.
     expect(fSel, `selezionata e riposo hanno lo stesso fondo (${fSel})`).not.toBe(fRip);
   });
+
+  test("TAB-COERENZA-3: due righe adiacenti distano quanto due tessere", async ({ page, request }) => {
+    // Le card portano `my-[3px]` per lato, cioè mezzo COLUMN_GAP, e due vicine
+    // dovrebbero fare 6. Fra fratelli in flusso normale però i margini
+    // COLLASSANO al maggiore: misurato 3px, contro i 6 veri delle tessere
+    // (`gap: TILE_GAP`). Due ritmi nella stessa colonna, a mezzo passo.
+    //
+    // Il test unitario che credeva di custodirlo (`selectionStyles.test.ts`)
+    // faceva aritmetica su una stringa — `my * 2 === COLUMN_GAP` — quindi non
+    // poteva accorgersi del collasso: il numero era giusto, era il rendering a
+    // dimezzarlo. Questo lo misura DOVE succede.
+    const stamp = Date.now();
+    for (let i = 0; i < 3; i++) {
+      const t = await createTopic(request, `E2E-Ritmo-Riga-${i}-${stamp}`);
+      creati.push(t.id);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await apriColonna(page);
+    await goToApp(page);
+
+    const colonna = page.getByTestId("sidebar-topic-list");
+    await expect(colonna).toBeVisible({ timeout: 15000 });
+    await expect
+      .poll(async () => (await colonna.boundingBox())?.width ?? 0, { timeout: 15000 })
+      .toBeGreaterThan(200);
+
+    const passi = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="sidebar-topic-list"]');
+      if (!root) return null;
+      const righe = Array.from(root.querySelectorAll('[role="treeitem"]'))
+        .filter((e) => !e.closest('[data-testid^="pinned-tile"]'))
+        .filter((e) => e.getBoundingClientRect().width > 100)
+        // Solo fratelli DIRETTI: due righe di livelli diversi non hanno un passo
+        // da rispettare fra loro.
+        .filter((e, _i, tutte) => tutte[0].parentElement === e.parentElement);
+      const gaps: number[] = [];
+      for (let i = 0; i + 1 < righe.length && i < 3; i++) {
+        const a = righe[i].getBoundingClientRect();
+        const b = righe[i + 1].getBoundingClientRect();
+        gaps.push(Math.round(b.top - a.bottom));
+      }
+      return gaps;
+    });
+
+    expect(passi, "righe non montate").not.toBeNull();
+    const gaps = passi as number[];
+    expect(gaps.length, "servono almeno due righe adiacenti da misurare").toBeGreaterThan(0);
+    // COLUMN_GAP = 6, ed è lo stesso passo delle tessere fissate (TILE-14 lo
+    // blocca dall'altro lato). Qui il numero è scritto perché è il contratto
+    // della colonna, non un rilievo: se cambia, cambia in `selectionStyles`.
+    for (const g of gaps) expect(g, `passo fra righe adiacenti: ${gaps.join(",")}`).toBe(6);
+  });
 });
