@@ -154,6 +154,13 @@ describe('outbound registry contract', () => {
     // i sotto-agenti di un turno sono sessioni di terminale con un
     // `parentSessionKey` — viaggiano sui frame `terminal:*`.
     //
+    // 2026-08-09, +1 → `task:awaiting-human`: un task che aspetta una persona.
+    // Aggiunto da `e8cf7799` («L'attesa è un evento, non una colonna: il chip
+    // persistito congelava il task») insieme al suo schema e ai suoi test, ma
+    // senza il conteggio — e il conteggio è proprio ciò che obbliga a guardare
+    // che la superficie in uscita è cresciuta. Guardato: è un evento, non uno
+    // stato persistito, ed è per questo che viaggia come frame.
+    //
     // 2026-07-30, +1 → `stream:usage`: il CONSUMO del turno mentre cresce.
     // Fratello di `stream:context` e distinto da lui apposta — quello è il
     // serbatoio (sale e SCENDE con le compattazioni), questo è la bolletta (solo
@@ -233,6 +240,7 @@ describe('outbound registry contract', () => {
       'stream:tool_usage',
       'stream:tool_user_input_required',
       'stream:usage',
+      'task:awaiting-human',
       'task:created',
       'task:deleted',
       'task:parked',
@@ -342,8 +350,8 @@ describe('outbound registry contract', () => {
   // serve di più. Per lo stesso motivo viaggia MIRATO (`ctx.sendToDevice`) e
   // non in broadcast. Mittente `server/routes/auth.ts`, ascoltatore
   // `useWebSocket` → `GuestView`.
-  test('all 92 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(92);
+  test('all 93 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(93);
   });
 });
 

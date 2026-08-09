@@ -47,6 +47,29 @@ export { SessioneRelay } from "./relay-do";
 import { PAGINA_OSPITE } from "./pagina-ospite";
 import { PERCORSO_PONTE } from "./ponte";
 
+/** Quale installazione sta guardando questo browser. */
+export const BISCOTTO_INSTALLAZIONE = "topics_inst";
+
+/**
+ * L'installazione ricordata, letta in modo stretto.
+ *
+ * Stretto perché questo valore sceglie a QUALE macchina instradare: una
+ * stringa qualunque qui dentro è un modo di far cercare al relay un Durable
+ * Object con un nome scritto da chi bussa. La forma è la stessa che il
+ * percorso già impone.
+ */
+export function leggiInstallazione(cookie: string | null): string | null {
+  if (!cookie) return null;
+  for (const pezzo of cookie.split(";")) {
+    const eq = pezzo.indexOf("=");
+    if (eq === -1) continue;
+    if (pezzo.slice(0, eq).trim() !== BISCOTTO_INSTALLAZIONE) continue;
+    const v = pezzo.slice(eq + 1).trim();
+    return /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : null;
+  }
+  return null;
+}
+
 interface Env {
   SESSIONE: DurableObjectNamespace;
 }
@@ -92,10 +115,62 @@ export default {
     // Il modello è UNO e sta accanto al ponte: due copie della stessa forma
     // sono due cose che un giorno dicono percorsi diversi, e quel giorno chi
     // instrada e chi traduce non parlano più dello stesso indirizzo.
+    // ── L'INSTALLAZIONE SI RICORDA, invece di stare nel percorso.
+    //
+    // Il bundle dell'app chiede `/assets/…`, `/boot.js`, `/manifest.json`:
+    // percorsi ASSOLUTI dalla radice. Serviti sotto `/i/<id>/` il browser li
+    // cerca fuori dal prefisso e prende 404 — pagina bianca, con l'HTML
+    // arrivato e nient'altro. Visto dal vivo, ed è il motivo di questo giro.
+    //
+    // Riscrivere i percorsi nell'HTML non funziona: un `<base>` gli assoluti
+    // li ignora per definizione, e riscrivere il bundle vorrebbe dire che il
+    // relay ne capisce il contenuto.
+    //
+    // Quindi: la prima visita col prefisso DEPOSITA quale installazione, e
+    // rimanda alla radice. Da lì in poi l'indirizzo è pulito e i percorsi
+    // assoluti tornano a essere veri.
     const ponte = url.pathname.match(PERCORSO_PONTE);
     if (ponte) {
-      const id = env.SESSIONE.idFromName(ponte[1] ?? "");
-      return env.SESSIONE.get(id).fetch(req);
+      const iid = ponte[1] ?? "";
+      const resto = ponte[2] && ponte[2].length > 0 ? ponte[2] : "/";
+      // Il rimando vale SOLO per la prima navigazione, cioè per la richiesta
+      // che apre una pagina. Applicarlo a tutto — com'era nel primo tentativo
+      // — rimanda anche gli asset, le chiamate all'API e una PUT con un corpo,
+      // e un 302 su una PUT è un corpo che si perde per strada. Il prefisso
+      // continua a funzionare per tutto il resto, e chi lo usa direttamente
+      // (un client, un test, una curl) non si accorge di niente.
+      const navigazione = req.method === "GET"
+        && (req.headers.get("sec-fetch-dest") === "document"
+          || (req.headers.get("accept") ?? "").includes("text/html"));
+      if (!navigazione) {
+        return env.SESSIONE.get(env.SESSIONE.idFromName(iid)).fetch(req);
+      }
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `${resto}${url.search}`,
+          // `Path=/` perché vale per ogni percorso della sessione, non solo
+          // per quello d'ingresso. Host-only e `Secure`: non esce da qui e non
+          // viaggia in chiaro. `Lax` perché la navigazione che lo usa è quella
+          // che l'utente fa cliccando, non una richiesta di terzi.
+          "set-cookie": `${BISCOTTO_INSTALLAZIONE}=${iid}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=31536000`,
+          "cache-control": "no-store",
+        },
+      });
+    }
+
+    // Ogni richiesta successiva: l'installazione viene dal biscotto.
+    const ricordata = leggiInstallazione(req.headers.get("cookie"));
+    if (ricordata && !/^\/(agent|s|d)\//.test(url.pathname)) {
+      // Il prefisso torna, ma solo QUI DENTRO: il Durable Object riconosce una
+      // richiesta da ponte guardando il percorso (`PERCORSO_PONTE`), e alla
+      // radice non lo troverebbe. Rimetterlo per il salto interno tiene UNA
+      // sola forma d'indirizzo fra chi instrada e chi traduce — che è la
+      // ragione per cui quel modello sta scritto in un posto solo — senza che
+      // chi apre il link se lo debba vedere.
+      const dentro = new URL(url.toString());
+      dentro.pathname = `/i/${ricordata}${url.pathname}`;
+      return env.SESSIONE.get(env.SESSIONE.idFromName(ricordata)).fetch(new Request(dentro, req));
     }
 
     const m = url.pathname.match(/^\/(agent|s|d)\/([A-Za-z0-9_-]{1,128})$/);

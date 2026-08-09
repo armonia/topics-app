@@ -192,6 +192,22 @@ const IT: Dict = {
   'identity.role.member': 'Membro',
   'identity.save': 'Salva',
   'identity.cancel': 'Annulla',
+  // ── L'APPAIAMENTO: la prima schermata che vede chi apre Topics da un telefono.
+  //
+  // Il titolo INVITA, non respinge. Prima diceva «Dispositivo non autorizzato»
+  // anche al primo accesso: la schermata che serve ad autorizzarti apriva
+  // dicendoti che non sei autorizzato, e chi la leggeva concludeva che fosse
+  // un errore invece che un passo. «Revocato» e «scaduta» restano rifiuti,
+  // perché lì lo sono davvero.
+  'pair.title.new': 'Autorizza questo dispositivo',
+  'pair.title.revoked': 'Accesso revocato',
+  'pair.title.expired': 'Sessione scaduta',
+  'pair.blurb.new': 'Sul computer dove Topics è già aperto comparirà una richiesta: confermala e questo dispositivo entra.',
+  'pair.blurb.revoked': 'Questo dispositivo è stato rimosso da Topics. Puoi chiedere di nuovo accesso.',
+  'pair.unreachable': 'Non riesco a contattare Topics. Il computer è acceso?',
+  'pair.denied': 'Richiesta rifiutata dal computer.',
+  'pair.retry': 'Chiedi di nuovo',
+  'pair.codeHint': 'Sul computer comparirà una richiesta con questo codice.',
   'identity.add': 'Aggiungi',
   'identity.addPerson': 'Aggiungi una persona',
   // Il rifiuto DICE cosa si può ancora fare, e non solo cosa no: condividere
@@ -467,6 +483,15 @@ const EN: Dict = {
   'identity.role.member': 'Member',
   'identity.save': 'Save',
   'identity.cancel': 'Cancel',
+  'pair.title.new': 'Authorise this device',
+  'pair.title.revoked': 'Access revoked',
+  'pair.title.expired': 'Session expired',
+  'pair.blurb.new': 'A request will appear on the computer where Topics is already open: confirm it and this device is in.',
+  'pair.blurb.revoked': 'This device was removed from Topics. You can ask for access again.',
+  'pair.unreachable': 'I can’t reach Topics. Is the computer switched on?',
+  'pair.denied': 'The computer turned the request down.',
+  'pair.retry': 'Ask again',
+  'pair.codeHint': 'A request with this code will appear on the computer.',
   'identity.add': 'Add',
   'identity.addPerson': 'Add a person',
   'identity.noSeats': 'The free plan has one seat, and it is yours. Putting someone in the group needs a paid plan — but you can already share with them by authorising one of their devices.',

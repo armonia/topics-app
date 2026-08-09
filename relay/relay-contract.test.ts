@@ -156,9 +156,34 @@ describe("relay · non decide chi sei (RELAY-04)", () => {
     // bene — lì dicono da quale capo del tubo arrivi, non chi sei. Vietarle
     // sarebbe confondere il vocabolario dell'instradamento con quello
     // dell'identità, che è esattamente la distinzione che questo test difende.
-    for (const parola of ["cookie", "topics_device", "authorization", "grants", "person_id", "installation_owners"]) {
+    for (const parola of ["topics_device", "authorization", "grants", "person_id", "installation_owners"]) {
       expect(`${parola}→${new RegExp(parola, "i").test(CODICE)}`).toBe(`${parola}→false`);
     }
+  });
+
+  it("l'UNICO biscotto che il Worker tocca dice QUALE macchina, non CHI sei", () => {
+    // La parola `cookie` non è più vietata in blocco, ed è un allargamento che
+    // va guardato invece che subìto.
+    //
+    // Il motivo: il bundle dell'app chiede percorsi ASSOLUTI (`/assets/…`,
+    // `/boot.js`), quindi servirlo sotto `/i/<id>/` dava pagina bianca. Serve
+    // che il browser ricordi quale installazione sta guardando — e un biscotto
+    // di INSTRADAMENTO non è una credenziale: non concede niente, e la
+    // macchina continua a pretendere l'identità (401 su ogni chiamata,
+    // verificato dall'esterno).
+    //
+    // Quindi il divieto si sposta da «nessun biscotto» a «nessun biscotto DI
+    // IDENTITÀ», che è la proprietà vera. `topics_device` — quello di
+    // sessione, che l'altro caso vieta — resta fuori dal Worker: se un giorno
+    // comparisse, il relay avrebbe cominciato a decidere chi sei.
+    const nomi = [...CODICE.matchAll(/["'`]([a-z_]*topics[a-z_]*)["'`]/gi)].map((m) => m[1]);
+    for (const n of nomi) {
+      expect(`${n}→ammesso`).toBe(`${n === "topics_inst" ? n : "topics_inst"}→ammesso`);
+    }
+    // Controllo positivo: il biscotto d'instradamento c'è davvero, altrimenti
+    // questo caso passerebbe su un Worker che non ne tocca nessuno e non
+    // direbbe niente.
+    expect(CODICE).toContain("topics_inst");
   });
 
   it("il payload non viene mai ispezionato", () => {
