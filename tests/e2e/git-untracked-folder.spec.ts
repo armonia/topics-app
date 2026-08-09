@@ -12,7 +12,6 @@ import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { apriSezioneProgetto } from "./helpers/project-sections";
 
 hermetic(test);
 
@@ -41,10 +40,9 @@ test.describe("git: cartella non tracciata dal repo che la contiene", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${INNER}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    await apriSezioneProgetto(page, "git");
-
     const git = win.locator('[data-testid="git-changes"]');
     await expect(git).toBeVisible({ timeout: 10000 });
+    await git.locator("div").filter({ hasText: /^Git$/ }).first().click();
 
     // Lo stato viene detto per nome, col repo che lo causa.
     await expect(git.getByText(/Non tracciata dal repo «e2e-host-repo/)).toBeVisible({ timeout: 15000 });

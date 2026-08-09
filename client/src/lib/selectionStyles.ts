@@ -377,33 +377,6 @@ export const TAB_GAP_CLASS = 'gap-1.5';
 export const SECTION_CARD =
   `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} ` +
   'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
-
-/**
- * LE TRE SEZIONI IN RIGA — la stessa card, rimessa in orizzontale.
- *
- * Non è una famiglia nuova: è `SECTION_CARD` senza i margini (li mette la riga
- * che le contiene, una volta sola) e con `flex-1 min-w-0` perché tre chip in
- * una colonna da 224px si dividono lo spazio invece di sfondarlo. L'etichetta
- * tronca, il glifo e la pastiglia no — sono loro a dire «quale» e «quanto»
- * quando il nome non ci sta.
- *
- * Attiva NON è hover: è la stessa superficie di una tab selezionata
- * (`SELECTED_SURFACE`), perché è esattamente ciò che è — la sezione che stai
- * guardando, in una riga che ne mostra una alla volta.
- */
-export const SECTION_TAB =
-  `group edge-lit flex items-center justify-center gap-1.5 px-2 h-9 md:h-7 ${TAB_LABEL} ` +
-  'rounded-lg transition-colors cursor-pointer select-none flex-1 min-w-0 overflow-hidden';
-
-/**
- * La striscia dei comandi di una sezione aperta: la sua intestazione senza
- * l'intestazione. Quando il nome e l'apri/chiudi salgono nella riga di chip,
- * di quella card resta solo il gruppo di controlli — ramo, ahead/behind,
- * cronologia, nuovo file — e deve stare a destra, alla stessa altezza di una
- * card, senza fondo suo: la superficie sotto è già quella del pannello.
- */
-export const SECTION_TOOLS =
-  'flex items-center justify-end gap-1 h-7 px-1.5 mx-1.5 flex-shrink-0 min-w-0';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 

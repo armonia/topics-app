@@ -221,7 +221,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     });
   });
 
-  test("i chip delle sezioni sono card, e aprirne uno mostra qualcosa", async ({ page, request }) => {
+  test("la riga «File» chiusa ha il suo bordo, e Processi si apre su qualcosa", async ({ page, request }) => {
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -251,33 +251,24 @@ test.describe("sidebar progetto: la rail collassata", () => {
     });
     expect(card.fondo, "da chiusa la riga ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
     expect(card.raggio, "ed e' arrotondata come una tab").not.toBe("0px");
-    // L'incasso laterale ora lo mette la RIGA, una volta sola, invece di ogni
-    // card per se': le tre stanno affiancate («dropdown singoli», Attilio
-    // 09/08) e tre margini in fila farebbero tre passi dove ne serve uno.
-    const incassoRiga = await filesRow.evaluate((el) =>
-      parseFloat(getComputedStyle(el.parentElement!).paddingLeft));
-    expect(incassoRiga, "la riga delle sezioni e' rientrata dai lati").toBeGreaterThan(0);
+    expect(card.rientro, "ed e' rientrata dai lati come ogni altra card").toBeGreaterThan(0);
     expect(card.bordoSotto, "e NON ha piu' una linea sotto").toBe(0);
 
-    // Aprire «Processi» deve mostrare qualcosa — e chiudere File, perche' la
-    // riga ne tiene aperta UNA. Le altezze in pixel non esistono piu': il
-    // pannello prende tutto lo spazio sotto la riga, quindi «si apre su zero
-    // pixel» non e' piu' un modo di rompersi (era il difetto che questa parte
-    // sorvegliava, ed e' morto con la sua causa).
-    const procRow = win.getByTestId("project-sidebar-processes");
+    // Aprire «Processi» deve mostrare qualcosa. L'altezza e in pixel e viene
+    // salvata: strizzata all'altezza dell'intestazione, la sezione si apriva su
+    // zero pixel di contenuto e il chevron ruotava a vuoto.
+    await page.evaluate((p) => {
+      sessionStorage.setItem(`project-sidebar-bottom-heights:${p}`, JSON.stringify({ git: 200, processes: 32 }));
+    }, PROJ);
+    await page.reload();
+    await expect(win).toHaveCount(1, { timeout: 15000 });
+    const procRow = win.locator("button").filter({ hasText: /^Processi$/ }).last();
     await expect(procRow).toBeVisible({ timeout: 10000 });
+    const section = procRow.locator("..");
     await procRow.click();
-    await expect(procRow).toHaveAttribute("aria-expanded", "true");
-    await expect(filesRow, "aprirne una chiude le altre").toHaveAttribute("aria-expanded", "false");
-    // Il pannello e' il fratello che segue la riga dei chip: si misura da li'
-    // invece che da un testid del contenuto, perche' il contenuto cambia con
-    // la sezione e questa asserzione vale per tutt'e tre.
     await expect
-      .poll(async () => procRow.evaluate((el) => {
-        const pannello = el.parentElement?.nextElementSibling as HTMLElement | null;
-        return pannello ? Math.round(pannello.getBoundingClientRect().height) : 0;
-      }), { timeout: 5000, message: "il pannello della sezione aperta deve avere un'altezza" })
-      .toBeGreaterThan(20);
+      .poll(async () => (await section.boundingBox())?.height ?? 0, { timeout: 5000 })
+      .toBeGreaterThan(60);
   });
 
   test("la barra si ridimensiona dal bordo, e il doppio click la riporta al default", async ({ page, request }) => {
