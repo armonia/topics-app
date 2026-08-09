@@ -1397,6 +1397,54 @@ input[type="range"]::-webkit-slider-thumb {
  * `> .row-actions` è figlio DIRETTO: l'albero annida (un progetto contiene le sue
  * chat), e senza il combinatore il passaggio su una riga figlia accenderebbe
  * anche il comando del padre. */
+/* IL «+» DELLA BARRA: col mouse esce al passaggio, col dito resta.
+ *
+ * «Facciamo in modo che i + da desktop escano solo all'hover (tabbar)»
+ * (Attilio, 10/08). È la stessa idea di `.row-actions` un piano più su — un
+ * comando non deve stare acceso mentre non lo stai usando — con la stessa
+ * distinzione fra i due dispositivi: dove l'hover non esiste, un comando
+ * rivelato dall'hover è un comando che non esiste, quindi col dito resta
+ * visibile e basta.
+ *
+ * NON collassa: lo spazio in coda alla strip resta riservato
+ * (`CHROME_ROW_ACTION_RESERVE`), quindi l'ultima tab non si allunga per un
+ * istante quando il bottone appare. È la stessa promessa del binario di riga —
+ * il comando compare, il layout no.
+ *
+ * L'ambito è `.pane-chrome-bar`, cioè la riga intera: il bottone sta nel suo
+ * angolo, e pretendere il mouse ESATTAMENTE lì per farlo comparire vorrebbe
+ * dire non farlo trovare. Entrando nella barra si accende prima che tu ci
+ * arrivi. */
+@media (hover: hover) {
+  .bar-action-reveal {
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+  .pane-chrome-bar:hover .bar-action-reveal,
+  .pane-chrome-bar:focus-within .bar-action-reveal {
+    opacity: 1;
+  }
+  /* Un menu APERTO non si spegne se il mouse esce dalla barra: il pannello vive
+   * in un portale fuori dalla barra, quindi muovendosi verso le sue voci si
+   * uscirebbe dall'ambito dell'hover e il trigger sparirebbe sotto il cursore. */
+  .bar-action-reveal:has([aria-expanded='true']) { opacity: 1; }
+}
+/* SOLO L'OPACITÀ, MAI `pointer-events`. È la differenza con `.row-actions`, e la
+ * ragione è diversa fra i due:
+ *
+ *  · nel binario di riga il comando è SOPRA i segnali quieti, quindi da spento
+ *    deve lasciarli cliccabili — un box da 36 trasparente sopra il badge se ne
+ *    mangerebbe i clic senza che si veda perché;
+ *  · qui sotto non c'è niente: lo spazio è riservato apposta
+ *    (`CHROME_ROW_ACTION_RESERVE`) e nessuna tab ci arriva. Spegnere anche i
+ *    clic aggiungerebbe solo un modo di mancare il bersaglio — il cursore che
+ *    arriva da fuori finestra, o un salto di trackpad, atterra sul bottone nello
+ *    stesso istante in cui l'hover lo accende, e il mousedown cadrebbe sul
+ *    nulla. Misurato al primo giro: due click di test andati a timeout.
+ *
+ * Un bottone invisibile ma cliccabile in un angolo non è una trappola qui:
+ * entrare nella barra lo accende PRIMA che tu possa raggiungerlo. */
+
 .row-actions { display: flex; align-items: center; justify-content: center; }
 @media (hover: hover) {
   .row-actions {
