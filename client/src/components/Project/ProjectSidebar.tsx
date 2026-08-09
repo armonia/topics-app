@@ -5,6 +5,7 @@ import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOp
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { capSezione } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -95,6 +96,7 @@ const MIN_USEFUL_H: Record<'git' | 'processes', number> = { git: 160, processes:
  *  lì il contenuto non c'è per scelta, e il divisore può salire fino alla card. */
 const MIN_FILES_CONTENT = 24;
 const DEFAULT_HEIGHTS: Record<'git' | 'processes', number> = { git: 200, processes: 150 };
+
 
 /**
  * LA CARD DEL PROGETTO — una sola, per tutti e due gli stati della colonna.
@@ -268,7 +270,10 @@ export function ProjectSidebar({
   // scambiavano apertura e altezze, e ciò che avevi stretto su uno arrivava
   // stretto sull'altro senza averlo mai toccato lì.
   const SECTIONS_KEY = `sidebar-sections:${projectPath}`;
-  const HEIGHTS_KEY = `project-sidebar-bottom-heights:${projectPath}`;
+  // `:auto` e non la chiave vecchia: là dentro ci sono NUMERI nati dal default,
+  // non da una scelta dell'utente. Onorarli terrebbe tutti sull'altezza fissa
+  // per sempre, cioè esattamente ciò che stiamo togliendo.
+  const HEIGHTS_KEY = `project-sidebar-bottom-heights:auto:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
       const saved = sessionStorage.getItem(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
@@ -313,7 +318,14 @@ export function ProjectSidebar({
       // chevron ruotava e non compariva niente). Se l'altezza salvata non
       // lascia spazio, si riapre alla misura di partenza.
       if (opening && (section === 'git' || section === 'processes')) {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => {
+          // `null` = altezza automatica: è già utile per costruzione, non c'è
+          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
+          // FISSA trascinata così stretta da non contenere più niente.
+          const a = h[section];
+          if (a === null || a >= MIN_USEFUL_H[section]) return h;
+          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
+        });
       }
       return { ...prev, [section]: opening };
     });
@@ -336,14 +348,24 @@ export function ProjectSidebar({
     try { sessionStorage.setItem(WIDTH_KEY, String(sidebarWidth)); } catch {}
   }, [WIDTH_KEY, sidebarWidth]);
 
-  // ── Bottom sections (Git, Processes) — anchored at bottom with pixel heights ──
-  // Files fills remaining space (flex-1). Git/Processes pinned at bottom.
-  const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number>>(() => {
+  // ── Bottom sections (Git, Processes) — ancorate in fondo, altezza AUTOMATICA ──
+  //
+  // `null` vuol dire «la decide il contenuto» (col tetto di `capSezione`), un
+  // numero vuol dire «l'ho decisa io trascinando». È la distinzione che prima
+  // non c'era: l'altezza era SEMPRE un numero, quindi non si poteva sapere se
+  // veniva da una scelta dell'utente o dal valore con cui era nata, e l'unica
+  // risposta possibile era tenerla ferma per sempre.
+  //
+  // Il trascinamento resta, ed è una DEROGA esplicita: chi tira il divisore sta
+  // dicendo «questa la voglio così», e da lì in poi la sezione non si adatta
+  // più. Doppio clic sul divisore torna all'automatico — stessa convenzione del
+  // divisore della larghezza, che col doppio clic torna al default.
+  const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number | null>>(() => {
     try {
       const saved = sessionStorage.getItem(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { ...DEFAULT_HEIGHTS };
+    return { git: null, processes: null };
   });
 
   useEffect(() => {
@@ -373,6 +395,10 @@ export function ProjectSidebar({
   // il trascinamento. Da una costante non si potrebbe — la sua intestazione è
   // una card e cambia altezza col breakpoint.
   const filesBoxRef = useRef<HTMLDivElement>(null);
+  /** Le scatole di Git e Processi, per misurarne l'altezza VERA quando è
+   *  automatica (vedi `startBottomResize`). Un oggetto e non due ref separate:
+   *  chi trascina le indicizza per nome. */
+  const sezioniRef = useRef<Record<'git' | 'processes', HTMLDivElement | null>>({ git: null, processes: null });
   const filesHeaderRef = useRef<HTMLDivElement>(null);
 
   // Full-viewport drag chrome (same protocol as useGridResize): keeps the
@@ -427,9 +453,22 @@ export function ProjectSidebar({
       // una tocca il suo minimo l'altra continua a crescere, la coppia sfonda
       // la colonna e il tetto — cioè il fondo di Files — se ne va per i fatti
       // suoi. Misurato: tirando a fondo corsa la coppia passava da 350 a 696.
-      const giu = r.startBelow - minDi(r.below);              // quanto si può scendere
+      // I MINIMI SONO PAVIMENTI PER CHI SI STRINGE, MAI OBIETTIVI PER CHI CRESCE.
+      //
+      // Da quando l'altezza è automatica una sezione può stare SOTTO il suo
+      // `MIN_USEFUL_H` in modo del tutto legittimo: il minimo nasce per impedire
+      // che la si TRASCINI fino a non mostrare più niente, non per pretendere
+      // che una sezione con poco contenuto si gonfi. Senza il taglio a zero,
+      // `minDi(above) - startAbove` diventava POSITIVO — «il vicino deve
+      // crescere di 42 per arrivare al suo minimo» — e vinceva su un delta
+      // negativo: il divisore SCENDEVA di 42 mentre lo tiravi su. Misurato,
+      // RESIZE-1: 631,75 → 674.
+      //
+      // Con i due `Math`, chi è già sotto il proprio minimo semplicemente non ha
+      // più niente da cedere (margine zero) e il gesto resta nel verso giusto.
+      const giu = Math.max(0, r.startBelow - minDi(r.below)); // quanto si può scendere
       const su = r.above !== undefined
-        ? minDi(r.above) - r.startAbove!                      // fin dove cede il vicino
+        ? Math.min(0, minDi(r.above) - r.startAbove!)         // fin dove cede il vicino
         : -r.slack;                                           // fin dove cede Files
       const d = su > giu ? 0 : Math.min(giu, Math.max(su, delta));
       // Alzare il divisore (d < 0) fa crescere ciò che gli sta SOTTO.
@@ -477,6 +516,22 @@ export function ProjectSidebar({
    * `above` è il vicino di sopra quando ne ha uno con un'altezza sua; senza,
    * il vicino è Files e il fermo lo dà `slack`.
    */
+  /**
+   * Doppio clic su un divisore: le sezioni che governa tornano AUTOMATICHE.
+   *
+   * È il gemello di `resetWidth` sul bordo destro della colonna, e serve perché
+   * il trascinamento è una deroga senza scadenza: una volta tirato, quel
+   * pannello non si adatta più al contenuto e non c'era modo di dirgli
+   * «ricomincia ad adattarti» — se non ricaricando la finestra.
+   */
+  const resetBottomAuto = useCallback((...sezioni: ('git' | 'processes')[]) => () => {
+    setBottomHeights(h => {
+      const next = { ...h };
+      for (const s of sezioni) next[s] = null;
+      return next;
+    });
+  }, []);
+
   const startBottomResize = useCallback((below: 'git' | 'processes', above?: 'git' | 'processes') => (e: React.MouseEvent) => {
     e.preventDefault();
     // Quanto Files può ancora cedere: la sua scatola meno ciò che deve restare
@@ -486,12 +541,39 @@ export function ProjectSidebar({
     const box = filesBoxRef.current?.offsetHeight ?? 0;
     const testa = filesHeaderRef.current?.offsetHeight ?? 0;
     const pavimento = testa + (expandedSections.files ? MIN_FILES_CONTENT : 0);
+    // L'ALTEZZA DI PARTENZA SI MISURA, non si legge dallo stato: da automatica lo
+    // stato dice `null` — è il contenuto a decidere — e un trascinamento che
+    // partisse da lì salterebbe di colpo al primo numero. Si legge il pixel che
+    // c'è adesso sullo schermo, che è anche quello che l'utente sta afferrando.
+    const altezzaVera = (sez: 'git' | 'processes') =>
+      bottomHeights[sez] ?? sezioniRef.current[sez]?.offsetHeight ?? DEFAULT_HEIGHTS[sez];
+    const partenzaSotto = altezzaVera(below);
+    const partenzaSopra = above ? altezzaVera(above) : undefined;
+    // E SI FISSANO SUBITO, prima che il gesto cominci.
+    //
+    // Il primo taglio le misurava e basta, lasciando lo stato su `null` finché
+    // il primo movimento non scriveva un numero. In mezzo c'era un fotogramma in
+    // cui `startBelow` era l'altezza MISURATA mentre l'elemento si disegnava
+    // ancora in automatico: due verità per la stessa scatola, e la sottrazione
+    // del delta partiva da quella sbagliata. Misurato: il divisore SCENDEVA di
+    // 42px mentre lo tiravi su (RESIZE-1).
+    //
+    // Materializzando qui, dal primo fotogramma il rendering e l'aritmetica
+    // guardano lo stesso numero — ed è anche il momento giusto perché è
+    // esattamente quando l'utente prende il divisore che smette di volere
+    // l'automatico.
+    setBottomHeights(h => {
+      const next = { ...h };
+      if (h[below] === null) next[below] = partenzaSotto;
+      if (above && h[above] === null) next[above] = partenzaSopra!;
+      return next;
+    });
     dragRef.current = {
       below,
       above,
       startY: e.clientY,
-      startBelow: bottomHeights[below],
-      startAbove: above ? bottomHeights[above] : undefined,
+      startBelow: partenzaSotto,
+      startAbove: partenzaSopra,
       slack: Math.max(0, box - pavimento),
     };
     document.body.style.cursor = 'row-resize';
@@ -504,7 +586,14 @@ export function ProjectSidebar({
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.
       if (section === 'git' || section === 'processes') {
-        setBottomHeights(h => (h[section] >= MIN_USEFUL_H[section] ? h : { ...h, [section]: DEFAULT_HEIGHTS[section] }));
+        setBottomHeights(h => {
+          // `null` = altezza automatica: è già utile per costruzione, non c'è
+          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
+          // FISSA trascinata così stretta da non contenere più niente.
+          const a = h[section];
+          if (a === null || a >= MIN_USEFUL_H[section]) return h;
+          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
+        });
       }
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
@@ -706,8 +795,22 @@ export function ProjectSidebar({
               )}
             </div>
             <div
+              ref={el => { sezioniRef.current.git = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
-              style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+              style={expandedSections.git
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.git === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.git, maxHeight: capSezione() }
+                  : { height: bottomHeights.git })
+              : undefined}
             >
               <Suspense fallback={
                 <div onClick={() => toggleSection('git')} className={SECTION_CARD}>
@@ -722,8 +825,22 @@ export function ProjectSidebar({
               </Suspense>
             </div>
             <div
+              ref={el => { sezioniRef.current.processes = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
-              style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+              style={expandedSections.processes
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.processes === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.processes, maxHeight: capSezione() }
+                  : { height: bottomHeights.processes })
+              : undefined}
             >
               <button
                 onClick={() => toggleSection('processes')}
@@ -900,6 +1017,9 @@ export function ProjectSidebar({
               data-resize-active={active ? 'true' : 'false'}
               className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
+              // Doppio clic: la sezione torna ad adattarsi al contenuto.
+              onDoubleClick={active ? resetBottomAuto(firstBottom!) : undefined}
+              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
@@ -908,8 +1028,22 @@ export function ProjectSidebar({
 
         {/* Git Section — anchored at bottom, fixed pixel height */}
         <div
+          ref={el => { sezioniRef.current.git = el; }}
           className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
-          style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+          style={expandedSections.git
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.git === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.git, maxHeight: capSezione() }
+                  : { height: bottomHeights.git })
+              : undefined}
         >
           <Suspense fallback={
             <div
@@ -968,6 +1102,8 @@ export function ProjectSidebar({
               // SOTTO il divisore ci sono i Processi: sono loro a crescere
               // quando lo si alza. Qui c'era `('git','processes')`.
               onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
+              onDoubleClick={active ? resetBottomAuto('processes', 'git') : undefined}
+              title={active ? 'Trascina per ridimensionare · doppio clic per adattare al contenuto' : undefined}
             >
               {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
             </div>
@@ -976,8 +1112,22 @@ export function ProjectSidebar({
 
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
+          ref={el => { sezioniRef.current.processes = el; }}
           className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
-          style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+          style={expandedSections.processes
+              // Automatica: l'altezza la dà il contenuto, con il tetto di
+              // `capSezione`. Trascinata: il numero vince, ed è una deroga
+              // esplicita — chi ha tirato il divisore ha detto «così».
+              ? (bottomHeights.processes === null
+                  // Fra il MINIMO UTILE e il tetto: «si adatta al contenuto»
+                  // non vuol dire «può diventare una fessura». Il pavimento
+                  // è quello che già esisteva per il trascinamento
+                  // (`MIN_USEFUL_H`), ed è per sezione perché il chrome delle
+                  // due è diverso: sotto quella misura il pannello non
+                  // conterrebbe nemmeno se stesso.
+                  ? { minHeight: MIN_USEFUL_H.processes, maxHeight: capSezione() }
+                  : { height: bottomHeights.processes })
+              : undefined}
         >
           <button
             onClick={() => toggleSection('processes')}

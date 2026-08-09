@@ -80,6 +80,18 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     writeFileSync(`${PROJ}/README.md`, "uno\n");
     initGitRepo(PROJ, "primo");
     writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
+    // ABBASTANZA MODIFICHE DA AVERE SLACK, e la premessa e' cambiata sotto
+    // questi test il 10/08: le sezioni aperte non partono piu' da un'altezza
+    // FISSA (Git 200, Processi 150) ma dal loro CONTENUTO, fra il minimo utile
+    // e 1/N della colonna. Con un solo file modificato Git nasce ESATTAMENTE al
+    // suo minimo (160) e quindi non ha un pixel da cedere: il divisore Git↔
+    // Processi diventa inerte, ed e' il comportamento giusto — non si stringe
+    // sotto la misura in cui un pannello smette di contenere se stesso.
+    //
+    // Questi test misurano il VERSO del trascinamento e la conservazione della
+    // coppia, non l'altezza di partenza: perche' restino veri serve uno stato in
+    // cui c'e' qualcosa da spostare. Dieci file modificati lo danno.
+    for (let i = 0; i < 10; i++) writeFileSync(`${PROJ}/f${i}.txt`, `riga ${i}\n`);
   });
   test.afterAll(() => {
     rmSync(PROJ, { recursive: true, force: true });
@@ -120,6 +132,19 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
 
     const divisore = win.getByTestId("project-sidebar-split-git-processes");
     await expect(divisore).toHaveAttribute("data-resize-active", "true", { timeout: 5000 });
+
+    // IL CONTENUTO DEVE ESSERE ARRIVATO PRIMA DI MISURARE, ed e' una premessa
+    // nata il 10/08: da quando l'altezza di una sezione aperta la decide il suo
+    // CONTENUTO, misurare mentre `git:status` e' ancora in volo vuol dire
+    // leggere un'altezza che sta per cambiare da sola — e il trascinamento
+    // parte da un numero che un istante dopo non e' piu' vero. Si aspettano le
+    // righe dei file, poi che il rettangolo si fermi.
+    await expect(win.locator("[data-git-file]").first()).toBeVisible({ timeout: 15000 });
+    const boxGitPerFermarsi = win.getByTestId("project-sidebar-git").locator("xpath=..");
+    await expect
+      .poll(async () => Math.round((await boxGitPerFermarsi.boundingBox())?.height ?? 0), { timeout: 10000 })
+      .toBeGreaterThan(MIN.git);
+    await page.waitForTimeout(250);
 
     return {
       win,
