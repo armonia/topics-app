@@ -30,8 +30,7 @@
  * happen via stable callbacks or pure helpers.
  */
 
-import { findEmptyDraftPane, forgetDraft, isDraftPaneEmpty, draftTextKey } from '../state/draftPane';
-import { announceDraftGone, noteDraftRemoval, whoRemovedDraft } from '../state/draftWitness';
+import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
 import {
   useCallback,
   useEffect,
@@ -332,19 +331,15 @@ export interface UsePanelLifecycleReturn {
  *  no pane title can contain, so the encode/decode round-trip is total. */
 const PRESENCE_TAB_SEP = '\u0001';
 
-// SPENTA (09/08). «Ancora si chiude da sola la tab», due volte, e le mie due
-// difese — chiusura differita e soglia di «l'hai guardata» — non l'hanno
-// fermata. Non l'ho riprodotta: né dal «+» della barra con due tab aperte, né
-// dopo un click singolo (anteprima), né sul percorso segnalato per intero, e
-// il registro dei tre punti che possono chiudere una pane dice che nessuno di
-// loro tocca la bozza in quei percorsi. Continuare a indurire una regola che
-// non so far scattare vuol dire indovinare a spese di chi la usa: finché non
-// ho il percorso esatto, la tab RESTA. Una tab che sparisce è peggio di una
-// che avanza — la seconda si chiude con una X, la prima si porta via un gesto
-// che avevi appena fatto.
-// Il resto della regola è vivo e non è in discussione: una bozza vuota sola
-// (il «+» riporta il fuoco su quella), e il fuoco nel campo appena nasce.
-const DRAFT_AUTOCLOSE = false;
+// Una bozza che non hai mai TOCCATO — nessun doppio clic sulla tab, nessun clic
+// dentro, nessun tasto — non l'hai scelta: l'hai aperta e basta. È un'anteprima,
+// e si richiude da sola quando passi ad altro. Dal momento in cui la tocchi
+// diventa tua e non se ne va più, come non se ne va una con del testo dentro.
+//
+// Questa è la regola CHIESTA, ed è più giusta di quella che avevo scritto io:
+// «hai smesso di guardarla» chiudeva anche le tab che stavi usando, e per due
+// giri ho dato la colpa a lei di una sparizione che era di un altro strato (le
+// pane filtrate per spazio). Il predicato ora è l'interazione, non lo sguardo.
 const DRAFT_CLOSE_DELAY_MS = 400;
 const DRAFT_MIN_LOOKED_AT_MS = 500;
 
@@ -513,9 +508,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       storeSyncInternalRef.current = true;
       setOpenPanels(prev => {
         if (prev.length === storeOrder.length && prev.every((id, i) => id === storeOrder[i])) return prev;
-        if (prev.some((id) => isDraftPaneId(id) && !storeOrder.includes(id))) {
-          noteDraftRemoval('sincronizzazione-archivio');
-        }
         return storeOrder;
       });
       setFocusedPanelId(prev => {
@@ -716,9 +708,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       const changed = validPanels.length !== openPanels.length || validPanels.some((v, i) => v !== openPanels[i]);
       if (changed) {
-        if (openPanels.some((id) => isDraftPaneId(id) && !validPanels.includes(id))) {
-          noteDraftRemoval('validazione-pane');
-        }
         prevOpenPanelsForValidation.current = validPanels;
         setOpenPanels(validPanels);
         // Register the project pane ENTITIES before Effect B dispatches
@@ -762,9 +751,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   useEffect(() => {
     setOpenPanels(prev => {
       const filtered = pruneStaleTerminalPanes(prev);
-      if (prev.some((id) => isDraftPaneId(id) && !filtered.includes(id))) {
-        noteDraftRemoval('potatura-terminali');
-      }
       return filtered === prev ? prev : filtered;
     });
   }, [terminalSessions, pruneStaleTerminalPanes]);
@@ -1615,7 +1601,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // stays stable while .current always holds the latest closure; only invoked from
   // event handlers / undo, never read during render.
   handleClosePanelRef.current = (topicId: string, opts?: { silent?: boolean }) => {
-    if (isDraftPaneId(topicId)) noteDraftRemoval(opts?.silent ? 'congedo-bozza-vuota' : 'chiusura-manuale');
     // Dedup rapid double-invokes: a fast double-click on a tab's close button
     // fires two discrete click events, and React flushes the first close between
     // them. openPanelsRef is a render-time mirror, so by the second call topicId
@@ -2099,7 +2084,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       pendingDraftCloseRef.current = null;
     }
 
-    if (!DRAFT_AUTOCLOSE) return;
     if (!prev || prev === focusedPanelId) return;
     if (!isDraftPaneId(prev)) return;
     if (pendingDraftCloseRef.current?.id === prev) return;
@@ -2113,7 +2097,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // (l'id cambia sotto), chiusa a mano, o aver ricevuto del testo.
       if (focusedPanelIdRef.current === prev) return;
       if (!openPanelsRef.current.includes(prev)) return;
-      if (!isDraftPaneEmpty(prev)) return;
+      if (!isDraftDisposable(prev)) return;
       draftFocusedAtRef.current.delete(prev);
       forgetDraft(prev);
       // `silent`: la chiusura non l'hai chiesta tu, quindi non deve finire nella
@@ -2128,41 +2112,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (pendingDraftCloseRef.current) clearTimeout(pendingDraftCloseRef.current.timer);
   }, []);
 
-  // ── Il testimone (diagnostica, a tempo) ────────────────────────────────
-  // Una bozza sparita dall'elenco fa dire all'app CHI l'ha tolta, invece di
-  // farmelo indovinare una quarta volta. Si toglie appena il percorso ha un
-  // nome. Vedi `state/draftWitness.ts`.
-  const prevOpenForWitnessRef = useRef<string[]>(openPanels);
-  useEffect(() => {
-    const before = prevOpenForWitnessRef.current;
-    prevOpenForWitnessRef.current = openPanels;
-    const gone = before.filter((id) => isDraftPaneId(id) && !openPanels.includes(id));
-    if (gone.length === 0) return;
-    const reason = whoRemovedDraft();
-    // La promozione NON è una sparizione: la bozza è diventata una chat vera e
-    // l'id è cambiato sotto. Dirlo sarebbe rumore su un percorso sano.
-    if (reason === 'promozione-a-topic') return;
-    announceDraftGone('elenco pane', reason, gone);
-  }, [openPanels]);
-
-  // …e lo strato che il primo testimone non vedeva: una bozza può restare
-  // nell'elenco delle pane e sparire lo stesso dalla vista, filtrata via
-  // perché il suo SPAZIO non è quello attivo. Da fuori è identico a una
-  // chiusura — la tab non c'è più — ma nessuno l'ha chiusa, e infatti nessuno
-  // firmava. È anche la spiegazione dell'altro sintomo: il «+» cerca la bozza
-  // vuota fra le pane VISIBILI, non la trova, e ne apre giustamente un'altra.
-  const prevVisibleForWitnessRef = useRef<string[]>(visiblePanels);
-  useEffect(() => {
-    const before = prevVisibleForWitnessRef.current;
-    prevVisibleForWitnessRef.current = visiblePanels;
-    const gone = before.filter(
-      (id) => isDraftPaneId(id) && !visiblePanels.includes(id) && openPanels.includes(id),
-    );
-    if (gone.length === 0) return;
-    const s = usePaneStore.getState();
-    const dove = gone.map((id) => resolvePaneSpace(s.panes[id], s.spaces)).join(',');
-    announceDraftGone('vista', `filtro-spazio (bozza in «${dove}», attivo «${s.activeSpaceId}»)`, gone);
-  }, [visiblePanels, openPanels]);
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: SendMessageOptions) => {
     const meta = draftMeta[draftId] || {};
@@ -2197,7 +2146,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         return;
       }
     }
-    noteDraftRemoval('promozione-a-topic');
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
     // Split-layout remap: PanelGrid keys its solo split cells (and their grid
     // slots) by pane id. Announce the promotion so a draft living in a split

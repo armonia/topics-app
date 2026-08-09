@@ -13,7 +13,6 @@
  * Effect declaration order is significant — see PLAN §"Effect ordering".
  */
 
-import { announceDraftGone } from '../../../state/draftWitness';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   isBrowserPaneId,
@@ -216,23 +215,6 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     }
   }, [validatedOrderedIds, orderedIds]);
 
-  // Testimone (diagnostica, a tempo): questo è l'elenco che DISEGNA le tab, ed
-  // è l'ultimo posto dove una bozza può sparire senza che nessuno l'abbia
-  // chiusa — basta che esca da `topicIds` un istante, o che il riordino la
-  // poti. Vedi `state/draftWitness.ts`; si toglie appena il percorso ha un nome.
-  const prevValidatedForWitnessRef = useRef<string[]>(validatedOrderedIds);
-  useEffect(() => {
-    const before = prevValidatedForWitnessRef.current;
-    prevValidatedForWitnessRef.current = validatedOrderedIds;
-    const gone = before.filter((id) => isDraftPaneId(id) && !validatedOrderedIds.includes(id));
-    if (gone.length === 0) return;
-    const inParent = gone.filter((id) => topicIds.includes(id));
-    announceDraftGone(
-      'barra tab',
-      inParent.length > 0 ? 'potata dal riordino (era ancora fra le pane)' : 'sparita anche dalle pane',
-      gone,
-    );
-  }, [validatedOrderedIds, topicIds]);
 
   // 5. effectivePinnedIds with contents-equality cache (ISSUE 23 / B7).
   const prevEffectivePinnedRef = useRef<Set<string>>(new Set());
