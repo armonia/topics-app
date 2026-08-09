@@ -180,6 +180,31 @@ test.describe("sidebar progetto: la rail collassata", () => {
       "con una modifica non committata la striscia mostra 1",
     ).toHaveText("1", { timeout: 15000 });
 
+    // 6-bis. E LA PASTIGLIA STA TUTTA DENTRO LA RIGA.
+    //
+    //    Stava a `-top-1`, cioè un pixel sopra il bottone: dentro una riga da 40
+    //    col bottone centrato ci stava, dentro la riga subordinata da 34 col
+    //    contenuto a filo in cima cadeva a y=39 contro una scatola che comincia
+    //    a 40 — e l'`overflow-hidden` della barra la tagliava a metà. «I
+    //    contatori vengono tagliati dalla top bar» (Attilio, 09/08).
+    //
+    //    Si misura il CONTENIMENTO, non la posizione: sopra o sotto è una scelta
+    //    che può cambiare, «dentro la riga» no.
+    const pastiglia = await gitBtn.locator("span").first().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const barra = el.closest(".pane-chrome-bar")!.getBoundingClientRect();
+      return {
+        sopra: Math.round((r.top - barra.top) * 10) / 10,
+        sotto: Math.round((barra.bottom - r.bottom) * 10) / 10,
+        anello: getComputedStyle(el).boxShadow,
+      };
+    });
+    expect(pastiglia.sopra, "la pastiglia non sborda in cima").toBeGreaterThanOrEqual(0);
+    expect(pastiglia.sotto, "e non sborda in fondo").toBeGreaterThanOrEqual(0);
+    // Niente anello: era un cerchio chiaro che serviva a staccarla dal tratto
+    // dell'icona quando le stava sopra. Sull'angolo basso non attraversa niente.
+    expect(pastiglia.anello, "la pastiglia non porta un anello attorno").toBe("none");
+
     // I numeri a referto: se questo test diventa rosso, dice di quanto.
     const stripBox = (await strip.boundingBox())!;
     console.log(
@@ -206,16 +231,28 @@ test.describe("sidebar progetto: la rail collassata", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    // «File» chiusa deve leggersi come una riga, non come un titolo sospeso
-    // sul vuoto. Il suo contenitore resta flex-1 anche da chiusa (spinge Git e
-    // Processi in fondo), quindi il divisore da 1px finisce in fondo alla
-    // colonna: senza un bordo proprio, sotto la riga non c'e nessuna linea.
-    const filesRow = win.locator("div").filter({ hasText: /^File$/ }).last();
+    // «File» chiusa deve leggersi come una riga, non come un titolo sospeso sul
+    // vuoto. Ci arrivava con un `border-b` che compariva solo da chiusa; ora ci
+    // arriva perche' E' UNA CARD — fondo suo, angoli, rientro — in tutti e due
+    // gli stati. «Gli accordion della sidebar progetto diventano delle card,
+    // come le tab» (Attilio, 09/08), e fra card impilate una linea ripete cio'
+    // che fondo e distanza dicono gia'.
+    const filesRow = win.locator('[data-testid="project-sidebar-files"]');
     await expect(filesRow).toBeVisible({ timeout: 10000 });
     await filesRow.click();
-    await expect
-      .poll(async () => filesRow.evaluate(el => parseFloat(getComputedStyle(el).borderBottomWidth) || 0), { timeout: 5000 })
-      .toBeGreaterThan(0);
+    const card = await filesRow.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        fondo: cs.backgroundColor,
+        raggio: cs.borderRadius,
+        rientro: parseFloat(cs.marginLeft),
+        bordoSotto: parseFloat(cs.borderBottomWidth) || 0,
+      };
+    });
+    expect(card.fondo, "da chiusa la riga ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    expect(card.raggio, "ed e' arrotondata come una tab").not.toBe("0px");
+    expect(card.rientro, "ed e' rientrata dai lati come ogni altra card").toBeGreaterThan(0);
+    expect(card.bordoSotto, "e NON ha piu' una linea sotto").toBe(0);
 
     // Aprire «Processi» deve mostrare qualcosa. L'altezza e in pixel e viene
     // salvata: strizzata all'altezza dell'intestazione, la sezione si apriva su
@@ -304,12 +341,16 @@ test.describe("sidebar progetto: la rail collassata", () => {
     const dati = await win.evaluate(el => {
       const bar = el.querySelector('[data-testid="project-sidebar"]')!;
       const grip = el.querySelector('[data-testid="project-sidebar-resizer"]')!;
-      // Un divisore vero della barra: 1px, con il suo `bg-app-border`.
-      const linea = el.querySelector('.h-\\[1px\\].bg-app-border');
       return {
         grip: getComputedStyle(grip).backgroundColor,
-        bordoBarra: getComputedStyle(bar).borderRightColor,
-        linea: linea ? getComputedStyle(linea).backgroundColor : null,
+        // Il colore di un capello QUI, letto dal token invece che dal bordo
+        // della colonna. Era `getComputedStyle(bar).borderRightColor`, e quel
+        // bordo non esiste piu' — «lo vogliamo togliere proprio il bordo»
+        // (Attilio, 09/08). La lettura pero' non falliva: senza `border-r`,
+        // `borderRightColor` ricade su `currentColor`, cioe' sul colore del
+        // TESTO, e l'asserzione qui sotto e' andata rossa parlando di colori
+        // invece che di un elemento sparito. Il token e' la sorgente vera.
+        capello: getComputedStyle(bar).getPropertyValue("--border").trim(),
         dentroCard: !!grip.closest("[data-split-card]"),
       };
     });
@@ -319,9 +360,9 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // usciva una cucitura spessa dove ovunque c'e un capello.
     expect(dati.dentroCard, "la maniglia sta dentro una card, dove la regola arriva").toBe(true);
     expect(dati.grip, "la maniglia non si dipinge nemmeno da fluttuante").toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
-    // E la regola deve continuare a fare il suo mestiere: restituire la linea a
-    // chi ce l'aveva. Cancellarla avrebbe passato l'asserzione qui sopra e
-    // spento i divisori del progetto.
-    expect(dati.linea, "il divisore da 1px tiene il colore di un bordo qualsiasi").toBe(dati.bordoBarra);
+    // E la regola deve continuare a fare il suo mestiere: NON spegnere il colore
+    // dei capelli dentro la colonna. Cancellarla avrebbe passato l'asserzione
+    // qui sopra e portato via con se' anche i bordi veri.
+    expect(dati.capello, "dentro la colonna `--border` resta un colore vero").toMatch(/hsl|rgb|#/);
   });
 });
