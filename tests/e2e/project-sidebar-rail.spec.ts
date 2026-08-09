@@ -109,6 +109,8 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // 4. E STESSA MISURA di una tab: in fila con loro, un comando più alto o
     //    più basso respira diverso dalla sua vicina — è il difetto tolto dal
     //    «+» il 09/08, che qui rientrerebbe dalla porta di servizio.
+    const riga = win.getByTestId("project-rail-row");
+    await expect(riga, "i tre comandi stanno in una riga SOTTO il titolo").toBeVisible({ timeout: 10000 });
     const boxes = await strip.locator("button").evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().height)),
     );
@@ -171,7 +173,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // 6. La pastiglia git porta il numero delle modifiche.
     //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:
     //    al primo montaggio l'etichetta e ancora quella senza ramo.
-    const gitBtn = strip.getByRole("button", { name: /Modifiche git/ });
+    const gitBtn = riga.getByRole("button", { name: /Modifiche git/ });
     await expect
       .poll(async () => (await gitBtn.getAttribute("aria-label")) ?? "", { timeout: 15000 })
       .toMatch(/Modifiche git · .+/);
@@ -192,7 +194,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     //    che può cambiare, «dentro la riga» no.
     const pastiglia = await gitBtn.locator("span").first().evaluate((el) => {
       const r = el.getBoundingClientRect();
-      const barra = el.closest(".pane-chrome-bar")!.getBoundingClientRect();
+      const barra = el.closest('[data-testid="project-rail-row"]')!.getBoundingClientRect();
       return {
         sopra: Math.round((r.top - barra.top) * 10) / 10,
         sotto: Math.round((barra.bottom - r.bottom) * 10) / 10,
