@@ -91,6 +91,9 @@ export interface RelayDeps {
    * dedicato esiste per impedire.
    */
   portaTunnel?: number | null;
+  /** L'ascoltatore del tunnel parla TLS? Eredita `opzioniServer`, quindi su
+   *  un'installazione con i certificati è HTTPS anche su loopback. */
+  tunnelTls?: boolean;
   /** Iniettabile per i test. */
   now?: () => number;
   apriSocket?: (url: string) => WebSocket;
@@ -212,6 +215,7 @@ const apriSocketLocaleVero: ApriSocketLocale = (url, o) => {
 export interface ProxyTuboDeps {
   /** `null` = non configurata: si rifiuta in modo dichiarato. */
   portaTunnel: number | null;
+  tunnelTls?: boolean;
   /** Dove finisce un frame già serializzato, per la sessione `sid`. */
   invia(sid: string, payload: string): void;
   fetchLocale?: typeof fetch;
@@ -429,7 +433,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       return;
     }
 
-    const url = risolviUrlLocale(deps.portaTunnel, t.p);
+    const url = risolviUrlLocale(deps.portaTunnel, t.p, deps.tunnelTls === true);
     // Un percorso che sceglie un'altra destinazione non è una richiesta storta:
     // è un tentativo di usare questa macchina come ponte verso il resto della
     // sua rete.
@@ -607,7 +611,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       rifiuta(503);
       return;
     }
-    const url = risolviUrlLocale(deps.portaTunnel, t.p);
+    const url = risolviUrlLocale(deps.portaTunnel, t.p, deps.tunnelTls === true);
     // Un percorso che sceglie un'altra destinazione non è un percorso storto:
     // è un tentativo di usare questa macchina come ponte verso il resto della
     // sua rete. Il cancello è lo stesso delle richieste, di proposito.
@@ -882,6 +886,7 @@ export function creaRelayClient(deps: RelayDeps) {
 
   const proxy = creaProxyTubo({
     portaTunnel: deps.portaTunnel ?? null,
+    tunnelTls: deps.tunnelTls === true,
     invia: (sid, payload) => {
       ws?.send(JSON.stringify({ t: "to-guest", to: sid, payload } satisfies MessaggioRelay));
     },

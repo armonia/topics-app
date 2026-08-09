@@ -3692,6 +3692,20 @@ const relay = creaRelayClient({
   // rigiocare sarebbe quella principale, dove ogni richiesta è LOCALE, cioè
   // proprietaria senza credenziali.
   portaTunnel: portaTunnel,
+  // L'ascoltatore del tunnel spande `opzioniServer`: se il server principale
+  // ha i certificati, anche quella porta parla TLS.
+  tunnelTls: useTls,
+  // Il certificato su loopback è AUTOFIRMATO, e `fetch` lo rifiuterebbe. Qui
+  // saltare la verifica non toglie niente: il capo dall'altra parte è questo
+  // stesso processo su `127.0.0.1`, il traffico non lascia il kernel, e ciò
+  // contro cui la verifica protegge — qualcuno in mezzo — su loopback non
+  // esiste. Sta cablato QUI, sul solo salto locale, invece che dentro il
+  // proxy: una deroga scritta accanto alla ragione non diventa un'abitudine
+  // che poi qualcuno ricopia dove conta.
+  ...(useTls ? {
+    fetchLocale: ((input: string | URL | Request, init?: RequestInit) =>
+      fetch(input as never, { ...init, tls: { rejectUnauthorized: false } } as never)) as typeof fetch,
+  } : {}),
   trovaLink: (ref) => {
     try {
       const r = ctx.db.query(

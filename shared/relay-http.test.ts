@@ -135,3 +135,30 @@ describe("testa · l'ospite non dichiara chi è, e non descrive un trasporto che
     expect(dentro).toEqual([["x-piccola", "v"]]);
   });
 });
+
+describe("url locale · lo schema segue l'ascoltatore", () => {
+  // Il difetto che questo presidia è costato il primo tentativo di
+  // raggiungibilità vera: lo schema era cablato a `http`, ma la porta del
+  // tunnel eredita `opzioniServer` e su un'installazione con i certificati
+  // parla TLS. Misurato in produzione: `http` connessione rifiutata, `https`
+  // 401. Il ponte rispondeva `upstream-unreachable` a ogni richiesta, e
+  // l'errore non nominava mai lo schema.
+  it("senza TLS resta http, con TLS diventa https", () => {
+    expect(risolviUrlLocale(3334, "/api/x")?.origin).toBe("http://127.0.0.1:3334");
+    expect(risolviUrlLocale(3334, "/api/x", true)?.origin).toBe("https://127.0.0.1:3334");
+  });
+
+  it("il percorso e la query sopravvivono al cambio di schema", () => {
+    const u = risolviUrlLocale(3334, "/api/topics?a=1&b=2", true);
+    expect(u?.pathname).toBe("/api/topics");
+    expect(u?.search).toBe("?a=1&b=2");
+  });
+
+  it("i rifiuti valgono anche in TLS: non è una porta di servizio", () => {
+    // Lo schema nuovo non deve allargare ciò che passa. Se un percorso storto
+    // fosse accettato solo perché TLS, avremmo aperto una seconda strada.
+    for (const cattivo of ["//altrove", "/a b", "/a\\b", "senza-barra"]) {
+      expect(`${cattivo}→${risolviUrlLocale(3334, cattivo, true)}`).toBe(`${cattivo}→null`);
+    }
+  });
+});
