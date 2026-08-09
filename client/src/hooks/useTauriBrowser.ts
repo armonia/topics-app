@@ -154,6 +154,49 @@ function releaseBrowserView(id: string): number {
   return Math.max(0, next);
 }
 
+/**
+ * SONDA (diagnostica, a tempo) — «il menu esce sotto il browser di un altro
+ * progetto e non si vede».
+ *
+ * Il meccanismo che tiene un overlay HTML sopra una webview nativa è il
+ * congelamento: la pane coperta si trasforma in un fermo-immagine e parcheggia
+ * la vista viva, così il menu ci si disegna sopra. Leggendo il codice, il lato
+ * overlay è a posto — il selettore prende `[role="menu"]`, l'osservatore guarda
+ * anche gli attributi (un menu che passa da nascosto a visibile è un cambio di
+ * stile, non di nodi), e i rettangoli sono in pixel CSS come lo slot.
+ *
+ * Restano due strade, e a occhio non si distinguono: la pane non sa DOVE sta
+ * (nessun rettangolo), oppure i due rettangoli non si incrociano davvero. Qui
+ * si stampano tutti e due i numeri, una volta ogni due secondi per pane, così
+ * la prossima segnalazione porta la risposta invece di un'altra ipotesi.
+ */
+const lastProbeAt = new Map<string, number>();
+function reportNoFreeze(
+  id: string,
+  slot: { x: number; y: number; width: number; height: number } | null,
+  rects: readonly { left: number; top: number; right: number; bottom: number }[],
+): void {
+  const now = Date.now();
+  if (now - (lastProbeAt.get(id) ?? 0) < 2000) return;
+  lastProbeAt.set(id, now);
+  const o = rects[0];
+  const msg = slot
+    ? `Browser non congelato · slot ${Math.round(slot.x)},${Math.round(slot.y)} ${Math.round(slot.width)}×${Math.round(slot.height)} · overlay ${Math.round(o.left)},${Math.round(o.top)}→${Math.round(o.right)},${Math.round(o.bottom)}`
+    : 'Browser non congelato · questa pane NON sa dove sta (nessun rettangolo)';
+  console.warn('[occlusione]', msg, id);
+  try {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.setAttribute('data-occlusion-probe', '');
+    el.style.cssText =
+      'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;' +
+      'background:#b45309;color:#fff;padding:8px 14px;border-radius:10px;font:500 12px system-ui;' +
+      'box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:92vw;text-align:center';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 12_000);
+  } catch { /* diagnostica: non deve poter rompere niente */ }
+}
+
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
   const [ready, setReady] = useState(false);
@@ -439,12 +482,20 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // global off-screen park, whose 30ms-debounce vs per-frame-poll race left a
   // visible 20-50ms vanish — and which hid every pane for any overlay anywhere.
   useEffect(() => {
-    return onOcclusionChange(() => {
+    return onOcclusionChange((rects) => {
       if (!openedRef.current) return;
       const slot = pendingRectRef.current;
-      if (slot && slotIsOccluded(slot)) freeze(); else thaw();
+      if (slot && slotIsOccluded(slot)) { freeze(); return; }
+      thaw();
+      // SONDA (diagnostica, a tempo). C'è un overlay aperto e questa pane NON si
+      // congela: o non sa dove sta (nessun rettangolo), o i due rettangoli non
+      // si incrociano. Sono le uniche due strade per cui un menu finisce sotto
+      // una webview nativa, e da qui non si distinguono senza i numeri.
+      // Si toglie appena il difetto ha un nome.
+      if (rects.length === 0) return;
+      reportNoFreeze(id, slot, rects);
     });
-  }, [freeze, thaw]);
+  }, [freeze, thaw, id]);
 
   // NOTE: deliberately NO freeze-on-sidebar-animation. Hiding the live pane behind
   // a still just to survive the slide would be a kludge (same family as blanking
