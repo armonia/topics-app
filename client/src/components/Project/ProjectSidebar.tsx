@@ -4,6 +4,9 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_LABEL } from '../../lib/selectionStyles';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
@@ -26,6 +29,28 @@ interface ProjectSidebarProps {
   onOpenFile?: (path: string) => void;
   onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenProcessLog?: (processId: string, scriptName: string) => void;
+  /**
+   * DOVE VA LA BARRA CHIUSA: dentro la riga delle tab, non accanto a essa.
+   *
+   * «Facciamo diventare la sidebar chiusa direttamente parte della tabbar
+   * progetto, in linea e non disposte verticalmente ma orizzontalmente, usando
+   * il design a card e riportando anche titolo progetto, così da togliere linea
+   * laterale inutile quando collassata» (Attilio, 09/08).
+   *
+   * Chiusa, questa colonna era una rail verticale da 40px col suo `border-r`:
+   * una seconda superficie accanto alla riga di chrome, con una tinta sua e un
+   * filo che scendeva per tutta l'altezza della finestra per contenere tre
+   * icone. Adesso i suoi comandi vivono NELLA barra, in fila con le tab e con la
+   * loro stessa grammatica — e la colonna, chiusa, non esiste proprio.
+   *
+   * Arriva come NODO e non come ref perché il nodo lo crea `ProjectWindow` una
+   * volta sola (`document.createElement`) e `GroupLayout` lo aggancia dentro la
+   * prima barra: esiste già al primo render, quindi il portale ha subito dove
+   * scrivere e non c'è il fotogramma in cui la rail vecchia lampeggia prima di
+   * sparire. Assente (`undefined`) = nessun ospite: si torna alla rail
+   * verticale, che resta l'unico modo di riaprire la colonna.
+   */
+  inlineSlot?: HTMLElement;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -68,6 +93,7 @@ function RailButton({
   badge = null,
   tone = 'primary',
   dot = false,
+  inline = false,
 }: {
   icon: LucideIcon;
   active: boolean;
@@ -76,12 +102,49 @@ function RailButton({
   badge?: number | null;
   tone?: 'primary' | 'success' | 'danger';
   dot?: boolean;
+  /**
+   * IN FILA CON LE TAB, e allora il box lo detta la riga.
+   *
+   * Nella rail verticale il bottone stava in una colonna da 40 e `w-7 h-7`
+   * andava bene su ogni schermo. Dentro la barra delle tab no: là la misura è
+   * quella della tab che gli sta accanto ({@link ROW_ACTION_BOX}, 36 col dito e
+   * 28 col mouse), o il comando respira diverso dalla sua vicina — è
+   * esattamente il difetto appena tolto dal «+» e dal tasto che riapre la
+   * colonna. L'anello della pastiglia segue: `ring-app-chrome` sulla rail,
+   * dove il fondo è il chrome opaco; nella barra il fondo è il vetro, e
+   * l'anello prende il colore della card.
+   */
+  inline?: boolean;
 }) {
   const toneClass = tone === 'danger'
     ? 'bg-red-500 text-white'
     : tone === 'success'
       ? 'bg-emerald-500 text-white'
       : 'bg-primary text-white';
+  const ring = inline ? 'ring-app-bg-elevated' : 'ring-app-chrome';
+  if (inline) {
+    return (
+      <button
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        aria-expanded={active}
+        className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
+          active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
+        }`}
+      >
+        <Icon size={16} />
+        {badge !== null && badge > 0 && (
+          <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ring-2 ${ring} ${toneClass}`}>
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+        {badge === null && dot && (
+          <span className={`absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ring-2 ${ring} ${toneClass}`} />
+        )}
+      </button>
+    );
+  }
   return (
     <button
       onClick={onClick}
@@ -123,6 +186,7 @@ export function ProjectSidebar({
   onOpenFile,
   onWSMessage,
   onOpenProcessLog,
+  inlineSlot,
 }: ProjectSidebarProps) {
   const tr = useT();
   // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
@@ -373,6 +437,100 @@ export function ProjectSidebar({
       : runningCount > 0
         ? `${tr('project.sidebar.processes')}\n${plural('project.sidebar.processesRunning', runningCount)}`
         : tr('project.sidebar.processes');
+    // I TRE COMANDI, una volta sola: la rail verticale e la striscia in linea
+    // sono due presentazioni della stessa cosa, e ricopiarle vorrebbe dire due
+    // liste che divergono al primo badge aggiunto.
+    const comandi = (inline: boolean) => (
+      <>
+        <RailButton
+          inline={inline}
+          icon={FolderTree}
+          active={expandedSections.files}
+          onClick={open('files')}
+          title={tr('project.sidebar.files')}
+        />
+        <RailButton
+          inline={inline}
+          icon={GitBranch}
+          active={expandedSections.git}
+          onClick={open('git')}
+          title={gitTitle}
+          // Il NOME DEL RAMO non entra e non ci va: nei tool seri il ramo vive
+          // nella status bar. Qui ci va il numero che VS Code mette sulla stessa
+          // icona — quante modifiche non committate — e il ramo sta nel
+          // tooltip, per intero.
+          badge={git && git.fileCount > 0 ? git.fileCount : null}
+          tone="primary"
+          // Nessuna modifica ma divergenza col remoto: un punto, non un secondo
+          // numero addosso al primo. Due pastiglie su un bottone da 28px
+          // diventano rumore e non si leggono più né l'una né l'altra.
+          dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
+        />
+        <RailButton
+          inline={inline}
+          icon={CirclePlay}
+          active={expandedSections.processes}
+          onClick={open('processes')}
+          title={procTitle}
+          // Il rosso è il motivo per cui questo badge esiste: un processo uscito
+          // male, oggi, non lo vedi da nessuna parte se la sidebar è chiusa.
+          // Vince sul verde perché è l'unico dei due che chiede di fare
+          // qualcosa.
+          badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
+          tone={failedCount > 0 ? 'danger' : 'success'}
+        />
+      </>
+    );
+
+    // SOLO col mouse. Sul telefono la riga di chrome è la stessa `h-10` ma la
+    // larghezza è 390: espandi + nome + tre comandi fanno ~330px, cioè la barra
+    // intera, e le tab non avrebbero più dove stare. Là la colonna chiusa resta
+    // la rail di sempre — il cassetto a tutto schermo è comunque la sua forma
+    // aperta, e la rail è un ripiego che occupa 40px e basta.
+    if (inlineSlot && !isMobile) {
+      return createPortal(
+        <div
+          data-testid="project-rail-inline"
+          // In fila con le tab e con la loro grammatica: `gap-0.5` come fra due
+          // tab, `pl-1.5` cioè ROW_INSET dal bordo della riga. NIENTE filo di
+          // separazione verso le tab — in questa colonna una linea fra card
+          // ripete ciò che fondo e distanza dicono già (è la regola di
+          // `selectionStyles`), ed era proprio la linea di troppo da togliere.
+          // NON `flex-shrink-0`: con molte tab aperte qualcosa deve cedere, e a
+          // cedere dev'essere il NOME (che tronca), non i comandi (che
+          // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
+          // pressione arriva tutta sulla card del titolo.
+          className="flex items-center gap-0.5 pl-1.5 min-w-0 app-no-drag"
+          {...NO_DRAG_REGION}
+        >
+          <SidebarToggleButton
+            onClick={onToggleCollapse}
+            size="action"
+            title={tr('project.sidebar.expand')}
+            icon={PanelLeftOpen}
+            className={`edge-lit ${RAISED_CONTROL} rounded-lg`}
+          />
+          {/* IL NOME DEL PROGETTO, che chiusa non si vedeva da nessuna parte.
+              È una CARD come una tab — stesso fondo a riposo, stesso corpo,
+              stesso incasso, stessa altezza — perché è la stessa famiglia di
+              cose: dice DOVE sei, come una tab dice COSA guardi. Cliccarla
+              riapre la colonna: il nome è l'intestazione di quella colonna, e
+              il gesto più ovvio su un titolo è aprire ciò che intitola. */}
+          <button
+            onClick={onToggleCollapse}
+            title={projectName}
+            data-testid="project-rail-inline-name"
+            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors cursor-pointer select-none min-w-0 max-w-[180px] flex-shrink`}
+          >
+            <ProjectFavicon path={projectPath} size={14} width={18} />
+            <span className="truncate">{projectName}</span>
+          </button>
+          {comandi(true)}
+        </div>,
+        inlineSlot,
+      );
+    }
+
     return (
       <div data-testid="project-sidebar-rail" className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-app-chrome flex flex-col overflow-hidden">
         {/* Header — stessa riga di chrome della tab bar delle pane (h-10 +
@@ -383,40 +541,7 @@ export function ProjectSidebar({
           <SidebarToggleButton onClick={onToggleCollapse} size="sm" title={tr('project.sidebar.expand')} icon={PanelLeftOpen} />
         </div>
         <div className="flex flex-col items-center py-2 gap-1">
-          <RailButton
-            icon={FolderTree}
-            active={expandedSections.files}
-            onClick={open('files')}
-            title={tr('project.sidebar.files')}
-          />
-          <RailButton
-            icon={GitBranch}
-            active={expandedSections.git}
-            onClick={open('git')}
-            title={gitTitle}
-            // Il NOME DEL RAMO non entra e non ci va: 40px sono ~5 caratteri, e
-            // nei tool seri il ramo vive nella status bar, non nella rail. Qui
-            // ci va il numero che VS Code mette sulla stessa icona — quante
-            // modifiche non committate — e il ramo sta nel tooltip, per intero.
-            badge={git && git.fileCount > 0 ? git.fileCount : null}
-            tone="primary"
-            // Nessuna modifica ma divergenza col remoto: un punto, non un
-            // secondo numero addosso al primo. Due pastiglie su un bottone da
-            // 28px diventano rumore e non si leggono più né l'una né l'altra.
-            dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
-          />
-          <RailButton
-            icon={CirclePlay}
-            active={expandedSections.processes}
-            onClick={open('processes')}
-            title={procTitle}
-            // Il rosso è il motivo per cui questo badge esiste: un processo
-            // uscito male, oggi, non lo vedi da nessuna parte se la sidebar è
-            // chiusa. Vince sul verde perché è l'unico dei due che chiede di
-            // fare qualcosa.
-            badge={failedCount > 0 ? failedCount : runningCount > 0 ? runningCount : null}
-            tone={failedCount > 0 ? 'danger' : 'success'}
-          />
+          {comandi(false)}
         </div>
       </div>
     );
