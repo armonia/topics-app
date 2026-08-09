@@ -164,13 +164,17 @@ describe("task-dispatcher", () => {
     const sk = h.turns[0].sessionKey;
     expect(h.task("t1")!.dispatchState).toBe("working");
 
+    const awaiting = () => h.events.filter((e) => e.type === "task:awaiting-human");
     beginAsk(sk);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: true, source: "ask" });
+    // E NON in DB: `needs_input` persistito farebbe uscire il task dalla porta
+    // del recupero orfani (ACTIVE_DISPATCH_STATES), congelandolo dopo un riavvio.
+    expect(h.task("t1")!.dispatchState).toBe("working");
 
     endAsk(sk);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working");
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: false });
     h.dispatcher.shutdown();
   });
 
@@ -184,13 +188,15 @@ describe("task-dispatcher", () => {
     await flush();
     const sk = h.turns[0].sessionKey;
 
+    const awaiting = () => h.events.filter((e) => e.type === "task:awaiting-human");
     beginPermission(sk, "tool-1");
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("needs_input");
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: true, source: "permission" });
+    expect(h.task("t1")!.dispatchState).toBe("working");
 
     endPermission(sk, "tool-1");
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working");
+    expect(awaiting().at(-1)).toMatchObject({ taskId: "t1", waiting: false });
     h.dispatcher.shutdown();
   });
 
@@ -209,9 +215,10 @@ describe("task-dispatcher", () => {
     expect(h.task("t1")!.dispatchState).toBe("working");
 
     h.dispatcher.shutdown();
+    const before = h.events.filter((e) => e.type === "task:awaiting-human").length;
     beginAsk(sk);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working"); // nessuno ascolta piu'
+    expect(h.events.filter((e) => e.type === "task:awaiting-human")).toHaveLength(before); // nessuno ascolta piu'
     endAsk(sk);
   });
 
@@ -227,6 +234,7 @@ describe("task-dispatcher", () => {
 
     beginAsk("topic:una-chat-qualunque");
     await flush();
+    expect(h.events.filter((e) => e.type === "task:awaiting-human")).toHaveLength(0);
     expect(h.task("t1")!.dispatchState).toBe("working");
     endAsk("topic:una-chat-qualunque");
     h.dispatcher.shutdown();
@@ -824,6 +832,43 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("todo");            // requeued, NOT parked
     expect(t.dispatchAttempts).toBe(2);       // 3 → 2 (refunded), gets a fair retry
+  });
+
+  it("un task fermo su una DOMANDA tiene un chip che il recupero orfani ACCETTA", async () => {
+    // La regressione che questo test esiste per impedire, trovata da un critico
+    // e non da me. La prima versione dell'annuncio scriveva `needs_input` in
+    // dispatch_state; ma la porta del recupero orfani e' ACTIVE_DISPATCH_STATES
+    // = {working, starting} (task-dispatcher.ts:356, usata a :2052), perche'
+    // `needs_input` significava «l'ha messa qui una persona, non toccarla». Un
+    // task fermo su un pannello usciva quindi da quella porta: server riavviato
+    // — e con TOPICS_SERVER_WATCH=1 basta salvare un file sotto server/ — e
+    // restava in_progress PER SEMPRE, senza reattach ne' resume ne' un commento
+    // che lo dicesse. Prima della modifica veniva ripreso.
+    //
+    // L'invariante che lo impedisce: mentre l'attesa e' aperta, lo stato
+    // PERSISTITO (l'unica cosa che sopravvive a un riavvio) deve restare uno di
+    // quelli che il recupero accetta. Che poi da quello stato il task venga
+    // davvero ripreso lo prova il test "reconcile ALWAYS requeues a restart
+    // orphan" qui sopra, che parte esattamente da dispatchState: "working".
+    const RECUPERABILI = ["working", "starting"];
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const sk = h.turns[0].sessionKey;
+
+    beginAsk(sk);
+    await flush();
+    expect(RECUPERABILI).toContain(h.task("t1")!.dispatchState ?? "");
+
+    beginPermission(sk, "tool-1"); // anche l'altra porta dell'attesa
+    await flush();
+    expect(RECUPERABILI).toContain(h.task("t1")!.dispatchState ?? "");
+
+    endAsk(sk);
+    endPermission(sk, "tool-1");
+    h.dispatcher.shutdown();
   });
 
   it("reconcile leaves a human-moved bound task alone (chip not active)", async () => {

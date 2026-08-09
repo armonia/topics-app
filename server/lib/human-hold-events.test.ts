@@ -11,7 +11,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { onHumanHoldChange, resetHumanHoldListeners, type HumanHoldChange } from "./human-hold-events";
 import { beginAsk, endAsk, cancelAsk } from "./ask-user-bridge";
-import { beginPermission, endPermission, cancelPermissionsForSession } from "./permission-bridge";
+import { beginPermission, endPermission, cancelPermission, cancelPermissionsForSession } from "./permission-bridge";
 import { isHumanHold } from "./human-hold";
 
 let seen: HumanHoldChange[] = [];
@@ -82,6 +82,30 @@ describe("un permesso annuncia per SESSIONE, non per pannello", () => {
     beginPermission(sk, "tool-b");
     seen = [];
     cancelPermissionsForSession(sk, "turno finito");
+    expect(seen).toEqual([{ sessionKey: sk, phase: "released", source: "permission" }]);
+  });
+
+  test("cancelPermission (richiesta SCADUTA) annuncia il rilascio", () => {
+    // La terza uscita, e la piu' facile da dimenticare: scatta quando il TTL
+    // di 2h e' passato (topics.ts: `if (!beginPermission(...)) cancelPermission(...)`).
+    // Senza annuncio la card resterebbe su «aspetta te» mentre l'agente ha gia'
+    // ripreso — e la pulizia di fine turno non rimedia, perche' legge lo stato
+    // DOPO che questa ha gia' tolto la voce.
+    const sk = "sess-perm-3";
+    beginPermission(sk, "tool-a");
+    seen = [];
+    cancelPermission(sk, "tool-a", "nessuna risposta: la richiesta è scaduta");
+    expect(seen).toEqual([{ sessionKey: sk, phase: "released", source: "permission" }]);
+  });
+
+  test("con due pannelli aperti, cancelPermission su uno solo NON annuncia", () => {
+    const sk = "sess-perm-4";
+    beginPermission(sk, "tool-a");
+    beginPermission(sk, "tool-b");
+    seen = [];
+    cancelPermission(sk, "tool-a");
+    expect(seen).toEqual([]);
+    cancelPermission(sk, "tool-b");
     expect(seen).toEqual([{ sessionKey: sk, phase: "released", source: "permission" }]);
   });
 });

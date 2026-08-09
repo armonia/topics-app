@@ -290,7 +290,14 @@ export function pendingPermissionAgeMs(sessionKey: string, now = Date.now()): nu
 /** Sblocca UNA richiesta con un errore (scaduta, o la sua riga è sparita). */
 export function cancelPermission(sessionKey: string, toolUseId: string, reason = 'cancelled'): void {
   const key = permissionKey(sessionKey, toolUseId);
-  activeRequests.delete(key);
+  // Terza uscita, e la piu' facile da dimenticare: e' quella che scatta quando
+  // la richiesta SCADE (topics.ts, `if (!beginPermission(...)) cancelPermission(...)`).
+  // Senza l'annuncio qui, chi guarda resterebbe su «aspetta te» mentre l'agente
+  // ha gia' ripreso a lavorare — la stessa bugia che il canale esiste per
+  // togliere, girata al contrario. E non la salva la pulizia di fine turno:
+  // `cancelPermissionsForSession` legge `wasHeld` DOPO che questa ha gia'
+  // cancellato la voce, quindi non trova piu' niente da annunciare.
+  const removed = activeRequests.delete(key);
   const w = waiters.get(key);
   if (w) {
     clearTimeout(w.timer);
@@ -301,6 +308,9 @@ export function cancelPermission(sessionKey: string, toolUseId: string, reason =
   if (buf) {
     clearTimeout(buf.timer);
     buffered.delete(key);
+  }
+  if (removed && !sessionHasPendingPermission(sessionKey)) {
+    emitHumanHoldChange({ sessionKey, phase: 'released', source: 'permission' });
   }
 }
 
