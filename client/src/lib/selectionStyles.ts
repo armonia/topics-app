@@ -16,8 +16,24 @@ import type { AttentionTier } from '../types';
 // bled onto neighbours (focused folder + its active child read as "overlapping"
 // rows), and made merely-open rows look selected. A single solid fill is
 // unambiguous and never collides with an adjacent row.
+/* IL RAMO `max-md:` VA DATO A TUTTA LA SCALA, non a metà.
+ *
+ * Sotto i 768px il riposo sale a 0.08/0.10 (RESTING_FILL_MOBILE): là il fondo
+ * della pagina collassa sul chrome e a 0.05 una card non si stacca più. Ma il
+ * rialzo era arrivato solo al riposo, e la selezione era rimasta ai valori
+ * pensati per un riposo TRASPARENTE — 0.06 in chiaro, cioè MENO del riposo
+ * stesso: sul telefono, in tema chiaro, la riga selezionata era più chiara di
+ * quelle a riposo. Il verso della scala si invertiva.
+ *
+ * I valori mobile non sono inventati: sono il gradino del desktop (dove il
+ * riposo è trasparente, quindi selezione = 0.06 chiaro / 0.14 scuro) sommato al
+ * riposo mobile. 0.08+0.06 = 0.14 e 0.10+0.14 = 0.24, arrotondato a 0.22 perché
+ * oltre il bianco comincia a leggersi come un fill di attenzione. Stessa
+ * aritmetica per il gradino «attiva ma non a fuoco».
+ */
 export const SELECTED_SURFACE =
-  'bg-black/[0.06] dark:bg-white/[0.14] text-app-text';
+  'bg-black/[0.06] dark:bg-white/[0.14] text-app-text ' +
+  'max-md:bg-black/[0.14] max-md:dark:bg-white/[0.22]';
 
 /**
  * Softer sibling of SELECTED_SURFACE: a tab that is the active one in a SPLIT
@@ -25,7 +41,8 @@ export const SELECTED_SURFACE =
  * a step below the focused surface so only ONE thing reads as "current".
  */
 export const SELECTED_SURFACE_SOFT =
-  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
+  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary ' +
+  'max-md:bg-black/[0.11] max-md:dark:bg-white/[0.16]';
 
 /**
  * The RESTING state of the same card grammar: an interactive surface that is
@@ -522,11 +539,30 @@ export function sidebarRowCard(
   // qui, sulla scatola che è già rientrata e arrotondata: stesso colore, ma
   // disegnato dove c'è una card e non una fascia.
   //
-  // Sta nel `base` e non fra i rami del fill, quindi selezione, attenzione e
-  // hover — che arrivano dopo nella stringa — lo coprono senza gare di
-  // specificità.
+  // STAVA NEL `base`, E ERA UN BACO: L'ORDINE DELLA STRINGA NON È LA CASCATA.
+  //
+  // Qui c'era scritto «sta nel base e non fra i rami del fill, quindi
+  // selezione, attenzione e hover — che arrivano dopo nella stringa — lo
+  // coprono senza gare di specificità». Falso, e verificabile: `cn()` è clsx
+  // puro (nessun tailwind-merge), quindi base e fill restano ENTRAMBI
+  // sull'elemento, e a specificità pari vince chi il bundle emette per ultimo.
+  // Le utility `max-md:` stanno in fondo al foglio, dentro la loro media query;
+  // `bg-black/[0.06]` (selezione), `bg-amber-500` e `bg-[#0a84ff]` (attenzione)
+  // stanno migliaia di byte più su. Vinceva il riposo.
+  //
+  // Effetto, sul telefono e solo lì: quattro stati e UN fondo. La riga
+  // selezionata, quella che ti aspetta in ambra e quella finita in blu si
+  // dipingevano tutte come una a riposo. L'ho visto nella mia stessa misura a
+  // 390×844 senza riconoscerlo — una riga in semibold (cioè su un fill di
+  // attenzione) con fondo `oklab(0 0 0 / 0.08)`, identico alle vicine.
+  //
+  // Il riposo scende quindi nei DUE rami che non dipingono niente, ed è la
+  // stessa forma che tessera e tab hanno sempre avuto: un ternario che sceglie
+  // UNA superficie, mutuamente esclusiva (PinnedTile, PaneTabBar). Le righe
+  // concatenavano: stessa grammatica, due meccanismi.
   const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-100 relative'
     + (nested ? '' : ` ${RESTING_FILL_MOBILE}`);
+  const riposo = '';
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
@@ -547,6 +583,6 @@ export function sidebarRowCard(
   // Con un fill sotto, invece, è la stessa card della tab selezionata.
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
-  if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
-  return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+  if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
+  return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
