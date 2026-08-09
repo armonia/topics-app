@@ -816,7 +816,20 @@ export function ProjectSidebar({
           lato — «sono attaccate in fondo» (Attilio, 09/08). Metà la porta il
           margine della card (`my-[3px]` in SECTION_CARD), metà questo padding:
           è la stessa regola della colonna principale. */}
-      <div className="flex-1 flex flex-col min-h-0 pb-[3px]">
+      {/* `sidebar-column` MANCAVA QUI, e c'era invece nel gemello mobile: la
+          correzione era stata applicata a metà.
+          Il conto, da aperta: l'intestazione chiude con `md:pb-[6px]` — il passo
+          PIENO — e la card «File» sotto ci aggiunge il suo mezzo (`my-[3px]` di
+          SECTION_CARD), quindi fra il trigger e File passavano NOVE pixel dove
+          ogni altra coppia di card ne ha sei. «Trigger aperto e File hanno
+          distanza non conforme» (Attilio, 10/08) — e l'ipotesi che ci fosse
+          stato un bordo lì è vicina: quello che c'è è il residuo di due passi
+          sommati, uno del contenitore e uno della card.
+          La classe azzera il mezzo passo della PRIMA card, che è esattamente la
+          regola già scritta per la colonna principale e per il drawer: «ognuno
+          porta metà passo, e il primo non porta la sua perché sopra c'è chi
+          l'ha già messa». */}
+      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
         {/* `pb-[3px]` da APERTA: mezzo passo, come ogni card della colonna.
