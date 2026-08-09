@@ -1,3 +1,4 @@
+import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, Link2 } from 'lucide-react';
@@ -27,7 +28,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_ACTION_GLYPH, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -176,12 +177,23 @@ interface PaneTabBarProps {
    * Sidebar "Fissati" pin toggle for a tab's underlying subject — DISTINCT from
    * `onPinPane` (which promotes a preview tab to a permanent one). `pinKey` is
    * the sidebar-item id: a chat's bare topicId, or `terminal:<sessionId>` for a
-   * terminal. Passed only by app-level hosts (StandaloneChatGroup); project
-   * tab bars leave it undefined and the entry hides. Paired with `isFissato`
-   * so the entry can render "Fissa" vs "Rimuovi dai Fissati".
+   * terminal. Paired with `isFissato` so the entry can render "Fissa" vs
+   * "Rimuovi dai Fissati".
+   *
+   * Lo passano sia gli ospiti di primo livello sia le finestre di progetto:
+   * finora le seconde no, ed è il motivo per cui dentro un progetto la voce non
+   * c'era proprio.
    */
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
+  /**
+   * La chiave di pin del PROGETTO che contiene questa barra, quando ce n'è uno.
+   *
+   * È ciò che rende il menu capace di distinguere «fissa il progetto» da «fissa
+   * questa tab»: senza, le due cose avevano lo stesso nome e una sola voce.
+   * Le barre di primo livello la lasciano indefinita e tornano alla voce unica.
+   */
+  projectPinKey?: string;
   /** Notification badge counts per pane ID */
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
@@ -207,9 +219,15 @@ interface PaneTabBarProps {
    *  actions); project tab bars (GroupLayout) default to 'project'. The
    *  variant's items/order/icons live in <PaneAddMenu> — see its docs. */
   addMenuScope?: PaneScope;
+  /**
+   * Questa barra sta SOTTO un'altra riga di chrome (le tab di un progetto sotto
+   * la tab del progetto). Vedi {@link CHROME_BAR_SUB}: la riga è più bassa e
+   * l'aria in cima l'ha già messa la riga sopra.
+   */
+  subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -411,7 +429,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!activePaneId || !container) return;
     const el = container.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
     if (el) {
-      const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'auto';
+      // `prefers-reduced-motion` vale anche qui, e questa e' l'unica strada per
+      // farglielo rispettare: le tre media query in `index.css` spengono le
+      // transizioni CSS, ma uno scroll animato in JS non le vede — chi ha
+      // chiesto al sistema di ridurre il movimento se lo prendeva lo stesso,
+      // ogni volta che cambiava tab.
+      //
+      // Nessuna spec lo esercita, e non per dimenticanza: accendere
+      // `contextOptions.reducedMotion` nella config di Playwright fa cadere
+      // `reopen-closed-tab` (misurato l'08/08 — un `raised-control-overlay`
+      // finisce a coprire l'angolo del tab bar e intercetta il click). E' un
+      // difetto vero del percorso «movimento ridotto», ha il suo task, e finche'
+      // non e' chiuso la suite non puo' girare in quella modalita'.
+      const riduciMovimento =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const behavior: ScrollBehavior =
+        didInitialScrollRef.current && !riduciMovimento ? 'smooth' : 'auto';
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       if (elRect.left < containerRect.left) {
@@ -757,8 +791,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // che contiene `app-drag-region`, e legarsi alla presenza della prop lasciava
   // proprio quella scoperta. Beccato da `tests/e2e/drag-regions.spec.ts`.
   //
-  // Il `py-1` sparisce su touch, e non è cosmesi: le tab passano a `h-9` (36px)
-  // sotto, e la riga di chrome che le ospita è alta 40px FISSI con
+  // Il `py-1` c'è solo sopra i 768px, e non è cosmesi: le tab passano a `h-9`
+  // (36px) sotto, e la riga di chrome che le ospita è alta 40px FISSI con
   // `overflow-hidden` (GroupLayout, quattro punti). Il conto era 36 + 2 di
   // padding della strip + 8 di `py-1` = 46 dentro 40: `items-center` centra e
   // il clipping mangia 3px sopra e 3px sotto, quindi gli angoli arrotondati
@@ -767,7 +801,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // (GroupLayout.tsx:30) è l'`edgeOffset` dello strip di drop superiore, che
   // finirebbe 8px fuori posto — e andrebbe rialzato in lockstep anche l'header
   // della sidebar progetto, o l'allineamento fra rail e tab si spezza di nuovo.
-  const barClass = className ?? `flex-initial ${isTouch ? '' : 'py-1'} pr-0 min-w-0 app-drag-region`;
+  // `md:py-1` SPARISCE nella riga subordinata, e non è cosmesi: là la scatola
+  // del contenuto vale 28 (34 meno l'incasso in coda), e una radice da 38 —
+  // 28 + 2 di padding della strip + 8 di `py-1` — sborda di 5px per lato. La
+  // tab ci starebbe lo stesso (`items-center` la centra a 40..68), ma il suo
+  // alone `edge-lit` e l'anello di fuoco dipingono FUORI dalla scatola e li
+  // taglierebbe l'`overflow-hidden` della barra. Senza `py-1` la radice è 30 e
+  // sborda di uno.
+  //
+  // Visivamente non toglie niente nemmeno nella riga normale: 38 centrato in 40
+  // e 30 centrato in 40 mettono la tab nello stesso posto (misurato: 6..34 in
+  // entrambi i casi). Resta dov'era perché la radice porta `app-drag-region`, e
+  // una fascia trascinabile più stretta di 4px per lato è un cambiamento vero.
+  const barClass = className ?? `flex-initial ${subordinate ? '' : 'md:py-1'} pr-0 min-w-0 app-drag-region`;
 
   return (
     // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the
@@ -785,23 +831,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
-        // LA RISERVA A DESTRA È L'INGOMBRO DEL «+», non un numero tondo: il suo
-        // box più il suo incasso, entrambi da `selectionStyles`
-        // (CHROME_ROW_ACTION_RESERVE). Erano 30px scritti a mano e non
-        // bastavano — l'ultima tab passava sotto il bottone anche a riposo,
-        // cioè prima ancora di scorrere.
+        // DOVE SI FERMA LA STRIP, ai due capi, con la stessa regola.
         //
-        // Senza «+» la strip si ferma a `ROW_INSET`, che è l'incasso con cui la
-        // riga sta lontana dal bordo quando non c'è nessun comando a occuparlo.
-        className={`flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
+        // Con un comando: `ROW_INSET + box + ROW_INSET`
+        // (CHROME_ROW_ACTION_RESERVE) — il bottone sta 6 dal bordo e la tab si
+        // ferma altri 6 prima di lui. Senza: `pl-1.5`/`pr-1.5`, cioè gli stessi
+        // 6 con cui ogni riga della colonna sta lontana dal bordo, così le due
+        // liste si allineano ai lati.
+        //
+        // Ci sono voluti tre giri, e ognuno ha sbagliato un pezzo diverso:
+        //  1. `paddingLeft: 30` inline a sinistra contro una riserva derivata a
+        //     destra — 30 contro 34 col mouse, 30 contro 38 col dito: due
+        //     grammatiche per due capi della stessa barra;
+        //  2. specchiate ma ancora `box + incasso VERTICALE`, cioè la strip che
+        //     finiva ESATTAMENTE sul bordo del bottone: zero aria fra la tab e
+        //     il comando;
+        //  3. il comando rimpicciolito a 28 fisso per far tornare il verticale
+        //     — «hai fatto i tasti più piccoli ma non dovevi» (Attilio, 09/08).
+        // Il verticale non era un problema di box ma di predicato, e sta nella
+        // classe della tab qui sotto.
+        className={`flex items-center ${TAB_GAP_CLASS} min-w-0 min-h-7 overflow-x-auto scrollbar-topbar ${
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
-        }`}
-        // Left inset = ROW_INSET, the SAME edge inset the sidebar rows use, so
-        // the tab list and the sidebar list line up at the sides (was 5px left
-        // + a stray 4px root `pl-1` = 9px on project group bars). The 30px
-        // override stays for when a floating sidebar-toggle overlays the
-        // leftmost bar.
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1, paddingLeft: hasLeftOverlay ? 30 : ROW_INSET }}
+        } ${hasLeftOverlay ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', paddingTop: 1, paddingBottom: 1 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           // Scope guard: ignore drags from another window/project entirely (no
@@ -1043,14 +1095,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // leggere la tab come una superficie rialzata anche quando NON è
             // selezionata. È lo stesso trattamento del «+», del cerca e delle
             // tessere fissate: un elemento arrotondato che flotta lo porta.
-            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            // L'ALTEZZA È UNA DOMANDA DI LARGHEZZA, non di dito: `h-9 md:h-7`.
+            //
+            // Era `isTouch ? 'h-9' : 'h-7'`, cioè un predicato JS, mentre il
+            // comando in coda alla stessa riga (`ROW_ACTION_BOX`) usa il
+            // breakpoint CSS `md:`. Due meccanismi per la stessa domanda
+            // divergono appena i due non coincidono: in una finestra stretta
+            // senza touch la tab veniva 28 e il «+» accanto 36 — nella stessa
+            // riga da 40, 6 di aria contro 2. `useMobile` lo dice già: le
+            // affordance del dito seguono `isTouch`, quante-colonne-e-quanto-
+            // alto seguono la larghezza.
+            className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} transition-all relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
                   ? SELECTED_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
-                    : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
+                    // NESSUN colore qui: il testo lo porta `TAB_LABEL` ed è
+                    // pieno per tutte. A dire quale tab è quella corrente ci
+                    // pensa la superficie — spegnere anche il testo lo diceva
+                    // due volte, e la seconda male.
+                    : RESTING_SURFACE
             } ${isDragged ? 'opacity-40' : ''}`}
             // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
             // Questa riga era già scritta a mano proprio qui, e il commento che
@@ -1066,7 +1132,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
             onPointerDown={() => releaseNativeFocus()}
             onClick={() => { if (tabLongPress.consumeClick()) return; if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
-            onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
+            // Il doppio clic è il gesto con cui si dice «questa la tengo»: vale
+            // anche per una chat nuova, che da quel momento non si richiude più
+            // da sola (`state/draftPane.ts`). Vale ANCHE quando non c'è niente
+            // da fissare: il gesto conta di per sé.
+            onDoubleClick={() => { markDraftTouched(pane.id); if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             data-testid={`pane-tab-${pane.id}`}
             // Il feedback della pressione vale SOLO per la tab premuta: l'hook è
@@ -1181,7 +1251,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <PaneCloseButton
                 paneId={pane.id}
                 onClose={onClose}
-                isTouch={isTouch}
               />
             )}
             {/* Loading spinner — one canonical widget per pane kind.
@@ -1321,12 +1390,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // passa sotto si legge attraverso il bottone. La variante non lo
           // rende opaco: sfoca ciò che gli passa sotto, così resta di vetro
           // senza diventare un velo. Vedi index.css.
-          // L'incasso a destra è lo STESSO che il bottone ha sopra e sotto —
-          // `CHROME_ROW_ACTION_INSET`, che lo ricava dall'altezza della riga e
-          // dal box del comando invece di ripetere il 6 orizzontale delle
-          // righe di sidebar. Vedi selectionStyles: erano due numeri con due
-          // origini diverse per lo stesso bottone, e col dito la differenza
-          // arrivava a quattro pixel e mezzo.
+          // L'incasso a destra è `ROW_INSET` (CHROME_ROW_ACTION_INSET), lo
+          // stesso 6 con cui ogni riga e ogni tab stanno lontane dal loro
+          // bordo. C'è stato un giro in cui lo ricavava dall'altezza della riga
+          // (`chromeRowInset`): col dito veniva DUE, e il bottone stava
+          // incollato al bordo mentre la strip senza comando si ferma a 6.
+          // Il bordo è una domanda orizzontale e ha già il suo numero.
           className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`}
           {...NO_DRAG_REGION}
         >
@@ -1379,18 +1448,55 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           {onToggleFissato && (() => {
             const pane = panes.find(p => p.id === ctxMenu.paneId);
             if (!pane) return null;
-            const pinKey = pinKeyForPane(pane);
-            if (!pinKey) return null;
-            const pinned = isFissato?.(pinKey) ?? false;
-            return (
+            const tabKey = pinKeyForPane(pane);
+            /**
+             * DENTRO UN PROGETTO LE COSE FISSABILI SONO DUE, e finora il menu
+             * ne offriva zero.
+             *
+             * «Per le sotto-tab di un progetto dovremmo mettere fissa progetto
+             * e tab» (Attilio, 08/08). La voce singola diceva solo «Fissa» e —
+             * peggio — dentro una finestra di progetto non compariva affatto,
+             * perché l'ospite non cablava `onToggleFissato`: il commento
+             * precedente lo ammetteva («hidden … project tab bars»). Il
+             * risultato era che sulla tab di un progetto fissare era possibile
+             * solo trascinando, e sul telefono il drag HTML5 non esiste — cioè
+             * lì non era possibile affatto.
+             *
+             * Quando `projectPinKey` c'è, le due voci si nominano: fissare il
+             * PROGETTO (torna sempre sotto mano con tutte le sue tab) è una
+             * cosa diversa dal fissare QUESTA tab (che si riapre da sola,
+             * fuori dal progetto). Senza `projectPinKey` — barra di primo
+             * livello — resta la voce singola di prima, che lì non è ambigua.
+             */
+            const voci: { key: string; etichetta: string; pinned: boolean }[] = [];
+            if (projectPinKey) {
+              voci.push({ key: projectPinKey, etichetta: 'il progetto', pinned: isFissato?.(projectPinKey) ?? false });
+            }
+            // `tabKey !== projectPinKey`: la tab del progetto stesso, dentro la
+            // sua barra, sarebbe la stessa voce due volte.
+            if (tabKey && tabKey !== projectPinKey) {
+              voci.push({
+                key: tabKey,
+                etichetta: projectPinKey ? 'questa tab' : '',
+                pinned: isFissato?.(tabKey) ?? false,
+              });
+            }
+            if (voci.length === 0) return null;
+            return voci.map(({ key, etichetta, pinned }) => (
               <button
-                onClick={() => { onToggleFissato(pinKey); setCtxMenu(null); }}
+                key={key}
+                data-testid={`tab-menu-pin-${etichetta === 'il progetto' ? 'project' : 'tab'}`}
+                onClick={() => { onToggleFissato(key); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
               >
                 {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                <span className="flex-1 text-left">{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
+                <span className="flex-1 text-left">
+                  {pinned
+                    ? (etichetta ? `Togli ${etichetta} dai Fissati` : 'Rimuovi dai Fissati')
+                    : (etichetta ? `Fissa ${etichetta}` : 'Fissa')}
+                </span>
               </button>
-            );
+            ));
           })()}
           {/* "Ricarica" — terminal panes only (pane id `terminal:<sessionId>`).
               Restarts the session in place via POST /reload: claude/codex resume
@@ -1762,11 +1868,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, isTouch,
+  paneId, onClose,
 }: {
   paneId: string;
   onClose: (id: string) => void;
-  isTouch: boolean;
 }) {
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
@@ -1839,7 +1944,10 @@ function PaneCloseButton({
   // sopra si sposta di 4px, non di 8: l'etichetta scende da 88 a 84 — meno di
   // quanto era già costato allargare il bersaglio col dito, e il motivo è lo
   // stesso: «il tasto per poter spuntare una tab e chiuderla è troppo piccolo».
-  const slot = `${isTouch ? 'w-7 h-7' : 'w-6 h-6'} flex items-center justify-center flex-shrink-0 relative z-10`;
+  // Stesso breakpoint della tab che lo contiene (`h-9 md:h-7`): con due
+  // meccanismi diversi uno slot da 28 finiva dentro una tab da 28, cioè a filo
+  // dei bordi, ogni volta che larghezza e touch non coincidevano.
+  const slot = 'w-7 h-7 md:w-6 md:h-6 flex items-center justify-center flex-shrink-0 relative z-10';
 
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp, ChevronRight, Clock } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -64,27 +64,53 @@ const SLASH_COMMANDS = [
   { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 
-// ---- Overflow Menu (slash commands + voice tools) ----
+/**
+ * Il vestito della card del composer — bordo, fondo, ombra, angoli.
+ *
+ * Vive in una costante perché lo portano DUE elementi che non possono essere lo
+ * stesso: il campo di testo e, al suo posto, la barra rossa della
+ * registrazione. Scritto due volte, il giorno che cambia l'angolo ne cambia uno
+ * solo e la registrazione diventa un rettangolo con gli spigoli.
+ */
+const COMPOSER_CARD =
+  'rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface transition-colors';
 
-function OverflowMenu({
-  isCallActive, isRecording, isListening, isSpeaking, autoTTS,
+// ---- Add Menu (allegati + voce + comandi) ----
+//
+// Era il menu «⋯» in fondo a destra, e conteneva SOLO i comandi e la voce.
+// Adesso è il «+» in testa alla riga, ed è l'unico posto dove si aggiunge
+// qualcosa alla conversazione: la graffetta e il microfono stavano fuori come
+// due bottoni sciolti, in una riga che ne aveva sette e non diceva più quale
+// fosse quello importante. Fuori restano i controlli che si LEGGONO a colpo
+// d'occhio (fast mode, contesto, modello, effort, autonomia); qui dentro va
+// quello che si fa una volta ogni tanto.
+//
+// Le AZIONI stanno in cima e i comandi sotto: il «+» lo apri per allegare un
+// file, non per leggere l'elenco degli slash.
+
+function AddMenu({
+  isCallActive, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
-  toggleCall, startRecording: _startRecording, stopRecording: _stopRecording, toggleListening, stopSpeaking, setAutoTTS,
+  toggleCall, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
+  onAttach,
   onExport,
 }: {
-  isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
+  isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
-  toggleCall: () => void; startRecording: () => void; stopRecording: () => void;
+  toggleCall: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
   onSlashCommand: (cmd: string) => void;
+  /** Apre il selettore di file (la vecchia graffetta). */
+  onAttach: () => void;
   /** Export the conversation as a Markdown download (absent → row hidden). */
   onExport?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const anyActive = isCallActive || isRecording || isListening || isSpeaking || autoTTS;
+  const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
+  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
 
   return (
     <>
@@ -92,40 +118,43 @@ function OverflowMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
-        className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
-          anyActive
+        data-testid="composer-add-menu"
+        className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
+          open || anyActive
             ? 'text-primary bg-primary/10'
             : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
         }`}
-        title="Tools & commands"
+        title="Allega, strumenti e comandi"
+        // Il nome accessibile NON cambia col glifo: è il nome di questo menu da
+        // quando esiste, ed è come lo trovano sia i lettori di schermo sia le
+        // spec che ci passano per l'export.
         aria-label="Tools & commands"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <MoreHorizontal size={16} />
+        <Plus size={18} />
       </button>
-      {/* Migrated to the canonical Menu primitive (flip-above + clamp +
-          reposition + dismiss are inherited for free; align="right" matches
-          the old right-0 anchoring). restoreFocus=false preserves the
-          pre-migration behavior of not stealing focus back on dismiss. */}
-      <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="right" minWidth={220} restoreFocus={false}>
-        {/* Slash commands */}
-        {SLASH_COMMANDS.map((cmd) => {
-          const Icon = cmd.icon;
-          return (
-            <button
-              key={cmd.cmd}
-              type="button"
-              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
-            >
-              <Icon size={14} className="text-app-text-muted" />
-              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
-            </button>
-          );
-        })}
-
-        {/* Divider */}
-        <div className="h-px bg-app-border my-1" />
+      {/* Menu primitive: flip-above + clamp + reposition + dismiss inherited.
+          `align="left"` perché il trigger adesso è il primo elemento della riga.
+          restoreFocus=false preserva il comportamento storico di non riprendersi
+          il fuoco alla chiusura. */}
+      <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="left" minWidth={230} restoreFocus={false}>
+        {/* Allegare è la ragione per cui questo menu si apre: prima riga. */}
+        <button
+          type="button"
+          onClick={() => { onAttach(); setOpen(false); }}
+          className={`${rowClass} text-app-text`}
+          disabled={currentStreaming}
+          data-testid="composer-attach-file"
+        >
+          <Paperclip size={14} />
+          Attach file
+          <span className="ml-auto text-[11px] text-app-text-muted">⌘U</span>
+        </button>
+        {/* «Registra voce» NON sta qui: è il tasto col microfono in fondo alla
+            riga, l'unico ammesso prima dell'invio. Due porte per lo stesso
+            gesto sono due posti dove cercarlo e uno di troppo da tenere in
+            piedi. */}
 
         {/* Voice tools */}
         {voiceCallSupported && (
@@ -171,20 +200,37 @@ function OverflowMenu({
           <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
         </button>
         {onExport && (
-          <>
-            <div className="h-px bg-app-border my-1" />
-            <button
-              type="button"
-              onClick={() => { onExport(); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover text-app-text"
-              data-testid="chat-export-conversation"
-            >
-              <Download size={14} />
-              Export conversation
-              <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => { onExport(); setOpen(false); }}
+            className={`${rowClass} text-app-text`}
+            data-testid="chat-export-conversation"
+          >
+            <Download size={14} />
+            Export conversation
+            <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
+          </button>
         )}
+
+        {/* Divider */}
+        <div className="h-px bg-app-border my-1" />
+
+        {/* Slash commands */}
+        {SLASH_COMMANDS.map((cmd) => {
+          const Icon = cmd.icon;
+          return (
+            <button
+              key={cmd.cmd}
+              type="button"
+              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
+              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
+            >
+              <Icon size={14} className="text-app-text-muted" />
+              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
+              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
+            </button>
+          );
+        })}
       </Menu>
     </>
   );
@@ -928,6 +974,42 @@ export function ChatInput({
   const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
   const hasContext = mentionedFiles.length > 0 || contextFilePaths.length > 0;
 
+  // ── L'altezza del campo la decide il testo, non le righe ─────────────────
+  //
+  // Il campo nasce alto una riga e cresce con quello che scrivi, fino a 140px
+  // (poi scorre). Stava in ChatPane, su `[message]`: è tornato qui perché
+  // dipende anche dalla LARGHEZZA del campo, e quella la conosce solo il
+  // composer. `useLayoutEffect` perché la correzione deve arrivare prima del
+  // disegno, o si vede lampeggiare l'altezza vecchia.
+  const MAX_COMPOSER_H = 140;
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_H) + 'px';
+  }, [message, textareaRef]);
+
+  // …e quando la pane si allarga o si stringe. Trascinare un divisore o
+  // rimpicciolire la finestra cambia quante righe occupa lo stesso testo, e
+  // senza questo restava l'altezza della larghezza di prima: sotto il testo
+  // avanzava il vuoto (o, stringendo, l'ultima riga finiva sotto il bordo).
+  // Si reagisce alla sola LARGHEZZA: l'altezza la scriviamo noi qui dentro, e
+  // ascoltarla sarebbe un anello che si rincorre.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    let lastWidth = ta.clientWidth;
+    const ro = new ResizeObserver(() => {
+      const w = ta.clientWidth;
+      if (w === lastWidth) return;
+      lastWidth = w;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_H) + 'px';
+    });
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [textareaRef]);
+
   return (
     <>
       {/* Status banners (outside floating card) */}
@@ -1110,14 +1192,20 @@ export function ChatInput({
         />
       )}
 
-      {/* Floating input card */}
+      {/* Il composer: LA CARD è solo il campo di testo, e i controlli stanno
+          FUORI, sotto. La card portava dentro anche loro, e finiva per
+          disegnare un riquadro attorno a due cose diverse — quello che scrivi e
+          gli interruttori della sessione — come se fossero la stessa. Il bordo
+          adesso recinta soltanto ciò in cui si scrive.
+          Il `<form>` resta il contenitore di entrambi (l'invio parte da lui) ma
+          non ha più nessun vestito: niente bordo, niente fondo, niente ombra. */}
       <form
         onSubmit={onSubmit}
         // @container: the action-bar row below keys its shrink/scroll
         // behavior off THIS element's width (the pane/tab), not the
         // viewport — panes can be resized far narrower than any viewport
         // breakpoint would ever fire at.
-        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
+        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} flex-shrink-0 min-w-0 max-w-full`}
         // L'HOME INDICATOR LO SCAVALCA IL COMPOSER, non la pane.
         //
         // «Il bordo dell'input nelle chat tocca i bordi sull'iPhone»: il suo
@@ -1137,7 +1225,7 @@ export function ChatInput({
         style={{ maxWidth: '100%', marginBottom: 'max(var(--composer-gap), env(safe-area-inset-bottom, 0px))' }}
       >
         {isRecording ? (
-          <div className="flex gap-2 items-center p-3">
+          <div className={`${COMPOSER_CARD} flex gap-2 items-center p-3`}>
             <div className="flex-1 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl px-3 py-2.5">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               <span className="text-red-500 font-medium text-[12px]">Recording</span>
@@ -1149,6 +1237,7 @@ export function ChatInput({
           </div>
         ) : (
           <>
+          <div className={COMPOSER_CARD} data-testid="composer-card">
             {/* Row 0: Attachments preview (inside card) */}
             {hasAttachments && (
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
@@ -1235,155 +1324,72 @@ export function ChatInput({
               </div>
             )}
 
-            {/* Row 1: Textarea (full width, borderless) */}
-            <textarea
-              ref={textareaRef}
-              data-testid="chat-message-input"
-              value={message}
-              onChange={handleMessageChange}
-              onKeyDown={handleKeyDown}
-              onPaste={onPaste}
-              aria-label={`Message input for ${topic.name}`}
-              aria-describedby="chat-input-hint"
-              placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
-              className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-3'} pb-1 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
-              style={{ minHeight: '36px', maxHeight: '140px' }}
-              rows={1}
-              disabled={uploading}
-            />
-            <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+            {/* LA CARD È UNA RIGA: «+», il testo, il microfono, invio. Erano
+                due — il testo sopra e i tre gesti sotto — e a riposo la card
+                costava il doppio dell'altezza per dire la stessa cosa.
+                Qui accanto al testo ci stanno solo tre quadratini da 32px, non
+                il gruppo dei controlli di sessione (che è largo ~330px ed è per
+                questo che è finito FUORI, sotto la card): il campo si tiene
+                tutto il resto della larghezza.
+                `items-end`: quando il testo va a capo la colonna cresce verso
+                l'alto e i bottoni restano incollati al fondo, allineati alla
+                riga che stai scrivendo. */}
+            <div className="flex items-end gap-1 px-1.5 py-1.5">
+              <AddMenu
+                onAttach={() => fileInputRef.current?.click()}
+                onExport={onExportConversation}
+                isCallActive={isCallActive}
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                autoTTS={autoTTS}
+                voiceCallSupported={voiceCallSupported}
+                sttSupported={sttSupported}
+                currentStreaming={currentStreaming}
+                uploading={uploading}
+                toggleCall={toggleCall}
+                toggleListening={toggleListening}
+                stopSpeaking={stopSpeaking}
+                setAutoTTS={setAutoTTS}
+                onSlashCommand={(cmd) => {
+                  setMessage(cmd + ' ');
+                  textareaRef.current?.focus();
+                }}
+              />
 
-            {/* Row 2: Action bar */}
-            <div className={`flex items-center gap-1 ${'px-1.5 pb-1.5'}`}>
-              {/* Left: tools. min-w-0 lets this cluster shrink below its
-                  content width; overflow-x-auto lets it scroll instead of
-                  clipping (or pushing Send off-row) once a narrow pane can't
-                  fit every icon.
-                  Perche' scorra davvero, i bottoni dentro devono essere
-                  `flex-shrink-0`: senza, il default `flex-shrink: 1` li
-                  SCHIACCIAVA invece di farli traboccare — a 390px di viewport
-                  i quadrati da 32px misuravano 20.9px (misurato da
-                  `chat-layout-audit`, sotto il minimo WCAG 2.2 di 24px), con
-                  l'icona da 16px in un box storto. Il contenitore prometteva
-                  lo scroll e i figli non glielo lasciavano fare. */}
-              <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
-                  title="Attach file (⌘U)"
-                  aria-label="Attach file"
-                  disabled={currentStreaming}
-                >
-                  <Paperclip size={16} />
-                </button>
-                {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
-                    stessa cosa: un interruttore in localStorage che iniettava
-                    una RICHIESTA nel prompt («sei in plan mode, non toccare
-                    niente») e che nessuno faceva rispettare, a quattro bottoni
-                    di distanza dal selettore di autonomia — stessa icona, colore
-                    diverso — che invece passa `--permission-mode plan` alla CLI
-                    e i file non li fa proprio scrivere. Potevano contraddirsi,
-                    e non si sincronizzava fra dispositivi.
-                    La leva ora è una: «Propone prima» nel selettore qui accanto.
-                    Il blocco di prompt non è andato perso — lo inietta la route
-                    quando l'autonomia è `ask` (routes/chat.ts), così il piano
-                    esce nel formato di sempre. */}
-                {onToggleFastMode && fastUi && (
-                  <button
-                    type="button"
-                    onClick={onToggleFastMode}
-                    className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
-                      fastUi.pressed
-                        ? 'text-amber-500 bg-amber-500/10'
-                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                    }`}
-                    title={fastUi.title}
-                    aria-label="Toggle fast mode"
-                    aria-pressed={fastUi.pressed}
-                    data-testid="chat-input-fast-mode"
-                  >
-                    {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
-                        Ne aveva dieci, di significati: il modello, l'autonomia
-                        «Agisce», la corsa di tool, i processi del progetto, un
-                        cron armato, un KPI, `/status`, la pane morta. Tre di
-                        quelli stavano in QUESTA riga insieme a questo, quindi il
-                        lampo non insegnava niente a nessuno. Adesso resta qui e
-                        nella sezione «Prestazioni» del changelog — stessa cosa,
-                        detta due volte. Prima di metterne un altro: dice
-                        «veloce»? Se no, non è questo il glifo.
-                        PIENO quando è acceso: in una riga tutta di contorni il
-                        solo colore ambra non bastava a dire «attivo». */}
-                    <Zap size={fastUi.costMultiplier ? 14 : 16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
-                    {/* Quanto costa: 2× lo stesso modello a velocità normale, dal
-                        listino che la CLI scrive nei suoi stessi documenti
-                        (10$/50$ contro 5$/25$ per 1M). «Più veloce» da solo non
-                        è un'informazione finché non dici quanto costa.
-                        Non interattivo: un badge che entrasse nel conteggio dei
-                        bersagli tattili sarebbe un secondo bottone da 12px dentro
-                        il primo. */}
-                    {fastUi.costMultiplier && (
-                      <span
-                        className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
-                        data-testid="fast-mode-cost"
-                      >{fastUi.costMultiplier}×</span>
-                    )}
-                  </button>
-                )}
-                {!isDraftTopic && (
-                  <button
-                    ref={contextBtnRef}
-                    type="button"
-                    onClick={handleContextRingClick}
-                    className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
-                      showContextPopover
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-                    }`}
-                    title={ringTitle}
-                    aria-label="Toggle context inspector"
-                    aria-haspopup="dialog"
-                    aria-expanded={showContextPopover}
-                    data-testid="chat-input-context-ring"
-                    data-context-percent={ringPercent}
-                    data-context-source={realContext ? 'model' : 'envelope'}
-                  >
-                    <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
-                  </button>
-                )}
-                {onProviderOverrideChange && (
-                  <ProviderModelPicker
-                    override={providerOverride ?? null}
-                    defaultProviderLabel={defaultProviderLabel}
-                    onChange={onProviderOverrideChange}
-                    onOpenSettings={onOpenSettings}
-                  />
-                )}
-                {/* The knobs you change MID conversation, in their own surface:
-                    effort used to be buried under a "Provider & model" trigger,
-                    and autonomy (the permission mode) was reachable only from
-                    the settings modal behind a tab right-click. */}
-                {onAutonomyChange && (
-                  <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
-                )}
-                <SessionConfigPopover
-                  effort={effort ?? null}
-                  onEffortChange={onEffortChange}
-                  effortSupported={!!onEffortChange}
-                  providerOverride={providerOverride ?? null}
-                  defaultProviderLabel={defaultProviderLabel}
-                />
-              </div>
+              {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è
+                  0, quindi in una pane strettissima lo schiacciamento cadrebbe
+                  tutto qui (campo largo zero) e i tre bottoni resterebbero
+                  interi. Con un minimo, la riga sfonda prima di far sparire il
+                  posto dove si scrive. */}
+              <textarea
+                ref={textareaRef}
+                data-testid="chat-message-input"
+                value={message}
+                onChange={handleMessageChange}
+                onKeyDown={handleKeyDown}
+                onPaste={onPaste}
+                aria-label={`Message input for ${topic.name}`}
+                aria-describedby="chat-input-hint"
+                placeholder={awaitingAnswer ? 'Rispondi alla domanda…' : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+                className={`flex-1 min-w-[4rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                style={{ minHeight: '32px', maxHeight: '140px' }}
+                rows={1}
+                disabled={uploading}
+              />
+              <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
 
-              {/* Right: voice + send. flex-shrink-0: Send/Stop must never be
-                  the thing that gets squeezed on a narrow pane — the left
-                  cluster scrolls instead. */}
+              {/* In coda alla riga: il microfono e l'invio, e nient'altro.
+                  `flex-shrink-0`: questi due non si stringono MAI. */}
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                {/* Direct mic button — always visible on all screen sizes */}
+                {/* Il tasto per DETTARE, l'unico ammesso prima dell'invio: è la
+                    seconda strada per riempire questo campo, quindi sta dove
+                    finisce di riempirsi. Il resto della voce (dettatura del
+                    browser, chiamata, lettura ad alta voce) resta nel «+»,
+                    perché sono modalità, non un gesto singolo. */}
                 <button
                   type="button"
                   onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
                     isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
                   }`}
                   title={isRecording ? 'Stop recording (⌘⇧R)' : 'Record voice (⌘⇧R)'}
@@ -1392,30 +1398,6 @@ export function ChatInput({
                 >
                   {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
-                {!isMobile && (
-                  <OverflowMenu
-                    onExport={onExportConversation}
-                    isCallActive={isCallActive}
-                    isRecording={isRecording}
-                    isListening={isListening}
-                    isSpeaking={isSpeaking}
-                    autoTTS={autoTTS}
-                    voiceCallSupported={voiceCallSupported}
-                    sttSupported={sttSupported}
-                    currentStreaming={currentStreaming}
-                    uploading={uploading}
-                    toggleCall={toggleCall}
-                    startRecording={startRecording}
-                    stopRecording={stopRecording}
-                    toggleListening={toggleListening}
-                    stopSpeaking={stopSpeaking}
-                    setAutoTTS={setAutoTTS}
-                    onSlashCommand={(cmd) => {
-                      setMessage(cmd + ' ');
-                      textareaRef.current?.focus();
-                    }}
-                  />
-                )}
                 {/*
                   Unified composer button. The four states resolve via the
                   pure `decideComposerAction` helper so this JSX no longer
@@ -1493,6 +1475,125 @@ export function ChatInput({
                   );
                 })()}
               </div>
+            </div>
+          </div>
+
+            {/* FUORI DALLA CARD: le condizioni con cui il messaggio parte.
+                Non sono il messaggio — chi risponde, quanto può fare da sé,
+                quanto ci pensa — quindi non stanno nel recinto di quello che
+                scrivi. Dentro la card restano i tre gesti che agiscono su di
+                lui: aggiungere, dettare, spedire.
+                min-w-0 le lascia stringere sotto la loro larghezza naturale e
+                overflow-x-auto le fa SCORRERE invece di tagliarle quando la
+                pane non le tiene tutte. Perché scorra davvero, i bottoni
+                dentro devono essere `flex-shrink-0`: senza, il default
+                `flex-shrink: 1` li SCHIACCIAVA invece di farli traboccare — a
+                390px di viewport i quadrati da 32px misuravano 20.9px
+                (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
+                24px), con l'icona da 16px in un box storto. */}
+            <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
+              {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
+                  decide se l'agente può toccare i tuoi file, ed è quindi la
+                  cosa da guardare prima di premere invio — non l'ultima
+                  pastiglia in fondo alla fila. Le altre tre dicono COME
+                  risponde (veloce, quale modello, quanto ci pensa) e stanno
+                  dietro, nell'ordine in cui le si cambia. */}
+              {onAutonomyChange && (
+                <AutonomyPicker value={autonomy ?? null} onChange={onAutonomyChange} />
+              )}
+              {/* Il «Plan Mode» stava QUI, ed era il secondo modo di fare la
+                  stessa cosa: un interruttore in localStorage che iniettava
+                  una RICHIESTA nel prompt («sei in plan mode, non toccare
+                  niente») e che nessuno faceva rispettare, a quattro bottoni
+                  di distanza dal selettore di autonomia — stessa icona, colore
+                  diverso — che invece passa `--permission-mode plan` alla CLI
+                  e i file non li fa proprio scrivere. Potevano contraddirsi,
+                  e non si sincronizzava fra dispositivi.
+                  La leva ora è una: «Propone prima» nel selettore qui accanto.
+                  Il blocco di prompt non è andato perso — lo inietta la route
+                  quando l'autonomia è `ask` (routes/chat.ts), così il piano
+                  esce nel formato di sempre. */}
+              {onToggleFastMode && fastUi && (
+                <button
+                  type="button"
+                  onClick={onToggleFastMode}
+                  className={`w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-px rounded-lg transition-colors ${
+                    fastUi.pressed
+                      ? 'text-amber-500 bg-amber-500/10'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={fastUi.title}
+                  aria-label="Toggle fast mode"
+                  aria-pressed={fastUi.pressed}
+                  data-testid="chat-input-fast-mode"
+                >
+                  {/* IL LAMPO VUOL DIRE VELOCITÀ, E SOLO QUELLA.
+                      Ne aveva dieci, di significati: il modello, l'autonomia
+                      «Agisce», la corsa di tool, i processi del progetto, un
+                      cron armato, un KPI, `/status`, la pane morta. Tre di
+                      quelli stavano in QUESTA riga insieme a questo, quindi il
+                      lampo non insegnava niente a nessuno. Adesso resta qui e
+                      nella sezione «Prestazioni» del changelog — stessa cosa,
+                      detta due volte. Prima di metterne un altro: dice
+                      «veloce»? Se no, non è questo il glifo.
+                      PIENO quando è acceso: in una riga tutta di contorni il
+                      solo colore ambra non bastava a dire «attivo». */}
+                  <Zap size={fastUi.costMultiplier ? 14 : 16} fill={fastUi.pressed ? 'currentColor' : 'none'} />
+                  {/* Quanto costa: 2× lo stesso modello a velocità normale, dal
+                      listino che la CLI scrive nei suoi stessi documenti
+                      (10$/50$ contro 5$/25$ per 1M). «Più veloce» da solo non
+                      è un'informazione finché non dici quanto costa.
+                      Non interattivo: un badge che entrasse nel conteggio dei
+                      bersagli tattili sarebbe un secondo bottone da 12px dentro
+                      il primo. */}
+                  {fastUi.costMultiplier && (
+                    <span
+                      className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
+                      data-testid="fast-mode-cost"
+                    >{fastUi.costMultiplier}×</span>
+                  )}
+                </button>
+              )}
+              {!isDraftTopic && (
+                <button
+                  ref={contextBtnRef}
+                  type="button"
+                  onClick={handleContextRingClick}
+                  className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-colors ${
+                    showContextPopover
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={ringTitle}
+                  aria-label="Toggle context inspector"
+                  aria-haspopup="dialog"
+                  aria-expanded={showContextPopover}
+                  data-testid="chat-input-context-ring"
+                  data-context-percent={ringPercent}
+                  data-context-source={realContext ? 'model' : 'envelope'}
+                >
+                  <ContextRing percent={ringPercent} level={realContext?.level} size={14} />
+                </button>
+              )}
+              {onProviderOverrideChange && (
+                <ProviderModelPicker
+                  override={providerOverride ?? null}
+                  defaultProviderLabel={defaultProviderLabel}
+                  onChange={onProviderOverrideChange}
+                  onOpenSettings={onOpenSettings}
+                />
+              )}
+              {/* The knobs you change MID conversation, in their own surface:
+                  effort used to be buried under a "Provider & model" trigger,
+                  and autonomy (the permission mode) was reachable only from
+                  the settings modal behind a tab right-click. */}
+              <SessionConfigPopover
+                effort={effort ?? null}
+                onEffortChange={onEffortChange}
+                effortSupported={!!onEffortChange}
+                providerOverride={providerOverride ?? null}
+                defaultProviderLabel={defaultProviderLabel}
+              />
             </div>
 
             {/* Popover menus (anchored to form) */}

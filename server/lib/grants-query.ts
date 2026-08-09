@@ -31,12 +31,29 @@ export interface Principal {
  *  tabella, quindi il vocabolario si mette adesso o si paga due volte. */
 export type GrantLevel = "read" | "deny";
 
+/**
+ * Una riga di concessione, come è scritta.
+ *
+ * NON c'è la PROVENIENZA, e l'assenza è deliberata. Le colonne `via_type` /
+ * `via_id` restano dichiarate dalla 083: descrivono una riga DERIVATA da un
+ * contenitore («condividi un progetto, e i suoi task nascono con
+ * `via=('project', X)`»). Quel contenitore non esiste — `ResourceType` è
+ * `task | topic`, non c'è un progetto da condividere — e sull'asse SOGGETTO la
+ * 084 ha scelto la strada opposta: niente righe derivate, l'appartenenza a una
+ * persona o a un'organizzazione si espande in LETTURA (`resolvePrincipals`).
+ * Quindi nessuno le scriveva, e leggerle produceva sempre `null`: il pannello
+ * di condivisione aveva un ramo «via …» che non poteva accendersi mai — una
+ * riga di interfaccia che promette una risposta che il dato non ha.
+ *
+ * Le colonne non si droppano: sono schema già applicato, e una migration sul
+ * DB vivo per togliere due colonne inerti costa un rischio senza comprare
+ * niente. Il giorno che un contenitore condivisibile esisterà davvero, si
+ * rimettono qui — insieme al suo scrittore, non prima.
+ */
 export interface GrantRow {
   subjectType: SubjectKind;
   subjectId: string;
   level: GrantLevel;
-  viaType: string | null;
-  viaId: string | null;
   grantedAt: number;
 }
 
@@ -83,7 +100,7 @@ export function grantRowsFor(
   }
 
   const righe = db.query(
-    `SELECT subject_type, subject_id, level, via_type, via_id, granted_at
+    `SELECT subject_type, subject_id, level, granted_at
        FROM grants
       WHERE resource_type = ? AND resource_id = ? AND (${rami.join(" OR ")})
       ORDER BY (level = 'deny') DESC, granted_at ASC`,
@@ -93,8 +110,6 @@ export function grantRowsFor(
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
     level: r.level === "deny" ? "deny" : "read",
-    viaType: r.via_type === null || r.via_type === undefined ? null : String(r.via_type),
-    viaId: r.via_id === null || r.via_id === undefined ? null : String(r.via_id),
     grantedAt: Number(r.granted_at ?? 0),
   }));
 }
@@ -113,10 +128,10 @@ export function hasGrant(
 
 /**
  * TUTTE le ragioni per cui questi principali vedono la risorsa, non solo la
- * prima. Serve a rispondere «perché costui la vede?» — la domanda per cui
- * `via_type`/`via_id` esistono — e un elenco che si ferma alla prima risposta
- * non la risponde: toglierne una lascerebbe l'accesso in piedi per un'altra,
- * senza che niente lo dica.
+ * prima. La ragione è il SOGGETTO su cui la riga è stata scritta — questo
+ * dispositivo, la sua persona, una sua organizzazione — e un elenco che si
+ * ferma alla prima non risponde alla domanda: toglierne una lascerebbe
+ * l'accesso in piedi per un'altra, senza che niente lo dica.
  */
 export function reasonsFor(
   db: Db,
@@ -190,7 +205,7 @@ export function subjectsOf(
   resourceId: string,
 ): GrantRow[] {
   const righe = db.query(
-    `SELECT subject_type, subject_id, level, via_type, via_id, granted_at
+    `SELECT subject_type, subject_id, level, granted_at
        FROM grants WHERE resource_type = ? AND resource_id = ?
       ORDER BY granted_at ASC`,
   ).all(resourceType, resourceId) as Array<Record<string, unknown>>;
@@ -199,8 +214,6 @@ export function subjectsOf(
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
     level: r.level === "deny" ? "deny" : "read",
-    viaType: r.via_type === null || r.via_type === undefined ? null : String(r.via_type),
-    viaId: r.via_id === null || r.via_id === undefined ? null : String(r.via_id),
     grantedAt: Number(r.granted_at ?? 0),
   }));
 }
@@ -259,21 +272,21 @@ export function putGrant(
   subject: Principal,
   resourceType: ResourceType,
   resourceId: string,
-  opts: { level?: GrantLevel; viaType?: string | null; viaId?: string | null; grantedAt: number },
+  opts: { level?: GrantLevel; grantedAt: number },
 ): void {
   db.query(
     `INSERT OR IGNORE INTO grants
-       (id, subject_type, subject_id, resource_type, resource_id, level, via_type, via_id, granted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, subject_type, subject_id, resource_type, resource_id, level, granted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     crypto.randomUUID(), subject.kind, subject.id, resourceType, resourceId,
-    opts.level ?? "read", opts.viaType ?? null, opts.viaId ?? null, opts.grantedAt,
+    opts.level ?? "read", opts.grantedAt,
   );
 }
 
-/** Toglie una concessione esplicita. Non tocca quelle derivate da un
- *  contenitore: togliere a mano ciò che un contenitore ha dato lascerebbe il
- *  contenitore a riscriverlo. */
+/** Toglie una concessione. Ogni riga di `grants` è esplicita — non esiste una
+ *  riga derivata da un contenitore (vedi `GrantRow`) — quindi qui non c'è
+ *  niente da distinguere: si toglie ciò che qualcuno ha dato. */
 export function dropGrant(
   db: Db,
   subject: Principal,
@@ -285,9 +298,19 @@ export function dropGrant(
   ).run(subject.kind, subject.id, resourceType, resourceId);
 }
 
-/** Il principale di un dispositivo. Esiste per non far scrivere
- *  `{kind:'device', id}` a mano in giro: oggi è l'unico soggetto, e proprio per
- *  questo è il punto da cui si vedrà cosa cambia. */
+/**
+ * Il SOLO principale-ferro di un dispositivo — scorciatoia per non scrivere
+ * `{kind:'device', id}` a mano.
+ *
+ * NON è la risposta a «cosa può vedere questo dispositivo?»: quella è
+ * `resolvePrincipals(db, deviceId).list`, che aggiunge la persona e le sue
+ * organizzazioni vive. Usare questo al suo posto produce un sottoinsieme
+ * silenzioso — è già successo, in `/api/auth/shared` e nell'elenco delle schede
+ * di un ospite: il cancello concedeva una risorsa condivisa con la PERSONA e i
+ * due elenchi non la mostravano, cioè «te l'ho condivisa» / «io non vedo
+ * niente». Da qui in poi resta un aiuto per i test, dove il soggetto è scelto a
+ * mano ed è esattamente il dispositivo.
+ */
 export function deviceP(deviceId: string): Principal[] {
   return [{ kind: "device", id: deviceId }];
 }

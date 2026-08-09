@@ -21,7 +21,7 @@ All builds and their checksums live on the [Releases](https://github.com/armonia
 
 > **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** shell was **archived in v2.0.0** — its source is preserved on the `electron-archive` branch and can be restored from there if ever needed. The legacy Electron installers (`v*` tags) remain downloadable on the Releases page but are no longer built or updated.
 
-> On first launch macOS may warn that the app is from an unidentified developer — right-click the app and choose **Open**. Windows SmartScreen may ask you to confirm. (Signed/notarized builds are tracked in the issues.)
+> **macOS first launch.** Builds are not notarized yet, so macOS refuses the first launch with *"Apple could not verify Topics is free of malware"*. Since macOS Sequoia the Control-click → Open bypass **no longer works** — the path that does is: **System Settings → Privacy & Security →** scroll to **Security → Open Anyway →** authenticate → **Open** in the dialog that follows. You only do this once. Windows SmartScreen may ask you to confirm.
 
 ## Auto-update
 

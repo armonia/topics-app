@@ -269,7 +269,7 @@
    * piano INTERMEDIO — o stava col chrome o spariva nel bianco. In scuro sono
    * 1,076 e 1,061, cioè due gradini pari. La pagina scende a 96% di lightness:
    * chrome↔pagina 1,075:1 (lo scuro fa 1,076) e pagina↔pane 1,098:1. */
-  --bg: hsl(220 16% 96%);
+  --bg: hsl(220 5.6% 96%);
   --bg-surface: #ffffff;
   /* IL CHROME — la superficie della NAVIGAZIONE (sidebar: header, albero,
    * barra di stato). Un gradino SOTTO la pagina, non sopra: il chrome
@@ -283,19 +283,19 @@
    * Sotto Tauri/mac lo stesso token diventa translucido (vedi §vibrancy in
    * fondo): la tinta è la stessa, cambia solo l'alpha che lascia passare il
    * materiale nativo. UNA tinta, due gradi di opacità — mai due tinte. */
-  --chrome-bg: hsl(220 16% 93%);
-  --bg-elevated: hsl(220 14% 98.1%);
-  --bg-hover: hsl(220 14% 96.3%);
+  --chrome-bg: hsl(220 5.6% 93%);
+  --bg-elevated: hsl(220 4.9% 98.1%);
+  --bg-hover: hsl(220 4.9% 96.3%);
   /* Le superfici del CODICE stanno nella stessa famiglia fredda del resto del
    * tema — hue 220, saturazione bassa — non in una loro. Misurato: erano a hue
    * 215/240 con il 28% di saturazione, il DOPPIO della palette dell'app, e in
    * tema chiaro leggevano come due riquadri blu notte in mezzo al bianco. La
    * scelta di tenerle SCURE resta (una fence si stacca dal testo), quella di
    * tenerle BLU no: era solo un residuo. */
-  --bg-code: hsl(220 12% 13%);
+  --bg-code: hsl(220 4.2% 13%);
   --bg-panel: #1e1e1e;
-  --bg-input: hsl(220 14% 98.1%);
-  --bg-inset: hsl(220 14% 97.4%);
+  --bg-input: hsl(220 4.9% 98.1%);
+  --bg-inset: hsl(220 4.9% 97.4%);
   /* La bolla dei TUOI messaggi.
    * Grigio di sistema, non il blu del marchio: in questa app il blu è
    * l'accento delle AZIONI e del caricamento, e un messaggio non è un'azione.
@@ -309,32 +309,32 @@
    * Il valore è RITARATO quando la pagina è scesa a 96%: #e2e5ea, che su
    * #f8f9fa dava i suoi 1,20:1, sulla pagina nuova si chiudeva a 1,15:1. Lo
    * stacco che il disegno DICHIARA è il numero, non l'hex. */
-  --bg-user-bubble: hsl(220 14% 88.5%);
-  --text: hsl(220 10% 10.6%);
-  --text-secondary: hsl(220 8% 36.4%);
-  --text-tertiary: hsl(220 8% 45.3%);
-  --text-muted: hsl(220 8% 43.2%);
-  --text-placeholder: hsl(220 8% 59.2%);
-  --text-heading: hsl(220 9% 20.7%);
-  --text-body: hsl(220 9% 27.6%);
-  --text-faint: hsl(220 8% 55.4%);
-  --text-hover: hsl(220 8% 34.3%);
-  --border: hsl(220 14% 91.4%);
-  --border-light: hsl(220 14% 88.5%);
-  --border-subtle: hsl(220 14% 94.4%);
-  --border-input: hsl(220 14% 88.5%);
-  --spinner-track: hsl(220 10% 80.7%);
+  --bg-user-bubble: hsl(220 4.9% 88.5%);
+  --text: hsl(220 3.5% 10.6%);
+  --text-secondary: hsl(220 2.8% 36.4%);
+  --text-tertiary: hsl(220 2.8% 45.3%);
+  --text-muted: hsl(220 2.8% 43.2%);
+  --text-placeholder: hsl(220 2.8% 59.2%);
+  --text-heading: hsl(220 3.1% 20.7%);
+  --text-body: hsl(220 3.1% 27.6%);
+  --text-faint: hsl(220 2.8% 55.4%);
+  --text-hover: hsl(220 2.8% 34.3%);
+  --border: hsl(220 4.9% 91.4%);
+  --border-light: hsl(220 4.9% 88.5%);
+  --border-subtle: hsl(220 4.9% 94.4%);
+  --border-input: hsl(220 4.9% 88.5%);
+  --spinner-track: hsl(220 3.5% 80.7%);
   --resize-handle: #e5e7eb;
   --skeleton-from: #e5e7eb;
   --skeleton-mid: #f3f4f6;
-  --code-bg: hsl(220 12% 17%);
+  --code-bg: hsl(220 4.2% 17%);
   --code-text: #f9fafb;
   --code-inline-bg: #f3f4f6;
   --code-inline-text: #374151;
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
-  --disabled-bg: hsl(220 10% 80.7%);
+  --disabled-bg: hsl(220 3.5% 80.7%);
   /* (I grigi qui sopra che restano in esadecimale — `#e5e7eb`, `#f3f4f6`,
    * `#d1d5db`, `#6b7280`, `#374151`, `#9ca3af` — sono la scala `gray` di
    * Tailwind, che è GIÀ fredda: stanno nella famiglia, non fuori. Quelli che ne
@@ -412,8 +412,8 @@
    * coi numeri, accanto a `color-scheme: light` sopra. */
   color-scheme: dark;
 
-  --bg: hsl(222 16% 8.5%);
-  --bg-surface: hsl(222 14% 11%);
+  --bg: hsl(222 5.6% 8.5%);
+  --bg-surface: hsl(222 4.9% 11%);
   /* Il chrome in dark è il GEMELLO OPACO del vetro che l'app desktop mostra
    * già da sempre (`hsl(224 26% 4.5% / .55)` più sotto): stessa tinta, senza
    * alpha perché sul web e in PWA non c'è nessuna vibrancy dietro cui stare.
@@ -421,18 +421,18 @@
    * stato iOS, così su iPhone status bar e sidebar si leggono come una cosa
    * sola invece di fare due gradini. */
   --chrome-bg: hsl(224 26% 4.5%);
-  --bg-elevated: hsl(220 13% 14%);
-  --bg-hover: hsl(220 12% 17%);
-  --bg-code: hsl(220 12% 9%);
-  --bg-panel: hsl(222 14% 11.5%);
-  --bg-input: hsl(220 13% 13%);
-  --bg-inset: hsl(222 15% 10%);
+  --bg-elevated: hsl(220 4.5% 14%);
+  --bg-hover: hsl(220 4.2% 17%);
+  --bg-code: hsl(220 4.2% 9%);
+  --bg-panel: hsl(222 4.9% 11.5%);
+  --bg-input: hsl(220 4.5% 13%);
+  --bg-inset: hsl(222 5.2% 10%);
   /* In dark il gradino va nell'altro verso: la bolla è più CHIARA della
    * pagina. Sopra `--bg-hover` (17%) così si distingue anche da una riga in
    * hover, e sulla stessa tinta fredda del resto del tema.
    * Misurato: 1,57:1 dalla pagina, 1,23:1 da una riga in hover (a 20% erano
    * 1,10:1 — indistinguibile), testo a 9,6:1. */
-  --bg-user-bubble: hsl(220 12% 23%);
+  --bg-user-bubble: hsl(220 4.2% 23%);
   --text: #e6e8ec;
   --text-secondary: #aab0ba;
   --text-tertiary: #969ca6;
@@ -442,17 +442,17 @@
   --text-body: #bbbec5;
   --text-faint: #7d838d;
   --text-hover: #ccced4;
-  --border: hsl(220 11% 18%);
-  --border-light: hsl(220 10% 24%);
-  --border-subtle: hsl(220 12% 15%);
-  --border-input: hsl(220 10% 21%);
+  --border: hsl(220 3.8% 18%);
+  --border-light: hsl(220 3.5% 24%);
+  --border-subtle: hsl(220 4.2% 15%);
+  --border-input: hsl(220 3.5% 21%);
   --spinner-track: #555555;
   --resize-handle: #374151;
   --skeleton-from: #374151;
   --skeleton-mid: #4b5563;
-  --code-bg: hsl(220 12% 11%);
+  --code-bg: hsl(220 4.2% 11%);
   --code-text: #f9fafb;
-  --code-inline-bg: hsl(220 12% 26%);
+  --code-inline-bg: hsl(220 4.2% 26%);
   --code-inline-text: #e5e7eb;
   --blockquote-border: #4b5563;
   --blockquote-text: #9ca3af;
@@ -485,9 +485,9 @@
  * escono in un portale alla radice del body e restano sui token normali.
  *
  * Valori scelti sul numero, non a occhio (script in scratchpad/solve.mjs):
- *   terziario hsl(220 8% 42%)  = #636874 → 4,72:1   (era 4,19)
- *   bordo     hsl(220 14% 84%) = #d0d4dc → 1,256:1  (era 1,036)
- *   sottile   hsl(220 14% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
+ *   terziario hsl(220 2.8% 42%)  = #636874 → 4,72:1   (era 4,19)
+ *   bordo     hsl(220 4.9% 84%) = #d0d4dc → 1,256:1  (era 1,036)
+ *   sottile   hsl(220 4.9% 88%) = #dcdfe5 → 1,129:1  (era 1,038)
  * La tinta è fredda come il chrome: un grigio neutro su un fondo blu-grigio
  * si legge sporco.
  *
@@ -500,22 +500,20 @@
  * stessi numeri, o il terziario e i capelli tornano sotto soglia esattamente
  * come erano tornati qui. */
 [role="navigation"][aria-label="Topics sidebar"],
-[data-testid="project-sidebar"],
-[data-testid="project-sidebar-rail"] {
-  --text-tertiary: hsl(220 8% 42%);
-  --border: hsl(220 14% 84%);
-  --border-subtle: hsl(220 14% 88%);
+[data-testid="project-sidebar"] {
+  --text-tertiary: hsl(220 2.8% 42%);
+  --border: hsl(220 4.9% 84%);
+  --border-subtle: hsl(220 4.9% 88%);
 }
 /* Il gemello scuro NON è ridondante: la regola qui sopra ha specificità (0,2,1)
    e batterebbe il blocco `.dark` (0,1,0), quindi senza questa riga il tema
    scuro erediterebbe i valori CHIARI dentro la sidebar. I valori sono quelli
    di `.dark`, ripetuti solo per rivincere. */
 .dark [role="navigation"][aria-label="Topics sidebar"],
-.dark [data-testid="project-sidebar"],
-.dark [data-testid="project-sidebar-rail"] {
+.dark [data-testid="project-sidebar"] {
   --text-tertiary: #969ca6;
-  --border: hsl(220 11% 18%);
-  --border-subtle: hsl(220 12% 15%);
+  --border: hsl(220 3.8% 18%);
+  --border-subtle: hsl(220 4.2% 15%);
 }
 
 /* SU UN TELEFONO C'È UNA SUPERFICIE SOLA, E QUINDI UN COLORE SOLO.
@@ -557,13 +555,13 @@
      * più vicino all'occhio. Il valore chiaro sta qui perché è anche il
      * FALLBACK: se un giorno sparisse il blocco scuro, un popover troppo chiaro
      * si vede, uno invisibile no. */
-    --popover-bg: hsl(220 16% 88%);
+    --popover-bg: hsl(220 5.6% 88%);
     /* DUE TOKEN RITARATI, e non per gusto: MISURATI sul fondo nuovo.
      * · La bolla dei tuoi messaggi era #e2e5ea, un gradino sotto #f8f9fa. Sul
      *   fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      *   bolla SPARIVA. Riportata al distacco che il disegno dichiara (~1,20:1,
-     *   vedi il commento del token in :root): hsl(220 14% 85%) → 1,221:1.
-     * · Il placeholder #949494 cadeva a 2,56:1. hsl(220 8% 50%) → 3,55:1.
+     *   vedi il commento del token in :root): hsl(220 4.9% 85%) → 1,221:1.
+     * · Il placeholder #949494 cadeva a 2,56:1. hsl(220 2.8% 50%) → 3,55:1.
      * È la stessa regola della sidebar: un layer che si sposta si ritara i token
      * che gli stanno sopra, invece di trascinarli dietro rotti. */
   }
@@ -587,13 +585,13 @@
     /* La bolla dei tuoi messaggi era #e2e5ea, un gradino sotto #f8f9fa. Sul
      * fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      * bolla SPARIVA. Riportata al distacco che il disegno dichiara: 1,221:1. */
-    --bg-user-bubble: hsl(220 14% 85%);
+    --bg-user-bubble: hsl(220 4.9% 85%);
     /* #949494 cadeva a 2,56:1 → 3,55:1. */
-    --text-placeholder: hsl(220 8% 50%);
-    --text-tertiary: hsl(220 8% 42%);
-    --border: hsl(220 14% 84%);
-    --border-light: hsl(220 14% 80%);
-    --border-subtle: hsl(220 14% 88%);
+    --text-placeholder: hsl(220 2.8% 50%);
+    --text-tertiary: hsl(220 2.8% 42%);
+    --border: hsl(220 4.9% 84%);
+    --border-light: hsl(220 4.9% 80%);
+    --border-subtle: hsl(220 4.9% 88%);
   }
 
   /* IL PIANO CHE FLOTTA. Popover, menu, modali e composer stanno SOPRA la
@@ -618,8 +616,8 @@
    * placeholder, che era a 3,98:1 — sotto il 4,5, e questo è il fondo di TUTTA
    * la schermata, non di un angolo. */
   html.dark:not(.electron-mac) {
-    --popover-bg: hsl(222 14% 13%);
-    --text-placeholder: hsl(220 8% 48%);
+    --popover-bg: hsl(222 4.9% 13%);
+    --text-placeholder: hsl(220 2.8% 48%);
     /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
      *
      * Attilio, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
@@ -639,11 +637,11 @@
      * guadagno è un guadagno (1,24 → 1,42 su un capello che era debole), e il
      * commento del blocco chiaro qui sopra lo registra già come tale. Un bordo
      * vuole staccare; una superficie vuole stare al suo piano. */
-    --bg-elevated: hsl(220 13% 8.9%);
-    --bg-hover: hsl(220 12% 12.7%);
-    --bg-input: hsl(220 13% 7.5%);
-    --bg-inset: hsl(222 15% 6.2%);
-    --bg-user-bubble: hsl(220 12% 19.3%);
+    --bg-elevated: hsl(220 4.5% 8.9%);
+    --bg-hover: hsl(220 4.2% 12.7%);
+    --bg-input: hsl(220 4.5% 7.5%);
+    --bg-inset: hsl(222 5.2% 6.2%);
+    --bg-user-bubble: hsl(220 4.2% 19.3%);
   }
 }
 
@@ -678,8 +676,7 @@
  * Solo la proprietà `color`: `bg-primary` resta #0066ff, perché lì il problema
  * è il bianco SOPRA e su un blu più scuro migliora, non peggiora. */
 html:not(.dark) [role="navigation"][aria-label="Topics sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar"] .text-primary,
-html:not(.dark) [data-testid="project-sidebar-rail"] .text-primary {
+html:not(.dark) [data-testid="project-sidebar"] .text-primary {
   color: var(--primary-ink-chrome);
 }
 
@@ -818,6 +815,39 @@ html {
 }
 .dark .sidebar-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(100, 116, 139, 0.2);
+}
+
+/* IL PRIMO ELEMENTO DELLA COLONNA NON PORTA IL SUO MEZZO PASSO.
+ *
+ * Il ritmo della colonna è «ognuno porta metà passo»: mezzo dal contenitore che
+ * scorre, mezzo dal margine dell'elemento, e la somma fa sempre COLUMN_GAP.
+ * Regge fra due elementi. NON regge in cima, perché sopra la lista non c'è un
+ * bordo: c'è l'header, che è alto 40 (`h-10`, il contratto della riga di chrome)
+ * attorno a un contenuto da 28 — quindi porta già SEI pixel suoi sotto il
+ * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
+ * DIPINTE, dove fra due card ce ne sono sei.
+ *
+ * È la «doppia spaziatura sotto la topbar della sidebar» (Attilio, 08 e 09/08,
+ * tre volte). La sua diagnosi era esatta: «derivante forse dal fatto che prima
+ * c'era il bordo sotto» — con il filo si leggeva «spazio, linea, spazio», cioè
+ * un separatore; tolto il filo restano due spazi in fila.
+ *
+ * Si toglie quello della LISTA, non quello dell'header: l'header non può
+ * cedere i suoi 6 senza rompere l'allineamento con la barra delle tab (stessa
+ * altezza, stesso incasso — vedi CHROME_ROW_CONTENT_H).
+ *
+ * DUE livelli, e servono entrambi: il primo figlio della colonna è a volte la
+ * card stessa (la riga della board), a volte un contenitore (`SidebarRowList`,
+ * la sezione dei fissati) la cui prima card porta il margine. Il terzo livello
+ * NON si aggiunge: da lì in giù ci sono glifi ed etichette, e azzerarne il
+ * margine vorrebbe dire toccare cose che con il ritmo della colonna non
+ * c'entrano. Che la regola arrivi davvero fin dove serve non è affidato a
+ * questo commento: lo misura `tests/e2e/sidebar-header-gap.spec.ts`, sul primo
+ * elemento dipinto, qualunque esso sia.
+ */
+.sidebar-column > :first-child,
+.sidebar-column > :first-child > :first-child {
+  margin-top: 0;
 }
 
 /* Resize handle styles */
@@ -1298,12 +1328,18 @@ input[type="range"]::-webkit-slider-thumb {
  *
  * `> *` è figlio DIRETTO: le righe annidate dell'albero non lo prendono, dove
  * l'indentazione separa già e una fila di card farebbe una tabella. */
-@layer components {
-  @media (width < 48rem) {
-    .sidebar-l1-rows > * { background-color: color-mix(in srgb, #000 8%, transparent); }
-    .dark .sidebar-l1-rows > * { background-color: color-mix(in srgb, #fff 10%, transparent); }
-  }
-}
+/* IL FONDO STA SULLA CARD, NON SULLA RIGA — correzione dell'08/08.
+ *
+ * Queste due regole dipingevano il figlio DIRETTO del contenitore di primo
+ * livello, cioè la riga INTERA, da bordo a bordo. Il risultato era una fascia a
+ * tutta larghezza: «sono full width i progetti invece di essere card... hanno
+ * uno sfondo forse la riga» (Attilio). Vero, ed era il contrario di ciò che
+ * servivano a fare — nascevano per togliere i filetti separatori, e hanno
+ * sostituito una linea con una banda.
+ *
+ * Il riposo adesso vive dentro `sidebarRowCard`, che è la scatola giusta:
+ * rientrata di 6px e arrotondata, quindi si legge come una tab. Stessi valori,
+ * un contenitore in meno. */
 
 .tap-expand-y { position: relative; }
 @media (pointer: coarse) {
@@ -1412,6 +1448,57 @@ html.electron-mac.dark .edge-lit::before {
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
+}
+
+/* LO STESSO RIFLESSO, MA SOLO DOVE C'È UNA CARD DA CHIUDERE.
+ *
+ * `edge-lit` disegna la FORMA di una superficie, quindi va messo solo su una
+ * card che un fondo ce l'ha: su una riga trasparente diventerebbe un rettangolo
+ * attorno a ogni voce dell'albero, cioè esattamente le linee divisorie che
+ * questo file esiste per togliere. È la regola scritta in `sidebarRowCard`, ed
+ * è giusta — sul DESKTOP.
+ *
+ * Sotto i 768px però la riga a riposo un fondo ce l'ha (RESTING_FILL_MOBILE:
+ * là pagina e chrome collassano in una superficie sola e senza campitura le
+ * card sparirebbero). Da quel momento tessera e tab hanno il riflesso e la riga
+ * no, pur essendo tre presentazioni della stessa cosa: il bordo della riga
+ * resta aperto in basso mentre quello della tessera accanto è chiuso.
+ *
+ * Una classe a parte e non una variante `max-md:` perché `edge-lit` è una
+ * classe vera con uno pseudo-elemento, e i prefissi di Tailwind non la
+ * raggiungono. La media query è la stessa di `max-md:` (48rem), scritta come
+ * `not all and (min-width: …)` per pareggiare ciò che Tailwind emette. */
+@media not all and (min-width: 48rem) {
+  .edge-lit-mobile { position: relative; }
+  .edge-lit-mobile::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.4),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
+      inset 0 0 0 1px rgb(0 0 0 / 0.04);
+  }
+  .dark .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
+      inset 0 0 0 1px rgb(255 255 255 / 0.045);
+  }
+  html.electron-mac .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.32),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
+      inset 0 0 0 1px rgb(0 0 0 / 0.03);
+  }
+  html.electron-mac.dark .edge-lit-mobile::before {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
+      inset 0 0 0 1px rgb(255 255 255 / 0.035);
+  }
 }
 
 /* Il margine del composer, come variabile: serve a `max(…)` nel confronto con
@@ -1559,6 +1646,18 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
   /* Senza movimento resta il segnale, che è il punto: chi ha chiesto meno
      animazioni non ha chiesto meno feedback. */
   [data-pressing] { transform: none; }
+}
+
+/* Il composer che scende dal centro al fondo quando la chat smette di essere
+   vuota (ChatPane). Solo `transform`: nessun layout, nessuna rimisura della
+   lista virtualizzata: il compositore lo muove senza toccare il main thread.
+   La curva è quella delle superfici di sistema — parte decisa, arriva senza
+   rimbalzo. */
+.composer-dock-slide {
+  transition: transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-dock-slide { transition: none; }
 }
 
 /* Mobile drawer animation */
@@ -2087,18 +2186,35 @@ html.electron-mac #root {
   overflow: hidden;
 }
 
-/* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
- * Single translucent layer = clean frost, no compounding. */
+/* IL VELO UNICO DELLA FINESTRA È IL VELO DEL CHROME.
+ *
+ * Erano due mani: questa, stesa una volta dal guscio dell'app, e quella del
+ * chrome che le righe delle tab aggiungevano sopra. Il tono che ne usciva —
+ * #151519 — è quello che vale, ed era l'unico punto della finestra ad averlo:
+ * tutto il resto si fermava alla prima mano (#242426). Il gradino di quindici
+ * livelli sul bordo basso delle barre era esattamente la seconda mano.
+ * («Era meglio la versione più scura», Attilio 09/08, scegliendo il tono scuro
+ * PER TUTTO e non solo per le barre.)
+ *
+ * Quindi la seconda mano non si toglie e non si sposta: DIVENTA la prima. La
+ * tinta è quella del chrome, e l'alpha sale da 0,5 a 0,72 perché una mano sola
+ * deve arrivare dove due ne arrivavano insieme. Il conto, con la vibrancy
+ * misurata dietro la finestra (53,53,51):
+ *   due mani  0,55·(8,10,14) su [0,5·(19,21,27) su V] = 20,6 22,2 25,3
+ *   una mano  0,72·(8,10,14) su V                     = 20,6 22,0 24,4
+ * cioè lo stesso pixel, con la stessa vibrancy che continua a passare (28%
+ * contro il 22,5% di prima: la finestra non diventa opaca, cambia solo dove il
+ * velo sta).
+ *
+ * Il ramo chiaro ripete la tinta del suo chrome (hue 220, sat 16%, L 93%) con
+ * la stessa alpha: la convenzione di questo file è «stessa tinta, cambia solo
+ * il grado», e due tinte che si chiamano uguale sono la deriva che il commento
+ * precedente era già stato scritto per chiudere. */
 html.electron-mac.dark {
-  --bg: hsl(222 16% 9% / 0.5);
+  --bg: hsl(224 26% 4.5% / 0.72);
 }
 html.electron-mac:not(.dark) {
-  /* La stessa tinta di `:root` (hue 220, sat 16%, L 96%), come il ramo scuro qui
-   * sopra ripete quella del suo `.dark`: cambia solo l'alpha. Portava sat 24% e
-   * L 97% — un'altra tinta, non un altro grado di trasparenza — cioè la pagina
-   * del desktop e quella del web erano due colori diversi che si chiamavano
-   * uguale. */
-  --bg: hsl(220 16% 96% / 0.55);
+  --bg: hsl(220 16% 93% / 0.72);
 }
 
 /* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
@@ -2174,32 +2290,177 @@ html.electron-mac:not(.dark) {
    * il chrome chiaro, una sul web e una sul desktop. */
   --chrome-bg: hsl(220 16% 93% / 0.55);
 }
-/* I due selettori restano SDOPPIATI per tema anche se il valore ora è un solo
-   token: scriverli come `html.electron-mac .chrome-glass` farebbe scendere la
-   specificità da (0,3,1) a (0,2,1), e a quel punto pareggerebbe con le quattro
-   regole `background-color: transparent !important` più sotto (pane terminale,
-   cella col browser nativo, `.pane-frost`, `[role="region"][aria-label$=" panel"]`),
-   che vincerebbero per ordine di sorgente. Oggi nessun nodo porta insieme
-   `.chrome-glass` e uno di quei selettori, quindi non si vedrebbe — ma è un
-   difetto latente che aspetta il primo che li fa incontrare. */
+/* NESSUNA SUPERFICIE DIPINGE, PERCHÉ IL VELO LO STENDE GIÀ LA FINESTRA.
+ *
+ * Qui ogni vetro di chrome — la sidebar dei topic, i gusci delle pane, la
+ * colonna del progetto — stendeva la sua mano di `--chrome-bg` sopra il velo
+ * del guscio. Con il velo della finestra portato al tono del chrome (blocco
+ * `--bg` più su) una seconda mano non è più «la tinta del chrome»: è la tinta
+ * del chrome DUE VOLTE, cioè una superficie più scura di tutte le altre. Il
+ * difetto che questo blocco produrrebbe è lo stesso che la regola
+ * anti-doppio-strato qui sotto esisteva per impedire — solo spostato di un
+ * livello.
+ *
+ * Quindi la regola annidata sparisce con la sua causa: non serve più spegnere
+ * il vetro DENTRO un altro vetro, perché non ne dipinge nessuno. Un velo, uno
+ * solo, steso una volta dal guscio dell'app; tutto il resto è trasparente e il
+ * vetro lo fa il `backdrop-filter`. Ciò che si guadagna non è un pixel: è che
+ * la tinta di una superficie non dipende più da DOVE sta nell'albero — che è
+ * stata la causa di ogni divergenza di questa famiglia (la barra di progetto
+ * contro quella di primo livello, il 09/08).
+ *
+ * I selettori restano sdoppiati per tema: `html.electron-mac .chrome-glass`
+ * scenderebbe da (0,3,1) a (0,2,1) e pareggerebbe con le quattro regole
+ * `transparent !important` più sotto (pane terminale, cella col browser nativo,
+ * `.pane-frost`, `[role="region"][aria-label$=" panel"]`), che vincerebbero per
+ * ordine di sorgente. Oggi dicono tutte la stessa cosa, quindi non si vedrebbe
+ * — ma è un difetto latente che aspetta il primo che le fa divergere. */
 html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac.dark .chrome-glass,
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: var(--chrome-bg) !important;
-}
-
-/* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
- * `.chrome-glass` must NOT repaint its tint — only the OUTERMOST one in any
- * subtree paints. Otherwise the 0.55 alpha compounds (2 layers = darker than 1)
- * and surfaces drift apart: e.g. the project sidebar (sidebar + group-cell = 2)
- * vs a terminal (container + group-cell = 2) both ended up darker than intended,
- * and any deeper nesting darker still. Collapsing nested glass to transparent
- * makes every frosted chrome surface render exactly one identical tint over the
- * shared base frost. */
-html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
+
+/* L'ALTRA RIGA DI CHROME: quella che sta NEL FLUSSO.
+ *
+ * `.pane-chrome-bar` è l'overlay sopra la conversazione. La barra degli
+ * indirizzi di una pane browser fa lo stesso mestiere — è la testata della pane,
+ * alta 40 come le altre — ma non può essere un overlay: sotto di lei c'è una
+ * pagina web vera, che non deve scorrerle sotto.
+ *
+ * Aveva quindi il solo `chrome-glass`, e sotto la shell mac finiva nella stessa
+ * trappola della barra del progetto: annidata dentro un altro vetro, la regola
+ * anti-doppio-strato la spegneva e la sua tinta usciva diversa da quella della
+ * riga sopra. «Ancora alcuni colori non sono uniformati (es. browser)»
+ * (Attilio, 09/08): era questo, e la causa è la stessa di prima — la posizione
+ * nel DOM, non una scelta.
+ *
+ * Sul web dipinge `--chrome-overlay-bg`, la stessa tinta della barra delle tab,
+ * che su una superficie chiara compone esattamente sullo stesso valore. Il
+ * `border-b` resta, e non è un'incoerenza con la barra delle tab che l'ha perso:
+ * là sotto c'è testo NOSTRO che deve passarci sotto, qui c'è una pagina di
+ * qualcun altro, e fra le due ci vuole un confine. */
+.chrome-row-solid {
+  background-color: var(--chrome-overlay-bg);
+}
+
+/* LA RIGA DELLE TAB È UN VETRO SOPRA IL CONTENUTO, NON UN RIPIANO SOPRA DI ESSO.
+ *
+ * Era un fratello nel flusso — barra, poi la pane sotto — separati da un
+ * `border-b`. Quel filo non era decorazione: l'avevo misurato, barra e
+ * contenuto hanno lo STESSO fondo in tutte e quattro le combinazioni
+ * (telefono/desktop × chiaro/scuro), quindi era l'UNICA cosa che diceva dove
+ * finiva l'una e cominciava l'altra. Toglierlo e basta avrebbe fuso le due zone.
+ *
+ * Quindi non si toglie e basta: si cambia il rapporto. La barra esce dal flusso
+ * (`absolute`), la conversazione parte da sopra e le passa SOTTO, e a separarle
+ * non c'è più una linea ma la PROFONDITÀ — il blur dice «questo è davanti»
+ * meglio di quanto un pixel di bordo dicesse «questo è un'altra zona».
+ * (Attilio, 08/08: «rimuovere la linea sotto la tab bar, togliendo anche
+ * l'eventuale sfondo, in modo da creare un effetto overlay».)
+ *
+ * IL FONDO NON SPARISCE, si fa vetro, ed è il punto che va capito prima di
+ * riabbassare l'alpha: sotto ci scorre TESTO. Senza velo, i nomi delle tab
+ * cadono su parole in movimento e il contrasto cambia riga per riga. Il velo
+ * è la stessa tinta del chrome di sempre (`--chrome-bg`) — la barra non
+ * diventa un'altra superficie, diventa la stessa superficie translucida.
+ *
+ * L'alpha è 0,72 e non 0,55 per la stessa ragione per cui i popover stanno a
+ * 0,72 (vedi `.glass-surface` più sotto): 0,55 è tarato su ciò che sale da
+ * DIETRO LA FINESTRA — la vibrancy di macOS, che è già sfocata e senza forma.
+ * Qui sotto c'è contenuto dell'app, cioè glifi ad alto contrasto, e il blur
+ * sfoca i contorni ma non abbassa il contrasto: serve corpo. Sulla shell mac
+ * l'alpha resta quella del chrome, perché lì la barra confina con la sidebar e
+ * due vetri della stessa famiglia a due opacità diverse si leggono come una
+ * giunta (è l'invariante «un solo strato» del blocco qui sopra).
+ *
+ * `@apply backdrop-blur-*` e non un `backdrop-filter` scritto a mano: Lightning
+ * CSS collassa la coppia grezza sul solo `-webkit-`, che Blink ignora, e il
+ * blur sparisce in silenzio (la stessa trappola documentata su `.glass-surface`). */
+/* IL VELO PORTA LA TINTA DELLA SUPERFICIE SU CUI GALLEGGIA, NON QUELLA DEL
+ * CHROME. È la differenza fra «la barra è la stessa superficie, translucida» —
+ * che è quello che il commento qui sopra dichiara — e «la barra è una lastra
+ * appoggiata sopra», che è quello che si vedeva.
+ *
+ * Il velo era la tinta del chrome (#080a0e in scuro, un quasi-nero), stesa su
+ * una superficie che è tutt'altra cosa (`--bg-surface`, #1b1c1d). Tinta ≠ base
+ * significa che il velo SPOSTA il colore, e lo scarto si legge come un gradino
+ * netto sul bordo basso della barra. Misurato campionando il pixel dipinto a
+ * y=0..73 (le due righe) contro y=74 (il contenuto), tutte e quattro le
+ * combinazioni:
+ *   scuro  web  #0e0f12 contro #1b1c1d  → 13
+ *   scuro  mac  #090b11 contro #0c0d12  →  3
+ *   chiaro web  #f1f2f3 contro #ffffff  → 14
+ *   chiaro mac  #eceff3 contro #f0f2f5  →  4
+ * e sulla finestra Tauri vera, dove sotto c'e la vibrancy vera invece del
+ * fondale di Chromium: #16181b contro #242527, cioe 14.
+ * («Dovrebbe esserci continuità di sfondi fra contenuto e tabbar», Attilio 09/08.)
+ *
+ * Con tinta = base l'errore è ZERO PER COSTRUZIONE, a qualunque alpha: stendere
+ * un colore su se stesso non lo sposta. L'alpha smette di essere un compromesso
+ * fra «si vede il gradino» e «si legge il testo sotto» e torna a fare una cosa
+ * sola — mascherare ciò che scorre — con il blur a fare il resto.
+ *
+ * `color-mix` e non il valore riscritto a mano: `--bg-surface` cambia con il
+ * tema, e una copia dei suoi canali qui diventerebbe una seconda verità che
+ * diverge al primo che tocca la prima. Lightning CSS non può risolverlo
+ * staticamente (dentro c'è una `var()`), quindi lo lascia passare intatto —
+ * la stessa ragione per cui la riga sopravvive alla compilazione. Un solo
+ * `:root`: la variante scura arriva da sé, perché arriva da `--bg-surface`. */
+/* NESSUN VELO, NEMMENO SUL WEB: le tab GALLEGGIANO sul contenuto.
+ *
+ * Il velo era la tinta del chrome, poi è diventato la tinta della superficie
+ * sotto (che è la ragione per cui il gradino è sparito), e a quel punto la
+ * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
+ * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
+ * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
+ * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
+ * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
+ * questa barra ha sempre voluto avere.
+ *
+ * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
+ * blocco `html.electron-mac`, e tenerne due significava che web e desktop
+ * mostravano due barre diverse per una decisione che è una sola. */
+:root { --chrome-overlay-bg: transparent; }
+.pane-chrome-bar {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  /* Sopra il contenuto, sotto i popover (z-50) e le anteprime di split. */
+  z-index: 20;
+  background-color: var(--chrome-overlay-bg);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+/* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
+ *
+ * La cella di ogni pane tiene un rientro pari all'altezza della barra
+ * (`paneCellTopInset`), così i blocchi che stanno in cima alla chat — banner,
+ * messaggi appuntati, la striscia di attività sul telefono — nascono SOTTO il
+ * vetro e si leggono. Il trascritto invece deve passarci sotto, quindi si
+ * riprende quel rientro con un margine negativo e lo restituisce come varco
+ * DENTRO il contenuto scrollato (l'`Header` di Virtuoso legge `--chat-gutter`).
+ *
+ * `:first-child` è la condizione, ed è esatta: quei blocchi o rendono un
+ * elemento o non rendono niente: quando non c'è nessuno sopra, il contenitore
+ * del trascritto È il primo figlio della colonna. Quando invece c'è un banner,
+ * il rientro della cella l'ha già speso lui — allora niente margine negativo e
+ * varco a zero, altrimenti i 40px si conterebbero due volte e sotto il banner
+ * si aprirebbe una fascia vuota.
+ *
+ * Due effetti, UNA condizione: se un giorno la regola cade, cadono insieme, e
+ * non si arriva mai allo stato misto (margine senza varco = prima riga
+ * coperta). Lo blocca `chrome-bar-overlay.spec.ts`. */
+.chat-under-chrome { --chat-gutter: 0px; }
+.chat-under-chrome:first-child {
+  margin-top: calc(-1 * var(--chrome-bar-h, 0px));
+  --chat-gutter: var(--chrome-bar-h, 0px);
+}
+
+/* La regola `!important` di `html.electron-mac .chrome-glass` (qui sopra)
+   batterebbe il fondo di `.pane-chrome-bar` — e va bene così, perché lì il
+   token che vogliamo È `--chrome-bg`. Scritto per esteso perché chi legge non
+   debba dedurlo dalla cascata. */
 
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
@@ -2224,15 +2485,15 @@ html.electron-mac .chrome-glass .chrome-glass {
  * collassato su `--chrome-bg`) e ricopiarli darebbe il distacco sbagliato.
  * Misurati sul fondo di QUI:
  *   · chiaro  #f0f1f4 su #ffffff → 1,17:1
- *   · scuro   hsl(222 14% 17%) su hsl(222 14% 11%) → 1,19:1
+ *   · scuro   hsl(222 4.9% 17%) su hsl(222 4.9% 11%) → 1,19:1
  * Il valore mobile scuro (13%) darebbe 1,05:1, cioè quasi niente.
  *
  * Solo `.glass-surface`: `.native-occlude` e il form del pannello stanno su un
  * velo scuro e il distacco ce l'hanno già — includerli sarebbe una regressione.
  * E la regola resta sotto `html.electron-mac .glass-surface`, che ha più peso:
  * la vibrancy del Mac non si tocca. */
-:root { --popover-bg: hsl(220 14% 95%); }
-.dark { --popover-bg: hsl(222 14% 17%); }
+:root { --popover-bg: hsl(220 4.9% 95%); }
+.dark { --popover-bg: hsl(222 4.9% 17%); }
 .glass-surface { background-color: var(--popover-bg, var(--bg-surface)); }
 /* L'hover di una `.glass-surface` cliccabile, e va scritto QUI.
  *
@@ -2616,14 +2877,26 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 .code-block-wrapper .hljs-meta { color: #d19a66; }
 .code-block-wrapper .hljs-title,
 .code-block-wrapper .hljs-title.function_ { color: #61afef; }
+/* IL SOLO TOKEN DELLA TAVOLOZZA CHE NON PASSAVA AA, e ora passa.
+ *
+ * `#e06c75` è il rosso di One Dark, e su questo fondo (`--code-bg`, #2a2b2d)
+ * misura 4,38:1 — sotto il 4,5 di WCAG AA per il testo piccolo, di un soffio.
+ * Gli altri sei token della tavolozza stanno fra 5,7 e 8,1: era l'unico fuori.
+ * Alzato quel tanto che basta (4,84:1) mantenendo tinta e carattere: a occhio è
+ * lo stesso rosso, al contrastometro non è più l'eccezione.
+ *
+ * È emerso di rimbalzo — il varco in cima al trascritto ha spostato la finestra
+ * virtualizzata di Virtuoso e ha fatto MONTARE un blocco di codice che il
+ * cancello a11y non aveva mai visto. Il difetto c'era da prima; a cambiare è
+ * stato solo chi lo guardava. */
 .code-block-wrapper .hljs-attr,
 .code-block-wrapper .hljs-attribute,
 .code-block-wrapper .hljs-variable,
 .code-block-wrapper .hljs-template-variable,
-.code-block-wrapper .hljs-property { color: #e06c75; }
+.code-block-wrapper .hljs-property { color: #e57781; }
 .code-block-wrapper .hljs-built_in,
 .code-block-wrapper .hljs-title.class_ { color: #e5c07b; }
-.code-block-wrapper .hljs-deletion { color: #e06c75; }
+.code-block-wrapper .hljs-deletion { color: #e57781; }
 .code-block-wrapper .hljs-emphasis { font-style: italic; }
 .code-block-wrapper .hljs-strong { font-weight: 600; }
 

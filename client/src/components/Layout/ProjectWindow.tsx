@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
@@ -73,6 +74,16 @@ export interface ProjectWindowPaneProps {
   // Report all open pane IDs inside this project (for sidebar filtering)
   onOpenPanesChange?: (paneIds: string[]) => void;
   /**
+   * Il pin della sidebar, passato di sopra e inoltrato al `GroupLayout`.
+   *
+   * Serve perché dentro un progetto le cose fissabili sono DUE — il progetto e
+   * la singola tab — e finora il menu non ne offriva nessuna: `PaneTabBar`
+   * nasconde la voce quando l'ospite non cabla `onToggleFissato`, e nessun
+   * ospite di progetto lo cablava.
+   */
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
+  /**
    * Is this project window the ACTIVE top-level tab? The host keeps every
    * visited window mounted behind `display:none`, and a hidden DOM subtree is
    * invisible to the panes inside it: without this flag the window kept telling
@@ -91,7 +102,7 @@ export function ProjectWindowPane({
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
-  onActiveTopicChange, onOpenPanesChange, isVisible: windowVisible = true,
+  onActiveTopicChange, onOpenPanesChange, onToggleFissato, isFissato, isVisible: windowVisible = true,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -164,6 +175,25 @@ export function ProjectWindowPane({
     onBrowserNavigateUrl: (url, paneId) => setBrowserNavigate({ url, paneId }),
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
+
+  /**
+   * IL POSTO DELLA BARRA CHIUSA, dentro la riga delle tab.
+   *
+   * Un nodo solo, creato qui e passato a due componenti: `GroupLayout` lo
+   * AGGANCIA in testa alla prima barra, `ProjectSidebar` ci SCRIVE dentro col
+   * suo portale quando è collassata. Chiusa, la barra di progetto smette di
+   * essere una colonna verticale con un filo laterale e diventa una fila di
+   * card in linea con le tab.
+   *
+   * Un `HTMLElement` e non uno stato con una ref: il nodo esiste già al primo
+   * render, quindi non c'è il fotogramma in cui la rail vecchia compare e poi
+   * sparisce. `useMemo` con dipendenze vuote e non `useRef` perché serve un
+   * valore stabile da PASSARE, non da leggere.
+   */
+  const railSlot = useMemo(() => document.createElement('div'), []);
+  /** Dove finiscono i tre comandi quando la colonna è chiusa: SOTTO la barra
+   *  delle tab, non in fila con esse. Vedi `GroupLayoutProps.belowSlot`. */
+  const sottoSlot = useMemo(() => document.createElement('div'), []);
 
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
@@ -480,6 +510,8 @@ export function ProjectWindowPane({
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
+          inlineSlot={railSlot}
+          belowSlot={sottoSlot}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
@@ -519,11 +551,24 @@ export function ProjectWindowPane({
             onSettings={handlePaneSettings}
             onPopOut={handlePanePopOut}
             onPinPane={handlePinPane}
+            onToggleFissato={onToggleFissato}
+            isFissato={isFissato}
+            // La chiave con cui la sidebar conosce QUESTO progetto. Si ricava
+            // dall'id di pane invece di comporre a mano `project:<path>`: la
+            // forma grezza e quella codificata divergono, ed è già costato una
+            // volta (vedi `pinKeyFromPaneId`).
+            projectPinKey={pinKeyFromPaneId(wrapperPaneId)}
             // Tab-level rename parity: chat → canonical topic update; browser →
             // pin pane.title with titleSource='user' (project panes persist via
             // updatePane, not the global store, so we can't use the store helper).
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
+            leadingSlot={railSlot}
+            belowSlot={sottoSlot}
+            // La finestra di progetto vive SOTTO la tab del progetto nella barra
+            // dell'app: la sua prima riga di chrome non ripete l'aria che quella
+            // sopra ha gia messo. Vedi CHROME_BAR_SUB.
+            subordinate
           />
         </div>
       </div>

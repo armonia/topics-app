@@ -128,6 +128,12 @@ export interface ClaudeSessionTracker {
    * session; if the file already exists (a `--resume`, a server-restart
    * re-registration) the offset snaps to its current size — only lines written
    * AFTER tracking starts are ever consumed (no history replay).
+   *
+   * La fase iniziale segue lo stesso indizio: transcript già scritto ⇒
+   * riattaccata ⇒ `dormant` (a riposo, risvegliabile); file assente o vuoto ⇒
+   * nascita vera ⇒ `starting`. Vedi il commento esteso nell'implementazione:
+   * `starting` è la fase che sul client apre il fallback pty, e regalarla a
+   * una tab vecchia fa partire banner di lavoro chiuso da giorni.
    */
   registerTerminalSession(claudeSessionId: string, opts?: { cwd?: string; now?: number }): void;
   /**
@@ -379,7 +385,33 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const t = regOpts?.now ?? now();
     const state = makeInitialState(claudeSessionId, null, t, jsonlPath);
     if (jsonlPath) {
-      state.jsonlOffset = fileSizeOrZero(jsonlPath);
+      const size = fileSizeOrZero(jsonlPath);
+      state.jsonlOffset = size;
+      // Un transcript che ha GIÀ del contenuto vuol dire che questa non è una
+      // nascita: è una riattaccata (il riavvio del server ha svuotato
+      // `terminalStates`, che è solo in memoria) o un `--resume`. Dire
+      // `starting` lì è una bugia con un costo preciso, e non è cosmetico:
+      // `starting` è l'UNICA fase che il client non classifica né attiva né a
+      // riposo (ACTIVE_CLAUDE_PHASES / RESTING_CLAUDE_PHASES in
+      // client/src/state/signals.ts), ed è esattamente la condizione che apre
+      // la guardia del fallback pty in `useCompletionNotifier` — il ramo
+      // grezzo pensato per le sessioni SENZA hook. Risultato misurato il
+      // 2026-08-09: dopo 161 riattacchi, una tab claude-code finita giorni
+      // prima stava a `starting` con `rev 0`, e da lì bastava un frame di
+      // repaint (il `lastVisibleSig` si azzera con lo stesso riavvio, quindi
+      // il primo frame non può mai essere classificato cosmetico) per far
+      // partire il banner «Lavoro completato» di un lavoro chiuso da giorni.
+      // Nessuno la tirava fuori da lì: il reaper salta `starting` per i
+      // terminali e l'offset è già a EOF.
+      //
+      // `dormant` è la fase onesta per «il PTY c'è ma non abbiamo alcun
+      // segnale, e l'ultima scrittura è vecchia»: è a riposo (niente banner,
+      // niente spinner bugiardo) e resta risvegliabile — il primo frame pty
+      // vero la riporta a `running` via reviveOnPtyActivity, un hook o una
+      // riga di transcript la muovono comunque. Una sessione appena nata (file
+      // ancora inesistente o vuoto) resta `starting`: è la popolazione che il
+      // fallback pty serve davvero.
+      if (size > 0) state.phase = 'dormant';
       // This branch fires both for a brand-new session AND for reattaching to
       // one that already existed before a server restart wiped terminalStates
       // (it's in-memory only — see the module doc). For the reattach case `t`

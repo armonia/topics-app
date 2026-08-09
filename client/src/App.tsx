@@ -979,12 +979,15 @@ function App() {
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title="Search (⌘K)"
       aria-label="Search — open the command palette"
     >
-      <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
+      {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
+          metro che Attilio ha usato) un glifo da 14 in una scatola da 28 legge
+          come mezzo comando. Sedici riempie la scatola senza toccarne i bordi. */}
+      <Search size={isMobile ? 20 : 16} className="flex-shrink-0" aria-hidden="true" />
       {/* Col dito niente etichetta: il bottone sta ACCANTO al titolo, in una
           riga dove ogni pixel orizzontale è conteso, e la lente da sola si
           legge. L'etichetta serviva alla barra in fondo, dove i due comandi
@@ -1094,9 +1097,25 @@ function App() {
         // un gradino verso la barra di stato nera di iOS, e la fascia in cima
         // cambiava tinta aprendo e chiudendo la sidebar. Il token porta con sé
         // anche la trasparenza sulla shell mac: vedi --chrome-bg in index.css.
+        // UN'OMBRA SEPARA DUE PIANI, UN FILO SEPARA DUE ZONE DELLO STESSO PIANO.
+        //
+        // Su desktop la sidebar è `fixed` sopra il contenuto e proiettava uno
+        // `shadow-2xl`: venticinque pixel di sfumatura stesi SUL contenuto.
+        // Finché le due superfici avevano tinte diverse quella sfumatura si
+        // leggeva come profondità. Da quando il velo è uno solo hanno lo stesso
+        // pixel — misurato: sidebar #191b1e, contenuto #191b1e — e l'ombra resta
+        // l'unica cosa in mezzo: una banda scura senza bordo netto, che si legge
+        // come una spaziatura doppia e come una terza tinta (#17191c a x=211,
+        // che risale a #191b1e solo a x=236). «Non hanno bordo, c'è una doppia
+        // spaziatura e i colori non sono uguali» (Attilio, 09/08): sono tre
+        // sintomi di una cosa sola.
+        //
+        // Con le pane FLOTTANTI l'ombra è giusta e resta: lì la sidebar sta
+        // davvero su un piano diverso, staccata dal suo gap. Senza, i due piani
+        // sono uno, e ciò che serve è un confine — un pixel, non venticinque.
         className={`group/sidebar bg-app-chrome flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
+            : `fixed inset-y-0 left-0 z-40 ${appSettings.floatingSplits ? 'shadow-2xl' : 'border-r border-app-border'}`
         }`}
         style={{
           // Non-mobile: the sidebar is position:fixed with a CONSTANT width and collapses
@@ -1129,7 +1148,19 @@ function App() {
           // separa una card dal bordo e una riga dalla sua vicina. Col mouse i
           // bottoni sono 28 e la riga resta 40, che è la stessa identità:
           // 28 + 2 × 6 = 40.
-          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
+          // NIENTE FILO SOTTO L'HEADER (Attilio, 08/08). Sopra e sotto c'è la
+          // stessa superficie — la colonna è chrome dall'alto in basso — quindi
+          // quella riga non separava due cose: ne disegnava il confine e basta.
+          // A dire dove finisce l'header ci pensano già i due comandi, che hanno
+          // un fondo proprio, e la prima card della lista, che è rientrata di 6.
+          //
+          // Nota per chi torna qui: la stessa cosa NON vale per il filo sotto la
+          // tabbar delle pane. Là ho misurato — barra e contenuto hanno lo
+          // STESSO fondo in tutte e quattro le combinazioni (telefono/desktop ×
+          // chiaro/scuro), quindi quel filo è l'unica separazione che esiste e
+          // toglierlo fonde le due zone. Qui invece l'header ha dentro di sé di
+          // che farsi riconoscere.
+          className={`flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1163,7 +1194,21 @@ function App() {
                 // 12 — 2px a sinistra dei nomi sotto, il near-miss che si legge
                 // peggio di una differenza netta. Con ROW_PX il titolo va a 14
                 // e il rialzo dell'hover resta a filo col bordo delle card.
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 rounded-md transition-colors cursor-pointer ${
+                // L'ALTEZZA LA DETTA LA RIGA, e la riga la dettano i suoi
+                // comandi: `h-14` col dito attorno a bottoni da 44, `h-10` col
+                // mouse attorno a bottoni da 28 (vedi il commento dell'header).
+                // Il titolo non seguiva né l'una né gli altri: `min-h-7` fisso,
+                // che col testo a 17px diventa 29,5 dentro una riga da 56 —
+                // misurato. Effetto: il suo rialzo finiva 13px sopra il fondo
+                // della riga mentre Cerca e «+», lì accanto, ci arrivano a 6.
+                // Da lontano legge come spazio in più sotto l'header, ed è metà
+                // della «doppia spaziatura» che si vedeva sul telefono. Di
+                // rimbalzo il bersaglio del menu passa da 29,5 a 44, cioè alla
+                // soglia che ogni altro comando di questa riga rispetta già.
+                // `isMobile` e non `md:`: nell'header decide quel predicato,
+                // e due meccanismi nella stessa riga divergono (è il difetto
+                // appena tolto dalla barra delle tab).
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.
@@ -1179,7 +1224,12 @@ function App() {
                 data-testid="sidebar-topics-menu"
               >
                 <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
-                <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
+                {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
+                    STESSA riga — misurato: era 12 contro i loro 14, e il raggio
+                    6 contro 8. Tre elementi affiancati con tre forme diverse
+                    non sono tre stili, sono un difetto: Aggiungi e Cerca sono
+                    il riferimento (Attilio, 08/08). */}
+                <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
           </div>

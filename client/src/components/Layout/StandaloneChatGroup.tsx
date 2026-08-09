@@ -7,7 +7,7 @@ import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
-import { CHROME_ROW_ACTION_INSET_LEFT, RAISED_CONTROL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_INSET_LEFT, RAISED_CONTROL } from '../../lib/selectionStyles';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
@@ -34,7 +34,7 @@ import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
-import { paneCellBg } from '../../lib/paneCellBg';
+import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
@@ -660,6 +660,12 @@ export function StandaloneChatGroup({
           pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalType : undefined}
           onPendingPaneConsumed={onPendingProjectPaneConsumed}
           onNewChat={onNewChatInProject ? (groupId?: string) => onNewChatInProject(projectPath, groupId) : undefined}
+          // Il pin della sidebar scende fin qui: dentro il progetto il menu
+          // di una tab può così offrire «Fissa il progetto» e «Fissa questa
+          // tab». Senza, `PaneTabBar` nasconde la voce e col dito non resta
+          // nessuna strada (su iOS il drag HTML5 non esiste).
+          onToggleFissato={onToggleFissato}
+          isFissato={isFissato}
           pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.topicId : null}
           pendingFocusTargetGroupId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.targetGroupId : undefined}
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
@@ -739,7 +745,8 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
-        className={`flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+        className={`relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+        style={CHROME_BAR_H_VAR}
         onMouseDownCapture={() => {
           if (activePaneId && focusedPanelId !== activePaneId) {
             onFocusPanel(activePaneId);
@@ -753,7 +760,7 @@ export function StandaloneChatGroup({
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
             without re-mounting the tab bar / re-running its hooks. */}
-        <div className="chrome-glass flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" {...DRAG_REGION} style={{ position: 'relative' }}>
+        <div className={`${CHROME_BAR} pr-0 select-none app-drag-region`} {...DRAG_REGION}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
           {onToggleSidebar && (
             // La coppia del «+» in coda alla riga: stesso box
@@ -792,7 +799,7 @@ export function StandaloneChatGroup({
                   key={stableKeyOf(pane)}
                   paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                 >
                   {renderPaneBody(pane, isPaneActive)}
                 </PaneKeepAlive>
