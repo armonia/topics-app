@@ -266,6 +266,32 @@ export const ON_FILL_TEXT_SOFT = 'text-inherit opacity-70';
 export const ROW_PX = 'px-2';
 
 /**
+ * L'ARIA FRA I PEZZI DENTRO UNA RIGA — il glifo e il nome, il nome e i comandi.
+ *
+ * Il gemello interno di {@link ROW_PX}: quello dice quanto la riga rientra dai
+ * suoi bordi, questo quanto respirano le cose che ci stanno dentro. Erano tre
+ * numeri per la stessa distanza — 8 (`gap-2`) su otto superfici, 6 (`gap-1.5`)
+ * su quattro, 4 (`gap-1`) su due — e otto contro sei si vede benissimo mettendo
+ * una tessera fissata sopra una riga, che è come la colonna si guarda sempre.
+ *
+ * Otto, e non sei, per due ragioni che tirano nello stesso verso:
+ *
+ *  · è la MAGGIORANZA di ciò che l'app disegna davvero, e il commento di
+ *    `TopicTree` lo dichiarava già lo standard («il passo che ogni altra riga con
+ *    un glifo usa fra l'icona e il nome») mentre {@link SECTION_CARD} — cioè la
+ *    costante — stava a sei: la libreria era in minoranza rispetto ai suoi
+ *    clienti;
+ *  · la lamentela da cui viene questo giro è che le cose sono strette, non
+ *    larghe. Fra due valori si sale, come si era già saliti a 13px per
+ *    {@link TAB_LABEL}.
+ *
+ * NON è {@link TAB_GAP_CLASS} (6): quello è lo spazio FRA due card, questo è lo
+ * spazio DENTRO una. Sono due domande diverse e possono avere due risposte
+ * diverse — il difetto era che ognuna ne aveva tre.
+ */
+export const ROW_GAP = 'gap-2';
+
+/**
  * IL TESTO DI UNA TAB, ovunque una tab si presenti: la barra delle pane, la
  * tessera fissata, la riga di un progetto nella colonna.
  *
@@ -305,7 +331,24 @@ export const ROW_PX = 'px-2';
  * sale a 14, non la riga che scende a 13. Sul desktop restano tutte 13, dove
  * quel numero era già stato scelto e misurato.
  */
-export const TAB_LABEL = 'text-[14px] md:text-[13px] font-medium text-app-text';
+/**
+ * LA SCALA E IL PESO, SENZA IL COLORE — e i due assi vanno separati.
+ *
+ * `TAB_LABEL` porta anche `text-app-text`, e va benissimo per una tab o una
+ * tessera, che il proprio tono se lo scelgono lì. Non va bene per le RIGHE
+ * dell'albero: là il tono lo decide `sidebarRowCard` in funzione dello stato
+ * (`text-app-text-secondary` a riposo, `text-app-text` da aperta, `text-inherit`
+ * su un fill di attenzione). Mettendo le due stringhe sullo stesso elemento
+ * finiscono ENTRAMBE nel `class`, e a specificità pari vince chi il bundle
+ * emette per ultimo — non chi viene dopo nella stringa. È lo stesso baco che
+ * `sidebarRowCard` documenta in testa («l'ordine della stringa non è la
+ * cascata»), e lì era costato quattro stati dipinti con un fondo solo.
+ *
+ * Quindi: chi ha un tono suo prende {@link TAB_LABEL}, chi lo calcola prende
+ * questo. Un asse per volta.
+ */
+export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium';
+export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
 
 /**
  * The single horizontal inset (px) of a list of tabs/rows from its panel edge —
@@ -356,6 +399,41 @@ export const COLUMN_GAP = 6;
 export const TAB_GAP_CLASS = 'gap-1.5';
 
 /**
+ * LE DUE ALTEZZE, E SONO DUE APPOSTA.
+ *
+ * Misurate su tutte le superfici tab-like dell'app, le altezze erano SEI: 44/34,
+ * 44/36, 36/28, 28/28, `auto`, e due copie a mano di 44/34. Non erano sei
+ * decisioni: erano due famiglie legittime più quattro derive.
+ *
+ *  · {@link ROW_H} — la RIGA: porta un nome PIÙ una subline, quindi 34 sopra i
+ *    768px (la misura che regge due righe di testo) e 44 sotto, che è il minimo
+ *    di tap target di iOS.
+ *  · {@link CARD_H} — la CARD COMPATTA: una riga sola di testo, nessuna subline.
+ *    È la tab della barra, l'intestazione di una sezione, ed è la stessa misura
+ *    di {@link ROW_ACTION_BOX} — 36 col dito, 28 col mouse — perché un comando e
+ *    la card che gli sta accanto nella stessa riga di chrome devono lasciare lo
+ *    stesso respiro (il conto sta in `chromeRowInset`).
+ *
+ * Il difetto non era avere due famiglie: era che NESSUNA delle due aveva un
+ * nome. `ROW_H` viveva locale in `TopicItem.tsx`, ricopiata a mano in
+ * `SpaceGroups.tsx` con un commento che ammetteva la copia («è lo stesso numero
+ * di ROW_H in TopicTree, scritto qui perché importarlo da lì chiuderebbe un
+ * ciclo — il posto suo è lib/selectionStyles»). Eccolo, il posto suo. `CARD_H`
+ * stava scritta a mano dentro {@link SECTION_CARD} e una seconda volta in
+ * `PaneTabBar`.
+ *
+ * IL PREDICATO È LA LARGHEZZA, SEMPRE. Nessuna delle due si sceglie con
+ * `isTouch`: quanto è alta una riga è una domanda di LAYOUT. `isTouch` resta ai
+ * comportamenti — long-press, drag nativo, un comando che l'hover nasconderebbe.
+ * Era già la regola scritta in `useMobile`, e la stessa riga la violava
+ * scegliendo il ramo con `isTouch` e il box del comando con `md:`.
+ */
+export const ROW_H = 'h-11 md:h-[34px]';
+/** L'altra famiglia — vedi {@link ROW_H}. Uguale a {@link ROW_ACTION_BOX} in
+ *  altezza, e l'uguaglianza la blocca `selectionStyles.test.ts`. */
+export const CARD_H = 'h-9 md:h-7';
+
+/**
  * L'INTESTAZIONE DI UNA SEZIONE È UNA CARD, come tutto il resto.
  *
  * «Facciamo diventare gli accordion della sidebar progetto delle card, come le
@@ -375,7 +453,7 @@ export const TAB_GAP_CLASS = 'gap-1.5';
  * grammatica divergono al primo che viene ritoccato da solo.
  */
 export const SECTION_CARD =
-  `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} ` +
+  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${CARD_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
   'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
@@ -615,6 +693,74 @@ export const CHROME_BAR_SUB_H_CLASS = '[--chrome-bar-h:40px] md:[--chrome-bar-h:
  * toccare.
  */
 export const ROW_ACTION_GLYPH = 16;
+
+/**
+ * IL COMANDO IN CODA — le tre classi che lo mettono d'accordo ovunque.
+ *
+ * La meccanica, col perché e i numeri, sta accanto alle regole in `index.css`
+ * (cerca `.row-actions`): là c'è anche la ragione per cui col dito il comando
+ * torna in fila invece di sovrapporsi. Qui c'è solo il contratto d'uso, che è
+ * di tre pezzi e non ne ammette due:
+ *
+ *  1. {@link ROW_CARD} sulla riga/tab/tessera. Vuole `relative` — `sidebarRowCard`
+ *     e la tab lo portano già.
+ *  2. {@link ROW_TRAIL} sul contenitore dei segnali quieti in coda (ora, pin,
+ *     finestra, badge). NON ci va lo spinner: fermare un turno e chiudere la tab
+ *     sono due azioni diverse nello stesso istante, e sbiadire la prima per
+ *     mostrare la seconda toglierebbe l'unico modo di fermare un turno vivo dalla
+ *     colonna.
+ *  3. {@link ROW_ACTIONS} sul BINARIO dei comandi, ULTIMO nel DOM. L'ordine conta
+ *     solo dove il binario resta nel flusso (senza hover), ma sbagliarlo là lo
+ *     manderebbe in mezzo ai segnali — cioè esattamente il difetto da cui
+ *     veniamo.
+ *
+ * È un binario e non un tasto perché alcune righe hanno DUE comandi: quella di
+ * progetto porta il «+» accanto al cerchio. Dentro, l'ordine è fisso e finisce
+ * sempre allo stesso modo — «il tasto di chiusura deve essere sempre a fine
+ * tab» (Attilio, 09/08) vuol dire ULTIMO, non «da solo». Un comando nuovo entra
+ * PRIMA del cerchio, mai dopo.
+ */
+export const ROW_CARD = 'row-card';
+export const ROW_TRAIL = 'row-trail';
+export const ROW_ACTIONS = 'row-actions';
+/** L'incasso destro di {@link ROW_ACTIONS}, scritto in `index.css` come letterale
+ *  (nessuna media query legge una costante TS). Vale {@link ROW_PX} risolto in
+ *  pixel, e l'uguaglianza la ricalcola `selectionStyles.test.ts`: se il padding
+ *  della riga cambia, il test indica il CSS invece di lasciarli separare. */
+export const ROW_ACTIONS_INSET_PX = 8;
+
+/**
+ * ARCHIVIATO È FATTO, ED È UNO STATO SOLO.
+ *
+ * Attilio, 09/08: «assicurandoci ci sia solo uno stato che è archiviato/fatto,
+ * ma non icona archivia — sempre pallino — e comunque gestito poi dai relativi
+ * dropdown».
+ *
+ * Erano tre vocabolari per la stessa cosa, misurati sulle 14 superfici:
+ *  · la riga chat: glifo `Archive` in testa + `opacity-60` + un `ArchiveRestore`
+ *    in coda, e i primi due su un predicato (`isArchived`, prop) diverso dal
+ *    terzo (`topic.archived`) — se i due divergono la riga si dipinge da
+ *    archiviata e in coda ti offre «Archivia»;
+ *  · la riga di progetto: nessun glifo, solo il nome più tenue;
+ *  · la tessera fissata: NIENTE, in nessuna forma.
+ * E in mezzo, il cerchio di `PendingActionRing` — che il suo stesso file
+ * dichiara essere «sempre semanticamente *completa questa cosa*, che sia la
+ * chiusura di una tab o l'archiviazione di un topic» — usato già da quattro
+ * superfici su sette. Il pallino non è una scelta nuova: è la maggioranza, e le
+ * icone d'archivio erano la minoranza rimasta indietro.
+ *
+ * Il vocabolario, adesso, è uno e ha due parole:
+ *   ○  cerchio vuoto  → aperto. Un clic archivia (con i 3 s per ripensarci).
+ *   ◉  cerchio pieno + spunta → archiviato/fatto. Un clic ripristina.
+ * Nessun `Archive`, nessun `ArchiveRestore` DENTRO UNA RIGA. I due glifi restano
+ * legittimi nei MENU, dove un'icona accompagna un'etichetta scritta e non deve
+ * portare da sola il peso di dire uno stato.
+ *
+ * Questa costante è il terzo segnale, quello che vale per la riga intera: il
+ * tono. Sta qui e non scritto a mano perché era scritto a mano in un posto solo
+ * — e le altre superfici, semplicemente, non lo dicevano.
+ */
+export const ARCHIVED_ROW = 'opacity-60';
 
 /**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
