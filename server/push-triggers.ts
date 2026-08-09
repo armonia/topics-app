@@ -2,15 +2,34 @@ import { sendPushToAll } from "./push-service";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
-// COSA parlava. Il resolver è iniettato una volta al bootstrap
-// (`configurePushTriggers`), così i test possono passarne uno finto e il modulo
+// COSA parlava. I resolver sono iniettati una volta al bootstrap
+// (`configurePushTriggers`), così i test possono passarne di finti e il modulo
 // resta testabile in isolamento.
 let resolveTopicName: ((topicId: string) => string | null | undefined) | null = null;
+let resolveTopicSilenced: ((topicId: string) => boolean) | null = null;
 
 export function configurePushTriggers(opts: {
   getTopicName: (topicId: string) => string | null | undefined;
+  /**
+   * Il topic è ARCHIVIATO o MUTATO? La push di fine risposta è l'unica che
+   * parte da un evento di chat, ed era l'unica superficie di notifica senza
+   * questo cancello: il banner in-app lo ha (`isTopicMuted` in
+   * useCompletionNotifier), la push no. Finché non esiste una subscription
+   * attiva il buco non si vede — ed è esattamente il motivo per cui va chiuso
+   * ora e non quando colleghi il telefono.
+   *
+   * OBBLIGATORIO di proposito: un default «non silenziato» rimetterebbe la
+   * perdita in piedi in silenzio se un domani il cablaggio si perde. Il
+   * chiamante di prod è uno solo (createAppContext) e il tipo lo costringe.
+   *
+   * Copre `Topic.muted` (per-topic, migration 073) e `archived`. NON copre
+   * `AppSettings.mutedProjects`, che è una preferenza del client e il server
+   * non legge: un progetto mutato zittisce il banner, non ancora la push.
+   */
+  isTopicSilenced: (topicId: string) => boolean;
 }): void {
   resolveTopicName = opts.getTopicName;
+  resolveTopicSilenced = opts.isTopicSilenced;
 }
 
 // Fire-and-forget: maybeSendPush runs synchronously after broadcastToAll, so a
@@ -111,6 +130,11 @@ export function maybeSendPush(message: Record<string, any>): void {
       message.stopCause === "watchdog" ||
       message.stopReason === "cancelled";
     if (message.completed !== true || dispatched || dirty || !topicId) return;
+    // Archiviato o mutato → niente push. Una chat chiusa che finisce un turno
+    // (il dispatcher che pota, un reattach che chiude un giro) non è un evento
+    // per cui svegliare qualcuno, e il nome che porterebbe è quello di una
+    // conversazione che l'interfaccia non mostra più.
+    if (resolveTopicSilenced?.(topicId)) return;
     const name = resolveTopicName?.(topicId);
     firePush({
       title: name ? `💬 ${name}` : "💬 Risposta pronta",

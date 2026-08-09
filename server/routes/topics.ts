@@ -26,6 +26,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../l
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
+import { parkTopicSession } from "../lib/session-parking";
 import { timingSafeEqualStr } from "../utils";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
@@ -1506,6 +1507,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           const res = archiveTopicFully({
             getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
             purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
+            parkClaudeSession: parkTopicSession,
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
@@ -1562,6 +1564,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
           broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
+          // Stesso passo 4 del percorso singolo (services/archive-topic.ts).
+          // È QUESTA la strada che ha prodotto la perdita misurata: le 28
+          // sessioni rimaste vive su chat chiuse portavano tutte la data di
+          // un'archiviazione di progetto in blocco.
+          parkTopicSession(topic.sessionKey);
           const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id);
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
