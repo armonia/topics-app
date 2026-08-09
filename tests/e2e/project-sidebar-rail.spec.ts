@@ -80,17 +80,30 @@ test.describe("sidebar progetto: la rail collassata", () => {
     ).toBe(true);
 
     const tabBox = (await tabRow.boundingBox())!;
-    const expandBtn = strip.getByRole("button", { name: "Espandi la barra" });
+    const expandBtn = strip.getByTestId("project-card");
     await expect(expandBtn).toBeVisible();
     const btnBox = (await expandBtn.boundingBox())!;
 
-    // 3. STESSA MEDIANA dei tab — l'invariante che questo test difende da
-    //    sempre, solo su un'altra geometria.
+    // 3. STESSA MEDIANA — ma della SCATOLA DEL CONTENUTO, non della riga.
+    //
+    //    Finché la riga era simmetrica le due coincidevano, e questo test
+    //    confrontava il comando con il centro della barra. Da quando la riga
+    //    subordinata porta l'incasso solo in coda (34 di scatola, 28 di
+    //    contenuto, 6 sotto — vedi `sub-chrome-row.spec.ts`) le due mediane
+    //    distano 3px, e il test è diventato rosso su una geometria CORRETTA.
+    //    L'invariante vero è sempre stato «il comando sta in mezzo a ciò che la
+    //    riga concede», non «in mezzo alla riga».
+    const contenuto = await tabRow.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const top = r.top + parseFloat(cs.paddingTop);
+      const bottom = r.bottom - parseFloat(cs.paddingBottom);
+      return { top, bottom, center: (top + bottom) / 2 };
+    });
     const btnCenter = btnBox.y + btnBox.height / 2;
-    const tabCenter = tabBox.y + tabBox.height / 2;
     expect(
-      Math.abs(btnCenter - tabCenter),
-      `il bottone di espansione (centro ${btnCenter}) deve stare sulla mediana dei tab (${tabCenter})`,
+      Math.abs(btnCenter - contenuto.center),
+      `il comando (centro ${btnCenter}) deve stare sulla mediana del contenuto della riga (${contenuto.center})`,
     ).toBeLessThanOrEqual(1);
 
     // 4. E STESSA MISURA di una tab: in fila con loro, un comando più alto o
@@ -172,8 +185,8 @@ test.describe("sidebar progetto: la rail collassata", () => {
     console.log(
       `[striscia] x=${stripBox.x.toFixed(1)} w=${stripBox.width.toFixed(1)} ` +
         `altezze=[${boxes.join(",")}] ` +
-        `btnCenterY=${btnCenter.toFixed(1)} tabCenterY=${tabCenter.toFixed(1)} ` +
-        `Δcentro=${Math.abs(btnCenter - tabCenter).toFixed(2)}px`,
+        `btnCenterY=${btnCenter.toFixed(1)} contenutoCenterY=${contenuto.center.toFixed(1)} ` +
+        `Δcentro=${Math.abs(btnCenter - contenuto.center).toFixed(2)}px`,
     );
 
     // Ritaglio sulla riga, dove si guarda.
