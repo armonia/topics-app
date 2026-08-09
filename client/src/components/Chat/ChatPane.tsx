@@ -7,7 +7,7 @@ import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi } from '../../lib/api';
 import { findPendingAsk } from '../../state/pendingAsk';
 import { claimCenteredHandoff } from '../../state/composerHandoff';
-import { setDraftDirty } from '../../state/draftPane';
+import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { isPlanApprovalSchema, PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -1260,7 +1260,15 @@ function ChatPaneComponent({
   );
 
   return (
-    <div ref={paneRootRef} className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
+    <div
+      ref={paneRootRef}
+      className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full"
+      // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
+      // nuova non si richiude più da sola. In cattura, perché deve valere anche
+      // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.
+      onPointerDownCapture={() => markDraftTouched(topic.id)}
+      onKeyDownCapture={() => markDraftTouched(topic.id)}
+    >
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>

@@ -78,13 +78,10 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     await expect(composer).toBeFocused({ timeout: 5_000 });
   });
 
-  // Il congedo della bozza vuota è SPENTO dal 09/08 (`DRAFT_AUTOCLOSE` in
-  // usePanelLifecycle): «ancora si chiude da sola la tab», e non sono riuscito
-  // a riprodurre il percorso che la chiude. Finché non c'è, la bozza resta —
-  // ed è questo che il test misura, perché un test deve dire quello che l'app
-  // FA. La riaccensione riporta qui l'asserzione opposta, con il percorso vero
-  // in mano.
-  test("resta aperta quando cambi tab — vuota o con del testo", async ({ page }) => {
+  // La regola è l'INTERAZIONE, non lo sguardo: una chat nuova che non hai mai
+  // toccato è un'anteprima e si richiude quando passi ad altro; toccata (un
+  // clic dentro, un tasto, un doppio clic sulla tab) o con del testo, resta.
+  test("non toccata si richiude, toccata resta", async ({ page }) => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await ensureTopicVisible(page, new RegExp(topicName));
@@ -92,9 +89,12 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     await hostRow.dblclick();
     await expect(page.locator('[role="main"]')).toBeVisible({ timeout: 10_000 });
 
-    // ── vuota → resta (il congedo è spento) ─────────────────────────────
+    // ── mai toccata → si richiude ───────────────────────────────────────
     await newChat(page);
     await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
+    // Un attimo sulla bozza: una che non ha mai avuto il fuoco non l'hai mai
+    // lasciata, e la regola lo dice (DRAFT_MIN_LOOKED_AT_MS). Il fuoco gliel'ha
+    // dato l'app, non un tuo clic: NON conta come «toccata».
     await page.waitForTimeout(800);
     await page
       .locator('[data-testid="panel-tab-bar"]')
@@ -102,13 +102,11 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
       .getByText(new RegExp(topicName))
       .first()
       .click();
-    await page.waitForTimeout(1500);
-    await expect(draftTabs(page)).toHaveCount(1);
+    await expect(draftTabs(page)).toHaveCount(0, { timeout: 10_000 });
 
     // ── con del testo → resta, e questo non cambierà mai ────────────────
-    // Torno sulla bozza per scriverci: da un'altra tab il suo campo non è
-    // nemmeno nell'albero di accessibilità.
-    await draftTabs(page).first().click();
+    await newChat(page);
+    await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
     const composer = page.getByRole("textbox", { name: /Message input for New Chat/ });
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await composer.fill("questo non deve sparire");
@@ -120,6 +118,21 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
       .first()
       .click();
     // Un secondo pieno oltre il tempo in cui la chiusura sarebbe scattata.
+    await page.waitForTimeout(1500);
+    await expect(draftTabs(page)).toHaveCount(1);
+
+    // ── toccata (doppio clic sulla tab) → resta, anche se vuota ─────────
+    // Svuoto il campo: senza testo l'unica cosa che la tiene in vita è il
+    // gesto. È il caso che la regola nuova aggiunge, e va misurato da solo.
+    await draftTabs(page).first().click();
+    await composer.fill("");
+    await draftTabs(page).first().dblclick();
+    await page
+      .locator('[data-testid="panel-tab-bar"]')
+      .first()
+      .getByText(new RegExp(topicName))
+      .first()
+      .click();
     await page.waitForTimeout(1500);
     await expect(draftTabs(page)).toHaveCount(1);
   });
