@@ -9,6 +9,7 @@ import {
   ROW_ACTION_BOX,
   ROW_ACTION_BOX_PX,
   ROW_INSET,
+  TAB_GAP_CLASS,
   chromeRowInset,
   sidebarRowCard,
 } from './selectionStyles';
@@ -173,6 +174,16 @@ describe('il passo verticale della colonna', () => {
   // `tests/e2e/tab-coherence-mobile.spec.ts` (TAB-COERENZA-3) legge i rettangoli
   // di due righe adiacenti a 390×844. Qui resta solo ciò che è davvero
   // verificabile da una stringa: che la classe dichiari mezzo passo.
+
+  test('il passo ORIZZONTALE è lo stesso, e lo dice la stessa costante', () => {
+    // Fra due tab c'erano 2px (`gap-0.5`) e fra due card della colonna 6: non
+    // due scelte, lo stesso numero prima e dopo una correzione applicata a
+    // metà. «Normalizza spaziature e dimensioni in tutte le tab sia verticali
+    // che orizzontali» (Attilio, 09/08). Questo test è ciò che impedisce alla
+    // metà orizzontale di restare di nuovo indietro.
+    expect(risolvi(TAB_GAP_CLASS, 'gap').wide).toBe(COLUMN_GAP);
+    expect(risolvi(TAB_GAP_CLASS, 'gap').compact).toBe(COLUMN_GAP);
+  });
 
   test('mezzo passo è un numero intero di pixel', () => {
     // Un COLUMN_GAP dispari darebbe mezzi pixel su entrambe le metà, e un bordo
